@@ -12,7 +12,7 @@ def TTMetalGenerateDimAlignedHostIO: Pass<"ttmetal-generate-dim-aligned-host-io"
   let description = [{
     Ensures host buffers used by ttmetal.enqueue_{write,read}_buffer are
     dimension-aligned to the device's expected padded shapes. The pass looks
-    for enqueue read/write ops that carry a 'host_info' MetalLayout attribute
+    for enqueue read/write ops that carry a 'host_layout' MetalLayout attribute
     (attached during ttir-to-ttmetal lowering), derives per-dimension
     alignments from it, and then:
 
@@ -22,7 +22,7 @@ def TTMetalGenerateDimAlignedHostIO: Pass<"ttmetal-generate-dim-aligned-host-io"
     - For reads: allocates a new aligned host memref, uses it as the enqueue
       output, and copies from it into the user buffer after the enqueue.
 
-    The 'host_info' attribute is removed after materialization. This pass is
+    The 'host_layout' attribute is removed after materialization. This pass is
     required to support unaligned logical shapes end-to-end while keeping the
     user-facing host types unchanged.
   }];

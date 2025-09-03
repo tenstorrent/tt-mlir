@@ -10,66 +10,67 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 namespace mlir::tt::ttmetal {
 #define GEN_PASS_DEF_TTMETALGENERATEDIMALIGNEDHOSTIO
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h.inc"
 
 namespace {
-class TTMetalGenerateDimAlignedHostIO
-    : public impl::TTMetalGenerateDimAlignedHostIOBase<
-          TTMetalGenerateDimAlignedHostIO> {
+// Extract the dimAlignments attached in the ttcore.host_layout attr of the
+// enququeRead/Write op, and create a HostLayoutAttr to pass the info to the
+// bounce tensor's memref.alloc.
+MemRefType getHostAlignedMemref(Operation *op, MemRefType hostMemref) {
+  auto hostLayout =
+      op->getAttrOfType<ttcore::MetalLayoutAttr>(ttcore::HostLayoutAttr::name);
+  const auto dimAlignments = llvm::to_vector(hostLayout.getDimAlignments());
+  op->removeAttr(ttcore::HostLayoutAttr::name);
 
-  static constexpr llvm::StringLiteral hostInfoAttr = "host_info";
+  auto hostLayoutAttr = ttcore::HostLayoutAttr::get(
+      op->getContext(), hostMemref.getShape(), dimAlignments);
+  return MemRefType::get(hostMemref.getShape(), hostMemref.getElementType(),
+                         hostLayoutAttr, hostMemref.getMemorySpace());
+}
 
-  // Extract the dimAlignments attached in the host_info attr of the
-  // enququeRead/Write op, and create a HostLayoutAttr to pass the info to the
-  // bounce tensor's memref.alloc.
-  MemRefType getHostAlignedMemref(ModuleOp module, Operation *op,
-                                  MemRefType hostMemref) {
-    auto hostInfo = op->getAttrOfType<ttcore::MetalLayoutAttr>(hostInfoAttr);
-    const auto dimAlignments = llvm::to_vector(hostInfo.getDimAlignments());
-    op->removeAttr(hostInfoAttr);
+// Determine whether we actually need to create a bounce tensor with the
+// aligned shape and do strided copy or not. Since the logical & device shapes
+// might not have the same rank, compare volumes instead.
+bool matchingHostDeviceShapes(MemRefType hostMemref, MemRefType deviceMemref) {
+  const auto hostShape = hostMemref.getShape();
+  const auto deviceShape = deviceMemref.getShape();
+  const auto hostVolume =
+      ttmlir::utils::product(hostShape.begin(), hostShape.end());
+  const auto deviceVolume =
+      ttmlir::utils::product(deviceShape.begin(), deviceShape.end());
+  return hostVolume == deviceVolume;
+}
+} // namespace
 
-    auto hostLayoutAttr = ttcore::HostLayoutAttr::get(
-        module.getContext(), hostMemref.getShape(), dimAlignments);
-    return MemRefType::get(hostMemref.getShape(), hostMemref.getElementType(),
-                           hostLayoutAttr, hostMemref.getMemorySpace());
-  };
-
-  // Determine whether we actually need to create a bounce tensor with the
-  // aligned shape and do strided copy or not. Since the logical & device shapes
-  // might not have the same rank, compare volumes instead.
-  bool matchingHostDeviceShapes(MemRefType hostMemref,
-                                MemRefType deviceMemref) const {
-    const auto hostShape = hostMemref.getShape();
-    const auto deviceShape = deviceMemref.getShape();
-    const auto hostVolume =
-        ttmlir::utils::product(hostShape.begin(), hostShape.end());
-    const auto deviceVolume =
-        ttmlir::utils::product(deviceShape.begin(), deviceShape.end());
-    return hostVolume == deviceVolume;
-  };
+namespace {
+struct AlignedHostInputRewriter
+    : public OpRewritePattern<ttmetal::EnqueueWriteBufferOp> {
+  using OpRewritePattern<ttmetal::EnqueueWriteBufferOp>::OpRewritePattern;
 
   // For enqueue write (to device), copy the input tensor to a fully-aligned
   // bounce tensor, and pass the latter to the enqueue write instead.
-  void rewriteEnqueueWrites(ModuleOp module, IRRewriter &rewriter,
-                            ttmetal::EnqueueWriteBufferOp op) {
+  LogicalResult matchAndRewrite(ttmetal::EnqueueWriteBufferOp op,
+                                PatternRewriter &rewriter) const final {
     auto hostMemref = op.getInput().getType();
     auto deviceMemref = op.getOutput().getType();
     assert(hostMemref.hasStaticShape());
     assert(deviceMemref.hasStaticShape());
+    // Either a block's input or a global constant.
     assert(op.getInput().getDefiningOp() == nullptr ||
            mlir::isa<memref::GetGlobalOp>(op.getInput().getDefiningOp()));
     assert(mlir::isa<BlockArgument>(op.getInput()) ||
            mlir::isa<MemRefType>(op.getInput().getType()));
     assert(mlir::isa<ttmetal::CreateBufferOp>(op.getOutput().getDefiningOp()));
     if (matchingHostDeviceShapes(hostMemref, deviceMemref)) {
-      op->removeAttr(hostInfoAttr);
-      return;
+      op->removeAttr(ttcore::HostLayoutAttr::name);
+      return success();
     }
 
-    auto hostAlignedMemref = getHostAlignedMemref(module, op, hostMemref);
+    auto hostAlignedMemref = getHostAlignedMemref(op, hostMemref);
 
     rewriter.setInsertionPoint(op);
     auto bounceAllocOp =
@@ -77,13 +78,22 @@ class TTMetalGenerateDimAlignedHostIO
 
     rewriter.create<memref::CopyOp>(op.getLoc(), op.getInput(), bounceAllocOp);
     op.getInputMutable().assign(bounceAllocOp.getResult());
+
+    return success();
   }
+};
+} // namespace
+
+namespace {
+struct AlignedHostOutputRewriter
+    : public OpRewritePattern<ttmetal::EnqueueReadBufferOp> {
+  using OpRewritePattern<ttmetal::EnqueueReadBufferOp>::OpRewritePattern;
 
   // For enqueue read (from device), let enqueue read store data into the
   // fully-aligned bounce tensor, and copy the data to the original output
   // tensor.
-  void rewriteEnqueueReads(ModuleOp module, IRRewriter &rewriter,
-                           ttmetal::EnqueueReadBufferOp op) {
+  LogicalResult matchAndRewrite(ttmetal::EnqueueReadBufferOp op,
+                                PatternRewriter &rewriter) const final {
     auto hostMemref = op.getOutput().getType();
     auto deviceMemref = op.getInput().getType();
     assert(hostMemref.hasStaticShape());
@@ -91,11 +101,11 @@ class TTMetalGenerateDimAlignedHostIO
     assert(mlir::isa<ttmetal::CreateBufferOp>(op.getInput().getDefiningOp()));
     assert(mlir::isa<memref::AllocOp>(op.getOutput().getDefiningOp()));
     if (matchingHostDeviceShapes(hostMemref, deviceMemref)) {
-      op->removeAttr(hostInfoAttr);
-      return;
+      op->removeAttr(ttcore::HostLayoutAttr::name);
+      return success();
     }
 
-    auto hostAlignedMemref = getHostAlignedMemref(module, op, hostMemref);
+    auto hostAlignedMemref = getHostAlignedMemref(op, hostMemref);
 
     rewriter.setInsertionPoint(op);
     auto bounceAllocOp =
@@ -107,23 +117,25 @@ class TTMetalGenerateDimAlignedHostIO
 
     rewriter.setInsertionPointAfter(op);
     rewriter.create<memref::CopyOp>(op.getLoc(), bounceAllocOp, allocOp);
-  }
 
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TTMetalGenerateDimAlignedHostIO
+    : public impl::TTMetalGenerateDimAlignedHostIOBase<
+          TTMetalGenerateDimAlignedHostIO> {
 public:
   using impl::TTMetalGenerateDimAlignedHostIOBase<
       TTMetalGenerateDimAlignedHostIO>::TTMetalGenerateDimAlignedHostIOBase;
 
   void runOnOperation() final {
-    ModuleOp module = getOperation();
-    IRRewriter rewriter(&getContext());
-
-    module->walk([&](Operation *op) {
-      if (auto w = mlir::dyn_cast<ttmetal::EnqueueWriteBufferOp>(op)) {
-        rewriteEnqueueWrites(module, rewriter, w);
-      } else if (auto r = mlir::dyn_cast<ttmetal::EnqueueReadBufferOp>(op)) {
-        rewriteEnqueueReads(module, rewriter, r);
-      }
-    });
+    MLIRContext *ctx = &getContext();
+    RewritePatternSet patterns(ctx);
+    patterns.add<AlignedHostInputRewriter, AlignedHostOutputRewriter>(ctx);
+    walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };
 } // namespace
