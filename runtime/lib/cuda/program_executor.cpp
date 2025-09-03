@@ -90,65 +90,178 @@ void ProgramExecutor::finishing() {
                                  ::tt::runtime::DeviceRuntime::CUDA);
     ;
   }
-  // Allocate memory for tensors.
+  // Declare tensors.
   for (auto *memref : *program->memrefs()) {
-    int64_t dim = 1;
-    // Get size of tensor.
-    for (auto shapeDim : *memref->type()->shape()) {
-      dim *= shapeDim;
-    }
-    int64_t size = getDim(memref->type()->data_type()) * dim;
-    if (size < 0) {
-      llvm::errs() << "Failed to get size of tensor: " << memref->id()->str()
-                   << "\n";
-      finishing();
-      return ::tt::runtime::Tensor(nullptr, nullptr,
-                                   ::tt::runtime::DeviceRuntime::CUDA);
-      ;
-    }
-    CUdeviceptr devicePtr;
-    auto cudaStatus = cuMemAlloc(&devicePtr, size);
-    if (cudaStatus != 0) {
-      llvm::errs() << "cudaMalloc failed for tensor " << memref->id()->str()
-                   << " with error code " << cudaStatus << "\n";
-    }
-    tensorMap.insert({memref->id()->str(), devicePtr});
     memrefDescMap.insert({memref->id()->str(), memref});
-
-    if (memref->id()->str().find("%arg") != std::string::npos) {
-      // Copy input tensors to device.
-      size_t i = std::stoi(memref->id()->str().substr(4));
-      if (programInputs.size() <= i) {
-        llvm::errs() << "Not enough arguments provided\n";
-        finishing();
-        return ::tt::runtime::Tensor(nullptr, nullptr,
-                                     ::tt::runtime::DeviceRuntime::CUDA);
-        ;
-      }
-      cuMemcpyHtoD(devicePtr, programInputs[i].data.get(), size);
-    }
   }
 
   for (auto *constant : *program->constants()) {
     constantMap.insert({constant->id()->str(), constant});
   }
 
+  llvm::outs() << program->actions()->size() << "\n";
   // Process actions.
   for (size_t i = 0; i < program->actions()->size(); ++i) {
     ::cuda::Action actionType = program->actions_type()->Get(i);
     const void *actionObj = program->actions()->Get(i);
-
     switch (actionType) {
     case ::cuda::Action::Kernel: {
       const ::cuda::Kernel *kernel =
           static_cast<const ::cuda::Kernel *>(actionObj);
+      for (auto name : *kernel->input_names()) {
+
+        if (!tensorMap.contains(name->str()) &&
+            !constantMap.contains(name->str())) {
+
+          int64_t dim = 1;
+          // Get size of tensor.
+          for (auto shapeDim : *memrefDescMap[name->str()]->type()->shape()) {
+            dim *= shapeDim;
+          }
+          int64_t size =
+              getDim(memrefDescMap[name->str()]->type()->data_type()) * dim;
+          if (size < 0) {
+            llvm::errs() << "Failed to get size of tensor: " << name->str()
+                         << "\n";
+            finishing();
+            return ::tt::runtime::Tensor(nullptr, nullptr,
+                                         ::tt::runtime::DeviceRuntime::CUDA);
+          }
+          CUdeviceptr devicePtr;
+
+          auto cudaStatus = cuMemAlloc(&devicePtr, size);
+          if (cudaStatus != 0) {
+            llvm::errs() << "cudaMalloc failed for tensor " << name->str()
+                         << " with error code " << cudaStatus << "\n";
+          }
+          tensorMap.insert({name->str(), devicePtr});
+          if (name->str().find("%arg") != std::string::npos) {
+            // Copy input tensors to device.
+            size_t i = std::stoi(name->str().substr(4));
+            if (programInputs.size() <= i) {
+              llvm::errs() << "Not enough arguments provided\n";
+              finishing();
+              return ::tt::runtime::Tensor(nullptr, nullptr,
+                                           ::tt::runtime::DeviceRuntime::CUDA);
+              ;
+            }
+            cuMemcpyHtoD(devicePtr, programInputs[i].data.get(), size);
+          }
+        }
+      }
       runKernel(kernel);
+
+      for (auto name : *kernel->input_names()) {
+        if (memrefDescMap.count(name->str()) &&
+            memrefDescMap[name->str()]->last() == i &&
+            program->return_variable()->str() != name->str()) {
+          cuMemFree(tensorMap[name->str()]);
+          tensorMap.erase(name->str());
+        }
+      }
       break;
     }
     case ::cuda::Action::CopyFunction: {
       const ::cuda::CopyFunction *copyFunc =
           static_cast<const ::cuda::CopyFunction *>(actionObj);
+      if (!tensorMap.contains(copyFunc->src()->str()) &&
+          !constantMap.contains(copyFunc->src()->str())) {
+
+        int64_t dim = 1;
+        // Get size of tensor.
+        for (auto shapeDim :
+             *memrefDescMap[copyFunc->src()->str()]->type()->shape()) {
+          dim *= shapeDim;
+        }
+        int64_t size =
+            getDim(memrefDescMap[copyFunc->src()->str()]->type()->data_type()) *
+            dim;
+        if (size < 0) {
+          llvm::errs() << "Failed to get size of tensor: "
+                       << copyFunc->src()->str() << "\n";
+          finishing();
+          return ::tt::runtime::Tensor(nullptr, nullptr,
+                                       ::tt::runtime::DeviceRuntime::CUDA);
+        }
+        CUdeviceptr devicePtr;
+
+        auto cudaStatus = cuMemAlloc(&devicePtr, size);
+
+        if (cudaStatus != 0) {
+          llvm::errs() << "cudaMalloc failed for tensor "
+                       << copyFunc->src()->str() << " with error code "
+                       << cudaStatus << "\n";
+        }
+        tensorMap.insert({copyFunc->src()->str(), devicePtr});
+        if (copyFunc->src()->str().find("%arg") != std::string::npos) {
+          // Copy input tensors to device.
+          size_t i = std::stoi(copyFunc->src()->str().substr(4));
+          if (programInputs.size() <= i) {
+            llvm::errs() << "Not enough arguments provided\n";
+            finishing();
+            return ::tt::runtime::Tensor(nullptr, nullptr,
+                                         ::tt::runtime::DeviceRuntime::CUDA);
+            ;
+          }
+          cuMemcpyHtoD(devicePtr, programInputs[i].data.get(), size);
+        }
+      }
+      if (!tensorMap.contains(copyFunc->dst()->str()) &&
+          !constantMap.contains(copyFunc->dst()->str())) {
+
+        int64_t dim = 1;
+        // Get size of tensor.
+        for (auto shapeDim :
+             *memrefDescMap[copyFunc->dst()->str()]->type()->shape()) {
+          dim *= shapeDim;
+        }
+        int64_t size =
+            getDim(memrefDescMap[copyFunc->dst()->str()]->type()->data_type()) *
+            dim;
+        if (size < 0) {
+          llvm::errs() << "Failed to get size of tensor: "
+                       << copyFunc->dst()->str() << "\n";
+          finishing();
+          return ::tt::runtime::Tensor(nullptr, nullptr,
+                                       ::tt::runtime::DeviceRuntime::CUDA);
+        }
+        CUdeviceptr devicePtr;
+
+        auto cudaStatus = cuMemAlloc(&devicePtr, size);
+        if (cudaStatus != 0) {
+          llvm::errs() << "cudaMalloc failed for tensor "
+                       << copyFunc->dst()->str() << " with error code "
+                       << cudaStatus << "\n";
+        }
+        tensorMap.insert({copyFunc->dst()->str(), devicePtr});
+        if (copyFunc->dst()->str().find("%arg") != std::string::npos) {
+          // Copy input tensors to device.
+          size_t i = std::stoi(copyFunc->dst()->str().substr(4));
+          if (programInputs.size() <= i) {
+            llvm::errs() << "Not enough arguments provided\n";
+            finishing();
+            return ::tt::runtime::Tensor(nullptr, nullptr,
+                                         ::tt::runtime::DeviceRuntime::CUDA);
+            ;
+          }
+          cuMemcpyHtoD(devicePtr, programInputs[i].data.get(), size);
+        }
+      }
       runCopyFunction(copyFunc);
+
+      if (memrefDescMap.count(copyFunc->src()->str()) &&
+          memrefDescMap[copyFunc->src()->str()]->last() == i &&
+          program->return_variable()->str() != copyFunc->src()->str()) {
+        cuMemFree(tensorMap[copyFunc->src()->str()]);
+        tensorMap.erase(copyFunc->src()->str());
+      }
+
+      if (memrefDescMap.count(copyFunc->dst()->str()) &&
+          memrefDescMap[copyFunc->dst()->str()]->last() == i &&
+          program->return_variable()->str() != copyFunc->dst()->str()) {
+        cuMemFree(tensorMap[copyFunc->dst()->str()]);
+        tensorMap.erase(copyFunc->dst()->str());
+      }
       break;
     }
     case ::cuda::Action::NONE:
@@ -260,12 +373,14 @@ void ProgramExecutor::runKernel(const ::cuda::Kernel *kernel) {
                 kernel->grid_size_z());
   dim3 blockSize(kernel->block_size_x(), kernel->block_size_y(),
                  kernel->block_size_z());
-  // llvm::outs() << gridSize.x << " " <<gridSize.y << " " <<gridSize.z << "\n";
-  // llvm::outs() << blockSize.x << " " <<blockSize.y << " " <<blockSize.z <<
-  // "\n\n";
-  cuLaunchKernel(function, gridSize.x, gridSize.y, gridSize.z, blockSize.x,
-                 blockSize.y, blockSize.z, 0, 0, kernelArgs.get(), nullptr);
-  cudaDeviceSynchronize();
+  auto result =
+      cuLaunchKernel(function, gridSize.x, gridSize.y, gridSize.z, blockSize.x,
+                     blockSize.y, blockSize.z, 0, 0, kernelArgs.get(), nullptr);
+  if (result != CUDA_SUCCESS) {
+    llvm::errs() << kernel->name()->c_str() << " failed with code " << result
+                 << "\n";
+  }
+  // cudaDeviceSynchronize();
   cuModuleUnload(module);
 }
 

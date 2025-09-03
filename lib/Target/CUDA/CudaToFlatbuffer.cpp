@@ -329,15 +329,18 @@ static void processMemRefDescMap(
 
     auto shapeVector = fbb.CreateVector(shape);
     auto typeOffset = ::cuda::CreateType(fbb, shapeVector, dataType);
+    auto first = memRefDesc.first;
+    auto last = memRefDesc.last;
 
     if (isConst) {
       auto valueBytes = serializeTypedAttrToBytes(memRefDesc.value);
       auto valueVector = fbb.CreateVector(valueBytes);
-      auto constantOffset =
-          ::cuda::CreateConstant(fbb, nameOffset, typeOffset, valueVector);
+      auto constantOffset = ::cuda::CreateConstant(fbb, nameOffset, typeOffset,
+                                                   valueVector, first, last);
       constants.push_back(constantOffset);
     } else {
-      auto memrefOffset = ::cuda::CreateMemRefDesc(fbb, nameOffset, typeOffset);
+      auto memrefOffset =
+          ::cuda::CreateMemRefDesc(fbb, nameOffset, typeOffset, first, last);
       memRefDescs.push_back(memrefOffset);
     }
   }
@@ -346,7 +349,7 @@ static void processMemRefDescMap(
 flatbuffers::Offset<::cuda::CopyFunction>
 processCopyOp(mlir::memref::CopyOp copyOp, flatbuffers::FlatBufferBuilder &fbb,
               mlir::ModuleOp rootModule,
-              llvm::StringMap<MemRefDesc> &memRefDescMap) {
+              llvm::StringMap<MemRefDesc> &memRefDescMap, uint64_t opIndex) {
   auto targetType = cast<MemRefType>(copyOp.getTarget().getType());
   auto layout = dyn_cast<StridedLayoutAttr>(targetType.getLayout());
 
@@ -371,12 +374,23 @@ processCopyOp(mlir::memref::CopyOp copyOp, flatbuffers::FlatBufferBuilder &fbb,
   target.printAsOperand(targetStream, asmState);
 
   if (!memRefDescMap.contains(sourceName)) {
-    memRefDescMap.insert(
-        {sourceName, MemRefDesc{sourceName, source.getType(), nullptr}});
+    memRefDescMap.insert({sourceName, MemRefDesc{sourceName, source.getType(),
+                                                 nullptr, opIndex, opIndex}});
   }
+  if (memRefDescMap.contains(sourceName)) {
+    auto memRefDesc = memRefDescMap.lookup(sourceName);
+    memRefDesc.last = opIndex;
+    memRefDescMap[sourceName] = memRefDesc;
+  }
+
   if (!memRefDescMap.contains(targetName)) {
-    memRefDescMap.insert(
-        {targetName, MemRefDesc{targetName, target.getType(), nullptr}});
+    memRefDescMap.insert({targetName, MemRefDesc{targetName, target.getType(),
+                                                 nullptr, opIndex, opIndex}});
+  }
+  if (memRefDescMap.contains(targetName)) {
+    auto memRefDesc = memRefDescMap.lookup(targetName);
+    memRefDesc.last = opIndex;
+    memRefDescMap[targetName] = memRefDesc;
   }
 
   auto sourceNameOffset = fbb.CreateString(sourceName);
@@ -393,7 +407,8 @@ processLaunchFuncOp(mlir::gpu::LaunchFuncOp launchFuncOp,
                     const llvm::StringMap<cuda::Kernel> &kernelMap,
                     flatbuffers::FlatBufferBuilder &fbb,
                     llvm::StringMap<MemRefDesc> &memRefDescMap,
-                    llvm::StringMap<MemRefDesc> &constantMemRefDescMap) {
+                    llvm::StringMap<MemRefDesc> &constantMemRefDescMap,
+                    uint64_t opIndex) {
 
   std::string kernelName = launchFuncOp.getKernelModuleName().str() + "_" +
                            launchFuncOp.getKernelName().str();
@@ -444,14 +459,26 @@ processLaunchFuncOp(mlir::gpu::LaunchFuncOp launchFuncOp,
 
     if (constantValue && !constantMemRefDescMap.count(operandName)) {
       constantMemRefDescMap.insert(
-          {operandName,
-           MemRefDesc{operandName, operandValue.getType(), constantValue}});
+          {operandName, MemRefDesc{operandName, operandValue.getType(),
+                                   constantValue, opIndex, opIndex}});
+    }
+
+    if (constantValue && constantMemRefDescMap.count(operandName)) {
+      auto memRefDesc = constantMemRefDescMap.lookup(operandName);
+      memRefDesc.last = opIndex;
+      constantMemRefDescMap[operandName] = memRefDesc;
     }
 
     if (!constantValue && !memRefDescMap.count(operandName)) {
       memRefDescMap.insert(
-          {operandName,
-           MemRefDesc{operandName, operandValue.getType(), constantValue}});
+          {operandName, MemRefDesc{operandName, operandValue.getType(),
+                                   constantValue, opIndex, opIndex}});
+    }
+
+    if (!constantValue && memRefDescMap.count(operandName)) {
+      auto memRefDesc = memRefDescMap.lookup(operandName);
+      memRefDesc.last = opIndex;
+      memRefDescMap[operandName] = memRefDesc;
     }
   }
 
@@ -495,17 +522,22 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
   std::vector<::cuda::Action> actionTypes;
   std::vector<::flatbuffers::Offset<void>> actionObjects;
 
+  uint64_t opIndex = 0;
   rootModule.walk([&](Operation *op) {
     // Process LaunchFuncOp
     if (auto launchFuncOp = dyn_cast<mlir::gpu::LaunchFuncOp>(op)) {
-      auto kernelOffset = processLaunchFuncOp(
-          launchFuncOp, kernelMap, fbb, memRefDescMap, constantMemRefDescMap);
+      auto kernelOffset =
+          processLaunchFuncOp(launchFuncOp, kernelMap, fbb, memRefDescMap,
+                              constantMemRefDescMap, opIndex);
       actionTypes.push_back(::cuda::Action::Kernel);
       actionObjects.push_back(kernelOffset.Union());
+      opIndex++;
     } else if (auto copyOp = dyn_cast<mlir::memref::CopyOp>(op)) {
-      auto copyFunction = processCopyOp(copyOp, fbb, rootModule, memRefDescMap);
+      auto copyFunction =
+          processCopyOp(copyOp, fbb, rootModule, memRefDescMap, opIndex);
       actionTypes.push_back(::cuda::Action::CopyFunction);
       actionObjects.push_back(copyFunction.Union());
+      opIndex++;
     }
   });
 
