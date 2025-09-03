@@ -22,12 +22,35 @@
 namespace mlir::tt::ttnn {
 
 void L1InterleavedFallbackAnalysis::analysisImplementation() {
+  // Counters for statistics
+  size_t totalOps = 0;
+  size_t skippedRowMajor = 0;
+  size_t skippedDRAMOut = 0;
+  size_t skippedMatmulLinear = 0;
+  size_t skippedConv2DMatmul = 0;
+  size_t skippedUserDRAMIn = 0;
+  size_t skippedUserMatmulLinear = 0;
+  size_t skippedUserConv2DMatmul = 0;
+  size_t skippedNoL1Legal = 0;
+  size_t skippedNotDRAM = 0;
+  size_t skippedNotOneUser = 0;
+  size_t skippedNotImmediate = 0;
+  size_t skippedReturnOp = 0;
+  size_t attemptedUpgrade = 0;
+  size_t failedUpgrade = 0;
+  size_t upgraded = 0;
+
   // Go through schedule in order using walk, trying to upgrade DRAM ops to L1
   // interleaved.
   analysisInput.funcOp->walk([&](Operation *op) {
+    ++totalOps;
+
     // Skip operations that have the row-major workaround later on in Optimizer.
     // TODO(bmalesevic,#3985): remove after this is fixed
     if (isa<ttnn::MaxPool2dOp, ttnn::UpsampleOp>(op)) {
+      ++skippedRowMajor;
+      llvm::outs() << "[L1IFA] Skipped op (row-major workaround): "
+                   << op->getName() << "\n";
       return;
     }
 
@@ -35,15 +58,25 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     // L1 via this analysis.
     // TODO(bmalesevic,#4505): remove this after they are supported in runtime
     if (isa<ttnn::SliceStaticOp, ttnn::TypecastOp>(op)) {
+      ++skippedDRAMOut;
+      llvm::outs() << "[L1IFA] Skipped op (DRAM output in runtime): "
+                   << op->getName() << "\n";
       return;
     }
     // Skip Matmul and Linear output, inefficient for L1 interleaved.
     if (isa<ttnn::MatmulOp, ttnn::LinearOp>(op)) {
+      ++skippedMatmulLinear;
+      llvm::outs() << "[L1IFA] Skipped op (Matmul/Linear input): "
+                   << op->getName() << "\n";
       return;
     }
+
     // Skip output of Conv2D that uses matmul under the hood, inefficient for L1
     // interleaved.
     if (L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(op)) {
+      ++skippedConv2DMatmul;
+      llvm::outs() << "[L1IFA] Skipped op (Conv2D uses matmul): "
+                   << op->getName() << "\n";
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - Conv2D "
                    "uses matmul, inefficient for L1 interleaved.",
@@ -56,15 +89,26 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       // L1 via this analysis.
       // TODO(bmalesevic,#4505): remove this after they are supported in runtime
       if (isa<ttnn::SliceStaticOp, ttnn::TypecastOp>(user)) {
+        ++skippedUserDRAMIn;
+        llvm::outs() << "[L1IFA] Skipped op (user DRAM input): "
+                     << op->getName() << "\n";
         return;
       }
+
       // Skip Matmul and Linear input, inefficient for L1 interleaved.
       if (isa<ttnn::MatmulOp, ttnn::LinearOp>(user)) {
+        ++skippedUserMatmulLinear;
+        llvm::outs() << "[L1IFA] Skipped op (user Matmul/Linear input): "
+                     << op->getName() << "\n";
         return;
       }
+
       // Skip input of Conv2D that uses matmul under the hood, inefficient for
       // L1 interleaved.
       if (L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(user)) {
+        ++skippedUserConv2DMatmul;
+        llvm::outs() << "[L1IFA] Skipped op (user Conv2D uses matmul): "
+                     << op->getName() << "\n";
         TTMLIR_TRACE(
             ttmlir::LogComponent::Optimizer,
             "L1InterleavedFallbackAnalysis: Skipping {} - Consumer Conv2D "
@@ -76,28 +120,48 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
 
     // Skip if operation doesn't have L1 interleaved layout available.
     if (!hasL1InterleavedLegalLayout(op)) {
+      ++skippedNoL1Legal;
+      llvm::outs() << "[L1IFA] Skipped op (no L1 interleaved legal layout): "
+                   << op->getName() << "\n";
       return;
     }
+
     // Skip if operation doesn't use DRAM layout.
     if (!utils::producesDRAMLayout(op)) {
+      ++skippedNotDRAM;
+      llvm::outs() << "[L1IFA] Skipped op (not DRAM layout): " << op->getName()
+                   << "\n";
       return;
     }
+
     // Skip if operation doesn't have exactly one user.
     if (!op->hasOneUse()) {
+      ++skippedNotOneUser;
+      llvm::outs() << "[L1IFA] Skipped op (not exactly one user): "
+                   << op->getName() << "\n";
       return;
     }
+
     // Skip if producer is not immediately consumed by consumer.
     if (!hasImmediateConsumer(op)) {
+      ++skippedNotImmediate;
+      llvm::outs()
+          << "[L1IFA] Skipped op (consumer not scheduled immediately after): "
+          << op->getName() << "\n";
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - "
                    "consumer not scheduled immediately after.",
                    op->getName());
       return;
     }
+
     // Skip if operation output is returnOp input, no point in storing in L1, no
     // acceleration would happen but additional memory management risks would be
     // introduced.
     if (hasReturnOpUser(op)) {
+      ++skippedReturnOp;
+      llvm::outs() << "[L1IFA] Skipped op (output is returnOp input): "
+                   << op->getName() << "\n";
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - output is "
                    "returnOp input.",
@@ -110,8 +174,67 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     if (handleReshapeOps(op)) {
       return;
     }
+    llvm::outs() << "[L1IFA] Attempting to upgrade op: " << op->getName()
+                 << "\n";
+    ++attemptedUpgrade;
+    size_t beforeUpgrade = analysisResult.upgradedConfigs.size();
     tryUpgradeToL1Interleaved(op);
+    size_t afterUpgrade = analysisResult.upgradedConfigs.size();
+
+    if (afterUpgrade > beforeUpgrade) {
+      ++upgraded;
+    } else {
+      ++failedUpgrade;
+    }
   });
+
+  // Print summary statistics
+  llvm::outs() << "\n[L1IFA] Analysis Summary:\n";
+  llvm::outs() << "  Total ops: " << totalOps << "\n";
+  auto percent = [](size_t n, size_t total) -> std::string {
+    if (total == 0) {
+      return "0.00";
+    }
+    double pct = 100.0 * n / static_cast<double>(total);
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(2) << pct;
+    return oss.str();
+  };
+  llvm::outs() << "  Attempted upgrades: " << attemptedUpgrade << " ("
+               << percent(attemptedUpgrade, totalOps) << "%)\n";
+  llvm::outs() << "  Successful upgrades: " << upgraded << " ("
+               << percent(upgraded, attemptedUpgrade) << "%)\n";
+  llvm::outs() << "  Failed upgrades: " << failedUpgrade << " ("
+               << percent(failedUpgrade, attemptedUpgrade) << "%)\n";
+  llvm::outs() << "  Skipped (row-major workaround): " << skippedRowMajor
+               << " (" << percent(skippedRowMajor, totalOps) << "%)\n";
+  llvm::outs() << "  Skipped (DRAM output in runtime): " << skippedDRAMOut
+               << " (" << percent(skippedDRAMOut, totalOps) << "%)\n";
+  llvm::outs() << "  Skipped (Matmul/Linear input): " << skippedMatmulLinear
+               << " (" << percent(skippedMatmulLinear, totalOps) << "%)\n";
+  llvm::outs() << "  Skipped (Conv2D uses matmul): " << skippedConv2DMatmul
+               << " (" << percent(skippedConv2DMatmul, totalOps) << "%)\n";
+  llvm::outs() << "  Skipped (user DRAM input): " << skippedUserDRAMIn << " ("
+               << percent(skippedUserDRAMIn, totalOps) << "%)\n";
+  llvm::outs() << "  Skipped (user Matmul/Linear input): "
+               << skippedUserMatmulLinear << " ("
+               << percent(skippedUserMatmulLinear, totalOps) << "%)\n";
+  llvm::outs() << "  Skipped (user Conv2D uses matmul): "
+               << skippedUserConv2DMatmul << " ("
+               << percent(skippedUserConv2DMatmul, totalOps) << "%)\n";
+  llvm::outs() << "  Skipped (no L1 interleaved legal layout): "
+               << skippedNoL1Legal << " ("
+               << percent(skippedNoL1Legal, totalOps) << "%)\n";
+  llvm::outs() << "  Skipped (not DRAM layout): " << skippedNotDRAM << " ("
+               << percent(skippedNotDRAM, totalOps) << "%)\n";
+  llvm::outs() << "  Skipped (not exactly one user): " << skippedNotOneUser
+               << " (" << percent(skippedNotOneUser, totalOps) << "%)\n";
+  llvm::outs() << "  Skipped (consumer not scheduled immediately after): "
+               << skippedNotImmediate << " ("
+               << percent(skippedNotImmediate, totalOps) << "%)\n";
+  llvm::outs() << "  Skipped (output is returnOp input): " << skippedReturnOp
+               << " (" << percent(skippedReturnOp, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA] Analysis complete.\n\n";
 
   TTMLIR_TRACE(
       ttmlir::LogComponent::Optimizer,
