@@ -123,8 +123,8 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     return llvm::Expected<TTNNLayoutAttr>(std::move(error));
   }
 
-  auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
-      l1UsageExp.get();
+  auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
+        outputLayout] = l1UsageExp.get();
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                "Backend returned output layout: {}, layout={}, dtype={}",
