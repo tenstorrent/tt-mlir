@@ -628,7 +628,7 @@ TEST_F(OpModelTest, SliceDynamic) {
       beginsLayoutDRAM, endsShape, endsLayoutDRAM, step, outputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_EQ(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.cbL1PeakSize, 4096);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 

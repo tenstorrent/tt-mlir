@@ -1636,14 +1636,16 @@ llvm::Expected<OpConstraints> OpModel<SliceDynamicOp>::getOpConstraints(
   // begins/ends tensors (which is not available at compile time). Therefore,
   // here we approximate the op by using the static version and calling
   // (possibly) the worst case scenario for the static version which is slicing
-  // from the beginning to the end (Capturing the entire tensor results in the
-  // highest memory usage).
-  // Note that this is a fairly accurate approximation since the dynamic version
-  // in metal also converts the three tensors (begins, ends, step) to vectors
-  // and then calls the static version.
+  // from the beginning to one index before the end (Capturing the entire tensor
+  // except for one row results in the highest memory usage). Note that this is
+  // a fairly accurate approximation since the dynamic version in metal also
+  // converts the three tensors (begins, ends, step) to vectors and then calls
+  // the static version.
   ::ttsl::SmallVector<int> stepVec(inputShape.size(), 1);
   ::ttsl::SmallVector<int> beginsVec(inputShape.size(), 0);
   ::ttsl::SmallVector<int> endsVec(inputShape.begin(), inputShape.end());
+  std::ranges::for_each(endsVec, [](int &end) { end = end - 1; });
+
   // Default values in tt-metal:
   std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
   std::optional<float> padValue = std::nullopt;
