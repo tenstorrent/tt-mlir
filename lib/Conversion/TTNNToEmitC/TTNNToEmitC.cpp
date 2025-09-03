@@ -310,6 +310,40 @@ public:
 };
 } // namespace
 
+// EltwiseUnaryCompositeWithFastAndApproximateModeOp conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (parameter, memcfg).
+//
+namespace {
+template <typename SourceOp>
+class EltwiseUnaryCompositeWithFastAndApproximateModeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<SourceOp> emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        /*fast_and_approximate_mode=*/emitter.emit(false),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // ClampOpConversionPattern conversion pattern
 //
 // Currently, it has to insert nullopts for some parameters that are not
@@ -2544,7 +2578,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SignOp>,
       EltwiseUnaryWithVectorAndFastAndApproximateModeOpConversionPattern<
           mlir::tt::ttnn::SigmoidOp>,
-      EltwiseUnaryCompositeOpConversionPattern<mlir::tt::ttnn::Log1pOp>,
+      EltwiseUnaryCompositeWithFastAndApproximateModeOpConversionPattern<
+          mlir::tt::ttnn::Log1pOp>,
       EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReciprocalOp>,
       EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
           mlir::tt::ttnn::ExpOp>,
@@ -2559,8 +2594,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::TanOp>,
       EltwiseUnaryWithAccuracyModeOpConversionPattern<mlir::tt::ttnn::TanhOp>,
       EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AtanOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::LogOp>>(typeConverter,
-                                                              ctx);
+      EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+          mlir::tt::ttnn::LogOp>>(typeConverter, ctx);
 
   // Eltwise binary ops
   //

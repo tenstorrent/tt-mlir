@@ -69,8 +69,6 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTMETAL_BUILD_DIR}/../tt_metal/third_party/tracy/public/tracy ${TTNN_INSTALL_DIR}/include/tracy
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTMETAL_BUILD_DIR}/../tt_metal/third_party/tracy/public/common ${TTNN_INSTALL_DIR}/include/common
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTMETAL_BUILD_DIR}/../tt_metal/third_party/tracy/public/client ${TTNN_INSTALL_DIR}/include/client
-  # Copy tt_stl headers (workaround for missing optional_reference.hpp)
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${TTMETAL_BUILD_DIR}/../tt_stl/tt_stl ${TTNN_INSTALL_DIR}/include/tt_stl
   # Copy op-related missing hpp files
   COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${TTMETAL_BUILD_DIR}/../ttnn/cpp/ttnn/operations -DDEST_DIR=${TTNN_INSTALL_DIR}/include/ttnn/operations -P ${CMAKE_CURRENT_SOURCE_DIR}/CopyHppFiles.cmake
   # Copy kernel-related missing hpp/cpp files (needed for kernel compilation in runtime)
