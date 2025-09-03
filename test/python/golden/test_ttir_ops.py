@@ -2492,20 +2492,30 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
         (transpose, [(64, 32)], [torch.float32]),
-        (reshape, [(64, 32)], [torch.float32]),
+        pytest.param(
+            reshape,
+            [(64, 32)],
+            [torch.float32],
+            marks=[pytest.mark.skip_config(["ttmetal"])],  # marks should be a list
+        ),
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
             [torch.float32] * 2,
+            marks=[pytest.mark.skip_config(["ttmetal"])],  # marks should be a list
         ),
         pytest.param(
             where,
             [(64, 64)] * 3,
             [torch.float32, torch.float32, torch.float32],
-            marks=[pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])],
+            marks=[
+                pytest.mark.fails_golden,
+                pytest.mark.skip_config(["ttmetal"]),
+            ],  # this one was already correct
         ),
     ],
 )
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_unique_ops(
     test_fn: Callable,
     inputs_shapes: List[Shape],

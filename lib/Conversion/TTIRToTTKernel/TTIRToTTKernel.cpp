@@ -213,8 +213,6 @@ public:
   LogicalResult
   matchAndRewrite(memref::StoreOp op, memref::StoreOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-
-    llvm::errs() << "MemrefStoreRewriter::matchAndRewrite\n";
     auto load = mlir::dyn_cast<memref::LoadOp>(op.getValue().getDefiningOp());
     bool storeToDst = ttcore::getMemorySpace(op.getMemRef()) ==
                       ttcore::MemorySpace::RegisterDst;
@@ -518,8 +516,6 @@ public:
   matchAndRewrite(ttir::TileTransposeOp op,
                   ttir::TileTransposeOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    llvm::errs() << "TTIRTileTransposeRewriter::matchAndRewrite\n";
-
     // TileTransposeOp is a unary op that takes an input tile and produces
     // an output tile.
 

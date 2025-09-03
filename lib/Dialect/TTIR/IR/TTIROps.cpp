@@ -4762,7 +4762,6 @@ mlir::SmallVector<int64_t> mlir::tt::ttir::GenericOp::getLoopBounds() {
   // We reverse it so that output dimensions get priority for the inverse
   // permutation.
   SmallVector<AffineMap> affineMaps = getIndexingMapsValue();
-
   SmallVector<AffineMap> affineMapsReversed =
       llvm::to_vector(llvm::reverse(affineMaps));
   AffineMap concat = concatAffineMaps(affineMapsReversed, getContext());

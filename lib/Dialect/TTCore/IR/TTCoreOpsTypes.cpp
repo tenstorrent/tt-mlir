@@ -866,7 +866,6 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
     // Set alignment on the first dimension of the interval.
     dimAlignmentsVec[intervalStart] = alignment;
   }
-
   return dimAlignmentsVec;
 }
 
