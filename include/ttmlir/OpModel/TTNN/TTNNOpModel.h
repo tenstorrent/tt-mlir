@@ -360,6 +360,10 @@ struct OpModel<SoftmaxOp> {
                                              TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// ScatterOp
+//===----------------------------------------------------------------------===//
+
 template <>
 struct OpModel<ScatterOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
