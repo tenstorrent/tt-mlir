@@ -11,6 +11,8 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include <llvm/Support/Casting.h>
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/IR/Value.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -1299,32 +1301,26 @@ private:
 };
 
 // The following OpRewritePattern fuses: reshape(multiply(sum, 1/n)) to avg_pool
-class GlobalAvgPoolPattern : public mlir::OpRewritePattern<ReshapeOp> {
-  using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
+class GlobalAvgPoolPattern : public mlir::OpRewritePattern<MultiplyOp> {
+  using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
 public:
   mlir::LogicalResult
-  matchAndRewrite(ReshapeOp reshapeOp,
+  matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
     // Match the specific pattern: reshape(multiply(sum, 1/h*w))
     // and replace it with avg_pool.
 
-    MultiplyOp multiplyOp = reshapeOp.getInput().getDefiningOp<MultiplyOp>();
-    if (!multiplyOp) {
-      llvm::outs() << "No multiply op found\n";
-      return mlir::failure();
-    }
-    llvm::outs() << "Matched multiply op...\n";
-
     SumOp sumOp = multiplyOp.getLhs().getDefiningOp<SumOp>();
     if (!validateSumOp(sumOp)) {
-      llvm::outs() << "Sum op validation failed\n";
+      // llvm::outs() << "Sum op validation failed\n";
       return mlir::failure();
     }
     llvm::outs() << "Matched sum op...\n";
 
     auto input = sumOp.getInput();
     auto inputShape = input.getType().getShape();
+    bool keepDim = sumOp.getKeepDim();
 
     FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
     if (!validateFullOp(fullOp, inputShape)) {
@@ -1335,12 +1331,28 @@ public:
     llvm::outs() << "Fill value is valid...\n";
     PoolingConfig poolingConfig = createPoolingConfig(inputShape);
 
-    rewriter.replaceOpWithNewOp<PoolingOp>(
-        reshapeOp, reshapeOp->getResultTypes(), input, reshapeOp.getOutput(),
+    // Create a type for pooling with shape [..., 1, 1] for the last two
+    // dimensions
+    RankedTensorType poolOutputType = createPoolingOutputType(input.getType());
+
+    auto poolingOp = utils::createDPSOp<PoolingOp>(
+        rewriter, multiplyOp.getLoc(), poolOutputType, input,
         PoolingMethod::Average, poolingConfig.windowDimensions,
         poolingConfig.windowStrides, poolingConfig.baseDilations,
         poolingConfig.windowDilations, poolingConfig.padding);
-    llvm::outs() << "Replaced with avg_pool...\n";
+
+    llvm::outs() << "Created avg pool...\n";
+    if (!keepDim) {
+      llvm::outs() << "Reshaping output...\n";
+      auto outputType = multiplyOp.getOutput().getType();
+      llvm::outs() << "Output type: " << outputType << "\n";
+      auto reshapePoolOp = reshapePoolOutput(rewriter, poolingOp, outputType);
+      rewriter.replaceOp(multiplyOp, reshapePoolOp.getResult());
+    } else {
+      rewriter.replaceOp(multiplyOp, poolingOp.getResult(0));
+    }
+
+    llvm::outs() << "Replaced with avg pool...\n";
     return mlir::success();
   };
 
@@ -1379,13 +1391,13 @@ private:
     if (!sumOp) {
       return false;
     }
-    if (sumOp.getKeepDim()) {
-      return false;
-    }
     if (!sumOp.getDimArg()) {
       return false;
     }
     if (sumOp.getInput().getType().getShape().size() != 4) {
+      return false;
+    }
+    if (!sumOp->hasOneUse()) {
       return false;
     }
 
@@ -1403,6 +1415,20 @@ private:
     // Sort dimensions to check for [2, 3]
     llvm::sort(dims);
     return dims[0] == 2 && dims[1] == 3;
+  }
+  ReshapeOp reshapePoolOutput(mlir::PatternRewriter &rewriter,
+                              PoolingOp poolingOp,
+                              RankedTensorType outputType) const {
+    auto loc = poolingOp.getLoc();
+    llvm::SmallVector<int64_t> outputShape(outputType.getShape());
+    SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());
+    // rewriter.setInsertionPointAfter(poolingOp);
+    auto reshapeOp = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
+        outputType, poolingOp.getResult(0),
+        rewriter.getI32ArrayAttr(outputShapeI32));
+    llvm::outs() << "Created reshape op...\n";
+    return reshapeOp;
   }
 
   struct PoolingConfig {
@@ -1432,6 +1458,15 @@ private:
     config.padding.assign(inputRank * 2, 0);
 
     return config;
+  }
+
+  RankedTensorType createPoolingOutputType(RankedTensorType inputType) const {
+    SmallVector<int64_t> poolOutputShape(inputType.getShape());
+    poolOutputShape[poolOutputShape.size() - 2] = 1; // height = 1
+    poolOutputShape[poolOutputShape.size() - 1] = 1; // width = 1
+
+    return RankedTensorType::get(poolOutputShape, inputType.getElementType(),
+                                 inputType.getEncoding());
   }
 };
 
