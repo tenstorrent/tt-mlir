@@ -1641,18 +1641,9 @@ llvm::Expected<OpConstraints> OpModel<SliceDynamicOp>::getOpConstraints(
   // Note that this is a fairly accurate approximation since the dynamic version
   // in metal also converts the three tensors (begins, ends, step) to vectors
   // and then calls the static version.
-  ::ttsl::SmallVector<int> stepVec =
-      ::ttsl::SmallVector<int>(inputShape.size(), 1);
-  ::ttsl::SmallVector<int> beginsVec =
-      ::ttsl::SmallVector<int>(inputShape.size(), 0);
-  ::ttsl::SmallVector<int> endsVec =
-      ::ttsl::SmallVector<int>(inputShape.size());
-  for (size_t i = 0; i < inputShape.size(); ++i) {
-    endsVec[i] = inputShape[i] - 1;
-  }
-  (void)beginsVec;
-  (void)endsVec;
-  (void)stepVec;
+  ::ttsl::SmallVector<int> stepVec(inputShape.size(), 1);
+  ::ttsl::SmallVector<int> beginsVec(inputShape.size(), 0);
+  ::ttsl::SmallVector<int> endsVec(inputShape.begin(), inputShape.end());
   // Default values in tt-metal:
   std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
   std::optional<float> padValue = std::nullopt;
@@ -1698,18 +1689,9 @@ llvm::Expected<size_t> OpModel<SliceDynamicOp>::getOpRuntime(
   // Note that this is a fairly accurate approximation since the dynamic version
   // in metal also converts the three tensors (begins, ends, step) to vectors
   // and then calls the static version.
-  ::ttsl::SmallVector<int> stepVec =
-      ::ttsl::SmallVector<int>(inputShape.size(), 2);
-  ::ttsl::SmallVector<int> beginsVec =
-      ::ttsl::SmallVector<int>(inputShape.size(), 0);
-  ::ttsl::SmallVector<int> endsVec =
-      ::ttsl::SmallVector<int>(inputShape.size());
-  for (size_t i = 0; i < inputShape.size(); ++i) {
-    endsVec[i] = inputShape[i] - 1;
-  }
-  (void)beginsVec;
-  (void)endsVec;
-  (void)stepVec;
+  ::ttsl::SmallVector<int> stepVec(inputShape.size(), 2);
+  ::ttsl::SmallVector<int> beginsVec(inputShape.size(), 0);
+  ::ttsl::SmallVector<int> endsVec(inputShape.begin(), inputShape.end());
   // Default values in tt-metal:
   std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
   std::optional<float> padValue = std::nullopt;
