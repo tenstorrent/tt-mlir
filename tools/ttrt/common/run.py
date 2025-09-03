@@ -549,6 +549,8 @@ class Run:
                             inputs[input_index], device, input_layout, True
                         )
                     )
+                    # Reset flag for all following ops that aren't input `to_layout`s
+                    perf_env.tracy_log_input_layout_conversion(False)
                 return inputs_converted
 
             # Create 'owned tensor' in case of empty tensor;
@@ -842,14 +844,17 @@ class Run:
                                         perf_env.tracy_log_op_location(
                                             f"loc(arg_{input_idx})"
                                         )
-                                        perf_env.tracy_log_input_layout_conversion(True)
                                         result_tensor = ttrt.runtime.to_layout(
                                             tensor_to_dirty,
                                             device,
                                             expected_layout,
                                             True,
                                         )
+                                        perf_env.tracy_log_input_layout_conversion(True)
                                         inputs[input_idx] = result_tensor
+                                        perf_env.tracy_log_input_layout_conversion(
+                                            False
+                                        )
                                         self.logging.info(
                                             f"Marked input tensor {input_idx} as dirty after {loop} iterations"
                                         )
