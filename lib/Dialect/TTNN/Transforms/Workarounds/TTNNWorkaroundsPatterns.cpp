@@ -190,13 +190,13 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       op->setAttr(ttmlir::utils::g_outputLayoutAttrName, updatedLayoutAttr);
     }
 
-    if (outputWorkaroundResults.tensorDataTypeResult.isModified() &&
-        (op->hasTrait<ttnn::HasDTypeTrait>() ||
-         op->getAttrDictionary().get(ttmlir::utils::g_outputDtypeAttrName))) {
+    TTNNDtypeOpInterface dtypeOp =
+        mlir::dyn_cast<TTNNDtypeOpInterface>(op.getOperation());
+    if (outputWorkaroundResults.tensorDataTypeResult.isModified() && dtypeOp) {
       ttcore::DataTypeAttr updatedDataTypeAttr =
           rewriter.getAttr<ttcore::DataTypeAttr>(
               outputWorkaroundResults.tensorDataTypeResult.targetValue);
-      op->setAttr(ttmlir::utils::g_outputDtypeAttrName, updatedDataTypeAttr);
+      dtypeOp.setDtypeAttr(updatedDataTypeAttr);
     }
 
     if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||

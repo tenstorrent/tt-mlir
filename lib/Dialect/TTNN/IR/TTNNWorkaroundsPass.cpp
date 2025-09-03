@@ -574,17 +574,6 @@ TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(T op) {
   return workaround;
 }
 
-// TTNN Arange op only supports row-major output. Adding workaround to enforce
-// row-major layout on its output.
-// tt-metal issue to support tile layout for arange op:
-// https://github.com/tenstorrent/tt-metal/issues/20251
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createArangeOpOperandsWorkarounds() {
-  wa::TTNNOperandWorkarounds arangeOpOperandWorkaround(Layout::RowMajor);
-  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addOutputOperandWorkaround(arangeOpOperandWorkaround);
-}
-
 // Factory method to create a set of workaround for reduction ops operands.
 // Data type workaround is required for reduction ops for following cases:
 // 1. Reduction ops requires padding if the input tensor shape is not same as
