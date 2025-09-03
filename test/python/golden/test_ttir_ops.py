@@ -1601,23 +1601,19 @@ def softmax(
     in0: Operand,
     builder: TTIRBuilder,
     dimension: int = -1,
-    numeric_stable: bool = False,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.softmax(
-        in0, dimension=dimension, numeric_stable=numeric_stable, unit_attrs=unit_attrs
-    )
+    return builder.softmax(in0, dimension=dimension, unit_attrs=unit_attrs)
 
 
 @pytest.mark.parametrize("shape", [(512, 1024)])
 @pytest.mark.parametrize("dimension", [-1])
-@pytest.mark.parametrize("numeric_stable", [False, True])
-def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request):
+def test_softmax(shape: Shape, dimension: int, request):
     # Create a wrapper function that captures dimension
     def softmax_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        return softmax(in0, builder, dimension, numeric_stable, unit_attrs)
+        return softmax(in0, builder, dimension, unit_attrs)
 
     # Set the name for better test identification
     softmax_wrapper.__name__ = "softmax"
@@ -2496,34 +2492,25 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
         (transpose, [(64, 32)], [torch.float32]),
-        pytest.param(
-            reshape,
-            [(64, 32)],
-            [torch.float32],
-            marks=pytest.mark.skip_config(["ttmetal"]),
-        ),
+        (reshape, [(64, 32)], [torch.float32]),
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
             [torch.float32] * 2,
-            marks=pytest.mark.skip_config(["ttmetal"]),
         ),
         pytest.param(
             where,
             [(64, 64)] * 3,
             [torch.float32, torch.float32, torch.float32],
-            marks=pytest.mark.fails_golden,
-            marks=pytest.mark.skip_config(["ttmetal"]),
+            marks=[pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])],
         ),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_unique_ops(
     test_fn: Callable,
     inputs_shapes: List[Shape],
     inputs_dtypes: List[torch.dtype],
     request,
-    target: str,
 ):
     compile_ttir_to_flatbuffer(
         test_fn,
@@ -2532,7 +2519,6 @@ def test_unique_ops(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
     )
 
 
