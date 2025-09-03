@@ -20,7 +20,8 @@ include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
-def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TTCore_DuplicateConstEvalTrait]> {
+def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TTCore_DuplicateConstEvalTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Get Device op.";
     let description = [{
       This op returns a submesh carved out from the parent runtime device.
@@ -93,7 +94,9 @@ def TTNN_TypecastOp : TTNN_Op<"typecast",
     let hasVerifier = 1;
 }
 
-def TTNN_ToDTypeOp : TTNN_Op<"to_dtype"> {
+def TTNN_ToDTypeOp : TTNN_Op<"to_dtype",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "ToDType op.";
     let description = [{
       This op converts the data type of the input tensor based on the given data type on the host.
@@ -112,7 +115,9 @@ def TTNN_ToDTypeOp : TTNN_Op<"to_dtype"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
+def TTNN_ToDeviceOp : TTNN_Op<"to_device",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "ToDevice op.";
     let description = [{
       This op sends the input tensor to the given device with the given memory config.
@@ -124,7 +129,9 @@ def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
+def TTNN_FromDeviceOp : TTNN_Op<"from_device",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "FromDevice op.";
     let description = [{
       This op retrieves the input tensor from the given device.
