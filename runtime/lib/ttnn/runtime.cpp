@@ -139,7 +139,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
         hostTensor, /*meshEvent=*/std::nullopt, shouldRetain);
   }
 
-  ::ttnn::MeshDevice *meshDevice = inputTensor.mesh_device();
+  ::ttnn::MeshDevice *meshDevice = inputTensor.device();
   LOG_ASSERT(meshDevice, "Device tensor must live on a mesh device");
 
   // If untilize is true and the data type can be untilized on device
@@ -1570,7 +1570,7 @@ void updateTensorInPool(CallbackContext programContextHandle,
   ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
   srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
   if (utils::isOnDevice(dstTensor.storage_type())) {
-    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.mesh_device(),
+    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.device(),
                                   dstTensor.memory_config());
   }
   tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);

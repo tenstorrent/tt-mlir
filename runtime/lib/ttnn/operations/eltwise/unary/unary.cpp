@@ -196,7 +196,7 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Log: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::log);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::log);
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Expm1: {

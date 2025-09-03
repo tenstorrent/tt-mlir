@@ -53,6 +53,18 @@ struct UnaryEltwiseOpModel {
                                              TTNNLayoutAttr outputLayout);
 };
 
+template <typename OpT>
+struct UnaryEltwiseWithFastApproxModeOpModel {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             TTNNLayoutAttr outputLayout);
+};
+
 template <>
 struct OpModel<ReluOp> : UnaryEltwiseOpModel<ReluOp> {};
 
@@ -72,7 +84,7 @@ template <>
 struct OpModel<TanhOp> : UnaryEltwiseOpModel<TanhOp> {};
 
 template <>
-struct OpModel<LogOp> : UnaryEltwiseOpModel<LogOp> {};
+struct OpModel<LogOp> : UnaryEltwiseWithFastApproxModeOpModel<LogOp> {};
 
 template <>
 struct OpModel<CeilOp> : UnaryEltwiseOpModel<CeilOp> {};
@@ -99,7 +111,7 @@ template <>
 struct OpModel<AtanOp> : UnaryEltwiseOpModel<AtanOp> {};
 
 template <>
-struct OpModel<Log1pOp> : UnaryEltwiseOpModel<Log1pOp> {};
+struct OpModel<Log1pOp> : UnaryEltwiseWithFastApproxModeOpModel<Log1pOp> {};
 
 template <>
 struct OpModel<Expm1Op> : UnaryEltwiseOpModel<Expm1Op> {};
@@ -112,18 +124,6 @@ struct OpModel<CbrtOp> : UnaryEltwiseOpModel<CbrtOp> {};
 
 template <>
 struct OpModel<BitwiseNotOp> : UnaryEltwiseOpModel<BitwiseNotOp> {};
-
-template <typename OpT>
-struct UnaryEltwiseWithFastApproxModeOpModel {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(ttcore::GridAttr deviceGrid,
-                   llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
-
-  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                             TTNNLayoutAttr inputLayout,
-                                             TTNNLayoutAttr outputLayout);
-};
 
 template <>
 struct OpModel<RsqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp> {};
