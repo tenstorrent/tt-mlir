@@ -1235,6 +1235,51 @@ TEST_F(OpModelBase, SliceStaticOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, SliceDynamicOpInterface) {
+  llvm::SmallVector<int64_t> tensorShapeA = {4, 32, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {2, 16, 16};
+  llvm::SmallVector<int64_t> beginsShape = {3};
+  llvm::SmallVector<int64_t> endsShape = {3};
+  auto inputLayout = CreateTiledLayout(tensorShapeA, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::DRAM,
+                                        TensorMemoryLayout::Interleaved);
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(), inputLayout);
+  auto output =
+      createEmptyTensor(tensorShapeO, builder.getBF16Type(), outputLayout);
+  auto begins = createEmptyTensor(beginsShape);
+  auto ends = createEmptyTensor(endsShape);
+  llvm::SmallVector<mlir::Attribute> stepAttrs = {builder.getI32IntegerAttr(1),
+                                                  builder.getI32IntegerAttr(1),
+                                                  builder.getI32IntegerAttr(1)};
+
+  auto sliceDynamicOp =
+      builder.create<SliceDynamicOp>(builder.getUnknownLoc(), output.getType(),
+                                     mlir::ValueRange{input, begins, ends});
+  sliceDynamicOp.setStepAttr(builder.getArrayAttr(stepAttrs));
+
+  // test SliceDynamicOp interface
+  auto constraintsExp = getOpConstraints(sliceDynamicOp.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 4096);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(sliceDynamicOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, toLayoutOp) {
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};
   RankedTensorType rankedTensorType = createRankedTensorType(tensorShape);
