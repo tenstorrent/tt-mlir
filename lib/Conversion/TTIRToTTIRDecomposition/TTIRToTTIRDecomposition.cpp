@@ -870,7 +870,7 @@ private:
     auto inverseOutputPermutation =
         ttmlir::utils::inversePermutation(outputPermutation);
     auto permutedOutputShape = ttmlir::utils::applyPermutation(
-        expectedOutputType.getShape(), inverseOutputPermutation);
+        expectedOutputType.getShape(), outputPermutation);
 
     auto reshapedOutput = createReshapeOp(
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshapeOutput"),
