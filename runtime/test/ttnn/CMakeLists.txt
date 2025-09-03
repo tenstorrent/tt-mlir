@@ -30,3 +30,5 @@ install(TARGETS TTRuntimeTTNNTestLib
   PUBLIC_HEADER
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime/test
 )
+
+add_subdirectory(gtest)

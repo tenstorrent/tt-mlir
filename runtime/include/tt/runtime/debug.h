@@ -5,6 +5,7 @@
 #ifndef TT_RUNTIME_DEBUG_H
 #define TT_RUNTIME_DEBUG_H
 
+#include <cassert>
 #include <functional>
 #include <optional>
 #include <ostream>
@@ -154,6 +155,16 @@ private:
 inline std::ostream &operator<<(std::ostream &os, const Stats &stats) {
   os << stats.toString();
   return os;
+}
+
+template <typename Func>
+void verifyFlatbuffer(const ::flatbuffers::FlatBufferBuilder &fbb,
+                      const Func &verifierFn) {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
+  bool valid = verifierFn(verifier);
+  assert(valid && "Failed to verify flatbuffer");
+#endif
 }
 
 } // namespace tt::runtime::debug

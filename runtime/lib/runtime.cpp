@@ -6,7 +6,6 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/types.h"
-#include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
@@ -174,9 +173,6 @@ Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &stride,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType) {
-  LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
-             "Cannot create borrowed tensor with unsupported data type: " +
-                 std::string(::tt::target::EnumNameDataType(dataType)));
   using RetType = Tensor;
   LOG_ASSERT(itemsize > 0);
   return DISPATCH_TO_CURRENT_RUNTIME(

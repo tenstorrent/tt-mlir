@@ -30,13 +30,20 @@ endif()
 add_library(TTRuntimeGTestLib INTERFACE)
 target_include_directories(TTRuntimeGTestLib INTERFACE
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
     ${TTMLIR_TOOLCHAIN}/include
 )
+target_include_directories(TTRuntimeGTestLib SYSTEM INTERFACE "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 
 target_link_libraries(TTRuntimeGTestLib INTERFACE
     TTBinary
+    TTRuntimeTypes
+    TTRuntimeUtils
+    TTRuntimeSocket
     TTMLIRRuntime
+    TTRuntimeDistributedServer
+    TTRuntimeDistributedClient
     TTNN_LIBRARY
     TTMETAL_LIBRARY
     DEVICE_LIBRARY
