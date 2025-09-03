@@ -2638,7 +2638,7 @@ public:
     /*
     The `capture_or_execute_trace` is a function that depends on the global
     state. On the first call, it calls `capture_calle` and on the second (and
-    onwards) calls `execute_calle`. Pseudo C++ code looks like:
+    onwards) calls `execute_calle`. Pseudo-C++ code looks like:
 
     bool is_first_call = true;
     ttnn::MeshTraceId trace_id;
@@ -2662,10 +2662,17 @@ public:
         return actual_output_0,..., actual_output_m;
       } else {
         return execute_calle(trace_id);
-        return actual_output_0,..., actual_output_m;
+        return global_output_0,..., global_output_m;
       }
     }
+
+    Currently supporting only one output.
     */
+    MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = srcOp.getLoc();
+
+    auto ttnnTensorType =
+        emitc::OpaqueType::get(ctx, ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
 
     auto moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
     if (!moduleOp) {
@@ -2679,33 +2686,39 @@ public:
     }
     rewriter.setInsertionPoint(&*insertionPointOp);
 
-    rewriter.create<emitc::GlobalOp>(
-        srcOp.getLoc(), /*sym_name=*/"is_first_call", rewriter.getI1Type(),
+    // Define global variable to track if this is the first call.
+    auto isFirstCall = rewriter.create<emitc::GlobalOp>(
+        loc, /*sym_name=*/"is_first_call", rewriter.getI1Type(),
         rewriter.getBoolAttr(true));
-    rewriter.create<emitc::GlobalOp>(
-        srcOp.getLoc(), /*sym_name=*/"trace_id",
+
+    // Define global variable to track the trace id.
+    auto traceId = rewriter.create<emitc::GlobalOp>(
+        loc, /*sym_name=*/"trace_id",
         getTypeConverter()->convertType(
             mlir::tt::ttnn::utils::getTraceIdType(srcOp.getContext())),
         /*initial_value=*/nullptr);
 
-    llvm::SmallVector<emitc::GlobalOp> inputVariable;
+    // Define global variables to track the inputs.
+    llvm::SmallVector<emitc::GlobalOp> traceInputVariable;
     for (auto [i, input] : llvm::enumerate(adaptor.getInputs())) {
-      inputVariable.emplace_back(rewriter.create<emitc::GlobalOp>(
-          srcOp.getLoc(), /*sym_name=*/"input_" + std::to_string(i),
+      traceInputVariable.emplace_back(rewriter.create<emitc::GlobalOp>(
+          loc, /*sym_name=*/"input_" + std::to_string(i),
           getTypeConverter()->convertType(input.getType()),
           /*initial_value=*/nullptr));
     }
-    llvm::SmallVector<emitc::GlobalOp> outputVariable;
+
+    // Define global variables to track the outputs.
+    llvm::SmallVector<emitc::GlobalOp> traceOutputVariable;
     for (auto [i, output] : llvm::enumerate(srcOp.getResults())) {
-      outputVariable.emplace_back(rewriter.create<emitc::GlobalOp>(
-          srcOp.getLoc(), /*sym_name=*/"output_" + std::to_string(i),
+      traceOutputVariable.emplace_back(rewriter.create<emitc::GlobalOp>(
+          loc, /*sym_name=*/"output_" + std::to_string(i),
           getTypeConverter()->convertType(output.getType()),
           /*initial_value=*/nullptr));
     }
 
+    // Create `capture_or_execute_trace` function.
     std::string funcName = "capture_or_execute_trace";
 
-    // Create emitc.func with the stateful logic at module level
     mlir::SmallVector<mlir::Type> inputTypes = llvm::map_to_vector(
         adaptor.getOperands(), [](auto operand) { return operand.getType(); });
 
@@ -2716,42 +2729,27 @@ public:
 
     auto funcType = rewriter.getFunctionType(inputTypes, resultTypes);
 
-    // Create the function at the top of the module
     rewriter.setInsertionPoint(srcOp->getParentOfType<func::FuncOp>());
-    auto funcOp =
-        rewriter.create<emitc::FuncOp>(srcOp.getLoc(), funcName, funcType);
+    auto funcOp = rewriter.create<emitc::FuncOp>(loc, funcName, funcType);
 
-    // Create function body with stateful logic
     auto *block = funcOp.addEntryBlock();
 
     rewriter.setInsertionPointToStart(block);
 
-    // Prepare symbol refs for globals
-    auto &ctx = *rewriter.getContext();
-    auto isFirstSym = SymbolRefAttr::get(&ctx, "is_first_call");
-    auto traceIdSym = SymbolRefAttr::get(&ctx, "trace_id");
-    llvm::SmallVector<FlatSymbolRefAttr> inputSyms;
-    for (unsigned i = 0; i < inputVariable.size(); ++i) {
-      inputSyms.push_back(
-          SymbolRefAttr::get(&ctx, ("input_" + std::to_string(i)).c_str()));
-    }
-    llvm::SmallVector<FlatSymbolRefAttr> outputSyms;
-    for (unsigned i = 0; i < outputVariable.size(); ++i) {
-      outputSyms.push_back(
-          SymbolRefAttr::get(&ctx, ("output_" + std::to_string(i)).c_str()));
-    }
-
-    // Load condition is_first_call
-    auto isFirstLValue = rewriter.create<emitc::GetGlobalOp>(
-        srcOp.getLoc(), emitc::LValueType::get(rewriter.getI1Type()),
-        isFirstSym);
-    auto cond = rewriter.create<emitc::LoadOp>(
-        srcOp.getLoc(), rewriter.getI1Type(), isFirstLValue);
+    // Define local variables that represent the return values.
+    llvm::SmallVector<emitc::VariableOp> returnVariable =
+        llvm::map_to_vector(resultTypes, [&](auto resultType) {
+          return rewriter.create<emitc::VariableOp>(
+              loc, emitc::LValueType::get(ttnnTensorType),
+              emitc::OpaqueAttr::get(rewriter.getContext(),
+                                     "::ttnn::Tensor()"));
+        });
 
     // Create if statement with then/else blocks
-    auto ifOp = rewriter.create<emitc::IfOp>(srcOp.getLoc(), cond.getResult(),
-                                             /*add_then_block=*/true,
-                                             /*add_else_block=*/true);
+    auto ifOp = rewriter.create<emitc::IfOp>(
+        loc, loadGlobalVariable(rewriter, srcOp.getLoc(), isFirstCall),
+        /*add_then_block=*/true,
+        /*add_else_block=*/true);
 
     // THEN: first call path
     {
@@ -2759,79 +2757,67 @@ public:
       rewriter.setInsertionPointToStart(&thenBlock);
 
       // is_first_call = false;
-      auto isFirstLValueThen = rewriter.create<emitc::GetGlobalOp>(
-          srcOp.getLoc(), emitc::LValueType::get(rewriter.getI1Type()),
-          isFirstSym);
       auto falseC = rewriter.create<mlir::arith::ConstantOp>(
-          srcOp.getLoc(), rewriter.getI1Type(), rewriter.getBoolAttr(false));
-      rewriter.create<emitc::AssignOp>(srcOp.getLoc(), isFirstLValueThen,
-                                       falseC);
+          loc, rewriter.getI1Type(), rewriter.getBoolAttr(false));
+      rewriter.create<emitc::AssignOp>(
+          loc, getGlobalVariable(rewriter, loc, isFirstCall), falseC);
 
       // v = capture_callee(args...)
-      auto autoTy = emitc::OpaqueType::get(&ctx, "auto");
+      // First block argument is the device, so we drop it.
+      auto autoTy = emitc::OpaqueType::get(ctx, "auto");
       auto captureTuple = rewriter.create<emitc::CallOpaqueOp>(
-          srcOp.getLoc(), TypeRange{autoTy}, srcOp.getCaptureCallee(), nullptr,
-          nullptr, block->getArguments());
+          loc, autoTy, srcOp.getCaptureCallee(), nullptr, nullptr,
+          block->getArguments().drop_front());
 
-      // trace_id = std::get<0>(v)
-      auto traceIdLValue = rewriter.create<emitc::GetGlobalOp>(
-          srcOp.getLoc(),
-          emitc::LValueType::get(getTypeConverter()->convertType(
-              mlir::tt::ttnn::utils::getTraceIdType(srcOp.getContext()))),
-          traceIdSym);
-      auto get0 = rewriter.create<emitc::CallOpaqueOp>(
-          srcOp.getLoc(),
-          TypeRange{getTypeConverter()->convertType(
-              mlir::tt::ttnn::utils::getTraceIdType(srcOp.getContext()))},
-          "::std::get<0>", nullptr, nullptr,
-          ValueRange{captureTuple.getResult(0)});
-      rewriter.create<emitc::AssignOp>(srcOp.getLoc(), traceIdLValue,
-                                       get0.getResult(0));
+      // trace_id = std::get<0>(v);
+      auto getTraceId = rewriter.create<emitc::CallOpaqueOp>(
+          loc, traceId.getType(), "::std::get<0>", nullptr, nullptr,
+          captureTuple.getResult(0));
+      rewriter.create<emitc::AssignOp>(
+          loc, getGlobalVariable(rewriter, loc, traceId),
+          getTraceId.getResult(0));
 
-      // auto actual_output = std::get<1>(v) [not needed when returning via
-      // global]
-      (void)ctx;
+      // local_output_0 = std::get<outputBaseIndex + i>(v);
+      // ...
+      // local_output_n = std::get<outputBaseIndex + n>(v);
+      const size_t outputBaseIndex = 1;
+      for (size_t i = 0; i < returnVariable.size(); ++i) {
+        std::string getName =
+            "::std::get<" + std::to_string(outputBaseIndex + i) + ">";
+        auto getResult = rewriter.create<emitc::CallOpaqueOp>(
+            loc, ttnnTensorType, getName, nullptr, nullptr,
+            captureTuple.getResult(0));
+        rewriter.create<emitc::AssignOp>(loc, returnVariable[i].getResult(),
+                                         getResult.getResult(0));
+      }
 
       // input_i = std::get<inputBaseIndex + i>(v)
-      const unsigned inputBaseIndex = 2;
-      for (unsigned i = 0; i < inputVariable.size(); ++i) {
-        auto inLV = rewriter.create<emitc::GetGlobalOp>(
-            srcOp.getLoc(),
-            emitc::LValueType::get(getTypeConverter()->convertType(
-                adaptor.getInputs()[i].getType())),
-            inputSyms[i]);
+      const size_t inputBaseIndex = 1 + returnVariable.size();
+      for (size_t i = 0; i < traceInputVariable.size(); ++i) {
         std::string getName =
             "::std::get<" + std::to_string(inputBaseIndex + i) + ">";
-        auto getIn = rewriter.create<emitc::CallOpaqueOp>(
-            srcOp.getLoc(),
-            TypeRange{getTypeConverter()->convertType(
-                adaptor.getInputs()[i].getType())},
-            getName, nullptr, nullptr, ValueRange{captureTuple.getResult(0)});
-        rewriter.create<emitc::AssignOp>(srcOp.getLoc(), inLV,
-                                         getIn.getResult(0));
+        auto getResult = rewriter.create<emitc::CallOpaqueOp>(
+            loc, traceInputVariable[i].getType(), getName, nullptr, nullptr,
+            ValueRange{captureTuple.getResult(0)});
+        rewriter.create<emitc::AssignOp>(
+            loc, getGlobalVariable(rewriter, loc, traceInputVariable[i]),
+            getResult.getResult(0));
       }
 
-      // output_0 = std::get<inputBaseIndex + numInputs>(v)
-      if (resultTypes.size() != 1) {
-        (void)resultTypes;
-        rewriter.create<emitc::YieldOp>(srcOp.getLoc());
-      } else {
-        const unsigned outputBaseIndex =
-            inputBaseIndex + static_cast<unsigned>(inputVariable.size());
-        auto out0LV = rewriter.create<emitc::GetGlobalOp>(
-            srcOp.getLoc(), emitc::LValueType::get(resultTypes[0]),
-            outputSyms[0]);
-        std::string getOut0Name =
-            "::std::get<" + std::to_string(outputBaseIndex) + ">";
-        auto getOut0 = rewriter.create<emitc::CallOpaqueOp>(
-            srcOp.getLoc(), TypeRange{resultTypes[0]}, getOut0Name, nullptr,
-            nullptr, ValueRange{captureTuple.getResult(0)});
-        rewriter.create<emitc::AssignOp>(srcOp.getLoc(), out0LV,
-                                         getOut0.getResult(0));
-
-        // finish then block
-        rewriter.create<emitc::YieldOp>(srcOp.getLoc());
+      const size_t traceOutputBaseIndex =
+          inputBaseIndex + traceInputVariable.size();
+      for (size_t i = 0; i < traceOutputVariable.size(); ++i) {
+        std::string getName =
+            "::std::get<" + std::to_string(traceOutputBaseIndex + i) + ">";
+        auto getResult = rewriter.create<emitc::CallOpaqueOp>(
+            loc, traceOutputVariable[i].getType(), getName, nullptr, nullptr,
+            captureTuple.getResult(0));
+        rewriter.create<emitc::AssignOp>(
+            loc, getGlobalVariable(rewriter, loc, traceOutputVariable[i]),
+            getResult.getResult(0));
       }
+
+      rewriter.create<emitc::YieldOp>(loc);
     }
 
     // ELSE: execute path
@@ -2839,34 +2825,23 @@ public:
       Block &elseBlock = ifOp.getElseRegion().getBlocks().front();
       rewriter.setInsertionPointToStart(&elseBlock);
 
-      // execute_callee(trace_id)
-      auto traceIdLValueElse = rewriter.create<emitc::GetGlobalOp>(
-          srcOp.getLoc(),
-          emitc::LValueType::get(getTypeConverter()->convertType(
-              mlir::tt::ttnn::utils::getTraceIdType(srcOp.getContext()))),
-          traceIdSym);
-      auto traceIdVal = rewriter.create<emitc::LoadOp>(
-          srcOp.getLoc(),
-          getTypeConverter()->convertType(
-              mlir::tt::ttnn::utils::getTraceIdType(srcOp.getContext())),
-          traceIdLValueElse);
+      // execute_callee(trace_id);
       rewriter.create<emitc::CallOpaqueOp>(
-          srcOp.getLoc(), TypeRange{}, srcOp.getExecuteCallee(), nullptr,
-          nullptr, ValueRange{traceIdVal.getResult()});
+          loc, TypeRange{}, srcOp.getExecuteCallee(), nullptr, nullptr,
+          loadGlobalVariable(rewriter, loc, traceId));
 
-      // finish else block
-      rewriter.create<emitc::YieldOp>(srcOp.getLoc());
+      rewriter.create<emitc::YieldOp>(loc);
     }
 
     // After the if-then-else, load the result and return it from the function.
     rewriter.setInsertionPointAfter(ifOp);
-    auto out0LVRet = rewriter.create<emitc::GetGlobalOp>(
-        srcOp.getLoc(), emitc::LValueType::get(resultTypes[0]), outputSyms[0]);
-    auto out0ValRet = rewriter.create<emitc::LoadOp>(srcOp.getLoc(),
-                                                     resultTypes[0], out0LVRet);
-    rewriter.create<emitc::ReturnOp>(srcOp.getLoc(), out0ValRet.getResult());
 
-    // Replace the original operation with a call to our new function
+    assert(returnVariable.size() == 1 && "expected one return variable");
+    auto result =
+        rewriter.create<emitc::LoadOp>(loc, ttnnTensorType, returnVariable[0]);
+    rewriter.create<emitc::ReturnOp>(loc, result.getResult());
+
+    // Replace the original operation with a call to our new function.
     auto resultType =
         getTypeConverter()->convertType(srcOp.getResult(0).getType());
 
@@ -2876,6 +2851,22 @@ public:
         ttmlir::utils::flatten(adaptor.getDevice(), adaptor.getInputs()));
 
     return success();
+  }
+
+private:
+  mlir::Value getGlobalVariable(mlir::PatternRewriter &rewriter,
+                                mlir::Location loc,
+                                emitc::GlobalOp globalOp) const {
+    return rewriter.create<emitc::GetGlobalOp>(
+        loc, emitc::LValueType::get(globalOp.getType()),
+        globalOp.getSymNameAttr());
+  }
+
+  mlir::Value loadGlobalVariable(mlir::PatternRewriter &rewriter,
+                                 mlir::Location loc,
+                                 emitc::GlobalOp globalOp) const {
+    auto getGlobalOp = getGlobalVariable(rewriter, loc, globalOp);
+    return rewriter.create<emitc::LoadOp>(loc, globalOp.getType(), getGlobalOp);
   }
 };
 } // namespace

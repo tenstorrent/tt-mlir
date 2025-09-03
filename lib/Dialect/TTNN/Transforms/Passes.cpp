@@ -186,8 +186,7 @@ public:
         rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
 
-      if (!funcOp->getUses().empty() ||
-          ttmlir::utils::isConstEvalFunc(funcOp)) {
+      if (funcOp.isPrivate() || ttmlir::utils::isConstEvalFunc(funcOp)) {
         return mlir::WalkResult::skip();
       }
 
