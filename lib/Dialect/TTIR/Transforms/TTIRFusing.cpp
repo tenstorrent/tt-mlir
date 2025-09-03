@@ -10,9 +10,7 @@
 #include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include <llvm/Support/Casting.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/IR/Value.h>
+#include "llvm/ADT/SmallSet.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -1073,10 +1071,12 @@ public:
     if (!numerator) {
       return mlir::failure();
     }
+
     // Numerator must have the Sum pooling method.
     if (numerator.getPoolingMethod() != PoolingMethod::Sum) {
       return mlir::failure();
     }
+
     // Denominator must trace through first operands to pooling op.
     Value currentDenominator = op.getRhs();
     PoolingOp denominator;
@@ -1084,7 +1084,6 @@ public:
       if (!currentDenominator.getDefiningOp()) {
         return mlir::failure();
       }
-
       // We expect that the pooling denominator is only reshaped (for rank
       // change) and broadcasted if any ops lies between at all. If any other
       // ops lie between the denominator pooling op and the div op, then we
@@ -1092,18 +1091,20 @@ public:
       if (!isa<ReshapeOp, BroadcastOp>(currentDenominator.getDefiningOp())) {
         return mlir::failure();
       }
-
       currentDenominator = currentDenominator.getDefiningOp()->getOperand(0);
     }
     denominator = currentDenominator.getDefiningOp<PoolingOp>();
+
     // The denominator must have the Sum pooling method.
     if (denominator.getPoolingMethod() != PoolingMethod::Sum) {
       return mlir::failure();
     }
+
     // Denominator pooling op must have the same number of inputs as numerator.
     if (numerator.getInputs().size() != denominator.getInputs().size()) {
       return mlir::failure();
     }
+
     // Denominator pooling op must have all inputs be either a FullOp or a
     // ConstantOp.
     if (!llvm::all_of(denominator.getInputs(), [](Value v) {
@@ -1111,6 +1112,7 @@ public:
         })) {
       return mlir::failure();
     }
+
     // Besides the padding attribute, all attributes of the denominator must
     // match the rightmost sublist of the numerator's attributes.
     if (!matchRightMostSubList(numerator.getWindowDimensions(),
@@ -1132,6 +1134,7 @@ public:
                                denominator.getWindowDilations())) {
       return mlir::failure();
     }
+
     // The padding attribute of the denominator must
     // be all zeros.
     if (denominator.getPadding().empty()) {
@@ -1299,46 +1302,52 @@ private:
   }
 };
 
-// The following OpRewritePattern fuses: reshape(multiply(sum, 1/n)) to avg_pool
-class GlobalAvgPoolPattern : public mlir::OpRewritePattern<MultiplyOp> {
+// Global average pooling pattern matcher that transforms:
+//   multiply(sum<dim=[2,3]>(act), 1/(h*w))
+// into:
+//   avg_pool(act, window=[h,w], stride=1, padding=0)
+//
+// Supports 4D input tensors with reduction over spatial dimensions (height and
+// width).
+class GlobalAveragePoolingPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
+
+private:
+  static constexpr float FLOAT_TOLERANCE = 1e-4f;
+  static constexpr int64_t EXPECTED_INPUT_RANK = 4;
+  static constexpr int64_t SPATIAL_HEIGHT_DIM = 2;
+  static constexpr int64_t SPATIAL_WIDTH_DIM = 3;
+
+  struct PoolingConfig {
+    llvm::SmallVector<int64_t> windowDimensions;
+    llvm::SmallVector<int64_t> windowStrides;
+    llvm::SmallVector<int64_t> baseDilations;
+    llvm::SmallVector<int64_t> windowDilations;
+    llvm::SmallVector<int64_t> padding;
+  };
 
 public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
-    // Match the specific pattern: reshape(multiply(sum, 1/h*w))
-    // and replace it with avg_pool.
 
     SumOp sumOp = multiplyOp.getLhs().getDefiningOp<SumOp>();
     if (!validateSumOp(sumOp)) {
       return mlir::failure();
     }
 
-    auto input = sumOp.getInput();
-    auto inputShape = input.getType().getShape();
-    bool keepDim = sumOp.getKeepDim();
-
     FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
+    auto inputShape = sumOp.getInput().getType().getShape();
     if (!validateFullOp(fullOp, inputShape)) {
       return mlir::failure();
     }
 
-    PoolingConfig poolingConfig = createPoolingConfig(inputShape);
+    auto poolingOp = createPoolingOp(rewriter, sumOp);
 
-    // Create a type for pooling with shape [..., 1, 1] for the last two
-    // dimensions
-    RankedTensorType poolOutputType = createPoolingOutputType(input.getType());
-
-    auto poolingOp = utils::createDPSOp<PoolingOp>(
-        rewriter, multiplyOp.getLoc(), poolOutputType, input,
-        PoolingMethod::Average, poolingConfig.windowDimensions,
-        poolingConfig.windowStrides, poolingConfig.baseDilations,
-        poolingConfig.windowDilations, poolingConfig.padding);
-
-    if (!keepDim) {
+    if (!sumOp.getKeepDim()) {
       auto outputType = multiplyOp.getOutput().getType();
-      auto reshapePoolOp = reshapePoolOutput(rewriter, poolingOp, outputType);
+      auto reshapePoolOp =
+          createReshapePoolOutOp(rewriter, poolingOp, outputType);
       rewriter.replaceOp(multiplyOp, reshapePoolOp.getResult());
     } else {
       rewriter.replaceOp(multiplyOp, poolingOp.getResult(0));
@@ -1352,89 +1361,60 @@ private:
     if (!fullOp) {
       return false;
     }
-
     Attribute fillValueAttr = fullOp.getFillValue();
-    if (!fillValueAttr) {
+    auto floatAttr = mlir::dyn_cast_or_null<FloatAttr>(fillValueAttr);
+    if (!floatAttr) {
       return false;
     }
-    if (!isa<FloatAttr>(fillValueAttr)) {
-      return false;
-    }
-    float fillValue =
-        dyn_cast<FloatAttr>(fillValueAttr).getValue().convertToFloat();
-    int64_t inputRank = inputShape.size();
-    int64_t inputHeight = inputShape[inputRank - 2];
-    int64_t inputWidth = inputShape[inputRank - 1];
-    float expectedValue = 1.0 / (inputHeight * inputWidth);
-    if (std::abs(fillValue - expectedValue) > 1e-4) {
-      return false;
-    }
-    return true;
+    float fillValue = floatAttr.getValue().convertToFloat();
+    int64_t inputHeight = inputShape[SPATIAL_HEIGHT_DIM];
+    int64_t inputWidth = inputShape[SPATIAL_WIDTH_DIM];
+    float expectedValue = 1.0f / static_cast<float>(inputHeight * inputWidth);
+    float tolerance =
+        std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
+    return std::abs(fillValue - expectedValue) <= tolerance;
   }
+
   bool validateSumOp(SumOp sumOp) const {
-    if (!sumOp) {
+    if (!sumOp || !sumOp.getDimArg() || !sumOp->hasOneUse()) {
       return false;
     }
-    if (!sumOp.getDimArg()) {
-      return false;
-    }
-    if (sumOp.getInput().getType().getShape().size() != 4) {
-      return false;
-    }
-    if (!sumOp->hasOneUse()) {
+
+    auto inputShape = sumOp.getInput().getType().getShape();
+    if (inputShape.size() != EXPECTED_INPUT_RANK) {
       return false;
     }
 
     // Check that dimensions 2 and 3 are being reduced (height and width)
-    mlir::ArrayAttr reduceDims = *sumOp.getDimArg();
+    auto reduceDims = *sumOp.getDimArg();
     if (reduceDims.size() != 2) {
       return false;
     }
 
-    llvm::SmallVector<int64_t> dims;
-    for (mlir::Attribute reduceDim : reduceDims) {
-      dims.push_back(mlir::cast<mlir::IntegerAttr>(reduceDim).getInt());
+    llvm::SmallSet<int64_t, 2> dimSet;
+    for (mlir::Attribute attr : reduceDims) {
+      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
+      if (!intAttr) {
+        return false;
+      }
+      dimSet.insert(intAttr.getInt());
     }
-
-    // Sort dimensions to check for [2, 3]
-    llvm::sort(dims);
-    return dims[0] == 2 && dims[1] == 3;
+    return dimSet.contains(SPATIAL_HEIGHT_DIM) &&
+           dimSet.contains(SPATIAL_WIDTH_DIM);
   }
-  ReshapeOp reshapePoolOutput(mlir::PatternRewriter &rewriter,
-                              PoolingOp poolingOp,
-                              RankedTensorType outputType) const {
-    auto loc = poolingOp.getLoc();
-    llvm::SmallVector<int64_t> outputShape(outputType.getShape());
-    SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());
-    // rewriter.setInsertionPointAfter(poolingOp);
-    auto reshapeOp = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
-        outputType, poolingOp.getResult(0),
-        rewriter.getI32ArrayAttr(outputShapeI32));
-    return reshapeOp;
-  }
-
-  struct PoolingConfig {
-    llvm::SmallVector<int64_t> windowDimensions;
-    llvm::SmallVector<int64_t> windowStrides;
-    llvm::SmallVector<int64_t> baseDilations;
-    llvm::SmallVector<int64_t> windowDilations;
-    llvm::SmallVector<int64_t> padding;
-  };
 
   PoolingConfig createPoolingConfig(ArrayRef<int64_t> inputShape) const {
     PoolingConfig config;
-
-    // Get input dimensions
     int64_t inputRank = inputShape.size();
-    int64_t inputHeight = inputShape[inputRank - 2];
-    int64_t inputWidth = inputShape[inputRank - 1];
+    int64_t inputHeight = inputShape[SPATIAL_HEIGHT_DIM];
+    int64_t inputWidth = inputShape[SPATIAL_WIDTH_DIM];
 
-    // Initialize all vectors with appropriate size
+    // Window dimensions: [1, 1, height, width] for 4D tensor
     config.windowDimensions.assign(inputRank, 1);
-    config.windowDimensions[inputRank - 2] = inputHeight;
-    config.windowDimensions[inputRank - 1] = inputWidth;
+    config.windowDimensions[SPATIAL_HEIGHT_DIM] = inputHeight;
+    config.windowDimensions[SPATIAL_WIDTH_DIM] = inputWidth;
 
+    // All other parameters are 1 for global pooling
     config.windowStrides.assign(inputRank, 1);
     config.baseDilations.assign(inputRank, 1);
     config.windowDilations.assign(inputRank, 1);
@@ -1445,11 +1425,39 @@ private:
 
   RankedTensorType createPoolingOutputType(RankedTensorType inputType) const {
     SmallVector<int64_t> poolOutputShape(inputType.getShape());
-    poolOutputShape[poolOutputShape.size() - 2] = 1; // height = 1
-    poolOutputShape[poolOutputShape.size() - 1] = 1; // width = 1
+    poolOutputShape[SPATIAL_HEIGHT_DIM] = 1;
+    poolOutputShape[SPATIAL_WIDTH_DIM] = 1;
 
     return RankedTensorType::get(poolOutputShape, inputType.getElementType(),
                                  inputType.getEncoding());
+  }
+
+  PoolingOp createPoolingOp(mlir::PatternRewriter &rewriter,
+                            SumOp sumOp) const {
+
+    auto config = createPoolingConfig(sumOp.getInput().getType().getShape());
+    auto outputType = createPoolingOutputType(sumOp.getInput().getType());
+    auto loc = sumOp.getLoc();
+
+    auto poolingOp = ttir::utils::createDPSOp<ttir::PoolingOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_pool"), outputType,
+        sumOp.getInput(), PoolingMethod::Average, config.windowDimensions,
+        config.windowStrides, config.baseDilations, config.windowDilations,
+        config.padding);
+    return poolingOp;
+  }
+
+  ReshapeOp createReshapePoolOutOp(mlir::PatternRewriter &rewriter,
+                                   PoolingOp poolingOp,
+                                   RankedTensorType outputType) const {
+    auto loc = poolingOp.getLoc();
+    llvm::SmallVector<int64_t> outputShape(outputType.getShape());
+    SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
+        outputType, poolingOp.getResult(0),
+        rewriter.getI32ArrayAttr(outputShapeI32));
   }
 };
 
@@ -2026,7 +2034,7 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
-      patterns.add<GlobalAvgPoolPattern>(&getContext());
+      patterns.add<GlobalAveragePoolingPattern>(&getContext());
 
       if (conv2dWithMultiplyEnabled) {
         patterns.add<BatchNormDecomposition>(&getContext());
