@@ -1096,6 +1096,10 @@ def TTKernel_EqzTileInitOp : TTKernel_InitOp<"eqz_tile_init"> {
 
     let arguments = (ins);
 
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+
 }
 
 def TTKernel_EqzTileOp : TTKernel_SFPUOp<"eqz_tile", [TTKernel_UnaryOpTrait]> {
@@ -1109,6 +1113,10 @@ def TTKernel_EqzTileOp : TTKernel_SFPUOp<"eqz_tile", [TTKernel_UnaryOpTrait]> {
 
     let arguments = (ins IndexLike:$dst0_index);
 
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+
 }
 
 def TTKernel_EqzTileI32Op : TTKernel_SFPUOp<"eqz_tile_int32", [TTKernel_UnaryOpTrait]> {
@@ -1121,6 +1129,10 @@ def TTKernel_EqzTileI32Op : TTKernel_SFPUOp<"eqz_tile_int32", [TTKernel_UnaryOpT
     }];
 
     let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
 }
 
 

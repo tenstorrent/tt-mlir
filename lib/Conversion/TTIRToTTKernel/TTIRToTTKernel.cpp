@@ -601,20 +601,13 @@ private:
     auto outCB = getOutCB(rewriter, op);
     setInsertionPointAfterOperands(rewriter, {inCB, outCB});
 
-    // Step 1: Load input operands into destination registers
-    rewriter.create<ttkernel::TileRegsAcquireOp>(op->getLoc());
-    rewriter.create<ttkernel::CopyTileInitOp>(op->getLoc(), inCB);
-    auto lhsIdx = index(rewriter, op->getLoc(), 0);
-    auto rhsIdx = index(rewriter, op->getLoc(), 1);
-    rewriter.create<ttkernel::CopyTileOp>(op->getLoc(), inCB, adaptor.getLhs(),
-                                          lhsIdx);
-    rewriter.create<ttkernel::CopyTileOp>(op->getLoc(), inCB, adaptor.getRhs(),
-                                          rhsIdx);
-    rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
-
-    // Step 2: Initialize SFPU and perform operations
+    // Step 1: Initialize SFPU
     rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
 
+    auto lhsIdx = index(rewriter, op->getLoc(), 0);
+    auto rhsIdx = index(rewriter, op->getLoc(), 1);
+
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
     // Step 3: Apply comparison operation based on type
     switch (CompType) {
     case ComparisonType::EQUAL:
@@ -640,14 +633,6 @@ private:
       break;
     }
 
-    // Step 4: Copy result back to output CB and release registers
-    rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
-    rewriter.create<ttkernel::PackTileOp>(op->getLoc(), lhsIdx, outCB,
-                                          adaptor.getLhs(),
-                                          rewriter.getBoolAttr(true));
-    rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
-
-    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
     rewriter.eraseOp(op);
     return success();
   }
@@ -1414,7 +1399,6 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLogOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLogicalNotOp>,
 
-               ttkernel::TTIRTileEqRewriter,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileNegativeOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TilePowOp>,
@@ -1425,6 +1409,7 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileTanOp>,
 
+               ttkernel::TTIRTileEqRewriter,
                ttkernel::TTIRTilizeUntilizeRewriter,
                ttkernel::TTIRTileTransposeRewriter,
                ttkernel::TTIRTypecastRewriter,
