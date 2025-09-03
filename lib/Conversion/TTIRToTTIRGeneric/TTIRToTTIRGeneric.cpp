@@ -763,14 +763,13 @@ public:
     return failure();
   }
 
+  // Handler for permutation of inner dims (i.e. transpose).
   LogicalResult
   permuteInnerDims(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
                    mlir::ConversionPatternRewriter &rewriter) const {
     auto permutation = op.getPermutation();
     assert(permutation.size() == 2 && permutation[0] == 1 &&
            permutation[1] == 0 && "Only 2D transpose supported");
-
-    // Verify we have the expected 2D transpose
 
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
@@ -782,29 +781,16 @@ public:
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
 
-    // Create transpose view for input
     auto inputTensorType =
         mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
     auto inputShape = inputTensorType.getShape();
     const unsigned deviceRank = static_cast<unsigned>(inputShape.size());
 
-    // Build transpose affine map by swapping dimension pairs
-    SmallVector<AffineExpr> results(deviceRank);
+    // Compute permutation map and permuted shape.
+    auto [transposeMap, resultShape] = computePermutationMapAndShape(
+        rewriter, permutation, inputShape, deviceRank);
 
-    unsigned logicalRank = deviceRank / 2;
-    assert(deviceRank == 2 * logicalRank &&
-           "Device rank should be 2x logical rank");
-    assert(permutation.size() == logicalRank &&
-           "Permutation size should match logical rank");
-    // Compute new affine map by permuting grid + shard affine maps.
-    for (auto [idx, permutedIdx] : llvm::enumerate(permutation)) {
-      results[idx] = rewriter.getAffineDimExpr(permutedIdx);
-      results[logicalRank + idx] =
-          rewriter.getAffineDimExpr(logicalRank + permutedIdx);
-    }
-
-    AffineMap transposeMap = AffineMap::get(deviceRank, 0, results, ctx);
-
+    // Create the result layout by composing with input layout.
     auto inputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
     AffineMap composedMap = transposeMap.compose(
@@ -815,30 +801,20 @@ public:
         inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
         inputLayout.getMemorySpace(), composedMap);
 
-    // Compute result shape by applying permutation to grid + shard dims.
-    SmallVector<int64_t> resultShape(deviceRank);
-    for (auto [dstIdx, srcIdx] : llvm::enumerate(permutation)) {
-      resultShape[dstIdx] = inputShape[srcIdx];
-      resultShape[dstIdx + logicalRank] = inputShape[srcIdx + logicalRank];
-    }
-
     auto viewType = mlir::RankedTensorType::get(
         resultShape, inputTensorType.getElementType(), resultLayout);
 
-    // Create a storage tensor and form a stream from input to the transposed
-    // view to handle reblocking (e.g. NxMxtile -> MxNxtile)
+    // For inner permute, we need as streamLayout to do reblocking.
     auto storage = rewriter.create<ttir::EmptyOp>(loc, viewType);
     auto stream = rewriter.create<ttir::StreamLayoutOp>(loc, viewType,
                                                         inputs[0], storage);
-
-    // Create GenericOp to transpose each tile in the output tensor
     inputs[0] = stream.getResult();
 
-    // Use the simplified GenericOp constructor with lambda for body
+    // For inner permute, we alse need a GenericOp to transpose each individual
+    // tile.
     auto generic = rewriter.create<ttir::GenericOp>(
         loc, inputs, outputs,
         [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
-          // Create linalg generic for tile-level transpose
           auto identityMap = builder.getMultiDimIdentityMap(2);
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
               2, mlir::utils::IteratorType::parallel);
@@ -861,10 +837,39 @@ public:
           builder.create<ttir::YieldOp>(bodyLoc, linalgGeneric->getResults());
         });
 
-    // Replace with the generic's result
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
     return success();
+  }
+
+private:
+  // Apply permutation mapping to affine map and input shape to get permuted map
+  // and shape.
+  std::pair<AffineMap, SmallVector<int64_t>> computePermutationMapAndShape(
+      mlir::ConversionPatternRewriter &rewriter, ArrayRef<int64_t> permutation,
+      ArrayRef<int64_t> inputShape, unsigned deviceRank) const {
+
+    unsigned logicalRank = deviceRank / 2;
+    assert(logicalRank == permutation.size());
+    SmallVector<AffineExpr> results(deviceRank);
+    SmallVector<int64_t> resultShape(deviceRank);
+
+    for (auto [dstIdx, srcIdx] : llvm::enumerate(permutation)) {
+      // Permute grid mapping.
+      results[dstIdx] = rewriter.getAffineDimExpr(srcIdx);
+      // Permute shard mapping.
+      results[logicalRank + dstIdx] =
+          rewriter.getAffineDimExpr(logicalRank + srcIdx);
+
+      // Permute grid shape.
+      resultShape[dstIdx] = inputShape[srcIdx];
+      // Permute shard shape.
+      resultShape[dstIdx + logicalRank] = inputShape[srcIdx + logicalRank];
+    }
+
+    AffineMap transposeMap =
+        AffineMap::get(deviceRank, 0, results, rewriter.getContext());
+    return {transposeMap, resultShape};
   }
 };
 } // namespace
