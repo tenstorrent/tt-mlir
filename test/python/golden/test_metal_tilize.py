@@ -10,7 +10,7 @@ from ttmlir.dialects import ttir, ttcore
 from ttmlir.ir import *
 
 from builder.base.builder import Operand, Shape
-from golden import get_golden_function
+from ttmlir.golden.golden_funcs import get_golden_function
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 

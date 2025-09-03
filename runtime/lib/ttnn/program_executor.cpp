@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
+#include "python_embedder.h"
 
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/all_gather.h"
@@ -125,6 +126,14 @@ void ProgramExecutor::runCallback(
 void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+
+  // Initialize Python embedder for runtime scripts
+  PythonEmbedder *python_embedder = getPythonEmbedder();
+  if (python_embedder) {
+    python_embedder->onProgramStart(std::string(program->name()->c_str()),
+                                    context.get());
+  }
+
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
@@ -137,8 +146,33 @@ void ProgramExecutor::execute() {
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
+
+    // Execute Python script after postOperatorCallback
+    if (python_embedder) {
+      try {
+        python_embedder->onOperationComplete(
+            std::string(op->debug_info()->c_str()), op, context.get());
+      } catch (const std::exception &e) {
+        LOG_WARNING(LogType::LogRuntimeTTNN,
+                    "Python script execution failed for operation: ",
+                    op->debug_info()->c_str(), ", error: ", e.what());
+        if (python_embedder) {
+          python_embedder->onError(std::string("Operation: ") +
+                                   op->debug_info()->c_str() +
+                                   ", Error: " + e.what());
+        }
+      }
+    }
+
     dumpPerfCountersIfNeeded();
   }
+
+  // Signal program completion to Python script
+  if (python_embedder) {
+    python_embedder->onProgramEnd(std::string(program->name()->c_str()),
+                                  context.get());
+  }
+
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
 }

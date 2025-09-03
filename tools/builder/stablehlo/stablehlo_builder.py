@@ -15,7 +15,7 @@ from ttmlir.ir import *
 from ttmlir.dialects import stablehlo, sdy, mpmd
 
 from builder.base.builder import *
-from golden import get_golden_function
+from ttmlir.golden.golden_funcs import get_golden_function
 
 
 class StableHLOBuilder(Builder):

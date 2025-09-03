@@ -18,6 +18,7 @@ add_library(TTRuntimeTTNN
   STATIC
   runtime.cpp
   program_executor.cpp
+  python_embedder.cpp
 )
 # We have to set the C++ standard to 20 because tt-metal requires it
 set_property(TARGET TTRuntimeTTNN PROPERTY CXX_STANDARD 20)
@@ -25,7 +26,11 @@ target_include_directories(TTRuntimeTTNN PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
+# Python embedding support
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+target_include_directories(TTRuntimeTTNN SYSTEM PUBLIC ${Python3_INCLUDE_DIRS})
 target_include_directories(TTRuntimeTTNN SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 target_link_libraries(TTRuntimeTTNN PUBLIC TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
 target_link_libraries(TTRuntimeTTNN PUBLIC coverage_config)
+target_link_libraries(TTRuntimeTTNN PUBLIC ${Python3_LIBRARIES})
 add_dependencies(TTRuntimeTTNN TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)

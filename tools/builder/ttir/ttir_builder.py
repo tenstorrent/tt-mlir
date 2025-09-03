@@ -15,7 +15,7 @@ from ttmlir.dialects import ttir, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
-from golden import get_golden_function
+from ttmlir.golden.golden_funcs import get_golden_function
 
 
 class TTIRBuilder(Builder):
