@@ -26,7 +26,6 @@
 #include "ttmlir/Target/TTNN/operations/conv_generated.h"
 #include "ttmlir/Target/TTNN/operations/creation_generated.h"
 #include "ttmlir/Target/TTNN/operations/pool_generated.h"
-#include "ttmlir/Target/TTNN/operations/rand_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/utils.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
@@ -373,8 +372,8 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig());
 
   return ::tt::target::ttnn::CreateEmptyOp(
-      *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
-      cache.at<::tt::target::DeviceRef>(device), memoryConfig,
+      *cache.fbb, cache.at<::tt::target::DeviceRef>(device),
+      cache.fbb->CreateVector<int64_t>(shape), dtype, layout, memoryConfig,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedSize));
 }
 
@@ -405,29 +404,29 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
-  return ::tt::target::ttnn::CreateFullOpDirect(
-      *cache.fbb, &shape, fillValueType, fillValue, dtype, layout, device,
-      memoryConfig, output);
+  return ::tt::target::ttnn::CreateFullOpDirect(*cache.fbb, device, &shape,
+                                                fillValueType, fillValue, dtype,
+                                                layout, memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ArangeOp>
 createOp(FlatbufferObjectCache &cache, ArangeOp op) {
   flatbuffers::Optional<::tt::target::DataType> dtype =
       toFlatbuffer(cache, op.getDtype());
+  flatbuffers::Optional<::tt::target::TensorLayout> layout =
+      toFlatbuffer(cache, op.getLayout());
   auto device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
 
-  auto memoryConfig = op.getMemoryConfig().has_value()
-                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
-                          : 0;
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedSize);
 
   return ::tt::target::ttnn::CreateArangeOp(
-      *cache.fbb, static_cast<float>(op.getStart()),
+      *cache.fbb, device /* optional */, static_cast<float>(op.getStart()),
       static_cast<float>(op.getEnd()), static_cast<float>(op.getStep()),
-      dtype /* optional */, device /* optional */, memoryConfig /* optional */,
+      dtype /* optional */, layout /* optional */, memoryConfig /* optional */,
       output);
 }
 
@@ -464,7 +463,7 @@ createNamedFullOp(FlatbufferObjectCache &cache, OpTy op) {
                                   kHostAllocatedSize);
 
   return ::tt::target::ttnn::CreateNamedFullOp(
-      *cache.fbb, type, shape, dtype, layout, device, memoryConfig, output);
+      *cache.fbb, type, device, shape, dtype, layout, memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
@@ -684,9 +683,8 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
       toFlatbuffer(cache, op.getDilation());
 
   ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
-  if (op.getOutputDtype()) {
-    outputDtype =
-        ::mlir::tt::ttnn::utils::toTargetDataType(*op.getOutputDtype());
+  if (op.getDtype()) {
+    outputDtype = ::mlir::tt::ttnn::utils::toTargetDataType(*op.getDtype());
   }
 
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
@@ -731,9 +729,8 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
       toFlatbuffer(cache, op.getDilation());
 
   ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
-  if (op.getOutputDtype()) {
-    outputDtype =
-        ::mlir::tt::ttnn::utils::toTargetDataType(*op.getOutputDtype());
+  if (op.getDtype()) {
+    outputDtype = ::mlir::tt::ttnn::utils::toTargetDataType(*op.getDtype());
   }
 
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
@@ -988,8 +985,17 @@ createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
     llvm_unreachable("Unknown constant value attribute type");
   }
 
-  return ::tt::target::ttnn::CreateConstantOpDirect(*cache.fbb, output,
-                                                    &rawVector);
+  flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+  flatbuffers::Optional<::tt::target::TensorLayout> layout =
+      toFlatbuffer(cache, op.getLayout());
+  auto device =
+      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateConstantOpDirect(
+      *cache.fbb, device, &rawVector, dtype, layout, memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PointToPointOp>
@@ -1067,9 +1073,8 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
 
   ::flatbuffers::Optional<::tt::target::DataType> outputDtype =
       ::flatbuffers::nullopt;
-  if (op.getOutputDtype()) {
-    outputDtype =
-        ::mlir::tt::ttnn::utils::toTargetDataType(*op.getOutputDtype());
+  if (op.getDtype()) {
+    outputDtype = ::mlir::tt::ttnn::utils::toTargetDataType(*op.getDtype());
   }
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
@@ -1651,8 +1656,8 @@ createRandOp(FlatbufferObjectCache &cache, RandOp op) {
   uint32_t seed = op.getSeed();
 
   return ::tt::target::ttnn::CreateRandOp(
-      *cache.fbb, size, cache.at<::tt::target::DeviceRef>(device), dtype,
-      layout, memoryConfig, low, high, seed, out);
+      *cache.fbb, cache.at<::tt::target::DeviceRef>(device), size, low, high,
+      seed, dtype, layout, memoryConfig, out);
 }
 
 template <typename RepeatOp>
@@ -1828,8 +1833,10 @@ createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedSize);
   int32_t dimension = op.getDimension();
+  bool numericStable = op.getNumericStable();
 
-  return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension);
+  return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension,
+                                             numericStable);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::DeallocateOp>

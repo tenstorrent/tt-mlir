@@ -74,8 +74,8 @@ public:
       // Replace op
       //
       rewriter.replaceOpWithNewOp<ttnn::ZerosOp>(
-          op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
-          dTypeAttr, tensorLayoutAttr, /*device=*/nullptr,
+          op, this->getTypeConverter()->convertType(op.getType()),
+          /*device=*/nullptr, shapeAttr, dTypeAttr, tensorLayoutAttr,
           /*memoryConfig=*/nullptr);
       // Otherwise, we use regular empty op, with device-specific fields.
     } else {
@@ -94,8 +94,8 @@ public:
       // Replace op
       //
       rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
-          op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
-          dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
+          op, this->getTypeConverter()->convertType(op.getType()), device,
+          shapeAttr, dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
     }
     return success();
   }
@@ -151,8 +151,8 @@ public:
                   : nullptr;
 
     rewriter.replaceOpWithNewOp<TTNNType>(
-        op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
-        dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
+        op, this->getTypeConverter()->convertType(op.getType()), device,
+        shapeAttr, dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
 
     return success();
   }
@@ -490,7 +490,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::SoftmaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getDimension());
+        adaptor.getInput(), adaptor.getDimension(), adaptor.getNumericStable());
     return success();
   }
 };
@@ -866,9 +866,41 @@ public:
       return legalityResult;
     }
 
+    // Get ttnn::TTNNLayoutAttr of the result type
+    //
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+
+    // Get the data type and tensor layout
+    //
+    ttcore::DataType dtype = layoutAttr.getDataType();
+    ttcore::DataTypeAttr dTypeAttr =
+        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
+
+    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+
+    if (layoutAttr.isTiled()) {
+      ttnnLayoutEnum = ttnn::Layout::Tile;
+    }
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+
+    mlir::Value device = nullptr;
+    ttnn::MemoryConfigAttr memoryConfigAttr = nullptr;
+
+    if (!mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
+      device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+      ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
+          op.getContext(), layoutAttr.getBufferType());
+      memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+          op.getContext(), layoutAttr.getMemLayout(), bufferTypeAttr,
+          std::nullopt);
+    }
+
     rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getValue());
+        op, this->getTypeConverter()->convertType(op.getType()), device,
+        adaptor.getValue(), dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
 
     return success();
   }
@@ -1464,22 +1496,31 @@ public:
 
     // Get ttnn::TTNNLayoutAttr of the result type
     //
-    ttnn::TTNNLayoutAttr layoutAttr =
+    ttnn::TTNNLayoutAttr ttnnLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
 
     ttcore::DataTypeAttr dtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
         ttcore::elementTypeToDataType(outputType.getElementType()));
     Value device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
 
+    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+
+    if (ttnnLayoutAttr.isTiled()) {
+      ttnnLayoutEnum = ttnn::Layout::Tile;
+    }
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+
     ttnn::MemoryConfigAttr memConfigAttr =
         rewriter.getAttr<ttnn::MemoryConfigAttr>(
-            layoutAttr.getMemLayout(),
-            rewriter.getAttr<ttnn::BufferTypeAttr>(layoutAttr.getBufferType()),
+            ttnnLayoutAttr.getMemLayout(),
+            rewriter.getAttr<ttnn::BufferTypeAttr>(
+                ttnnLayoutAttr.getBufferType()),
             std::nullopt);
 
     rewriter.replaceOpWithNewOp<ttnn::ArangeOp>(
-        op, outputType, adaptor.getStart(), adaptor.getEnd(), adaptor.getStep(),
-        dtypeAttr, device, memConfigAttr);
+        op, outputType, device, adaptor.getStart(), adaptor.getEnd(),
+        adaptor.getStep(), dtypeAttr, tensorLayoutAttr, memConfigAttr);
 
     return success();
   }
@@ -1522,9 +1563,9 @@ public:
         rewriter.getContext(), op.getResult().getType().getShape());
 
     rewriter.replaceOpWithNewOp<ttnn::RandOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), sizeAttr,
-        device, dTypeAttr, tensorLayoutAttr, memoryConfigAttr,
-        adaptor.getLowAttr(), adaptor.getHighAttr(), adaptor.getSeedAttr());
+        op, this->getTypeConverter()->convertType(op.getType()), device,
+        sizeAttr, adaptor.getLowAttr(), adaptor.getHighAttr(),
+        adaptor.getSeedAttr(), dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
     return success();
   }
 };

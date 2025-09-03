@@ -11,6 +11,7 @@
 #layout1 = #ttcore.metal_layout<logical_shape = 128x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
 #layout2 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
 #layout3 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1>
+#layout4 = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, index_map = (d0, d1, d2, d3) -> (d1, d0, d2, d3)>
 
 func.func @matmul() -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout2> {
   %arg0 = ttir.empty() : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
@@ -37,20 +38,20 @@ func.func @to_layout() -> tensor<1x2x2x2x!ttcore.tile<32x32, f32>, #layout3> {
   return %1 : tensor<1x2x2x2x!ttcore.tile<32x32, f32>, #layout3>
 }
 
-func.func @stream_layout() -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout> {
+func.func @stream_layout() -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout4> {
   %arg0 = ttir.empty() : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
   // CHECK: = memref.alloc
-  %0 = ttir.empty() : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
+  %0 = ttir.empty() : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout4>
   // CHECK: = "ttir.stream_layout"
-  %stream = "ttir.stream_layout"(%arg0, %0) : (tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
-  return %stream : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
+  %stream = "ttir.stream_layout"(%arg0, %0) : (tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout4>) -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout4>
+  return %stream : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout4>
 }
 
-func.func @view_layout() -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout> {
+func.func @view_layout() -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout4> {
   %arg0 = ttir.empty() : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
   // CHECK: = ttir.view_layout
-  %view = "ttir.view_layout"(%arg0) : (tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
-  return %view : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>
+  %view = "ttir.view_layout"(%arg0) : (tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout4>
+  return %view : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout4>
 }
 
 func.func @constant() -> tensor<32x32xf32> {

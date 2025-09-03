@@ -4,25 +4,30 @@ include "ttmlir/Target/TTNN/types.fbs";
 namespace tt.target.ttnn;
 
 table ArangeOp {
+  device: tt.target.DeviceRef;
   start: float;
   end: float;
   step: float;
   dtype: tt.target.DataType = null;
-  device: tt.target.DeviceRef;
+  layout: tt.target.TensorLayout = null;
   memcfg: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
 
 table ConstantOp {
-  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
   data: [ubyte];
+  dtype: tt.target.DataType = null;
+  layout: tt.target.TensorLayout = null;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
 }
 
 table EmptyOp {
+  device: tt.target.DeviceRef;
   shape: [int64];
   dtype: tt.target.DataType;
   layout: tt.target.TensorLayout;
-  device: tt.target.DeviceRef;
   memcfg: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
@@ -41,11 +46,11 @@ union FillValueType {
 }
 
 table FullOp {
+  device: tt.target.DeviceRef;
   shape: [int64];
   fill_value: FillValueType;
   dtype: tt.target.DataType = null;
   layout: tt.target.TensorLayout = null;
-  device: tt.target.DeviceRef;
   memcfg: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
@@ -57,10 +62,10 @@ enum NamedFullOpType: uint32 {
 
 table NamedFullOp {
   type: NamedFullOpType;
+  device: tt.target.DeviceRef;
   shape: [int64];
   dtype: tt.target.DataType = null;
   layout: tt.target.TensorLayout = null;
-  device: tt.target.DeviceRef;
   memcfg: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }

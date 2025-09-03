@@ -160,7 +160,7 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait, HasOutputDTypeTrait,
+    TTNN_Op<mnemonic, [HasMemoryConfigTrait, HasDTypeTrait,
     DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
@@ -169,7 +169,7 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 
     let arguments = (ins AnyRankedTensor:$lhs,
                          AnyRankedTensor:$rhs,
-                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 
@@ -1039,7 +1039,8 @@ def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum",
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads", [HasMemoryConfigTrait]> {
+def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads", [HasMemoryConfigTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Concatenate heads op used in attention layer.";
     let description = [{
       Takes in a tensor of shape [batch_size, num_heads, sequence_size, head_size],
@@ -1065,7 +1066,8 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax",
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         SI32Attr: $dimension);
+                         SI32Attr: $dimension,
+                         DefaultValuedAttr<BoolAttr, "false">:$numericStable);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1415,7 +1417,7 @@ def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias",
 }
 
 def TTNN_Conv2dOp : TTNN_Op<"conv2d",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, HasOutputDTypeTrait]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, HasDTypeTrait]
       > {
     let summary = "Conv2d operation.";
     let description = [{
@@ -1488,7 +1490,7 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
                          DenseI32ArrayAttr:$padding,
                          DenseI32ArrayAttr:$dilation,
                          I32Attr:$groups,
-                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
@@ -1507,7 +1509,7 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d",
 }
 
 def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, HasOutputDTypeTrait]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, HasDTypeTrait]
       > {
     let summary = "ConvTranspose2d operation.";
     let description = [{
@@ -1581,7 +1583,7 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d",
                          DenseI32ArrayAttr:$output_padding,
                          DenseI32ArrayAttr:$dilation,
                          I32Attr:$groups,
-                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
@@ -1697,7 +1699,9 @@ def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments,
     let hasVerifier = 1;
 }
 
-def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, HasMemoryConfigTrait]> {
+def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, HasMemoryConfigTrait,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>
+    ]> {
     let summary = "RMS normalization op.";
     let description = [{
       RMS (Root Mean Square) normalization operation over the input tensor.
@@ -1787,7 +1791,7 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [HasMemoryConfigTrait,
 
 class TTNN_CreationOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [TTCore_CreationOpTrait,
-    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, HasOutputTensorSpecTraits] # traits>;
 
 def TTNN_EmptyOp : TTNN_CreationOp<"empty"> {
     let summary = "Empty op.";
@@ -1795,10 +1799,10 @@ def TTNN_EmptyOp : TTNN_CreationOp<"empty"> {
       Tensor empty operation
     }];
 
-    let arguments = (ins TTNN_ShapeAttr:$shape,
+    let arguments = (ins TTNN_Device:$device,
+                         TTNN_ShapeAttr:$shape,
                          TTCore_DataTypeAttr:$dtype,
                          TTNN_LayoutAttr:$layout,
-                         TTNN_Device:$device,
                          TTNN_MemoryConfigAttr:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1821,11 +1825,12 @@ def TTNN_ArangeOp : TTNN_CreationOp<"arange"> {
       // %1: [[[[0.0, 2.0, 4.0, 6.0, 8.0]]]]
   }];
 
-  let arguments = (ins I64Attr:$start,
+  let arguments = (ins Optional<TTNN_Device>:$device,
+                       I64Attr:$start,
                        I64Attr:$end,
                        I64Attr:$step,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype,
-                       Optional<TTNN_Device>:$device,
+                       OptionalAttr<TTNN_LayoutAttr>:$layout,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let extraClassDeclaration = [{
@@ -1861,14 +1866,14 @@ def TTNN_RandOp : TTNN_CreationOp<"rand"> {
       - `result` (Tensor): The generated tensor containing the random values.
   }];
 
-  let arguments = (ins TTNN_ShapeAttr:$size,
-                       TTNN_Device:$device,
-                       DefaultValuedAttr<TTCore_DataTypeAttr, "mlir::tt::ttcore::DataType::BFloat16">:$dtype,
-                       DefaultValuedAttr<TTNN_LayoutAttr, "mlir::tt::ttnn::Layout::Tile">:$layout,
-                       TTNN_MemoryConfigAttr:$memory_config,
+  let arguments = (ins TTNN_Device:$device,
+                       TTNN_ShapeAttr:$size,
                        DefaultValuedAttr<F32Attr, "0.0">:$low,
                        DefaultValuedAttr<F32Attr, "1.0">:$high,
-                       DefaultValuedAttr<UI32Attr, "0">:$seed);
+                       DefaultValuedAttr<UI32Attr, "0">:$seed,
+                       DefaultValuedAttr<TTCore_DataTypeAttr, "mlir::tt::ttcore::DataType::BFloat16">:$dtype,
+                       DefaultValuedAttr<TTNN_LayoutAttr, "mlir::tt::ttnn::Layout::Tile">:$layout,
+                       TTNN_MemoryConfigAttr:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -1877,10 +1882,10 @@ def TTNN_RandOp : TTNN_CreationOp<"rand"> {
 
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   TTNN_CreationOp<mnemonic, [HasMemoryConfigTrait] # traits> {
-  let arguments = (ins TTNN_ShapeAttr:$shape,
+  let arguments = (ins Optional<TTNN_Device>:$device,
+                       TTNN_ShapeAttr:$shape,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
-                       Optional<TTNN_Device>:$device,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
@@ -1931,11 +1936,11 @@ def TTNN_FullOp : TTNN_CreationOp<"full"> {
       // %0: [[[7, 7, 7, ..., 7], [7, 7, 7, ..., 7], ..., [7, 7, 7, ..., 7]]]
   }];
 
-  let arguments = (ins TTNN_ShapeAttr:$shape,
+  let arguments = (ins Optional<TTNN_Device>:$device,
+                       TTNN_ShapeAttr:$shape,
                        AnyAttrOf<[F32Attr, I32Attr]>:$fill_value,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
-                       Optional<TTNN_Device>:$device,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
@@ -1959,7 +1964,11 @@ def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "res
         // %1: [0.2, 1.3]
     }];
 
-    let arguments = (ins ElementsAttr:$value);
+    let arguments = (ins Optional<TTNN_Device>:$device,
+                         ElementsAttr:$value,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_LayoutAttr>:$layout,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1972,7 +1981,8 @@ def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "res
     let hasVerifier = 1;
 }
 
-def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait]> {
+def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Alloc op.";
     let description = [{
       Tensor Alloc operation
@@ -1984,7 +1994,9 @@ def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait]> {
     let hasVerifier = 1;
 }
 
-def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
+def TTNN_DeallocateOp : TTNN_Op<"deallocate",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Deallocate op.";
     let description = [{
       Tensor Deallocate operation

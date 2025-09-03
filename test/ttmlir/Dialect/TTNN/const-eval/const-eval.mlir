@@ -149,7 +149,7 @@ module {
 
   // CHECK-LABEL: func.func @non_splat_constant_const_eval_0
   // CHECK: = "ttnn.get_device"
-  // CHECK: = "ttnn.constant"() <{value = dense<{{\[\[}}1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]> : tensor<2x2xbf16>}>
+  // CHECK: = "ttnn.constant"() <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>, value = dense<{{\[\[}}1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]>
 
   // CHECK: func.func @non_splat_constant(
   func.func @non_splat_constant(%arg0: tensor<2x2xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<2x2xbf16> {

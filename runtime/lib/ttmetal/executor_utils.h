@@ -521,12 +521,12 @@ createKernelConfig(
     for (auto mode : *fbComputeConfig->unpack_to_dest_mode()) {
       LOG_ASSERT(modeIdx < NUM_CIRCULAR_BUFFERS);
       switch (mode) {
-      case tt::target::metal::UnpackToDestMode::Fp32: {
+      case tt::target::UnpackToDestMode::Fp32: {
         computeConfig.unpack_to_dest_mode[modeIdx] =
             UnpackToDestMode::UnpackToDestFp32;
         break;
       }
-      case tt::target::metal::UnpackToDestMode::Default: {
+      case tt::target::UnpackToDestMode::Default: {
         computeConfig.unpack_to_dest_mode[modeIdx] = UnpackToDestMode::Default;
         break;
       }

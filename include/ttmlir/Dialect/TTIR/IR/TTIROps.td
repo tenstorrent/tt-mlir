@@ -2855,6 +2855,7 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
 
       Attributes:
       - `dimension` (Integer): The dimension along which to apply the softmax function.
+      - `numericStable` (Boolean, default=false): Whether to use numerically stable computation.
 
       Outputs:
       - `result` (Tensor): The tensor after applying the softmax function.
@@ -2862,7 +2863,8 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dimension);
+                         SI32Attr:$dimension,
+                         DefaultValuedAttr<BoolAttr, "false">:$numericStable);
 
     let results = (outs AnyRankedTensor:$result);
 

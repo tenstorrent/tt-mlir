@@ -60,10 +60,11 @@ public:
   }
 
 private:
-  bool isFusable(ConvOpType convOp,
-                 mlir::TypedValue<mlir::RankedTensorType> bias) const {
+  std::optional<mlir::TypedValue<mlir::RankedTensorType>>
+  isFusable(ConvOpType convOp,
+            mlir::TypedValue<mlir::RankedTensorType> bias) const {
     if (!convOp || convOp.getBias() || !convOp->hasOneUse()) {
-      return false;
+      return std::nullopt;
     }
 
     size_t outputFeatureDim = 0;
@@ -77,27 +78,30 @@ private:
                     "Unsupported ConvOpType");
     }
 
+    if (auto bcastOp = bias.getDefiningOp<BroadcastOp>()) {
+      bias = bcastOp.getInput();
+    }
     auto biasShape = bias.getType().getShape();
     auto outputShape =
         mlir::cast<mlir::RankedTensorType>(convOp.getOutput().getType())
             .getShape();
 
     if (biasShape.size() != outputShape.size()) {
-      return false;
+      return std::nullopt;
     }
 
     auto featureDimSize =
         convOp.getResult().getType().getShape()[outputFeatureDim];
     for (auto [dim, dimSize] : llvm::enumerate(biasShape)) {
       if (dim == outputFeatureDim && dimSize != featureDimSize) {
-        return false;
+        return std::nullopt;
       }
       if (dim != outputFeatureDim && dimSize != 1) {
-        return false;
+        return std::nullopt;
       }
     }
 
-    return true;
+    return bias;
   }
 
   std::optional<std::pair<ConvOpType, mlir::Value>>
@@ -106,11 +110,11 @@ private:
     auto rhs = srcOp.getRhs();
     auto lhsConvOp = lhs.getDefiningOp<ConvOpType>();
     auto rhsConvOp = rhs.getDefiningOp<ConvOpType>();
-    if (isFusable(lhsConvOp, rhs)) {
-      return std::make_pair(lhsConvOp, rhs);
+    if (auto fusableBias = isFusable(lhsConvOp, rhs)) {
+      return std::make_pair(lhsConvOp, *fusableBias);
     }
-    if (isFusable(rhsConvOp, lhs)) {
-      return std::make_pair(rhsConvOp, lhs);
+    if (auto fusableBias = isFusable(rhsConvOp, lhs)) {
+      return std::make_pair(rhsConvOp, *fusableBias);
     }
     return std::nullopt;
   }
@@ -269,9 +273,91 @@ public:
     int64_t reduceDim = mlir::cast<mlir::IntegerAttr>(reduceDims[0]).getInt();
 
     // Replace div op with new softmax op.
-    utils::replaceOpWithNewDPSOp<SoftmaxOp>(rewriter, divOp,
-                                            divOp.getResult().getType(),
-                                            expOp.getInput(), reduceDim);
+    utils::replaceOpWithNewDPSOp<SoftmaxOp>(
+        rewriter, divOp, divOp.getResult().getType(), expOp.getInput(),
+        reduceDim, /*numericStable=*/false);
+
+    return mlir::success();
+  }
+};
+
+// This pattern detects and fuses numerically stable softmax operations:
+// softmax(x - max(x)) -> softmax(x, numericStable=true).
+//
+// The pattern matches the following sequence:
+// 1. max(x) along a dimension with keep_dim=true
+// 2. broadcast the max value
+// 3. subtract: x - broadcasted_max
+// 4. softmax(x - broadcasted_max)
+class NumericStableSoftmaxFusionPattern
+    : public mlir::OpRewritePattern<SoftmaxOp> {
+  using mlir::OpRewritePattern<SoftmaxOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(SoftmaxOp softmaxOp,
+                  mlir::PatternRewriter &rewriter) const final {
+
+    // Get the input to softmax.
+    mlir::Value softmaxInput = softmaxOp.getInput();
+
+    // Check if input is a subtract operation.
+    auto subOp = softmaxInput.getDefiningOp<SubtractOp>();
+    if (!subOp) {
+      return mlir::failure();
+    }
+
+    // Get the operands of the subtract operation.
+    mlir::Value originalInput = subOp.getLhs();
+    mlir::Value subtractedValue = subOp.getRhs();
+
+    auto broadcastOp = subtractedValue.getDefiningOp<BroadcastOp>();
+    if (!broadcastOp) {
+      return mlir::failure();
+    }
+
+    mlir::Value maxValue = broadcastOp.getInput();
+
+    // Check if the broadcasted value is a max operation.
+    auto maxOp = maxValue.getDefiningOp<MaxOp>();
+    if (!maxOp) {
+      return mlir::failure();
+    }
+
+    // Verify that max operates on the same input as the original.
+    if (maxOp.getInput() != originalInput) {
+      return mlir::failure();
+    }
+
+    // Verify that max reduces along the same dimension as softmax
+    // and has keep_dim=true for proper broadcasting.
+    if (!maxOp.getDimArg() || !maxOp.getKeepDim()) {
+      return mlir::failure();
+    }
+
+    mlir::ArrayAttr maxReduceDims = *maxOp.getDimArg();
+    if (maxReduceDims.size() != 1) {
+      return mlir::failure();
+    }
+
+    int64_t maxReduceDim =
+        mlir::cast<mlir::IntegerAttr>(maxReduceDims[0]).getInt();
+    if (maxReduceDim != softmaxOp.getDimension()) {
+      return mlir::failure();
+    }
+
+    // Check usage patterns to ensure we can safely fuse.
+    if (!subOp.getResult().hasOneUse() ||
+        !broadcastOp.getResult().hasOneUse() ||
+        !maxOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // Replace with numerically stable softmax.
+    utils::replaceOpWithNewDPSOp<SoftmaxOp>(
+        rewriter, softmaxOp, softmaxOp.getResult().getType(), originalInput,
+        softmaxOp.getDimension(),
+        /*numericStable=*/true);
 
     return mlir::success();
   }
@@ -1960,6 +2046,7 @@ public:
       patterns.add<ReductionWithReshapePattern<ArgMaxOp>>(&getContext());
 
       patterns.add<SoftmaxFusionPattern>(&getContext());
+      patterns.add<NumericStableSoftmaxFusionPattern>(&getContext());
 
       patterns.add<ReluFusionPattern>(&getContext());
 

@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -76,26 +77,39 @@ public:
     // If src or dst operand is DRAM they must be remote
     // else, Lower L1->L1 reblocking as READs (view applied to the src, dst is
     // local)
-    bool isSrcRemote =
+    bool isSrcDramOrReblock =
         isSrcDram || (!isDstDram && (inputGridShape != outputGridShape));
-    bool isDstRemote = isDstDram;
 
-    assert(!(isSrcRemote && isDstRemote) &&
+    assert(!(isSrcDramOrReblock && isDstDram) &&
            "input and output cannot both be remote");
 
-    if (isSrcRemote) {
-      viewInput = rewriter
-                      .create<ViewLayoutOp>(op.getLoc(), op.getInput(),
-                                            outputType.getShape())
-                      .getResult();
+    auto buildConcreteView = [&](Value fromVal, RankedTensorType fromTy,
+                                 RankedTensorType toTy) -> Value {
+      auto *ctx = rewriter.getContext();
+      AffineMap map = mlir::tt::ttir::utils::calculateReblockMap(
+          fromTy.getShape(), toTy.getShape(), ctx);
+      auto baseLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(fromTy.getEncoding());
+      auto enc = ttcore::MetalLayoutAttr::get(
+          ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
+          baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
+          baseLayout.getMemorySpace(), map);
+      auto resultTy =
+          RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
+      return rewriter
+          .create<ViewLayoutOp>(op.getLoc(), resultTy, fromVal,
+                                /*reinterpretLayout=*/false)
+          .getResult();
+    };
+
+    if (isSrcDramOrReblock) {
+      viewInput = buildConcreteView(op.getInput(), inputType, outputType);
     }
 
     Value viewOutput = op.getOutput();
-    if (isDstRemote) {
-      viewOutput = rewriter
-                       .create<ViewLayoutOp>(op.getLoc(), op.getOutput(),
-                                             inputType.getShape())
-                       .getResult();
+    if (isDstDram) {
+      auto outTensorTy = mlir::cast<RankedTensorType>(op.getOutput().getType());
+      viewOutput = buildConcreteView(op.getOutput(), outTensorTy, inputType);
     }
 
     const size_t gridRank = outputGridShape.size();
@@ -109,7 +123,7 @@ public:
     rewriter.replaceOpWithNewOp<GenericOp>(
         op, viewInput, viewOutput,
         [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-          DMAOp dma = isSrcRemote
+          DMAOp dma = isSrcDramOrReblock
                           ? builder.create<ttir::DMAOp>(
                                 loc, viewInput, indexingMap, blockArgs[1])
                           : builder.create<ttir::DMAOp>(
