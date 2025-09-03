@@ -38,6 +38,7 @@ enum class ReasonForLackOfSupport {
   MissingMetalDefinition,
   NeedsMultiDevice,
   NoNeedForConstraintAPI,
+  ArchitecturalMismatch,
 };
 
 inline std::string getReasonForLackOfSupportStr(ReasonForLackOfSupport reason) {
@@ -50,6 +51,8 @@ inline std::string getReasonForLackOfSupportStr(ReasonForLackOfSupport reason) {
     return "needs multi-device";
   case ReasonForLackOfSupport::NoNeedForConstraintAPI:
     return "no need for constraint API";
+  case ReasonForLackOfSupport::ArchitecturalMismatch:
+    return "architectural mismatch between dialects";
   }
 }
 
@@ -929,16 +932,21 @@ BitwiseXorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ScatterOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+// (issue #4788) scatter is currently defined as a binary op in TTNNIR
+// to be updated when it's fixed to match proper metal implementation
+
 llvm::Expected<op_model::OpConstraints>
 ScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-  return detail::getBinaryOpConstraints(*this, inputs, opConfig);
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::ArchitecturalMismatch);
 }
 
 llvm::Expected<size_t>
 ScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
-  return detail::getBinaryOpRuntime(*this, inputs, opConfig);
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::ArchitecturalMismatch);
 }
 
 //===----------------------------------------------------------------------===//
