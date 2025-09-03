@@ -137,7 +137,7 @@ def golden(callback_runtime_config, binary, program_context, op_context):
     # dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
     # assert ttrt_datatype_to_torch_dtype(op_output_tensor.get_dtype()) == dtype
     # golden_tensor_torch = golden_tensor_to_torch(op_golden_tensor).flatten()
-    
+
     # Get input tensor references for the operation
     input_refs = ttrt.runtime.get_op_input_refs(op_context, program_context)
 
@@ -153,7 +153,9 @@ def golden(callback_runtime_config, binary, program_context, op_context):
         if tensor is not None:
             rt_data_ptr = tensor.get_data_buffer()
             rt_dtype = tensor.get_dtype()
-            dtype = ttrt_datatype_to_torch_dtype(rt_dtype)  # Use your existing conversion
+            dtype = ttrt_datatype_to_torch_dtype(
+                rt_dtype
+            )  # Use your existing conversion
             shape = tensor.get_shape()
             torch_tensor = torch.frombuffer(rt_data_ptr, dtype=dtype)
             torch_tensor = torch_tensor.reshape(shape).clone()  # Keep tensor alive
@@ -162,7 +164,9 @@ def golden(callback_runtime_config, binary, program_context, op_context):
             print(f"Input {i} shape: {shape}, dtype: {dtype}")
 
     golden_tensor_torch = torch.add(input_torch_tensors[0], input_torch_tensors[1])
-    print(f"golden_tensor_torch shape: {golden_tensor_torch.shape}, dtype: {golden_tensor_torch.dtype}")
+    print(
+        f"golden_tensor_torch shape: {golden_tensor_torch.shape}, dtype: {golden_tensor_torch.dtype}"
+    )
     # Now you have access to all input tensors!
     # input_tensors[i] - runtime tensor objects
     # input_torch_tensors[i] - PyTorch tensors
@@ -297,7 +301,7 @@ def pre_op_get_callback_fn(callback_runtime_config):
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
 
     # if callback_runtime_config.enable_golden:
-        # golden(callback_runtime_config, binary, program_context, op_context)
+    # golden(callback_runtime_config, binary, program_context, op_context)
     golden(callback_runtime_config, binary, program_context, op_context)
 
     if callback_runtime_config.enable_memory:

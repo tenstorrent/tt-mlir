@@ -2,6 +2,7 @@ add_subdirectory(ttmlir-opt)
 add_subdirectory(ttmlir-lsp-server)
 if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
   add_subdirectory(builder)
+  add_subdirectory(golden)
 
   if (TTMLIR_ENABLE_PYKERNEL)
     add_subdirectory(pykernel)

@@ -15,7 +15,7 @@ from ttmlir.ir import *
 from ttmlir.dialects import stablehlo, sdy, mpmd
 
 from builder.base.builder import *
-from builder.base import builder_golden
+from golden import get_golden_function
 
 
 class StableHLOBuilder(Builder):
@@ -64,7 +64,7 @@ class StableHLOBuilder(Builder):
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            op_golden_function = builder_golden.get_golden_function(
+            op_golden_function = get_golden_function(
                 op_stablehlo_function, **golden_kwargs
             )
 
