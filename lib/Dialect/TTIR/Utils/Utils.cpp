@@ -55,12 +55,10 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   auto outputToCanonical = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
 
   for (size_t i = 0; i < halfRank; i++) {
-    auto dGrid = getAffineDimExpr(i, ctx);
     size_t j = i + halfRank;
-    auto dLinear = getAffineDimExpr(j, ctx);
-
-    mapExprs[i] = dLinear.floorDiv(inputShardShape[i]);
-    mapExprs[j] = dLinear % inputShardShape[i];
+    auto dS = getAffineDimExpr(j, ctx);
+    mapExprs[i] = dS.floorDiv(inputShardShape[i]);
+    mapExprs[j] = dS % inputShardShape[i];
   }
   auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
 
