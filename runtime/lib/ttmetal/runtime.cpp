@@ -105,6 +105,10 @@ createMemoryView(const tt_metal::detail::MemoryView &memoryView) {
 
 Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc) {
+  LOG_ASSERT(utils::isSupportedDataType(desc.dataType),
+             "Creating owned tensor with unsupported data type: " +
+                 std::string(target::EnumNameDataType(desc.dataType)) +
+                 "is not implemented for the TTMetal runtime");
   std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
   return Tensor(static_pointer_cast<void>(tensor), data,
                 DeviceRuntime::TTMetal);

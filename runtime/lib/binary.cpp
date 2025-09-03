@@ -425,13 +425,23 @@ void Flatbuffer::store(const char *path) const {
   fbb.write(reinterpret_cast<const char *>(handle.get()), size);
 }
 
-void Flatbuffer::storeToMemory(
-    std::vector<std::byte> &serializedFlatbuffer) const {
-  auto size = ::flatbuffers::GetSizePrefixedBufferLength(
+template <typename T>
+void Flatbuffer::storeToMemory(std::vector<T> &serializedFlatbuffer) const {
+  static_assert(sizeof(T) == 1, "Element type must be 1 byte");
+  static_assert(std::is_trivially_copyable_v<T>,
+                "Element type must be trivially copyable");
+
+  size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(handle.get()));
   serializedFlatbuffer.resize(size);
   std::memcpy(serializedFlatbuffer.data(), handle.get(), size);
 }
+
+template void Flatbuffer::storeToMemory<std::byte>(
+    std::vector<std::byte> &serializedFlatbuffer) const;
+
+template void Flatbuffer::storeToMemory<std::uint8_t>(
+    std::vector<std::uint8_t> &serializedFlatbuffer) const;
 
 std::string Flatbuffer::getFileIdentifier() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
