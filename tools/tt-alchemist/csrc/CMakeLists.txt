@@ -131,11 +131,13 @@ add_custom_command(
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/_ttnncpp.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_stl.so
   DEPENDS ${ALCHEMIST_LIBRARY_NAME} ${PYTHON_BUILD_DIR}/tt_alchemist/lib
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${ALCHEMIST_LIBRARY_NAME}> ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libtt_metal.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libdevice.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libtt_stl.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMENT "Copying shared libraries to Python package"
 )
 

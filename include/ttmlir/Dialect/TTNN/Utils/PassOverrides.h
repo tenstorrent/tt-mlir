@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
 
 #include "llvm/Support/CommandLine.h"
 
@@ -22,6 +23,8 @@ struct OptionNames {
   static constexpr StringRef overrideConv2dConfig = "override-conv2d-config";
   static constexpr StringRef memoryLayoutAnalysisEnabled =
       "memory-layout-analysis-enabled";
+  static constexpr StringRef l1InterleavedFallbackAnalysisEnabled =
+      "l1-interleaved-fallback-analysis-enabled";
   static constexpr StringRef memReconfigEnabled = "memreconfig-enabled";
   static constexpr StringRef memoryLayoutAnalysisPolicy =
       "memory-layout-analysis-policy";
@@ -30,68 +33,10 @@ struct OptionNames {
   static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
   static constexpr StringRef meshShape = "mesh-shape";
   static constexpr StringRef tuplifyInputIfEmpty = "tuplify-input-if-empty";
+  static constexpr StringRef tensorL1UsageCap = "tensor-l1-usage-cap";
 };
 
-struct Conv2dConfigOverrideParams {
-  std::optional<ttcore::DataType> weightsDtype = std::nullopt;
-  std::optional<std::string> activation = std::nullopt;
-  std::optional<bool> deallocateActivation = std::nullopt;
-  std::optional<bool> reallocateHaloOutput = std::nullopt;
-  std::optional<uint32_t> actBlockHOverride = std::nullopt;
-  std::optional<uint32_t> actBlockWDiv = std::nullopt;
-  std::optional<bool> reshardIfNotOptimal = std::nullopt;
-  std::optional<bool> overrideShardingConfig = std::nullopt;
-  std::optional<TensorMemoryLayout> shardLayout = std::nullopt;
-  std::optional<CoreRangeSetAttr> coreGrid = std::nullopt;
-  std::optional<bool> transposeShards = std::nullopt;
-  std::optional<Layout> outputLayout = std::nullopt;
-  std::optional<bool> enableActDoubleBuffer = std::nullopt;
-  std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
-  std::optional<bool> enableSplitReader = std::nullopt;
-
-  bool empty() const {
-    return !weightsDtype.has_value() && !activation.has_value() &&
-           !deallocateActivation.has_value() &&
-           !reallocateHaloOutput.has_value() &&
-           !actBlockHOverride.has_value() && !actBlockWDiv.has_value() &&
-           !reshardIfNotOptimal.has_value() &&
-           !overrideShardingConfig.has_value() && !shardLayout.has_value() &&
-           !coreGrid.has_value() && !transposeShards.has_value() &&
-           !outputLayout.has_value() && !enableActDoubleBuffer.has_value() &&
-           !enableWeightsDoubleBuffer.has_value() &&
-           !enableSplitReader.has_value();
-  }
-
-  bool fullConfigOverride() const {
-    return weightsDtype.has_value() && activation.has_value() &&
-           deallocateActivation.has_value() &&
-           reallocateHaloOutput.has_value() && actBlockHOverride.has_value() &&
-           actBlockWDiv.has_value() && reshardIfNotOptimal.has_value() &&
-           overrideShardingConfig.has_value() && shardLayout.has_value() &&
-           coreGrid.has_value() && transposeShards.has_value() &&
-           outputLayout.has_value() && enableActDoubleBuffer.has_value() &&
-           enableWeightsDoubleBuffer.has_value() &&
-           enableSplitReader.has_value();
-  }
-
-  friend llvm::raw_ostream &
-  operator<<(llvm::raw_ostream &os, const Conv2dConfigOverrideParams &params) {
-    os << "weights_dtype#" << params.weightsDtype << ":activation#"
-       << params.activation << ":deallocate_activation#"
-       << params.deallocateActivation << ":reallocate_halo_output#"
-       << params.reallocateHaloOutput << ":act_block_h_override#"
-       << params.actBlockHOverride << ":act_block_w_div#" << params.actBlockWDiv
-       << ":reshard_if_not_optimal#" << params.reshardIfNotOptimal
-       << ":override_sharding_config#" << params.overrideShardingConfig
-       << ":shard_layout#" << params.shardLayout << ":core_grid#"
-       << params.coreGrid << ":transpose_shards#" << params.transposeShards
-       << ":output_layout#" << params.outputLayout
-       << ":enable_act_double_buffer#" << params.enableActDoubleBuffer
-       << ":enable_weights_double_buffer#" << params.enableWeightsDoubleBuffer
-       << ":enable_split_reader#" << params.enableSplitReader;
-    return os;
-  }
-};
+using Conv2dConfigOverrideParams = Conv2dConfigParams;
 
 struct OutputLayoutOverrideParams {
   std::optional<SmallVector<int64_t, 2>> grid = std::nullopt;

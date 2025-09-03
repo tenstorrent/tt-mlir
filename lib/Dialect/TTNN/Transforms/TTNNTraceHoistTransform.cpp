@@ -240,6 +240,7 @@ private:
         funcOp.getLoc(), traceFuncName, traceFuncType);
     traceFuncOp->setAttr(g_TTNNTraceAttrName, builder.getUnitAttr());
     traceFuncOp.setAllArgAttrs(inputAttrs);
+    traceFuncOp.setPrivate();
 
     // Build the body of the new function
     auto *traceFuncEntryBlock = traceFuncOp.addEntryBlock();
@@ -352,6 +353,7 @@ private:
     if (traceFunc.getAllArgAttrs()) {
       runAndCaptureTraceFunc.setAllArgAttrs(traceFunc.getAllArgAttrs());
     }
+    runAndCaptureTraceFunc.setPrivate();
 
     // Build the body of the function
     auto *runAndCaptureTraceFuncEntryBlock =
@@ -388,10 +390,10 @@ private:
                                          device.getWorkerGrid()));
 
       auto emptyOp = builder.create<ttnn::EmptyOp>(
-          runAndCaptureTraceFunc.getLoc(), inputType,
+          runAndCaptureTraceFunc.getLoc(), inputType, deviceOp,
           ttnn::ShapeAttr::get(context, inputTensorType.getShape()),
           ttcore::DataTypeAttr::get(context, ttnnLayoutAttr.getDataType()),
-          ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()), deviceOp,
+          ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()),
           memoryConfigAttr);
 
       inputSlots.push_back(emptyOp.getResult());
@@ -483,6 +485,7 @@ private:
     auto executeTraceFunc = builder.create<func::FuncOp>(
         funcOp.getLoc(), executeTraceFuncName, executeTraceFuncType);
     executeTraceFunc->setAttr(g_TTNNTraceAttrName, builder.getUnitAttr());
+    executeTraceFunc.setPrivate();
 
     // Build the body of the function
     auto *executeTraceFuncEntryBlock = executeTraceFunc.addEntryBlock();

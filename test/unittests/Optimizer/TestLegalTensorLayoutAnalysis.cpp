@@ -107,12 +107,11 @@ protected:
 
     // Create an empty op with all required parameters
     builder.create<mlir::tt::ttnn::EmptyOp>(
-        builder.getUnknownLoc(), tensorType,
+        builder.getUnknownLoc(), tensorType, device,
         mlir::tt::ttnn::ShapeAttr::get(&context, getTensorShape()),
         mlir::tt::ttcore::DataTypeAttr::get(
             &context, mlir::tt::ttcore::DataType::Float32),
-        mlir::tt::ttnn::LayoutAttr::get(&context, Layout::Tile), device,
-        memConfig);
+        mlir::tt::ttnn::LayoutAttr::get(&context, Layout::Tile), memConfig);
 
     // Add return op
     builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc());

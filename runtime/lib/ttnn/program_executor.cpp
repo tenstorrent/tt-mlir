@@ -52,6 +52,7 @@
 #include "operations/mlir_native/func_call.h"
 #include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/batch_norm.h"
+#include "operations/normalization/rms_norm.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
@@ -276,6 +277,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::RepeatOp: {
     return operations::data_movement::run(op->type_as_RepeatOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::RMSNormOp: {
+    return operations::rms_norm::run(op->type_as_RMSNormOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
     return operations::data_movement::run(op->type_as_RepeatInterleaveOp(),

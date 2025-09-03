@@ -26,7 +26,7 @@ void run(const ::tt::target::ttnn::CollectivePermuteOp *op,
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
-  ::ttnn::MeshDevice *meshDevice = input.mesh_device();
+  ::ttnn::MeshDevice *meshDevice = input.device();
   LOG_ASSERT(meshDevice != nullptr, "Tensor must belong to a mesh device");
 
   const auto *fbSourceTargetPairs = op->source_target_pairs();

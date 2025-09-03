@@ -223,10 +223,9 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   let assemblyFormat = "`<` $bufferType (`,` $tensorMemoryLayout^ )? (`,` $shardSpec^ )? `>`";
 
   let extraClassDeclaration = [{
+    class Builder;
     static MemoryConfigAttr get(ttnn::TTNNLayoutAttr layout, ttcore::GridAttr deviceGrid);
     llvm::ArrayRef<int64_t> getShardShape(bool convertTileToScalar = true) const;
-    MemoryConfigAttr withBufferType(BufferType bufferType);
-    MemoryConfigAttr withMemoryLayout(TensorMemoryLayout memLayout);
   }];
 
   let genVerifyDecl = 1;

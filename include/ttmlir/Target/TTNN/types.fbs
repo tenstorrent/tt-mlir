@@ -14,18 +14,6 @@ enum StorageType: ushort {
     Device,
 }
 
-enum MeshShardDirection: uint32 {
-  FullToShardShape,
-  ShardToFullShape,
-}
-
-enum MeshShardType: uint32 {
-  Identity,
-  Replicate,
-  Maximal,
-  Devices,
-}
-
 enum ShardOrientation: uint32 {
   RowMajor,
   ColMajor,

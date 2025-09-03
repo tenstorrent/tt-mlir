@@ -13,6 +13,8 @@ from builder.base.builder import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
+pytestmark = pytest.mark.frontend("ttir")
+
 
 @pytest.mark.parametrize("input_grid_y", [1, 2, 3])
 @pytest.mark.parametrize("input_grid_x", [1, 2, 3])
@@ -21,6 +23,7 @@ from builder.base.builder_utils import compile_ttir_to_flatbuffer
 @pytest.mark.parametrize("shard_mul_y", [3])
 @pytest.mark.parametrize("shard_mul_x", [2])
 @pytest.mark.parametrize("tiled", [False])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_to_layout(
     input_grid_y: int,
     input_grid_x: int,
@@ -29,6 +32,7 @@ def test_to_layout(
     shard_mul_y: int,
     shard_mul_x: int,
     tiled: bool,
+    target: str,
     request,
 ):
     tile_size = 32 if tiled else 4  # 4 because of 16byte noc alignment
@@ -67,7 +71,7 @@ def test_to_layout(
     compile_ttir_to_flatbuffer(
         to_layout,
         [shape],
-        target="ttmetal",
+        target=target,
         custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),

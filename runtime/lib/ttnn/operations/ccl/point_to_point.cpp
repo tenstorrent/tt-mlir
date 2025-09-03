@@ -42,7 +42,7 @@ void run(const ::tt::target::ttnn::PointToPointOp *op,
     outputTensorsHost = inputTensorsHost;
   }
 
-  ::ttnn::MeshShape meshShape = inputTensor.mesh_device()->shape();
+  ::ttnn::MeshShape meshShape = inputTensor.device()->shape();
   auto calcIdFromCoords =
       [&](const flatbuffers::Vector<uint32_t> *coords) -> size_t {
     DEBUG_ASSERT(coords->size() == meshShape.dims(),
@@ -59,10 +59,10 @@ void run(const ::tt::target::ttnn::PointToPointOp *op,
 
   outputTensorsHost[recvId] = inputTensorsHost[sendId];
 
-  ::ttnn::Tensor outputTensor = ::ttnn::to_device(
-      ::ttnn::distributed::from_host_shards(outputTensorsHost,
-                                            inputTensor.mesh_device()->shape()),
-      inputTensor.mesh_device(), inputTensor.memory_config());
+  ::ttnn::Tensor outputTensor =
+      ::ttnn::to_device(::ttnn::distributed::from_host_shards(
+                            outputTensorsHost, inputTensor.device()->shape()),
+                        inputTensor.device(), inputTensor.memory_config());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), outputTensor);
 }

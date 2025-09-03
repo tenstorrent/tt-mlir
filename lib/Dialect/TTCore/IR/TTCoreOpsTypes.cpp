@@ -30,6 +30,7 @@
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.cpp.inc"
+#include "ttmlir/Target/Common/types_generated.h"
 
 namespace mlir::tt::ttcore {
 
@@ -293,9 +294,15 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
   auto buffer = std::shared_ptr<void>(std::malloc(size), std::free);
   fbb.read(static_cast<char *>(buffer.get()), size);
 
+  return SystemDescAttr::getFromBuffer(context, buffer.get(), diagFn);
+}
+
+mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
+    MLIRContext *context, void *systemDesc,
+    llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
   // Read relevant information from binary
   const auto *binarySystemDescRoot =
-      ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get());
+      ::tt::target::GetSizePrefixedSystemDescRoot(systemDesc);
   if (binarySystemDescRoot->schema_hash()->string_view() !=
       ::tt::target::common::system_desc_bfbs_schema_hash) {
     diagFn() << "system desc schema mismatch, please collect a system desc "
@@ -813,6 +820,15 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::getNormalizedIntervals() const {
                                       getLogicalShape().size());
 }
 
+mlir::AffineMap
+MetalLayoutAttr::getIndexAffineMapOrIdentity(unsigned rank) const {
+  mlir::AffineMap map = getIndexAffineMap();
+  if (!map || map.getNumResults() == 0) {
+    return mlir::AffineMap::getMultiDimIdentityMap(rank, getContext());
+  }
+  return map;
+}
+
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
                                    ArrayRef<int64_t> deviceGridShape,
@@ -885,7 +901,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
       computeAlignments(logicalShape, deviceGridShape, flattenedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace);
+             oobVal, memorySpace, mlir::AffineMap::get(context));
 }
 
 // Getter with explicit collapsedIntervals, we calculate the alignments.
@@ -900,7 +916,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
       computeAlignments(logicalShape, deviceGridShape, normalizedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace);
+             oobVal, memorySpace, mlir::AffineMap::get(context));
 }
 
 // Getter with explicit collapsedIntervals and dimAlignments.
@@ -911,7 +927,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      DenseIntElementsAttr collapsedIntervals,
                                      ArrayRef<int64_t> dimAlignments) {
   return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
-             memorySpace);
+             memorySpace, mlir::AffineMap::get(context));
 }
 
 mlir::MemRefType
@@ -928,6 +944,21 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
   return MemRefType::get(
       shardShape, tensorType.getElementType(), MemRefLayoutAttrInterface{},
       MemorySpaceAttr::get(tensorType.getContext(), layout.getMemorySpace()));
+}
+
+// 5-arg + explicit index_map convenience overload.
+MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     mlir::AffineMap indexAffineMap) {
+  // Reuse the existing path that computes intervals/alignments, then attach
+  // map.
+  MetalLayoutAttr base =
+      get(context, logicalShape, deviceGridShape, oobVal, memorySpace);
+  return get(context, base.getLogicalShape(), base.getDimAlignments(),
+             base.getCollapsedIntervals(), base.getOobVal(),
+             base.getMemorySpace(), indexAffineMap);
 }
 
 // Get effective stride (use provided or calculate from shape)

@@ -125,12 +125,12 @@ add_subdirectory(third_party)
 if (TTMLIR_ENABLE_STABLEHLO)
   set(STABLEHLO_BUILD_EMBEDDED ON)
   set(STABLEHLO_ENABLE_BINDINGS_PYTHON ON)
-  add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/shardy ${CMAKE_CURRENT_BINARY_DIR}/shardy EXCLUDE_FROM_ALL)
   include_directories(SYSTEM ${CMAKE_CURRENT_BINARY_DIR}/shardy)
   include_directories(SYSTEM ${TTMLIR_TOOLCHAIN_DIR}/src/shardy)
-  add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo ${CMAKE_CURRENT_BINARY_DIR}/stablehlo EXCLUDE_FROM_ALL)
   include_directories(SYSTEM ${CMAKE_CURRENT_BINARY_DIR}/stablehlo)
   include_directories(SYSTEM ${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
+  add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/shardy ${CMAKE_CURRENT_BINARY_DIR}/shardy EXCLUDE_FROM_ALL)
+  add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo ${CMAKE_CURRENT_BINARY_DIR}/stablehlo EXCLUDE_FROM_ALL)
   install(DIRECTORY shardy ${CMAKE_CURRENT_BINARY_DIR}/shardy/shardy
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     COMPONENT SharedLib

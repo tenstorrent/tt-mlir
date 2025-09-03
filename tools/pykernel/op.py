@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-from pykernel.types import *
+from pykernel.kernel_types import *
 import hashlib
 import inspect
 import logging

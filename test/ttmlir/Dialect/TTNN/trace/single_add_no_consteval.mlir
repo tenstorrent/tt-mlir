@@ -2,17 +2,17 @@
 // RUN: FileCheck %s --input-file=%t
 
 module {
-  // CHECK-LABEL: func.func @trace_0_single_add
+  // CHECK-LABEL: func.func private @trace_0_single_add
   // CHECK: "ttnn.add"
 
-  // CHECK-LABEL: func.func @run_and_capture_trace_0_single_add
+  // CHECK-LABEL: func.func private @run_and_capture_trace_0_single_add
   // CHECK: "ttnn.from_device"(%arg0)
   // CHECK: "ttnn.write_tensor"
   // CHECK-NOT: "ttnn.from_device"(%arg1)
   // CHECK: "ttnn.begin_trace_capture"
   // CHECK: "ttnn.end_trace_capture"
 
-  // CHECK-LABEL: func.func @execute_trace_0_single_add
+  // CHECK-LABEL: func.func private @execute_trace_0_single_add
   // CHECK: "ttnn.execute_trace"
 
   // CHECK-LABEL: func.func @single_add(

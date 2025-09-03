@@ -9,7 +9,7 @@
 module {
     func.func @arange_workaround_test() -> (tensor<1x1024x1xsi32, #ttnn_layout_reshape_1_output>, tensor<1x1x1024xsi32, #ttnn_layout_reshape_2_output>) {
       %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-      %1 = "ttnn.arange"(%0) <{dtype = #ttcore.supportedDataTypes<si32>, end = 1024 : i64, memory_config = #ttnn.memory_config<<dram>, <interleaved>>, start = 0 : i64, step = 1 : i64}> : (!ttnn.device) -> tensor<1024xsi32, #ttnn_layout_arange_output>
+      %1 = "ttnn.arange"(%0) <{dtype = #ttcore.supportedDataTypes<si32>, layout = #ttnn.layout<tile>, end = 1024 : i64, memory_config = #ttnn.memory_config<<dram>, <interleaved>>, start = 0 : i64, step = 1 : i64}> : (!ttnn.device) -> tensor<1024xsi32, #ttnn_layout_arange_output>
       // Verify that the output of the arange operation is row-major.
       // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
       // CHECK-NEXT: %[[ARANGE_OP:.*]] = "ttnn.arange"(%[[GET_DEVICE_OP]])

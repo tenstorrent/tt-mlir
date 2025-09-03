@@ -184,7 +184,10 @@ protected:
       mlir::RankedTensorType tensorType = mlir::cast<mlir::RankedTensorType>(t);
       ttcore::MetalLayoutAttr layout =
           mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-      block->addArgument(layout.getMemRefType(tensorType), loc);
+      auto shardShape = layout.getShardShape(tensorType);
+      block->addArgument(
+          mlir::RankedTensorType::get(shardShape, tensorType.getElementType()),
+          loc);
     };
 
     llvm::for_each(mlir::TypeRange(inputs), fn);
@@ -288,8 +291,12 @@ private:
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
-        rewriter.create<mlir::linalg::GenericOp>(
-            loc, /* inputs */ blockArgs.take_front(numInputs),
+        auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+            loc,
+            /* result tensor types */
+            llvm::to_vector(
+                mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+            /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
@@ -299,6 +306,8 @@ private:
                   /* operands */ bbArgs.take_front(numInputs));
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
+
+        rewriter.create<ttir::YieldOp>(loc, linalgGeneric->getResults());
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -416,8 +425,12 @@ private:
               tt::ttir::ReduceDimAttr::get(ctx, dimArgAsReduceDim(op, rank)));
         }
 
-        rewriter.create<mlir::linalg::GenericOp>(
-            loc, /* inputs */ blockArgs.take_front(numInputs),
+        auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+            loc,
+            /* result tensor types */
+            llvm::to_vector(
+                mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+            /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
@@ -427,6 +440,8 @@ private:
                   /* operands */ bbArgs.take_front(numInputs), attributes);
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
+
+        rewriter.create<ttir::YieldOp>(loc, linalgGeneric->getResults());
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -629,6 +644,8 @@ private:
           rewriter.create<TileOp>(loc,
                                   /* resultTypes */ mlir::TypeRange(),
                                   /* operands */ blockArgs);
+          // In pure tensor semantics, explicitly yield the output shard.
+          rewriter.create<ttir::YieldOp>(loc, blockArgs.take_back(numOutputs));
 
         } else if constexpr (std::is_same_v<ttir::TileMatmulOp, TileOp>) {
 
@@ -640,8 +657,12 @@ private:
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
               iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
-          rewriter.create<mlir::linalg::GenericOp>(
-              loc, /* inputs */ blockArgs.take_front(numInputs),
+          auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+              loc,
+              /* result tensor types */
+              llvm::to_vector(
+                  mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+              /* inputs */ blockArgs.take_front(numInputs),
               /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
               linalgIteratorTypes,
               [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
@@ -652,6 +673,8 @@ private:
 
                 bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
               });
+
+          rewriter.create<ttir::YieldOp>(loc, linalgGeneric->getResults());
         }
       }
     }

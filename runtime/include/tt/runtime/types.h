@@ -64,8 +64,13 @@ enum class FabricConfig {
   FABRIC_1D,
   FABRIC_1D_RING,
   FABRIC_2D,
-  FABRIC_2D_TORUS,
+  FABRIC_2D_TORUS_X,
+  FABRIC_2D_TORUS_Y,
+  FABRIC_2D_TORUS_XY,
   FABRIC_2D_DYNAMIC,
+  FABRIC_2D_DYNAMIC_TORUS_X,
+  FABRIC_2D_DYNAMIC_TORUS_Y,
+  FABRIC_2D_DYNAMIC_TORUS_XY,
   CUSTOM,
 };
 
@@ -185,8 +190,9 @@ struct TensorDesc {
     return std::accumulate(shape.begin(), shape.end(), static_cast<int64_t>(1),
                            std::multiplies<int64_t>());
   }
+  std::int64_t sizeBytesUnaligned() const { return volume() * itemsize; }
   std::int64_t sizeBytes() const {
-    return utils::alignUp(volume() * itemsize, alignment);
+    return utils::alignUp(sizeBytesUnaligned(), alignment);
   }
 };
 

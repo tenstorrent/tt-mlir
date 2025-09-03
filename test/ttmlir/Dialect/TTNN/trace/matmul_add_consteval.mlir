@@ -5,15 +5,15 @@ module {
   // CHECK-LABEL: func.func @matmul_with_bias_const_eval_0
   // CHECK: "ttnn.matmul"
 
-  // CHECK-LABEL: func.func @trace_0_matmul_with_bias
+  // CHECK-LABEL: func.func private @trace_0_matmul_with_bias
   // CHECK: "ttnn.add"(%arg1, %arg0)
 
-  // CHECK-LABEL: func.func @run_and_capture_trace_0_matmul_with_bias
+  // CHECK-LABEL: func.func private @run_and_capture_trace_0_matmul_with_bias
   // CHECK: "ttnn.write_tensor"
   // CHECK: "ttnn.begin_trace_capture"
   // CHECK: "ttnn.end_trace_capture"
 
-  // CHECK-LABEL: func.func @execute_trace_0_matmul_with_bias
+  // CHECK-LABEL: func.func private @execute_trace_0_matmul_with_bias
   // CHECK: "ttnn.execute_trace"
 
   // CHECK-LABEL: func.func @matmul_with_bias(

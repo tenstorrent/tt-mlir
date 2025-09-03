@@ -18,13 +18,12 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
-  const ::tt::target::ttnn::MeshShardDirection shardDirection =
-      op->shard_direction();
-  const ::tt::target::ttnn::MeshShardType shardType = op->shard_type();
+  const ::tt::target::MeshShardDirection shardDirection = op->shard_direction();
+  const ::tt::target::MeshShardType shardType = op->shard_type();
   const auto *fbShardDims = op->shard_dims();
   std::vector<int64_t> shardDims(fbShardDims->begin(), fbShardDims->end());
 
-  if (shardType == ::tt::target::ttnn::MeshShardType::Identity) {
+  if (shardType == ::tt::target::MeshShardType::Identity) {
     // Forward tensor in runtime for identity shard type assuming that the input
     // tensor is pre-sharded by frontend and output tensor is expected to be
     // pre-sharded by frontend. Thus, no sharding is required, but need to makes
@@ -38,7 +37,7 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
                  "replicate and devices operations.");
   }
 
-  if (shardType == ::tt::target::ttnn::MeshShardType::Identity) {
+  if (shardType == ::tt::target::MeshShardType::Identity) {
     // Forward tensor in runtime for identity shard type assuming that the input
     // tensor is pre-sharded by frontend and output tensor is expected to be
     // pre-sharded by frontend.
@@ -48,13 +47,12 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
 
   auto fullMeshShape = meshDevice.shape();
   ::ttnn::Tensor out;
-  if (shardDirection ==
-      ::tt::target::ttnn::MeshShardDirection::FullToShardShape) {
+  if (shardDirection == ::tt::target::MeshShardDirection::FullToShardShape) {
     // Nd Sharding
     MeshMapperConfig meshMapperConfig;
     meshMapperConfig.placements.resize(fullMeshShape.dims(),
                                        MeshMapperConfig::Replicate{});
-    if (shardType == ::tt::target::ttnn::MeshShardType::Devices) {
+    if (shardType == ::tt::target::MeshShardType::Devices) {
       std::transform(shardDims.cbegin(), shardDims.cend(),
                      meshMapperConfig.placements.begin(),
                      [](const int dim) -> MeshMapperConfig::Placement {
@@ -70,7 +68,7 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   } else {
     // Nd (partial) Concat
     MeshComposerConfig meshComposerConfig;
-    if (shardType == ::tt::target::ttnn::MeshShardType::Replicate) {
+    if (shardType == ::tt::target::MeshShardType::Replicate) {
       meshComposerConfig.dims.push_back(static_cast<int>(1));
       meshComposerConfig.mesh_shape_override = ::ttnn::MeshShape({1});
     } else {

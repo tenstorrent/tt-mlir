@@ -13,6 +13,13 @@ from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_utils import compile_stablehlo_to_flatbuffer
 from test_utils import Marks, shape_str
 
+from ttmlir.passes import (
+    stablehlo_pipeline,
+    stablehlo_to_ttir_pipeline,
+)
+
+pytestmark = pytest.mark.frontend("shlo")
+
 
 def sharding_constraint(
     in0: Operand,

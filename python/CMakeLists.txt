@@ -180,6 +180,8 @@ if(TTMLIR_ENABLE_STABLEHLO)
     StablehloPythonExtensions
     SdyPythonSources
     SdyPythonExtensions
+    MpmdPythonSources
+    MpmdPythonExtensions
   )
 endif()
 

@@ -39,6 +39,7 @@ class TTIRBuilder(Builder):
         oobVal=ttcore.OOBVal.Undef,
         memorySpace=ttcore.MemorySpace.DeviceL1,
         grid: Optional[Tuple[int, int]] = None,
+        index_map: Optional[AffineMap] = None,
     ):
         ctx = self._ctx
 
@@ -52,9 +53,14 @@ class TTIRBuilder(Builder):
         worker_grid = [8, 8]
 
         # Create layout with original logical shape.
-        layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx, logical_shape, worker_grid, oobVal, memorySpace
-        )
+        if index_map is None:
+            layout = ttcore.ir.MetalLayoutAttr.get(
+                ctx, logical_shape, worker_grid, oobVal, memorySpace
+            )
+        else:
+            layout = ttcore.ir.MetalLayoutAttr.get(
+                ctx, logical_shape, worker_grid, oobVal, memorySpace, index_map
+            )
 
         shard_shape = []
         for l, g in zip(logical_shape, grid_shape):
@@ -2286,7 +2292,11 @@ class TTIRBuilder(Builder):
         )
 
     def softmax(
-        self, in0: Operand, dimension: int = 1, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        dimension: int = 1,
+        numeric_stable: bool = False,
+        unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
         Creates ``ttir.softmax``.
@@ -2300,8 +2310,10 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor
-        dim : int, optional
-            Dimension along which Softmax will be computed (default: -1)
+        dimension : int, optional
+            Dimension along which Softmax will be computed (default: 1)
+        numeric_stable : bool, optional
+            Whether to use numerically stable softmax computation (default: False)
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -2314,7 +2326,11 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.SoftmaxOp,
             [in0],
-            ttir_kwargs={"dimension": dimension},
+            golden_kwargs={"dim": dimension},
+            ttir_kwargs={
+                "dimension": dimension,
+                "numericStable": numeric_stable,
+            },
             organize_ttir_args=lambda i, o, _: (
                 self._get_type(o),
                 i[0],
@@ -2906,6 +2922,80 @@ class TTIRBuilder(Builder):
                     else DenseI32ArrayAttr.get(padding)
                 ),
                 "ceil_mode": ceil_mode,
+            },
+            unit_attrs=unit_attrs,
+        )
+
+    def avg_pool2d(
+        self,
+        in0: Operand,
+        in1: Operand,
+        kernel: Union[int, List[int]],
+        stride: Union[int, List[int]],
+        dilation: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        ceil_mode: bool,
+        count_include_pad: bool = True,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.max_pool2d``.
+
+        *Max pooling operation.*
+
+        Applies a 2D max pooling over an input signal composed of several input planes.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        kernel_size : *Union[int, List[int]]*
+            Size of the pooling window
+        stride : *Optional[Union[int, List[int]]]*
+            Stride of the pooling window (default: None, same as kernel_size)
+        padding : *Union[int, List[int]]*, optional
+            Padding added to all sides of input (default: 0)
+        dilation : *Union[int, List[int]]*, optional
+            Controls spacing between kernel elements (default: 1)
+        ceil_mode : bool, optional
+            When True, use ceil instead of floor for output shape (default: False)
+        count_include_pad : bool, optional
+            When True , include padding in the average calculation (default: True)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Output tensor after max pooling
+        """
+
+        return self._op_proxy(
+            ttir.AvgPool2dOp,
+            [in0],
+            ttir_kwargs={
+                "kernel": (
+                    IntegerAttr.get(IntegerType.get_signed(32), kernel)
+                    if isinstance(kernel, int)
+                    else DenseI32ArrayAttr.get(kernel)
+                ),
+                "stride": (
+                    IntegerAttr.get(IntegerType.get_signed(32), stride)
+                    if isinstance(stride, int)
+                    else DenseI32ArrayAttr.get(stride)
+                ),
+                "dilation": (
+                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                    if isinstance(dilation, int)
+                    else DenseI32ArrayAttr.get(dilation)
+                ),
+                "padding": (
+                    IntegerAttr.get(IntegerType.get_signed(32), padding)
+                    if isinstance(padding, int)
+                    else DenseI32ArrayAttr.get(padding)
+                ),
+                "ceil_mode": ceil_mode,
+                "count_include_pad": count_include_pad,
             },
             unit_attrs=unit_attrs,
         )
@@ -4462,7 +4552,7 @@ class TTIRBuilder(Builder):
 
         # Use op_proxy
         return self._op_proxy(
-            ttir.SliceOp,
+            ttir.SliceStaticOp,
             [in0],
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
             output_shape=output_shape,
@@ -4799,4 +4889,77 @@ class TTIRBuilder(Builder):
             [input],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
+        )
+
+    def rms_norm(
+        self,
+        in0: Operand,
+        normalized_shape: List[int],
+        weight: Optional[Operand] = None,
+        bias: Optional[Operand] = None,
+        epsilon: float = 1e-5,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.rms_norm``.
+
+        *RMS normalization operation.*
+
+        Performs RMS (Root Mean Square) normalization on the input tensor. This operation
+        normalizes the input tensor by computing the root mean square of elements across
+        the specified dimensions and dividing by that value, optionally scaling and
+        shifting the result.
+
+        Mathematical definition: rms_norm(x, weight, bias, epsilon) =
+          (x / sqrt(mean(x^2, dims=normalized_dims) + epsilon)) * weight + bias
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to be normalized
+        normalized_shape : List[int]
+            Shape over which to normalize (typically the last few dimensions)
+        weight : Optional[Operand], optional
+            Scale parameter (gamma) tensor with shape matching normalized_shape
+        bias : Optional[Operand], optional
+            Shift parameter (beta) tensor with shape matching normalized_shape
+        epsilon : float, optional
+            Small constant for numerical stability (default: 1e-5)
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        # Prepare TTIR kwargs:
+        ttir_kwargs = {
+            "normalized_shape": normalized_shape,
+            "epsilon": epsilon,
+        }
+
+        golden_kwargs = {
+            "normalized_shape": normalized_shape,
+            "epsilon": epsilon,
+        }
+
+        if weight is not None:
+            ttir_kwargs["weight"] = weight
+            golden_kwargs["weight"] = self._get_golden_tensor(weight)
+        if bias is not None:
+            ttir_kwargs["bias"] = bias
+            golden_kwargs["bias"] = self._get_golden_tensor(bias)
+
+        return self._op_proxy(
+            ttir.RMSNormOp,
+            [in0],
+            golden_kwargs=golden_kwargs,
+            ttir_kwargs=ttir_kwargs,
+            organize_ttir_args=lambda i, o, _: (
+                self._get_type(o),
+                i[0],
+                o,
+            ),
+            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            unit_attrs=unit_attrs,
         )

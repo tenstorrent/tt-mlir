@@ -56,7 +56,8 @@ struct RankedTensorTypeFactory {
 };
 
 // Return the L1 memory usage of the output tensor of the given op.
-// Used within L1 interleaved policies.
+// Used within L1 interleaved policies and temporarily within L1 Interleaved
+// Fallback Analysis.
 //
 uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout);
 
@@ -76,6 +77,9 @@ void irToFile(mlir::Operation *op, std::string filename);
 // Convert a logical tensor shape to a tiled shape by rounding up the last two
 // dims to tile size (32). E.g. (1, 2, 16, 16) -> (1, 2, 32, 32).
 llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape);
+
+// Extract input layouts from operation operands, skipping device type operands.
+std::vector<TTNNLayoutAttr> extractInputLayouts(Operation *op);
 
 // Helper method to create a ShardSpecAttr if needed.
 std::optional<ShardSpecAttr>
@@ -99,6 +103,17 @@ TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
 // Returns all TTNN dialect registered operations.
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context);
 
+// Check if operation's first result uses TTNN layout encoding.
+bool producesTTNNLayoutEncoding(Operation *op);
+
+// Check if operation's first result uses DRAM buffer layout.
+bool producesDRAMLayout(Operation *op);
+
+// Check if operation's first result uses L1 buffer layout.
+bool producesL1Layout(Operation *op);
+
+// Check if operation's first result uses tiled tensor layout.
+bool producesTiledTensorLayout(Operation *op);
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

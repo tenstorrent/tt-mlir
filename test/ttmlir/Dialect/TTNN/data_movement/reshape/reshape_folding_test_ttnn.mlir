@@ -33,7 +33,7 @@ module {
     // CHECK: ttnn.add
     %0 = "ttnn.reshape"(%arg0) <{shape = [32 : i32, 256 : i32]}> : (tensor<64x128xf32, #ttnn_layout_device_tile_f32>) -> tensor<32x256xf32, #ttnn_layout_device_tile_f32>
     %1 = "ttnn.reshape"(%0) <{shape = [8192 : i32]}> : (tensor<32x256xf32, #ttnn_layout_device_tile_f32>) -> tensor<8192xf32, #ttnn_layout_device_tile_f32>
-    %2 = "ttnn.add"(%0, %0) <{output_dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<32x256xf32, #ttnn_layout_device_tile_f32>, tensor<32x256xf32, #ttnn_layout_device_tile_f32>) -> tensor<32x256xf32, #ttnn_layout_device_tile_f32>
+    %2 = "ttnn.add"(%0, %0) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<32x256xf32, #ttnn_layout_device_tile_f32>, tensor<32x256xf32, #ttnn_layout_device_tile_f32>) -> tensor<32x256xf32, #ttnn_layout_device_tile_f32>
     return %1, %2 : tensor<8192xf32, #ttnn_layout_device_tile_f32>, tensor<32x256xf32, #ttnn_layout_device_tile_f32>
   }
 }

@@ -24,6 +24,7 @@ public:
   // Enable/disable the memory configurations.
   void setMemoryReconfig(bool);
   void setEnableMemoryLayoutAnalysis(bool);
+  void setEnableL1InterleavedFallbackAnalysis(bool);
   void setEnableMemoryLayoutAnalysisPolicy(bool);
   void setMemoryLayoutAnalysisPolicy(MemoryLayoutAnalysisPolicyType);
   void setInsertMemReconfig(llvm::StringMap<InsertMemReconfigParams> &);
@@ -34,12 +35,15 @@ public:
   // Set the maximum number of legal layouts for grid analysis.
   void setMaxLegalLayouts(int64_t);
   void setMeshShape(std::vector<int64_t>);
+  // Set the tensor L1 usage cap.
+  void setTensorL1UsageCap(float tensorL1UsageCap);
 
   // Get the current state of the optimizer passes.
   bool getEnableOptimizer() const;
   // Get the current state of the memory configurations.
   bool getMemoryReconfig() const;
   bool getEnableMemoryLayoutAnalysis() const;
+  bool getEnableL1InterleavedFallbackAnalysis() const;
   bool getEnableMemoryLayoutAnalysisPolicy() const;
   MemoryLayoutAnalysisPolicyType getMemoryLayoutAnalysisPolicy() const;
   llvm::StringMap<InsertMemReconfigParams> getInsertMemReconfig() const;
@@ -49,6 +53,8 @@ public:
   // Get the current maximum number of legal layouts for grid analysis.
   int64_t getMaxLegalLayouts() const;
   std::vector<int64_t> getMeshShape() const;
+  // Get the current tensor L1 usage cap.
+  float getTensorL1UsageCap() const;
 
   std::string toString() const;
 
@@ -82,6 +88,7 @@ private:
   // Flags for enabling/disabling the memory configurations
   bool enableMemoryReconfig = true;
   bool enableMemoryLayoutAnalysis = false;
+  bool enableL1InterleavedFallbackAnalysis = false;
 
   llvm::StringMap<InsertMemReconfigParams> insertMemReconfig;
 
@@ -99,6 +106,9 @@ private:
   int64_t maxLegalLayouts = 0;
 
   std::vector<int64_t> meshShape;
+
+  // Tensor L1 usage cap
+  float tensorL1UsageCap = 0;
 
 }; // class OptimizerOverridesHandler
 

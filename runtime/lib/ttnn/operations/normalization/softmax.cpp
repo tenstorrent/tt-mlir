@@ -15,6 +15,7 @@ void run(const ::tt::target::ttnn::SoftmaxOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
   int32_t dimension = op->dimension();
+  bool numericStable = op->numeric_stable();
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
@@ -22,7 +23,8 @@ void run(const ::tt::target::ttnn::SoftmaxOp *op, ProgramContext &context) {
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ::ttnn::softmax(in, dimension, outputMemoryConfig);
+  ::ttnn::Tensor out = ::ttnn::softmax(in, dimension, outputMemoryConfig,
+                                       std::nullopt, numericStable);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

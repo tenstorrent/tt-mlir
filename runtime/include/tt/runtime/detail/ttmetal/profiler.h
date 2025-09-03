@@ -11,7 +11,7 @@
 
 // [todo] move into op_profiler.hpp includes after build break from tt-metal
 // b13938c See https://github.com/tenstorrent/tt-mlir/issues/4004
-#include "tt-metalium/tt_metal_profiler.hpp"
+#include "tt/runtime/detail/ttmetal/ttmetal.h"
 
 #include <cstdint>
 
@@ -49,11 +49,12 @@ inline std::string op_meta_data_serialized_json(
     chip_id_t deviceId, const tt::tt_metal::Program &program, const char *loc) {
   std::uint32_t programHash = 0;
 
+  auto runtime_id = tt_metal::detail::EncodePerDeviceProgramID(
+      program.get_runtime_id(), deviceId);
   device_operation_t::operation_attributes_t attributes(loc);
   device_operation_t::tensor_return_value_t tmpLValue{};
   auto j = tt::tt_metal::op_profiler::get_base_json<device_operation_t>(
-      program.get_runtime_id(), attributes, device_operation_t::tensor_args_t{},
-      tmpLValue);
+      runtime_id, attributes, device_operation_t::tensor_args_t{}, tmpLValue);
   j["op_type"] = "ttmlir_program";
   j["device_id"] = deviceId;
   j["op_hash"] = programHash;
@@ -65,26 +66,28 @@ inline std::string op_meta_data_serialized_json(
       fmt::format("`TT_DNN_DEVICE_OP: {}, {}, {}, ", j["op_code"].dump(),
                   programHash, deviceId);
   std::string ser = j.dump(4);
-  return fmt::format("{}{} ->\n{}`", short_str, program.get_runtime_id(), ser);
+  return fmt::format("{}{} ->\n{}`", short_str, runtime_id, ser);
 }
 
-inline void profileProgram(tt::tt_metal::IDevice *device,
-                           const tt::tt_metal::Program &program,
-                           const char *loc) {
+inline void addProgramProfileHostMetadata(int deviceId,
+                                          const tt::tt_metal::Program &program,
+                                          const char *loc) {
   ZoneScopedN("TT_DNN_DEVICE_OP");
   std::string op_message =
       tt::runtime::ttmetal::profiler::op_meta_data_serialized_json(
-          device->id(), program, loc);
-  std::string op_text = fmt::format("id:{}", program.get_runtime_id());
+          deviceId, program, loc);
+  auto runtime_id = tt_metal::detail::EncodePerDeviceProgramID(
+      program.get_runtime_id(), deviceId);
+  std::string op_text = fmt::format("id:{}", runtime_id);
   ZoneText(op_text.c_str(), op_text.size());
   TracyMessage(op_message.c_str(), op_message.size());
-  tt_metal::detail::ReadDeviceProfilerResults(device);
 }
 
 #else
 
-inline void profileProgram(tt::tt_metal::IDevice *,
-                           const tt::tt_metal::Program &, const char *) {
+inline void addProgramProfileHostMetadata(int deviceId,
+                                          const tt::tt_metal::Program &program,
+                                          const char *loc) {
   LOG_WARNING_ONCE("TT_RUNTIME_ENABLE_PERF_TRACE is not enabled in build, no "
                    "perf trace will be generated!");
 }

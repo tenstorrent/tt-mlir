@@ -29,6 +29,13 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def("get_enable_memory_layout_analysis",
            &tt::ttnn::OptimizerOverridesHandler::getEnableMemoryLayoutAnalysis)
 
+      .def("set_enable_l1_interleaved_fallback_analysis",
+           &tt::ttnn::OptimizerOverridesHandler::
+               setEnableL1InterleavedFallbackAnalysis)
+      .def("get_enable_l1_interleaved_fallback_analysis",
+           &tt::ttnn::OptimizerOverridesHandler::
+               getEnableL1InterleavedFallbackAnalysis)
+
       .def("set_enable_memory_layout_analysis_policy",
            &tt::ttnn::OptimizerOverridesHandler::
                setEnableMemoryLayoutAnalysisPolicy)
@@ -53,6 +60,11 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
 
       .def("set_mesh_shape", &tt::ttnn::OptimizerOverridesHandler::setMeshShape)
       .def("get_mesh_shape", &tt::ttnn::OptimizerOverridesHandler::getMeshShape)
+
+      .def("set_tensor_l1_usage_cap",
+           &tt::ttnn::OptimizerOverridesHandler::setTensorL1UsageCap)
+      .def("get_tensor_l1_usage_cap",
+           &tt::ttnn::OptimizerOverridesHandler::getTensorL1UsageCap)
 
       .def("get_insert_memreconfig", &tt::ttnn::OptimizerOverridesHandler::
                                          getInsertMemReconfigNanobindWrapper)

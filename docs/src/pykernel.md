@@ -47,9 +47,9 @@ To create a custom PyKernel operation, you need to:
 ### Basic Structure
 
 ```python
-from pykernel.ast import *
+from pykernel.kernel_ast import *
 from pykernel.op import PyKernelOp
-from pykernel.types import *
+from pykernel.kernel_types import *
 
 import ttnn
 import torch
@@ -214,9 +214,9 @@ The `VecAdd` operation adds two tensors element-wise. Let's examine a complete i
 ### 1. Define the Operation Class
 
 ```python
-from pykernel.ast import *
+from pykernel.kernel_ast import *
 from pykernel.op import PyKernelOp
-from pykernel.types import *
+from pykernel.kernel_types import *
 
 import ttnn
 import torch

@@ -3,16 +3,18 @@ if (TTMLIR_ENABLE_OPMODEL)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
-        Optimizer.cpp
         Passes.cpp
+        OptimizerPasses/OperationValidationAndFallback.cpp
+        OptimizerPasses/Optimizer.cpp
+        OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNLayout.cpp
         TTNNDecomposeLayouts.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
         TTNNUniqueLocs.cpp
-        TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNFusing.cpp
         TTNNTraceHoistTransform.cpp
+        Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.cpp
         Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
@@ -22,7 +24,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
         Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
-        Workarounds/Decomposition/RepeatOpRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
         Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.cpp
         Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.cpp

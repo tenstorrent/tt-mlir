@@ -14,10 +14,11 @@ namespace mlir::tt::ttir {
 namespace {
 template <CommuteDirection commuteDirection>
 class TTIRCommutePermuteThroughSlice
-    : public TTIRCommuteOpRewritePattern<PermuteOp, SliceOp, commuteDirection> {
+    : public TTIRCommuteOpRewritePattern<PermuteOp, SliceStaticOp,
+                                         commuteDirection> {
 public:
   using TTIRCommuteOpRewritePattern<
-      PermuteOp, SliceOp, commuteDirection>::TTIRCommuteOpRewritePattern;
+      PermuteOp, SliceStaticOp, commuteDirection>::TTIRCommuteOpRewritePattern;
 
   // Consider the following IR pseudocode:
   // %0 = slice(%arg0) <{
@@ -32,7 +33,7 @@ public:
   //      begins = [0 : i32, 0 : i32, 0 : i32, 80 : i32],
   //      ends = [1 : i32, 160 : i32, 160 : i32, 160 : i32],
   //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
-  void performCommuteUpwardsRewrite(SliceOp op, PermuteOp permuteUser,
+  void performCommuteUpwardsRewrite(SliceStaticOp op, PermuteOp permuteUser,
                                     PatternRewriter &rewriter) const override {
 
     RankedTensorType sliceOperandType = op.getInput().getType();
@@ -58,7 +59,7 @@ public:
                                         permuteUser.getPermutation()),
         op.getType().getElementType(), op.getType().getEncoding());
 
-    SliceOp newSlice = utils::createDPSOp<SliceOp>(
+    SliceStaticOp newSlice = utils::createDPSOp<SliceStaticOp>(
         rewriter, op->getLoc(), newSliceType, newPerm,
         rewriter.getArrayAttr(newSliceStarts),
         rewriter.getArrayAttr(newSliceEnds),
@@ -86,7 +87,7 @@ public:
   //      step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
   // %1 = permute(%1) <{permutation = array<i64: 0, 2, 3, 1>}>
   void
-  performCommuteDownwardsRewrite(SliceOp op, PermuteOp permuteOperand,
+  performCommuteDownwardsRewrite(SliceStaticOp op, PermuteOp permuteOperand,
                                  PatternRewriter &rewriter) const override {
     SmallVector<int64_t> inversePermutation =
         ttmlir::utils::inversePermutation(permuteOperand.getPermutation());
@@ -102,7 +103,7 @@ public:
     SmallVector<Attribute> newSliceSteps = ttmlir::utils::applyPermutation(
         op.getStep().getValue(), inversePermutation);
 
-    SliceOp newSlice = utils::createDPSOp<SliceOp>(
+    SliceStaticOp newSlice = utils::createDPSOp<SliceStaticOp>(
         rewriter, op->getLoc(), newSliceType, permuteOperand.getInput(),
         rewriter.getArrayAttr(newSliceStarts),
         rewriter.getArrayAttr(newSliceEnds),
@@ -119,24 +120,24 @@ public:
   }
 
 private:
-  bool isCommuteUpwardsViable(SliceOp op, PermuteOp) const override {
+  bool isCommuteUpwardsViable(SliceStaticOp op, PermuteOp) const override {
     // Commuting a permute through a slice is always viable
     return true;
   }
 
-  bool isCommuteUpwardsFavorable(SliceOp op, PermuteOp) const override {
+  bool isCommuteUpwardsFavorable(SliceStaticOp op, PermuteOp) const override {
     // We should always commute a permute above a slice if all users are an
     // identical permutation. This includes the case where there is one user.
     SmallVector<Operation *> users(op->getUsers());
     return !users.empty() && checkAllUsersAreIdenticalTms(users);
   }
 
-  bool isCommuteDownwardsViable(SliceOp op, PermuteOp) const override {
+  bool isCommuteDownwardsViable(SliceStaticOp op, PermuteOp) const override {
     // Commuting a permute through a slice is always viable
     return true;
   }
 
-  bool isCommuteDownwardsFavorable(SliceOp op,
+  bool isCommuteDownwardsFavorable(SliceStaticOp op,
                                    PermuteOp permuteOperand) const override {
     // Commuting downwards is favorable if the all other operands a satisfy one
     // of the following:
