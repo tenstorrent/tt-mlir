@@ -1111,7 +1111,6 @@ public:
         })) {
       return mlir::failure();
     }
-    llvm::outs() << "Matched all inputs are either FullOp or ConstantOp...\n";
     // Besides the padding attribute, all attributes of the denominator must
     // match the rightmost sublist of the numerator's attributes.
     if (!matchRightMostSubList(numerator.getWindowDimensions(),
@@ -1313,10 +1312,8 @@ public:
 
     SumOp sumOp = multiplyOp.getLhs().getDefiningOp<SumOp>();
     if (!validateSumOp(sumOp)) {
-      // llvm::outs() << "Sum op validation failed\n";
       return mlir::failure();
     }
-    llvm::outs() << "Matched sum op...\n";
 
     auto input = sumOp.getInput();
     auto inputShape = input.getType().getShape();
@@ -1324,11 +1321,9 @@ public:
 
     FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
     if (!validateFullOp(fullOp, inputShape)) {
-      llvm::outs() << "Fill value is not valid\n";
       return mlir::failure();
     }
 
-    llvm::outs() << "Fill value is valid...\n";
     PoolingConfig poolingConfig = createPoolingConfig(inputShape);
 
     // Create a type for pooling with shape [..., 1, 1] for the last two
@@ -1341,35 +1336,28 @@ public:
         poolingConfig.windowStrides, poolingConfig.baseDilations,
         poolingConfig.windowDilations, poolingConfig.padding);
 
-    llvm::outs() << "Created avg pool...\n";
     if (!keepDim) {
-      llvm::outs() << "Reshaping output...\n";
       auto outputType = multiplyOp.getOutput().getType();
-      llvm::outs() << "Output type: " << outputType << "\n";
       auto reshapePoolOp = reshapePoolOutput(rewriter, poolingOp, outputType);
       rewriter.replaceOp(multiplyOp, reshapePoolOp.getResult());
     } else {
       rewriter.replaceOp(multiplyOp, poolingOp.getResult(0));
     }
 
-    llvm::outs() << "Replaced with avg pool...\n";
     return mlir::success();
   };
 
 private:
   bool validateFullOp(FullOp fullOp, ArrayRef<int64_t> inputShape) const {
     if (!fullOp) {
-      llvm::outs() << "No full op found\n";
       return false;
     }
 
     Attribute fillValueAttr = fullOp.getFillValue();
     if (!fillValueAttr) {
-      llvm::outs() << "No fill value attribute\n";
       return false;
     }
     if (!isa<FloatAttr>(fillValueAttr)) {
-      llvm::outs() << "Fill value attribute is not a float\n";
       return false;
     }
     float fillValue =
@@ -1379,10 +1367,6 @@ private:
     int64_t inputWidth = inputShape[inputRank - 1];
     float expectedValue = 1.0 / (inputHeight * inputWidth);
     if (std::abs(fillValue - expectedValue) > 1e-4) {
-      llvm::outs() << "Fill value " << fillValue
-                   << " does not match expected value: " << expectedValue
-                   << "\n";
-
       return false;
     }
     return true;
@@ -1427,7 +1411,6 @@ private:
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
         outputType, poolingOp.getResult(0),
         rewriter.getI32ArrayAttr(outputShapeI32));
-    llvm::outs() << "Created reshape op...\n";
     return reshapeOp;
   }
 
