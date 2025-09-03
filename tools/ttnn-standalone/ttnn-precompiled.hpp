@@ -69,6 +69,7 @@ namespace ttnn {
 class DeviceGetter {
 public:
   static constexpr std::size_t l1SmallSize = 1 << 15;
+  static constexpr std::size_t traceRegionSize = 1 << 16;
 
   static ttnn::MeshDevice *getInstance() {
     // If we have an external device, use it.
@@ -78,7 +79,7 @@ public:
     }
 
     static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
-        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize);
+        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, traceRegionSize);
     hasOwnedDevice = true;
     return ownedInstance.get();
   }
