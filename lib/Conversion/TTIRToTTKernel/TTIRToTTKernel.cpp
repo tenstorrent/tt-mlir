@@ -110,8 +110,9 @@ static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
-  if (mlir::isa<memref::LoadOp>(cb.getDefiningOp())) {
-    memref::LoadOp loadOp = mlir::cast<memref::LoadOp>(cb.getDefiningOp());
+  if (memref::LoadOp loadOp =
+          mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
+      loadOp) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
     return rewriter.getRemappedValue(loadOp.getMemref());

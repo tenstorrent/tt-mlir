@@ -320,9 +320,9 @@ public:
     assert(linalgGenericOp.getOutputs().size() == 1 &&
            "Expected exactly 1 output for tile matmul");
 
-    Value inputA_memref = linalgGenericOp.getInputs()[0];
-    Value inputB_memref = linalgGenericOp.getInputs()[1];
-    Value outputC_memref = linalgGenericOp.getOutputs()[0];
+    Value inputAMemref = linalgGenericOp.getInputs()[0];
+    Value inputBMemref = linalgGenericOp.getInputs()[1];
+    Value outputCMemref = linalgGenericOp.getOutputs()[0];
 
     rewriter.setInsertionPoint(linalgGenericOp);
 
@@ -344,8 +344,8 @@ public:
     for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
       rewriter.eraseOp(loopOp);
     }
-    rewriter.create<ttir::TileMatmulBlockOp>(op.getLoc(), inputA_memref,
-                                             inputB_memref, outputC_memref);
+    rewriter.create<ttir::TileMatmulBlockOp>(op.getLoc(), inputAMemref,
+                                             inputBMemref, outputCMemref);
     return true;
   }
 
