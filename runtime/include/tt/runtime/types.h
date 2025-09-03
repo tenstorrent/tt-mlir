@@ -163,10 +163,10 @@ struct RuntimeCheckedConstObjectImpl {
 } // namespace detail
 
 struct TensorDesc {
-  std::vector<uint32_t> shape = {};  // Logical
-  std::vector<uint32_t> stride = {}; // Logical
-  uint32_t itemsize = 0;
+  std::vector<uint32_t> shape = {}; // Logical
   ::tt::target::DataType dataType = ::tt::target::DataType::MAX;
+  uint32_t itemsize = 0;
+  std::vector<uint32_t> stride = {}; // Logical
 
   // Members below are for metal tensors only.
   std::vector<uint32_t> dimAlignments = {};
@@ -174,28 +174,16 @@ struct TensorDesc {
   TensorDesc() = default;
 
   TensorDesc(const std::vector<uint32_t> &shape,
-             const std::vector<uint32_t> &stride, uint32_t itemsize,
-             ::tt::target::DataType dataType,
-             const std::vector<uint32_t> &dimAlignments)
-      : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType),
-        dimAlignments(dimAlignments) {}
-
-  TensorDesc(const std::vector<uint32_t> &shape,
-             const std::vector<uint32_t> &stride,
-             ::tt::target::DataType dataType,
-             const std::vector<uint32_t> &dimAlignments)
-      : TensorDesc(shape, stride, utils::dataTypeElementSize(dataType),
-                   dataType, dimAlignments) {}
-
-  TensorDesc(const std::vector<uint32_t> &shape,
-             ::tt::target::DataType dataType,
-             const std::vector<uint32_t> &dimAlignments)
-      : TensorDesc(shape, utils::calculateStride(shape), dataType,
-                   dimAlignments) {}
-
-  TensorDesc(const std::vector<uint32_t> &shape,
-             ::tt::target::DataType dataType)
-      : TensorDesc(shape, dataType, std::vector<uint32_t>(shape.size(), 1)) {}
+             const ::tt::target::DataType dataType,
+             const std::optional<uint32_t> itemsize = {},
+             const std::optional<std::vector<uint32_t>> &stride = {},
+             const std::optional<std::vector<uint32_t>> &dimAlignments = {})
+      : shape(shape), dataType(dataType) {
+    this->itemsize = itemsize.value_or(utils::dataTypeElementSize(dataType));
+    this->stride = stride.value_or(utils::calculateStride(shape));
+    this->dimAlignments =
+        dimAlignments.value_or(std::vector<uint32_t>(shape.size(), 1));
+  }
 
   size_t volume() const {
     return utils::calculateVolume(shape.cbegin(), shape.cend());

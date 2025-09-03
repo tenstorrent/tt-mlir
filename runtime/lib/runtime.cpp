@@ -187,8 +187,7 @@ Tensor createBorrowedHostTensor(void *data,
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::createBorrowedHostTensor(
-            data, TensorDesc(shape, stride, itemsize, dataType,
-                             std::vector<uint32_t>(shape.size(), 1)));
+            data, TensorDesc(shape, dataType, itemsize, stride));
       });
 }
 

@@ -19,23 +19,19 @@ namespace tt::runtime::utils {
 
 template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
 T alignUp(const T val, const T alignment) {
-  if (alignment == 0 || alignment == 1) {
+  assert(alignment > 0);
+  if (alignment == 1) {
     return val;
   }
   return ((val + alignment - 1) / alignment) * alignment;
 }
 
-inline std::shared_ptr<void> mallocShared(const size_t size,
-                                          const size_t alignment) {
-  return std::shared_ptr<void>(
-      std::aligned_alloc(alignment, alignUp(size, alignment)), std::free);
+inline std::shared_ptr<void> mallocShared(const size_t size) {
+  return std::shared_ptr<void>(std::malloc(size), std::free);
 }
 
-inline std::shared_ptr<void> callocShared(const size_t size,
-                                          const size_t alignment) {
-  auto buf = mallocShared(size, alignment);
-  memset(buf.get(), 0, alignUp(size, alignment));
-  return buf;
+inline std::shared_ptr<void> callocShared(const size_t size) {
+  return std::shared_ptr<void>(std::calloc(size, 1), std::free);
 }
 
 template <typename T>

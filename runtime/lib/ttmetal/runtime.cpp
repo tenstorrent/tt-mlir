@@ -500,9 +500,9 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
 }
 
 template <typename T>
-std::vector<T> getStridedRowStartIndices(const std::vector<T> &shape,
-                                         const std::vector<T> &strides,
-                                         const size_t level = 0) {
+static std::vector<T> getStridedRowStartIndices(const std::vector<T> &shape,
+                                                const std::vector<T> &strides,
+                                                const size_t level = 0) {
   const T dimSize = shape[level];
 
   if (level == shape.size() - 1) {
@@ -521,8 +521,8 @@ std::vector<T> getStridedRowStartIndices(const std::vector<T> &shape,
   return indices;
 }
 
-void stridedMemcpy(const TensorDesc &dst, const TensorDesc &src, void *dstData,
-                   const void *srcData) {
+static void stridedMemcpy(const TensorDesc &dst, const TensorDesc &src,
+                          void *dstData, const void *srcData) {
   LOG_ASSERT(dst.shape == src.shape, "Tensor shape mismatch");
   LOG_ASSERT(dst.itemsize == src.itemsize, "Tensor item size mismatch");
 

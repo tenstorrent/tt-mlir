@@ -37,7 +37,8 @@ constexpr inline llvm::StringLiteral g_decomposedFromAllReduceAttrName =
 
 template <typename T>
 T alignUp(const T val, const T alignment) {
-  if (alignment == 0 || alignment == 1) {
+  assert(alignment > 0);
+  if (alignment == 1) {
     return val;
   }
   return ((val + alignment - 1) / alignment) * alignment;
