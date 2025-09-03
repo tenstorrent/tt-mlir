@@ -35,6 +35,17 @@ class StableHLOBuilder(Builder):
         self._mesh_dict = mesh_dict
 
     # ----- Private Methods ----
+
+    def _create_mesh_attr_from_ordered_dict(
+        self,
+        mesh_dict: OrderedDict[str, int],
+    ) -> sdy.MeshAttr:
+        axes = [
+            self.mesh_axis_attr(name=axis_name, size=size)
+            for axis_name, size in mesh_dict.items()
+        ]
+        return self.mesh_attr(axes)
+
     def _get_mesh_attr(self) -> sdy.MeshAttr:
         axes = [
             self.mesh_axis_attr(name=axis_name, size=size)

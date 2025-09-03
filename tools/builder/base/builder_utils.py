@@ -99,7 +99,7 @@ def _run_ttir_pipeline(
     pipeline_options: Optional[List[str]] = None,
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
-    system_desc_path: Optional[str] = None,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     argument_types_string: Optional[str] = None,
 ):
@@ -288,7 +288,7 @@ def compile_ttir_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
-    system_desc_path: Optional[str] = None,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
     target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
@@ -325,7 +325,7 @@ def compile_ttir_to_flatbuffer(
         `len(inputs_shapes) == len(inputs_types)` must be true.
 
     test_base : str
-        The string to be used as the test_base name for dumped files throughout the
+        The string to be used as the base name for dumped files throughout the
         process. If `None` is provided, then the `__name__` of `fn` will be used.
 
     output_root : str
@@ -354,13 +354,23 @@ def compile_ttir_to_flatbuffer(
     system_desc_path : str, optional
         Path to the system descriptor file
 
-    pipeline_options : *List[str]*, optional
-        Pipeline options to be added to the pass.
+    mesh_name : *str*
+        Name of the mesh to be used in the module. Default is "mesh".
+
+    mesh_dict : *OrderedDict[str, int]*
+        Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
+
+    module_dump : bool
+        Set to True to print out generated TTIR MLIR module.
+        Default is False.
+
+    pipeline_options : *Optional[List[str]]*
+        Pipeline options to be added to the pass
 
     print_ir : *Union[bool, str]*, optional
         Set to True to print IR to stdout. Set to dir path to print IR after
         each pass to its own file under that directory.
-        Default is True.
+        Default is False.
 
     Returns
     -------
@@ -548,7 +558,7 @@ def compile_stablehlo_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
-    system_desc_path: Optional[str] = None,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
     target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
@@ -629,6 +639,12 @@ def compile_stablehlo_to_flatbuffer(
     ValueError
         If inputs_shapes and inputs_types have different lengths
     """
+    if shlo_pipeline_options is None:
+        shlo_pipeline_options = []
+
+    if shlo_to_ttir_pipeline_options is None:
+        shlo_to_ttir_pipeline_options = []
+
     if inputs_types is not None:
         if len(inputs_shapes) != len(inputs_types):
             raise ValueError("inputs_shapes and inputs_types must have the same length")
@@ -678,7 +694,7 @@ def compile_stablehlo_to_flatbuffer(
 def compile_ttir_module_to_flatbuffer(
     module: Module,
     builder: Union[TTIRBuilder, StableHLOBuilder],
-    system_desc_path: Optional[str] = None,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
     builder_dir: str = "ttir-builder",
