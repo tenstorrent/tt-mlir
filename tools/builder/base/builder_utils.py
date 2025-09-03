@@ -96,13 +96,16 @@ def _create_custom_ttir_pipeline_fn(
 def _run_ttir_pipeline(
     module,
     pipeline_fn: Callable,
-    pipeline_options: List[str] = [],
+    pipeline_options: Optional[List[str]] = None,
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
-    mesh_dict: OrderedDict[str, int] = None,
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     argument_types_string: Optional[str] = None,
 ):
+    if pipeline_options is None:
+        pipeline_options = []
+
     if argument_types_string:
         tt_populate_argument_types(module, argument_types_string)
         pipeline_options.append("enable-const-eval=true")
@@ -112,14 +115,11 @@ def _run_ttir_pipeline(
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
     pipeline_options.append(f"system-desc-path={system_desc_path}")
 
-    if mesh_dict is not None:
-        mesh_shape = tuple(mesh_dict.values())
-        if len(mesh_shape) != 2:
-            raise ValueError(
-                f"Mesh shape must be a tuple of length 2, got: {mesh_shape}"
-            )
+    mesh_shape = tuple(mesh_dict.values())
+    if len(mesh_shape) != 2:
+        raise ValueError(f"Mesh shape must be a tuple of length 2, got: {mesh_shape}")
 
-        pipeline_options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
+    pipeline_options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
 
     # Now, pass it through the pipeline. Module gets modified in place.
     pipeline_fn(module, " ".join(pipeline_options))
@@ -164,7 +164,7 @@ def build_ttir_module(
         Data types of the input tensors
 
     mesh_name: *str*
-        Name of the mesh to be used in the module.
+        Name of the mesh to be used in the module. Default is "mesh".
 
     mesh_dict: *OrderedDict[str, int]*
         Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
@@ -297,7 +297,7 @@ def compile_ttir_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    pipeline_options: List[str] = [],
+    pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
 ) -> str:
     """
@@ -557,9 +557,9 @@ def compile_stablehlo_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    ttir_pipeline_options: List[str] = [],
-    shlo_pipeline_options: List[str] = [],
-    shlo_to_ttir_pipeline_options: List[str] = [],
+    ttir_pipeline_options: Optional[List[str]] = None,
+    shlo_pipeline_options: Optional[List[str]] = None,
+    shlo_to_ttir_pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
 ) -> str:
     """
@@ -773,7 +773,6 @@ def compile_ttir_module_to_flatbuffer(
         to_target = ttmetal_to_flatbuffer_file
         mlir_suffix = "_ttm.mlir"
         target_extension = "ttm"
-        mesh_dict = None
     elif target == "ttnn-standalone":
         ttir_to_ttnn_emitc_pipeline = _create_custom_ttir_pipeline_fn(
             "ttir-to-emitc-pipeline", print_ir=print_ir
@@ -818,7 +817,7 @@ def compile_ttir_module_to_flatbuffer(
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
     return output_file_mlir
 
-  
+
 # ----- Experimental Public APIs -----
 
 
