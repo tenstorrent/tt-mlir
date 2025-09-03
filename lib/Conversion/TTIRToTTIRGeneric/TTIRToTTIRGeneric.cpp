@@ -758,10 +758,9 @@ public:
     if (permuteSize == 2 || permutation[permuteSize - 2] == permuteSize - 1 ||
         permutation[permuteSize - 1] == permuteSize - 2) {
       return permuteInnerDims(op, adaptor, rewriter);
-    } else {
-      // Unhandled conversion case.
-      return failure();
     }
+    // Unhandled conversion case.
+    return failure();
   }
 
   LogicalResult
