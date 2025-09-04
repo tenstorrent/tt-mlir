@@ -76,7 +76,7 @@ public:
 
     // If src or dst operand is DRAM they must be remote
     // else, Lower L1->L1 reblocking as READs (view applied to the src, dst is
-    // local)
+    // local).
     bool isSrcDramOrReblock =
         isSrcDram || (!isDstDram && (inputGridShape != outputGridShape));
 

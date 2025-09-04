@@ -161,7 +161,7 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
         "TransposeInitOp must be inside of a EnqueueProgramOp region");
   }
 
-  // Both input and output should have tile element types for transpose
+  // Both input and output should have tile element types for transpose.
   auto inputCBType = getCbIn().getType();
   auto outputCBType = getCbOut().getType();
 
