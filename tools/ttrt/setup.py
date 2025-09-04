@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-from setuptools import setup, find_packages
+from setuptools import setup
 import shutil
 import subprocess
 
@@ -22,7 +22,6 @@ ttmlir_build_dir = os.environ.get(
     "TTMLIR_BINARY_DIR",
     os.path.join(src_dir, "build"),
 )
-# toolchain = os.environ.get("TTMLIR_TOOLCHAIN_DIR", "/opt/ttmlir-toolchain")
 metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal/build"
 ttmetalhome = os.environ.get("TT_METAL_HOME", "")
 
@@ -58,19 +57,8 @@ if enable_perf:
     perflibs += ["capture-release"]
     perflibs += ["csvexport-release"]
 
-"""
-# Add this before any shutil.copy operations:
-def clean_runtime_dir():
-    runtime_dir = f"{ttmlir_build_dir}/python_packages/ttrt/runtime"
-    if os.path.exists(runtime_dir):
-        print(f"Cleaning existing runtime directory: {runtime_dir}")
-        shutil.rmtree(runtime_dir)
-    os.makedirs(runtime_dir, exist_ok=True)
-"""
-
 if enable_runtime:
-    # assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
-    # clean_runtime_dir()
+    assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
 
     shutil.copy(
         f"{ttmlir_build_dir}/runtime/lib/libTTMLIRRuntime.so",
@@ -234,8 +222,8 @@ setup(
     url="https://github.com/tenstorrent/tt-mlir",
     description="Python bindings to runtime libraries",
     long_description="",
-    packages=packages,  # find_packages(where=f"{ttmlir_build_dir}/python_packages"),
-    package_dir=package_dir,  # {"": f"{ttmlir_build_dir}/python_packages"},
+    packages=packages,
+    package_dir=package_dir,
     install_requires=install_requires,
     entry_points={
         "console_scripts": ["ttrt = ttrt:main"],

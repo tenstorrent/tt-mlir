@@ -52,20 +52,16 @@ add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
 )
 
-# ADD THIS TARGET:
 add_custom_target(ttrt ALL
   DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
 )
 
-# Keep your existing Python modules too:
 declare_mlir_python_sources(TTRTSources
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
   SOURCES
-    # builder
     binary/__init__.py
     binary/stats.py
 
-    # common subpackage files
     common/__init__.py
     common/api.py
     common/callback.py
@@ -76,7 +72,6 @@ declare_mlir_python_sources(TTRTSources
     common/run.py
     common/util.py
 
-    # runtime subpackage files
     runtime/__init__.py
 )
 
