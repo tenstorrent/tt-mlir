@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-from setuptools import setup
+from setuptools import setup, find_packages
 import shutil
 import subprocess
 
@@ -15,14 +15,14 @@ __version__ = f"{TTMLIR_VERSION_MAJOR}.{TTMLIR_VERSION_MINOR}.{TTMLIR_VERSION_PA
 
 src_dir = os.environ.get(
     "SOURCE_ROOT",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."),
 )
 # Use 'src_dir/build' as default location if TTMLIR_BINARY_DIR env variable is not available.
 ttmlir_build_dir = os.environ.get(
     "TTMLIR_BINARY_DIR",
     os.path.join(src_dir, "build"),
 )
-toolchain = os.environ.get("TTMLIR_TOOLCHAIN_DIR", "/opt/ttmlir-toolchain")
+# toolchain = os.environ.get("TTMLIR_TOOLCHAIN_DIR", "/opt/ttmlir-toolchain")
 metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal/build"
 ttmetalhome = os.environ.get("TT_METAL_HOME", "")
 
@@ -58,6 +58,7 @@ if enable_perf:
     perflibs += ["capture-release"]
     perflibs += ["csvexport-release"]
 
+"""
 # Add this before any shutil.copy operations:
 def clean_runtime_dir():
     runtime_dir = f"{ttmlir_build_dir}/python_packages/ttrt/runtime"
@@ -65,11 +66,11 @@ def clean_runtime_dir():
         print(f"Cleaning existing runtime directory: {runtime_dir}")
         shutil.rmtree(runtime_dir)
     os.makedirs(runtime_dir, exist_ok=True)
-
+"""
 
 if enable_runtime:
-    assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
-    clean_runtime_dir()
+    # assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
+    # clean_runtime_dir()
 
     shutil.copy(
         f"{ttmlir_build_dir}/runtime/lib/libTTMLIRRuntime.so",
@@ -207,7 +208,12 @@ dylibs += perflibs
 dylibs += metallibs
 
 packages = ["ttrt", "ttrt.common", "ttrt.binary", "ttrt.runtime"]
-package_dir = {}
+package_dir = {
+    "ttrt": f"{ttmlir_build_dir}/python_packages/ttrt",
+    "ttrt.common": f"{ttmlir_build_dir}/python_packages/ttrt/common",
+    "ttrt.binary": f"{ttmlir_build_dir}/python_packages/ttrt/binary",
+    "ttrt.runtime": f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
+}
 if enable_perf:
     install_requires += ["loguru"]
     install_requires += ["pandas"]
@@ -228,8 +234,8 @@ setup(
     url="https://github.com/tenstorrent/tt-mlir",
     description="Python bindings to runtime libraries",
     long_description="",
-    packages=packages,
-    package_dir=package_dir,
+    packages=packages,  # find_packages(where=f"{ttmlir_build_dir}/python_packages"),
+    package_dir=package_dir,  # {"": f"{ttmlir_build_dir}/python_packages"},
     install_requires=install_requires,
     entry_points={
         "console_scripts": ["ttrt = ttrt:main"],
