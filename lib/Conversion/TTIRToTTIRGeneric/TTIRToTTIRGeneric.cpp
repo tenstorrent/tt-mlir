@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -36,7 +37,8 @@ protected:
                           const llvm::SmallVector<int64_t> &targetGridShape)
       : memorySpaces{defaultInputMemSpace, defaultOutputMemSpace},
         targetGridShape(targetGridShape),
-        targetSquareGridShape(getSquareTargetGrid(targetGridShape)) {
+        targetSquareGridShape(
+            ttir::utils::getSquareTargetGrid(targetGridShape)) {
     assert(!targetGridShape.empty());
   }
 
@@ -209,16 +211,6 @@ protected:
   }
 
 private:
-  // Workaround helper to populate targetSquareGridShape.
-  static llvm::SmallVector<int64_t, 2>
-  getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
-    const int64_t minGridValue =
-        *(std::min_element(targetGridShape.begin(), targetGridShape.end()));
-    llvm::SmallVector<int64_t, 2> squareGrid(targetGridShape.size(),
-                                             minGridValue);
-    return squareGrid;
-  }
-
 protected:
   // Default memory spaces for {inputs, outputs}.
   std::array<ttcore::MemorySpace, 2> memorySpaces;
