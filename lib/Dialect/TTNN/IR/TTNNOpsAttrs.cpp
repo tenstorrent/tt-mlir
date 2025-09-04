@@ -989,29 +989,29 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult KernelCBAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    uint32_t total_size, CoreRangeAttr core_range,
+    uint32_t totalSize, CoreRangeAttr coreRange,
     llvm::ArrayRef<mlir::tt::ttnn::KernelCBFormatAttr> formats) {
   return ::llvm::success();
 }
 
 ::llvm::LogicalResult KernelCBFormatAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    uint32_t buffer_index, ttcore::DataType dtype, uint32_t page_size) {
+    uint32_t bufferIndex, ttcore::DataType dtype, uint32_t pageSize) {
   return ::llvm::success();
 }
 
 ::llvm::LogicalResult KernelSemaphoreAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    KernelCoreType core_type, ::mlir::tt::ttnn::CoreRangeAttr core_range,
-    uint32_t initial_value) {
+    KernelCoreType coreType, ::mlir::tt::ttnn::CoreRangeAttr coreRange,
+    uint32_t initialValue) {
   return ::llvm::success();
 }
 
 ::llvm::LogicalResult verifyCommonRuntimeArgs(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    ::llvm::ArrayRef<mlir::Attribute> common_rt_args) {
+    ::llvm::ArrayRef<mlir::Attribute> args) {
 
-  for (auto arg : common_rt_args) {
+  for (auto arg : args) {
     if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
                    mlir::tt::ttnn::KernelArgAddressOfTensorAttr,
                    mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
@@ -1024,8 +1024,8 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult verifyCompileTimeArgs(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    ::llvm::ArrayRef<mlir::Attribute> ct_args) {
-  for (auto arg : ct_args) {
+    ::llvm::ArrayRef<mlir::Attribute> args) {
+  for (auto arg : args) {
     if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
                    mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
       return emitError() << "Unexpected compile time argument";
@@ -1037,15 +1037,15 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult ComputeKernelAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    SymbolRefAttr symbol_ref, ::mlir::tt::ttnn::CoreRangeAttr core_range,
-    ComputeKernelMathFidelity math_fidelity, bool fp32_dest_acc_en,
-    bool dst_full_sync_en,
-    ::llvm::ArrayRef<ComputeKernelUnpackToDestMode> unpack_to_dest_modes,
-    bool bfp8_pack_precise, bool math_approx_mode,
-    ::llvm::ArrayRef<mlir::Attribute> common_rt_args,
-    ::llvm::ArrayRef<mlir::Attribute> ct_args) {
-  if (failed(verifyCommonRuntimeArgs(emitError, common_rt_args)) ||
-      failed(verifyCompileTimeArgs(emitError, ct_args))) {
+    SymbolRefAttr symbolRef, ::mlir::tt::ttnn::CoreRangeAttr coreRange,
+    ComputeKernelMathFidelity mathFidelity, bool fp32DestAccEn,
+    bool dstFullSyncEn,
+    ::llvm::ArrayRef<ComputeKernelUnpackToDestMode> unpackToDestModes,
+    bool bfp8PackPrecise, bool mathApproxMode,
+    ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
     return ::llvm::failure();
   }
 
@@ -1054,11 +1054,11 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult ReadKernelAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    mlir::SymbolRefAttr symbol_ref, CoreRangeAttr core_range,
-    ::llvm::ArrayRef<mlir::Attribute> common_rt_args,
-    ::llvm::ArrayRef<mlir::Attribute> ct_args) {
-  if (failed(verifyCommonRuntimeArgs(emitError, common_rt_args)) ||
-      failed(verifyCompileTimeArgs(emitError, ct_args))) {
+    mlir::SymbolRefAttr symbolRef, CoreRangeAttr coreRange,
+    ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
     return ::llvm::failure();
   }
 
@@ -1067,11 +1067,11 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult WriteKernelAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    mlir::SymbolRefAttr symbol_ref, CoreRangeAttr core_range,
-    ::llvm::ArrayRef<mlir::Attribute> common_rt_args,
-    ::llvm::ArrayRef<mlir::Attribute> ct_args) {
-  if (failed(verifyCommonRuntimeArgs(emitError, common_rt_args)) ||
-      failed(verifyCompileTimeArgs(emitError, ct_args))) {
+    mlir::SymbolRefAttr symbolRef, CoreRangeAttr coreRange,
+    ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
     return ::llvm::failure();
   }
 
