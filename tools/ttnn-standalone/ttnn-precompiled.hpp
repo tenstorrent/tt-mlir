@@ -6,9 +6,7 @@
 #define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 
 // ANCHOR: standalone_includes
-#include "operations/ccl/all_gather/all_gather.hpp"
 #include "operations/ccl/ccl_host_types.hpp"
-#include "operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
@@ -30,6 +28,7 @@
 #include "operations/matmul/matmul.hpp"
 #include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "operations/normalization/batch_norm/batch_norm.hpp"
+#include "operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
 #include "operations/pool/upsample/upsample.hpp"

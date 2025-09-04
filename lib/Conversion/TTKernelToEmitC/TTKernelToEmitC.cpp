@@ -356,6 +356,55 @@ private:
 } // namespace
 
 namespace {
+// For binary SFPU operations that need a third argument for destination index
+template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
+class TTKernelBinarySFPUToEmitCRewriter : public OpConversionPattern<SourceOp> {
+public:
+  TTKernelBinarySFPUToEmitCRewriter(TTKernelToEmitCTypeConverter &typeConverter,
+                                    MLIRContext *ctx, std::string opName = "")
+      : OpConversionPattern<SourceOp>(typeConverter, ctx), opName(opName) {}
+
+  StringRef getOpName(SourceOp op) const {
+    auto name =
+        opName.empty() ? op.getOperation()->getName().getStringRef() : opName;
+    if (name.starts_with("ttkernel.")) {
+      return name.drop_front(9);
+    }
+    return name;
+  }
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    SmallVector<Type, 4> resultTypes;
+    for (Type type : op->getResultTypes()) {
+      Type ct = this->getTypeConverter()->convertType(type);
+      if (!ct) {
+        return rewriter.notifyMatchFailure(op, "Failed to convert type ");
+      }
+      resultTypes.push_back(ct);
+    }
+
+    // Get the original operands
+    SmallVector<Value, 4> operands = adaptor.getOperands();
+
+    if (operands.size() >= 2) {
+      operands.push_back(
+          operands[0]); // odst = dst0_index for backward compatibility
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultTypes, getOpName(op), nullptr, ArrayAttr(), operands);
+
+    return success();
+  }
+
+private:
+  std::string opName;
+};
+} // namespace
+
+namespace {
 class TTKernelToEmitCGetCompileArgValRewriter
     : public OpConversionPattern<ttkernel::GetCompileArgValOp> {
 public:
@@ -451,6 +500,30 @@ public:
     rewriter.replaceOpWithNewOp<emitc::ConstantOp>(
         op, this->getTypeConverter()->convertType(op->getResultTypes()[0]),
         rewriter.getAttr<emitc::OpaqueAttr>(opaque));
+    return success();
+  }
+
+private:
+  std::string opaque;
+};
+} // namespace
+
+namespace {
+class TTKernelInvokeSFPIOpRewriter
+    : public OpConversionPattern<ttkernel::InvokeSFPIOp> {
+public:
+  using OpConversionPattern<ttkernel::InvokeSFPIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::InvokeSFPIOp op,
+                  ttkernel::InvokeSFPIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    assert(op.getRegion().hasOneBlock());
+    rewriter.create<emitc::VerbatimOp>(op->getLoc(),
+                                       "experimental::invoke_sfpi([=]() {");
+    auto endScope = rewriter.create<emitc::VerbatimOp>(op->getLoc(), "});");
+    rewriter.inlineBlockBefore(&op.getRegion().front(), endScope);
+    rewriter.eraseOp(op);
     return success();
   }
 
@@ -749,9 +822,9 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::CosTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CosTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddBinaryTilesInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::AddBinaryTilesOp>,
+        TTKernelBinarySFPUToEmitCRewriter<ttkernel::AddBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesOp>,
+        TTKernelBinarySFPUToEmitCRewriter<ttkernel::DivBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileOp>,
@@ -764,15 +837,15 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesOp>,
+        TTKernelBinarySFPUToEmitCRewriter<ttkernel::MulBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesOp>,
+        TTKernelBinarySFPUToEmitCRewriter<ttkernel::SubBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MaxTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MaxTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NegativeTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NegativeTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PowBinaryTilesInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::PowBinaryTilesOp>,
+        TTKernelBinarySFPUToEmitCRewriter<ttkernel::PowBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RecipTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RecipTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
@@ -820,6 +893,9 @@ public:
 
     patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
         typeConverter, funcOp.getContext(), "get_noc_addr");
+
+    patterns.add<TTKernelInvokeSFPIOpRewriter>(typeConverter,
+                                               funcOp.getContext());
 
     patterns.add<TTKernelConstantRewriter<ttkernel::MyXOp>>(
         typeConverter, funcOp.getContext(), "my_x[noc_index]");

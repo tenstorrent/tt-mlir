@@ -21,9 +21,9 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "shardy/dialect/sdy/ir/dialect.h"
 #include "stablehlo/dialect/StablehloOps.h"
-#include "llvm/ADT/ArrayRef.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -31,37 +31,39 @@ using namespace mlir::tt;
 namespace mlir::tt::ttir {
 
 #define GEN_PASS_DEF_CONVERTSTABLEHLOTOTTIR
-#define GEN_PASS_DEF_CONVERTSHARDYTOTTIR
 #include "ttmlir/Conversion/Passes.h.inc"
 
-} // namespace mlir::tt::ttir
-
 namespace {
-
 struct ConvertStableHLOToTTIRPass
     : public ttir::impl::ConvertStableHLOToTTIRBase<
           ConvertStableHLOToTTIRPass> {
+
+  ConvertStableHLOToTTIRPass() = default;
+  ConvertStableHLOToTTIRPass(const ConvertStableHLOToTTIROptions &options)
+      : Base(options) {}
+
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
 
-    target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
-    target.addIllegalDialect<mlir::sdy::SdyDialect>();
-    target.addIllegalOp<mlir::tensor::EmptyOp>();
-
+    // Common legal/illegal ops/dialects for both partial and full conversion.
     target.addLegalDialect<mlir::quant::QuantDialect>();
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<mlir::tt::ttir::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();
-    target.addLegalOp<mlir::func::FuncOp>();
-    target.addLegalOp<mlir::func::ReturnOp>();
-    target.addLegalOp<mlir::func::CallOp>();
+    target.addIllegalOp<mlir::tensor::EmptyOp>();
+    target.addIllegalDialect<mlir::sdy::SdyDialect>();
 
     TypeConverter typeConverter;
-    // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
+
     RewritePatternSet patterns(&getContext());
 
-    // Func type conversions
+    addEmptyOpTypeConversionPattern(&getContext(), patterns, typeConverter);
+    ::mlir::tt::populateStableHLOToTTIRPatterns(&getContext(), patterns,
+                                                typeConverter);
+    populateShardyToTTIRPatterns(&getContext(), patterns, typeConverter);
+
+    // Function type conversions.
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
@@ -75,25 +77,37 @@ struct ConvertStableHLOToTTIRPass
     target.addDynamicallyLegalOp<func::CallOp>(
         [&](func::CallOp op) { return typeConverter.isLegal(op); });
 
-    addEmptyOpTypeConversionPattern(&getContext(), patterns, typeConverter);
+    if (enablePartialConversion) {
+      // For partial conversion, we can leave stablehlo dialect as neither
+      // explicitly legal so the patterns run, nor explicitly illegal so
+      // leftover ops won't throw an error.
+      if (failed(applyPartialConversion(getOperation(), target,
+                                        std::move(patterns)))) {
+        signalPassFailure();
+      }
+    } else {
+      // Full conversion implies stablehlo dialect is fully illegal afterwards.
+      target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
 
-    populateStableHLOToTTIRPatterns(&getContext(), patterns, typeConverter);
-    populateShardyToTTIRPatterns(&getContext(), patterns, typeConverter);
-
-    // Apply conversion.
-    if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
-      signalPassFailure();
-      return;
+      if (failed(applyFullConversion(getOperation(), target,
+                                     std::move(patterns)))) {
+        signalPassFailure();
+      }
     }
   }
 };
 } // namespace
+} // namespace mlir::tt::ttir
 
 namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass() {
-  return std::make_unique<ConvertStableHLOToTTIRPass>();
+  return std::make_unique<ttir::ConvertStableHLOToTTIRPass>();
+}
+
+std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass(
+    const ttir::ConvertStableHLOToTTIROptions &options) {
+  return std::make_unique<ttir::ConvertStableHLOToTTIRPass>(options);
 }
 
 } // namespace mlir::tt

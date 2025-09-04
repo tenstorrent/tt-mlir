@@ -133,6 +133,13 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable memory layout optimization."),
       llvm::cl::init(false)};
 
+  // If this option is true, run L1 interleaved layout analysis.
+  //
+  Option<bool> l1InterleavedFallbackAnalysisEnabled{
+      *this, OptionNames::l1InterleavedFallbackAnalysisEnabled,
+      llvm::cl::desc("Enable DRAM to L1 interleaved fallback optimization."),
+      llvm::cl::init(false)};
+
   // If this option is true, insert memory reconfiguration ops.
   //
   Option<bool> memReconfigEnabled{
@@ -190,6 +197,18 @@ struct TTIRToTTNNBackendPipelineOptions
           "Enable row major layout generation in legal layout analysis."),
       llvm::cl::init(false)};
 
+  // Option to override maximum percent of L1 storage that can be used
+  // by tensors in Optimizer analysis.
+  // This is a value between 0.0 and 1.0, where 1.0 means that the entire L1
+  // storage can be used by tensors.
+  // The default value is 0.8.
+  //
+  Option<float> tensorL1UsageCap{
+      *this, OptionNames::tensorL1UsageCap,
+      llvm::cl::desc("Override tensor L1 usage cap in L1 Interleaved Fallback "
+                     "Analysis and Memory Layout Analysis. [0.0-1.0]"),
+      llvm::cl::init(0.8f)};
+
   // Option to enable/disable the workaround pass.
   //
   Option<bool> layoutWorkaroundsEnabled{
@@ -201,11 +220,6 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> decompositionWorkaroundsEnabled{
       *this, "enable-decomposition-workaround-pass",
       llvm::cl::desc("Enable decomposition workaround pass."),
-      llvm::cl::init(true)};
-
-  Option<bool> repeatFoldingWorkaroundEnabled{
-      *this, "enable-repeat-folding-workaround-pass",
-      llvm::cl::desc("Enable repeat folding workaround pass."),
       llvm::cl::init(true)};
 
   Option<bool> implicitBroadcastFoldingEnabled{
@@ -274,6 +288,11 @@ struct TTIRToTTNNBackendPipelineOptions
           "Set to enable quantized data type conversion pass. "
           "Leave empty to disable the pass."),
       llvm::cl::init(32)};
+
+  Option<bool> enableBfp8Conversion{
+      *this, "enable-bfp8-conversion",
+      llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.

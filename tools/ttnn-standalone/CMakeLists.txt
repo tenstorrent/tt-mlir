@@ -128,6 +128,7 @@ set(LINK_DIRS
 set(LINK_LIBS
     tt_metal
     device
+    tt_stl
     ${METAL_LIB_DIR}/_ttnncpp.so
 )
 

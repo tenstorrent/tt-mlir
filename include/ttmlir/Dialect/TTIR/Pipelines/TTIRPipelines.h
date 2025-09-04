@@ -33,8 +33,31 @@ struct StableHLOToTTIRPipelineOptions
       llvm::cl::desc("Enable aggressive simplification of StableHLO operations "
                      "before conversion."),
       llvm::cl::init(false)};
+  //
+  Option<bool> enableCPUFallback{
+      *this, "enable-cpu-fallback",
+      llvm::cl::desc("Enable partial conversion and fallback any unconverted "
+                     "ops instead of a full conversion."),
+      llvm::cl::init(false)};
 };
 #endif
+
+// Options for the TTIR to NVVM backend pipeline.
+struct TTIRToNVVMPipelineOptions
+    : public PassPipelineOptions<TTIRToNVVMPipelineOptions> {
+  // Chip version of GPU to target.
+  Option<std::string> chip{*this, "chip", llvm::cl::desc("GPU chip to target."),
+                           llvm::cl::init("sm_50")};
+
+  // PTX version to target.
+  Option<std::string> features{*this, "features",
+                               llvm::cl::desc("GPU features to target."),
+                               llvm::cl::init("+ptx60")};
+
+  Option<int64_t> optLevel{*this, "opt-level",
+                           llvm::cl::desc("Optimization level."),
+                           llvm::cl::init(2)};
+};
 
 struct LinalgToLLVMPipelineOptions
     : public PassPipelineOptions<LinalgToLLVMPipelineOptions> {
@@ -51,6 +74,9 @@ struct LinalgToLLVMPipelineOptions
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options);
 #endif
+
+void createTTIRToNVVMPipeline(OpPassManager &manager,
+                              const TTIRToNVVMPipelineOptions &options);
 
 void createLinalgToLLVMPipeline(OpPassManager &pm,
                                 const LinalgToLLVMPipelineOptions &options);

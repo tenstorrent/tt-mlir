@@ -30,6 +30,7 @@
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.cpp.inc"
+#include "ttmlir/Target/Common/types_generated.h"
 
 namespace mlir::tt::ttcore {
 
@@ -293,9 +294,15 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
   auto buffer = std::shared_ptr<void>(std::malloc(size), std::free);
   fbb.read(static_cast<char *>(buffer.get()), size);
 
+  return SystemDescAttr::getFromBuffer(context, buffer.get(), diagFn);
+}
+
+mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
+    MLIRContext *context, void *systemDesc,
+    llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
   // Read relevant information from binary
   const auto *binarySystemDescRoot =
-      ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get());
+      ::tt::target::GetSizePrefixedSystemDescRoot(systemDesc);
   if (binarySystemDescRoot->schema_hash()->string_view() !=
       ::tt::target::common::system_desc_bfbs_schema_hash) {
     diagFn() << "system desc schema mismatch, please collect a system desc "
@@ -813,6 +820,15 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::getNormalizedIntervals() const {
                                       getLogicalShape().size());
 }
 
+mlir::AffineMap
+MetalLayoutAttr::getIndexAffineMapOrIdentity(unsigned rank) const {
+  mlir::AffineMap map = getIndexAffineMap();
+  if (!map || map.getNumResults() == 0) {
+    return mlir::AffineMap::getMultiDimIdentityMap(rank, getContext());
+  }
+  return map;
+}
+
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
                                    ArrayRef<int64_t> deviceGridShape,
@@ -885,7 +901,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
       computeAlignments(logicalShape, deviceGridShape, flattenedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace);
+             oobVal, memorySpace, mlir::AffineMap::get(context));
 }
 
 // Getter with explicit collapsedIntervals, we calculate the alignments.
@@ -900,7 +916,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
       computeAlignments(logicalShape, deviceGridShape, normalizedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace);
+             oobVal, memorySpace, mlir::AffineMap::get(context));
 }
 
 // Getter with explicit collapsedIntervals and dimAlignments.
@@ -911,7 +927,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      DenseIntElementsAttr collapsedIntervals,
                                      ArrayRef<int64_t> dimAlignments) {
   return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
-             memorySpace);
+             memorySpace, mlir::AffineMap::get(context));
 }
 
 mlir::MemRefType
@@ -928,6 +944,21 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
   return MemRefType::get(
       shardShape, tensorType.getElementType(), MemRefLayoutAttrInterface{},
       MemorySpaceAttr::get(tensorType.getContext(), layout.getMemorySpace()));
+}
+
+// 5-arg + explicit index_map convenience overload.
+MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     mlir::AffineMap indexAffineMap) {
+  // Reuse the existing path that computes intervals/alignments, then attach
+  // map.
+  MetalLayoutAttr base =
+      get(context, logicalShape, deviceGridShape, oobVal, memorySpace);
+  return get(context, base.getLogicalShape(), base.getDimAlignments(),
+             base.getCollapsedIntervals(), base.getOobVal(),
+             base.getMemorySpace(), indexAffineMap);
 }
 
 // Get effective stride (use provided or calculate from shape)
@@ -1036,73 +1067,87 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 // This function creates an affine map that represents mapping the tensor's
 // linear layout onto physical dram banks. The affine map round robin's the bank
 // in pages of page size.
-//   (d0, d1, d2)[s0, s1, s2, s3, s4, s5] -> (
-//                |   |   |   |   |   |
+//   (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (
+//                |   |   |   |   |   |   |
+//                |   |   |   |   |   |   +- Element Size
 //                |   |   |   |   |   +- Base Address
 //                |   |   |   |   +- Page size
 //                |   |   |   +- Shard Dim X
 //                |   |   +- Shard Dim Y
 //                |   +- Grid Dim X
 //                +- Grid Dim Y
-//     0,                                                 # Device index
-//     0,                                                 # Not Applicable
-//     (addr floordiv s4) mod 12,                         # Channel Idx
-//     (addr floordiv (s4 * 12)) * s4 + addr mod s4 + s5  # Channel Offset
+//     index[0]: Device ID
+//     index[1]: _unused_
+//     index[2]: Channel Idx
+//       global_page_index % num_dram_banks
+//     index[3]: Byte Offset In Channel
+//       (channel_page_index * PAGE_SIZE) + (addr % PAGE_SIZE) + base_address
 //   )
 //
 // Where `addr` is the linearized address as though it were indexing all of DRAM
 // flat:
-//   addr = (d0 * s2 * s3 * s1) + (d1 * s2 * s3) + d2
+//   shard_vol = s2 * s3 * s6
+//   addr = (d0 * shard_vol * s1) + (d1 * shard_vol) + d2
 //
+// Where global_page_index is the global page index corresponding to the
+// address:
+//   global_page_index  = addr floorDiv PAGE_SIZE
+//
+// Where channel_page_index is the page index within a bank
+//   channel_page_index = global_page_index floorDiv NUM_DRAM_BANKS
+//
+
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
-                                     GridAttr workerGrid, size_t numDramCores,
-                                     size_t dramPageSize) {
+                                     GridAttr workerGrid, size_t numDramCores) {
   mlir::AffineMap workerMap = workerGrid.getMapping();
   assert(workerMap.getNumResults() == PhysGridResultIdx::NumIndices);
 
-  mlir::AffineExpr shardVolumeExpr = getAffineConstantExpr(1, context);
+  size_t elemSizeIndex = workerMap.getNumDims() * 2 + 2;
+  mlir::AffineExpr shardVolumeExpr =
+      getAffineSymbolExpr(elemSizeIndex, context);
   for (int i = workerMap.getNumDims() - 1; i >= 0; i--) {
     mlir::AffineExpr shardDim =
         getAffineSymbolExpr(workerMap.getNumDims() + i, context);
     shardVolumeExpr = shardDim * shardVolumeExpr;
   }
 
-  mlir::AffineExpr addr = getAffineDimExpr(workerMap.getNumDims(), context);
+  // flatAddr is an expression representing the address as-if the memory was
+  // completely flat
+  mlir::AffineExpr flatAddr = getAffineDimExpr(workerMap.getNumDims(), context);
   mlir::AffineExpr gridVolumeExpr = getAffineConstantExpr(1, context);
   for (int i = workerMap.getNumDims() - 1; i >= 0; i--) {
     mlir::AffineExpr dim = getAffineDimExpr(i, context);
     mlir::AffineExpr gridDim = getAffineSymbolExpr(i, context);
-    addr = dim * gridVolumeExpr * shardVolumeExpr + addr;
+    flatAddr = dim * gridVolumeExpr * shardVolumeExpr + flatAddr;
     gridVolumeExpr = gridVolumeExpr * gridDim;
   }
 
-  mlir::AffineExpr pageSizeExpr =
-      getAffineSymbolExpr(workerMap.getNumDims() * 2, context);
   mlir::AffineExpr baseAddressExpr =
       getAffineSymbolExpr(workerMap.getNumDims() * 2 + 1, context);
-  mlir::AffineExpr numDramCoresExpr =
+  mlir::AffineExpr numDramBanksExpr =
       getAffineConstantExpr(numDramCores, context);
-  mlir::SmallVector<mlir::AffineExpr> dramMapResults = {
-      getAffineConstantExpr(0, context),
-      getAffineConstantExpr(0, context),
-      addr.floorDiv(pageSizeExpr) % numDramCoresExpr,
-      addr.floorDiv(pageSizeExpr * numDramCoresExpr) + addr % pageSizeExpr +
-          baseAddressExpr,
-  };
+  mlir::AffineExpr dramPageSizeExpr =
+      getAffineSymbolExpr(workerMap.getNumDims() * 2, context);
+  mlir::AffineExpr pageIndex = flatAddr.floorDiv(dramPageSizeExpr);
+  mlir::AffineExpr channelPageIndex = pageIndex.floorDiv(numDramBanksExpr);
 
-  return mlir::AffineMap::get(workerMap.getNumDims() + 1,
-                              workerMap.getNumDims() * 2 + 2, dramMapResults,
-                              context);
+  mlir::SmallVector<mlir::AffineExpr> dramMapResults = {
+      getAffineConstantExpr(0, context), getAffineConstantExpr(0, context),
+      pageIndex % numDramBanksExpr,
+      (channelPageIndex * dramPageSizeExpr) + (flatAddr % dramPageSizeExpr) +
+          baseAddressExpr};
+
+  unsigned dimCount = workerMap.getNumDims() + 1;
+  unsigned symbolCount = workerMap.getNumDims() * 2 + 3;
+  return mlir::AffineMap::get(dimCount, symbolCount, dramMapResults, context);
 }
 
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
                                      GridAttr workerGrid,
                                      SystemDescAttr systemDesc,
-                                     ::llvm::ArrayRef<unsigned> chipIds,
-                                     unsigned dramPageSize) {
-  auto chipDesc = systemDesc.getChipDescs().front();
-  return createDramMap(context, workerGrid, chipDesc.getNumDramChannels(),
-                       dramPageSize);
+                                     ::llvm::ArrayRef<unsigned> chipIds) {
+  auto numDramChannels = systemDesc.getChipDescs().front().getNumDramChannels();
+  return createDramMap(context, workerGrid, numDramChannels);
 }
 
 DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
@@ -1128,9 +1173,8 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
 
   auto workerGrid = createWorkerGrid(context, chipGrid, meshShape);
   auto l1Map = createL1Map(context, workerGrid);
-  constexpr unsigned dramPageSize = 8192;
-  auto dramMap =
-      createDramMap(context, workerGrid, systemDesc, chipIds, dramPageSize);
+
+  auto dramMap = createDramMap(context, workerGrid, systemDesc, chipIds);
   return get(context, workerGrid, l1Map, dramMap, meshShape, chipIds);
 }
 
@@ -1164,10 +1208,14 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
         .compose(affineMap);
   }
   case MemorySpace::DeviceDRAM: {
+    // The DRAM page size is 1<->1 mapped to underlying memref shard size;
+    // pageSize argument is ignored.
+    pageSize = getMemrefSizeBytes(memrefType);
     assert(pageSize > 0 && "expected positive page size");
     SmallVector<int64_t> symbols(memrefType.getShape());
     symbols.push_back(static_cast<int64_t>(pageSize));
     symbols.push_back(static_cast<int64_t>(baseOffset));
+    symbols.push_back(getElementSizeBytes(memrefType.getElementType()));
     return ttmlir::utils::replaceAffineMapSymbols(getDramMap(), symbols)
         .compose(affineMap);
   }

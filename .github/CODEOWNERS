@@ -61,11 +61,16 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttmlir/EmitPy/ @tenstorrent/forge-developers-mlir-core
 /test/unittests/TTNNToEmitC/ @tenstorrent/forge-developers-mlir-core
 
+# TTIR Dialect
+/include/ttmlir/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
+/lib/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
+/test/ttmlir/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
 
 # Metal Conversions
 /include/ttmlir/Conversion/TTIRToTTIRGeneric/ @tenstorrent/forge-developers-mlir-d2m
 /lib/Conversion/TTIRToTTIRGeneric/ @tenstorrent/forge-developers-mlir-d2m
 /test/ttmlir/Conversion/TTIRToTTIRGeneric/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Dialect/TTIR/generic/ @tenstorrent/forge-developers-mlir-d2m
 /include/ttmlir/Conversion/TTIRToTTMetal/ @tenstorrent/forge-developers-mlir-d2m
 /include/ttmlir/Conversion/TTKernelToEmitC/ @tenstorrent/forge-developers-mlir-d2m
 /lib/Conversion/TTIRToTTMetal/ @tenstorrent/forge-developers-mlir-d2m
@@ -74,6 +79,10 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /include/ttmlir/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
 /lib/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
 /test/ttmlir/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
+/include/ttmlir/Dialect/SFPI/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Dialect/SFPI/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Conversion/SFPIToEmitC/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Dialect/SFPI/ @tenstorrent/forge-developers-mlir-d2m
 
 # LLVM Dialect
 /include/ttmlir/Dialect/LLVM/ @vwellsTT @mtopalovicTT
@@ -85,16 +94,14 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /lib/Dialect/TTCore/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
 /test/ttmlir/Dialect/TTCore/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
 
-# TTIR Dialect
-/include/ttmlir/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
-/lib/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
-/test/ttmlir/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
-
 # Metal Dialects
 /include/ttmlir/Dialect/TTIR/IR/TTIRGeneric* @tenstorrent/forge-developers-mlir-d2m
 /include/ttmlir/Dialect/TTKernel/ @tenstorrent/forge-developers-mlir-d2m
 /include/ttmlir/Dialect/TTMetal/ @tenstorrent/forge-developers-mlir-d2m
-/lib/Dialect/TTIR/Transforms/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Dialect/TTIR/Transforms/Generic*.cpp @tenstorrent/forge-developers-mlir-d2m
+/lib/Dialect/TTIR/Transforms/Allocate.cpp @tenstorrent/forge-developers-mlir-d2m
+/lib/Dialect/TTIR/Transforms/InsertDstRegisterAccess.cpp @tenstorrent/forge-developers-mlir-d2m
+/lib/Dialect/TTIR/Transforms/LowerToLayout.cpp @tenstorrent/forge-developers-mlir-d2m
 /lib/Dialect/TTKernel/ @tenstorrent/forge-developers-mlir-d2m
 /lib/Dialect/TTMetal/ @tenstorrent/forge-developers-mlir-d2m
 /test/ttmlir/Dialect/TTKernel/ @tenstorrent/forge-developers-mlir-d2m
@@ -117,16 +124,18 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 
 # TTNN Optimizer
 /include/ttmlir/Dialect/TTNN/Analysis/ @tenstorrent/forge-developers-mlir-optimizer
-/include/ttmlir/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT
+/include/ttmlir/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT @sgholamiTT
 /include/ttmlir/Scheduler/ @tenstorrent/forge-developers-mlir-optimizer
+/include/ttmlir/Dialect/TTNN/Validation @tenstorrent/forge-developers-mlir-optimizer
 /lib/Dialect/TTNN/Analysis/ @tenstorrent/forge-developers-mlir-optimizer
-/lib/Dialect/TTNN/Transforms/Optimizer.cpp @tenstorrent/forge-developers-mlir-optimizer
-/lib/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT
+/lib/Dialect/TTNN/Validation/ @tenstorrent/forge-developers-mlir-optimizer
+/lib/Dialect/TTNN/Transforms/OptimizerPasses @tenstorrent/forge-developers-mlir-optimizer
+/lib/OpModel/ @tenstorrent/forge-developers-mlir-optimizer @arminaleTT @sgholamiTT
 /lib/Scheduler/ @tenstorrent/forge-developers-mlir-optimizer
 /test/ttmlir/Dialect/TTNN/optimizer/ @tenstorrent/forge-developers-mlir-optimizer
 /test/ttmlir/Silicon/TTNN/**/optimizer/ @tenstorrent/forge-developers-mlir-optimizer
 /test/unittests/Optimizer @tenstorrent/forge-developers-mlir-optimizer
-/test/unittests/OpModel @tenstorrent/forge-developers-mlir-optimizer @arminaleTT
+/test/unittests/OpModel @tenstorrent/forge-developers-mlir-optimizer @arminaleTT @sgholamiTT
 /test/unittests/TestScheduler/ @tenstorrent/forge-developers-mlir-optimizer
 
 # LLVM Target
@@ -165,3 +174,6 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 
 # Scripts
 /tools/scripts/ @nsmithtt @ddilbazTT
+
+# python golden tests
+test/python/golden/test_metal_dma.py @bgrady-tt

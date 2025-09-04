@@ -50,6 +50,7 @@ jobs:
     outputs:
       docker-image-harbor: ${{ steps.build.outputs.docker-image-harbor }}
       docker-image: ${{ steps.build.outputs.docker-image }}
+      docker-tag: ${{ steps.build.outputs.docker-tag }}
       runner: ${{ steps.build.outputs.runner }}
     steps:
 
@@ -76,9 +77,12 @@ jobs:
           set pipefail
           .github/build-docker-images.sh | tee docker.log
           DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
+          DOCKER_TAG=$(.github/get-docker-tag.sh)
           echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
+          echo "DOCKER_TAG $DOCKER_TAG"
           echo "docker-image-harbor=harbor.ci.tenstorrent.net/$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
           echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "docker-tag=$DOCKER_TAG" >> "$GITHUB_OUTPUT"
           if [[ "${{ inputs.builder_build }}" == "true" ]]; then
             echo "runner=builder" >> "$GITHUB_OUTPUT"
           else
@@ -212,7 +216,7 @@ jobs:
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
-    runs-on: ${{ matrix.build.sh-run && format('tt-beta-ubuntu-2204-{0}-large-stable', matrix.build.runs-on) || fromJson(format('["{0}", "in-service"]', matrix.build.runs-on)) }}
+    runs-on: ${{ matrix.build.sh-run && format('tt-ubuntu-2204-{0}-stable', matrix.build.runs-on) || fromJson(format('["{0}", "in-service"]', matrix.build.runs-on)) }}
 
     container:
       image: ${{ matrix.build.sh-run && needs.build-image.outputs.docker-image-harbor || needs.build-image.outputs.docker-image }}
@@ -485,6 +489,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         sparse-checkout: |
+          test/ttmlir/models
           tools/tt-alchemist/test
 
     - name: Fetch job id
@@ -542,7 +547,7 @@ jobs:
       run: |
         source testenv/bin/activate
         rm -rf /tmp/test-generate-cpp-resnet
-        tt-alchemist generate-cpp tools/tt-alchemist/test/models/resnet.mlir --output /tmp/test-generate-cpp-resnet --standalone
+        tt-alchemist generate-cpp tools/tt-alchemist/test/models/resnet_hf.mlir --output /tmp/test-generate-cpp-resnet --standalone
         cd /tmp/test-generate-cpp-resnet
         [ -d /tmp/test-generate-cpp-resnet ] || { echo "Directory not found: /tmp/test-generate-cpp-resnet" >&2; exit 1; }
         ./run
@@ -756,3 +761,5 @@ jobs:
     needs:
       - build-image
     uses: ./.github/workflows/wheel-build.yml
+    with:
+      docker-tag: ${{ needs.build-image.outputs.docker-tag }}

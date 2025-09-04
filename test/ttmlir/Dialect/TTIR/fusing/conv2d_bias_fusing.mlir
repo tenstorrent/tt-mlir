@@ -26,7 +26,7 @@ module {
   }
 }
 
-// Test that we cannot fuse conv2d and bias because it would break dominance order.
+// Test that we can fuse conv2d and bias even when bias is defined after conv2d because we reorder ops.
 module {
   // CHECK-LABEL: func.func @conv2d_dominance_order
   func.func @conv2d_dominance_order(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>) -> tensor<1x30x30x64xbf16> {
@@ -36,8 +36,8 @@ module {
     // CHECK-SAME: groups = 1
     // CHECK-SAME: padding = 0
     // CHECK-SAME: stride = 1
-    // CHECK-SAME: tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>
-    // CHECK: "ttir.add"
+    // CHECK-SAME: tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>
+    // CHECK-NOT: "ttir.add"
     %1 = "ttir.conv2d"(%arg0, %arg1, %0)
             <{
               stride = 1: i32,
@@ -46,8 +46,6 @@ module {
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     %2 = ttir.empty() : tensor<1x30x30x64xbf16>
-    // This bias comes after conv2d so we cannot fuse. Ideally we can check if this only use of bias
-    // and commute it before conv2d. For now we will cover this simple case.
     %3 = ttir.empty() : tensor<1x1x1x64xbf16>
     %4 = "ttir.add"(%1, %3, %2) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     return %4: tensor<1x30x30x64xbf16>
@@ -140,5 +138,36 @@ module {
     %4 = "ttir.add"(%2, %1, %3) : (tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
     // CHECK-NEXT: return %[[RETURNADD]]
     return %4: tensor<1x30x30x64xbf16>
+  }
+}
+
+// Test that we can fuse nontrivial bias patterns into conv2d.
+module {
+  // CHECK-LABEL: func.func @conv2d_nontrivial_bias
+  func.func @conv2d_nontrivial_bias(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>, %arg3: tensor<1x1x1x64xbf16>, %arg4: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
+    %0 = ttir.empty() : tensor<1x30x30x64xbf16>
+    // CHECK: %[[CONV:.*]] = "ttir.conv2d"
+    // CHECK-SAME: dilation = 1
+    // CHECK-SAME: groups = 1
+    // CHECK-SAME: padding = 0
+    // CHECK-SAME: stride = 1
+    %1 = "ttir.conv2d"(%arg0, %arg1, %0)
+            <{
+              stride = 1: i32,
+              padding = 0: i32,
+              dilation = 1: i32,
+              groups = 1: i32
+            }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+
+    %2 = ttir.empty() : tensor<1x1x1x64xbf16>
+    %3 = "ttir.add"(%arg2, %arg3, %2) : (tensor<1x1x1x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x1x1x64xbf16>
+    %4 = ttir.empty() : tensor<1x1x1x64xbf16>
+    %5 = "ttir.multiply"(%3, %arg4, %4) : (tensor<1x1x1x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x1x1x64xbf16>
+
+    %6 = ttir.empty() : tensor<1x30x30x64xbf16>
+    %7 = "ttir.add"(%1, %5, %6) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+
+    // CHECK-NEXT: return %[[CONV]]
+    return %7: tensor<1x30x30x64xbf16>
   }
 }

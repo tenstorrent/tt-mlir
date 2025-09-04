@@ -471,6 +471,19 @@ TEST_F(TestOptimizerOverrideHandler, TestSetMemoryLayoutAnalysis) {
   ASSERT_FALSE(optimizerOverridesHandler.getEnableMemoryLayoutAnalysis());
 }
 
+// Test the setEnableL1InterleavedFallbackAnalysis method
+TEST_F(TestOptimizerOverrideHandler,
+       TestSetEnableL1InterleavedFallbackAnalysis) {
+
+  optimizerOverridesHandler.setEnableL1InterleavedFallbackAnalysis(true);
+  ASSERT_TRUE(
+      optimizerOverridesHandler.getEnableL1InterleavedFallbackAnalysis());
+
+  optimizerOverridesHandler.setEnableL1InterleavedFallbackAnalysis(false);
+  ASSERT_FALSE(
+      optimizerOverridesHandler.getEnableL1InterleavedFallbackAnalysis());
+}
+
 // Test the setEnableMemoryLayoutAnalysisPolicy method
 TEST_F(TestOptimizerOverrideHandler, TestSetEnableMemoryLayoutAnalysisPolicy) {
 
@@ -649,6 +662,13 @@ TEST_F(TestOptimizerOverrideHandler, TestSetMeshShape) {
   ASSERT_EQ(optimizerOverridesHandler.getMeshShape()[1], meshShape[1]);
 }
 
+// Test the setTensorL1UsageCap method
+TEST_F(TestOptimizerOverrideHandler, TestSetTensorL1UsageCap) {
+
+  optimizerOverridesHandler.setTensorL1UsageCap(1);
+  ASSERT_EQ(optimizerOverridesHandler.getTensorL1UsageCap(), 1);
+}
+
 // Test the toString method
 TEST_F(TestOptimizerOverrideHandler, TestToString) {
 
@@ -657,6 +677,7 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
       "enable-optimizer=true "; // The optimizer pass is enabled by default.
   options += "memreconfig-enabled=true ";
   options += "memory-layout-analysis-enabled=true ";
+  options += "l1-interleaved-fallback-analysis-enabled=true ";
   options += "insert-memreconfig=add_0_1_2=0 ";
   options +=
       "override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32";
@@ -666,6 +687,7 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
 
   optimizerOverridesHandler.setEnableOptimizer(true);
   optimizerOverridesHandler.setEnableMemoryLayoutAnalysis(true);
+  optimizerOverridesHandler.setEnableL1InterleavedFallbackAnalysis(true);
   optimizerOverridesHandler.setMemoryReconfig(true);
   optimizerOverridesHandler.addInsertMemReconfig("add_0_1_2", operandIdxes);
   optimizerOverridesHandler.addOutputLayoutOverride(

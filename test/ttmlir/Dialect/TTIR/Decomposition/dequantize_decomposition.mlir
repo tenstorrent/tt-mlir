@@ -7,7 +7,7 @@ module @jit_dequantize {
     // CHECK: "ttir.constant"
     // CHECK-SAME: value = dense<1.000000e-01> : tensor<1xf32>
     // CHECK: "ttir.constant"
-    // CHECK-SAME: value = dense<0> : tensor<1xi32>
+    // CHECK-SAME: value = dense<0> : tensor<1xsi32>
     // CHECK: "ttir.dequantize_unrolled"
     %1 = "ttir.dequantize"(%arg0, %0) : (tensor<1x3x224x224x!quant.uniform<i32:f32, 2.000000e-02>>, tensor<1x3x224x224xf32>) -> tensor<1x3x224x224xf32>
     return %1 : tensor<1x3x224x224xf32>
@@ -20,7 +20,7 @@ module @jit_dequantize {
     // CHECK-SAME: -> tensor<3xf32>
     // CHECK: "ttir.constant"
     // CHECK-SAME: 10, 20, 30
-    // CHECK-SAME: -> tensor<3xi32>
+    // CHECK-SAME: -> tensor<3xsi32>
     // CHECK: "ttir.dequantize_unrolled"
     // CHECK-SAME: axis = 1 : i32
     %1 = "ttir.dequantize"(%arg0, %0) : (tensor<3x3x7x7x!quant.uniform<i32:f32:0, {2.000000e-02:10,1.000000e-02:20,5.000000e-03:30}>>, tensor<3x3x7x7xf32>) -> tensor<3x3x7x7xf32>

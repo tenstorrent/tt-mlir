@@ -7,6 +7,7 @@ table SoftmaxOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
   dimension: int32;
+  numeric_stable: bool = false;
 }
 
 table BatchNormOp {
@@ -18,6 +19,15 @@ table BatchNormOp {
   momentum: float;
   weight: tt.target.ttnn.TensorRef;
   bias: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table RMSNormOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  epsilon: float;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }

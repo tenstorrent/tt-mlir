@@ -58,4 +58,20 @@ module {
     }> : (tensor<1x32x32x64xbf16>, tensor<1x17x17x64xbf16>) -> tensor<1x17x17x64xbf16>
     return %1 : tensor<1x17x17x64xbf16>
   }
+
+  // Test 5: AvgPool2dOp with count_include_pad = false
+  func.func @avg_pool2d_count_include_pad_false(%arg0: tensor<1x32x32x64xbf16>) -> tensor<1x17x17x64xbf16> {
+    %0 = ttir.empty() : tensor<1x17x17x64xbf16>
+    // CHECK: ttnn.avg_pool2d
+    // CHECK: count_include_pad = false
+    %1 = "ttir.avg_pool2d"(%arg0, %0) <{
+      kernel = array<i32: 4, 4>,
+      stride = array<i32: 2, 2>,
+      dilation = array<i32: 1, 1>,
+      padding = array<i32: 2, 2, 2, 2>,
+      ceil_mode = false,
+      count_include_pad = false
+    }> : (tensor<1x32x32x64xbf16>, tensor<1x17x17x64xbf16>) -> tensor<1x17x17x64xbf16>
+    return %1 : tensor<1x17x17x64xbf16>
+  }
 }

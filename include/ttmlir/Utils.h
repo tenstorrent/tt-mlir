@@ -34,6 +34,10 @@ constexpr inline llvm::StringLiteral g_skipQdqCommuteAttrName =
     "ttir.skip_qdq_commute";
 constexpr inline llvm::StringLiteral g_decomposedFromAllReduceAttrName =
     "ttir.decomposed_from_all_reduce";
+constexpr inline llvm::StringLiteral g_outputDtypeAttrName = "dtype";
+constexpr inline llvm::StringLiteral g_outputLayoutAttrName = "layout";
+constexpr inline llvm::StringLiteral g_outputMemoryConfigAttrName =
+    "memory_config";
 
 template <typename T>
 T alignUp(T ptr, T alignment) {

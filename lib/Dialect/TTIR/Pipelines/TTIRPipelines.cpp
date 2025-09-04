@@ -22,13 +22,26 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Transforms/Passes.h"
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
+#include "stablehlo/conversions/linalg/transforms/Passes.h"
 #include "stablehlo/transforms/Passes.h"
 #include "stablehlo/transforms/optimization/Passes.h"
 #endif
+
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
+#include "mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h"
+#include "mlir/Conversion/NVVMToLLVM/NVVMToLLVM.h"
+#include "mlir/Dialect/Affine/Passes.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
+#include "mlir/Target/LLVMIR/Export.h"
+#include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 
 namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
@@ -49,9 +62,108 @@ void createStableHLOToTTIRPipeline(
   if (options.enableAggressiveSimplification) {
     pm.addPass(stablehlo::createStablehloAggressiveSimplificationPass());
   }
-  pm.addPass(createConvertStableHLOToTTIRPass());
+  ttir::ConvertStableHLOToTTIROptions passOptions;
+  passOptions.enablePartialConversion = options.enableCPUFallback;
+  pm.addPass(createConvertStableHLOToTTIRPass(passOptions));
+
+  if (options.enableCPUFallback) {
+    // Fallback any remaining SHLO ops to CPU.
+    pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
+    pm.addPass(ttir::createTTIRHoistTransformForDialects<
+               stablehlo::StablehloDialect>());
+  }
 }
 #endif
+
+void createTTIRToNVVMPipeline(OpPassManager &manager,
+                              const TTIRToNVVMPipelineOptions &options) {
+  // These are initial passes to ensure we start with well-form linalg dialect
+  // operations.
+
+  manager.addPass(createConvertTTIRToLinalgPass());
+  TosaToLinalgOptions tosaToLinalgOptions;
+  tosaToLinalgOptions.aggressiveReduceConstant = true;
+  tosa::addTosaToLinalgPasses(manager, tosaToLinalgOptions, {}, {});
+  // Add tosa-to-tensor/arith passes to handle tosa.const operations.
+  manager.addPass(createTosaToTensorPass());
+  manager.addPass(createTosaToArithPass());
+  manager.addPass(mlir::createConvertElementwiseToLinalgPass());
+  manager.addPass(mlir::createConvertTensorToLinalgPass());
+
+  // Everything is converted to linalg, which can be bufferized.
+  // One-shot bufferize passes convert tensors into memrefs, which can be
+  // lowered into LLVM Dialect.  See:
+  // https://mlir.llvm.org/docs/Bufferization/#ownership-based-buffer-deallocation
+  bufferization::OneShotBufferizePassOptions bufferizePassOptions;
+  bufferizePassOptions.bufferizeFunctionBoundaries = true;
+  bufferizePassOptions.functionBoundaryTypeConversion =
+      bufferization::LayoutMapOption::IdentityLayoutMap;
+  bufferizePassOptions.unknownTypeConversion =
+      bufferization::LayoutMapOption::IdentityLayoutMap;
+  manager.addPass(
+      mlir::bufferization::createOneShotBufferizePass(bufferizePassOptions));
+  mlir::bufferization::BufferDeallocationPipelineOptions deallocationOptions;
+  mlir::bufferization::buildBufferDeallocationPipeline(manager,
+                                                       deallocationOptions);
+
+  // This transforms high-level linalg operations into affine loop nests that
+  //  explicitly iterate over tensor elements.
+  manager.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+
+  // Performs loop-invariant code motion on affine loops, moving computations
+  //  outside loops when possible to reduce redundant calculations.
+  manager.addPass(affine::createAffineLoopInvariantCodeMotionPass());
+
+  // Wrap single AffineFor loops with outer dummy loops to ensure proper
+  // nesting structure required for GPU kernel generation.
+  manager.addNestedPass<func::FuncOp>(
+      transforms::createWrapSingleAffineLoops());
+
+  // Maps affine loops to GPU execution model, distributing iterations across
+  //   GPU threads and blocks.
+  manager.addNestedPass<func::FuncOp>(mlir::createConvertAffineForToGPUPass());
+
+  // Extracts GPU kernel regions into separate GPU functions that can be
+  // launched from host code.
+  manager.addPass(mlir::createGpuKernelOutliningPass());
+
+  // Converts affine dialect operations to standard control flow and arithmetic
+  // operations.
+  manager.addPass(createLowerAffinePass());
+
+  // Decomposes complex memref types into simpler ones that can be handled by
+  // the GPU backends.
+  manager.addPass(mlir::createGpuDecomposeMemrefsPass());
+
+  // Expands metadata for strided memory accesses to explicit calculations.
+  manager.addPass(mlir::memref::createExpandStridedMetadataPass());
+
+  // Normalizes memory references to a form expected by the GPU backends.
+  manager.addPass(memref::createNormalizeMemRefsPass());
+
+  // Converts GPU dialect operations to NVVM dialect (NVIDIA's LLVM-based IR),
+  //  using bare pointer calling conventions for memrefs.
+  ConvertGpuOpsToNVVMOpsOptions convertGpuOpsToNVVMOpsOptions;
+  convertGpuOpsToNVVMOpsOptions.useBarePtrCallConv = true;
+  convertGpuOpsToNVVMOpsOptions.indexBitwidth = 0;
+  manager.addPass(createConvertGpuOpsToNVVMOps(convertGpuOpsToNVVMOpsOptions));
+
+  // Attaches target-specific information to the NVVM module, specifying the GPU
+  // architecture, PTX version features, and optimization level.
+
+  GpuNVVMAttachTargetOptions gpunvvmOptions;
+  gpunvvmOptions.chip = options.chip;
+  gpunvvmOptions.features = options.features;
+  gpunvvmOptions.optLevel = options.optLevel;
+  manager.addPass(createGpuNVVMAttachTarget(gpunvvmOptions));
+
+  // Translates NVVM dialect to standard LLVM dialect for further processing.
+  manager.addPass(createConvertNVVMToLLVMPass());
+
+  // Converts remaining SCF operations to control flow and LLVM dialect.
+  manager.addPass(mlir::createSCFToControlFlowPass());
+  manager.addPass(mlir::createConvertControlFlowToLLVMPass());
+}
 
 void createLinalgToLLVMPipeline(OpPassManager &manager,
                                 const LinalgToLLVMPipelineOptions &options) {
@@ -115,6 +227,12 @@ void createTTIRToCPUPipeline(OpPassManager &manager,
                              const LinalgToLLVMPipelineOptions &options) {
   OpPassManager &cpuPm =
       manager.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+
+#ifdef TTMLIR_ENABLE_STABLEHLO
+  // Directly convert any hoisted SHLO ops into linalg ops.
+  cpuPm.addPass(stablehlo::createStablehloLegalizeToLinalgPass());
+#endif
+
   // Decomp TTIR to reduce number of conversions we need to support in
   // Linalg/Tosa.
   mlir::tt::TTIRToTTIRDecompositionOptions decompOptions;
@@ -155,6 +273,10 @@ void registerTTIRPipelines() {
       "Pipeline lowering stablehlo to ttir dialect.",
       mlir::tt::ttir::createStableHLOToTTIRPipeline);
 #endif
+
+  mlir::PassPipelineRegistration<TTIRToNVVMPipelineOptions>(
+      "convert-ttir-to-nvvm", "Pipeline lowering ttir to nvvm dialect.",
+      mlir::tt::ttir::createTTIRToNVVMPipeline);
   mlir::PassPipelineRegistration<LinalgToLLVMPipelineOptions>(
       "linalg-to-llvm-pipeline", "Pipeline lowering linalg to llvm dialect.",
       mlir::tt::ttir::createLinalgToLLVMPipeline);

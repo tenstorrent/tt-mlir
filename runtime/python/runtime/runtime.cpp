@@ -209,9 +209,20 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("FABRIC_1D", ::tt::runtime::FabricConfig::FABRIC_1D)
       .value("FABRIC_1D_RING", ::tt::runtime::FabricConfig::FABRIC_1D_RING)
       .value("FABRIC_2D", ::tt::runtime::FabricConfig::FABRIC_2D)
-      .value("FABRIC_2D_TORUS", ::tt::runtime::FabricConfig::FABRIC_2D_TORUS)
+      .value("FABRIC_2D_TORUS_X",
+             ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_X)
+      .value("FABRIC_2D_TORUS_Y",
+             ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_Y)
+      .value("FABRIC_2D_TORUS_XY",
+             ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_XY)
       .value("FABRIC_2D_DYNAMIC",
              ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC)
+      .value("FABRIC_2D_DYNAMIC_TORUS_X",
+             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X)
+      .value("FABRIC_2D_DYNAMIC_TORUS_Y",
+             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y)
+      .value("FABRIC_2D_DYNAMIC_TORUS_XY",
+             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY)
       .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
 
   nb::enum_<::tt::runtime::Arch>(m, "Arch")

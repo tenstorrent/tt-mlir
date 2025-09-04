@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -59,20 +60,56 @@ public:
     }
 
     // Get the shapes to determine if we need a view.
-    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
 
     Value viewInput = op.getInput();
 
     // If grid shapes differ, we need a view to reblock.
-    auto inputGridShape = inputLayout.getGridShape(inputType);
     auto outputGridShape = outputLayout.getGridShape(outputType);
+    auto inputGridShape = inputLayout.getGridShape(inputType);
 
-    if (inputGridShape != outputGridShape) {
-      viewInput = rewriter
-                      .create<ViewLayoutOp>(op.getLoc(), op.getInput(),
-                                            outputType.getShape())
-                      .getResult();
+    bool isSrcDram =
+        inputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
+    bool isDstDram =
+        outputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
+
+    // If src or dst operand is DRAM they must be remote
+    // else, Lower L1->L1 reblocking as READs (view applied to the src, dst is
+    // local)
+    bool isSrcDramOrReblock =
+        isSrcDram || (!isDstDram && (inputGridShape != outputGridShape));
+
+    assert(!(isSrcDramOrReblock && isDstDram) &&
+           "input and output cannot both be remote");
+
+    auto buildConcreteView = [&](Value fromVal, RankedTensorType fromTy,
+                                 RankedTensorType toTy) -> Value {
+      auto *ctx = rewriter.getContext();
+      AffineMap map = mlir::tt::ttir::utils::calculateReblockMap(
+          fromTy.getShape(), toTy.getShape(), ctx);
+      auto baseLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(fromTy.getEncoding());
+      auto enc = ttcore::MetalLayoutAttr::get(
+          ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
+          baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
+          baseLayout.getMemorySpace(), map);
+      auto resultTy =
+          RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
+      return rewriter
+          .create<ViewLayoutOp>(op.getLoc(), resultTy, fromVal,
+                                /*reinterpretLayout=*/false)
+          .getResult();
+    };
+
+    if (isSrcDramOrReblock) {
+      viewInput = buildConcreteView(op.getInput(), inputType, outputType);
+    }
+
+    Value viewOutput = op.getOutput();
+    if (isDstDram) {
+      auto outTensorTy = mlir::cast<RankedTensorType>(op.getOutput().getType());
+      viewOutput = buildConcreteView(op.getOutput(), outTensorTy, inputType);
     }
 
     const size_t gridRank = outputGridShape.size();
@@ -81,13 +118,18 @@ public:
     std::tie(indexingMaps, iteratorTypes) =
         GenericOp::buildParallelAffineMapsAndIteratorTypes(
             rewriter, /*arity=*/2, gridRank);
+    auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+
     rewriter.replaceOpWithNewOp<GenericOp>(
-        op, viewInput, op.getOutput(),
+        op, viewInput, viewOutput,
         [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-          auto dma = builder.create<ttir::DMAOp>(
-              loc, viewInput, mlir::cast<AffineMapAttr>(indexingMaps[0]),
-              blockArgs[1]);
+          DMAOp dma = isSrcDramOrReblock
+                          ? builder.create<ttir::DMAOp>(
+                                loc, viewInput, indexingMap, blockArgs[1])
+                          : builder.create<ttir::DMAOp>(
+                                loc, blockArgs[0], viewOutput, indexingMap);
           builder.create<ttir::DMAWaitOp>(loc, dma);
+          builder.create<YieldOp>(loc, blockArgs[1]);
         },
         ThreadType::Datamovement);
 
@@ -112,6 +154,7 @@ public:
           } else {
             builder.create<TileTilizeBlockOp>(loc, blockArgs[0], blockArgs[1]);
           }
+          builder.create<YieldOp>(loc, blockArgs[1]);
         });
 
     return success();

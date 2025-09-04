@@ -164,6 +164,10 @@ def get_atol_rtol_pcc(golden, calculated, logging):
 def get_topk_diff(golden, calculated, top_k, relative=False):
     import torch
 
+    # Store original dtypes to preserve integer formatting later.
+    golden_is_int = not torch.is_floating_point(golden)
+    calculated_is_int = not torch.is_floating_point(calculated)
+
     if not torch.is_floating_point(golden):
         golden = golden.to(torch.float64)
     if not torch.is_floating_point(calculated):
@@ -176,6 +180,7 @@ def get_topk_diff(golden, calculated, top_k, relative=False):
         diff_nz = torch.abs((calculated + 1.0) / (golden + 1.0)) - 1.0
         diff = torch.where(torch.isfinite(diff), diff, diff_nz)
 
+    top_k = min(top_k, diff.numel())
     top_values, top_indices = torch.topk(diff.flatten(), top_k)
 
     golden_shape = golden.shape
@@ -186,7 +191,15 @@ def get_topk_diff(golden, calculated, top_k, relative=False):
         v_golden = golden[multi_idx].item()
         v_output = calculated[multi_idx].item()
         v_diff = top_values[i].item()
-        results.append((v_golden, v_output, v_diff, tuple(i.item() for i in multi_idx)))
+        results.append(
+            (
+                v_golden,
+                v_output,
+                v_diff,
+                tuple(i.item() for i in multi_idx),
+                golden_is_int and calculated_is_int,
+            )
+        )
     return results
 
 
@@ -625,7 +638,7 @@ class Artifacts:
                 self.save_torch_tensor(
                     program_folder,
                     program.output_tensors[i],
-                    f"output_{i}.pt",
+                    f"device_output_{i}.pt",
                 )
 
         if query != None:

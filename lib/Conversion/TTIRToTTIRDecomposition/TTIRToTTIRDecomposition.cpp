@@ -65,7 +65,7 @@ struct IndexToSliceConversionPattern
       }
     }
 
-    auto newOp = rewriter.create<ttir::SliceOp>(
+    auto newOp = rewriter.create<ttir::SliceStaticOp>(
         op.getLoc(), op.getType(), adaptor.getInput(), adaptor.getOutput(),
         rewriter.getArrayAttr(begins), rewriter.getArrayAttr(ends),
         rewriter.getArrayAttr(steps));
@@ -440,9 +440,9 @@ public:
     auto weight = adaptor.getWeight();
     // TTNN api handles reversing weights internally for transposed convolution.
     // So ttir.reverse op is ignored and its input is used as weight.
-    if (isTransposed &&
-        isa<mlir::tt::ttir::ReverseOp>(weight.getDefiningOp())) {
-      weight = weight.getDefiningOp()->getOperand(0);
+    if (auto reverseOp = weight.getDefiningOp<mlir::tt::ttir::ReverseOp>();
+        isTransposed && reverseOp) {
+      weight = reverseOp.getInput();
     }
     auto weightType = mlir::cast<RankedTensorType>(weight.getType());
     auto kernelPermutation = generateConvKernelPermutation(
@@ -454,6 +454,21 @@ public:
         rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_weight"),
         weightOutputShape, weightType.getElementType(),
         weightType.getEncoding(), weight, kernelPermutation);
+
+    // If bias is provided, it needs to be reshaped to match the expected shape
+    Value biasValue = adaptor.getBias();
+    if (biasValue) {
+      auto biasType = mlir::cast<RankedTensorType>(biasValue.getType());
+      auto biasPermutation = generateConvPermutation(op, conv2dLayout);
+      auto biasOutputShape = ::ttmlir::utils::applyPermutation(
+          biasType.getShape(), biasPermutation);
+      SmallVector<int32_t> biasOutputShapeI32(biasOutputShape.begin(),
+                                              biasOutputShape.end());
+      biasValue = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_bias"),
+          biasOutputShape, biasType.getElementType(), biasType.getEncoding(),
+          biasValue, rewriter.getI32ArrayAttr(biasOutputShapeI32));
+    }
 
     mlir::Value newConv;
     if (isTransposed) {
@@ -497,12 +512,12 @@ public:
       });
       newConv = ttir::utils::createDPSOp<ttir::ConvTranspose2dOp>(
           rewriter, op->getLoc(), outputType, Value(input), Value(weight),
-          adaptor.getBias(), inputDilationAttr, paddingAttr, outputPaddingAttr,
+          biasValue, inputDilationAttr, paddingAttr, outputPaddingAttr,
           dilationAttr, groupsAttr);
     } else {
       newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
           rewriter, op.getLoc(), outputType, Value(input), Value(weight),
-          adaptor.getBias(), strideAttr, paddingAttr, dilationAttr, groupsAttr,
+          biasValue, strideAttr, paddingAttr, dilationAttr, groupsAttr,
           /*flattenedCompatInfo=*/nullptr);
     }
 
@@ -1297,10 +1312,12 @@ private:
     });
 
     auto paddingAttr = rewriter.getDenseI32ArrayAttr({
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0] + 1]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]),
-        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1] + 1]),
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[0]]), // top
+        static_cast<int32_t>(op.getPadding()[2 * spatialDimIndices[1]]), // left
+        static_cast<int32_t>(
+            op.getPadding()[2 * spatialDimIndices[0] + 1]), // bottom
+        static_cast<int32_t>(
+            op.getPadding()[2 * spatialDimIndices[1] + 1]), // right
     });
 
     auto ceilModeAttr = rewriter.getBoolAttr(false);
@@ -1324,11 +1341,22 @@ private:
       // Apply output permutation.
       auto resultPermuteShape = ::ttmlir::utils::applyPermutation(
           originalOutputTy.getShape(), permutation);
-      auto newPool = ttir::utils::createDPSOp<PoolOpType>(
-          rewriter, op.getLoc(), resultPermuteShape,
-          originalOutputTy.getElementType(), originalOutputTy.getEncoding(),
-          input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
-          ceilModeAttr);
+      PoolOpType newPool;
+      if constexpr (std::is_same_v<PoolOpType, ttir::AvgPool2dOp>) {
+        newPool = ttir::utils::createDPSOp<PoolOpType>(
+            rewriter, op.getLoc(), resultPermuteShape,
+            originalOutputTy.getElementType(), originalOutputTy.getEncoding(),
+            input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
+            ceilModeAttr, /*count_include_pad=*/rewriter.getBoolAttr(true));
+      } else if constexpr (std::is_same_v<PoolOpType, ttir::MaxPool2dOp>) {
+        newPool = ttir::utils::createDPSOp<PoolOpType>(
+            rewriter, op.getLoc(), resultPermuteShape,
+            originalOutputTy.getElementType(), originalOutputTy.getEncoding(),
+            input, kernelAttr, strideAttr, dilationAttr, paddingAttr,
+            ceilModeAttr);
+      } else {
+        llvm_unreachable("Pool2dOp must be AvgPool2dOp or MaxPool2dOp");
+      }
       // Applying the inverse of permutation to the output will restore the
       // tensor to the original layout.
       auto output = ttir::utils::createDPSOp<ttir::PermuteOp>(
@@ -1463,9 +1491,9 @@ public:
 };
 } // namespace
 
-// IndexSelectOp is converted to a series of SliceOp and potentially a ConcatOp
-// if the sliced dimension is sliced multiple times. For example, if the input
-// tensor is
+// IndexSelectOp is converted to a series of SliceStaticOp and potentially a
+// ConcatOp if the sliced dimension is sliced multiple times. For example, if
+// the input tensor is
 //    [[[1, 2, 3],
 //      [4, 5, 6],
 //      [7, 8, 9],
@@ -1549,7 +1577,7 @@ public:
       begins[dim] = newBegin;
       ends[dim] = newEnd;
 
-      auto newOp = ttir::utils::createDPSOp<ttir::SliceOp>(
+      auto newOp = ttir::utils::createDPSOp<ttir::SliceStaticOp>(
           rewriter, op.getLoc(), resultShape, inputType.getElementType(),
           inputType.getEncoding(), adaptor.getInput(),
           rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
@@ -1838,8 +1866,8 @@ getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
 
     // Create ttir::ConstantOp for zero point.
     int32_t zeroPoint = static_cast<int32_t>(quantPerTensorType.getZeroPoint());
-    mlir::RankedTensorType zeroPointType =
-        mlir::RankedTensorType::get({1}, rewriter.getIntegerType(32));
+    mlir::RankedTensorType zeroPointType = mlir::RankedTensorType::get(
+        {1}, IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed));
     mlir::DenseIntElementsAttr zeroPointDenseAttr =
         mlir::DenseIntElementsAttr::get(zeroPointType, zeroPoint);
     ttir::ConstantOp zeroPointConstant = rewriter.create<ttir::ConstantOp>(
@@ -1865,7 +1893,8 @@ getScaleAndZeroPoint(mlir::quant::QuantizedType elementType,
     SmallVector<int32_t> zeroPoints(
         llvm::to_vector_of<int32_t>(quantPerAxisType.getZeroPoints()));
     mlir::RankedTensorType zeroPointType = mlir::RankedTensorType::get(
-        {static_cast<int64_t>(zeroPoints.size())}, rewriter.getIntegerType(32));
+        {static_cast<int64_t>(zeroPoints.size())},
+        IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed));
     mlir::DenseIntElementsAttr zeroPointDenseAttr =
         mlir::DenseIntElementsAttr::get(zeroPointType, zeroPoints);
     ttir::ConstantOp zeroPointConstant = rewriter.create<ttir::ConstantOp>(

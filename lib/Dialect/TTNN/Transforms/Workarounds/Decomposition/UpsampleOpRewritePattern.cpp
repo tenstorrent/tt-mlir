@@ -82,12 +82,12 @@ LogicalResult UpsampleOpBilinearPaddingRewritePattern::matchAndRewrite(
       srcOp.getLoc(), upsampledPaddedType, padOp, srcOp.getScaleFactorAttr(),
       srcOp.getModeAttr(), /*memory_config=*/nullptr);
 
-  // Create SliceOp to remove padding from the upsampled result.
+  // Create SliceStaticOp to remove padding from the upsampled result.
   SmallVector<int32_t> begins(/*size=*/DIM_COUNT, /*value=*/0);
   SmallVector<int32_t> ends(outputType.getShape());
   SmallVector<int32_t> steps(/*size=*/DIM_COUNT, /*value=*/1);
 
-  auto sliceOp = rewriter.create<ttnn::SliceOp>(
+  auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "slice"), outputType,
       paddedUpsampleOp, rewriter.getI32ArrayAttr(begins),
       rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));

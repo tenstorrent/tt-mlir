@@ -45,6 +45,12 @@ def RegisterDstMemRef : Type<
 
 def DeviceOrRegisterMemRef : AnyTypeOf<[DeviceMemRef, RegisterDstMemRef]>;
 
+// Allow either device/register memrefs or ranked tensors for generic region block ops.
+def DeviceOrRegisterMemRefOrAnyRankedTensor : AnyTypeOf<[
+  DeviceOrRegisterMemRef,
+  AnyRankedTensor
+]>;
+
 class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIR_GenericParent] # traits> {}
 
@@ -324,15 +330,15 @@ def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {
 }
 
 def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
-  [DestinationStyleOpInterface, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "TTIR Tile Matmul Block Op";
     let description = [{
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.
     }];
 
-    let arguments = (ins DeviceL1MemRef:$a,
-                         DeviceL1MemRef:$b,
-                         DeviceL1MemRef:$output);
+    let arguments = (ins AnyRankedTensorOrMemRef:$a,
+                         AnyRankedTensorOrMemRef:$b,
+                         AnyRankedTensorOrMemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -342,14 +348,21 @@ def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
 }
 
 def TTIR_TileTilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_tilize_block",
-  [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
     let summary = "TTIR Tile Tilize Block Op";
     let description = [{
         The `tile_tilize_block` operation tilizes the input row major memref block and outputs the memref containing the tilized data.
     }];
 
-    let arguments = (ins DeviceL1MemRef:$input,
-                         DeviceL1MemRef:$output);
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -359,14 +372,21 @@ def TTIR_TileTilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_tilize_block",
 }
 
 def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_untilize_block",
-  [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
     let summary = "TTIR Tile Untilize Block Op";
     let description = [{
         The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref contianing the row major data.
     }];
 
-    let arguments = (ins DeviceL1MemRef:$input,
-                         DeviceL1MemRef:$output);
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -496,6 +516,11 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       [{
         build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcAffineMap, ValueRange(), dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape);
       }]>,
+      // %tx = ttir.dma %src, %dst<#map> core[%c0, %c1] mcast[%c2, %c3]
+      OpBuilder<(ins "Value": $src, "Value": $dst, "AffineMapAttr": $dstAffineMap, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, ValueRange(), dst, dstAffineMap, ValueRange(), nullptr, mcastStartIndex, mcastShape);
+      }]>,
       // %tx = ttir.dma %src, %dst<#map>
       OpBuilder<(ins "Value": $src, "Value": $dst, "AffineMapAttr": $dstAffineMap),
       [{
@@ -563,8 +588,143 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       bool isDstRemote() { return !isDstLocal(); }
       bool isMcast() { return !getMcastShape().empty(); }
       bool isAffine() { return (getSrcAffineMap() || getDstAffineMap()) && getSrcIndices().empty() && getDstIndices().empty(); }
-      bool isLowered() {
-        return bool(getOptNumElems());
+      ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
+        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
+      }
+      ::mlir::tt::ttcore::MemorySpace getDstMemorySpace() {
+        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue();
+      }
+
+    }];
+}
+
+
+def TTIR_DMAWriteOp : TTIR_GenericRegionDatamovementOp<"dma_write",
+  [ AttrSizedOperandSegments
+  , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , TTIR_DMAOpInterface
+  ]> {
+
+    let summary = "Fully indexed and lowered TTIR DMA Op for writes";
+    let description = [{
+      This op is the fully lowered explicit write form of the higher level `ttir.dma` operation. It corresponds 1:1
+      to a single concrete DMA write operation from src memref to dst memref, where src and dst indices are fully resolved
+      (all view and memspace-specific affine maps applied).
+
+      This operation supports multicast; providing an empty multicast shape argument _implies a unicast write_.
+
+      ```mlir
+      %tx = ttir.dma_write %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], <%size>
+        : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>) -> !ttir.mem_tx
+      ```
+
+      Constraints:
+      - src MUST be a LOCAL memref!
+      - src and dst must have the same element type.
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
+                         AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
+                         I64Attr:$numElems,
+                         Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
+    let results = (outs TTIR_MemTx:$result);
+
+    let builders =
+    [
+      // Unicast - multicast args are defaulted
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange());
+      }]>,
+
+      // Multicast - multicast args must be provided
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
+      }]>,
+    ];
+
+    let assemblyFormat = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)?  `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
+      MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      size_t getSizeBytes() {
+        auto elementSizeBytes =
+          ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
+        return getNumElems() * elementSizeBytes;
+      }
+      bool isDstLocal() {
+        Block *block = getDst().getParentBlock();
+        Block::BlockArgListType blockArgs = block->getArguments();
+        return std::find(blockArgs.begin(), blockArgs.end(), getDst()) !=
+               blockArgs.end();
+      }
+      bool isDstRemote() { return !isDstLocal(); }
+      bool isMcast() { return !getMcastShape().empty(); }
+      ::mlir::tt::ttcore::MemorySpace getDstMemorySpace() {
+        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue();
+      }
+    }];
+}
+
+def TTIR_DMAReadOp : TTIR_GenericRegionDatamovementOp<"dma_read",
+  [ AttrSizedOperandSegments
+  , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , TTIR_DMAOpInterface
+  ]> {
+
+    let summary = "Fully indexed and lowered TTIR DMA Op for read";
+    let description = [{
+      This op is the fully lowered explicit read form of the higher level `ttir.dma` operation. It corresponds 1:1
+      to a single concrete DMA read operation from src memref to dst memref, where src and dst indices are fully resolved
+      (all view and memspace-specific affine maps applied). The dst memref _must_ be local!
+
+      This operation only supports unicast (mulicast are write-only).
+
+      ```mlir
+      %tx = ttir.dma_read %src[%gridy, %gridx, %shardy, %shardx], %dst[%gridy, %gridx, %shardy, %shardx], %size
+        : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1>) -> !ttir.mem_tx
+      ```
+
+      Constraints:
+      - src MUST be a REMOTE memref! if both operands are local, use DMAWriteOp
+      - dst MUST be a LOCAL memref!
+      - src and dst must have the same element type.
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
+                         AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
+                         I64Attr:$numElems);
+    let results = (outs TTIR_MemTx:$result);
+
+    let builders =
+    [
+      // Unicast Read
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems));
+      }]>,
+    ];
+
+    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
+      MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      size_t getSizeBytes() {
+        auto elementSizeBytes =
+          ttcore::getElementSizeBytes(getSrcMemRefType().getElementType());
+        return getNumElems() * elementSizeBytes;
+      }
+      ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
+        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
       }
     }];
 }
@@ -612,10 +772,9 @@ class TTIR_SemaphoreUpdateOp<string mnemonic> : TTIR_GenericRegionOp<mnemonic,
     let description = [{
       Set or increment the semaphore value atomically. This op comes in a few flavors:
 
-      - Set or increment this local core's semaphore value
+      - Set this local core's semaphore value
       ```mlir
       ttir.semaphore_set %sem0, %c1
-      ttir.semaphore_inc %sem0, %c1
       ```
 
       - Update a remote core's semaphore value
@@ -681,7 +840,16 @@ def TTIR_SemaphoreWaitOp : TTIR_GenericRegionOp<"semaphore_wait", [MemoryEffects
 // TTIR Generic Region Control Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [MemoryEffects<[MemRead, MemWrite]>]> {
+def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
     let summary = "Yield op.";
     let description = [{
       Yield operation, return control flow to another thread. Corresponds to a circular buffer push.
@@ -692,6 +860,35 @@ def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [MemoryEffects<[MemRead, MemWri
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
 
     let hasVerifier = 1;
+
+    let extraClassDefinition = [{
+      bool $cppClass::bufferizesToMemoryRead(
+          mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+        return false;
+      }
+      bool $cppClass::bufferizesToMemoryWrite(
+          mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+        return false;
+      }
+      mlir::bufferization::AliasingValueList $cppClass::getAliasingValues(
+          mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+        mlir::bufferization::AliasingValueList result;
+        return result;
+      }
+      mlir::FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+          mlir::Value, const mlir::bufferization::BufferizationOptions &,
+          const mlir::bufferization::BufferizationState &,
+          ::llvm::SmallVector<mlir::Value> &) {
+        return mlir::failure();
+      }
+      mlir::LogicalResult $cppClass::bufferize(
+          mlir::RewriterBase &rewriter,
+          const mlir::bufferization::BufferizationOptions &,
+          mlir::bufferization::BufferizationState &state) {
+        rewriter.eraseOp(*this);
+        return mlir::success();
+      }
+    }];
 }
 
 def TTIR_AwaitOp : TTIR_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWrite]>]> {
@@ -700,7 +897,7 @@ def TTIR_AwaitOp : TTIR_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWri
       Await operation, await control flow from another thread. Corresponds to a circular buffer wait.
     }];
 
-    let arguments = (ins Variadic<DeviceL1MemRef>:$values);
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
 
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
 

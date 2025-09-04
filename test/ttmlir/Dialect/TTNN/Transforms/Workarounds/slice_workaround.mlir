@@ -11,13 +11,13 @@ module attributes {} {
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: tensor<4x32x32xf32
     // CHECK-SAME: -> tensor<4x32x32xbf16
-    // CHECK: %[[SLICE:[0-9]+]] = "ttnn.slice"(%[[ARG0]])
+    // CHECK: %[[SLICE:[0-9]+]] = "ttnn.slice_static"(%[[ARG0]])
     // CHECK-SAME: begins = [0 : i32, 0 : i32, 0 : i32]
     // CHECK-SAME: ends = [2 : i32, 16 : i32, 16 : i32]
     // CHECK-SAME: step = [1 : i32, 1 : i32, 2 : i32]}
     // CHECK-SAME: tensor<4x32x32xbf16
     // CHECK-SAME: -> tensor<2x16x8xbf16
-    %0 = "ttnn.slice"(%arg0) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 16 : i32, 16 : i32], step = [1 : i32, 1 : i32, 2 : i32]}> : (tensor<4x32x32xf32, #ttnn_layout>) -> tensor<2x16x8xf32, #ttnn_layout1>
+    %0 = "ttnn.slice_static"(%arg0) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 16 : i32, 16 : i32], step = [1 : i32, 1 : i32, 2 : i32]}> : (tensor<4x32x32xf32, #ttnn_layout>) -> tensor<2x16x8xf32, #ttnn_layout1>
     // CHECK: "ttnn.to_layout"(%[[SLICE]])
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<f32>
     // CHECK-SAME: tensor<2x16x8xbf16

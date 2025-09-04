@@ -12,6 +12,8 @@ from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 from test_utils import Marks, shape_str
 
+pytestmark = pytest.mark.frontend("ttir")
+
 
 def exp(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.exp(in0, unit_attrs=unit_attrs)
@@ -837,9 +839,10 @@ def test_unsqueeze(shape: Shape, dim: int, request):
     )
 
 
-@pytest.mark.parametrize("shape", [(1, 32, 32)])
-@pytest.mark.parametrize("dims", [[32, 1, 1]])
-def test_repeat(shape: Shape, dims: List[int], request):
+@pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16), (1, 1, 64)])
+@pytest.mark.parametrize("dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+def test_repeat(shape: Shape, dims: List[int], dtype, request):
     def repeat(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -848,6 +851,7 @@ def test_repeat(shape: Shape, dims: List[int], request):
     compile_ttir_to_flatbuffer(
         repeat,
         [shape],
+        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1140,6 +1144,117 @@ def test_max_pool2d(
     )
 
 
+@pytest.mark.parametrize(
+    "kernel,stride,dilation,padding,ceil_mode,count_include_pad",
+    [
+        ([2, 2], [2, 2], [1, 1], [1, 1, 1, 1], False, True),
+        (
+            [2, 2],
+            [1, 1],
+            [1, 1],
+            [1, 1, 1, 1],
+            True,
+            False,
+        ),  # This test will produce a different output if count_include_pad is True for spatial dims (31, 31)
+    ],
+)
+@pytest.mark.parametrize("shapes", [[(1, 31, 31, 32), (1, 31, 35, 32)]])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+def test_avg_pool2d(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    kernel: List[int],
+    stride: List[int],
+    dilation: List[int],
+    padding: List[int],
+    ceil_mode: bool,
+    count_include_pad: bool,
+    request,
+):
+    def avg_pool2d(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.avg_pool2d(
+            in0,
+            in1,
+            kernel=kernel,
+            stride=stride,
+            dilation=dilation,
+            padding=padding,
+            ceil_mode=ceil_mode,
+            count_include_pad=count_include_pad,
+            unit_attrs=unit_attrs,
+        )
+
+    compile_ttir_to_flatbuffer(
+        avg_pool2d,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (1, 64, 32, 32),  # input tensor: (N, C, H, W)
+            (64,),  # scale (gamma)
+            (64,),  # offset (beta)
+            (64,),  # mean
+            (64,),  # variance
+        ]
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 5])
+@pytest.mark.parametrize("dimension", [1])  # channel dimension
+@pytest.mark.parametrize("epsilon", [1e-5])
+@pytest.mark.parametrize("training", [False])
+def test_batch_norm(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    dimension: int,
+    epsilon: float,
+    training: bool,
+    request,
+):
+    def batch_norm(
+        in0: Operand,
+        scale: Operand,
+        offset: Operand,
+        mean: Operand,
+        variance: Operand,
+        builder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+
+        return builder.batch_norm(
+            in0,
+            scale,
+            offset,
+            mean,
+            variance,
+            epsilon=epsilon,
+            dimension=dimension,
+            training=training,
+            unit_attrs=unit_attrs,
+        )
+
+    compile_ttir_to_flatbuffer(
+        batch_norm,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("shapes", [[(1, 1, 5, 5), (2, 6, 14, 18)]])
 @pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
@@ -1257,7 +1372,7 @@ def test_argmax(shapes, dim_arg, request):
     )
 
 
-@pytest.mark.skip("`reverse` doesn't have a legalization. See issue #2495")
+@pytest.mark.xfail(reason="`reverse` doesn't have a legalization. See issue #2495")
 @pytest.mark.parametrize("shape", [(64, 64)])
 @pytest.mark.parametrize("dims", [[0, 1]])
 def test_reverse(shape: Shape, dims: List[int], request):
@@ -1275,7 +1390,7 @@ def test_reverse(shape: Shape, dims: List[int], request):
     )
 
 
-@pytest.mark.skip("See issue #3685")
+@pytest.mark.skip(reason="See issue #3685")
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_and(shape: Shape, dim_args: List[int], request):
@@ -1306,9 +1421,8 @@ def reduce_or(
     )
 
 
-@pytest.mark.skip(
-    "Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775"
-)
+# Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775.
+@pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_or(shape: Shape, dim_args: List[int], request):
@@ -1487,19 +1601,23 @@ def softmax(
     in0: Operand,
     builder: TTIRBuilder,
     dimension: int = -1,
+    numeric_stable: bool = False,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.softmax(in0, dimension=dimension, unit_attrs=unit_attrs)
+    return builder.softmax(
+        in0, dimension=dimension, numeric_stable=numeric_stable, unit_attrs=unit_attrs
+    )
 
 
 @pytest.mark.parametrize("shape", [(512, 1024)])
 @pytest.mark.parametrize("dimension", [-1])
-def test_softmax(shape: Shape, dimension: int, request):
+@pytest.mark.parametrize("numeric_stable", [False, True])
+def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request):
     # Create a wrapper function that captures dimension
     def softmax_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        return softmax(in0, builder, dimension, unit_attrs)
+        return softmax(in0, builder, dimension, numeric_stable, unit_attrs)
 
     # Set the name for better test identification
     softmax_wrapper.__name__ = "softmax"
@@ -1900,19 +2018,17 @@ def test_cpu_hoistable_binary_ops(
 # Test hoisted permute separately because it requires unique input shapes.
 @x86_only
 @pytest.mark.parametrize(
-    "shapes_and_perms",
+    "shapes,permutation",
     [
         # [(input_shape, output_shape), permutation]
-        [[(2, 3, 4), (4, 2, 3)], [2, 0, 1]],
-        [[(128, 128), (128, 128)], [0, 1]],
-        [[(128, 64, 32), (32, 128, 64)], [2, 0, 1]],
+        ([(2, 3, 4), (4, 2, 3)], [2, 0, 1]),
+        ([(128, 128), (128, 128)], [0, 1]),
+        ([(128, 64, 32), (32, 128, 64)], [2, 0, 1]),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.fails_golden
-def test_hoisted_permute(shapes_and_perms, request, target: str):
-    shapes, permutation = shapes_and_perms
-
+def test_hoisted_permute(shapes, permutation, request, target: str):
     def permute_wrapper(
         in0: Operand,
         in1: Operand,
@@ -2047,18 +2163,16 @@ def test_reshape(shapes, dtype: torch.dtype, request):
 
 @x86_only
 @pytest.mark.parametrize(
-    "shapes",
+    "input_shape,output_shape",
     [
-        # [input_shape, output_shape]
-        [(2, 3, 4), (24,)],
-        [(128, 128), (16384,)],
-        [(128, 64, 32), (128, 2048)],
+        # (input_shape, output_shape)
+        ((2, 3, 4), (24,)),
+        ((128, 128), (16384,)),
+        ((128, 64, 32), (128, 2048)),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_reshape(shapes, request, target: str):
-    input_shape, output_shape = shapes
-
+def test_hoisted_reshape(input_shape, output_shape, request, target: str):
     def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
         return builder.reshape(in0, output_shape, unit_attrs=["ttir.should_hoist"])
 
@@ -2076,18 +2190,16 @@ def test_hoisted_reshape(shapes, request, target: str):
 
 @x86_only
 @pytest.mark.parametrize(
-    "shapes_and_dims",
+    "input_shape,dims",
     [
-        # [(input_shape, output_shape), permutation]
-        [[(2, 3, 4), (2, 4, 3)], [2, 1]],
-        [[(128, 128), (128, 128)], [1, 0]],
-        [[(128, 64, 32), (32, 64, 128)], [0, 2]],
+        # (input_shape, permutation)
+        ((2, 3, 4), [2, 1]),
+        ((128, 128), [1, 0]),
+        ((128, 64, 32), [0, 2]),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_transpose(shapes_and_dims, request, target: str):
-    shapes, dims = shapes_and_dims
-
+def test_hoisted_transpose(input_shape, dims, request, target: str):
     def transpose_wrapper(in0: Operand, builder: TTIRBuilder):
         # For 2D tensors with permutation [1, 0], swap dimensions 0 and 1
         # For 3D tensors with permutation [2, 1, 0], swap dimensions 0 and 2
@@ -2101,7 +2213,7 @@ def test_hoisted_transpose(shapes_and_dims, request, target: str):
 
     compile_ttir_to_flatbuffer(
         transpose_wrapper,
-        [shapes[0]],
+        [input_shape],
         test_base=request.node.name,
         target=target,
         output_root=request.config.getoption("--path"),
@@ -2145,6 +2257,62 @@ unary_ops = [
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
+):
+    pipeline_options = []
+    compile_ttir_to_flatbuffer(
+        test_fn,
+        inputs_shapes=[shape],
+        inputs_types=[dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        pipeline_options=pipeline_options,
+    )
+
+
+unary_ops_int32 = [
+    abs,
+    neg,
+    pytest.param(
+        relu,
+        marks=pytest.mark.skip(
+            reason="Relu does not support int32 input. Issue: https://github.com/tenstorrent/tt-metal/issues/26719"
+        ),
+    ),
+    pytest.param(
+        sum,
+        marks=pytest.mark.skip(
+            reason="Sum does not support int32 input. Issue: https://github.com/tenstorrent/tt-metal/issues/26724"
+        ),
+    ),
+    pytest.param(
+        max,
+        marks=pytest.mark.skip(
+            reason="Max does not support int32 input. Issue: https://github.com/tenstorrent/tt-metal/issues/26726"
+        ),
+    ),
+    pytest.param(
+        min,
+        marks=pytest.mark.skip(
+            reason="Min does not support int32 input. Issue: https://github.com/tenstorrent/tt-metal/issues/26726"
+        ),
+    ),
+    get_dimension_size
+    | Marks(
+        pytest.mark.skip_config(["ttmetal"]),
+        pytest.mark.skip_config(["ttnn-standalone"]),
+    ),
+]
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+# TODO (anuragsingh): Add tt-metal and ttnn-standalone tests. Link to issue: https://github.com/tenstorrent/tt-mlir/issues/4444
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("test_fn", unary_ops_int32)
+def test_unary_ops_int32(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
 ):
     pipeline_options = []
@@ -2243,17 +2411,17 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
 @pytest.mark.parametrize(
     "test_fn",
     [
-        add | Marks(pytest.mark.run_error),
-        multiply | Marks(pytest.mark.run_error),
-        subtract | Marks(pytest.mark.run_error),
-        eq | Marks(pytest.mark.run_error),
+        add,
+        multiply,
+        subtract,
+        eq,
         ne,
         le,
         lt,
         ge,
         gt,
         div | Marks(pytest.mark.run_error),
-        remainder | Marks(pytest.mark.run_error),
+        remainder,
         maximum,
         minimum,
         pow | Marks(pytest.mark.run_error),
@@ -2327,7 +2495,8 @@ def test_ternary_eltwise_ops_implicit_broadcast(
 @pytest.mark.parametrize(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
-        (transpose, [(64, 32)], None),
+        (transpose, [(64, 32)], [torch.float32]),
+        (reshape, [(64, 32)], [torch.float32]),
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
@@ -2398,7 +2567,7 @@ def test_slice(
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0]])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.skip("Runtime error: https://github.com/tenstorrent/tt-mlir/issues/3883")
+@pytest.mark.run_error  # Issue #3883.
 def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, request):
     """Test the hoisted reduce_or operation with proper dimensions and keep_dim parameter"""
 
@@ -2422,18 +2591,17 @@ def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, reque
 
 @x86_only
 @pytest.mark.parametrize(
-    "shapes_and_broadcast_dims",
+    "shapes,broadcast_dims",
     [
         # [(input_shape, output_shape), broadcast_dimensions]
-        [[(1, 1, 32), (1, 16, 32)], [1, 16, 1]],
-        [[(128, 1), (128, 64)], [1, 64]],
-        [[(1, 128), (64, 128)], [64, 1]],
+        ([(1, 1, 32), (1, 16, 32)], [1, 16, 1]),
+        ([(128, 1), (128, 64)], [1, 64]),
+        ([(1, 128), (64, 128)], [64, 1]),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_broadcast(shapes_and_broadcast_dims, request, target: str):
+def test_hoisted_broadcast(shapes, broadcast_dims, request, target: str):
     """Test broadcast operation with CPU hoisting enabled using the 'hoisted_' naming convention"""
-    shapes, broadcast_dimensions = shapes_and_broadcast_dims
 
     def broadcast_wrapper(
         in0: Operand,
@@ -2442,7 +2610,7 @@ def test_hoisted_broadcast(shapes_and_broadcast_dims, request, target: str):
         unit_attrs: Optional[List[str]] = None,
     ):
         return broadcast(
-            in0, in1, builder, broadcast_dimensions, unit_attrs=["ttir.should_hoist"]
+            in0, in1, builder, broadcast_dims, unit_attrs=["ttir.should_hoist"]
         )
 
     broadcast_wrapper.__name__ = "hoisted_broadcast"
@@ -2537,6 +2705,7 @@ def gather(
         "complex_indices-bf16",
     ],
 )
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_gather(
     input_shape: Shape,
     input_dtype: torch.dtype,
@@ -2544,6 +2713,7 @@ def test_gather(
     start_index_map: List[int],
     offset_dims: List[int],
     slice_sizes: List[int],
+    target: str,
     request,
 ):
     def gather_wrapper(in0: Operand, builder: TTIRBuilder):
@@ -2562,7 +2732,7 @@ def test_gather(
         [input_shape],
         [input_dtype],
         test_base=request.node.name,
-        target="ttnn",
+        target=target,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2570,26 +2740,30 @@ def test_gather(
 
 @x86_only
 @pytest.mark.parametrize(
-    "input_shape,indices_shape,start_index_map,offset_dims,slice_sizes",
+    "input_shape,input_dtype,indices_shape,start_index_map,offset_dims,slice_sizes",
     [
-        ((100, 50), (10,), [0], [1], [1, 50]),  # Simple 1D indices
-        (
+        ((100, 50), torch.float32, (10,), [0], [1], [1, 50]),  # Simple 1D indices
+        pytest.param(
             (8, 16, 32),
+            torch.float32,
             (4, 2, 2),
             [0, 2],
             [1],
             [1, 16, 1],
-        ),  # Complex indices)
+            marks=pytest.mark.xfail(
+                reason="General gather not implemented; see issue #3849"
+            ),
+        ),  # Complex indices
     ],
     ids=["simple_1d", "complex_indices"],
 )
-# Note: Doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device.
-@pytest.mark.skip(
-    "Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849"
-)
+# Note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device.
+# Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849.
+@pytest.mark.run_error
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_gather(
     input_shape: Shape,
+    input_dtype: torch.dtype,
     indices_shape: Shape,
     start_index_map: List[int],
     offset_dims: List[int],
@@ -2607,6 +2781,7 @@ def test_hoisted_gather(
             start_index_map,
             offset_dims,
             slice_sizes,
+            input_dtype,
             unit_attrs=["ttir.should_hoist"],
         )
 
@@ -2669,6 +2844,62 @@ def test_hoisted_dot_general(
         shapes,
         test_base=request.node.name,
         target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,normalized_shape",
+    [
+        ((32, 128), [128]),
+        ((2, 4, 64), [64]),
+    ],
+)
+@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
+def test_rms_norm(
+    shape: Shape,
+    normalized_shape: List[int],
+    has_weight: bool,
+    has_bias: bool,
+    request,
+):
+    def rms_norm(*inputs, unit_attrs: Optional[List[str]] = None):
+
+        builder = inputs[-1]
+        # Extract inputs based on test configuration
+        in0 = inputs[0]
+        weight = None
+        bias = None
+
+        if has_weight and len(inputs) > 1:
+            weight = inputs[1]
+        if has_bias:
+            if has_weight and len(inputs) > 2:
+                bias = inputs[2]
+            elif not has_weight and len(inputs) > 1:
+                bias = inputs[1]
+
+        return builder.rms_norm(
+            in0,
+            normalized_shape=normalized_shape,
+            weight=weight,
+            bias=bias,
+            unit_attrs=unit_attrs,
+        )
+
+    # Determine input shapes
+    shapes = [shape]
+    if has_weight:
+        shapes.append(tuple(normalized_shape))
+    if has_bias:
+        shapes.append(tuple(normalized_shape))
+
+    compile_ttir_to_flatbuffer(
+        rms_norm,
+        shapes,
+        test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )

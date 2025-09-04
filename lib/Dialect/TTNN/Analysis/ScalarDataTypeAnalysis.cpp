@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/ScalarDataTypeAnalysis.h"
-#include "ttmlir/Support/Logger.h"
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 
 namespace mlir::tt::ttnn {
 
@@ -14,9 +14,23 @@ Type ScalarDataTypeAnalysis::getScalarType(Type type) const {
   auto tensorType = mlir::cast<RankedTensorType>(type);
   if (auto layoutAttr =
           mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding())) {
-    assert(layoutAttr.getScalarElementType() == tensorType.getElementType() &&
-           "Expected scalar element type in TTNNLayoutAttr to match tensor "
-           "element type");
+    // If the tensor type is quantized, compare the storage type of the
+    // quantized type to the scalar element type of the layout.
+    if (auto quantType = mlir::dyn_cast<mlir::quant::QuantizedType>(
+            tensorType.getElementType())) {
+      assert(quantType.getStorageType() == layoutAttr.getScalarElementType() &&
+             "Expected quantized storage type to match scalar element type in "
+             "TTNNLayoutAttr");
+    }
+    // Otherwise, require an exact match between the scalar element type of the
+    // layout and the tensor element type.
+    else {
+      assert(layoutAttr.getScalarElementType() == tensorType.getElementType() &&
+             "Expected scalar element type in TTNNLayoutAttr to match tensor "
+             "element type");
+    }
+    // Prefer the layout's scalar element type for downstream analyses.
+    return layoutAttr.getScalarElementType();
   }
   return tensorType.getElementType();
 }

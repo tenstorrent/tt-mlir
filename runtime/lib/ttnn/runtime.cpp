@@ -139,7 +139,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
         hostTensor, /*meshEvent=*/std::nullopt, shouldRetain);
   }
 
-  ::ttnn::MeshDevice *meshDevice = inputTensor.mesh_device();
+  ::ttnn::MeshDevice *meshDevice = inputTensor.device();
   LOG_ASSERT(meshDevice, "Device tensor must live on a mesh device");
 
   // If untilize is true and the data type can be untilized on device
@@ -1105,6 +1105,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_BatchNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::RMSNormOp: {
+    tensorRef = opContext.type_as_RMSNormOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
@@ -1170,6 +1174,12 @@ getOpOutputRef(OpContext opContextHandle,
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
     return std::nullopt;
+  }
+  case ::tt::target::ttnn::OpType::GenericOp: {
+    LOG_FATAL("GenericOp runtime to be implemented.");
+    auto size = opContext.type_as_GenericOp()->io_tensors()->size();
+    tensorRef = opContext.type_as_GenericOp()->io_tensors()->Get(size - 1);
+    break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Invalid op type");
@@ -1292,7 +1302,8 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
-    tensorRefs = {opContext.type_as_EmbeddingOp()->input()};
+    tensorRefs = {opContext.type_as_EmbeddingOp()->input(),
+                  opContext.type_as_EmbeddingOp()->weight()};
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
@@ -1362,6 +1373,16 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_BatchNormOp()->running_var(),
                   opContext.type_as_BatchNormOp()->weight(),
                   opContext.type_as_BatchNormOp()->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RMSNormOp: {
+    tensorRefs = {opContext.type_as_RMSNormOp()->input()};
+    if (opContext.type_as_RMSNormOp()->weight()) {
+      tensorRefs.push_back(opContext.type_as_RMSNormOp()->weight());
+    }
+    if (opContext.type_as_RMSNormOp()->bias()) {
+      tensorRefs.push_back(opContext.type_as_RMSNormOp()->bias());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
@@ -1453,6 +1474,13 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_ConcatenateHeadsOp()->in()};
     break;
   }
+  case ::tt::target::ttnn::OpType::GenericOp: {
+    LOG_FATAL("GenericOp runtime to be implemented.");
+    for (const auto *input : *opContext.type_as_GenericOp()->io_tensors()) {
+      tensorRefs.push_back(input);
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Invalid op type");
     break;
@@ -1542,7 +1570,7 @@ void updateTensorInPool(CallbackContext programContextHandle,
   ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
   srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
   if (utils::isOnDevice(dstTensor.storage_type())) {
-    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.mesh_device(),
+    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.device(),
                                   dstTensor.memory_config());
   }
   tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);

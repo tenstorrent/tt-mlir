@@ -16,6 +16,10 @@ void OptimizerOverridesHandler::setMemoryReconfig(bool value) {
 void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysis(bool value) {
   enableMemoryLayoutAnalysis = value;
 }
+void OptimizerOverridesHandler::setEnableL1InterleavedFallbackAnalysis(
+    bool value) {
+  enableL1InterleavedFallbackAnalysis = value;
+}
 void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysisPolicy(
     bool value) {
   enableMemoryLayoutAnalysisPolicy = value;
@@ -44,6 +48,9 @@ void OptimizerOverridesHandler::setMaxLegalLayouts(int64_t value) {
 void OptimizerOverridesHandler::setMeshShape(std::vector<int64_t> value) {
   meshShape = value;
 }
+void OptimizerOverridesHandler::setTensorL1UsageCap(float tensorL1UsageCap) {
+  this->tensorL1UsageCap = tensorL1UsageCap;
+}
 
 void OptimizerOverridesHandler::setConv2dConfigOverrides(
     llvm::StringMap<Conv2dConfigOverrideParams> &value) {
@@ -59,6 +66,9 @@ bool OptimizerOverridesHandler::getMemoryReconfig() const {
 }
 bool OptimizerOverridesHandler::getEnableMemoryLayoutAnalysis() const {
   return enableMemoryLayoutAnalysis;
+}
+bool OptimizerOverridesHandler::getEnableL1InterleavedFallbackAnalysis() const {
+  return enableL1InterleavedFallbackAnalysis;
 }
 bool OptimizerOverridesHandler::getEnableMemoryLayoutAnalysisPolicy() const {
   return enableMemoryLayoutAnalysisPolicy;
@@ -76,6 +86,9 @@ int64_t OptimizerOverridesHandler::getMaxLegalLayouts() const {
 }
 std::vector<int64_t> OptimizerOverridesHandler::getMeshShape() const {
   return meshShape;
+}
+float OptimizerOverridesHandler::getTensorL1UsageCap() const {
+  return tensorL1UsageCap;
 }
 
 llvm::StringMap<InsertMemReconfigParams>
@@ -138,6 +151,11 @@ std::string OptimizerOverridesHandler::toString() const {
     options += OptionNames::memoryLayoutAnalysisEnabled.str() + "=true ";
   }
 
+  if (enableL1InterleavedFallbackAnalysis) {
+    options +=
+        OptionNames::l1InterleavedFallbackAnalysisEnabled.str() + "=true ";
+  }
+
   if (enableMemoryLayoutAnalysisPolicy) {
     options += OptionNames::memoryLayoutAnalysisPolicy.str() + "=" +
                MemoryLayoutAnalysisPolicyTypeParser::toString(
@@ -190,6 +208,11 @@ std::string OptimizerOverridesHandler::toString() const {
 
   if (options[options.size() - 1] == ' ') {
     options.pop_back();
+  }
+
+  if (tensorL1UsageCap > 0) {
+    options += OptionNames::tensorL1UsageCap.str() + "=" +
+               std::to_string(tensorL1UsageCap) + " ";
   }
 
   return options;

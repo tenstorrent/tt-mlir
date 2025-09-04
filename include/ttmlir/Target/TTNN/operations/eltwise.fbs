@@ -10,6 +10,7 @@ table EltwiseOpWithFloatParams {
 enum EltwiseBinaryOpType: uint32 {
   Add,
   Multiply,
+  LogicalRightShift,
   Subtract,
   Equal,
   NotEqual,
@@ -41,7 +42,8 @@ enum EltwiseBinaryCompositeOpType: uint32 {
   Atan2,
   BitwiseAnd,
   BitwiseOr,
-  BitwiseXor
+  BitwiseXor,
+  LogicalLeftShift
 }
 
 table EltwiseBinaryCompositeOp {

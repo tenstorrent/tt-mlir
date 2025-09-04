@@ -15,3 +15,12 @@ function(generate_raw_string_header INPUT_FILE OUTPUT_FILE VARIABLE_NAME)
   file(APPEND "${OUTPUT_FILE}" "static constexpr char ${VARIABLE_NAME}[] = R\"${DELIM}(\n${FILE_CONTENT})${DELIM}\";\n")
   file(APPEND "${OUTPUT_FILE}" "static constexpr unsigned int ${VARIABLE_NAME}_len = sizeof(${VARIABLE_NAME}) - 1;\n")
 endfunction()
+
+if (CMAKE_SCRIPT_MODE_FILE)
+  # Parse command line arguments
+  if(NOT DEFINED INPUT_FILE OR NOT DEFINED OUTPUT_FILE OR NOT DEFINED VARIABLE_NAME)
+      message(FATAL_ERROR \"Missing required arguments\")
+  endif()
+
+  generate_raw_string_header(${INPUT_FILE} ${OUTPUT_FILE} ${VARIABLE_NAME})
+endif()
