@@ -20,6 +20,16 @@
 
 namespace mlir::tt::ttnn {
 
+static size_t failedBackend = 0;
+static size_t failedOpConstraints = 0;
+static size_t failedOutputLayoutMismatch = 0;
+static size_t failedL1Memory = 0;
+static size_t failedConsumerCheck = 0;
+static size_t failedConsumerBackend = 0;
+static size_t failedConsumerOpConstraints = 0;
+static size_t failedConsumerOutputLayoutMismatch = 0;
+static size_t failedConsumerL1Memory = 0;
+
 void L1InterleavedFallbackAnalysis::analysisImplementation() {
   // Counters for statistics
   size_t totalOps = 0;
@@ -36,12 +46,25 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   size_t skippedNotImmediate = 0;
   size_t skippedReturnOp = 0;
   size_t attemptedUpgrade = 0;
+  // Failure reason counters for checkUpgradeToL1Interleaved
+  failedBackend = 0;
+  failedOpConstraints = 0;
+  failedOutputLayoutMismatch = 0;
+  failedL1Memory = 0;
+  failedConsumerCheck = 0;
+  // Next consumer specific failure breakdowns
+  failedConsumerBackend = 0;
+  failedConsumerOpConstraints = 0;
+  failedConsumerOutputLayoutMismatch = 0;
+  failedConsumerL1Memory = 0;
   size_t failedUpgrade = 0;
   size_t upgraded = 0;
 
   // Go through schedule in order using walk, trying to upgrade DRAM ops to L1
   // interleaved.
   analysisInput.funcOp->walk([&](Operation *op) {
+    llvm::outs().flush();
+    op->dumpPretty();
     ++totalOps;
 
     // Skip operations that have the row-major workaround later on in Optimizer.
@@ -196,7 +219,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
 
   // Print summary statistics
   llvm::outs() << "\n[L1IFA] Analysis Summary:\n";
-  llvm::outs() << "  Total ops: " << totalOps << "\n";
+  llvm::outs() << "[L1IFA]  Total ops: " << totalOps << "\n";
   auto percent = [](size_t n, size_t total) -> std::string {
     if (total == 0) {
       return "0.00";
@@ -206,40 +229,78 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     oss << std::fixed << std::setprecision(2) << pct;
     return oss.str();
   };
-  llvm::outs() << "  Attempted upgrades: " << attemptedUpgrade << " ("
-               << percent(attemptedUpgrade, totalOps) << "%)\n";
-  llvm::outs() << "  Successful upgrades: " << upgraded << " ("
-               << percent(upgraded, attemptedUpgrade) << "%)\n";
-  llvm::outs() << "  Failed upgrades: " << failedUpgrade << " ("
-               << percent(failedUpgrade, attemptedUpgrade) << "%)\n";
-  llvm::outs() << "  Skipped (row-major workaround): " << skippedRowMajor
+  llvm::outs() << "[L1IFA]  Skipped (row-major workaround): " << skippedRowMajor
                << " (" << percent(skippedRowMajor, totalOps) << "%)\n";
-  llvm::outs() << "  Skipped (DRAM output in runtime): " << skippedDRAMOut
-               << " (" << percent(skippedDRAMOut, totalOps) << "%)\n";
-  llvm::outs() << "  Skipped (Matmul/Linear input): " << skippedMatmulLinear
-               << " (" << percent(skippedMatmulLinear, totalOps) << "%)\n";
-  llvm::outs() << "  Skipped (Conv2D uses matmul): " << skippedConv2DMatmul
-               << " (" << percent(skippedConv2DMatmul, totalOps) << "%)\n";
-  llvm::outs() << "  Skipped (user DRAM input): " << skippedUserDRAMIn << " ("
-               << percent(skippedUserDRAMIn, totalOps) << "%)\n";
-  llvm::outs() << "  Skipped (user Matmul/Linear input): "
+  llvm::outs() << "[L1IFA]  Skipped (DRAM output in runtime): "
+               << skippedDRAMOut << " (" << percent(skippedDRAMOut, totalOps)
+               << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (Matmul/Linear input): "
+               << skippedMatmulLinear << " ("
+               << percent(skippedMatmulLinear, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (Conv2D uses matmul): "
+               << skippedConv2DMatmul << " ("
+               << percent(skippedConv2DMatmul, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (user DRAM input): " << skippedUserDRAMIn
+               << " (" << percent(skippedUserDRAMIn, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (user Matmul/Linear input): "
                << skippedUserMatmulLinear << " ("
                << percent(skippedUserMatmulLinear, totalOps) << "%)\n";
-  llvm::outs() << "  Skipped (user Conv2D uses matmul): "
+  llvm::outs() << "[L1IFA]  Skipped (user Conv2D uses matmul): "
                << skippedUserConv2DMatmul << " ("
                << percent(skippedUserConv2DMatmul, totalOps) << "%)\n";
-  llvm::outs() << "  Skipped (no L1 interleaved legal layout): "
+  llvm::outs() << "[L1IFA]  Skipped (no L1 interleaved legal layout): "
                << skippedNoL1Legal << " ("
                << percent(skippedNoL1Legal, totalOps) << "%)\n";
-  llvm::outs() << "  Skipped (not DRAM layout): " << skippedNotDRAM << " ("
-               << percent(skippedNotDRAM, totalOps) << "%)\n";
-  llvm::outs() << "  Skipped (not exactly one user): " << skippedNotOneUser
-               << " (" << percent(skippedNotOneUser, totalOps) << "%)\n";
-  llvm::outs() << "  Skipped (consumer not scheduled immediately after): "
-               << skippedNotImmediate << " ("
-               << percent(skippedNotImmediate, totalOps) << "%)\n";
-  llvm::outs() << "  Skipped (output is returnOp input): " << skippedReturnOp
-               << " (" << percent(skippedReturnOp, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (not DRAM layout): " << skippedNotDRAM
+               << " (" << percent(skippedNotDRAM, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (not exactly one user): "
+               << skippedNotOneUser << " ("
+               << percent(skippedNotOneUser, totalOps) << "%)\n";
+  llvm::outs()
+      << "[L1IFA]  Skipped (consumer not scheduled immediately after): "
+      << skippedNotImmediate << " (" << percent(skippedNotImmediate, totalOps)
+      << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (output is returnOp input): "
+               << skippedReturnOp << " (" << percent(skippedReturnOp, totalOps)
+               << "%)\n";
+  llvm::outs() << "[L1IFA]  Attempted upgrades: " << attemptedUpgrade << " ("
+               << percent(attemptedUpgrade, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]  Successful upgrades: " << upgraded << " ("
+               << percent(upgraded, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]  Failed upgrades: " << failedUpgrade << " ("
+               << percent(failedUpgrade, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]    - Failed due to backend constraints: "
+               << failedBackend << " (" << percent(failedBackend, totalOps)
+               << "%)\n";
+  llvm::outs() << "[L1IFA]    - Failed due to OpModel constraints: "
+               << failedOpConstraints << " ("
+               << percent(failedOpConstraints, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]    - Failed due to output layout mismatch: "
+               << failedOutputLayoutMismatch << " ("
+               << percent(failedOutputLayoutMismatch, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]    - Failed due to not enough L1 memory: "
+               << failedL1Memory << " (" << percent(failedL1Memory, totalOps)
+               << "%)\n";
+  llvm::outs() << "[L1IFA]    - Failed due to consumer check: "
+               << failedConsumerCheck << " ("
+               << percent(failedConsumerCheck, totalOps) << "%)\n";
+  llvm::outs()
+      << "[L1IFA]      - Of which, failed due to consumer backend constraints: "
+      << failedConsumerBackend << " ("
+      << percent(failedConsumerBackend, totalOps) << "%)\n";
+  llvm::outs()
+      << "[L1IFA]      - Of which, failed due to consumer OpModel constraints: "
+      << failedConsumerOpConstraints << " ("
+      << percent(failedConsumerOpConstraints, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]      - Of which, failed due to consumer output "
+                  "layout mismatch: "
+               << failedConsumerOutputLayoutMismatch << " ("
+               << percent(failedConsumerOutputLayoutMismatch, totalOps)
+               << "%)\n";
+  llvm::outs() << "[L1IFA]      - Of which, failed due to consumer not enough "
+                  "L1 memory: "
+               << failedConsumerL1Memory << " ("
+               << percent(failedConsumerL1Memory, totalOps) << "%)\n";
   llvm::outs() << "[L1IFA] Analysis complete.\n\n";
 
   TTMLIR_TRACE(
@@ -474,8 +535,13 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     const Operation *upgradedProducerOp,
     const TTNNLayoutAttr upgradedProducerLayout) const {
 
+  llvm::outs() << "[L1IFA]     checkUpgradeToL1Interleaved for op: "
+               << consumerOp->getName() << "\n";
+
   OpModel backend = mlir::dyn_cast<OpModel>(consumerOp);
   if (!backend) {
+    llvm::outs() << "[L1IFA]     FAILED: Backend constraints not implemented\n";
+    upgradedProducerOp ? ++failedConsumerBackend : ++failedBackend;
     // This function should not be called for ops without backend constraints.
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),
@@ -532,6 +598,9 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     llvm::Error error = l1UsageExp.takeError();
     std::string errorStr = llvm::toString(std::move(error));
 
+    llvm::outs() << "[L1IFA]     FAILED: OpModel constraints failed - "
+                 << errorStr << "\n";
+    upgradedProducerOp ? ++failedConsumerOpConstraints : ++failedOpConstraints;
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "OpModel constraints failed for op {0} :: {1},"
                  "\nconsumerLayout: {2}",
@@ -547,6 +616,11 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
         outputLayout] = l1UsageExp.get();
 
   if (outputLayout != consumerConfig.outputLayout) {
+    llvm::outs() << "[L1IFA]     FAILED: Output layout mismatch - expected: "
+                 << consumerConfig.outputLayout << ", actual: " << outputLayout
+                 << "\n";
+    upgradedProducerOp ? ++failedConsumerOutputLayoutMismatch
+                       : ++failedOutputLayoutMismatch;
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Output layout mismatch for op {0}:"
                  "\nexpected: {1},\nactual: {2},",
@@ -560,7 +634,15 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   bool l1UsageValid = (producersL1OutputUsage + tensorUsage + cBUsagePeak) <
                       analysisInput.usableL1CacheSize;
 
+  llvm::outs() << "[L1IFA]     L1 usage check: total="
+               << (producersL1OutputUsage + tensorUsage + cBUsagePeak)
+               << ", available=" << analysisInput.usableL1CacheSize
+               << ", valid=" << (l1UsageValid ? "YES" : "NO") << "\n";
   if (!l1UsageValid) {
+    llvm::outs() << "[L1IFA]     FAILED: Not enough L1 memory (producer="
+                 << producersL1OutputUsage << ", tensor=" << tensorUsage
+                 << ", cb=" << cBUsagePeak << ")\n";
+    upgradedProducerOp ? ++failedConsumerL1Memory : ++failedL1Memory;
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Not enough L1 memory. OpModel constraints failed: {0} "
                  "\n outputLayout: {1}, l1Usage: {2}, "
@@ -581,6 +663,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   // - Recursive call: upgradedProducerOp=consumerOp, checks if consumer can
   // handle the upgrade.
   if (upgradedProducerOp) {
+    llvm::outs()
+        << "[L1IFA]     SUCCESS: Recursive check passed for consumer\n";
     TTMLIR_DEBUG(
         ttmlir::LogComponent::Optimizer,
         "OpModel constraints valid for input of consumer {0}:\n"
@@ -601,6 +685,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   // can coexist in L1.
   if (utils::producesTTNNLayoutEncoding(nextConsumerOp) &&
       !isa<ttnn::ToLayoutOp>(nextConsumerOp)) {
+    llvm::outs() << "[L1IFA]     Checking consumer: "
+                 << nextConsumerOp->getName() << "\n";
     const OpConfig &nextConsumerOpConfig =
         analysisInput.currentConfigs.at(nextConsumerOp);
 
@@ -611,6 +697,10 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     if (!nextConsumerOpL1Layout) {
       llvm::Error error = nextConsumerOpL1Layout.takeError();
       std::string errorStr = llvm::toString(std::move(error));
+
+      llvm::outs() << "[L1IFA]     FAILED: Consumer check failed - " << errorStr
+                   << "\n";
+      ++failedConsumerCheck;
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                    "L1 upgrade blocked for {} - for consumer {}: {}",
                    consumerOp->getName().getStringRef().data(),
@@ -626,6 +716,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
            "OpConfig");
   }
 
+  llvm::outs() << "[L1IFA]     SUCCESS: All checks passed for op: "
+               << consumerOp->getName() << "\n";
   TTMLIR_DEBUG(
       ttmlir::LogComponent::Optimizer,
       "OpModel constraints valid {0}:\n"
