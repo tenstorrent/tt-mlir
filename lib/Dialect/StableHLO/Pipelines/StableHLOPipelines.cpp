@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Pipelines/StableHLOPipelines.h"
+#include "shardy/dialect/sdy/transforms/propagation/aggressive_propagation.h"
 
 #include "mlir/Transforms/Passes.h"
 
@@ -35,7 +36,12 @@ void createStableHLOPipeline(OpPassManager &pm,
       mlir::sdy::createApplyShardingConstraintsPass());
 
   // Propagate tensor shardings through the entire graph.
-  pm.addPass(mlir::sdy::createAggressivePropagationPass());
+  mlir::sdy::PropagationOptions propagationOptions;
+  mlir::sdy::PropagationStrategy propagationStrategy =
+      mlir::sdy::PropagationStrategy::Aggressive;
+  propagationOptions.conservativePropagation = true;
+  pm.addPass(mlir::sdy::createAggressivePropagationPass(propagationOptions,
+                                                        propagationStrategy));
 
   // Convert sharding constraints to reshards
   pm.nest<mlir::func::FuncOp>().addPass(
