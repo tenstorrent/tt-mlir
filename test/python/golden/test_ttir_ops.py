@@ -2683,18 +2683,6 @@ def gather(
             # Complex indices - f32.
             [1, 16, 1],
         ),
-        pytest.param(
-            (8, 16, 32),
-            torch.bfloat16,
-            (4, 2, 2),
-            [0, 2],
-            [1],
-            # Complex indices - bf16.
-            [1, 16, 1],
-            marks=pytest.mark.skip(
-                reason="Multi-dimensional gather has known issues, but the builder golden may also be incorrect: https://github.com/tenstorrent/tt-mlir/issues/3884"
-            ),
-        ),
     ],
     ids=[
         "simple_1d-f32",
