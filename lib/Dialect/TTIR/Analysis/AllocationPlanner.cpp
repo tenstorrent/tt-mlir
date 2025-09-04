@@ -214,6 +214,7 @@ AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
     const Record &record = context[i];
     iv.insert(record.first, record.last, i);
   }
+  // NOLINTNEXTLINE
   iv.create();
 
   AllocSizeT memUsage = 0;
