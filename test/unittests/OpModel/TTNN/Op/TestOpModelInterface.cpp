@@ -1179,9 +1179,11 @@ TEST_F(OpModelBase, ArgMaxOpInterface) {
       backend.getOpConstraints(getInputLayouts(argMax), OpConfig(outputLayout));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayoutReadBack] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize,
+                 outputLayoutReadBack] = l1;
     EXPECT_EQ(cbSize, 384);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(totalPeakSize, 384);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1211,9 +1213,11 @@ TEST_F(OpModelBase, ProdOpInterface) {
   auto constraintsExp = getOpConstraints(prod.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(peakSize, 8192);
+    EXPECT_EQ(l1PeakSize, 8192);
+    EXPECT_EQ(totalPeakSize, 12288 + 8192);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
