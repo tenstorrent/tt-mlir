@@ -83,11 +83,7 @@ def TTIRInsertDstRegisterAccess : Pass<"ttir-insert-dst-register-access", "::mli
        - Generic op automatically inserts conditional guard for reload.
        - This pass only works on affine ops.
   }];
-  let dependentDialects = ["::mlir::tt::ttir::TTIRDialect", "::mlir::affine::AffineDialect", "::mlir::func::FuncDialect", "::mlir::emitc::EmitCDialect"];
-
-  list<Option> options = [
-    Option<"insertProfilerTraces", "insert-profiler-traces", "bool", "false", "Insert DeviceZone scopes around inner compute loop nest.">,
-  ];
+  let dependentDialects = ["::mlir::tt::ttir::TTIRDialect", "::mlir::affine::AffineDialect", "::mlir::func::FuncDialect"];
 }
 
 def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::ModuleOp"> {
