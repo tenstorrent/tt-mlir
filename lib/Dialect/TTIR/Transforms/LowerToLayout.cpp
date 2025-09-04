@@ -242,8 +242,10 @@ public:
                                  : ttcore::getTensorTileShapeOrEmpty(baseType);
 
     // Create new layout
+    SmallVector<int64_t> squareGridShape =
+        ttir::utils::getSquareTargetGrid(workerGridShape);
     auto newLayout = ttcore::MetalLayoutAttr::get(
-        ctx, baseLayout.getLogicalShape(), workerGridShape,
+        ctx, baseLayout.getLogicalShape(), squareGridShape,
         baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals());
 
     // For physical shape derivation, use tile shape ONLY if element type is
