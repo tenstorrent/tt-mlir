@@ -312,25 +312,6 @@ getNamedFullOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, shape, dtype,
       layout, memoryConfig, opConfig.outputLayout);
 }
-
-// query_op_runtime has to execute the op to measure the runtime (and not just
-// invoke the op in NO_DISPATCH mode as query_op_constraint does). Therefore,
-// any op that writes to memory, such as EmptyOp,ArangeOp, ZerosOp, OnesOp,
-// etc., triggers a runtime error (`Writes are not supported during trace
-// capture.`). As a consequence, we disable the runtime measurement for these
-// ops. Alternatively, we could avoid defining the getOpRuntime API for such
-// ops, but that would prevent us from the ultimate goal of supporting
-// getOpRuntime and getOpConstraint for "all" ttnn ops. This is
-// tracked/described here:
-// https://github.com/tenstorrent/tt-mlir/issues/4199#issuecomment-3140045496
-static llvm::Expected<size_t> issueErrorForGetOpRuntime(mlir::Operation *op) {
-  auto opName = op->getName().getStringRef();
-  return llvm::make_error<llvm::StringError>(
-      "opRuntime is not supported for " + opName.str() +
-          " since it requires memory IO.",
-      llvm::inconvertibleErrorCode());
-}
-
 } // namespace detail
 
 //===----------------------------------------------------------------------===//
@@ -1889,7 +1870,8 @@ ProdOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 ProdOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                      const OpConfig &opConfig) {
-  return detail::issueErrorForGetOpRuntime(getOperation());
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2327,7 +2309,8 @@ PrepareConv2dWeightsOp::getOpConstraints(
 llvm::Expected<size_t>
 PrepareConv2dWeightsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
-  return detail::issueErrorForGetOpRuntime(getOperation());
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
 }
 
 //===----------------------------------------------------------------------===//
