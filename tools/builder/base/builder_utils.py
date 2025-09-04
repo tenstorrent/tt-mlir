@@ -492,7 +492,7 @@ def build_stablehlo_module(
 
     # Instantiate builder which is passed as the last argument to
     # `fn` so the user can use it to build ops.
-    stablehlo_builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
+    stablehlo_builder = StableHLOBuilder(ctx, loc, [mesh_name], [mesh_dict])
 
     # Default to all f32s
     if inputs_types is None:
@@ -517,7 +517,7 @@ def build_stablehlo_module(
 
         # Wrap everything in a mlir module.
         module = Module.create()
-        module.body.append(stablehlo_builder._get_mesh())
+        module.body.append(stablehlo_builder._get_mesh(mesh_name))
 
         with InsertionPoint(module.body):
             # Wrap everything in a mlir function.
@@ -860,7 +860,7 @@ def experimental_build_stablehlo_module(
 
     # Instantiate builder which is passed as the last argument to
     # `fn` so the user can use it to build ops.
-    stablehlo_builder = StableHLOBuilder(ctx, loc)
+    stablehlo_builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
 
     # Default to all f32s
     if inputs_types is None:
@@ -922,8 +922,9 @@ def experimental_build_stablehlo_module(
 
         print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base
-        filename = _get_target_path(output_root, base + "_shlo.mlir", "shlo")
-
+        filename = _get_target_path(
+            output_root, "stablehlo-builder", base + "_shlo.mlir", base
+        )
         if module_dump:
             with open(filename, "w") as f:
                 f.write(str(module))

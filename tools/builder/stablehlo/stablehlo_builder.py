@@ -27,12 +27,17 @@ class StableHLOBuilder(Builder):
         self,
         ctx: Context,
         location: Location,
-        mesh_name: str = "mesh",
-        mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+        mesh_name: List[str] = ["mesh"],
+        mesh_dict: List[OrderedDict[str, int]] = [OrderedDict([("x", 1), ("y", 1)])],
     ):
         super().__init__(ctx, location)
-        self._mesh_name = mesh_name
-        self._mesh_dict = mesh_dict
+        if len(mesh_name) != len(mesh_dict):
+            raise ValueError(
+                f"mesh_name length {len(mesh_name)} must match mesh_dict length {len(mesh_dict)}"
+            )
+        self._meshes = {}
+        for name, mesh in zip(mesh_name, mesh_dict):
+            self._meshes[name] = mesh
 
     # ----- Private Methods ----
 
@@ -46,15 +51,40 @@ class StableHLOBuilder(Builder):
         ]
         return self.mesh_attr(axes)
 
-    def _get_mesh_attr(self) -> sdy.MeshAttr:
+    def _get_mesh_attr(self, mesh_name: str = "mesh") -> sdy.MeshAttr:
+        if mesh_name not in self._meshes:
+            raise ValueError(
+                f"Mesh '{mesh_name}' not found. Available meshes: {list(self._meshes.keys())}"
+            )
+
+        mesh_dict = self._meshes[mesh_name]
         axes = [
             self.mesh_axis_attr(name=axis_name, size=size)
-            for axis_name, size in self._mesh_dict.items()
+            for axis_name, size in mesh_dict.items()
         ]
         return self.mesh_attr(axes)
 
-    def _get_mesh(self) -> sdy.Mesh:
-        return self.mesh(self._mesh_name, self._get_mesh_attr())
+    def _get_mesh(self, mesh_name: str = "mesh") -> sdy.Mesh:
+        return self.mesh(mesh_name, self._get_mesh_attr(mesh_name))
+
+    def _check_mesh_axis_name(self, name: str):
+        """Check if the provided axis name exists in any of the defined meshes."""
+        for mesh_dict in self._meshes.values():
+            if name in mesh_dict:
+                return
+        raise ValueError(
+            f"Invalid axis name '{name}', expected one of: {set().union(*[mesh_dict.keys() for mesh_dict in self._meshes.values()])}"
+        )
+
+    def _check_mesh_axis_size(self, name: str, size: int):
+        """Check if the provided axis name and size exists in any of the defined meshes."""
+        for mesh_dict in self._meshes.values():
+            if name in mesh_dict:
+                if mesh_dict[name] == size:
+                    return
+        raise ValueError(
+            f"Axis of size {size} and name '{name}' does not exist in any defined mesh."
+        )
 
     def _op_proxy(
         self,
@@ -208,14 +238,8 @@ class StableHLOBuilder(Builder):
         (*sdy.MeshAxisAttr*)
             A mesh axis attribute representing the specified axis with its name and size
         """
-        if name not in self._mesh_dict:
-            raise ValueError(
-                f"Invalid axis name '{name}', valid names include {self._mesh_dict.keys()}"
-            )
-        if self._mesh_dict[name] != size:
-            raise ValueError(
-                f"Incorrect size {size} for mesh axis '{name}', expected {self._mesh_dict[name]}"
-            )
+        self._check_mesh_axis_name(name)
+        self._check_mesh_axis_size(name, size)
         return sdy.MeshAxisAttr.get(name, size)
 
     def mesh_attr(
@@ -261,10 +285,7 @@ class StableHLOBuilder(Builder):
         (*sdy.AxisRefAttr*)
             An axis reference attribute that can be used to refer to a specific axis in a mesh
         """
-        if name not in self._mesh_dict:
-            raise ValueError(
-                f"Invalid axis name '{name}', expected one of: {self._mesh_dict.keys()}"
-            )
+        self._check_mesh_axis_name(name)
         return sdy.AxisRefAttr.get(name, sub_axis_info_attr)
 
     def dimension_sharding_attr(
@@ -322,9 +343,9 @@ class StableHLOBuilder(Builder):
         (*sdy.TensorShardingAttr*)
             A tensor sharding attribute that describes how a tensor is distributed across the mesh
         """
-        if mesh_name != self._mesh_name:
+        if mesh_name not in self._meshes:
             raise ValueError(
-                f"Invalid mesh name '{mesh_name}', expected '{self._mesh_name}'"
+                f"Invalid mesh name '{mesh_name}', expected one of: {list(self._meshes.keys())}"
             )
         return sdy.TensorShardingAttr.get(
             mesh_name,
