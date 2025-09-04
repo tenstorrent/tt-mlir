@@ -21,6 +21,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include <algorithm>
 #include <array>
 
 namespace mlir::tt {
@@ -34,7 +35,8 @@ protected:
                           ttcore::MemorySpace defaultOutputMemSpace,
                           const llvm::SmallVector<int64_t> &targetGridShape)
       : memorySpaces{defaultInputMemSpace, defaultOutputMemSpace},
-        targetGridShape(targetGridShape) {
+        targetGridShape(targetGridShape),
+        targetSquareGridShape(getSquareTargetGrid(targetGridShape)) {
     assert(!targetGridShape.empty());
   }
 
@@ -43,13 +45,13 @@ protected:
   computeOptimalGrid(ArrayRef<int64_t> physicalShape) const {
     llvm::SmallVector<int64_t> grid;
 
-    assert(physicalShape.size() == targetGridShape.size());
+    assert(physicalShape.size() == targetSquareGridShape.size());
 
     for (size_t i = 0; i < physicalShape.size(); ++i) {
       const int64_t dim = physicalShape[i];
       assert(dim > 0);
       // Find largest grid dimension that divides evenly
-      for (int64_t g = targetGridShape[i]; g > 0; g--) {
+      for (int64_t g = targetSquareGridShape[i]; g > 0; g--) {
         if (dim % g == 0) {
           grid.push_back(g);
           break;
@@ -78,9 +80,9 @@ protected:
       elementType = ttcore::TileType::get(elementType, tileShape);
     }
 
-    auto layout = ttcore::MetalLayoutAttr::get(rewriter.getContext(),
-                                               logicalShape, targetGridShape,
-                                               ttcore::OOBVal::Undef, memSpace);
+    auto layout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), logicalShape, targetSquareGridShape,
+        ttcore::OOBVal::Undef, memSpace);
 
     // Get raw, unsharded physical shape.
     llvm::SmallVector<int64_t> unshardedShape =
@@ -206,15 +208,31 @@ protected:
     return defaultMemSpaceAttr ? defaultMemSpaceAttr.getValue() : dflt;
   }
 
-  static constexpr mlir::ArrayRef<int64_t> expectedInputGridShape() {
-    return s_expectedInputGridShape;
+private:
+  // Workaround helper to populate targetSquareGridShape.
+  static llvm::SmallVector<int64_t, 2>
+  getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
+    const int64_t minGridValue =
+        *(std::min_element(targetGridShape.begin(), targetGridShape.end()));
+    llvm::SmallVector<int64_t, 2> squareGrid(targetGridShape.size(),
+                                             minGridValue);
+    return squareGrid;
   }
 
+protected:
   // Default memory spaces for {inputs, outputs}.
   std::array<ttcore::MemorySpace, 2> memorySpaces;
+
+private:
+  // This should become protected instead once we remove square grid workaround.
   llvm::SmallVector<int64_t> targetGridShape;
 
-  static constexpr std::array<int64_t, 2> s_expectedInputGridShape{1, 1};
+protected:
+  // Workaround variable to represent maximum square grid actual target grid can
+  // hold. We need this to make Blackhole's nonsquare grid work properly for
+  // tranpose.  This will treat e.g. 13x10 grid as 10x10 (take minimum element
+  // in targetGridShape, and extend it to all indexes).
+  llvm::SmallVector<int64_t> targetSquareGridShape;
 };
 } // namespace
 
@@ -257,8 +275,7 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    ttcore::GridAttr grid =
-        ttcore::GridAttr::get(ctx, expectedInputGridShape());
+    ttcore::GridAttr grid = ttcore::GridAttr::get(ctx, targetSquareGridShape);
 
     const std::size_t rank = grid.getShape().size();
 
@@ -382,8 +399,7 @@ private:
     // minus 1 for the scaler operand
     assert((numOperands - 1) == op->getNumOperands());
 
-    ttcore::GridAttr grid =
-        ttcore::GridAttr::get(ctx, expectedInputGridShape());
+    ttcore::GridAttr grid = ttcore::GridAttr::get(ctx, targetSquareGridShape);
 
     const std::size_t rank = grid.getShape().size();
 
@@ -615,8 +631,7 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    ttcore::GridAttr grid =
-        ttcore::GridAttr::get(ctx, expectedInputGridShape());
+    ttcore::GridAttr grid = ttcore::GridAttr::get(ctx, targetSquareGridShape);
 
     const std::size_t rank = grid.getShape().size();
 
