@@ -1373,6 +1373,7 @@ TEST_F(OpModelBase, SliceDynamicOpInterface) {
         l1;
     EXPECT_EQ(cbSize, 4096);
     EXPECT_EQ(l1PeakSize, 2048);
+    EXPECT_EQ(totalPeakSize, 6144);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
