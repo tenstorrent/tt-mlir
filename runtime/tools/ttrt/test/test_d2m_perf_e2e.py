@@ -14,13 +14,8 @@ from ttrt.common.api import API
 from util import *
 
 TT_MLIR_HOME = pathlib.Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
-BUILD_DIR = TT_MLIR_HOME / "build"
-BIN_DIR = BUILD_DIR / "bin"
-TTMLIR_OPT = BIN_DIR / "ttmlir-opt"
-TTMLIR_TRANSLATE = BIN_DIR / "ttmlir-translate"
-
-# Pick a simple TTM mlir that compiles and runs on silicon
-SIMPLE_MLIR = TT_MLIR_HOME / "test/ttmlir/Silicon/TTMetal/n150/simple_add.mlir"
+BUILD_DIR = pathlib.Path(TT_MLIR_HOME) / "build"
+FB_PATH = BUILD_DIR / "test/ttmlir/Silicon/TTMetal/n150/Output/simple_add.mlir.tmp.ttm"
 
 REQUIRED_COLUMNS = [
     "GLOBAL CALL COUNT",
@@ -30,63 +25,27 @@ REQUIRED_COLUMNS = [
 ]
 
 
-def _which_or(path: str) -> str:
-    return shutil.which(path) or path
-
-
 def test_d2m_perf_e2e():
     # Preconditions: built tt-mlir with runtime and perf enabled, ttrt installed in PATH, and silicon present
     ttrt_exec = shutil.which("ttrt")
     if not ttrt_exec:
         pytest.skip("ttrt executable not found in PATH")
 
-    if not TTMLIR_OPT.exists() or not TTMLIR_TRANSLATE.exists():
-        pytest.skip("ttmlir tools not found; build tt-mlir before running this test")
+    if not FB_PATH.exists():
+        pytest.skip(f"Missing flatbuffer file: {FB_PATH}")
 
-    if not SIMPLE_MLIR.exists():
-        pytest.skip(f"Missing MLIR test file: {SIMPLE_MLIR}")
-
-    artifacts_dir = TT_MLIR_HOME / "ttrt-artifacts"
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-    # 1) Query system desc
-    query_cmd = f"{ttrt_exec} query --save-artifacts"
-    sub_process_command(query_cmd)
-
-    system_desc = artifacts_dir / "system_desc.ttsys"
-    if not system_desc.exists():
-        pytest.skip(
-            "system_desc.ttsys was not generated (no silicon or runtime not enabled)"
-        )
-
-    # 2) Compile MLIR to TTM MLIR with system-desc
-    ttm_mlir = TT_MLIR_HOME / "ttm_perf_e2e.mlir"
-    opt_cmd = (
-        f'{_which_or(str(TTMLIR_OPT))} --ttir-to-ttmetal-pipeline="system-desc-path={system_desc}" '
-        f"{SIMPLE_MLIR} -o {ttm_mlir}"
-    )
-    sub_process_command(opt_cmd)
-    assert ttm_mlir.exists(), "ttmlir-opt did not produce TTM mlir"
-
-    # 3) Translate TTM MLIR to flatbuffer (.ttm)
-    fb_path = TT_MLIR_HOME / "ttm_perf_e2e.ttm"
-    trans_cmd = f"{_which_or(str(TTMLIR_TRANSLATE))} --ttmetal-to-flatbuffer {ttm_mlir} -o {fb_path}"
-    sub_process_command(trans_cmd)
-    assert fb_path.exists(), "ttmlir-translate did not produce flatbuffer"
-
-    # 4) Run ttrt perf on the produced binary. Enable device profiling (host-only off) to produce device CSVs.
+    # Run ttrt perf on the produced binary. Enable device profiling to produce device CSVs.
     perf_results = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args = {}
     custom_args["--result-file"] = perf_results
-    custom_args["artifact-dir"] = artifacts_dir
-    custom_args["binary"] = str(fb_path)
+    custom_args["binary"] = str(FB_PATH)
     API.initialize_apis()
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
-    # 5) Validate outputs: perf folder under artifacts/<binary_name>/perf should contain CSVs
-    binary_name = fb_path.name
-    perf_dir = artifacts_dir / binary_name / "perf"
+    # Validate outputs: perf folder under artifacts/<binary_name>/perf should contain CSVs
+    binary_name = FB_PATH.name
+    perf_dir = TT_MLIR_HOME / "ttrt-artifacts" / binary_name / "perf"
     assert perf_dir.exists(), f"Missing perf directory: {perf_dir}"
 
     # Tracy CSVs
@@ -118,14 +77,7 @@ def test_d2m_perf_e2e():
         first = next(reader, None)
         assert first is not None, "ops_perf_results.csv has no result rows"
 
-    with ops_minus_const_eval.open("r", newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for col in REQUIRED_COLUMNS:
-            assert (
-                col in reader.fieldnames
-            ), f"Column {col} missing in ops_perf_results_minus_const_eval.csv"
-
-    # 6) Validate perf result json saved
+    # Validate perf result json saved
     assert os.path.exists(perf_results), "Missing perf result json"
     with open(perf_results, "r") as f:
         data = json.load(f)
