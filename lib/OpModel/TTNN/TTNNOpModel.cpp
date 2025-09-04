@@ -705,6 +705,7 @@ llvm::Expected<OpConstraints> UnaryEltwiseOpModel<OpTy>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -828,7 +829,7 @@ template struct UnaryEltwiseOpModel<SinOp>;
 template struct UnaryEltwiseOpModel<AbsOp>;
 template struct UnaryEltwiseOpModel<CosOp>;
 template struct UnaryEltwiseOpModel<TanhOp>;
-template struct UnaryEltwiseOpModel<LogOp>;
+template struct UnaryEltwiseWithFastApproxModeOpModel<LogOp>;
 template struct UnaryEltwiseOpModel<CeilOp>;
 template struct UnaryEltwiseOpModel<SignOp>;
 template struct UnaryEltwiseOpModel<FloorOp>;
@@ -840,7 +841,7 @@ template struct UnaryEltwiseOpModel<AtanOp>;
 template struct UnaryEltwiseOpModel<ReciprocalOp>;
 template struct UnaryEltwiseOpModel<CbrtOp>;
 template struct UnaryEltwiseOpModel<BitwiseNotOp>;
-template struct UnaryEltwiseOpModel<Log1pOp>;
+template struct UnaryEltwiseWithFastApproxModeOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfcOp>;
@@ -1611,6 +1612,106 @@ llvm::Expected<size_t> OpModel<SliceStaticOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// SliceDynamicOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<SliceDynamicOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> beginsShape,
+    TTNNLayoutAttr beginsLayout, llvm::ArrayRef<int64_t> endsShape,
+    TTNNLayoutAttr endsLayout, std::optional<llvm::SmallVector<int64_t>> step,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // It is not possible to use the dynamic version of slice in tt-metal since
+  // the validity of the op depends on the actual data that is stored in the
+  // begins/ends tensors (which is not available at compile time). Therefore,
+  // here we approximate the op by using the static version and calling
+  // (possibly) the worst case scenario for the static version which is slicing
+  // from the beginning to one index before the end (Capturing the entire tensor
+  // except for one row results in the highest memory usage). Note that this is
+  // a fairly accurate approximation since the dynamic version in metal also
+  // converts the three tensors (begins, ends, step) to vectors and then calls
+  // the static version.
+  ::ttsl::SmallVector<int> stepVec(inputShape.size(), 1);
+  ::ttsl::SmallVector<int> beginsVec(inputShape.size(), 0);
+  ::ttsl::SmallVector<int> endsVec(inputShape.begin(), inputShape.end());
+  std::ranges::for_each(endsVec, [](int &end) { end = end - 1; });
+
+  // Default values in tt-metal:
+  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<float> padValue = std::nullopt;
+  // Create query closure to make a call to the static version of the op:
+  auto sliceOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::slice, device, inputSpec, beginsVec, endsVec, stepVec,
+        detail::getNullableMemoryConfig(outputLayout), outputSpec, padValue);
+  };
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     sliceOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<SliceDynamicOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> beginsShape, TTNNLayoutAttr beginsLayout,
+    llvm::ArrayRef<int64_t> endsShape, TTNNLayoutAttr endsLayout,
+    std::optional<llvm::SmallVector<int64_t>> step,
+    TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // It is not possible to use the dynamic version of slice in tt-metal since
+  // the validity of the op depends on the actual data that is stored in the
+  // begins/ends tensors (which is not available at compile time). Therefore,
+  // here we approximate the op by using the static version and calling
+  // (possibly) the worst case scenario for the static version which is slicing
+  // from the beginning to the end with a step of 2 (Capturing all possible
+  // stripes of data from the input tensor is the most run time intensive
+  // pattern).
+  // Note that this is a fairly accurate approximation since the dynamic version
+  // in metal also converts the three tensors (begins, ends, step) to vectors
+  // and then calls the static version.
+  ::ttsl::SmallVector<int> stepVec(inputShape.size(), 2);
+  ::ttsl::SmallVector<int> beginsVec(inputShape.size(), 0);
+  ::ttsl::SmallVector<int> endsVec(inputShape.begin(), inputShape.end());
+  // Default values in tt-metal:
+  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<float> padValue = std::nullopt;
+
+  // Create query closure to make a call to the static version of the op:
+  auto sliceOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::slice, device, inputSpec, beginsVec, endsVec, stepVec,
+        detail::getNullableMemoryConfig(outputLayout), outputSpec, padValue);
+  };
+
+  return operation::getOpRuntime(sliceOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<TypecastOp>::getOpConstraints(
@@ -2328,6 +2429,99 @@ llvm::Expected<size_t> OpModel<SortOp>::getOpRuntime(
   return operation::getOpRuntime(sortOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ArgMaxOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<ArgMaxOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, std::optional<int32_t> dim, bool keepDim,
+    bool multicore, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto argMaxOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::argmax, device, inputSpec, dim, keepDim, std::nullopt,
+        multicore, detail::getNullableMemoryConfig(outputLayout), std::nullopt);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     argMaxOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<ArgMaxOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                TTNNLayoutAttr inputLayout,
+                                std::optional<int32_t> dim, bool keepDim,
+                                bool multicore, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto argMaxOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::argmax, device, inputSpec, dim, keepDim, std::nullopt,
+        multicore, detail::getNullableMemoryConfig(outputLayout), std::nullopt);
+  };
+
+  return operation::getOpRuntime(argMaxOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ProdOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<ProdOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, std::optional<int64_t> dim, bool keepDim,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto prodOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::prod, device, inputSpec, dim, keepDim,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     prodOpQuery);
+#else
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 

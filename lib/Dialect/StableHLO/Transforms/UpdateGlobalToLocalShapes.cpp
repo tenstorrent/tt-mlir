@@ -124,30 +124,54 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             return mlir::success();
           })
           .Case<mlir::stablehlo::GatherOp>([&](auto gatherOp) {
+            // 1. Get the sharding for each operand dimension.
+            llvm::ArrayRef<mlir::sdy::DimensionShardingAttr>
+                operandDimShardings =
+                    shardy_utils::getOperandShardingAttr(
+                        gatherOp.getOperation()->getOpOperand(0), globalMeshOp)
+                        .getDimShardings();
+
+            // 2. Copy the current slice_sizes attribute.
             llvm::SmallVector<int64_t> newSliceSizes(gatherOp.getSliceSizes());
 
-            for (uint32_t i = 0; i < tensorShardings.size(); i++) {
-              llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
-                  tensorShardings[i].getDimShardings();
+            // 3. Get collapsed_slice_dims and start_index_map from the op.
+            auto collapsedSliceDims =
+                gatherOp.getDimensionNumbers().getCollapsedSliceDims();
+            auto startIndexMap =
+                gatherOp.getDimensionNumbers().getStartIndexMap();
 
-              for (const auto [index, dimShardingAttr] :
-                   llvm::enumerate(dimShardings)) {
+            // 4. For each dimension, update slice size if not in
+            // start_index_map.
+            for (auto [index, sliceSize] : llvm::enumerate(newSliceSizes)) {
+              // If this dimension is collapsed, it must be 1.
+              if (llvm::is_contained(collapsedSliceDims, index)) {
+                if (sliceSize != 1) {
+                  gatherOp->emitError("collapsed slice dims should be 1");
+                  return mlir::failure();
+                }
+                continue;
+              }
+
+              // If this dim is not indexed, its slice size should match the
+              // local (sharded) size of the operand. We use operandDimShardings
+              // to get the local shape for this dim.
+              if (!llvm::is_contained(startIndexMap, index)) {
                 FailureOr<int64_t> updatedSliceDim =
-                    shardy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
-                                                      dimShardingAttr,
-                                                      newSliceSizes[index]);
-
+                    shardy_utils::calculateUpdatedDim(
+                        globalMeshOp.getMesh(), operandDimShardings[index],
+                        newSliceSizes[index]);
                 if (failed(updatedSliceDim)) {
                   gatherOp->emitError(
                       "Could not apply propagated tensor shardings to "
                       "attribute dictionary for gather op");
                   return mlir::failure();
                 }
-
                 newSliceSizes[index] = *updatedSliceDim;
               }
             }
 
+            // 5. Update the slice_sizes attribute in the op's attribute
+            // dictionary.
             llvm::StringRef sliceSizesAttrName = "slice_sizes";
             assert(attrDict.contains(sliceSizesAttrName) &&
                    "Gather operation does not have slice sizes attribute. "
@@ -160,6 +184,20 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                 mlir::DenseI64ArrayAttr::get(context, newSliceSizes));
 
             return mlir::success();
+          })
+          .Case<mlir::stablehlo::CompareOp>([&](auto compareOp) {
+            compareOp->emitError(
+                "Compare operation is not supported in stablehlo-pipeline for "
+                "meshes not 1x1: "
+                "https://github.com/tenstorrent/tt-mlir/issues/3497.");
+            return mlir::failure();
+          })
+          .Case<mlir::stablehlo::ScatterOp>([&](auto scatterOp) {
+            scatterOp->emitError(
+                "Scatter operation is not supported in stablehlo-pipeline for "
+                "meshes not 1x1: "
+                "https://github.com/tenstorrent/tt-mlir/issues/3496.");
+            return mlir::failure();
           })
           .Default([](mlir::Operation *op) { return mlir::success(); });
 

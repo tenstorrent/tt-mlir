@@ -1121,6 +1121,73 @@ TEST_F(OpModelBase, SumOpInterface) {
   op_model::SingletonDeviceContext::resetInstance();
 }
 
+TEST_F(OpModelBase, ArgMaxOpInterface) {
+  // create ArgMaxOp
+  llvm::SmallVector<int64_t> tensorShapeA = {64, 64};
+
+  // ArgMaxOp requires ROW_MAJOR layout for inputs and outputs
+  auto inputLayout = CreateRowMajorLayout(tensorShapeA, BufferType::DRAM,
+                                          TensorMemoryLayout::Interleaved);
+  auto outputLayout = CreateRowMajorLayout(tensorShapeA, BufferType::DRAM,
+                                           TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(), inputLayout);
+  auto outputType =
+      createRankedTensorType(tensorShapeA, builder.getBF16Type(), outputLayout);
+
+  auto argMax = builder.create<ArgMaxOp>(builder.getUnknownLoc(), outputType,
+                                         input, builder.getI32IntegerAttr(1),
+                                         false, false, nullptr);
+
+  // getOutputLayout() hardcodes tiled L1 layout, so we cannot use it
+  OpModel backend = dyn_cast<OpModel>(argMax.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(argMax), OpConfig(outputLayout));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayoutReadBack] = l1;
+    EXPECT_EQ(cbSize, 384);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(argMax.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, ProdOpInterface) {
+  // create ProdOp
+  llvm::SmallVector<int64_t> tensorShapeA = {64, 64};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeA);
+
+  auto prod = builder.create<ProdOp>(builder.getUnknownLoc(), output.getType(),
+                                     input, builder.getI64IntegerAttr(0),
+                                     builder.getBoolAttr(false), nullptr);
+
+  // test prod Op interface
+  auto constraintsExp = getOpConstraints(prod.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 8192);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
 TEST_F(OpModelBase, ReshapeOpInterface) {
   // create ReshapeOp
   llvm::SmallVector<int64_t> tensorShapeA = {64, 1024};
@@ -1228,6 +1295,51 @@ TEST_F(OpModelBase, SliceStaticOpInterface) {
   }
 
   auto runtimeExp = getOpRuntime(sliceStaticOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, SliceDynamicOpInterface) {
+  llvm::SmallVector<int64_t> tensorShapeA = {4, 32, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {2, 16, 16};
+  llvm::SmallVector<int64_t> beginsShape = {3};
+  llvm::SmallVector<int64_t> endsShape = {3};
+  auto inputLayout = CreateTiledLayout(tensorShapeA, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::DRAM,
+                                        TensorMemoryLayout::Interleaved);
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(), inputLayout);
+  auto output =
+      createEmptyTensor(tensorShapeO, builder.getBF16Type(), outputLayout);
+  auto begins = createEmptyTensor(beginsShape);
+  auto ends = createEmptyTensor(endsShape);
+  llvm::SmallVector<mlir::Attribute> stepAttrs = {builder.getI32IntegerAttr(1),
+                                                  builder.getI32IntegerAttr(1),
+                                                  builder.getI32IntegerAttr(1)};
+
+  auto sliceDynamicOp =
+      builder.create<SliceDynamicOp>(builder.getUnknownLoc(), output.getType(),
+                                     mlir::ValueRange{input, begins, ends});
+  sliceDynamicOp.setStepAttr(builder.getArrayAttr(stepAttrs));
+
+  // test SliceDynamicOp interface
+  auto constraintsExp = getOpConstraints(sliceDynamicOp.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 4096);
+    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(sliceDynamicOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {

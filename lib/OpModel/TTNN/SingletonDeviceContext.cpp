@@ -10,39 +10,46 @@
 
 namespace mlir::tt::ttnn::op_model {
 
-// todo(arminaleTT): look into dynamically adjusting this
-// getOpRuntime() uses trace capture to run and measure the runtime of an op.
-// This requires the device to be opened with sufficient trace region size. This
-// number is currently set based on manual testing of supported ops to
-// accommodate the highest required trace buffer size (2004992B)
-static constexpr size_t opModelDefaultTraceRegionSize = 5000000;
-
-SingletonDeviceContext::SingletonDeviceContext(const size_t traceRegionSize) {
-  openDevice(traceRegionSize);
+SingletonDeviceContext::~SingletonDeviceContext() {
+  assert(
+      m_device == nullptr &&
+      "Device should be null when SingletonDeviceContext is destructed. Call "
+      "closeInstance() once you are done with the device.");
 }
 
-SingletonDeviceContext::~SingletonDeviceContext() { closeDevice(); }
-
 SingletonDeviceContext &SingletonDeviceContext::getInstance() {
-  static SingletonDeviceContext instance =
-      SingletonDeviceContext(opModelDefaultTraceRegionSize);
-  assert(instance.m_device != nullptr);
+  static SingletonDeviceContext instance = SingletonDeviceContext();
+
   return instance;
 }
 
 void SingletonDeviceContext::resetInstance() {
   SingletonDeviceContext &instance = getInstance();
-  instance.closeDevice();
+  assert(!instance.m_isExternalDevice &&
+         "Cannot reset instance when using an external device.");
+  instance.closeInstance();
   instance.openDevice(opModelDefaultTraceRegionSize);
 }
 
 void SingletonDeviceContext::closeInstance() {
   SingletonDeviceContext &instance = getInstance();
-  instance.closeDevice();
+  assert(instance.m_device != nullptr && "No device to close");
+  instance.m_device.reset();
+}
+
+void SingletonDeviceContext::setExternalDevice(
+    std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> device) {
+  SingletonDeviceContext &instance = getInstance();
+  assert(device != nullptr && "External device pointer cannot be null");
+  assert(instance.m_device == nullptr &&
+         "Device is already initialized. Cannot set external device.");
+  instance.m_device = std::move(device);
+  instance.m_isExternalDevice = true;
 }
 
 void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
-  assert(m_device == nullptr);
+  assert(m_device == nullptr &&
+         "Device is already initialized. Cannot open device again.");
   // todo: this replicates logic in
   // runtime/include/tt/runtime/detail/common/common.h, move to shared location
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
@@ -59,13 +66,6 @@ void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
       /* num_hw_cqs = */ 1, dispatchCoreType);
 
   m_device->disable_and_clear_program_cache();
-}
-
-void SingletonDeviceContext::closeDevice() {
-  if (m_device) {
-    m_device->close();
-    m_device.reset();
-  }
 }
 
 } // namespace mlir::tt::ttnn::op_model

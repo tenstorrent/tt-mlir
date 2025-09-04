@@ -20,7 +20,8 @@ include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
-def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TTCore_DuplicateConstEvalTrait]> {
+def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TTCore_DuplicateConstEvalTrait,
+    DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Get Device op.";
     let description = [{
       This op returns a submesh carved out from the parent runtime device.
@@ -93,7 +94,9 @@ def TTNN_TypecastOp : TTNN_Op<"typecast",
     let hasVerifier = 1;
 }
 
-def TTNN_ToDTypeOp : TTNN_Op<"to_dtype"> {
+def TTNN_ToDTypeOp : TTNN_Op<"to_dtype",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "ToDType op.";
     let description = [{
       This op converts the data type of the input tensor based on the given data type on the host.
@@ -112,7 +115,9 @@ def TTNN_ToDTypeOp : TTNN_Op<"to_dtype"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
+def TTNN_ToDeviceOp : TTNN_Op<"to_device",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "ToDevice op.";
     let description = [{
       This op sends the input tensor to the given device with the given memory config.
@@ -124,7 +129,9 @@ def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
+def TTNN_FromDeviceOp : TTNN_Op<"from_device",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "FromDevice op.";
     let description = [{
       This op retrieves the input tensor from the given device.
@@ -843,7 +850,9 @@ def TTNN_MinOp : TTNN_ReductionOp<"min"> {
   }];
 }
 
-def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
+def TTNN_ArgMaxOp : TTNN_Op<"argmax",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Argmax reduction op.";
   let description = [{
     Determine the indices of the maximum values along a specified dimension of a tensor or over all elements in a tensor.
@@ -891,7 +900,9 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_ProdOp : TTNN_Op<"prod"> {
+def TTNN_ProdOp : TTNN_Op<"prod",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Product reduction op.";
   let description = [{
     This op computes the product of all elements of the tensor (full product)
@@ -1286,7 +1297,9 @@ def TTNN_SliceStaticOp: TTNN_Op<"slice_static",
     let hasVerifier = 1;
 }
 
-def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
+def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Dynamic slice op.";
     let description = [{
       Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
@@ -2006,14 +2019,18 @@ def TTNN_DeallocateOp : TTNN_Op<"deallocate",
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
-def TTNN_ScatterOp: TTNN_ElementwiseBinaryCompositeOp<"scatter"> {
+def TTNN_ScatterOp: TTNN_ElementwiseBinaryCompositeOp<"scatter",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Scatter op.";
     let description = [{
       Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
       }];
 }
 
-def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
+def TTNN_AllGatherOp: TTNN_Op<"all_gather",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "All gather op.";
     let description = [{
         Tensor All Gather operation
@@ -2032,7 +2049,9 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     let hasFolder = 1;
 }
 
-def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
+def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Reduce scatter op.";
     let description = [{
         Tensor Reduce Scatter operation
@@ -2052,7 +2071,9 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
     let hasFolder = 1;
 }
 
-def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
+def TTNN_AllReduceOp: TTNN_Op<"all_reduce",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "All reduce op.";
     let description = [{
         Tensor All Reduce operation
@@ -2071,7 +2092,9 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
     let hasFolder = 1;
 }
 
-def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute"> {
+def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Collective permute op.";
     let description = [{
       Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].
@@ -2095,7 +2118,9 @@ def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute"> {
     let hasFolder = 1;
 }
 
-def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
+def TTNN_MeshShardOp: TTNN_Op<"mesh_shard",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
     let summary = "Mesh shard op.";
     let description = [{
         Tensor Mesh Shard operation
@@ -2305,7 +2330,9 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
+def TTNN_PointToPointOp: TTNN_Op<"point_to_point",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
   let summary = "Point To Point operation.";
   let description = [{
     Performs point-to-point communication by copying a tensor shard from one device to another

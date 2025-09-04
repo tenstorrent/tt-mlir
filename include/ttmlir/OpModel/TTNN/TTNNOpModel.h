@@ -53,6 +53,18 @@ struct UnaryEltwiseOpModel {
                                              TTNNLayoutAttr outputLayout);
 };
 
+template <typename OpT>
+struct UnaryEltwiseWithFastApproxModeOpModel {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             TTNNLayoutAttr outputLayout);
+};
+
 template <>
 struct OpModel<ReluOp> : UnaryEltwiseOpModel<ReluOp> {};
 
@@ -72,7 +84,7 @@ template <>
 struct OpModel<TanhOp> : UnaryEltwiseOpModel<TanhOp> {};
 
 template <>
-struct OpModel<LogOp> : UnaryEltwiseOpModel<LogOp> {};
+struct OpModel<LogOp> : UnaryEltwiseWithFastApproxModeOpModel<LogOp> {};
 
 template <>
 struct OpModel<CeilOp> : UnaryEltwiseOpModel<CeilOp> {};
@@ -99,7 +111,7 @@ template <>
 struct OpModel<AtanOp> : UnaryEltwiseOpModel<AtanOp> {};
 
 template <>
-struct OpModel<Log1pOp> : UnaryEltwiseOpModel<Log1pOp> {};
+struct OpModel<Log1pOp> : UnaryEltwiseWithFastApproxModeOpModel<Log1pOp> {};
 
 template <>
 struct OpModel<Expm1Op> : UnaryEltwiseOpModel<Expm1Op> {};
@@ -112,18 +124,6 @@ struct OpModel<CbrtOp> : UnaryEltwiseOpModel<CbrtOp> {};
 
 template <>
 struct OpModel<BitwiseNotOp> : UnaryEltwiseOpModel<BitwiseNotOp> {};
-
-template <typename OpT>
-struct UnaryEltwiseWithFastApproxModeOpModel {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(ttcore::GridAttr deviceGrid,
-                   llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
-
-  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                             TTNNLayoutAttr inputLayout,
-                                             TTNNLayoutAttr outputLayout);
-};
 
 template <>
 struct OpModel<RsqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp> {};
@@ -321,6 +321,38 @@ template <>
 struct OpModel<MinOp> : ReductionOpModel<MinOp> {};
 
 //===----------------------------------------------------------------------===//
+// ArgMaxOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<ArgMaxOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, std::optional<int32_t> dim,
+                   bool keepDim, bool multicore, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             std::optional<int32_t> dim,
+                                             bool keepDim, bool multicore,
+                                             TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// ProdOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<ProdOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, std::optional<int64_t> dim,
+                   bool keepDim, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // Named Full Ops
 //===----------------------------------------------------------------------===//
 
@@ -361,6 +393,23 @@ struct OpModel<SoftmaxOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// ScatterOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<ScatterOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
+      TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
+      TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
+               llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // ReshapeOp
 //===----------------------------------------------------------------------===//
 
@@ -394,6 +443,27 @@ struct OpModel<SliceStaticOp> {
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                llvm::ArrayRef<int64_t> begins, llvm::ArrayRef<int64_t> ends,
                llvm::ArrayRef<int64_t> step, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// SliceDynamicOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<SliceDynamicOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> beginsShape,
+      TTNNLayoutAttr beginsLayout, llvm::ArrayRef<int64_t> endsShape,
+      TTNNLayoutAttr endsLayout, std::optional<llvm::SmallVector<int64_t>> step,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> beginsShape, TTNNLayoutAttr beginsLayout,
+               llvm::ArrayRef<int64_t> endsShape, TTNNLayoutAttr endsLayout,
+               std::optional<llvm::SmallVector<int64_t>> step,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
