@@ -369,6 +369,54 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
   return outShardingAttrs;
 }
 
+// Returns TensorShardingAttr for an operand's Value, checking (in order):
+// 1) func.func entry-block arg attrs
+// 2) sdy.manual_computation region arg per-value attrs
+// 3) OpResult per-value attrs
+// Falls back to full replicate if none found.
+mlir::sdy::TensorShardingAttr
+getOperandShardingAttr(const mlir::OpOperand &operand,
+                       mlir::sdy::MeshOp globalMeshOp) {
+  mlir::Value val = operand.get();
+
+  mlir::sdy::TensorShardingAttr result =
+      shardy_utils::getDefaultTensorSdyShardingAttr(
+          val.getContext(), globalMeshOp.getSymName(), val.getType());
+
+  if (auto barg = mlir::dyn_cast<mlir::BlockArgument>(val)) {
+    unsigned argNo = barg.getArgNumber();
+    mlir::Operation *parentOp = barg.getOwner()->getParentOp();
+    if (auto func = llvm::dyn_cast_or_null<mlir::func::FuncOp>(parentOp)) {
+      auto inAttrs = getInShardingAttrs(func.getContext(), func, globalMeshOp);
+      if (argNo < inAttrs.size()) {
+        result = inAttrs[argNo];
+      }
+    } else if (auto mc = llvm::dyn_cast_or_null<mlir::sdy::ManualComputationOp>(
+                   parentOp)) {
+      if (auto spv = llvm::dyn_cast<mlir::sdy::TensorShardingPerValueAttr>(
+              mc.getInShardings())) {
+        auto shardings = spv.getShardings();
+        if (argNo < shardings.size()) {
+          result = shardings[argNo];
+        }
+      }
+    }
+  } else if (auto opRes = mlir::dyn_cast<mlir::OpResult>(val)) {
+    mlir::Operation *owner = opRes.getOwner();
+    unsigned resNo = opRes.getResultNumber();
+    if (auto spv = owner->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+            mlir::sdy::TensorShardingAttr::name)) {
+      auto shardings = spv.getShardings();
+      if (!shardings.empty()) {
+        unsigned i = (resNo < shardings.size()) ? resNo : 0u; // broadcast-safe
+        result = shardings[i];
+      }
+    }
+  }
+
+  return result;
+}
+
 // Calculate the updated shape based on the tensor sharding annotation.
 FailureOr<int64_t>
 calculateUpdatedDim(mlir::sdy::MeshAttr meshAttr,
