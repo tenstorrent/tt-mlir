@@ -2461,8 +2461,7 @@ def TTNN_GenericOp : TTNN_Op<"generic", [MemoryEffects<[MemRead, MemWrite]>, Has
     let description = [{
       Generic operation capable of running a program with custom kernels. Each kernel is described with a
       symbol reference to its function in EmitC dialect plus compile and runtime arguments. Generic operation
-      is supplied with `inputs` and `results` tensors. They are concatenated to create `io_tensors` that are
-      passed to the API.
+      is supplied with concatenated input and output `ios` tensors.
 
       Inputs:
         - `ios` Variadic<AnyRankedTensor>: The input and output tensors.
