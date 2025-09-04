@@ -3885,6 +3885,7 @@ TEST_F(OpModelBase, QuantizeOpInterface) {
 
   EXPECT_GE(cbSize, 18432);
   EXPECT_GE(l1PeakSize, 12288);
+  EXPECT_GE(totalPeakSize, 28672); // smaller than 18432+12288
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -3941,6 +3942,7 @@ TEST_F(OpModelBase, QuantizeOpInterfaceNullOutput) {
 
   EXPECT_GE(cbSize, 18432);
   EXPECT_GE(l1PeakSize, 12288);
+  EXPECT_GE(totalPeakSize, 28672); // smaller than 18432+12288
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -4010,6 +4012,7 @@ TEST_F(OpModelBase, RequantizeOpInterface) {
 
   EXPECT_GE(cbSize, 32768);
   EXPECT_GE(l1PeakSize, 40960);
+  EXPECT_GE(totalPeakSize, 32768 + 40960);
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -4080,6 +4083,7 @@ TEST_F(OpModelBase, RequantizeOpInterfaceNullOutput) {
 
   EXPECT_GE(cbSize, 32768);
   EXPECT_GE(l1PeakSize, 40960);
+  EXPECT_GE(totalPeakSize, 32768 + 40960);
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -4136,6 +4140,7 @@ TEST_F(OpModelBase, DequantizeOpInterface) {
 
   EXPECT_GE(cbSize, 32768);
   EXPECT_GE(l1PeakSize, 18432);
+  EXPECT_GE(totalPeakSize, 32768 + 18432);
   EXPECT_GE(outputSize, 2048);
 
   ASSERT_TRUE(outputLayout);
@@ -4193,6 +4198,7 @@ TEST_F(OpModelBase, DequantizeOpInterfaceNullOutput) {
 
   EXPECT_GE(cbSize, 32768);
   EXPECT_GE(l1PeakSize, 18432);
+  EXPECT_GE(totalPeakSize, 32768 + 18432);
   EXPECT_GE(outputSize, 2048);
 
   ASSERT_TRUE(outputLayout);
