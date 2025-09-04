@@ -315,6 +315,43 @@ getNamedFullOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, shape, dtype,
       layout, memoryConfig, opConfig.outputLayout);
 }
+
+template <typename OpT>
+llvm::Expected<op_model::OpConstraints>
+getQuantizationOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto scaleShape = op.getScale().getType().getShape();
+  const auto zeroPointShape = op.getZeroPoint().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(op.getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
+      inputs[0], scaleShape, inputs[1], zeroPointShape, inputs[2], op.getAxis(),
+      op.getOutputDtype(), opConfig.outputLayout);
+}
+
+template <typename OpT>
+llvm::Expected<size_t>
+getQuantizationOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 3);
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto scaleShape = op.getScale().getType().getShape();
+  const auto zeroPointShape = op.getZeroPoint().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
+      scaleShape, inputs[1], zeroPointShape, inputs[2], op.getAxis(),
+      op.getOutputDtype(), opConfig.outputLayout);
+}
 } // namespace detail
 
 //===----------------------------------------------------------------------===//
@@ -1896,6 +1933,83 @@ ProdOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                      const OpConfig &opConfig) {
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
+//===----------------------------------------------------------------------===//
+// QuantizeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+QuantizeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  return detail::getQuantizationOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+QuantizeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  return detail::getQuantizationOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
+// DequantizeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+DequantizeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  return detail::getQuantizationOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+DequantizeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return detail::getQuantizationOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
+// RequantizeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+RequantizeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  assert(inputs.size() == 5);
+  const auto inputShape = getInput().getType().getShape();
+  const auto inScaleShape = getInScale().getType().getShape();
+  const auto inZeroPointShape = getInZeroPoint().getType().getShape();
+  const auto outScaleShape = getOutScale().getType().getShape();
+  const auto outZeroPointShape = getOutZeroPoint().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<RequantizeOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], inScaleShape, inputs[1], inZeroPointShape,
+      inputs[2], outScaleShape, inputs[3], outZeroPointShape, inputs[4],
+      getAxis(), getOutputDtype(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+RequantizeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == 5);
+  const auto inputShape = getInput().getType().getShape();
+  const auto inScaleShape = getInScale().getType().getShape();
+  const auto inZeroPointShape = getInZeroPoint().getType().getShape();
+  const auto outScaleShape = getOutScale().getType().getShape();
+  const auto outZeroPointShape = getOutZeroPoint().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<RequantizeOp>::getOpRuntime, *this, inputShape,
+      inputs[0], inScaleShape, inputs[1], inZeroPointShape, inputs[2],
+      outScaleShape, inputs[3], outZeroPointShape, inputs[4], getAxis(),
+      getOutputDtype(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
