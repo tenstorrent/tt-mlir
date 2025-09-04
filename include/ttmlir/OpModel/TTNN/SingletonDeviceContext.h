@@ -19,17 +19,22 @@ namespace mlir::tt::ttnn::op_model {
 
 // Singleton class to provide access to the global device context.
 //
-// Since we do not always own the device (it can be provided by frontends) and
-// there currently isn't a clearly defined scope of the device (within a single
-// function), the lifetime of the device is not managed automatically. The users
-// of this class should ensure that the device lifetime fully contains their
-// scope of usage. For now, if the device is not provided externally, we open
-// our device once we start executing the optimizer and we close it after the
-// `TTNNPrepareConv2dWeightsAndBias` pass - this covers the whole span where we
-// might need the device (for now).
+// The singleton exposes methods to open device, provide already opened device
+// and close the current device.
 //
-// Because the lifetime needs to be managed manually, there are asserts in place
-// to verify that the instance is used correctly.
+// Because we need to support both externally provided device
+// and to open device on our own (if needed), the device is not managed in RAII
+// fashion.
+//
+// Due to the above, it is essential that the users of this class ensure that
+// they have a valid device in the context when they need it.
+//
+// Because the lifetime of the device needs to be managed manually, there are
+// asserts in place to verify that the singleton instance is used correctly.
+//
+// NOTE: If we would close active device in the destructor, we would crash. The
+// reason being that the `tt-metal` singletons (needed for managing devices)
+// would be tore down before ours.
 //
 // TODO (mbezulj): enforce mockup/simulation device when it's enabled in
 // tt-metal.
