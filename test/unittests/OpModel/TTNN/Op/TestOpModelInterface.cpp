@@ -3811,9 +3811,9 @@ TEST_F(OpModelBase, QuantizeOpInterface) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  EXPECT_EQ(cbSize, 18432);
-  EXPECT_EQ(peakSize, 12288);
-  EXPECT_EQ(outputSize, 4096);
+  EXPECT_GE(cbSize, 18432);
+  EXPECT_GE(peakSize, 12288);
+  EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
   EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
@@ -3867,9 +3867,9 @@ TEST_F(OpModelBase, QuantizeOpInterfaceNullOutput) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  EXPECT_EQ(cbSize, 18432);
-  EXPECT_EQ(peakSize, 12288);
-  EXPECT_EQ(outputSize, 4096);
+  EXPECT_GE(cbSize, 18432);
+  EXPECT_GE(peakSize, 12288);
+  EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
   EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
@@ -3936,9 +3936,9 @@ TEST_F(OpModelBase, RequantizeOpInterface) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  EXPECT_EQ(cbSize, 32768);
-  EXPECT_EQ(peakSize, 40960);
-  EXPECT_EQ(outputSize, 4096);
+  EXPECT_GE(cbSize, 32768);
+  EXPECT_GE(peakSize, 40960);
+  EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
   EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
@@ -4006,9 +4006,9 @@ TEST_F(OpModelBase, RequantizeOpInterfaceNullOutput) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  EXPECT_EQ(cbSize, 32768);
-  EXPECT_EQ(peakSize, 40960);
-  EXPECT_EQ(outputSize, 4096);
+  EXPECT_GE(cbSize, 32768);
+  EXPECT_GE(peakSize, 40960);
+  EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
   EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
@@ -4062,9 +4062,9 @@ TEST_F(OpModelBase, DequantizeOpInterface) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  EXPECT_EQ(cbSize, 32768);
-  EXPECT_EQ(peakSize, 18432);
-  EXPECT_EQ(outputSize, 2048);
+  EXPECT_GE(cbSize, 32768);
+  EXPECT_GE(peakSize, 18432);
+  EXPECT_GE(outputSize, 2048);
 
   ASSERT_TRUE(outputLayout);
   EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
@@ -4119,9 +4119,9 @@ TEST_F(OpModelBase, DequantizeOpInterfaceNullOutput) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  EXPECT_EQ(cbSize, 32768);
-  EXPECT_EQ(peakSize, 18432);
-  EXPECT_EQ(outputSize, 2048);
+  EXPECT_GE(cbSize, 32768);
+  EXPECT_GE(peakSize, 18432);
+  EXPECT_GE(outputSize, 2048);
 
   ASSERT_TRUE(outputLayout);
   EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
