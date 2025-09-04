@@ -4850,23 +4850,4 @@ OpModel<ConstantOp>::getOpConstraints(ttcore::GridAttr deviceGrid,
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-//===----------------------------------------------------------------------===//
-// GenericOp
-//===----------------------------------------------------------------------===//
-
-llvm::Expected<OpConstraints> OpModel<GenericOp>::getOpConstraints(
-    ttcore::GridAttr deviceGrid,
-    std::vector<llvm::ArrayRef<int64_t>> inputShapes,
-    std::vector<TTNNLayoutAttr> inputLayouts, ProgramAttr program,
-    TTNNLayoutAttr outputLayout) {
-  return OpConstraints{};
-}
-
-llvm::Expected<size_t> OpModel<GenericOp>::getOpRuntime(
-    std::vector<llvm::ArrayRef<int64_t>> inputShapes,
-    std::vector<TTNNLayoutAttr> inputLayouts, ProgramAttr program,
-    TTNNLayoutAttr outputLayout) {
-  return llvm::createStringError("Not Implemented");
-}
-
 } // namespace mlir::tt::ttnn::op_model
