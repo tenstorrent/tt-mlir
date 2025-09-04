@@ -2144,7 +2144,9 @@ def test_hoisted_where(shapes, request, target: str):
         [(32, 3, 224, 224), (32, 150528)],  # Large ML pattern: batch flatten
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.int32, torch.uint8], ids=["f32", "i32", "ui8"]
+)
 def test_reshape(shapes, dtype: torch.dtype, request):
     input_shape, output_shape = shapes
 
