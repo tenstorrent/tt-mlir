@@ -92,7 +92,7 @@ private:
   // This requires the device to be opened with sufficient trace region size.
   // This number is currently set based on manual testing of supported ops to
   // accommodate the highest required trace buffer size (2004992B)
-  static constexpr size_t opModelDefaultTraceRegionSize = 5000000;
+  static constexpr size_t opModelDefaultTraceRegionSize = 6000000;
 };
 } // namespace mlir::tt::ttnn::op_model
 
