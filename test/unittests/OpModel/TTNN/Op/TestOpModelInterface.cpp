@@ -1366,9 +1366,11 @@ TEST_F(OpModelBase, SliceDynamicOpInterface) {
   auto constraintsExp = getOpConstraints(sliceDynamicOp.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 4096);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
+    EXPECT_EQ(totalPeakSize, 6144);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
