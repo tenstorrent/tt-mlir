@@ -321,6 +321,38 @@ template <>
 struct OpModel<MinOp> : ReductionOpModel<MinOp> {};
 
 //===----------------------------------------------------------------------===//
+// ArgMaxOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<ArgMaxOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, std::optional<int32_t> dim,
+                   bool keepDim, bool multicore, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             std::optional<int32_t> dim,
+                                             bool keepDim, bool multicore,
+                                             TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// ProdOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<ProdOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, std::optional<int64_t> dim,
+                   bool keepDim, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // Named Full Ops
 //===----------------------------------------------------------------------===//
 
