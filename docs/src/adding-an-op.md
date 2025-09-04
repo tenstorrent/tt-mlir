@@ -102,6 +102,9 @@ section for details, the process is the same.
 ```cpp
 {{#include ../../../lib/Dialect/TTNN/IR/TTNNOps.cpp:adding_an_op_matmul_ttnn_verify}}
 ```
+#### Adding constraint/runtime APIs
+We need to implement two APIs when adding a TTNN Op, namely `getOpConstraints` and `getOpRuntime`.
+More details about this can be found [here](./ttnn-op-constrains.md).
 
 For more details on adding ops to the TTNN dialect, refer to [TTNN Dialect Contribution Guidelines](./ttnn-dialect-guidelines.md).
 
