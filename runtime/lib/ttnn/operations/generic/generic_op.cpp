@@ -10,8 +10,6 @@
 
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
-#include "ttnn/types.hpp"
 
 namespace tt::runtime::ttnn::operations::generic_op {
 
@@ -27,7 +25,7 @@ inline CoreType convertCoreType(const ::tt::target::ttnn::CoreType &core_type) {
   }
 }
 
-::tt::tt_metal::SemaphoreDescriptor
+static ::tt::tt_metal::SemaphoreDescriptor
 createSemaphoreDescriptor(const ::tt::target::ttnn::SemaphoreDescriptor
                               &kernel_semaphore_descriptor) {
   return ::tt::tt_metal::SemaphoreDescriptor{
@@ -49,10 +47,9 @@ createSemaphoreDescriptor(const ::tt::target::ttnn::SemaphoreDescriptor
   return cb_format_descriptor;
 }
 
-::tt::tt_metal::CBDescriptor
+static ::tt::tt_metal::CBDescriptor
 createCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cb_desc) {
   // Right now, metal assumes only one CBFormatDescriptor per KernelDescriptor
-  LOG_DEBUG("createing cb descriptor: ", cb_desc.total_size());
   tt::tt_metal::CBDescriptor cb_descriptor = {
       .total_size = cb_desc.total_size(),
       .core_ranges =
@@ -115,11 +112,11 @@ convertSourceType(const tt::target::ttnn::SourceType &source_type) {
   return static_cast<::tt::tt_metal::KernelDescriptor::SourceType>(source_type);
 }
 
-::tt::tt_metal::KernelDescriptor::ConfigDescriptor createKernelConfigDescriptor(
+static ::tt::tt_metal::KernelDescriptor::ConfigDescriptor
+createKernelConfigDescriptor(
     const ::tt::target::ttnn::KernelDescriptor &kernel_desc) {
   switch (kernel_desc.config_type()) {
   case ::tt::target::ttnn::KernelConfig::ComputeKernelConfig: {
-    LOG_DEBUG("createing compute kernel config");
     const auto *compute_config = kernel_desc.config_as_ComputeKernelConfig();
     std::vector<UnpackToDestMode> unpack_to_dest_modes(
         compute_config->unpack_to_dest_modes()->size());
@@ -147,11 +144,9 @@ convertSourceType(const tt::target::ttnn::SourceType &source_type) {
         .noc_mode = convertNocMode(data_movement_config->noc_mode())};
   }
   case ::tt::target::ttnn::KernelConfig::ReaderKernelConfig: {
-    LOG_DEBUG("createing reader kernel config");
     return ::tt::tt_metal::ReaderConfigDescriptor();
   }
   case ::tt::target::ttnn::KernelConfig::WriterKernelConfig: {
-    LOG_DEBUG("createing writer kernel config");
     return ::tt::tt_metal::WriterConfigDescriptor();
   }
   default: {
@@ -160,7 +155,7 @@ convertSourceType(const tt::target::ttnn::SourceType &source_type) {
   }
 }
 
-std::vector<uint32_t> createKernelArgs(
+static std::vector<uint32_t> createKernelArgs(
     const ::tt::target::ttnn::KernelCoreArgs &args,
     std::optional<std::reference_wrapper<const std::vector<::ttnn::Tensor>>>
         io_tensors = std::nullopt) {
@@ -200,11 +195,10 @@ std::vector<uint32_t> createKernelArgs(
   return core_args;
 }
 
-::tt::tt_metal::KernelDescriptor
+static ::tt::tt_metal::KernelDescriptor
 createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernel_desc,
                        const std::vector<::ttnn::Tensor> &io_tensors) {
   std::string kernel_source = kernel_desc.source()->str();
-  LOG_DEBUG("kernel source: ", kernel_source);
   CoreRangeSet core_ranges =
       tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*kernel_desc.core_ranges());
   ::tt::tt_metal::KernelDescriptor::CommonRuntimeArgs common_runtime_args =
@@ -212,7 +206,6 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernel_desc,
   ::tt::tt_metal::KernelDescriptor::CompileTimeArgs compile_time_args =
       createKernelArgs(*kernel_desc.ct_args());
 
-  LOG_DEBUG("createing runtime args: ", kernel_desc.rt_args()->size());
   auto size_x = kernel_desc.rt_args()->size();
   auto size_y = kernel_desc.rt_args()->Get(0)->args()->size();
   ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtime_args(
@@ -226,7 +219,6 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernel_desc,
       runtime_args[i][j] = core_runtime_args;
     }
   }
-  LOG_DEBUG("creating kernel descriptor");
   ::tt::tt_metal::KernelDescriptor kernel_descriptor = {
       .kernel_source = kernel_source,
       .source_type = convertSourceType(kernel_desc.source_type()),
@@ -243,30 +235,32 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernel_desc,
 void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   auto size = op->io_tensors()->size();
-  std::vector<::ttnn::Tensor> io_tensors;
+  std::vector<::ttnn::Tensor> io_tensors(size);
   // This relies on the ttnn binary program being built with input tensors that
   // includes the output tensor. If not, we need to allocate the output tensor
   // here or will segfault. Revisit later when flatbuffer translation is pushed.
-  for (const auto *io_tensor : *op->io_tensors()) {
-    io_tensors.push_back(tensorPool.getTTNNTensorAndValidate(io_tensor));
+  for (unsigned int i = 0; i < size; i++) {
+    io_tensors[i] =
+        tensorPool.getTTNNTensorAndValidate(op->io_tensors()->Get(i));
   }
 
-  // program_descriptor is initialized with pre-allocated SmallVector capacity
-  LOG_DEBUG("creating program descriptor");
+  // ProgramDescriptor is initialized with pre-allocated SmallVector capacity
   const auto *program_desc = op->program();
   tt::tt_metal::ProgramDescriptor program_descriptor;
-  LOG_DEBUG("creating kernels");
   for (const tt::target::ttnn::KernelDescriptor *kernel_desc :
        *program_desc->kernels()) {
     program_descriptor.kernels.push_back(
         createKernelDescriptor(*kernel_desc, io_tensors));
   }
-  LOG_DEBUG("creating cbs");
   for (const tt::target::ttnn::KernelCBDescriptor *cb_desc :
        *program_desc->cbs()) {
     program_descriptor.cbs.push_back(createCBDescriptor(*cb_desc));
   }
-  LOG_DEBUG("running generic op");
+  for (const tt::target::ttnn::SemaphoreDescriptor *semaphore_desc :
+       *program_desc->semaphores()) {
+    program_descriptor.semaphores.push_back(
+        createSemaphoreDescriptor(*semaphore_desc));
+  }
   ::ttnn::Tensor output = ::ttnn::generic_op(io_tensors, program_descriptor);
   tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
                                          output);
