@@ -109,9 +109,7 @@ void createTTIRToTTMetalMiddleendPipeline(
         options.maxDstRegisterSizeTiles;
   }
   pm.addPass(ttir::createTTIRGenericTileComputeLoops(tileComputeLoopsOptions));
-  ttir::TTIRInsertDstRegisterAccessOptions insertDstOptions;
-  insertDstOptions.insertProfilerTraces = options.insertProfilerTraces;
-  pm.addPass(ttir::createTTIRInsertDstRegisterAccess(insertDstOptions));
+  pm.addPass(ttir::createTTIRInsertDstRegisterAccess());
 
   OpPassManager &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(affine::createLoopCoalescingPass());
