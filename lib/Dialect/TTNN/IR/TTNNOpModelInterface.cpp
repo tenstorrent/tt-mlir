@@ -950,27 +950,6 @@ ScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// ScatterOp - TTNN Op Model Interface
-//===----------------------------------------------------------------------===//
-
-// (issue #4788) scatter is currently defined as a binary op in TTNNIR
-// to be updated when it's fixed to match proper metal implementation
-
-llvm::Expected<op_model::OpConstraints>
-ScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                            const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::ArchitecturalMismatch);
-}
-
-llvm::Expected<size_t>
-ScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                        const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::ArchitecturalMismatch);
-}
-
-//===----------------------------------------------------------------------===//
 // Atan2Op - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
