@@ -79,7 +79,7 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
         (1, 1, 128, 508),
         (1, 1, 126, 508),
         (1, 1, 130, 508),
-        pytest.param((1, 1, 32, 2), marks=pytest.mark.fails_golden),
+        (1, 1, 32, 2),
         pytest.param((1, 1, 1, 2), marks=pytest.mark.fails_golden),
         (1, 1, 128, 516),
         (1, 1, 128, 516),
