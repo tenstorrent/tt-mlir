@@ -88,6 +88,12 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Disable folding of back-to-back ToLayoutOp during "
                      "canonicalization; useful for DMA testing"),
       llvm::cl::init(false)};
+
+  // Option to insert profiler traces (DeviceZone scopes) around kernel ops.
+  Option<bool> insertProfilerTraces{
+      *this, "insert-profiler-traces",
+      llvm::cl::desc("Insert DeviceZone scopes around selected TTKernel ops"),
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);
