@@ -614,9 +614,14 @@ private:
       // For equality: eqz(lhs - rhs) using SFPU operations
       rewriter.create<ttkernel::SubBinaryTilesInitOp>(op->getLoc());
       rewriter.create<ttkernel::SubBinaryTilesOp>(op->getLoc(), lhsIdx, rhsIdx);
+      rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
+      rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
       rewriter.create<ttkernel::EqzTileInitOp>(op->getLoc());
       rewriter.create<ttkernel::EqzTileOp>(op->getLoc(),
                                            lhsIdx); // Result is in lhsIdx
+      rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
+      rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
+      rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
       break;
 
     case ComparisonType::NOT_EQUAL:
