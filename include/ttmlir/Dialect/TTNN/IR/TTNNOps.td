@@ -2215,4 +2215,5 @@ def TTNN_TraceOp : TTNN_Op<"trace"> {
 
     let hasVerifier = 1;
 }
+
 #endif

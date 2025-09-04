@@ -2383,6 +2383,33 @@ private:
 };
 } // namespace
 
+namespace {
+class StableHLOToTTIROpOptimizationBarrierOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::OptimizationBarrierOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::OptimizationBarrierOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::OptimizationBarrierOp srcOp,
+                  mlir::stablehlo::OptimizationBarrierOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Value> newResults;
+    for (auto [input, outputType] :
+         llvm::zip(adaptor.getOperands(), srcOp->getResultTypes())) {
+      auto convertedType = mlir::cast<RankedTensorType>(
+          this->getTypeConverter()->convertType(outputType));
+      auto newOp = rewriter.create<ttir::OptimizationBarrierOp>(
+          srcOp.getLoc(), convertedType, input);
+      newResults.push_back(newOp.getResult());
+    }
+    rewriter.replaceOp(srcOp, newResults);
+
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -2625,6 +2652,15 @@ static void addBatchNormOpConversionPattern(MLIRContext *ctx,
                                             TypeConverter &typeConverter) {
   patterns.add<StableHLOToBatchNormOpConversionPattern>(typeConverter, ctx);
 }
+
+static void
+addOptimizationBarrierOpConversionPattern(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpOptimizationBarrierOpConversionPattern>(
+      typeConverter, ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -2654,6 +2690,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
   addPadOpConversionPattern(ctx, patterns, typeConverter);
   addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
+  addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

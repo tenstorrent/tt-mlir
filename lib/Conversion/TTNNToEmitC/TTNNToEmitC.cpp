@@ -2205,6 +2205,7 @@ public:
 };
 } // namespace
 
+
 namespace mlir::tt {
 
 // ANCHOR: op_rewriter_pattern_set_emitc
@@ -2394,6 +2395,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // BatchNorm op
   //
   patterns.add<BatchNormOpConversionPattern>(typeConverter, ctx);
+
 }
 // ANCHOR_END: op_rewriter_pattern_set_emitc
 

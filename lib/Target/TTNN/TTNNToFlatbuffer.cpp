@@ -1769,6 +1769,7 @@ createOp(FlatbufferObjectCache &cache, TraceOp op,
       op.getCallee().str().c_str(), programIdx, &inputs, &outputs);
 }
 
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,

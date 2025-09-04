@@ -91,7 +91,8 @@ public:
           }
           Operation *lastOp = getLastValueUsageOp(livenessInfo, arg);
 
-          if (isa<func::ReturnOp>(lastOp)) {
+          if (isa<func::ReturnOp>(lastOp) ||
+              isa<ttnn::OptimizationBarrierOp>(lastOp)) {
             continue;
           }
 

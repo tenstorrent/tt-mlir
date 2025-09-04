@@ -5250,4 +5250,22 @@ def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
   let hasVerifier = 1;
 }
 
+def TTIR_OptimizationBarrierOp : TTIR_Op<"optimization_barrier", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "Optimization barrier operation.";
+  let description = [{
+    The `optimization_barrier` operation prevents compiler optimizations from reordering or eliminating
+    the values passed through it. It acts as a barrier for optimization passes.
+
+    Inputs:
+    - `input` (Variadic): A value of tensor type.
+
+    Outputs:
+    - `result` (Variadic): Same value as input, passed through unchanged.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 #endif
