@@ -96,7 +96,9 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
     pm.addPass(mlir::createCanonicalizerPass());
+#ifdef TTMLIR_ENABLE_OPMODEL
     pm.addPass(mlir::tt::ttnn::createTTNNOperationValidationAndFallback());
+#endif
     pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
   }
 }
