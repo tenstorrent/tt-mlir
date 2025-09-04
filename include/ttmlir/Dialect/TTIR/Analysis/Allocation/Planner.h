@@ -54,7 +54,7 @@ public:
   /// For all variables in `problem` that are not marked disabled (i.e. have
   /// non-"NA" placement), find an "optimal" assignment of request offsets. This
   /// optimality means to keep the resulting solution within as small
-  /// `AllocateStats::memUsage` as possible.
+  /// `AllocateStats::memUsage` budget as possible.
   /// This call will mutate `problem` in place.
   /// @param problem expected to contain Variables with Requests that have
   /// `first`, `last`, and `size` fields set.
@@ -65,10 +65,10 @@ public:
   /// For all variables in `problem` that are not marked disabled (i.e. have
   /// non-"NA" placement), find an "optimal" set of variables to spill from
   /// `Space::Scratch` to `Space::Spill` and an "optimal" assignment of offsets
-  /// for those requests that remain in `Space::Spill` post-spill. The current
+  /// for those requests that remain in `Space::Scratch` post-spill. The current
   /// implementation will heuristically choose which variables to spill until
   /// the problem is solveable as if by `allocate()` within the `memUsageLimit`
-  /// constraint.
+  /// budget.
   /// This call will mutate `problem` in place and the final solution is only
   /// valid if it is feasible, i.e `SpillStats::memUsage <= memUsageLimit`.
   /// @param problem expected to contain Variables with Requests that have
