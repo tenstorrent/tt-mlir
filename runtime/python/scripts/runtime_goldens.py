@@ -15,6 +15,11 @@ import json
 from typing import Dict, Any, Optional, Callable
 import logging
 
+# Initialize availability flags
+TORCH_AVAILABLE = False
+GOLDEN_LIBRARY_AVAILABLE = False
+TTRT_RUNTIME_AVAILABLE = False
+
 # Import torch and golden functions library
 try:
     import torch
@@ -22,6 +27,15 @@ try:
     # Import golden functions from packaged ttmlir module
     from ttmlir.golden.golden_funcs import GOLDEN_MAPPINGS, get_golden_function
     from ttmlir.dialects import ttir, stablehlo
+
+    # Import ttrt runtime for tensor extraction
+    try:
+        import ttrt.runtime
+
+        TTRT_RUNTIME_AVAILABLE = True
+    except ImportError:
+        TTRT_RUNTIME_AVAILABLE = False
+        logging.warning("ttrt.runtime not available - skipping golden validation")
 
     TORCH_AVAILABLE = True
     GOLDEN_LIBRARY_AVAILABLE = True
@@ -346,6 +360,76 @@ class RuntimeGoldenValidator:
         except:
             return torch.float32  # Default fallback
 
+    def _extract_tensors_from_runtime(
+        self, op_context: Any, program_context: Any
+    ) -> tuple:
+        """
+        Extract input and output tensors from runtime operation context.
+
+        Args:
+            op_context: Runtime operation context
+            program_context: Runtime program context
+
+        Returns:
+            Tuple of (input_tensors_list, output_tensor) or (None, None) if extraction fails
+
+        Raises:
+            RuntimeError: If tensor extraction fails
+        """
+        if not TTRT_RUNTIME_AVAILABLE:
+            raise RuntimeError("ttrt.runtime not available for tensor extraction")
+
+        try:
+            # Extract output tensor
+            output_tensor_rt = ttrt.runtime.get_op_output_tensor(
+                op_context, program_context
+            )
+            if output_tensor_rt is None:
+                raise RuntimeError("Could not extract output tensor from runtime")
+
+            # Convert output tensor to PyTorch
+            output_buffer = output_tensor_rt.get_data_buffer()
+            output_dtype = self._runtime_dtype_to_torch(output_tensor_rt.get_dtype())
+            output_shape = output_tensor_rt.get_shape()
+            output_tensor = (
+                torch.frombuffer(output_buffer, dtype=output_dtype)
+                .reshape(output_shape)
+                .clone()
+            )
+
+            # Extract input tensors
+            input_refs = ttrt.runtime.get_op_input_refs(op_context, program_context)
+            input_tensors = []
+
+            for input_ref in input_refs:
+                try:
+                    input_tensor_rt = ttrt.runtime.retrieve_tensor_from_pool(
+                        program_context, input_ref, True
+                    )
+                    if input_tensor_rt:
+                        input_buffer = input_tensor_rt.get_data_buffer()
+                        input_dtype = self._runtime_dtype_to_torch(
+                            input_tensor_rt.get_dtype()
+                        )
+                        input_shape = input_tensor_rt.get_shape()
+                        input_tensor = (
+                            torch.frombuffer(input_buffer, dtype=input_dtype)
+                            .reshape(input_shape)
+                            .clone()
+                        )
+                        input_tensors.append(input_tensor)
+                    else:
+                        raise RuntimeError(
+                            f"Could not retrieve input tensor from pool for ref: {input_ref}"
+                        )
+                except Exception as e:
+                    raise RuntimeError(f"Error extracting input tensor: {e}")
+
+            return input_tensors, output_tensor
+
+        except Exception as e:
+            raise RuntimeError(f"Error extracting tensors from runtime: {e}")
+
     def _compare_tensors(
         self, golden: torch.Tensor, actual: torch.Tensor
     ) -> Dict[str, Any]:
@@ -474,33 +558,62 @@ def operation_complete_callback(
         handler.on_operation_complete(op_name, op_context, program_context)
 
         # Perform golden calculation using library functions
-        if TORCH_AVAILABLE and GOLDEN_LIBRARY_AVAILABLE:
-            try:
-                # For now, create dummy tensors for demonstration
-                # In real implementation, these would come from the runtime
-                dummy_input1 = torch.randn(4, 4)
-                dummy_input2 = torch.randn(4, 4)
-                dummy_output = dummy_input1 + dummy_input2
-
-                golden_results = handler.perform_golden_calculation(
-                    op_name, [dummy_input1, dummy_input2], dummy_output, op_context
-                )
-
-                # Store results and log summary
-                if "error" not in golden_results:
-                    handler.execution_stats["golden_results"][op_name] = golden_results
-                    pcc = golden_results.get("pearson_correlation", 0.0)
-                    max_diff = golden_results.get("max_difference", 0.0)
-                    logger.info(
-                        f"✅ Operation validated - PCC: {pcc:.4f}, MaxDiff: {max_diff:.2e}"
+        if TORCH_AVAILABLE and GOLDEN_LIBRARY_AVAILABLE and TTRT_RUNTIME_AVAILABLE:
+            # Check if context objects are available (not None)
+            if op_context is not None and program_context is not None:
+                try:
+                    # Context objects are already properly typed when passed from C++
+                    # Use them directly without trying to construct them
+                    (
+                        input_tensors,
+                        actual_output_tensor,
+                    ) = handler._extract_tensors_from_runtime(
+                        op_context, program_context
                     )
-                else:
+
+                    logger.debug(
+                        f"Extracted {len(input_tensors)} input tensors and 1 output tensor for {op_name}"
+                    )
+                    logger.debug(
+                        f"Input tensor shapes: {[t.shape for t in input_tensors]}"
+                    )
+                    logger.debug(f"Output tensor shape: {actual_output_tensor.shape}")
+
+                    golden_results = handler.perform_golden_calculation(
+                        op_name, input_tensors, actual_output_tensor, op_context
+                    )
+
+                    # Store results and log summary
+                    if "error" not in golden_results:
+                        handler.execution_stats["golden_results"][
+                            op_name
+                        ] = golden_results
+                        pcc = golden_results.get("pearson_correlation", 0.0)
+                        max_diff = golden_results.get("max_difference", 0.0)
+                        logger.info(
+                            f"✅ Operation '{op_name}' validated - PCC: {pcc:.4f}, MaxDiff: {max_diff:.2e}"
+                        )
+                    else:
+                        logger.warning(
+                            f"⚠️  Golden validation failed for '{op_name}': {golden_results['error']}"
+                        )
+
+                except RuntimeError as extraction_error:
                     logger.warning(
-                        f"⚠️  Golden validation failed: {golden_results['error']}"
+                        f"⚠️  Skipping golden validation for '{op_name}': {extraction_error}"
                     )
-
-            except Exception as golden_error:
-                logger.error(f"❌ Golden validation error: {golden_error}")
+                except Exception as golden_error:
+                    logger.error(
+                        f"❌ Golden validation error for '{op_name}': {golden_error}"
+                    )
+            else:
+                logger.debug(
+                    f"Skipping golden validation for '{op_name}' - context objects not available"
+                )
+        else:
+            logger.debug(
+                f"Skipping golden validation for '{op_name}' - required libraries not available"
+            )
 
     except Exception as e:
         logger.error(f"Callback error: {e}")

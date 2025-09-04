@@ -7,7 +7,7 @@
 
 #include <Python.h>
 #include <filesystem>
-#include <iostream>
+
 #include <string>
 
 // Namespace alias for convenience
@@ -185,15 +185,21 @@ void PythonEmbedder::onOperationComplete(
   PyObject *args = PyTuple_New(3);
   PyTuple_SetItem(args, 0, PyUnicode_FromString(op_name.c_str()));
 
-  // Pass operation context as None for now (can be enhanced to pass actual
-  // context)
-  Py_INCREF(Py_None);
-  PyTuple_SetItem(args, 1, Py_None);
-
-  // Pass program context as None for now (can be enhanced to pass actual
-  // context)
-  Py_INCREF(Py_None);
-  PyTuple_SetItem(args, 2, Py_None);
+  // Pass the raw C++ pointers as integers that can be used to reconstruct
+  // OpContext and CallbackContext objects on the Python side
+  if (op_context && program_context) {
+    // Pass the pointers as Python integers
+    PyTuple_SetItem(
+        args, 1,
+        PyLong_FromVoidPtr(const_cast<target::ttnn::Operation *>(op_context)));
+    PyTuple_SetItem(args, 2, PyLong_FromVoidPtr(program_context));
+  } else {
+    // Fall back to None if contexts are null
+    Py_INCREF(Py_None);
+    PyTuple_SetItem(args, 1, Py_None);
+    Py_INCREF(Py_None);
+    PyTuple_SetItem(args, 2, Py_None);
+  }
 
   if (!callFunction("operation_complete_callback", args)) {
     LOG_WARNING(::tt::runtime::logger::LogType::LogRuntimeTTNN,

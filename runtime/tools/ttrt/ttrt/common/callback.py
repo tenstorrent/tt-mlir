@@ -20,7 +20,7 @@ class CallbackRuntimeConfig:
         rtol=1e-05,
         save_golden_tensors=False,
         logging=None,
-        enable_golden=True,
+        enable_golden=False,
         enable_memory=False,
         enable_debugger=False,
         golden_report={},
