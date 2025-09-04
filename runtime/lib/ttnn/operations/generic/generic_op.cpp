@@ -13,8 +13,8 @@
 
 namespace tt::runtime::ttnn::operations::generic_op {
 
-inline CoreType convertCoreType(const ::tt::target::ttnn::CoreType &core_type) {
-  switch (core_type) {
+inline CoreType convertCoreType(const ::tt::target::ttnn::CoreType &coreType) {
+  switch (coreType) {
   case ::tt::target::ttnn::CoreType::WORKER: {
     return CoreType::WORKER;
   }
@@ -25,47 +25,46 @@ inline CoreType convertCoreType(const ::tt::target::ttnn::CoreType &core_type) {
   }
 }
 
-static ::tt::tt_metal::SemaphoreDescriptor
-createSemaphoreDescriptor(const ::tt::target::ttnn::SemaphoreDescriptor
-                              &kernel_semaphore_descriptor) {
+static ::tt::tt_metal::SemaphoreDescriptor createSemaphoreDescriptor(
+    const ::tt::target::ttnn::SemaphoreDescriptor &kernelSemaphoreDescriptor) {
   return ::tt::tt_metal::SemaphoreDescriptor{
-      .core_type = convertCoreType(kernel_semaphore_descriptor.core_type()),
+      .core_type = convertCoreType(kernelSemaphoreDescriptor.core_type()),
       .core_ranges = tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
-          *kernel_semaphore_descriptor.core_ranges()),
-      .initial_value = kernel_semaphore_descriptor.initial_value()};
+          *kernelSemaphoreDescriptor.core_ranges()),
+      .initial_value = kernelSemaphoreDescriptor.initial_value()};
 }
 
 ::tt::tt_metal::CBFormatDescriptor createCBFormatDescriptor(
-    const ::tt::target::ttnn::KernelCBFormat &kernel_cb_format) {
-  uint8_t buffer_index = kernel_cb_format.buffer_index();
-  uint32_t page_size = kernel_cb_format.page_size();
-  ::tt::DataFormat data_format = common::toDataFormat(kernel_cb_format.dtype());
-  tt::tt_metal::CBFormatDescriptor cb_format_descriptor = {
-      .buffer_index = buffer_index,
-      .data_format = data_format,
-      .page_size = page_size};
-  return cb_format_descriptor;
+    const ::tt::target::ttnn::KernelCBFormat &kernelCbFormat) {
+  uint8_t bufferIndex = kernelCbFormat.buffer_index();
+  uint32_t pageSize = kernelCbFormat.page_size();
+  ::tt::DataFormat dataFormat = common::toDataFormat(kernelCbFormat.dtype());
+  tt::tt_metal::CBFormatDescriptor cbFormatDescriptor = {
+      .buffer_index = bufferIndex,
+      .data_format = dataFormat,
+      .page_size = pageSize};
+  return cbFormatDescriptor;
 }
 
 static ::tt::tt_metal::CBDescriptor
-createCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cb_desc) {
+createCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cbDesc) {
   // Right now, metal assumes only one CBFormatDescriptor per KernelDescriptor
-  tt::tt_metal::CBDescriptor cb_descriptor = {
-      .total_size = cb_desc.total_size(),
+  tt::tt_metal::CBDescriptor cbDescriptor = {
+      .total_size = cbDesc.total_size(),
       .core_ranges =
-          tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*cb_desc.core_range()),
+          tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*cbDesc.core_range()),
       .format_descriptors = {
-          createCBFormatDescriptor(*cb_desc.formats()->Get(0))}};
-  return cb_descriptor;
+          createCBFormatDescriptor(*cbDesc.formats()->Get(0))}};
+  return cbDescriptor;
 }
 
 static_assert(static_cast<uint8_t>(::tt::target::UnpackToDestMode::Fp32) ==
               static_cast<uint8_t>(UnpackToDestMode::UnpackToDestFp32));
 static_assert(static_cast<uint8_t>(::tt::target::UnpackToDestMode::Default) ==
               static_cast<uint8_t>(UnpackToDestMode::Default));
-inline constexpr UnpackToDestMode convertUnpackToDestMode(
-    const tt::target::UnpackToDestMode &unpack_to_dest_mode) {
-  return static_cast<UnpackToDestMode>(unpack_to_dest_mode);
+inline constexpr UnpackToDestMode
+convertUnpackToDestMode(const tt::target::UnpackToDestMode &unpackToDestMode) {
+  return static_cast<UnpackToDestMode>(unpackToDestMode);
 }
 
 static_assert(static_cast<uint8_t>(::tt::target::ttnn::Noc::Noc0) ==
@@ -84,8 +83,8 @@ static_assert(
     static_cast<uint8_t>(::tt::target::ttnn::NocMode::DM_DYNAMIC_NOC) ==
     static_cast<uint8_t>(::tt::tt_metal::NOC_MODE::DM_DYNAMIC_NOC));
 inline constexpr ::tt::tt_metal::NOC_MODE
-convertNocMode(const tt::target::ttnn::NocMode &noc_mode) {
-  return static_cast<::tt::tt_metal::NOC_MODE>(noc_mode);
+convertNocMode(const tt::target::ttnn::NocMode &nocMode) {
+  return static_cast<::tt::tt_metal::NOC_MODE>(nocMode);
 }
 
 static_assert(
@@ -96,8 +95,8 @@ static_assert(
     static_cast<uint8_t>(::tt::tt_metal::DataMovementProcessor::RISCV_1));
 inline constexpr ::tt::tt_metal::DataMovementProcessor
 convertDataMovementProcessor(
-    const tt::target::ttnn::DataMovementType &data_movement_type) {
-  return static_cast<::tt::tt_metal::DataMovementProcessor>(data_movement_type);
+    const tt::target::ttnn::DataMovementType &dataMovementType) {
+  return static_cast<::tt::tt_metal::DataMovementProcessor>(dataMovementType);
 }
 
 static_assert(static_cast<uint8_t>(::tt::target::ttnn::SourceType::FILE_PATH) ==
@@ -108,40 +107,40 @@ static_assert(
     static_cast<uint8_t>(
         ::tt::tt_metal::KernelDescriptor::SourceType::SOURCE_CODE));
 inline constexpr ::tt::tt_metal::KernelDescriptor::SourceType
-convertSourceType(const tt::target::ttnn::SourceType &source_type) {
-  return static_cast<::tt::tt_metal::KernelDescriptor::SourceType>(source_type);
+convertSourceType(const tt::target::ttnn::SourceType &sourceType) {
+  return static_cast<::tt::tt_metal::KernelDescriptor::SourceType>(sourceType);
 }
 
 static ::tt::tt_metal::KernelDescriptor::ConfigDescriptor
 createKernelConfigDescriptor(
-    const ::tt::target::ttnn::KernelDescriptor &kernel_desc) {
-  switch (kernel_desc.config_type()) {
+    const ::tt::target::ttnn::KernelDescriptor &kernelDesc) {
+  switch (kernelDesc.config_type()) {
   case ::tt::target::ttnn::KernelConfig::ComputeKernelConfig: {
-    const auto *compute_config = kernel_desc.config_as_ComputeKernelConfig();
-    std::vector<UnpackToDestMode> unpack_to_dest_modes(
-        compute_config->unpack_to_dest_modes()->size());
-    for (unsigned int i = 0; i < compute_config->unpack_to_dest_modes()->size();
+    const auto *computeConfig = kernelDesc.config_as_ComputeKernelConfig();
+    std::vector<UnpackToDestMode> unpackToDestModes(
+        computeConfig->unpack_to_dest_modes()->size());
+    for (unsigned int i = 0; i < computeConfig->unpack_to_dest_modes()->size();
          i++) {
-      unpack_to_dest_modes[i] = convertUnpackToDestMode(
-          compute_config->unpack_to_dest_modes()->Get(i));
+      unpackToDestModes[i] = convertUnpackToDestMode(
+          computeConfig->unpack_to_dest_modes()->Get(i));
     }
     return ::tt::tt_metal::ComputeConfigDescriptor{
         .math_fidelity = tt::runtime::ttnn::utils::toTTNNMathFidelity(
-            compute_config->math_fidelity()),
-        .fp32_dest_acc_en = compute_config->fp32_dest_acc_en(),
-        .dst_full_sync_en = compute_config->dst_full_sync_en(),
-        .unpack_to_dest_mode = unpack_to_dest_modes,
-        .bfp8_pack_precise = compute_config->bfp8_pack_precise(),
-        .math_approx_mode = compute_config->math_approx_mode()};
+            computeConfig->math_fidelity()),
+        .fp32_dest_acc_en = computeConfig->fp32_dest_acc_en(),
+        .dst_full_sync_en = computeConfig->dst_full_sync_en(),
+        .unpack_to_dest_mode = unpackToDestModes,
+        .bfp8_pack_precise = computeConfig->bfp8_pack_precise(),
+        .math_approx_mode = computeConfig->math_approx_mode()};
   }
   case ::tt::target::ttnn::KernelConfig::DataMovementKernelConfig: {
-    const auto *data_movement_config =
-        kernel_desc.config_as_DataMovementKernelConfig();
+    const auto *dataMovementConfig =
+        kernelDesc.config_as_DataMovementKernelConfig();
     return ::tt::tt_metal::DataMovementConfigDescriptor{
         .processor =
-            convertDataMovementProcessor(data_movement_config->processor()),
-        .noc = convertNoc(data_movement_config->noc()),
-        .noc_mode = convertNocMode(data_movement_config->noc_mode())};
+            convertDataMovementProcessor(dataMovementConfig->processor()),
+        .noc = convertNoc(dataMovementConfig->noc()),
+        .noc_mode = convertNocMode(dataMovementConfig->noc_mode())};
   }
   case ::tt::target::ttnn::KernelConfig::ReaderKernelConfig: {
     return ::tt::tt_metal::ReaderConfigDescriptor();
@@ -158,33 +157,31 @@ createKernelConfigDescriptor(
 static std::vector<uint32_t> createKernelArgs(
     const ::tt::target::ttnn::KernelCoreArgs &args,
     std::optional<std::reference_wrapper<const std::vector<::ttnn::Tensor>>>
-        io_tensors = std::nullopt) {
+        ioTensors = std::nullopt) {
   auto size = args.args()->size();
-  std::vector<uint32_t> core_args(size);
+  std::vector<uint32_t> coreArgs(size);
   for (unsigned int i = 0; i < size; i++) {
-    const auto *kernel_arg = args.args()->Get(i);
-    switch (kernel_arg->arg_type()) {
+    const auto *kernelArg = args.args()->Get(i);
+    switch (kernelArg->arg_type()) {
     case ::tt::target::ttnn::KernelArgType::KernelArgCBBufferIndex: {
-      core_args[i] =
-          kernel_arg->arg_as_KernelArgCBBufferIndex()->buffer_index();
+      coreArgs[i] = kernelArg->arg_as_KernelArgCBBufferIndex()->buffer_index();
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgBufferAddress: {
-      core_args[i] = kernel_arg->arg_as_KernelArgBufferAddress()->address();
+      coreArgs[i] = kernelArg->arg_as_KernelArgBufferAddress()->address();
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgBufferAddressOfTensor: {
       LOG_ASSERT(
-          io_tensors.has_value(),
+          ioTensors.has_value(),
           "IO tensors must be provided for KernelArgBufferAddressOfTensor");
-      uint32_t tensor_idx =
-          kernel_arg->arg_as_KernelArgBufferAddressOfTensor()->tensor_index();
-      core_args[i] = io_tensors->get()[tensor_idx].buffer()->address();
+      uint32_t tensorIdx =
+          kernelArg->arg_as_KernelArgBufferAddressOfTensor()->tensor_index();
+      coreArgs[i] = ioTensors->get()[tensorIdx].buffer()->address();
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgSemaphoreAt: {
-      core_args[i] =
-          kernel_arg->arg_as_KernelArgSemaphoreAt()->semaphore_index();
+      coreArgs[i] = kernelArg->arg_as_KernelArgSemaphoreAt()->semaphore_index();
       break;
     }
     default: {
@@ -192,78 +189,79 @@ static std::vector<uint32_t> createKernelArgs(
     }
     }
   }
-  return core_args;
+  return coreArgs;
 }
 
 static ::tt::tt_metal::KernelDescriptor
-createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernel_desc,
-                       const std::vector<::ttnn::Tensor> &io_tensors) {
-  std::string kernel_source = kernel_desc.source()->str();
-  CoreRangeSet core_ranges =
-      tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*kernel_desc.core_ranges());
-  ::tt::tt_metal::KernelDescriptor::CommonRuntimeArgs common_runtime_args =
-      createKernelArgs(*kernel_desc.common_rt_args());
-  ::tt::tt_metal::KernelDescriptor::CompileTimeArgs compile_time_args =
-      createKernelArgs(*kernel_desc.ct_args());
+createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
+                       const std::vector<::ttnn::Tensor> &ioTensors) {
+  std::string kernelSource = kernelDesc.source()->str();
+  CoreRangeSet coreRanges =
+      tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*kernelDesc.core_ranges());
+  ::tt::tt_metal::KernelDescriptor::CommonRuntimeArgs commonRuntimeArgs =
+      createKernelArgs(*kernelDesc.common_rt_args());
+  ::tt::tt_metal::KernelDescriptor::CompileTimeArgs compileTimeArgs =
+      createKernelArgs(*kernelDesc.ct_args());
 
-  auto size_x = kernel_desc.rt_args()->size();
-  auto size_y = kernel_desc.rt_args()->Get(0)->args()->size();
-  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtime_args(
-      size_x,
-      std::vector<::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs>(size_y));
-  for (unsigned int i = 0; i < size_x; i++) {
-    for (unsigned int j = 0; j < size_y; j++) {
-      ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs core_runtime_args =
-          createKernelArgs(*kernel_desc.rt_args()->Get(i)->args()->Get(j),
-                           io_tensors);
-      runtime_args[i][j] = core_runtime_args;
+  auto sizeX = kernelDesc.rt_args()->size();
+  auto sizeY = kernelDesc.rt_args()->Get(0)->args()->size();
+  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs(
+      sizeX,
+      std::vector<::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs>(sizeY));
+  for (unsigned int i = 0; i < sizeX; i++) {
+    for (unsigned int j = 0; j < sizeY; j++) {
+      ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreRuntimeArgs =
+          createKernelArgs(*kernelDesc.rt_args()->Get(i)->args()->Get(j),
+                           ioTensors);
+      runtimeArgs[i][j] = coreRuntimeArgs;
     }
   }
-  ::tt::tt_metal::KernelDescriptor kernel_descriptor = {
-      .kernel_source = kernel_source,
-      .source_type = convertSourceType(kernel_desc.source_type()),
-      .core_ranges = core_ranges,
-      .compile_time_args = compile_time_args,
+  ::tt::tt_metal::KernelDescriptor kernelDescriptor = {
+      .kernel_source = kernelSource,
+      .source_type = convertSourceType(kernelDesc.source_type()),
+      .core_ranges = coreRanges,
+      .compile_time_args = compileTimeArgs,
       .defines = {},
-      .runtime_args = runtime_args,
-      .common_runtime_args = common_runtime_args,
-      .config = createKernelConfigDescriptor(kernel_desc)};
+      .runtime_args = runtimeArgs,
+      .common_runtime_args = commonRuntimeArgs,
+      .config = createKernelConfigDescriptor(kernelDesc)};
 
-  return kernel_descriptor;
+  return kernelDescriptor;
 }
 
 void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   auto size = op->io_tensors()->size();
-  std::vector<::ttnn::Tensor> io_tensors(size);
+  std::vector<::ttnn::Tensor> ioTensors(size);
   // This relies on the ttnn binary program being built with input tensors that
   // includes the output tensor. If not, we need to allocate the output tensor
   // here or will segfault. Revisit later when flatbuffer translation is pushed.
   for (unsigned int i = 0; i < size; i++) {
-    io_tensors[i] =
+    ioTensors[i] =
         tensorPool.getTTNNTensorAndValidate(op->io_tensors()->Get(i));
   }
 
   // ProgramDescriptor is initialized with pre-allocated SmallVector capacity
-  const auto *program_desc = op->program();
-  tt::tt_metal::ProgramDescriptor program_descriptor;
-  for (const tt::target::ttnn::KernelDescriptor *kernel_desc :
-       *program_desc->kernels()) {
-    program_descriptor.kernels.push_back(
-        createKernelDescriptor(*kernel_desc, io_tensors));
+  const auto *programDesc = op->program();
+  tt::tt_metal::ProgramDescriptor programDescriptor;
+  for (const tt::target::ttnn::KernelDescriptor *kernelDesc :
+       *programDesc->kernels()) {
+    programDescriptor.kernels.push_back(
+        createKernelDescriptor(*kernelDesc, ioTensors));
   }
-  for (const tt::target::ttnn::KernelCBDescriptor *cb_desc :
-       *program_desc->cbs()) {
-    program_descriptor.cbs.push_back(createCBDescriptor(*cb_desc));
+  for (const tt::target::ttnn::KernelCBDescriptor *cbDesc :
+       *programDesc->cbs()) {
+    programDescriptor.cbs.push_back(createCBDescriptor(*cbDesc));
   }
-  for (const tt::target::ttnn::SemaphoreDescriptor *semaphore_desc :
-       *program_desc->semaphores()) {
-    program_descriptor.semaphores.push_back(
-        createSemaphoreDescriptor(*semaphore_desc));
+  for (const tt::target::ttnn::SemaphoreDescriptor *semaphoreDesc :
+       *programDesc->semaphores()) {
+    programDescriptor.semaphores.push_back(
+        createSemaphoreDescriptor(*semaphoreDesc));
   }
-  ::ttnn::Tensor output = ::ttnn::generic_op(io_tensors, program_descriptor);
+  ::ttnn::Tensor outputTensor =
+      ::ttnn::generic_op(ioTensors, programDescriptor);
   tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
-                                         output);
+                                         outputTensor);
 }
 
 } // namespace tt::runtime::ttnn::operations::generic_op
