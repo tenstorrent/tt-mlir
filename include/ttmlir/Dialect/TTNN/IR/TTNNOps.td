@@ -2454,7 +2454,7 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
-def TTNN_GenericOp : TTNN_Op<"generic", [HasMemoryConfigTrait,
+def TTNN_GenericOp : TTNN_Op<"generic", [MemoryEffects<[MemRead, MemWrite]>, HasMemoryConfigTrait,
       DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Generic operation.";
@@ -2465,17 +2465,13 @@ def TTNN_GenericOp : TTNN_Op<"generic", [HasMemoryConfigTrait,
       passed to the API.
 
       Inputs:
-        - `inputs` Variadic<AnyRankedTensor>: The input tensors.
+        - `ios` Variadic<AnyRankedTensor>: The input and output tensors.
         - `program` ProgramAttr: Program descriptor that includes a description of each kernels, array of CBs and array of semaphores.
-      Outputs:
-        - `results` Variadic<AnyRankedTensor>: The output tensors.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+    let arguments = (ins Variadic<AnyRankedTensor>:$ios,
                          TTNN_ProgramAttr:$program,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
-
-    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }

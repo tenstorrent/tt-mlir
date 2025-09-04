@@ -3234,31 +3234,31 @@ void CaptureOrExecuteTraceOp::getEffects(
 // GenericOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::GenericOp::verify() {
   ProgramAttr program = getProgram();
-  size_t number_of_inputs_and_outputs = getInputs().size() + 1;
-  size_t number_of_semaphores = program.getSemaphores().size();
+  size_t numberOfInputsAndOutputs = getIos().size();
+  size_t numberOfSemaphores = program.getSemaphores().size();
 
   for (auto kernel : program.getKernels()) {
-    auto kernel_interface = llvm::cast<KernelInterface>(kernel);
+    auto kernelInterface = llvm::cast<KernelInterface>(kernel);
 
-    for (auto arg : kernel_interface.getCommonRtArgs()) {
+    for (auto arg : kernelInterface.getCommonRtArgs()) {
       if (auto addressOfTensor =
               llvm::dyn_cast_or_null<KernelArgAddressOfTensorAttr>(arg)) {
-        if (addressOfTensor.getTensorIndex() >= number_of_inputs_and_outputs) {
+        if (addressOfTensor.getTensorIndex() >= numberOfInputsAndOutputs) {
           return emitError() << "Address of tensor at index is out of bounds";
         }
       }
       if (auto semaphoreAt =
               llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
-        if (semaphoreAt.getSemaphoreIndex() >= number_of_semaphores) {
+        if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
           return emitError() << "Semaphore at index is out of bounds";
         }
       }
     }
 
-    for (auto arg : kernel_interface.getCtArgs()) {
+    for (auto arg : kernelInterface.getCtArgs()) {
       if (auto semaphoreAt =
               llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
-        if (semaphoreAt.getSemaphoreIndex() >= number_of_semaphores) {
+        if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
           return emitError() << "Semaphore at index is out of bounds";
         }
       }
