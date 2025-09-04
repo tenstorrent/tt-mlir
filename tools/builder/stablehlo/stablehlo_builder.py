@@ -51,7 +51,7 @@ class StableHLOBuilder(Builder):
         ]
         return self.mesh_attr(axes)
 
-    def _get_mesh_attr(self, mesh_name: str = "mesh") -> sdy.MeshAttr:
+    def _get_mesh_attr(self, mesh_name: str) -> sdy.MeshAttr:
         if mesh_name not in self._meshes:
             raise ValueError(
                 f"Mesh '{mesh_name}' not found. Available meshes: {list(self._meshes.keys())}"
