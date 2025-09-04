@@ -88,6 +88,13 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Disable folding of back-to-back ToLayoutOp during "
                      "canonicalization; useful for DMA testing"),
       llvm::cl::init(false)};
+
+  // Allocator will not consider generic outputs eligible for spilling
+  // unless this option is turned on.
+  Option<bool> allowOutputSpilling{
+      *this, "allow-output-spilling",
+      llvm::cl::desc("Make generic outputs eligible for spilling to DRAM."),
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);
