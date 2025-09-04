@@ -1184,6 +1184,7 @@ TEST_F(OpModelBase, ArgMaxOpInterface) {
                  outputLayoutReadBack] = l1;
     EXPECT_EQ(cbSize, 384);
     EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(totalPeakSize, 384);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1217,6 +1218,7 @@ TEST_F(OpModelBase, ProdOpInterface) {
         l1;
     EXPECT_EQ(cbSize, 12288);
     EXPECT_EQ(l1PeakSize, 8192);
+    EXPECT_EQ(totalPeakSize, 12288 + 8192);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
