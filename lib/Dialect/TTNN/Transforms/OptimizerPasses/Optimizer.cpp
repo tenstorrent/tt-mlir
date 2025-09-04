@@ -20,9 +20,11 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
+#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -90,7 +92,12 @@ public:
 
   /// A clone method to create a copy of this pass.
   std::unique_ptr<::mlir::Pass> clonePass() const override {
-    return std::make_unique<DerivedT>(*static_cast<const DerivedT *>(this));
+    auto copy =
+        std::make_unique<DerivedT>(*static_cast<const DerivedT *>(this));
+    // `devicePtr` is not technically a pass option, so we need to copy it
+    // manually.
+    copy->devicePtr = this->devicePtr;
+    return copy;
   }
 
   /// Return the dialect that must be loaded in the context before this pass.
@@ -114,6 +121,16 @@ public:
     maxLegalLayouts = std::move(options.maxLegalLayouts);
     rowMajorEnabled = std::move(options.rowMajorEnabled);
     tensorL1UsageCap = std::move(options.tensorL1UsageCap);
+    devicePtr = std::move(options.devicePtr);
+#ifdef TTMLIR_ENABLE_OPMODEL
+    // Set external device if provided
+    if (devicePtr != nullptr) {
+      op_model::SingletonDeviceContext::setExternalDevice(devicePtr);
+    } else {
+      // Open the device if no external device is provided.
+      op_model::SingletonDeviceContext::getInstance().openDevice();
+    }
+#endif
   }
 
 protected:
@@ -178,6 +195,9 @@ protected:
   unsigned getScaledUsableL1Size(const ttcore::ChipDescAttr &chipDesc) const {
     return chipDesc.getUsableL1Size() * tensorL1UsageCap;
   }
+
+  // Device pointer provided by frontend (not a command line option)
+  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
