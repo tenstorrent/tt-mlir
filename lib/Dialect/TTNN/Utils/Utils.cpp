@@ -12,9 +12,9 @@
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Value.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Casting.h"
 
-#include "llvm/ADT/ArrayRef.h"
 #include <optional>
 
 namespace mlir::tt::ttnn::utils {
@@ -309,8 +309,6 @@ bool producesTiledTensorLayout(Operation *op) {
   return ttnnLayout && ttnnLayout->isTiled();
 }
 
-/// Check if a Conv2D operation would be converted to MatMul
-/// (1x1 kernel, stride=1, padding=0, groups=1)
 bool isConv2DConvertibleToMatMul(Operation *op) {
   auto conv2dOp = dyn_cast<ttnn::Conv2dOp>(op);
   if (!conv2dOp) {
