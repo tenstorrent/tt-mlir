@@ -3879,11 +3879,12 @@ TEST_F(OpModelBase, QuantizeOpInterface) {
       getInputLayouts(quantizeOp), OpConfig(getOutputLayout(quantizeOp)));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
   EXPECT_GE(cbSize, 18432);
-  EXPECT_GE(peakSize, 12288);
+  EXPECT_GE(l1PeakSize, 12288);
+  EXPECT_GE(totalPeakSize, 28672); // smaller than 18432+12288
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -3935,11 +3936,12 @@ TEST_F(OpModelBase, QuantizeOpInterfaceNullOutput) {
       getInputLayouts(quantizeOp), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
   EXPECT_GE(cbSize, 18432);
-  EXPECT_GE(peakSize, 12288);
+  EXPECT_GE(l1PeakSize, 12288);
+  EXPECT_GE(totalPeakSize, 28672); // smaller than 18432+12288
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -4004,11 +4006,12 @@ TEST_F(OpModelBase, RequantizeOpInterface) {
       getInputLayouts(requantizeOp), OpConfig(getOutputLayout(requantizeOp)));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
   EXPECT_GE(cbSize, 32768);
-  EXPECT_GE(peakSize, 40960);
+  EXPECT_GE(l1PeakSize, 40960);
+  EXPECT_GE(totalPeakSize, 32768 + 40960);
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -4074,11 +4077,12 @@ TEST_F(OpModelBase, RequantizeOpInterfaceNullOutput) {
       getInputLayouts(requantizeOp), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
   EXPECT_GE(cbSize, 32768);
-  EXPECT_GE(peakSize, 40960);
+  EXPECT_GE(l1PeakSize, 40960);
+  EXPECT_GE(totalPeakSize, 32768 + 40960);
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -4130,11 +4134,12 @@ TEST_F(OpModelBase, DequantizeOpInterface) {
       getInputLayouts(dequantizeOp), OpConfig(getOutputLayout(dequantizeOp)));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
   EXPECT_GE(cbSize, 32768);
-  EXPECT_GE(peakSize, 18432);
+  EXPECT_GE(l1PeakSize, 18432);
+  EXPECT_GE(totalPeakSize, 32768 + 18432);
   EXPECT_GE(outputSize, 2048);
 
   ASSERT_TRUE(outputLayout);
@@ -4187,11 +4192,12 @@ TEST_F(OpModelBase, DequantizeOpInterfaceNullOutput) {
       getInputLayouts(dequantizeOp), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
   EXPECT_GE(cbSize, 32768);
-  EXPECT_GE(peakSize, 18432);
+  EXPECT_GE(l1PeakSize, 18432);
+  EXPECT_GE(totalPeakSize, 32768 + 18432);
   EXPECT_GE(outputSize, 2048);
 
   ASSERT_TRUE(outputLayout);

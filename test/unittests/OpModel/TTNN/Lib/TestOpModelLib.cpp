@@ -4047,7 +4047,8 @@ protected:
                 outputVirtualGrid] = GetParam().output;
     const auto axis = GetParam().axis;
     const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedOutputSize] = GetParam().expectedResult;
+                expectedTotalPeakSize, expectedOutputSize] =
+        GetParam().expectedResult;
 
     // Create layouts - input and scale use BF16, zeroPoint and output use Int32
     const TTNNLayoutAttr inputLayout = CreateTiledLayout(
@@ -4067,10 +4068,11 @@ protected:
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
-      const auto [cbSize, peakSize, outputSizeResult, outputLayoutReadBack] =
-          constraintsExp.get();
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBack] = constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(l1PeakSize, expectedPeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
       EXPECT_EQ(outputSizeResult, expectedOutputSize);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -4104,7 +4106,9 @@ const auto quantizeOpTestValues = testing::Values(
             {1}, TensorMemoryLayout::Interleaved, BufferType::L1},
         detail::TestTensor{
             {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
-        std::nullopt, detail::ExpectedResult{true, 14336, 10240, 4096}},
+        std::nullopt,
+        detail::ExpectedResult{true, 14336, 10240, 22528,
+                               4096}}, // smaller than 14336+10240
     QuantizeOpParam{
         detail::TestTensor{
             {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
@@ -4115,7 +4119,8 @@ const auto quantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 18432, 12288, 4096}},
+        detail::ExpectedResult{true, 18432, 12288, 28672,
+                               4096}}, // smaller than 18432+12288
     QuantizeOpParam{
         detail::TestTensor{
             {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
@@ -4126,7 +4131,8 @@ const auto quantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 18432, 12288, 4096}},
+        detail::ExpectedResult{true, 18432, 12288, 28672,
+                               4096}}, // smaller than 18432+12288
 
     // === DRAM Memory Tests ===
     QuantizeOpParam{
@@ -4139,7 +4145,7 @@ const auto quantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {512, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 18432, 0, 0}},
+        detail::ExpectedResult{true, 18432, 0, 18432 + 0, 0}},
 
     // === Mixed Memory Configuration Tests ===
     QuantizeOpParam{
@@ -4152,7 +4158,8 @@ const auto quantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {64, 128}, TensorMemoryLayout::Interleaved, BufferType::L1},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 18432, 10240, 4096}});
+        detail::ExpectedResult{true, 18432, 10240, 26624,
+                               4096}}); // smaller than 18432+10240
 
 INSTANTIATE_TEST_SUITE_P(QuantizeTests, OpModelQuantizeParam,
                          quantizeOpTestValues);
@@ -4193,7 +4200,8 @@ protected:
                 outputVirtualGrid] = GetParam().output;
     const auto axis = GetParam().axis;
     const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedOutputSize] = GetParam().expectedResult;
+                expectedTotalPeakSize, expectedOutputSize] =
+        GetParam().expectedResult;
 
     // Create layouts - input and zero points use Int32, scales use BF16
     const TTNNLayoutAttr inputLayout = CreateTiledLayoutInt32(
@@ -4221,10 +4229,11 @@ protected:
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
-      const auto [cbSize, peakSize, outputSizeResult, outputLayoutReadBack] =
-          constraintsExp.get();
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBack] = constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(l1PeakSize, expectedPeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
       EXPECT_EQ(outputSizeResult, expectedOutputSize);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -4263,7 +4272,9 @@ const auto requantizeOpTestValues = testing::Values(
             {1}, TensorMemoryLayout::Interleaved, BufferType::L1},
         detail::TestTensor{
             {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
-        std::nullopt, detail::ExpectedResult{true, 24576, 12288, 4096}},
+        std::nullopt,
+        detail::ExpectedResult{true, 24576, 12288, 30720,
+                               4096}}, // smaller than 24576+12288
     RequantizeOpParam{
         detail::TestTensor{
             {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
@@ -4278,7 +4289,7 @@ const auto requantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 32768, 40960, 4096}},
+        detail::ExpectedResult{true, 32768, 40960, 32768 + 40960, 4096}},
 
     // === DRAM Memory Tests ===
     RequantizeOpParam{
@@ -4295,7 +4306,7 @@ const auto requantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {512, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 32768, 0, 0}},
+        detail::ExpectedResult{true, 32768, 0, 32768 + 0, 0}},
     RequantizeOpParam{
         detail::TestTensor{
             {256, 512}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
@@ -4309,7 +4320,7 @@ const auto requantizeOpTestValues = testing::Values(
             {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::TestTensor{
             {256, 512}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-        std::nullopt, detail::ExpectedResult{true, 24576, 0, 0}},
+        std::nullopt, detail::ExpectedResult{true, 24576, 0, 24576 + 0, 0}},
 
     // === Mixed Memory Configuration Tests ===
     RequantizeOpParam{
@@ -4326,7 +4337,7 @@ const auto requantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {64, 128}, TensorMemoryLayout::Interleaved, BufferType::L1},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 32768, 36864, 4096}});
+        detail::ExpectedResult{true, 32768, 36864, 32768 + 36864, 4096}});
 
 INSTANTIATE_TEST_SUITE_P(RequantizeTests, OpModelRequantizeParam,
                          requantizeOpTestValues);
@@ -4359,7 +4370,8 @@ protected:
                 outputVirtualGrid] = GetParam().output;
     const auto axis = GetParam().axis;
     const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedOutputSize] = GetParam().expectedResult;
+                expectedTotalPeakSize, expectedOutputSize] =
+        GetParam().expectedResult;
 
     // Create layouts - input and zeroPoint use Int32, scale and output use BF16
     const TTNNLayoutAttr inputLayout = CreateTiledLayoutInt32(
@@ -4379,10 +4391,11 @@ protected:
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
-      const auto [cbSize, peakSize, outputSizeResult, outputLayoutReadBack] =
-          constraintsExp.get();
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBack] = constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(l1PeakSize, expectedPeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
       EXPECT_EQ(outputSizeResult, expectedOutputSize);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -4416,7 +4429,8 @@ const auto dequantizeOpTestValues = testing::Values(
             {1}, TensorMemoryLayout::Interleaved, BufferType::L1},
         detail::TestTensor{
             {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
-        std::nullopt, detail::ExpectedResult{true, 24576, 6144, 2048}},
+        std::nullopt,
+        detail::ExpectedResult{true, 24576, 6144, 24576 + 6144, 2048}},
     DequantizeOpParam{
         detail::TestTensor{
             {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
@@ -4427,7 +4441,7 @@ const auto dequantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 32768, 18432, 2048}},
+        detail::ExpectedResult{true, 32768, 18432, 32768 + 18432, 2048}},
     DequantizeOpParam{
         detail::TestTensor{
             {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
@@ -4438,7 +4452,7 @@ const auto dequantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 32768, 18432, 2048}},
+        detail::ExpectedResult{true, 32768, 18432, 32768 + 18432, 2048}},
 
     // === DRAM Memory Tests ===
     DequantizeOpParam{
@@ -4451,7 +4465,7 @@ const auto dequantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {512, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 32768, 0, 0}},
+        detail::ExpectedResult{true, 32768, 0, 32768 + 0, 0}},
     DequantizeOpParam{
         detail::TestTensor{
             {256, 512}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
@@ -4461,7 +4475,7 @@ const auto dequantizeOpTestValues = testing::Values(
             {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::TestTensor{
             {256, 512}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-        std::nullopt, detail::ExpectedResult{true, 24576, 0, 0}},
+        std::nullopt, detail::ExpectedResult{true, 24576, 0, 24576 + 0, 0}},
 
     // === Mixed Memory Configuration Tests ===
     DequantizeOpParam{
@@ -4474,7 +4488,7 @@ const auto dequantizeOpTestValues = testing::Values(
         detail::TestTensor{
             {64, 128}, TensorMemoryLayout::Interleaved, BufferType::L1},
         std::make_optional<int32_t>(1),
-        detail::ExpectedResult{true, 32768, 14336, 2048}},
+        detail::ExpectedResult{true, 32768, 14336, 32768 + 14336, 2048}},
     DequantizeOpParam{
         detail::TestTensor{
             {128, 192}, TensorMemoryLayout::Interleaved, BufferType::L1},
@@ -4484,7 +4498,8 @@ const auto dequantizeOpTestValues = testing::Values(
             {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::TestTensor{
             {128, 192}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-        std::nullopt, detail::ExpectedResult{true, 24576, 6144, 0}});
+        std::nullopt,
+        detail::ExpectedResult{true, 24576, 6144, 24576 + 6144, 0}});
 
 INSTANTIATE_TEST_SUITE_P(DequantizeTests, OpModelDequantizeParam,
                          dequantizeOpTestValues);
