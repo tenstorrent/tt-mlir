@@ -1201,6 +1201,14 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [TTNN_MemoryConfigOpInterface,
     let hasVerifier = 1;
 
     let hasFolder = 1;
+
+    // Include workaround for ui8 reshape operation.
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        RankedTensorType inputType = getInput().getType();
+        return wa::TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(inputType);
+      }
+    }];
 }
 
 def TTNN_RepeatOp : TTNN_Op<"repeat",
