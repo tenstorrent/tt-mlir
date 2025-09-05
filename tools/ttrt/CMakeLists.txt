@@ -11,7 +11,6 @@ endif()
 option(TTMLIR_ENABLE_RUNTIME_TESTS "Enable runtime tests" OFF)
 option(TT_RUNTIME_DEBUG "Enable debug tools in runtime" OFF)
 
-
 set(TT_RUNTIME_OPTIONS
   TT_RUNTIME_ENABLE_TTNN
   TT_RUNTIME_ENABLE_TTMETAL
@@ -19,7 +18,6 @@ set(TT_RUNTIME_OPTIONS
   TT_RUNTIME_ENABLE_PERF_TRACE
   TTMLIR_ENABLE_RUNTIME_TESTS
 )
-
 
 set(TTRT_SOURCES)
 file(GLOB_RECURSE TTRT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/*)
@@ -52,9 +50,9 @@ add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
 )
 
-add_custom_target(ttrt ALL
-  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
-)
+add_custom_target(ttrt
+  COMMENT "python ttrt package"
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.installed)
 
 declare_mlir_python_sources(TTRTSources
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
