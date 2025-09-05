@@ -42,7 +42,12 @@ def TTNN_DeviceOperandInterface : OpInterface<"TTNNDeviceOperandInterface"> {
           }
         } else {
           // Required operand case - set the value directly
-          $_op.getDeviceMutable().assign(device);
+          if (device) {
+            $_op.getDeviceMutable().assign(device);
+          }
+          else {
+            llvm::report_fatal_error("Device operand cannot be null for operations with required device operands.");
+          }
         }
       }]
     >,
