@@ -220,18 +220,19 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
   const auto *bufferDesc = command->dst()->desc();
   LOG_ASSERT(bufferDesc->shape()->size() > 0);
 
-  const std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
-                                         bufferDesc->shape()->end());
-  const std::vector<std::uint32_t> dimAlignments(
-      bufferDesc->dim_alignments()->begin(),
-      bufferDesc->dim_alignments()->end());
-  assert(shape.size() == dimAlignments.size());
+  const std::vector<uint32_t> shape(bufferDesc->shape()->begin(),
+                                    bufferDesc->shape()->end());
+  const std::vector<uint32_t> stride(bufferDesc->host_strides()->begin(),
+                                     bufferDesc->host_strides()->end());
+  const uint64_t physicalVolume = bufferDesc->host_volume();
+  assert(shape.size() == stride.size());
   const auto dataType = bufferDesc->data_type();
-  TensorDesc desc(shape, dataType, utils::dataTypeElementSize(dataType),
-                  utils::calculateStride(shape), dimAlignments);
+
+  TensorDesc desc(shape, dataType, utils::dataTypeElementSize(dataType), stride,
+                  physicalVolume);
   const size_t size = desc.sizeBytes();
 
-  // Default zero-fill & align to the largest supported data type.
+  // Default to zero-fill.
   auto data = utils::callocShared(size);
   if (!data) {
     LOG_FATAL("HostAllocCommand: Failed to allocate host memory.");
@@ -381,6 +382,9 @@ void MCQExecutor::execute(
 
   auto input = hostBuffers.at(command->src()->global_id());
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
+  assert(meshBuffer.get()->size() ==
+         std::get<TensorDesc>(input.as<MetalTensor>(DeviceRuntime::TTMetal))
+             .sizeBytes());
   tt::runtime::ttmetal::writeHostTensorToMeshBuffer(mcq, input, meshBuffer,
                                                     blockingCQ);
 }
@@ -391,6 +395,9 @@ void MCQExecutor::execute(
 
   auto meshBuffer = meshBuffers.at(command->src()->global_id());
   auto output = hostBuffers.at(command->dst()->global_id());
+  assert(meshBuffer.get()->size() ==
+         std::get<TensorDesc>(output.as<MetalTensor>(DeviceRuntime::TTMetal))
+             .sizeBytes());
   tt::runtime::ttmetal::readHostTensorFromMeshBuffer(mcq, meshBuffer, output,
                                                      blockingCQ);
 }

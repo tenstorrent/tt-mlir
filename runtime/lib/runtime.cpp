@@ -9,10 +9,7 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
-#include <atomic>
-#include <memory>
 #include <optional>
-#include <utility>
 #include <vector>
 
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)

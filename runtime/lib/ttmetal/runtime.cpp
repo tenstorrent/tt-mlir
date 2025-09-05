@@ -506,20 +506,27 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
 template <typename T>
 static std::vector<T> getStridedRowStartIndices(const std::vector<T> &shape,
                                                 const std::vector<T> &strides,
-                                                const size_t level = 0) {
-  const T dimSize = shape[level];
+                                                const size_t dim = 0) {
+  const T dimSize = shape[dim];
 
-  if (level == shape.size() - 1) {
-    // A single row starts at index 0.
+  // Base case.
+  if (dim == shape.size() - 1) {
+    // A single row always start at index 0.
     return std::vector<T>{0};
   }
 
-  const auto prev = getStridedRowStartIndices(shape, strides, level + 1);
-  std::vector<T> indices(prev.size() * dimSize);
+  // Recursive case.
+  // 1. Get the indicies of all the rows of a single slice of the current dim.
+  const auto sliceIndicies = getStridedRowStartIndices(shape, strides, dim + 1);
+  const size_t sliceRows = sliceIndicies.size();
+  // 2. Generate indices for all the slices of the current dim.
+  std::vector<T> indices(sliceRows * dimSize);
+  // 3. The distance between the start of the first row of two neighboring
+  // slices is the size of the slice, i.e. the stride of the current dim.
   for (T i = 0; i < dimSize; i++) {
-    const T skip = i * strides[level];
-    for (size_t j = 0; j < prev.size(); j++) {
-      indices[i * prev.size() + j] = prev[j] + skip;
+    const T offset = i * strides[dim];
+    for (size_t j = 0; j < sliceRows; j++) {
+      indices[i * sliceRows + j] = sliceIndicies[j] + offset;
     }
   }
   return indices;
@@ -530,16 +537,11 @@ static void stridedMemcpy(const TensorDesc &dst, const TensorDesc &src,
   LOG_ASSERT(dst.shape == src.shape, "Tensor shape mismatch");
   LOG_ASSERT(dst.itemsize == src.itemsize, "Tensor item size mismatch");
 
-  const auto srcStrides =
-      utils::calculateAlignedStride(src.shape, src.dimAlignments);
-  const auto dstStrides =
-      utils::calculateAlignedStride(dst.shape, dst.dimAlignments);
-
-  const auto srcIndices = getStridedRowStartIndices(src.shape, srcStrides);
-  const auto dstIndices = getStridedRowStartIndices(dst.shape, dstStrides);
+  const auto srcIndices = getStridedRowStartIndices(src.shape, src.stride);
+  const auto dstIndices = getStridedRowStartIndices(dst.shape, dst.stride);
   assert(srcIndices.size() == dstIndices.size());
   assert(srcIndices.size() ==
-         utils::calculateVolume(src.shape.cbegin(), src.shape.cend() - 1));
+         utils::product(src.shape.cbegin(), src.shape.cend() - 1));
 
   const size_t rowSize = src.shape[src.shape.size() - 1] * src.itemsize;
   const std::byte *srcPtr = static_cast<const std::byte *>(srcData);

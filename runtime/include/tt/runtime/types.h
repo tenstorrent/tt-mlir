@@ -163,13 +163,11 @@ struct RuntimeCheckedConstObjectImpl {
 } // namespace detail
 
 struct TensorDesc {
-  std::vector<uint32_t> shape = {}; // Logical
+  std::vector<uint32_t> shape = {}; // Logical.
   ::tt::target::DataType dataType = ::tt::target::DataType::MAX;
   uint32_t itemsize = 0;
-  std::vector<uint32_t> stride = {}; // Logical
-
-  // Members below are for metal tensors only.
-  std::vector<uint32_t> dimAlignments = {};
+  std::vector<uint32_t> stride = {}; // Potentially padded.
+  uint64_t physicalVolume = 0;       // Potentially padded.
 
   TensorDesc() = default;
 
@@ -177,29 +175,18 @@ struct TensorDesc {
              const ::tt::target::DataType dataType,
              const std::optional<uint32_t> itemsize = {},
              const std::optional<std::vector<uint32_t>> &stride = {},
-             const std::optional<std::vector<uint32_t>> &dimAlignments = {})
+             const std::optional<uint64_t> physicalVolume = {})
       : shape(shape), dataType(dataType) {
     this->itemsize = itemsize.value_or(utils::dataTypeElementSize(dataType));
     this->stride = stride.value_or(utils::calculateStride(shape));
-    this->dimAlignments =
-        dimAlignments.value_or(std::vector<uint32_t>(shape.size(), 1));
+    this->physicalVolume = physicalVolume.value_or(volume());
   }
 
-  size_t volume() const {
-    return utils::calculateVolume(shape.cbegin(), shape.cend());
-  }
+  size_t volume() const { return utils::product(shape.cbegin(), shape.cend()); }
 
-  size_t alignedVolume() const {
-    std::vector<uint32_t> alignedShape(shape.size(), 0);
-    for (size_t i = 0; i < shape.size(); i++) {
-      alignedShape[i] = utils::alignUp(shape[i], dimAlignments[i]);
-    }
-    return utils::calculateVolume(alignedShape.cbegin(), alignedShape.cend());
-  }
+  size_t sizeBytes() const { return physicalVolume * itemsize; }
 
-  size_t sizeBytes() const { return alignedVolume() * itemsize; }
-
-  bool isPadded() const { return volume() != alignedVolume(); }
+  bool isPadded() const { return physicalVolume > volume(); }
 };
 
 struct MemoryView {

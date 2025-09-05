@@ -200,23 +200,11 @@ inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
 }
 
 template <typename Iter>
-auto calculateVolume(const Iter begin, const Iter end) ->
+auto product(const Iter begin, const Iter end) ->
     typename std::iterator_traits<Iter>::value_type {
   using ValueType = typename std::iterator_traits<Iter>::value_type;
   return std::accumulate(begin, end, static_cast<ValueType>(1),
                          std::multiplies<ValueType>());
-}
-
-template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
-inline std::vector<uint32_t>
-calculateAlignedStride(const std::vector<T> &shape,
-                       const std::vector<T> &alignments) {
-  const size_t rank = shape.size();
-  std::vector<T> alignedShape(rank, 1);
-  for (size_t i = 0; i < rank; i++) {
-    alignedShape[i] = alignUp(shape[i], alignments[i]);
-  }
-  return calculateStride(alignedShape);
 }
 
 template <class... Ts>
@@ -227,9 +215,6 @@ struct overloaded : Ts... {
 template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
 T alignUp(const T val, const T alignment) {
   assert(alignment > 0);
-  if (alignment == 1) {
-    return val;
-  }
   return ((val + alignment - 1) / alignment) * alignment;
 }
 
