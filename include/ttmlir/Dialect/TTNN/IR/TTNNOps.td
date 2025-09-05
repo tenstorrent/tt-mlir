@@ -36,7 +36,7 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TTCore_DuplicateConstEvalTrait,
     let results = (outs TTNN_Device:$device);
 }
 
-def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [TTNN_MemoryConfigInterface,
+def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [TTNN_MemoryConfigOpInterface,
       DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "ToMemoryConfig op.";
@@ -145,7 +145,7 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device",
 }
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigInterface,
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface,
     DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
     let summary = "Eltwise unary op.";
     let description = [{
@@ -170,7 +170,7 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigInterface, TTNN_DtypeOpInterface,
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_DtypeOpInterface,
     DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
@@ -208,7 +208,7 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 
 class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>,
-    TTNN_MemoryConfigInterface] # traits> {
+    TTNN_MemoryConfigOpInterface] # traits> {
     let summary = "Eltwise binary composite op.";
     let description = [{
       Eltwise binary composite op.
@@ -236,7 +236,7 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
 }
 
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigInterface] # traits> {
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -498,7 +498,7 @@ def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1"> {
 }
 
 class TTNN_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_ElementwiseUnaryOp<mnemonic, [TTNN_MemoryConfigInterface] # traits> {
+    TTNN_ElementwiseUnaryOp<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
     let summary = "Eltwise unary op with the float parameter.";
     let description = [{
       Eltwise unary op with the float parameter.
@@ -1040,7 +1040,7 @@ def TTNN_MorehCumSumOp : TTNN_Op<"moreh_cumsum",
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads", [TTNN_MemoryConfigInterface,
+def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads", [TTNN_MemoryConfigOpInterface,
     DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
     let summary = "Concatenate heads op used in attention layer.";
     let description = [{
@@ -1156,7 +1156,7 @@ def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave",
     let hasVerifier = 1;
 }
 
-def TTNN_ConcatOp : TTNN_Op<"concat", [TTNN_MemoryConfigInterface,
+def TTNN_ConcatOp : TTNN_Op<"concat", [TTNN_MemoryConfigOpInterface,
       DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Concat op.";
@@ -1184,7 +1184,7 @@ def TTNN_ConcatOp : TTNN_Op<"concat", [TTNN_MemoryConfigInterface,
     let hasVerifier = 1;
 }
 
-def TTNN_ReshapeOp : TTNN_Op<"reshape", [TTNN_MemoryConfigInterface,
+def TTNN_ReshapeOp : TTNN_Op<"reshape", [TTNN_MemoryConfigOpInterface,
       DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Reshape op.";
@@ -1601,7 +1601,7 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d",
     }];
 }
 
-def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d", [TTNN_MemoryConfigInterface, DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
+def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d", [TTNN_MemoryConfigOpInterface, DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]> {
   let summary = "Applies a 2D average pooling over an input signal composed of several input planes.";
   let description = [{
     It is a downsampling operation to reduce the spatial dimensions (height and width) of a input tensor by computing averages with in a window.
@@ -1648,7 +1648,7 @@ def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d", [TTNN_MemoryConfigInterface, Declar
 }
 
 def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, TTNN_MemoryConfigInterface]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, TTNN_MemoryConfigOpInterface]
       > {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
@@ -1702,7 +1702,7 @@ def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments,
     let hasVerifier = 1;
 }
 
-def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigInterface,
+def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface,
       DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>
     ]> {
     let summary = "RMS normalization op.";
@@ -1726,7 +1726,7 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryC
     let hasVerifier = 1;
 }
 
-def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigInterface,
+def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigOpInterface,
       DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
     let summary = "Clamp op.";
@@ -1760,7 +1760,7 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigInterface,
     ];
 }
 
-def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [TTNN_MemoryConfigInterface,
+def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor", [TTNN_MemoryConfigOpInterface,
       DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
       > {
   let summary = "Clamp op.";

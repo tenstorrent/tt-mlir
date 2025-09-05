@@ -38,7 +38,7 @@ def TTNN_DtypeOpInterface : OpInterface<"TTNNDtypeOpInterface"> {
   }];
 }
 
-def TTNN_LayoutInterface : OpInterface<"TTNNLayoutInterface"> {
+def TTNN_LayoutOpInterface : OpInterface<"TTNNLayoutOpInterface"> {
   let cppNamespace = "::mlir::tt::ttnn";
   let methods = [
     InterfaceMethod<
@@ -68,7 +68,7 @@ def TTNN_LayoutInterface : OpInterface<"TTNNLayoutInterface"> {
   }];
 }
 
-def TTNN_MemoryConfigInterface : OpInterface<"TTNNMemoryConfigInterface"> {
+def TTNN_MemoryConfigOpInterface : OpInterface<"TTNNMemoryConfigOpInterface"> {
   let cppNamespace = "::mlir::tt::ttnn";
   let methods = [
     InterfaceMethod<
@@ -98,7 +98,7 @@ def TTNN_MemoryConfigInterface : OpInterface<"TTNNMemoryConfigInterface"> {
   }];
 }
 
-def TTNN_TensorSpecInterface : OpInterface<"TTNNTensorSpecInterface", [TTNN_DtypeOpInterface, TTNN_LayoutInterface, TTNN_MemoryConfigInterface]>
+def TTNN_TensorSpecInterface : OpInterface<"TTNNTensorSpecInterface", [TTNN_DtypeOpInterface, TTNN_LayoutOpInterface, TTNN_MemoryConfigOpInterface]>
 {
   let cppNamespace = "::mlir::tt::ttnn";
 }
