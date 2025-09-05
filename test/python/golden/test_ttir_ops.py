@@ -3218,6 +3218,7 @@ def test_all_reduce(
 @pytest.mark.parametrize(
     "test_shape",
     [
+        (1, 1, 1, 256, 256),
         (1, 1, 256, 256),
         (1, 256, 256),
         (256, 256),
@@ -3246,11 +3247,8 @@ def test_reduce_scatter(
         pytest.skip("CCL across 1 device is meaningless")
     if scatter_dim >= len(test_shape):
         pytest.skip("scatter_dim is out of range")
-    if scatter_dim != len(test_shape) - 1:
-        pytest.skip(
-            "Known issue : Reduce Scatter produces incorrect output when scatter_dim is not the last dimension"
-        )
-        # https://github.com/tenstorrent/tt-metal/issues/19433
+    if test_shape[scatter_dim] % mesh_shape[cluster_axis] != 0:
+        pytest.skip("scatter_dim is not divisible by mesh_shape[cluster_axis]")
 
     # test 'sum' only for now. Other reduce types are not supported yet.
     def reduce_scatter(sharded_in: Operand, builder: TTIRBuilder):
