@@ -1,0 +1,69 @@
+conv2d_params_0:
+  input:
+    shape: [1, 1, 50176, 3]
+    memory_layout: interleaved
+    buffer_type: dram
+    # virtual_grid: [7, 8]
+  input_is_tiled: true
+  weight:
+    shape: [64, 3, 7, 7]
+    memory_layout: interleaved
+    buffer_type: system_memory
+    # virtual_grid: [7, 8]
+  weight_is_tiled: false
+  output:
+    shape: [1, 1, 12544, 64]
+    memory_layout: interleaved
+    buffer_type: dram
+    # virtual_grid: [7, 8]
+  output_is_tiled: true
+  in_channels: 3
+  out_channels: 64
+  batch_size: 1
+  input_height: 224
+  input_width: 224
+  kernel_size: [7, 7]
+  stride: [2, 2]
+  padding: [3, 3]
+  dilation: [1, 1]
+  groups: 1
+  expected_result:
+    legal: true
+    cb_size: 229440
+    peak_size: 190568
+    output_size: 0
+
+conv2d_params_1:
+  input:
+    shape: [1, 1, 50176, 3]
+    memory_layout: interleaved
+    buffer_type: dram
+    # virtual_grid: [7, 8]
+  input_is_tiled: false
+  weight:
+    shape: [64, 3, 9, 7]
+    # memory_layout: interleaved
+    buffer_type: system_memory
+    # virtual_grid: [7, 8]
+  weight_is_tiled: false
+  output:
+    shape: [1, 1, 12544, 64]
+    memory_layout: interleaved
+    buffer_type: dram
+    # virtual_grid: [7, 8]
+  output_is_tiled: false
+  in_channels: 3
+  out_channels: 64
+  batch_size: 1
+  input_height: 224
+  input_width: 224
+  kernel_size: [7, 7]
+  stride: [2, 2]
+  padding: [3, 3]
+  dilation: [1, 1]
+  groups: 1
+  expected_result:
+    legal: true
+    cb_size: 0
+    peak_size: 0
+    output_size: 0
