@@ -87,7 +87,7 @@ public:
       rewriter.setInsertionPointToStart(threadBlock);
     }
 
-    auto clonedForOp = rewriter.clone(*forOp);
+    auto *clonedForOp = rewriter.clone(*forOp);
     auto clonedAffineFor = cast<affine::AffineForOp>(clonedForOp);
 
     auto blockIv = blockLoop.getInductionVar();
