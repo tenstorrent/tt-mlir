@@ -1740,8 +1740,8 @@ llvm::Expected<OpConstraints> OpModel<BitcastOp>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
-  auto bitcastOpQuery = [=]() { // bitcast is still not implemented, so I use
-                                // typecast here as a placeholder
+  auto typecastOpQuery = [=]() { // bitcast is still not implemented, so I use
+                                 // typecast here as a placeholder
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::typecast, device, inputSpec,
         conversion::getDataType(dtype.getValue()),
@@ -1770,8 +1770,8 @@ llvm::Expected<size_t> OpModel<TypecastOp>::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
-  auto bitcastOpQuery = [=]() { // bitcast is still not implemented, so I use
-                                // typecast here as a placeholder
+  auto typecastOpQuery = [=]() { // bitcast is still not implemented, so I use
+                                 // typecast here as a placeholder
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::typecast, device, inputSpec,
         conversion::getDataType(dtype.getValue()),
