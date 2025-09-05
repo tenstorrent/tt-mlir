@@ -7,7 +7,7 @@
 
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
-include "ttmlir/Dialect/TTNN/IR/TTNNKernelInterface.td"
+include "ttmlir/Dialect/TTNN/Interfaces/TTNNKernelInterface.td"
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"

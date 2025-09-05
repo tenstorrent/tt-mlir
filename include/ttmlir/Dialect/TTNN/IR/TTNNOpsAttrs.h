@@ -11,6 +11,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.h.inc"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNKernelInterface.h"
 
 namespace mlir::tt::ttnn {
 
@@ -38,8 +39,6 @@ inline bool isShardedMemoryLayout(TensorMemoryLayout layout) {
 }
 
 } // namespace mlir::tt::ttnn
-
-#include "ttmlir/Dialect/TTNN/IR/TTNNKernelInterface.h.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrDefs.h.inc"
