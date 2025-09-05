@@ -7,6 +7,6 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
-#include "ttmlir/Dialect/TTNN/IR/TTNNKernelInterface.h.inc"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNKernelInterface.h.inc"
 
 #endif // TTMLIR_DIALECT_TTNN_INTERFACES_TTNNKERNELINTERFACE_H
