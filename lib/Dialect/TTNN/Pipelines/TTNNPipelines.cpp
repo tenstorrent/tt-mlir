@@ -14,10 +14,12 @@
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//

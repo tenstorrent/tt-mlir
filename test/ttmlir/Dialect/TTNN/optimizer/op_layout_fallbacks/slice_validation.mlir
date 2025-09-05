@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-optimizer --ttnn-operation-validation-and-fallback %s -o %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-operation-validation-and-fallback %s -o %t.mlir
 // RUN: FileCheck %s --input-file %t.mlir
 
 #dram = #ttnn.buffer_type<dram>
@@ -14,9 +14,10 @@ module attributes {} {
     // This will trigger the data type workaround through to_layout conversions. Also,
     // the output layout of slice op will be the same as input layout, so revert it back to the expected layout.
 
-    // CHECK: "ttnn.to_layout"
+    // CHECK: %[[TO_LAYOUT_RES:.*]] = "ttnn.to_layout"
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK: "ttnn.slice_static"
+    // CHECK-SAME: %[[TO_LAYOUT_RES]]
     // CHECK: "ttnn.to_layout"
 
     %1 = "ttnn.slice_static"(%arg0) <{

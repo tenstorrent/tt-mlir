@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-optimizer --ttnn-operation-validation-and-fallback %s -o %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-operation-validation-and-fallback %s -o %t.mlir
 // RUN: FileCheck %s --input-file %t.mlir
 
 #dram = #ttnn.buffer_type<dram>
@@ -13,8 +13,10 @@ module attributes {} {
     // The op validation pass should detect that concat op will return si32 output,
     // but the output layout doesn't match the expected one, so it inserts a revert to tile layout with bf16.
 
-    // CHECK: "ttnn.concat"
+    // CHECK: %[[CONCAT_RES:.*]] = "ttnn.concat"
     // CHECK: "ttnn.to_layout"
+    // CHECK-SAME: (%[[CONCAT_RES]]
+    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
 
     %1 = "ttnn.concat"(%arg0, %arg1) <{
       dim = 2 : si32
