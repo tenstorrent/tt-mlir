@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedFallbackAnalysis.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -66,6 +67,10 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   analysisInput.funcOp->walk([&](Operation *op) {
     llvm::outs().flush();
     op->dumpPretty();
+
+    if (isa<ttcore::LoadCachedOp>(op)) {
+      return;
+    }
     ++totalOps;
 
     // Skip operations that have the row-major workaround later on in Optimizer.
@@ -89,7 +94,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     // Skip Matmul and Linear output, inefficient for L1 interleaved.
     if (isa<ttnn::MatmulOp, ttnn::LinearOp>(op)) {
       ++skippedMatmulLinear;
-      llvm::outs() << "[L1IFA] Skipped op (Matmul/Linear input): "
+      llvm::outs() << "[L1IFA] Skipped op (Matmul/Linear output): "
                    << op->getName() << "\n";
       return;
     }
