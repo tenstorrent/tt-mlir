@@ -930,7 +930,7 @@ class GraphHandler:
             operations = module.regions[0].blocks[0].operations
 
         for operation in operations:
-            if is_nested_module(operation):
+            if utils.is_nested_module(operation):
                 self.module_to_json(operation)
                 continue
             if isinstance(operation, func.FuncOp):
@@ -1121,20 +1121,3 @@ class GraphHandler:
         counter = self.namespace_counter.get(base_name, 0)
         self.namespace_counter[base_name] = counter + 1
         return f"{base_name}_{counter}"
-
-
-def is_nested_module(op):
-    """
-    Check if an operation represents a module.
-
-    Args:
-        op: The operation to check
-
-    Returns:
-        bool: True if the operation is a module, False otherwise
-    """
-    # Check for ttcore.device_module or builtin.module operations
-    return (
-        op.operation.name == "ttcore.device_module"
-        or op.operation.name == "builtin.module"
-    )
