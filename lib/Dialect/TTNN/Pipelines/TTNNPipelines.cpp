@@ -14,10 +14,12 @@
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
@@ -97,6 +99,9 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.devicePtr = options.devicePtr;
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
     pm.addPass(mlir::createCanonicalizerPass());
+#ifdef TTMLIR_ENABLE_OPMODEL
+    pm.addPass(mlir::tt::ttnn::createTTNNOperationValidationAndFallback());
+#endif
     pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
   }
 }
