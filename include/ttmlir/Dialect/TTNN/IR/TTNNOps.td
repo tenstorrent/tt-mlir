@@ -989,7 +989,7 @@ def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
 }
 
 def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>, TTNN_DtypeOpInterface, TTNN_MemoryConfigOpInterface]
       > {
     let summary = "Embedding backward op.";
     let description = [{
