@@ -9,7 +9,7 @@ from collections import defaultdict
 from model_explorer import graph_builder, node_data_builder
 from datetime import datetime, timezone
 
-from ttmlir.dialects import ttcore, ttnn, ttir
+from ttmlir.dialects import ttcore, ttnn, ttir, func
 from ttmlir import ir, util
 from . import utils
 
@@ -745,22 +745,34 @@ class OpHandler:
 
         return result
 
-    def make_graph_node(self, extra_attrs=None):
+    def make_graph_node(self, node_properties):
+        extra_attrs = node_properties.get("extra_attrs", None)
+        pin_to_group_top = node_properties.get("pinToGroupTop", False)
+        parent_namespace = node_properties.get("namespace", "")
+
+        # Handle attributes
         attrs = self.get_attributes()
         if extra_attrs is not None:
             attrs.extend(extra_attrs)
+
+        # Handle Graph node configs
+        config = graph_builder.GraphNodeConfig(pinToGroupTop=pin_to_group_top)
+
+        # Handle namespace
+        self.namespace = self.get_namespace()
+        if parent_namespace:
+            self.namespace = (
+                parent_namespace + "/" + self.namespace
+                if self.namespace
+                else parent_namespace
+            )
+
         return graph_builder.GraphNode(
             id=self.id,
             label=str(self.op.name),
-            namespace=self.get_namespace(),
+            namespace=self.namespace,
             attrs=attrs,
-        )
-
-    def make_constant_node(self, constant_name):
-        return graph_builder.GraphNode(
-            id=self._create_unique_id(),
-            label=str(constant_name),
-            namespace=self.get_namespace(),
+            config=config,
         )
 
 
@@ -776,246 +788,215 @@ FILTERED_OPS = [
 ]
 
 
-def build_graph(
-    model_path: str,
-    module,
-    model_runner,
-    perf_trace=None,
-    memory_trace=None,
-    golden_results=None,
-    cpp_code=None,
-):
-    graph_id = Path(model_path).name
+class GraphHandler:
+    def __init__(self):
+        self.output_connections = defaultdict(int)
+        self.op_to_graph_node = {}
+        self.operands_in_graph = set()
+        self.perf_node_data = {}
+        self.loc_to_perf = {}
+        self.memory_data = {}
+        self.accuracy_node_data = {}
+        self.loc_to_accuracy = {}
+        self.processed_locs = set()
+        self.global_counter = 0
+        self.namespace_counter = {}
 
-    if model_runner.get_last_run(model_path):
-        graph_id = (
-            f'{graph_id} - Execution {datetime.now(timezone.utc).strftime("%H:%M:%S")}'
-        )
+    def build_graph(
+        self,
+        model_path: str,
+        module,
+        model_runner,
+        perf_trace=None,
+        memory_trace=None,
+        golden_results=None,
+        cpp_code=None,
+    ):
 
-    output_connections = defaultdict(int)
-    graph = graph_builder.Graph(id=graph_id)
+        self.model_path = model_path
+        self.module = module
+        self.model_runner = model_runner
 
-    op_to_graph_node = {}
-    # Track operands already added to graph to avoid duplicates
-    operands_in_graph = set()
+        self.graph_id = Path(model_path).name
 
-    # Use "full" locations for all below to prevent conflicts / unsupported with unnamed graphs.
+        if model_runner.get_last_run(model_path):
+            self.graph_id = f'{self.graph_id} - Execution {datetime.now(timezone.utc).strftime("%H:%M:%S")}'
 
-    # Prepare perf data for color overlay
-    perf_node_data = {}
-    loc_to_perf = {}
-    if perf_trace is not None:
-        for _, row in perf_trace.iterrows():
-            loc = parse_loc_string(row["LOC"])
-            if not loc:
-                continue
-            # Force the full location here=,
-            loc = row["LOC"]
-            if loc not in loc_to_perf:
-                loc_to_perf[loc] = 0
-            loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
+        self.graph = graph_builder.Graph(id=self.graph_id)
 
-    memory_data = {}
-    if memory_trace is not None:
-        for node in memory_trace:
-            loc = memory_trace[node]["loc"]
-            memory_data[loc] = {}
-            memory_data[loc]["dram"] = round(
-                memory_trace[node]["dram"]["total_bytes_allocated_per_bank"]
-                / memory_trace[node]["dram"]["total_bytes_per_bank"],
-                4,
-            )
-            memory_data[loc]["l1"] = round(
-                memory_trace[node]["l1"]["total_bytes_allocated_per_bank"]
-                / memory_trace[node]["l1"]["total_bytes_per_bank"],
-                4,
-            )
-            memory_data[loc]["l1_small"] = round(
-                memory_trace[node]["l1_small"]["total_bytes_allocated_per_bank"]
-                / memory_trace[node]["l1_small"]["total_bytes_per_bank"],
-                4,
-            )
+        # Prepare perf data for color overlay
+        if perf_trace is not None:
+            for _, row in perf_trace.iterrows():
+                loc = parse_loc_string(row["LOC"])
+                if not loc:
+                    continue
+                # Force the full location here=,
+                loc = row["LOC"]
+                if loc not in self.loc_to_perf:
+                    self.loc_to_perf[loc] = 0
+                self.loc_to_perf[loc] += row["DEVICE FW DURATION [ns]"]
 
-    accuracy_node_data = {}
-    loc_to_accuracy = {}
-    if golden_results is not None:
-        for loc, res in golden_results.items():
-            _loc = parse_loc_string(loc)
-            if not _loc:
-                continue
-            if loc in loc_to_accuracy:
-                logging.error("Double locations presented in golden_results")
-                raise IndexError("Double locations present in golden_results")
-            # Store the full result here, just need to parse the loc accordingly
-            loc_to_accuracy[loc] = res
-
-    module_op = OpHandler(module.operation)
-    module_attrs = module_op.get_attributes()
-    module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
-
-    # Add module attributes to the graph as "namespace attributes"
-    if not graph.groupNodeAttributes:
-        graph.groupNodeAttributes = {}
-
-    # Add this module's namespace attributes
-    namespace = module_op.get_namespace()
-    if namespace not in graph.groupNodeAttributes:
-        graph.groupNodeAttributes[namespace] = module_attrs
-    else:
-        # Merge with existing attributes if namespace already exists
-        graph.groupNodeAttributes[namespace].update(module_attrs)
-
-    processed_locs = set()
-
-    # Process the module hierarchy recursively
-    process_operations(
-        module.body.operations,
-        graph,
-        op_to_graph_node,
-        operands_in_graph,
-        output_connections,
-        loc_to_perf,
-        loc_to_accuracy,
-        perf_node_data,
-        memory_data,
-        accuracy_node_data,
-        processed_locs,
-    )
-
-    # Check if all perf locations match some graph node
-    for loc in loc_to_perf.keys():
-        if loc not in processed_locs:
-            logging.error(f"Perf location {loc} not found in graph nodes")
-
-    # Add Overlay Data if it exists
-    overlays = {}
-
-    # Add performance data to the graph color overlay, if it exists
-    if perf_node_data:
-        gradient = [
-            node_data_builder.GradientItem(stop=0, bgColor="yellow"),
-            node_data_builder.GradientItem(stop=1, bgColor="red"),
-        ]
-        graph_node_data = node_data_builder.GraphNodeData(
-            results=perf_node_data, gradient=gradient
-        )
-        overlays["perf_data"] = node_data_builder.ModelNodeData(
-            graphsData={graph_id: graph_node_data}
-        ).graphsData
-
-    if accuracy_node_data:
-        thres = [
-            # Show Red if ActualPCC - ExpectedPCC is 0 and below (ActualPCC < ExpectedPCC)
-            node_data_builder.ThresholdItem(value=0, bgColor="red"),
-            # Show Green if ActualPCC - ExpectedPCC is 1 and below (Actual PCC >= ExpectedPCC)
-            node_data_builder.ThresholdItem(value=1, bgColor="green"),
-        ]
-        graph_node_data = node_data_builder.GraphNodeData(
-            results=accuracy_node_data, thresholds=thres
-        )
-        overlays["accuracy_data"] = node_data_builder.ModelNodeData(
-            graphsData={graph_id: graph_node_data}
-        ).graphsData
-
-    OpHandler.schedule = 0
-    return graph, overlays
-
-
-def process_operations(
-    operations,
-    graph,
-    op_to_graph_node,
-    operands_in_graph,
-    output_connections,
-    loc_to_perf,
-    loc_to_accuracy,
-    perf_node_data,
-    memory_data,
-    accuracy_node_data,
-    processed_locs,
-):
-    """
-    Recursively process a list of operations, including handling nested modules.
-
-    Args:
-        operations: List of operations to process
-        graph: The graph being built
-        op_to_graph_node: Mapping from operations to graph nodes
-        operands_in_graph: Set of operands already added to graph
-        output_connections: Tracking of output connections
-        loc_to_perf: Mapping from locations to performance data
-        loc_to_accuracy: Locs from Golden Result
-        perf_node_data: Performance data for nodes
-        accuracy_node_data: Accuracy Node Data
-    """
-    append_later = []
-
-    # First pass: create all nodes and constants
-    for op in operations:
-        # Check if this operation is a nested module
-        if is_module_op(op):
-            # Process the nested module's ops recursively
-            process_operations(
-                op.regions[0].blocks[0],
-                graph,
-                op_to_graph_node,
-                operands_in_graph,
-                output_connections,
-                loc_to_perf,
-                loc_to_accuracy,
-                perf_node_data,
-                memory_data,
-                accuracy_node_data,
-                processed_locs,
-            )
-            continue
-
-        # Process regions in the operation
-        for region in op.regions:
-            for block in region.blocks:
-                # Recursively process operations in this block
-                process_operations(
-                    block.operations,
-                    graph,
-                    op_to_graph_node,
-                    operands_in_graph,
-                    output_connections,
-                    loc_to_perf,
-                    loc_to_accuracy,
-                    perf_node_data,
-                    memory_data,
-                    accuracy_node_data,
-                    processed_locs,
+        if memory_trace is not None:
+            for node in memory_trace:
+                loc = memory_trace[node]["loc"]
+                self.memory_data[loc] = {}
+                self.memory_data[loc]["dram"] = round(
+                    memory_trace[node]["dram"]["total_bytes_allocated_per_bank"]
+                    / memory_trace[node]["dram"]["total_bytes_per_bank"],
+                    4,
                 )
+                self.memory_data[loc]["l1"] = round(
+                    memory_trace[node]["l1"]["total_bytes_allocated_per_bank"]
+                    / memory_trace[node]["l1"]["total_bytes_per_bank"],
+                    4,
+                )
+                self.memory_data[loc]["l1_small"] = round(
+                    memory_trace[node]["l1_small"]["total_bytes_allocated_per_bank"]
+                    / memory_trace[node]["l1_small"]["total_bytes_per_bank"],
+                    4,
+                )
+
+        if golden_results is not None:
+            for loc, res in golden_results.items():
+                _loc = parse_loc_string(loc)
+                if not _loc:
+                    continue
+                if loc in self.loc_to_accuracy:
+                    logging.error("Double locations presented in golden_results")
+                    raise IndexError("Double locations present in golden_results")
+                # Store the full result here, just need to parse the loc accordingly
+                self.loc_to_accuracy[loc] = res
+
+        module_op = OpHandler(self.module.operation)
+        module_attrs = module_op.get_attributes()
+        module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
+
+        # Add module attributes to the graph as "namespace attributes"
+        if not self.graph.groupNodeAttributes:
+            self.graph.groupNodeAttributes = {}
+
+        # Add this module's namespace attributes
+        namespace = module_op.get_namespace()
+        if namespace not in self.graph.groupNodeAttributes:
+            self.graph.groupNodeAttributes[namespace] = module_attrs
+        else:
+            # Merge with existing attributes if namespace already exists
+            self.graph.groupNodeAttributes[namespace].update(module_attrs)
+
+        self.module_to_json(self.module)
+
+        # Check if all perf locations match some graph node
+        for loc in self.loc_to_perf.keys():
+            if loc not in self.processed_locs:
+                logging.error(f"Perf location {loc} not found in graph nodes")
+
+        # Add Overlay Data if it exists
+        overlays = {}
+
+        # Add performance data to the graph color overlay, if it exists
+        if self.perf_node_data:
+            gradient = [
+                node_data_builder.GradientItem(stop=0, bgColor="yellow"),
+                node_data_builder.GradientItem(stop=1, bgColor="red"),
+            ]
+            graph_node_data = node_data_builder.GraphNodeData(
+                results=self.perf_node_data, gradient=gradient
+            )
+            overlays["perf_data"] = node_data_builder.ModelNodeData(
+                graphsData={self.graph_id: graph_node_data}
+            ).graphsData
+
+        if self.accuracy_node_data:
+            thres = [
+                # Show Red if ActualPCC - ExpectedPCC is 0 and below (ActualPCC < ExpectedPCC)
+                node_data_builder.ThresholdItem(value=0, bgColor="red"),
+                # Show Green if ActualPCC - ExpectedPCC is 1 and below (Actual PCC >= ExpectedPCC)
+                node_data_builder.ThresholdItem(value=1, bgColor="green"),
+            ]
+            graph_node_data = node_data_builder.GraphNodeData(
+                results=self.accuracy_node_data, thresholds=thres
+            )
+            overlays["accuracy_data"] = node_data_builder.ModelNodeData(
+                graphsData={self.graph_id: graph_node_data}
+            ).graphsData
+
+        OpHandler.schedule = 0
+        return self.graph, overlays
+
+    def module_to_json(self, module):
+        if isinstance(module, ir.Module):
+            operations = module.body.operations
+        else:
+            operations = module.regions[0].blocks[0].operations
+
+        for operation in operations:
+            if utils.is_nested_module(operation):
+                self.module_to_json(operation)
+                continue
+            if isinstance(operation, func.FuncOp):
+                self.process_function(operation)
+
+    def process_function(self, func):
+        for region in func.regions:
+            self.append_after = []
+            self.process_region(region)
+            for node in self.append_after:
+                self.graph.nodes.append(node)
+
+    def process_region(self, region, namespace=""):
+        # For each operation in the region/block, recursively process
+        for block in region.blocks:
+            block_args = []
+            for op in block.operations:
+                node_properties = {"namespace": namespace, "pinToGroupTop": False}
+                # Handle Nested ops
+                if op.regions and op.name:
+                    new_namespace = self.generate_new_namespace(op.name)
+                    node_properties["namespace"] = (
+                        namespace + "/" + new_namespace
+                        if namespace != ""
+                        else new_namespace
+                    )
+                    node_properties["pinToGroupTop"] = True
+                    self.process_operation(op, node_properties, block_args)
+                    for subregion in op.regions:
+                        self.process_region(subregion, node_properties["namespace"])
+                # Non-nested op
+                else:
+                    self.process_operation(op, node_properties, block_args)
+            self.process_args(block_args, namespace)
+            self.add_edges(block)
+
+    def process_operation(self, op, node_properties, block_args):
 
         # Create graph node for this operation
         operation = OpHandler(op)
-        processed_locs.add(operation.full_location)
+        self.processed_locs.add(operation.full_location)
 
         if (
-            operation.full_location in loc_to_perf
+            operation.full_location in self.loc_to_perf
             and operation.op.name not in EMPTY_OPS
         ):
-            perf_node_data[operation.id] = node_data_builder.NodeDataResult(
-                loc_to_perf[operation.full_location]
+            self.perf_node_data[operation.id] = node_data_builder.NodeDataResult(
+                self.loc_to_perf[operation.full_location]
             )
 
         if (
-            operation.full_location in loc_to_accuracy
+            operation.full_location in self.loc_to_accuracy
             and operation.op.name not in EMPTY_OPS
         ):
-            accuracy_node_data[operation.id] = node_data_builder.NodeDataResult(
-                loc_to_accuracy[operation.full_location]["actual_pcc"]
-                - loc_to_accuracy[operation.full_location]["expected_pcc"]
+            self.accuracy_node_data[operation.id] = node_data_builder.NodeDataResult(
+                self.loc_to_accuracy[operation.full_location]["actual_pcc"]
+                - self.loc_to_accuracy[operation.full_location]["expected_pcc"]
             )
 
         extra_attrs = []
-        if memory_data and operation.full_location in memory_data:
+        if self.memory_data and operation.full_location in self.memory_data:
             extra_attrs.append(
                 utils.add_to_dataclass(
                     graph_builder.KeyValue(
                         key="dram_memory",
-                        value=str(memory_data[operation.full_location]["dram"]),
+                        value=str(self.memory_data[operation.full_location]["dram"]),
                     ),
                     "display_type",
                     "memory",
@@ -1025,7 +1006,7 @@ def process_operations(
                 utils.add_to_dataclass(
                     graph_builder.KeyValue(
                         key="l1_memory",
-                        value=str(memory_data[operation.full_location]["l1"]),
+                        value=str(self.memory_data[operation.full_location]["l1"]),
                     ),
                     "display_type",
                     "memory",
@@ -1035,132 +1016,108 @@ def process_operations(
                 utils.add_to_dataclass(
                     graph_builder.KeyValue(
                         key="l1_small_memory",
-                        value=str(memory_data[operation.full_location]["l1_small"]),
+                        value=str(
+                            self.memory_data[operation.full_location]["l1_small"]
+                        ),
                     ),
                     "display_type",
                     "memory",
                 )
             )
 
-        if not op.operation.name == "func.func":
-            graph_node = operation.make_graph_node(extra_attrs)
+        node_properties["extra_attrs"] = extra_attrs
+        graph_node = operation.make_graph_node(node_properties)
 
-            if op.name not in FILTERED_OPS and op.name in EMPTY_OPS:
-                append_later.append(graph_node)
-            elif op.name not in FILTERED_OPS:
-                graph.nodes.append(graph_node)
+        if op.name not in FILTERED_OPS and op.name in EMPTY_OPS:
+            self.append_later.append(graph_node)
+        elif op.name not in FILTERED_OPS:
+            self.graph.nodes.append(graph_node)
 
-            op_to_graph_node[op] = graph_node
+        self.op_to_graph_node[op] = graph_node
 
-        # Process operands
         for operand in op.operands:
             if isinstance(operand, ir.Value) and not isinstance(
                 operand.owner, ir.Operation
             ):
-                # If the owner is not an op, then it is a constant provided from the toplevel FuncOp.
-                if operand not in operands_in_graph:
-                    # This is a constant and we need to create a node for it.
-                    operand_node = operation.make_constant_node(operand.get_name())
-                    graph.nodes.append(operand_node)
-                    op_to_graph_node[operand] = operand_node
-                    operands_in_graph.add(operand)
+                if operand not in self.operands_in_graph:
+                    block_args.append(operand)
 
-    # Add the nodes that should be appended later
-    for node in append_later:
-        graph.nodes.append(node)
-
-    # Second pass: create all edges
-    for op in operations:
-        # Skip module + func operations as they've been processed recursively
-        if is_module_op(op):
-            continue
-
-        # Process regions in the operation
-        for region in op.regions:
-            for block in region.blocks:
-                create_edges_for_block(block, op_to_graph_node, output_connections)
-
-
-def create_edges_for_block(block, op_to_graph_node, output_connections):
-    """
-    Create edges between nodes for operations in a block.
-
-    Args:
-        block: The block containing operations
-        op_to_graph_node: Mapping from operations to graph nodes
-        output_connections: Tracking of output connections
-    """
-    for op in block.operations:
-        # Skip module operations as they've been processed recursively
-        if is_module_op(op):
-            continue
-
-        # Create edges for this operation
-        for operand_index, operand in enumerate(op.operands):
-            if operand.owner == block:
-                source_node = op_to_graph_node[operand]
-            else:
-                source_node = op_to_graph_node[operand.owner]
-
-            target_node = op_to_graph_node[op]
-
-            target_node.incomingEdges.append(
-                graph_builder.IncomingEdge(
-                    sourceNodeId=source_node.id,
-                    sourceNodeOutputId=str(output_connections[source_node.id]),
-                    targetNodeInputId=str(operand_index),
+    def process_args(self, args, namespace):
+        name = "input"
+        namespace = namespace + "/Inputs" if namespace else "Inputs"
+        for arg in args:
+            if arg not in self.operands_in_graph:
+                new_id = name + "_" + str(self.global_counter)
+                arg_node = graph_builder.GraphNode(
+                    id=new_id,
+                    label=str(arg.get_name()),
+                    namespace=namespace,
                 )
-            )
+                self.graph.nodes.append(arg_node)
+                self.op_to_graph_node[arg] = arg_node
+                self.operands_in_graph.add(arg)
+                self.global_counter += 1
 
-            output_attrs = []
-            if isinstance(operand.type, ir.RankedTensorType):
-                output_attrs = [
-                    graph_builder.KeyValue(key="shape", value=str(operand.type.shape)),
-                    graph_builder.KeyValue(
-                        key="dtype", value=str(operand.type.element_type)
-                    ),
-                    graph_builder.KeyValue(key="rank", value=str(operand.type.rank)),
-                ]
-            if hasattr(operand.type, "encoding") and operand.type.encoding:
-                if "ttnn_layout" in str(operand.type.encoding):
-                    output_attrs.extend(
-                        AttrHandler.parse_attr(
-                            operand.type.encoding.get_named("ttnn_layout")
-                        )
-                    )
+    def add_edges(self, block):
+        for op in block.operations:
+            # Create edges for this operation
+            for operand_index, operand in enumerate(op.operands):
+                if operand.owner == block:
+                    source_node = self.op_to_graph_node[operand]
                 else:
-                    # Parse as a standard layout
-                    output_attrs.extend(
-                        AttrHandler.parse_attr(
-                            operand.type.encoding.get_named("ttcore.layout")
-                        )
+                    source_node = self.op_to_graph_node[operand.owner]
+
+                target_node = self.op_to_graph_node[op]
+
+                target_node.incomingEdges.append(
+                    graph_builder.IncomingEdge(
+                        sourceNodeId=source_node.id,
+                        sourceNodeOutputId=str(self.output_connections[source_node.id]),
+                        targetNodeInputId=str(operand_index),
                     )
-            source_node.outputsMetadata.append(
-                graph_builder.MetadataItem(
-                    id=str(output_connections[source_node.id]),
-                    attrs=[
+                )
+
+                output_attrs = []
+                if isinstance(operand.type, ir.RankedTensorType):
+                    output_attrs = [
                         graph_builder.KeyValue(
-                            key="__tensor_tag", value=str(target_node.label)
+                            key="shape", value=str(operand.type.shape)
+                        ),
+                        graph_builder.KeyValue(
+                            key="dtype", value=str(operand.type.element_type)
+                        ),
+                        graph_builder.KeyValue(
+                            key="rank", value=str(operand.type.rank)
                         ),
                     ]
-                    + output_attrs,
+                if hasattr(operand.type, "encoding") and operand.type.encoding:
+                    if "ttnn_layout" in str(operand.type.encoding):
+                        output_attrs.extend(
+                            AttrHandler.parse_attr(
+                                operand.type.encoding.get_named("ttnn_layout")
+                            )
+                        )
+                    else:
+                        # Parse as a standard layout
+                        output_attrs.extend(
+                            AttrHandler.parse_attr(
+                                operand.type.encoding.get_named("ttcore.layout")
+                            )
+                        )
+                source_node.outputsMetadata.append(
+                    graph_builder.MetadataItem(
+                        id=str(self.output_connections[source_node.id]),
+                        attrs=[
+                            graph_builder.KeyValue(
+                                key="__tensor_tag", value=str(target_node.label)
+                            ),
+                        ]
+                        + output_attrs,
+                    )
                 )
-            )
-            output_connections[source_node.id] += 1
+                self.output_connections[source_node.id] += 1
 
-
-def is_module_op(op):
-    """
-    Check if an operation represents a module.
-
-    Args:
-        op: The operation to check
-
-    Returns:
-        bool: True if the operation is a module, False otherwise
-    """
-    # Check for ttcore.device_module or builtin.module operations
-    return (
-        op.operation.name == "ttcore.device_module"
-        or op.operation.name == "builtin.module"
-    )
+    def generate_new_namespace(self, base_name):
+        counter = self.namespace_counter.get(base_name, 0)
+        self.namespace_counter[base_name] = counter + 1
+        return f"{base_name}_{counter}"
