@@ -204,7 +204,8 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [HasMemoryConfigTrait] # traits> {
+    TTNN_Op<mnemonic, [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>,
+    HasMemoryConfigTrait] # traits> {
     let summary = "Eltwise binary composite op.";
     let description = [{
       Eltwise binary composite op.
@@ -645,9 +646,7 @@ def TTNN_LogicalXorOp : TTNN_ElementwiseBinaryOp<"logical_xor"> {
     }];
 }
 
-def TTNN_BitwiseAndOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_and",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_BitwiseAndOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_and"> {
     let summary = "Eltwise bitwise AND.";
     let description = [{
         Performs element-wise bitwise AND of two tensors `lhs` and `rhs`
@@ -661,9 +660,7 @@ def TTNN_BitwiseAndOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_and",
     }];
 }
 
-def TTNN_LogicalLeftShiftOp: TTNN_ElementwiseBinaryCompositeOp<"logical_left_shift",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_LogicalLeftShiftOp: TTNN_ElementwiseBinaryCompositeOp<"logical_left_shift"> {
   let summary = "Eltwise Logical Left Shift operation";
   let description = [{
     The `logical_left_shift` operation performs an elementwise logical left shift
@@ -673,9 +670,7 @@ def TTNN_LogicalLeftShiftOp: TTNN_ElementwiseBinaryCompositeOp<"logical_left_shi
   let hasVerifier = 1;
 }
 
-def TTNN_BitwiseOrOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_or",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_BitwiseOrOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_or"> {
     let summary = "Eltwise bitwise OR.";
     let description = [{
         Performs element-wise bitwise OR of two tensors `lhs` and `rhs`
@@ -689,9 +684,7 @@ def TTNN_BitwiseOrOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_or",
     }];
 }
 
-def TTNN_BitwiseXorOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_xor",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_BitwiseXorOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_xor"> {
     let summary = "Eltwise bitwise XOR.";
     let description = [{
         Performs element-wise bitwise XOR of two tensors `lhs` and `rhs`
@@ -705,9 +698,7 @@ def TTNN_BitwiseXorOp : TTNN_ElementwiseBinaryCompositeOp<"bitwise_xor",
     }];
 }
 
-def TTNN_MaximumOp :  TTNN_ElementwiseBinaryCompositeOp<"maximum",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_MaximumOp :  TTNN_ElementwiseBinaryCompositeOp<"maximum"> {
     let summary = "Eltwise maximum OP.";
     let description = [{
       Calculates maximum of input tensors' values element-wise and stores result in output tensor.
@@ -719,9 +710,7 @@ def TTNN_MaximumOp :  TTNN_ElementwiseBinaryCompositeOp<"maximum",
     }];
 }
 
-def TTNN_MinimumOp :  TTNN_ElementwiseBinaryCompositeOp<"minimum",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_MinimumOp :  TTNN_ElementwiseBinaryCompositeOp<"minimum"> {
     let summary = "Eltwise minimum OP.";
     let description = [{
       Calculates minimum of input tensors' values element-wise and stores result
@@ -750,9 +739,7 @@ def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder"> {
     }];
 }
 
-def TTNN_PowOp : TTNN_ElementwiseBinaryCompositeOp<"pow",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_PowOp : TTNN_ElementwiseBinaryCompositeOp<"pow"> {
     let summary = "Eltwise power OP.";
     let description = [{
       Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
@@ -2019,9 +2006,7 @@ def TTNN_DeallocateOp : TTNN_Op<"deallocate",
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
-def TTNN_ScatterOp: TTNN_ElementwiseBinaryCompositeOp<"scatter",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
-      > {
+def TTNN_ScatterOp: TTNN_ElementwiseBinaryCompositeOp<"scatter"> {
     let summary = "Scatter op.";
     let description = [{
       Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
