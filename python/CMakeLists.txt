@@ -143,6 +143,20 @@ declare_mlir_python_sources(TTMLIRPythonCommon.Main
 )
 
 ################################################################################
+# Golden functions for runtime
+################################################################################
+
+declare_mlir_python_sources(TTMLIRPythonGolden)
+
+declare_mlir_python_sources(TTMLIRPythonGolden.Main
+  ROOT_DIR "${PROJECT_SOURCE_DIR}/tools"
+  ADD_TO_PARENT TTMLIRPythonGolden
+  SOURCES
+    golden/__init__.py
+    golden/golden_funcs.py
+)
+
+################################################################################
 # Generate packages and shared library
 ################################################################################
 
@@ -162,6 +176,7 @@ set(TTMLIR_PYTHON_SOURCES
   TTMLIRPythonSources
   TTMLIRPythonExtensions
   TTMLIRPythonCommon
+  TTMLIRPythonGolden
   TTMLIRPythonSiteInitialize
 )
 

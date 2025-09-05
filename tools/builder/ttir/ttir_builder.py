@@ -15,7 +15,7 @@ from ttmlir.dialects import ttir, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
-from builder.base import builder_golden
+from ttmlir.golden.golden_funcs import get_golden_function
 
 
 class TTIRBuilder(Builder):
@@ -136,9 +136,7 @@ class TTIRBuilder(Builder):
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            op_golden_function = builder_golden.get_golden_function(
-                op_ttir_function, **golden_kwargs
-            )
+            op_golden_function = get_golden_function(op_ttir_function, **golden_kwargs)
             if (
                 not isinstance(organize_golden_args(inputs), torch.Tensor)
                 and organize_golden_args(inputs) == 0
