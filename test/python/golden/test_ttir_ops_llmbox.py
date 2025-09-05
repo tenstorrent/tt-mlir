@@ -70,12 +70,12 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize(
     "shape",
     [
-        pytest.param((1, 1, 256, 512), marks=pytest.mark.run_error),
-        pytest.param((1, 1, 2, 4), marks=pytest.mark.run_error),
+        (1, 1, 256, 512),
+        pytest.param((1, 1, 2, 4), marks=pytest.mark.fails_golden),
         pytest.param((1, 1, 64, 128), marks=pytest.mark.run_error),
         pytest.param((1, 1, 64, 256), marks=pytest.mark.run_error),
         pytest.param((1, 1, 128, 256), marks=pytest.mark.run_error),
-        pytest.param((1, 1, 256, 256), marks=pytest.mark.run_error),
+        (1, 1, 256, 256),
         pytest.param((1, 1, 128, 512), marks=pytest.mark.run_error),
     ],
 )
