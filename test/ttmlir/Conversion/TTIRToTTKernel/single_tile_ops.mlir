@@ -421,3 +421,18 @@ module {
     return
   }
 }
+
+// CHECK-LABEL: func.func @test_eq_lowering
+  func.func @test_eq_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+    %c0 = arith.constant 0 : index
+    %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    %1 = affine.load %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    // CHECK-NOT: ttir.tile_eq
+    // CHECK: ttkernel.binary_op_init_common
+    // CHECK: ttkernel.eq_tiles_init
+    // CHECK: ttkernel.eq_tiles
+    %2 = "ttir.tile_eq"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    // CHECK: ttkernel.pack_tile
+    affine.store %2, %arg2[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
+    return
+  }
