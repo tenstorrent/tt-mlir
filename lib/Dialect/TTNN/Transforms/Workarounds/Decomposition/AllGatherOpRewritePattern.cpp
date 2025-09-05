@@ -116,7 +116,7 @@ LogicalResult TTNNAllGatherWorkarounds::applyReshapedAllGather(
   RankedTensorType paddedOutputType =
       ttnn::utils::RankedTensorTypeFactory::create(outputType, postShape);
 
-  // Create the all gather operation on 4D tensors with adjusted
+  // Create the AllGather operation on 4D tensors with adjusted
   // all_gather_dim
   auto allGather4D = rewriter.create<ttnn::AllGatherOp>(
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_all_gather_4d"),
