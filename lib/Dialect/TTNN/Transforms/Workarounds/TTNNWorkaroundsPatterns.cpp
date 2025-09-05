@@ -417,15 +417,11 @@ public:
             ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
             scatteredInputType, op.getInput(), deviceValue, op.getReduceType(),
             dimension, clusterAxis);
-    reduceScatterOp->setAttr(ttmlir::utils::g_decomposedFromAllReduceAttrName,
-                             rewriter.getUnitAttr());
 
     // Replace all_reduce op with all_gather op.
-    auto allGatherOp = rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
+    rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, op.getType(), reduceScatterOp.getResult(), deviceValue, dimension,
         clusterAxis);
-    allGatherOp->setAttr(ttmlir::utils::g_decomposedFromAllReduceAttrName,
-                         rewriter.getUnitAttr());
     return success();
   }
 
