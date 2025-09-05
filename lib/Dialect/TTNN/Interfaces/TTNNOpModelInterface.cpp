@@ -1465,6 +1465,41 @@ TypecastOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// BitcastOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+BitcastOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<BitcastOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], getDtypeAttr(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+BitcastOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<BitcastOp>::getOpRuntime, *this, inputShape, inputs[0],
+      getDtypeAttr(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // ToLayoutOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
