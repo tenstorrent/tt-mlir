@@ -1057,7 +1057,7 @@ def gather_golden(
         Gathered tensor
     """
 
-    # Unpack MLIR attributes from kwargs
+    # ----- unpack attrs -----
     offset_dims = unpack_mlir_attr(kwargs.get("offset_dims", []))
     collapsed_slice_dims = unpack_mlir_attr(kwargs.get("collapsed_slice_dims", []))
     operand_batching_dims = unpack_mlir_attr(kwargs.get("operand_batching_dims", []))
@@ -1068,36 +1068,122 @@ def gather_golden(
     index_vector_dim = unpack_mlir_attr(kwargs.get("index_vector_dim", 0))
     slice_sizes = unpack_mlir_attr(kwargs.get("slice_sizes", []))
     indices_are_sorted = unpack_mlir_attr(kwargs.get("indices_are_sorted", False))
-    # Simple gather implementation for basic cases
-    if (
-        len(offset_dims) == 1
-        and offset_dims[0] == 1
-        and len(collapsed_slice_dims) == 1
-        and collapsed_slice_dims[0] == 0
-        and len(operand_batching_dims) == 0
-        and len(start_indices_batching_dims) == 0
-        and len(start_index_map) == 1
-        and start_index_map[0] == 0
-        and index_vector_dim == 1
-        and len(slice_sizes) == 2
-        and slice_sizes[0] == 1
-    ):
 
-        indices = start_indices_tensor.squeeze().long()
-        device = input_tensor.device if hasattr(input_tensor, "device") else None
+    x = input_tensor
+    idx = start_indices_tensor
+    device = x.device if hasattr(x, "device") else None
 
-        if indices.dim() == 0:
-            indices = indices.unsqueeze(0)
+    # ---- validate attrs ----
+    rank = x.dim()
+    assert len(slice_sizes) == rank, "slice_sizes must match operand dimensions"
+    assert set(collapsed_slice_dims) == set(
+        start_index_map
+    ), "gathe golden assumes collapsed_slice_dims == start_index_map"
+    assert (
+        len(operand_batching_dims) == 0 and len(start_indices_batching_dims) == 0
+    ), "Batching dims not supported in this golden"
+    for d in collapsed_slice_dims:
+        assert slice_sizes[d] == 1, "collapsed dims must have slice size 1"
 
-        output = []
-        for idx in indices:
-            output.append(input_tensor[idx, : slice_sizes[1]])
-
-        output = torch.stack(output)
-        return torch.tensor(output, device=device)
+    if idx.dim() == 0:
+        idx = idx.unsqueeze(0)
+    if len(start_index_map) == 1 and index_vector_dim == idx.ndim:
+        pass
     else:
-        # General gather case (not implemented)
-        raise NotImplementedError("General gather not implemented")
+        # Expect the conventional "last dim holds the vector"
+        assert (
+            index_vector_dim == idx.ndim - 1
+        ), "This golden expects index_vector_dim == last dimension for multi-d indices"
+
+    # Determine batch shape and flatten indices to [B, K]
+    if idx.ndim == 1:  # simple path, K == 1
+        batch_shape = idx.shape  # [N]
+        K = 1
+        idx_flat = idx.reshape(-1, 1).long()
+    else:
+        K = idx.shape[-1]
+        assert K == len(
+            start_index_map
+        ), "index vector length must match start_index_map"
+        batch_shape = idx.shape[:-1]
+        idx_flat = idx.reshape(-1, K).long()
+
+    # Bounds check (might help avoid segfaults)
+    for k, d in enumerate(start_index_map):
+        if torch.any(idx_flat[:, k] < 0) or torch.any(
+            idx_flat[:, k] + slice_sizes[d] > x.size(d)
+        ):
+            raise IndexError(
+                "gather start indices out of bounds for operand dim {}".format(d)
+            )
+
+    # Build the natural slice_shape (operand order, skipping collapsed dims)
+    slice_dims_natural = [d for d in range(rank) if d not in collapsed_slice_dims]
+    natural_slice_shape = [slice_sizes[d] for d in slice_dims_natural]
+
+    # Number of non-collapsed dims must match offset_dims count
+    assert len(slice_dims_natural) == len(
+        offset_dims
+    ), "offset_dims must have one entry per non-collapsed slice dim"
+
+    # For each batch vector of indices, slice x accordingly
+    B = int(torch.tensor(batch_shape).prod()) if len(batch_shape) > 0 else 1
+    slices = []
+    for b in range(B):
+        starts = [0] * rank
+        ends = [0] * rank
+        # Fill starts/ends from index vector for mapped dims
+        for k, d in enumerate(start_index_map):
+            starts[d] = int(idx_flat[b, k].item())
+            ends[d] = starts[d] + slice_sizes[d]
+        # For the other dims, start at 0 (or clamp) and take slice_sizes[d]
+        for d in range(rank):
+            if d not in start_index_map:
+                starts[d] = 0
+                ends[d] = slice_sizes[d]
+
+        # Build the per-dim slice
+        slicer = tuple(slice(starts[d], ends[d]) for d in range(rank))
+        sub = x[slicer]  # shape equals slice_sizes in operand order
+
+        # Remove collapsed dims (size-1) to get natural slice shape
+        if len(collapsed_slice_dims) > 0:
+            sub = sub.squeeze(dim=tuple(sorted(collapsed_slice_dims)))
+
+        slices.append(sub)
+
+    # Stack over batch
+    if len(slices) == 1 and batch_shape == ():
+        gathered = slices[0]
+    else:
+        gathered = torch.stack(slices, dim=0).reshape(
+            *batch_shape, *natural_slice_shape
+        )
+
+    # position the slice dims inside the result according to offset_dims.
+    # Current order: [B0, B1, ..., Slice0, Slice1, ...]
+    batch_rank = len(batch_shape)
+    slice_rank = len(natural_slice_shape)
+    result_rank = batch_rank + slice_rank
+
+    remaining_positions = [p for p in range(result_rank) if p not in offset_dims]
+    assert (
+        len(remaining_positions) == batch_rank
+    ), "offset_dims inconsistent with batch rank"
+
+    desired_index_for_current = [None] * result_rank
+    # map batch dims
+    for b_i in range(batch_rank):
+        desired_index_for_current[b_i] = remaining_positions[b_i]
+    # map slice dims
+    for s_i in range(slice_rank):
+        desired_index_for_current[batch_rank + s_i] = offset_dims[s_i]
+
+    # Permute if needed
+    if desired_index_for_current != list(range(result_rank)):
+        gathered = gathered.permute(*desired_index_for_current)
+
+    return gathered.to(device=device)
 
 
 def tilize_golden(input_tensor, tilize=True, **kwargs):

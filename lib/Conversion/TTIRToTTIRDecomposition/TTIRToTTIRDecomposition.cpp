@@ -867,8 +867,11 @@ private:
          offsetDimsIndex++) {
       outputPermutation.push_back(offsetDims[offsetDimsIndex]);
     }
+    auto inverseOutputPermutation =
+        ttmlir::utils::inversePermutation(outputPermutation);
     auto permutedOutputShape = ttmlir::utils::applyPermutation(
         expectedOutputType.getShape(), outputPermutation);
+
     auto reshapedOutput = createReshapeOp(
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshapeOutput"),
         output, permutedOutputShape);
@@ -877,7 +880,7 @@ private:
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_permuteOutput"),
         expectedOutputType.getShape(), expectedOutputType.getElementType(),
         expectedOutputType.getEncoding(), reshapedOutput,
-        ttmlir::utils::inversePermutation(outputPermutation));
+        inverseOutputPermutation);
   }
 
   static ttir::ReshapeOp
