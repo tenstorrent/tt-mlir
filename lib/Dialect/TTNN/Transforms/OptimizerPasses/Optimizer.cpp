@@ -445,10 +445,11 @@ public:
 
           // Update output data type for ops that have output data type
           // attribute.
-          if (op->hasTrait<HasDTypeTrait>()) {
+          if (TTNNDtypeOpInterface dtypeOp =
+                  mlir::dyn_cast<TTNNDtypeOpInterface>(op)) {
             ttcore::DataTypeAttr newDataTypeAttr = ttcore::DataTypeAttr::get(
                 op->getContext(), layoutAttr.getDataType());
-            op->setAttr(ttmlir::utils::g_outputDtypeAttrName, newDataTypeAttr);
+            dtypeOp.setDtypeAttr(newDataTypeAttr);
           }
 
           // Update DPS operand layout as well.

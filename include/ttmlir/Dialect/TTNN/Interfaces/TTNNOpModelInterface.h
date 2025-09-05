@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_IR_TTNNOPMODELINTERFACE_H
-#define TTMLIR_DIALECT_TTNN_IR_TTNNOPMODELINTERFACE_H
+#ifndef TTMLIR_DIALECT_TTNN_INTERFACES_TTNNOPMODELINTERFACE_H
+#define TTMLIR_DIALECT_TTNN_INTERFACES_TTNNOPMODELINTERFACE_H
 
 // Required for OpConfig definition to be used by tablegen'd
 // TTNNOpModelInterface:
@@ -15,4 +15,6 @@
 // TTNNOpModelInterface methods
 #include "llvm/Support/Error.h"
 
-#endif
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.h.inc"
+
+#endif // TTMLIR_DIALECT_TTNN_INTERFACES_TTNNOPMODELINTERFACE_H

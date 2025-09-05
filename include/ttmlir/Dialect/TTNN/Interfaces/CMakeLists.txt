@@ -1,0 +1,4 @@
+add_mlir_interface(TTNNDeviceOperandInterface)
+add_mlir_interface(TTNNOpModelInterface)
+add_mlir_interface(TTNNWorkaroundInterface)
+add_mlir_interface(TTNNTensorSpecInterface)
