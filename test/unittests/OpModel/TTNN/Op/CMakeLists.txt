@@ -23,5 +23,6 @@ if(TTMLIR_ENABLE_OPMODEL)
             MLIRTTIRDialect
             MLIRTTNNDialect
             MLIRTTTransforms
+            YamlParamLoader
     )
 endif()

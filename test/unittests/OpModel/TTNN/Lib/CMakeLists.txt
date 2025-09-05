@@ -2,7 +2,7 @@ if(TTMLIR_ENABLE_OPMODEL)
     set(CMAKE_CXX_STANDARD 17)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-    add_executable(TestOpModelLib TestOpModelLib.cpp YamlParamLoader.cpp)
+    add_executable(TestOpModelLib TestOpModelLib.cpp)
 
     target_compile_options(TestOpModelLib PRIVATE -fno-rtti)
 
@@ -23,6 +23,6 @@ if(TTMLIR_ENABLE_OPMODEL)
             MLIRTTIRDialect
             MLIRTTNNDialect
             MLIRTTTransforms
-            yaml-cpp
+            YamlParamLoader
     )
 endif()

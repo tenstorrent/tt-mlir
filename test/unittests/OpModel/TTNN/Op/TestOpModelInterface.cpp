@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "OpModelFixture.h"
+#include "YamlParamLoader.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -111,12 +112,9 @@ public:
         ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
   }
 };
-struct ExpectedResult {
-  bool expectedLegal = false;
-  size_t expectedCbSize = 0;
-  size_t expectedPeakSize = 0;
-  size_t expectedOutputSize = 0;
-};
+
+using ExpectedResult = op_model::detail::ExpectedResult;
+
 struct UnaryOpTestParams {
   std::string testName;
   std::function<Operation *(OpBuilder &, Location, Type, ValueRange)> createOp;
