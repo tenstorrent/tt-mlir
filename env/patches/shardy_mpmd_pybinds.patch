@@ -72,7 +72,7 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 index b73a2bd..c5cb085 100755
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -53,6 +53,8 @@ add_compile_options(-Wno-deprecated-declarations -Wno-unused-but-set-variable -W
+@@ -52,5 +52,7 @@ add_compile_options(-Wno-deprecated-declarations -Wno-unused-but-set-variable -W
  add_subdirectory(shardy/common)
  add_subdirectory(shardy/dialect/sdy/ir)
  add_subdirectory(shardy/dialect/sdy/transforms)
@@ -80,7 +80,6 @@ index b73a2bd..c5cb085 100755
 +add_subdirectory(shardy/dialect/mpmd/transforms)
  add_subdirectory(shardy/integrations/python/ir)
  add_subdirectory(shardy/integrations/c)
- add_subdirectory(shardy/round_trip_import)
 \ No newline at end of file
 diff --git a/shardy/dialect/mpmd/ir/CMakeLists.txt b/shardy/dialect/mpmd/ir/CMakeLists.txt
 new file mode 100644
