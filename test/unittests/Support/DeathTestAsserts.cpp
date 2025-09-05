@@ -9,6 +9,8 @@
 #include <string>
 #include <string_view>
 
+#if !defined(TT_ASSERT_DISABLE_ASSERTS)
+
 // A subset of "TestAsserts.cpp" test suite to verify that assert
 // failure messages are seen in stderr when the process terminates.
 
@@ -124,19 +126,23 @@ TEST(AssertsDeathTest, IntegralRangeChecks) {
           in_exclusive_range\\(y, 2, 3\\)) "y \\(2\\) is not in \\(2, 3\\)");
 }
 
-// Check that TT_debug* asserts are elided when TT_ASSERT_ENABLE_DEBUG_ASSERTS
-// is undefined.
+#undef TT_STANDARD_ASSERT_MSG_PREFIX
 
-TEST(AssertsDeathTest, MacroElision) {
+#endif // TT_ASSERT_DISABLE_ASSERTS
+
+// Check that TT-debug* asserts are appropriately elided according
+// to TT_ASSERT_ENABLE_DEBUG_ASSERTS.
+//
+// See also TestAssertsElision.cpp.
+
+TEST(AssertsDeathTest, MacroElisionDebug) {
 #if !defined(TT_ASSERT_ENABLE_DEBUG_ASSERTS)
-  // These should be elided and not abort the process.
+  // TT_debug* should be elided and not abort the process,
+  // regardless of TT_ASSERT_DISABLE_ASSERTS status.
 
   TT_debug(2 < 1);
   TT_debug_limit(10, 1);
-
   TT_debugv(2 + 2 != 4, "was hoping against hope");
 
 #endif // TT_ASSERT_ENABLE_DEBUG_ASSERTS
 }
-
-#undef TT_STANDARD_ASSERT_MSG_PREFIX

@@ -1,6 +1,7 @@
 add_mlir_unittest(TTMLIRSupportTests
   LoggerTest.cpp
   TestAsserts.cpp
+  TestAssertsElision.cpp
   DeathTestAsserts.cpp
 )
 

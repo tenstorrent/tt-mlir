@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#if !defined(TT_ASSERT_DISABLE_ASSERTS)
+
 #include "llvm/Support/raw_ostream.h"
 
 #include "testing/Utils.h"
@@ -366,3 +368,5 @@ TEST_F(AssertsTest, NoncopyableType) {
 }
 
 #undef TT_STANDARD_ASSERT_MSG_PREFIX
+
+#endif // TT_ASSERT_DISABLE_ASSERTS

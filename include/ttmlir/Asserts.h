@@ -54,17 +54,29 @@
 
 namespace ttmlir::utils::asserts {
 
+// This assert facility can be disabled by defining TT_ASSERT_DISABLE_ASSERTS
+// which will result in void-valued definitions of all assert macros. This
+// will happen by default if NDEBUG is defined, parallel to the standard
+// <cassert> behavior.
+
+#if !defined(TT_ASSERT_DISABLE_ASSERTS)
+#if defined(NDEBUG)
+#define TT_ASSERT_DISABLE_ASSERTS
+#endif // NDEBUG
+#endif // TT_ASSERT_DISABLE_ASSERTS
+
 // The TT_debug*() family of macros are meant to be elided in "release" builds
 // and are meant to be used in tight loops and similar situations where
-// invariant checking overhead should be remoed from the final product.
+// invariant checking overhead should be removed from the final product.
 //
-// These debug macros are enabled when TT_ASSERT_ENABLE_DEBUG_ASSERTS is defined
-// which by default happens when TTMLIR_ENABLE_DEBUG_LOGS is defined.
+// Specifically, these debug macros are void-valued definitions unless
+// TT_ASSERT_ENABLE_DEBUG_ASSERTS is defined. The latter happens by default when
+// CMAKE_CXX_FLAGS_DEBUG is defined.
 
 #if !defined(TT_ASSERT_ENABLE_DEBUG_ASSERTS)
-#ifdef TTMLIR_ENABLE_DEBUG_LOGS
+#if defined(CMAKE_CXX_FLAGS_DEBUG)
 #define TT_ASSERT_ENABLE_DEBUG_ASSERTS
-#endif // TTMLIR_ENABLE_DEBUG_LOGS
+#endif // CMAKE_CXX_FLAGS_DEBUG
 #endif // TT_ASSERT_ENABLE_DEBUG_ASSERTS
 
 // The default behavior for a triggered assert is to print a message (to
@@ -85,7 +97,7 @@ namespace ttmlir::utils::asserts {
 #define TT_ASSERT_REPORT_STREAM() ::llvm::errs()
 #endif // TT_ASSERT_REPORT_STREAM
 
-// ............................................................................
+//===---------------------------------------------------------------------===//
 namespace impl {
 
 // clang-format off
@@ -102,7 +114,7 @@ namespace impl {
 template <typename T>
 struct always_false : std::false_type {};
 
-// ............................................................................
+//===---------------------------------------------------------------------===//
 
 template <typename T, typename = void>
 struct UnsignedCast {
@@ -118,7 +130,7 @@ struct UnsignedCast<T, std::enable_if_t<std::is_integral_v<T>>> {
     return static_cast<std::make_unsigned_t<T>>(x);
   }
 };
-// ............................................................................
+//===---------------------------------------------------------------------===//
 
 template <typename T, typename Stream, typename = void>
 struct is_streamable : std::false_type {};
@@ -136,7 +148,7 @@ template <typename T>
 struct has_to_string<T, std::void_t<decltype(to_string(std::declval<T>()))>>
     : std::true_type {};
 
-// ............................................................................
+//===---------------------------------------------------------------------===//
 
 // A hook for printing values in assertion failure messages (e.g. strings/chars
 // could be printed as quoted strings, etc).
@@ -187,23 +199,22 @@ template <typename T, typename Stream>
 void print(Stream &os, T &&obj) {
   impl::PrintAdaptor<T, Stream>::evaluate(os, std::forward<T>(obj));
 }
-// ............................................................................
-// clang-format off
+//===---------------------------------------------------------------------===//
 
 enum class BinaryOp {
-    eq,   // ==
-    ne,   // !=
-    lt,   // <
-    le,   // <=
-    gt,   // >
-    ge,   // >=
-    undefined
+  eq, // ==
+  ne, // !=
+  lt, // <
+  le, // <=
+  gt, // >
+  ge, // >=
+  undefined
 };
 
-static inline constexpr const char * kBinaryOpName[] { "==", "!=", "<", "<=", ">", ">=", "UNDEFINED"};
+static inline constexpr const char *kBinaryOpName[]{
+    "==", "!=", "<", "<=", ">", ">=", "UNDEFINED"};
 
-// clang-format on
-// ............................................................................
+//===---------------------------------------------------------------------===//
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
 template <typename LHS, typename RHS, BinaryOp Op>
@@ -269,7 +280,7 @@ struct BinaryExpr {
   // clang-format on
 };
 // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
-// ............................................................................
+//===---------------------------------------------------------------------===//
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
 template <typename LHS>
@@ -339,28 +350,25 @@ struct ExprLHS {
   }
 
   LHS lhs;
-
-}; // end of class
+};
 // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
-// ............................................................................
+//===---------------------------------------------------------------------===//
 
 struct ExprDecomposer {
 
-  // clang-format off
   template <typename T>
-  constexpr friend auto operator<=(ExprDecomposer &&, T &&lhs) -> ExprLHS<const T &> {
+  constexpr friend auto operator<=(ExprDecomposer &&, T &&lhs)
+      -> ExprLHS<const T &> {
     return ExprLHS<const T &>{lhs};
   }
-  // clang-format on
-
-}; // end of class
-// ............................................................................
+};
+//===---------------------------------------------------------------------===//
 
 template <typename T>
 decltype(auto) unsigned_cast(T x) {
   return impl::UnsignedCast<T>::evaluate(x);
 }
-// ............................................................................
+//===---------------------------------------------------------------------===//
 // clang-format off
 
 // These macro names spellings are intentional, they are intended to show up
@@ -373,86 +381,98 @@ decltype(auto) unsigned_cast(T x) {
 
 // Single-branch `a < x < b` check.
 #define in_exclusive_range(x, a, b)                                            \
-  (::ttmlir::utils::asserts::unsigned_cast((x) - (a) - 1) <                    \
-   ::ttmlir::utils::asserts::unsigned_cast((b) - (a) - 1))
+  (::ttmlir::utils::asserts::unsigned_cast((x) - (a)-1) <                      \
+   ::ttmlir::utils::asserts::unsigned_cast((b) - (a)-1))
 
 // Single-branch `a <= x <= b` check.
 #define in_inclusive_range(x, a, b)                                            \
   (::ttmlir::utils::asserts::unsigned_cast((x) - (a)) <=                       \
    ::ttmlir::utils::asserts::unsigned_cast((b) - (a)))
 
-// ............................................................................
+//===---------------------------------------------------------------------===//
+// TT_assert*.
+//===---------------------------------------------------------------------===//
 
-#define TT_assert(condition)                                                  \
-  do {                                                                        \
-    if (TT_ASSERT_UNLIKELY(!(condition))) {                                   \
-      (::ttmlir::utils::asserts::ExprDecomposer { } <= condition )            \
-        .report(TT_ASSERT_REPORT_STREAM(), TT_IMPL_ASSERT_LOC_INFO, #condition); \
-      TT_ASSERT_FAILURE();                                                    \
-    }                                                                         \
-  } while (false)                                                             \
-  /* */
+#if !defined(TT_ASSERT_DISABLE_ASSERTS)
+
+# define TT_assert(condition)                                                  \
+    do {                                                                       \
+      if (TT_ASSERT_UNLIKELY(!(condition))) {                                  \
+        (::ttmlir::utils::asserts::ExprDecomposer { } <= condition )           \
+          .report(TT_ASSERT_REPORT_STREAM(), TT_IMPL_ASSERT_LOC_INFO, #condition); \
+        TT_ASSERT_FAILURE();                                                   \
+      }                                                                        \
+    } while (false)                                                            \
+    /* */
 
 // TODO(vroubtsov) for now, 'message' is required; in c++20 there will be
 // a standard-compliant way to make it optional and to nicely merge
 // TT_assert and TT_assertv into a single macro; there doesn't seem to be
 // a way to do this in c++17 without enabling gcc/clang extensions.
 
-#define TT_assertv(condition, /* message[, args...] */...)                    \
-  do {                                                                        \
-    if (TT_ASSERT_UNLIKELY(!(condition))) {                                   \
-      (::ttmlir::utils::asserts::ExprDecomposer { } <= condition )            \
-        .report(TT_ASSERT_REPORT_STREAM(), TT_IMPL_ASSERT_LOC_INFO, #condition, \
-                llvm::formatv(__VA_ARGS__).str());                            \
-      TT_ASSERT_FAILURE();                                                    \
-    }                                                                         \
-  } while (false)                                                             \
-  /* */
-
-// ............................................................................
+# define TT_assertv(condition, /* message[, args...] */...)                    \
+    do {                                                                       \
+      if (TT_ASSERT_UNLIKELY(!(condition))) {                                  \
+        (::ttmlir::utils::asserts::ExprDecomposer { } <= condition )           \
+          .report(TT_ASSERT_REPORT_STREAM(), TT_IMPL_ASSERT_LOC_INFO, #condition, \
+                  llvm::formatv(__VA_ARGS__).str());                           \
+        TT_ASSERT_FAILURE();                                                   \
+      }                                                                        \
+    } while (false)                                                            \
+    /* */
 
 // a <= x < b
-#define TT_assert_open_range(x, a, b) \
-  TT_assertv(in_open_range(x, a, b), "{} ({}) is not in [{}, {})", TT_ASSERT_STRINGIZE(x), x, a, b)
+# define TT_assert_open_range(x, a, b) \
+    TT_assertv(in_open_range(x, a, b), "{} ({}) is not in [{}, {})", TT_ASSERT_STRINGIZE(x), x, a, b)
 
 // 0 <= x < b, convenience shortcut.
-#define TT_assert_limit(x, limit) \
-  TT_assertv(in_open_range(x, 0, limit), "{} ({}) is not in [0, {})", TT_ASSERT_STRINGIZE(x), x, limit)
+# define TT_assert_limit(x, limit) \
+    TT_assertv(in_open_range(x, 0, limit), "{} ({}) is not in [0, {})", TT_ASSERT_STRINGIZE(x), x, limit)
 
 // a < x < b
-#define TT_assert_exclusive_range(x, a, b) \
-  TT_assertv(in_exclusive_range(x, a, b), "{} ({}) is not in ({}, {})", TT_ASSERT_STRINGIZE(x), x, a, b)
+# define TT_assert_exclusive_range(x, a, b) \
+    TT_assertv(in_exclusive_range(x, a, b), "{} ({}) is not in ({}, {})", TT_ASSERT_STRINGIZE(x), x, a, b)
 
 // a <= x <= b
-#define TT_assert_inclusive_range(x, a, b) \
-  TT_assertv(in_inclusive_range(x, a, b), "{} ({}) is not in [{}, {}]", TT_ASSERT_STRINGIZE(x), x, a, b)
+# define TT_assert_inclusive_range(x, a, b) \
+    TT_assertv(in_inclusive_range(x, a, b), "{} ({}) is not in [{}, {}]", TT_ASSERT_STRINGIZE(x), x, a, b)
 
-// ............................................................................
+#else // TT_ASSERT_DISABLE_ASSERTS
 
-#ifdef TT_ASSERT_ENABLE_DEBUG_ASSERTS
+# define TT_assert(condition)                             ((void)0)
+# define TT_assertv(condition, /* message[, args] */...)  ((void)0)
 
-# define TT_debug(condition)                            TT_assert(condition)
-# define TT_debugv(condition, /* message[, args] */...) TT_assertv(condition, __VA_ARGS__)
+# define TT_assert_open_range(x, a, b)                    ((void)0)
+# define TT_assert_limit(x, limit)                        ((void)0)
+# define TT_assert_exclusive_range(x, a, b)               ((void)0)
+# define TT_assert_inclusive_range(x, a, b)               ((void)0)
 
-# define TT_debug_open_range(x, a, b)                   TT_assert_open_range(x, a, b)
-# define TT_debug_limit(x, limit)                       TT_assert_limit(x, limit)
-# define TT_debug_exclusive_range(x, a, b)              TT_assert_exclusive_range(x, a, b)
-# define TT_debug_inclusive_range(x, a, b)              TT_assert_inclusive_range(x, a, b)
+#endif // TT_ASSERT_DISABLE_ASSERTS
+
+//===---------------------------------------------------------------------===//
+// TT_debug*.
+//===---------------------------------------------------------------------===//
+
+#if defined(TT_ASSERT_ENABLE_DEBUG_ASSERTS)
+
+# define TT_debug_open_range(x, a, b)                     TT_assert_open_range(x, a, b)
+# define TT_debug_limit(x, limit)                         TT_assert_limit(x, limit)
+# define TT_debug_exclusive_range(x, a, b)                TT_assert_exclusive_range(x, a, b)
+# define TT_debug_inclusive_range(x, a, b)                TT_assert_inclusive_range(x, a, b)
 
 #else // !TT_ASSERT_ENABLE_DEBUG_ASSERTS
 
-# define TT_debug(condition)                            ((void)0)
-# define TT_debugv(condition, /* message[, args] */...) ((void)0)
+# define TT_debug(condition)                              ((void)0)
+# define TT_debugv(condition, /* message[, args] */...)   ((void)0)
 
-# define TT_debug_open_range(x, a, b)                   ((void)0)
-# define TT_debug_limit(x, limit)                       ((void)0)
-# define TT_debug_exclusive_range(x, a, b)              ((void)0)
-# define TT_debug_inclusive_range(x, a, b)              ((void)0)
+# define TT_debug_open_range(x, a, b)                     ((void)0)
+# define TT_debug_limit(x, limit)                         ((void)0)
+# define TT_debug_exclusive_range(x, a, b)                ((void)0)
+# define TT_debug_inclusive_range(x, a, b)                ((void)0)
 
 #endif // TT_ASSERT_ENABLE_DEBUG_ASSERTS
 
-// clang-format on
-// ............................................................................
+// clang-format off
 
 } // namespace ttmlir::utils::asserts
 #endif // TTMLIR_ASSERTS_H
