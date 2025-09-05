@@ -336,6 +336,13 @@ def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc"> {
       }];
 }
 
+def TTNN_BitcastOp: TTNN_ElementwiseUnaryOp<"bitcast"> {
+  let summary = "Eltwise Bitcast.";
+  let description = [{
+    Eltwise Bitcast operation.
+  }];
+}
+
 def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
     let summary = "Eltwise floor op.";
     let description = [{

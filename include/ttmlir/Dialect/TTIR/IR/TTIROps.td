@@ -672,6 +672,23 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
     }];
 }
 
+def TTIR_BitcastOp: TTIR_ElementwiseUnaryOp<"bitcast"> {
+  let summary = "Elementwise Bitcast operation.";
+  let description = [{
+    The `bitcast` operation reinterprets the bits of each element in the input tensor as another type, without changing the bit pattern.
+
+    Example:
+    ```mlir
+    // Bitcast all elements in %input
+    %result = ttir.bitcast(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [[1.7, 2.0, -0.3, 4.5], ... ]
+    // Output tensor:
+    // [reinterpretation of bits]
+    ```
+  }];
+}
+
 def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor", [TTIR_Idempotence]> {
     let summary = "Elementwise floor operation.";
     let description = [{

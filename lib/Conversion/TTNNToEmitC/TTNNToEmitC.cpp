@@ -2566,6 +2566,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::IsFiniteOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::LogicalNotOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::BitwiseNotOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::BitcastOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::NegOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<
@@ -2597,6 +2598,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AtanOp>,
            EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
                mlir::tt::ttnn::LogOp>>(typeConverter, ctx);
+
 
   // Eltwise binary ops
   //

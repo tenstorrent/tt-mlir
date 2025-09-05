@@ -1425,6 +1425,8 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
                  .Union();
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, BitwiseNotOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::BitwiseNot;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, BitcastOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Bitcast;
   } else {
     llvm_unreachable("unhandled EltwiseUnaryOp");
   }
@@ -2163,6 +2165,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto bitwiseNotOp = dyn_cast<BitwiseNotOp>(op); bitwiseNotOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, bitwiseNotOp),
+                           debugString, locInfo);
+  }
+  if (auto bitcastOp = dyn_cast<BitcastOp>(op); bitcastOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, bitcastOp),
                            debugString, locInfo);
   }
   if (auto negOp = dyn_cast<NegOp>(op); negOp) {

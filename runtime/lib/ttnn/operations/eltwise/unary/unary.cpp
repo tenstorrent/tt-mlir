@@ -9,6 +9,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
+#include <cstdint>
 
 namespace tt::runtime::ttnn::operations::eltwise::unary {
 
@@ -114,6 +115,35 @@ static void runEltwiseUnaryWithFloatParameterOp(
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
+static void
+runEltwiseUnaryBitcastOp(const ::tt::target::ttnn::EltwiseUnaryOp *op,
+                         ProgramTensorPool &tensorPool) {
+  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  std::vector<uint32_t> data = in.to_vector<uint32_t>();
+  std::vector<float> new_data(data.size());
+
+  for (size_t i = 0; i < data.size(); ++i) {
+    uint32_t as_int = data[i];
+    float as_float;
+    std::memcpy(&as_float, &as_int, sizeof(float));
+    new_data[i] = as_float;
+  }
+
+  auto tensor_spec = in.tensor_spec();
+
+  ::ttnn::Tensor out = ::ttnn::Tensor::from_vector(new_data, tensor_spec,
+                                                   in.mesh_device_.value());
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
 void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -209,6 +239,10 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::BitwiseNot: {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::bitwise_not);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Bitcast: {
+    runEltwiseUnaryBitcastOp(op, tensorPool);
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Erf: {
