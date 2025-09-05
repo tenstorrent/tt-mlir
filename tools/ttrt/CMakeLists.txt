@@ -71,6 +71,9 @@ declare_mlir_python_sources(TTRTSources
     common/util.py
 
     runtime/__init__.py
+
+    __init__.py
+    library_tweaks.py
 )
 
 add_mlir_python_modules(TTRTPythonModules
