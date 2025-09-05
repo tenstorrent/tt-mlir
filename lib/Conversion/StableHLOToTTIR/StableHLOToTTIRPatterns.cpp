@@ -2866,6 +2866,66 @@ private:
 };
 } // namespace
 
+
+namespace {
+class StableHLOCacheFillConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.fill_cache") {
+      return failure();
+    }
+
+    auto cache = adaptor.getOperands()[0];
+    auto input = adaptor.getOperands()[1];
+    
+    rewriter.replaceOpWithNewOp<ttir::FillCacheOp>(srcOp,
+                                                   adaptor.getOperands()[0].getType(),
+                                                   cache, input, 0);
+
+    
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+  class StableHLOCacheUpdateConversionPattern
+      : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+    using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+  
+  public:
+    LogicalResult
+    matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                    mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+      StringAttr funcName = adaptor.getCallTargetNameAttr();
+      if (funcName != "tt.update_cache") {
+        return failure();
+      }
+  
+      auto cache = adaptor.getOperands()[0];
+      auto input = adaptor.getOperands()[1];
+      auto updateIndex = adaptor.getOperands()[2];
+      
+      rewriter.replaceOpWithNewOp<ttir::UpdateCacheOp>(srcOp,
+                                                     adaptor.getOperands()[0].getType(),
+                                                     cache, input, updateIndex, 0);
+  
+      
+  
+      return success();
+    }
+  };
+  } // namespace
+
 namespace {
 class StableHLOErfOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
