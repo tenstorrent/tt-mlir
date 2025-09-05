@@ -3238,6 +3238,13 @@ static void addSortOpConversionPattern(MLIRContext *ctx,
                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRSortOpConversionPattern>(typeConverter, ctx);
 }
+
+static void addCacheOpsConversionPattern(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
+  patterns.add<StableHLOCacheFillConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOCacheUpdateConversionPattern>(typeConverter, ctx);
+}
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -3271,6 +3278,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addRngOpConversionPattern(ctx, patterns, typeConverter);
   addErfOpConversionPattern(ctx, patterns, typeConverter);
   addSortOpConversionPattern(ctx, patterns, typeConverter);
+  addCacheOpsConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
