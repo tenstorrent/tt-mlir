@@ -14,6 +14,7 @@ add_mlir_dialect_library(MLIRTTNNDialect
         MLIRTTNNOpModelInterfaceIncGen
         MLIRTTNNTensorSpecInterfaceIncGen
         MLIRTTNNWorkaroundInterfaceIncGen
+        MLIRTTNNKernelInterfaceIncGen
 
         LINK_LIBS PUBLIC
         MLIRBufferizationDialect

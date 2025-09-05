@@ -2448,4 +2448,25 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
+def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>,
+      DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
+    let summary = "Generic operation.";
+    let description = [{
+      Generic operation capable of running a program with custom kernels. Each kernel is described with a
+      symbol reference to its function in EmitC dialect plus compile and runtime arguments. Generic operation
+      is supplied with concatenated input and output `ios` tensors.
+
+      Inputs:
+        - `inputs_and_outputs` Variadic<AnyRankedTensor>: The input and output tensors.
+        - `program` ProgramAttr: Program descriptor that includes a description of each kernels, array of CBs and array of semaphores.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs_and_outputs,
+                         TTNN_ProgramAttr:$program,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let hasVerifier = 1;
+}
+
 #endif

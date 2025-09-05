@@ -3230,4 +3230,23 @@ MeshShardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
+
+//===----------------------------------------------------------------------===//
+// GenericOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+GenericOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+GenericOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
 } // namespace mlir::tt::ttnn
