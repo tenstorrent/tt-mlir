@@ -145,14 +145,14 @@ jobs:
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
-    # - name: ccache
-    #   uses: hendrikmuhs/ccache-action@v1.2
-    #   with:
-    #     create-symlink: true
-    #     key: ${{ matrix.build.name }}-${{ env.SDK_VERSION }}
-    #   env:
-    #     CCACHE_NOHASHDIR: true
-    #     CCACHE_BASEDIR: ${{ steps.strings.outputs.work-dir }}
+    - name: ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        create-symlink: true
+        key: ${{ matrix.build.name }}-${{ env.SDK_VERSION }}
+      env:
+        CCACHE_NOHASHDIR: true
+        CCACHE_BASEDIR: ${{ steps.strings.outputs.work-dir }}
 
     - name: Run tt-mlir build
       uses: ./.github/actions/build-tt-mlir-action
