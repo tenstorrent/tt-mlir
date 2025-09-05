@@ -183,11 +183,12 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
     // Some ops defines attributes with tensor layout, buffer type and memory
     // layout, hence we need to update the attributes as well. For example,
     // the empty op defines layout and memory_config attributes.
-    if (outputWorkaroundResults.tensorLayoutResult.isModified() &&
-        op->getAttrDictionary().get(ttmlir::utils::g_outputLayoutAttrName)) {
+    TTNNLayoutOpInterface layoutOp =
+        mlir::dyn_cast<TTNNLayoutOpInterface>(op.getOperation());
+    if (outputWorkaroundResults.tensorLayoutResult.isModified() && layoutOp) {
       LayoutAttr updatedLayoutAttr = rewriter.getAttr<LayoutAttr>(
           outputWorkaroundResults.tensorLayoutResult.targetValue);
-      op->setAttr(ttmlir::utils::g_outputLayoutAttrName, updatedLayoutAttr);
+      layoutOp.setLayoutAttr(updatedLayoutAttr);
     }
 
     TTNNDtypeOpInterface dtypeOp =
@@ -199,15 +200,16 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       dtypeOp.setDtypeAttr(updatedDataTypeAttr);
     }
 
+    TTNNMemoryConfigOpInterface memoryConfigOp =
+        mlir::dyn_cast<TTNNMemoryConfigOpInterface>(op.getOperation());
     if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
          outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) &&
-        op->getAttrDictionary().get(
-            ttmlir::utils::g_outputMemoryConfigAttrName)) {
+        memoryConfigOp) {
 
-      MemoryConfigAttr currentMemoryConfig = mlir::cast<MemoryConfigAttr>(
-          op->getAttr(ttmlir::utils::g_outputMemoryConfigAttrName));
+      MemoryConfigAttr currentMemoryConfig =
+          memoryConfigOp.getMemoryConfigAttr();
 
-      currentMemoryConfig =
+      MemoryConfigAttr updatedMemoryConfig =
           MemoryConfigAttr::Builder(currentMemoryConfig)
               .setBufferType(
                   outputWorkaroundResults.tensorBufferTypeResult.targetValue)
@@ -215,23 +217,31 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
                   outputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
 
       // Update the changed memory config attribute.
-      op->setAttr(ttmlir::utils::g_outputMemoryConfigAttrName,
-                  currentMemoryConfig);
+      memoryConfigOp.setMemoryConfigAttr(updatedMemoryConfig);
+
+      TTNNDeviceOperandInterface deviceOperandOp =
+          mlir::dyn_cast<TTNNDeviceOperandInterface>(op.getOperation());
 
       // If the target value for buffer type is SystemMemory, we need to remove
       // the device operand from the operation.
       if (outputWorkaroundResults.tensorBufferTypeResult.isModified() &&
           outputWorkaroundResults.tensorBufferTypeResult.targetValue ==
-              BufferType::SystemMemory) {
-        auto deviceOperandIt =
-            llvm::find_if(op->getOperands(), [](Value operand) {
-              return mlir::isa<DeviceType>(operand.getType());
-            });
+              BufferType::SystemMemory &&
+          deviceOperandOp) {
+        // Remove the device operand from the operation.
+        deviceOperandOp.setDevice(nullptr);
+      }
 
-        if (deviceOperandIt != op->getOperands().end()) {
-          op->eraseOperand(
-              std::distance(op->getOperands().begin(), deviceOperandIt));
-        }
+      // If the target value for buffer type is not SystemMemory and the
+      // operation has a required device operand, we need to set the device
+      // operand to a default device if it is not already set.
+      if (outputWorkaroundResults.tensorBufferTypeResult.isModified() &&
+          outputWorkaroundResults.tensorBufferTypeResult.targetValue !=
+              BufferType::SystemMemory &&
+          deviceOperandOp && !deviceOperandOp.getDevice()) {
+        // Set the device operand to a default device.
+        Value device = utils::getOrInsertDevice(rewriter, op);
+        deviceOperandOp.setDevice(device);
       }
     }
   });
