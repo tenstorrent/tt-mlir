@@ -159,7 +159,7 @@ def WrapSingleAffineLoops : Pass<"wrap-single-affine-loops", "::mlir::func::Func
     }
     ```
   }];
-  let dependentDialects = ["mlir::affine::AffineDialect"];
+  let dependentDialects = ["mlir::affine::AffineDialect", "mlir::scf::SCFDialect"];
 }
 
 def ExtractGPUModules: Pass<"extract-gpu-modules", "::mlir::ModuleOp">
