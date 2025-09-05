@@ -1622,8 +1622,10 @@ generateBinaryEltwiseParamsSameLayout(
   std::vector<BinaryEltwiseParam> newValues;
   for (const auto &v : values) {
     newValues.emplace_back(v);
-    if ((newValues.back().inputA.layout != newValues.back().inputB.layout) ||
-        (newValues.back().inputA.layout != newValues.back().output.layout)) {
+    if ((newValues.back().inputA.memoryLayout !=
+         newValues.back().inputB.memoryLayout) ||
+        (newValues.back().inputA.memoryLayout !=
+         newValues.back().output.memoryLayout)) {
       newValues.back().expectedResult.expectedLegal = false;
     }
   }
