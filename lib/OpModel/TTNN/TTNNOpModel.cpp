@@ -1755,7 +1755,7 @@ llvm::Expected<OpConstraints> OpModel<BitcastOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> OpModel<TypecastOp>::getOpRuntime(
+llvm::Expected<size_t> OpModel<BitcastOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     ttcore::DataTypeAttr dtype, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
