@@ -2181,21 +2181,6 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
               expectedOutputSize] = params.expectedResult;
 
-  llvm::errs() << "--- input shape: ";
-  for (const auto &d : inputShape) {
-    llvm::errs() << d << " ";
-  }
-  llvm::errs() << "\n";
-  llvm::errs() << "--- input tensor layout: " << inputTensorLayout << "\n";
-  llvm::errs() << "--- input buffer type: " << inputBufferType << "\n";
-  if (inputVirtualGrid.has_value()) {
-    llvm::errs() << "--- input virtual grid: ";
-    for (const auto &d : inputVirtualGrid.value()) {
-      llvm::errs() << d << " ";
-    }
-    llvm::errs() << "\n";
-  }
-
   const TTNNLayoutAttr inputLayout =
       params.inputIsTiled
           ? CreateTiledLayout(inputShape, inputBufferType, inputTensorLayout,
