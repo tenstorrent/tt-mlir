@@ -3364,7 +3364,7 @@ void CaptureOrExecuteTraceOp::getEffects(
 // GenericOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::GenericOp::verify() {
   ProgramAttr program = getProgram();
-  size_t numberOfInputsAndOutputs = getIos().size();
+  size_t numberOfInputsAndOutputs = getInputsAndOutputs().size();
   size_t numberOfSemaphores = program.getSemaphores().size();
 
   for (auto kernel : program.getKernels()) {

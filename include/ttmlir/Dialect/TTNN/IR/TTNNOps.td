@@ -2458,11 +2458,11 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
       is supplied with concatenated input and output `ios` tensors.
 
       Inputs:
-        - `ios` Variadic<AnyRankedTensor>: The input and output tensors.
+        - `inputs_and_outputs` Variadic<AnyRankedTensor>: The input and output tensors.
         - `program` ProgramAttr: Program descriptor that includes a description of each kernels, array of CBs and array of semaphores.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$ios,
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs_and_outputs,
                          TTNN_ProgramAttr:$program,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
