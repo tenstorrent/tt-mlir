@@ -264,11 +264,9 @@ protected:
     if (expectedResult.expectedLegal) {
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
-      bool useGreaterThan = std::is_same_v<OpTy, CbrtOp>;
       EXPECT_EQ(cbSize, expectedResult.expectedCbSize);
       EXPECT_EQ(peakSize, expectedResult.expectedPeakSize);
       EXPECT_EQ(outputSize, expectedResult.expectedOutputSize);
-      ExpectLayoutsEQ(outputLayout, expectedResult.outputLayoutReadBack);
     } else {
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
@@ -302,7 +300,9 @@ INSTANTIATE_TEST_SUITE_P(
 ## Key Considerations
 
 ### Error handling: Operations Not Supported
-For operations that cannot support these APIs, use the provided error helpers in `TTNNOpModelInterface.cpp`:
+For operations that cannot support these APIs, use the provided error helpers in `TTNNOpModelInterface.cpp`.
+We're keeping track of such ops in [this issue](https://github.com/tenstorrent/tt-mlir/issues/4392).
+So please either update the issue or add comments to it.
 
 ```cpp
 llvm::Expected<op_model::OpConstraints>
@@ -325,6 +325,7 @@ Available error reasons:
 - `MissingMetalDefinition`: Metal backend implementation is missing
 - `NeedsMultiDevice`: Operation requires multi-device support
 - `NoNeedForConstraintAPI`: Operation doesn't benefit from constraint analysis
+- `ArchitecturalMismatch`: Mismatch in Operation's definition in metal and mlir
 
 ### Device Grid Validation
 
@@ -335,6 +336,8 @@ llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
 if (!check) {
   return check.takeError();
 }
+ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
 ```
 
 ### Caching
@@ -342,8 +345,13 @@ if (!check) {
 Use the provided caching mechanisms for computations:
 
 ```cpp
+// For getOpConstraints:
 return opConstraintsCache().getOrCompute(
-    op_model::OpModel<YourOp>::getOpConstraints,
+    op_model::OpModel<YourOp>::getOpConstraints, *this,
+    /* parameters */);
+// For getOpRuntime:
+return opRuntimeCache().getOrCompute(
+    op_model::OpModel<YourOp>::getOpRuntime, *this,
     /* parameters */);
 ```
 
@@ -356,7 +364,7 @@ the op's definition in metal.
 
 ### Validate Input Assumptions
 
-Always validate the number of input tensors:
+Always validate the number of input tensors, eg.:
 
 ```cpp
 assert(inputs.size() == 2); // for a binary op
