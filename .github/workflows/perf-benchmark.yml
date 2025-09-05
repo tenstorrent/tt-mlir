@@ -39,6 +39,7 @@ permissions:
   contents: read
   packages: write
   checks: write
+  id-token: write
 
 jobs:
   trigger:
