@@ -53,8 +53,9 @@ createCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cbDesc) {
       .total_size = cbDesc.total_size(),
       .core_ranges =
           tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*cbDesc.core_range()),
-      .format_descriptors = {
-          createCBFormatDescriptor(*cbDesc.formats()->Get(0))}};
+      .format_descriptors = {createCBFormatDescriptor(
+          *cbDesc.formats()->Get(0))},
+      .remote_format_descriptors = {}};
   return cbDescriptor;
 }
 
