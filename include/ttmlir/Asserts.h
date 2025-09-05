@@ -356,15 +356,11 @@ struct ExprLHS {
 
 struct ExprDecomposer {
 
-  // TODO(vroubtsov) the formatting guards here are to work around
-  // some formatting differences b/w IRD and CI.
-  // clang-format off
   template <typename T>
-  constexpr friend auto operator<=(ExprDecomposer &&, T &&lhs)
-      -> ExprLHS<const T &> {
+  constexpr friend auto operator<=(ExprDecomposer &&,
+                                   T &&lhs) -> ExprLHS<const T &> {
     return ExprLHS<const T &>{lhs};
   }
-  // clang-format on
 };
 //===---------------------------------------------------------------------===//
 
