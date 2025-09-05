@@ -119,5 +119,17 @@ inline ::tt::runtime::Arch toRuntimeArch(::tt::ARCH arch) {
   }
 }
 
+inline UnpackToDestMode
+toUnpackToDestMode(const tt::target::UnpackToDestMode &unpackToDestMode) {
+  switch (unpackToDestMode) {
+  case tt::target::UnpackToDestMode::Fp32:
+    return UnpackToDestMode::UnpackToDestFp32;
+  case tt::target::UnpackToDestMode::Default:
+    return UnpackToDestMode::Default;
+  LOG_FATAL("Unsupported unpack to dest mode");
+}
+
+}
+
 } // namespace tt::runtime::common
 #endif // TT_RUNTIME_DETAIL_COMMON_COMMON_H

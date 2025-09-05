@@ -13,22 +13,10 @@
 
 namespace tt::runtime::ttnn::operations::generic_op {
 
-inline CoreType convertCoreType(const ::tt::target::ttnn::CoreType &coreType) {
-  switch (coreType) {
-  case ::tt::target::ttnn::CoreType::WORKER: {
-    return CoreType::WORKER;
-  }
-  case ::tt::target::ttnn::CoreType::ETH: {
-    return CoreType::ETH;
-  }
-    LOG_FATAL("Unsupported core type");
-  }
-}
-
 static ::tt::tt_metal::SemaphoreDescriptor createSemaphoreDescriptor(
     const ::tt::target::ttnn::SemaphoreDescriptor &kernelSemaphoreDescriptor) {
   return ::tt::tt_metal::SemaphoreDescriptor{
-      .core_type = convertCoreType(kernelSemaphoreDescriptor.core_type()),
+      .core_type = tt::runtime::ttnn::utils::toCoreType(kernelSemaphoreDescriptor.core_type()),
       .core_ranges = tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
           *kernelSemaphoreDescriptor.core_ranges()),
       .initial_value = kernelSemaphoreDescriptor.initial_value()};
@@ -57,15 +45,6 @@ createCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cbDesc) {
           *cbDesc.formats()->Get(0))},
       .remote_format_descriptors = {}};
   return cbDescriptor;
-}
-
-static_assert(static_cast<uint8_t>(::tt::target::UnpackToDestMode::Fp32) ==
-              static_cast<uint8_t>(UnpackToDestMode::UnpackToDestFp32));
-static_assert(static_cast<uint8_t>(::tt::target::UnpackToDestMode::Default) ==
-              static_cast<uint8_t>(UnpackToDestMode::Default));
-inline constexpr UnpackToDestMode
-convertUnpackToDestMode(const tt::target::UnpackToDestMode &unpackToDestMode) {
-  return static_cast<UnpackToDestMode>(unpackToDestMode);
 }
 
 static_assert(static_cast<uint8_t>(::tt::target::ttnn::Noc::Noc0) ==
@@ -122,7 +101,7 @@ createKernelConfigDescriptor(
         computeConfig->unpack_to_dest_modes()->size());
     for (unsigned int i = 0; i < computeConfig->unpack_to_dest_modes()->size();
          i++) {
-      unpackToDestModes[i] = convertUnpackToDestMode(
+      unpackToDestModes[i] = common::toUnpackToDestMode(
           computeConfig->unpack_to_dest_modes()->Get(i));
     }
     return ::tt::tt_metal::ComputeConfigDescriptor{
