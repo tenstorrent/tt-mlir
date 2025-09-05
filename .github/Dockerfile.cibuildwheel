@@ -17,6 +17,7 @@ RUN dnf install --refresh -y \
     hwloc-devel tbb-devel capstone-devel \
     yaml-cpp-devel boost-devel libcurl-devel \
     pandoc doxygen graphviz lcov perf \
+    python3.11 python3.11-pip \
     xz
 
 RUN dnf clean all
