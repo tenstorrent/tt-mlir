@@ -16,7 +16,8 @@ namespace tt::runtime::ttnn::operations::generic_op {
 static ::tt::tt_metal::SemaphoreDescriptor createSemaphoreDescriptor(
     const ::tt::target::ttnn::SemaphoreDescriptor &kernelSemaphoreDescriptor) {
   return ::tt::tt_metal::SemaphoreDescriptor{
-      .core_type = tt::runtime::ttnn::utils::toCoreType(kernelSemaphoreDescriptor.core_type()),
+      .core_type = tt::runtime::ttnn::utils::toCoreType(
+          kernelSemaphoreDescriptor.core_type()),
       .core_ranges = tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
           *kernelSemaphoreDescriptor.core_ranges()),
       .initial_value = kernelSemaphoreDescriptor.initial_value()};

@@ -126,9 +126,8 @@ toUnpackToDestMode(const tt::target::UnpackToDestMode &unpackToDestMode) {
     return UnpackToDestMode::UnpackToDestFp32;
   case tt::target::UnpackToDestMode::Default:
     return UnpackToDestMode::Default;
-  LOG_FATAL("Unsupported unpack to dest mode");
-}
-
+    LOG_FATAL("Unsupported unpack to dest mode");
+  }
 }
 
 } // namespace tt::runtime::common
