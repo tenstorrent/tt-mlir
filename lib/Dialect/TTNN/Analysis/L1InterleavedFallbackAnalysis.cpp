@@ -37,7 +37,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     if (isa<ttnn::SliceStaticOp, ttnn::TypecastOp>(op)) {
       return;
     }
-    // Skip Matmul and Linear input, inefficient for L1 interleaved.
+    // Skip Matmul and Linear output, inefficient for L1 interleaved.
     if (isa<ttnn::MatmulOp, ttnn::LinearOp>(op)) {
       return;
     }
