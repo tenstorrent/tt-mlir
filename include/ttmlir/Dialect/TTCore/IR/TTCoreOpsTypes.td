@@ -282,15 +282,18 @@ def TTCore_HostLayoutAttr : TTCore_Attr<"HostLayout", "host_layout", [TTCore_Dev
     - dim_alignments: Per-dimension alignment in elements used to compute
       aligned shapes for stride calculation.
   }];
-  let parameters = (ins ArrayRefParameter<"int64_t">:$shape,
-                        ArrayRefParameter<"int64_t">:$dim_alignments);
-  let assemblyFormat = "`<` `shape` `=` custom<DimensionList>($shape) `,` `alignments` `=` custom<DimensionList>($dim_alignments) `>`";
+  let parameters = (ins ArrayRefParameter<"int64_t">:$logical_shape,
+                        ArrayRefParameter<"int64_t">:$host_strides,
+                        "int64_t":$host_volume);
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `host_strides` `=` custom<DimensionList>($host_strides) `,` `host_volume` `=` $host_volume `>`";
   let extraClassDeclaration = [{
     LogicalResult getStridesAndOffset(ArrayRef<int64_t> shape,
                                       SmallVectorImpl<int64_t> &strides,
                                       int64_t &offset) const;
 
     AffineMap getAffineMap() const;
+
+    bool isPadded() const;
   }];
 }
 
@@ -337,7 +340,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // The logical tensor shape before distribution.
     ArrayRefParameter<"int64_t">:$logical_shape,
 
-    // Alignment for each logical dim, default is 1x1x...x32x32.
+    // Imposed alignment for each collapse stage in each collapsed interval, interpretation requires its corresponding collapsed_intervals.
+    // Default is 1x1x...x1x32x32.
     ArrayRefParameter<"int64_t">:$dim_alignments,
 
     // Dim collapse info; must be encoded as 2D array of pairs, where each pair represent a half-open range. Negative indexing is supported.
@@ -396,6 +400,10 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
 
     // Stride calculations for shard portion.
     llvm::SmallVector<int64_t> getShardStride(RankedTensorType tensorType) const;
+
+    std::pair<llvm::SmallVector<int64_t>, int64_t> getHostStrideAndVolume() const;
+    llvm::SmallVector<int64_t> getHostStride() const;
+    int64_t getHostVolume() const;
 
     llvm::SmallVector<int64_t> getNormalizedIntervals() const;
 

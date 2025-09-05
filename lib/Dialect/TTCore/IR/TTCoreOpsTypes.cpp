@@ -579,7 +579,7 @@ ViewLayoutAttr ViewLayoutAttr::compose(ViewLayoutAttr g) const {
 
 mlir::AffineMap HostLayoutAttr::getAffineMap() const {
   auto *context = getContext();
-  const int64_t rank = getShape().size();
+  const int64_t rank = getLogicalShape().size();
   SmallVector<mlir::AffineExpr> mapExprs(rank + 1);
 
   // Pass-through each index dimension.
@@ -589,7 +589,8 @@ mlir::AffineMap HostLayoutAttr::getAffineMap() const {
 
   SmallVector<int64_t> strides;
   int64_t offset = 0;
-  [[maybe_unused]] auto ret = getStridesAndOffset(getShape(), strides, offset);
+  [[maybe_unused]] auto ret =
+      getStridesAndOffset(getLogicalShape(), strides, offset);
 
   // Last map is for generating linearized/flattened offsets.
   mapExprs[rank] = getAffineConstantExpr(0, context);
@@ -606,19 +607,19 @@ LogicalResult
 HostLayoutAttr::getStridesAndOffset(ArrayRef<int64_t> shape,
                                     SmallVectorImpl<int64_t> &strides,
                                     int64_t &offset) const {
-  const int64_t rank = getDimAlignments().size();
+  const int64_t rank = getHostStrides().size();
   assert(rank == static_cast<int64_t>(shape.size()));
   strides.resize_for_overwrite(rank);
 
-  // TODO(wenbinlyuTT): extract runtime util's calculateAlignedStride()
-  int64_t sliceElems = 1;
-  for (int64_t i = rank - 1; i >= 0; i--) {
-    strides[i] = sliceElems;
-    sliceElems *= ttmlir::utils::alignUp(shape[i], getDimAlignments()[i]);
+  for (int64_t i = 0; i < rank; i++) {
+    strides[i] = getHostStrides()[i];
   }
-
   offset = 0;
   return success();
+}
+
+bool HostLayoutAttr::isPadded() const {
+  return getHostVolume() > ttmlir::utils::volume(getLogicalShape());
 }
 
 //
@@ -753,10 +754,13 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
       int64_t collapsedDim =
           ttmlir::utils::alignUp(shape[end - 1], alignments[end - 1]);
 
-      // Process remaining dimensions from inner to outer w/ multplication.
+      // Process remaining dimensions from inner to outer w/ multiplication.
       for (int64_t j = end - 2; j >= start; --j) {
-        // For outer dimensions, align and then multiply the product.
-        collapsedDim *= ttmlir::utils::alignUp(shape[j], alignments[j]);
+        // Multiply and then alignUp means that the alignment is in fact, the
+        // intentionally imposed alignment for the current collapse stage of the
+        // current collapsed interval.
+        collapsedDim =
+            ttmlir::utils::alignUp(shape[j] * collapsedDim, alignments[j]);
       }
 
       resultShape.push_back(collapsedDim);
@@ -765,8 +769,7 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
   }
 
   // Handle remaining dimensions with alignment.
-  for (int64_t i = shape.size() - 1; i >= static_cast<int64_t>(currentIdx);
-       --i) {
+  for (int64_t i = shape.size() - 1; i >= currentIdx; --i) {
     resultShape.push_back(ttmlir::utils::alignUp(shape[i], alignments[i]));
   }
 
@@ -918,7 +921,7 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
   assert(deviceGridRank * 2 ==
          static_cast<int64_t>(normalizedIntervals.size()));
 
-  llvm::SmallVector<int64_t> dimAlignments(logicalRank, 1);
+  llvm::SmallVector<int64_t> alignments(logicalRank, 1);
   // Handle the last two intervals (which will map to tiles) with
   // grid-aware alignments.
   for (int64_t idx = -1; idx >= -2; idx--) {
@@ -930,26 +933,18 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
 
     const int64_t gridAlignmentThreshold = gridDim * tileDim;
 
+    // Inclusive indices.
     const int64_t intervalStart = normalizedIntervals[gridIdx * 2];
     const int64_t intervalEnd = normalizedIntervals[gridIdx * 2 + 1] - 1;
 
-    // Calculate collapsed physical height/width for this interval.
+    // Calculate collapsed size for this interval.
     int64_t collapsedSize = 1;
-    int64_t outermostAlignment = gridAlignmentThreshold;
     for (int64_t i = intervalEnd; i >= intervalStart; i--) {
-      int64_t dimSize = 0;
       if (i >= logicalRank - 2) {
         // Always tile-align the last two dimensions.
-        dimSize = ttmlir::utils::alignUp(logicalShape[i], tileDim);
+        collapsedSize *= ttmlir::utils::alignUp(logicalShape[i], tileDim);
       } else {
-        dimSize = logicalShape[i];
-      }
-      collapsedSize *= dimSize;
-      if (i == intervalStart && outermostAlignment % dimSize == 0) {
-        outermostAlignment = 1;
-      } else {
-        // Remove overlapping factors so the alignment is kept at minimum.
-        outermostAlignment /= std::gcd(outermostAlignment, dimSize);
+        collapsedSize *= logicalShape[i];
       }
     }
 
@@ -959,22 +954,22 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
     const bool alignToGrid = collapsedSize > gridAlignmentThreshold;
     const int64_t alignment = alignToGrid ? gridAlignmentThreshold : tileDim;
 
-    // Set alignment on the last dimension of the interval, as we need to align
-    // the innertwo dimensions to tiles first.
-    if (intervalEnd == intervalStart) {
-      dimAlignments[intervalEnd] = alignment;
+    // Assume the collapsed intervals are always <[[0, N-2], [N-1, N]]>.
+    if (intervalStart == intervalEnd) {
+      alignments[intervalEnd] = alignment;
     } else {
       assert(idx == -2);
-      dimAlignments[intervalEnd] = tileDim;
-      // gridAlignmentThreshold could have prime factors that are not present in
-      // collapsedSize and they will reach here, but they are not needed if we
-      // don't actually need to align up to the grid.
-      dimAlignments[intervalStart] = alignToGrid ? outermostAlignment : 1;
+      assert(intervalEnd == logicalRank - 2);
+      alignments[intervalEnd] = tileDim;
+      // Avoid results like [32x32]x32, it should be [1x32]x32.
+      if (alignToGrid) {
+        alignments[intervalStart] = alignment;
+      }
     }
   }
-  assert(dimAlignments[logicalRank - 1] % tileShape[1] == 0);
-  assert(dimAlignments[logicalRank - 2] % tileShape[0] == 0);
-  return dimAlignments;
+  assert(alignments[logicalRank - 1] % tileShape[1] == 0);
+  assert(alignments[logicalRank - 2] % tileShape[0] == 0);
+  return alignments;
 }
 
 // Getter with no intervals or alignments, we calculate them both.
@@ -1080,6 +1075,51 @@ MetalLayoutAttr::getShardStride(RankedTensorType tensorType) const {
     shardStride[i] = shardShape[i + 1] * shardStride[i + 1];
   }
   return shardStride;
+}
+
+std::pair<llvm::SmallVector<int64_t>, int64_t>
+MetalLayoutAttr::getHostStrideAndVolume() const {
+  const auto logicalShape = getLogicalShape();
+  const auto alignments = getDimAlignments();
+  const auto normalizedIntervals = getNormalizedIntervals();
+  assert(normalizedIntervals.size() == 4);
+
+  llvm::SmallVector<int64_t> strides(logicalShape.size(), 0);
+
+  int64_t currentStride = 1;
+  for (int i = -1; i >= -2; i--) {
+    const int64_t intervalIdx = normalizedIntervals.size() / 2 + i;
+    // Inclusive indices.
+    const int64_t intervalStart = normalizedIntervals[intervalIdx * 2];
+    const int64_t intervalEnd = normalizedIntervals[intervalIdx * 2 + 1] - 1;
+
+    int64_t collapsedSize = 1;
+    // Both the alignments and the collapsed sizes are "cumulative" relative to
+    // the current collapse interval. But to update the current stride we need
+    // the true per-dim alignment, which is difficult to obtain, especially when
+    // the aligned up new collapsed size is not a multiple of the old collapsed
+    // size. Solution: revert the current stride to before the current collapse
+    // interval, and then update it straight to the current collapse stage.
+    for (int64_t j = intervalEnd; j >= intervalStart; j--) {
+      strides[j] = currentStride;
+      currentStride /= collapsedSize;
+      collapsedSize = ttmlir::utils::alignUp(collapsedSize * logicalShape[j],
+                                             alignments[j]);
+      currentStride *= collapsedSize;
+    }
+  }
+
+  // At this point, currentStride == 'stride' of the entire tensor, i.e. volume.
+  assert(currentStride >= ttmlir::utils::volume(logicalShape));
+  return {strides, currentStride};
+}
+
+llvm::SmallVector<int64_t> MetalLayoutAttr::getHostStride() const {
+  return getHostStrideAndVolume().first;
+}
+
+int64_t MetalLayoutAttr::getHostVolume() const {
+  return getHostStrideAndVolume().second;
 }
 
 //

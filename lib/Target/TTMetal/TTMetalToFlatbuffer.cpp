@@ -383,16 +383,25 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
 
   auto hostLayout =
       mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(memref.getLayout());
-  std::vector<int32_t> dimAlignments;
+
+  std::vector<int32_t> hostStrides{};
+  uint64_t hostVolume = 0;
   if (hostLayout) {
-    dimAlignments = ttmlir::utils::castContainer<std::vector<int32_t>>(
-        hostLayout.getDimAlignments());
+    hostStrides = ttmlir::utils::castContainer<std::vector<int32_t>>(
+        hostLayout.getHostStrides());
+    hostVolume = hostLayout.getHostVolume();
   } else {
-    dimAlignments = std::vector<int32_t>(shape.size(), 1);
+    // If a H2D/D2H copy doesn't need host-side alignment & padding, the
+    // compiler won't attach a host_layout on the host tensor. The runtime's
+    // TensorDesc requires physical size & volume, this is where we generate the
+    // default values for both.
+    hostStrides = ttmlir::utils::castContainer<std::vector<int32_t>>(
+        ttmlir::utils::calculateStrides(memref.getShape()));
+    hostVolume = ttmlir::utils::volume(memref.getShape());
   }
 
   return target::metal::CreateBufferDescDirect(
-      *cache.fbb, &shape, &dimAlignments, toFlatbuffer(cache, dtype),
+      *cache.fbb, &shape, &hostStrides, hostVolume, toFlatbuffer(cache, dtype),
       &elementShape, bufferDetailType, bufferDetail);
 }
 

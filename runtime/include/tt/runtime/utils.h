@@ -146,18 +146,6 @@ inline std::vector<uint32_t> calculateStride(const std::vector<T> &shape) {
   return stride;
 }
 
-template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
-inline std::vector<uint32_t>
-calculateAlignedStride(const std::vector<T> &shape,
-                       const std::vector<T> &alignments) {
-  const size_t rank = shape.size();
-  std::vector<T> alignedShape(rank, 1);
-  for (size_t i = 0; i < rank; i++) {
-    alignedShape[i] = alignUp(shape[i], alignments[i]);
-  }
-  return calculateStride(alignedShape);
-}
-
 template <class... Ts>
 struct overloaded : Ts... {
   using Ts::operator()...;

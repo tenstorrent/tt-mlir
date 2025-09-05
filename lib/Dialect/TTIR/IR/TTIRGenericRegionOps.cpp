@@ -302,7 +302,8 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::DMAOp::getBufferType(
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
   auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-  return ttir::getBufferType(rankedTensorType, /*isView=*/true);
+  return ttir::getBufferType(rankedTensorType, /*isView=*/true,
+                             /*hostInfo=*/std::nullopt);
 }
 
 mlir::OpFoldResult mlir::tt::ttir::IterIndexOp::fold(FoldAdaptor adaptor) {
