@@ -56,7 +56,7 @@ LogicalResult TTNNAllGatherWorkarounds::rewriteAllGatherHighRank(
   RankedTensorType inputType = op.getInput().getType();
   int64_t rank = inputType.getRank();
   SmallVector<int64_t> inputShape(inputType.getShape());
-  SmallVector<int64_t> preShape;
+
   int64_t gatherDim = op.getAllGatherDim();
   // Transform high-rank tensor (rank > 4) into 4D tensor:
   // Original shape: [d0, d1, ..., d(gather_dim), ..., d(rank-1)]
@@ -80,7 +80,8 @@ LogicalResult TTNNAllGatherWorkarounds::rewriteAllGatherHighRank(
   }
 
   // insert 1 on leftmost to make the shape 4D
-  preShape = {1, frontFold, inputShape[gatherDim], backFold};
+  SmallVector<int64_t> preShape = {1, frontFold, inputShape[gatherDim],
+                                   backFold};
   int64_t adjustedGatherDim = 2;
   return applyReshapedAllGather(op, rewriter, preShape, adjustedGatherDim);
 }
