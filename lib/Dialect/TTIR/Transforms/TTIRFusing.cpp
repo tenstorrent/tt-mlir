@@ -10,6 +10,7 @@
 #include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/SmallSet.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -1292,7 +1293,7 @@ public:
     // Denominator pooling op must have all inputs be either a FullOp or a
     // ConstantOp.
     if (!llvm::all_of(denominator.getInputs(), [](Value v) {
-          return isa<FullOp, ConstantOp>(v.getDefiningOp());
+          return llvm::isa_and_present<FullOp, ConstantOp>(v.getDefiningOp());
         })) {
       return mlir::failure();
     }
@@ -1324,7 +1325,6 @@ public:
     if (denominator.getPadding().empty()) {
       return mlir::failure();
     }
-
     for (int64_t paddingValue : denominator.getPadding()) {
       if (paddingValue != 0) {
         return mlir::failure();
@@ -1484,6 +1484,165 @@ private:
       }
     }
     return true;
+  }
+};
+
+// Global average pooling pattern matcher that transforms:
+//   multiply(sum<dim=[2,3]>(act), 1/(h*w))
+// into:
+//   avg_pool(act, window=[h,w], stride=1, padding=0)
+//
+// Supports 4D input tensors with reduction over spatial dimensions (height and
+// width).
+class GlobalAveragePoolingPattern : public mlir::OpRewritePattern<MultiplyOp> {
+  using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
+
+private:
+  static constexpr float FLOAT_TOLERANCE = 1e-4f;
+  static constexpr int64_t EXPECTED_INPUT_RANK = 4;
+  static constexpr int64_t SPATIAL_HEIGHT_DIM = 2;
+  static constexpr int64_t SPATIAL_WIDTH_DIM = 3;
+
+  struct PoolingConfig {
+    llvm::SmallVector<int64_t> windowDimensions;
+    llvm::SmallVector<int64_t> windowStrides;
+    llvm::SmallVector<int64_t> baseDilations;
+    llvm::SmallVector<int64_t> windowDilations;
+    llvm::SmallVector<int64_t> padding;
+  };
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MultiplyOp multiplyOp,
+                  mlir::PatternRewriter &rewriter) const final {
+
+    SumOp sumOp = multiplyOp.getLhs().getDefiningOp<SumOp>();
+    if (!validateSumOp(sumOp)) {
+      return mlir::failure();
+    }
+
+    FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
+    auto inputShape = sumOp.getInput().getType().getShape();
+    if (!validateFullOp(fullOp, inputShape)) {
+      return mlir::failure();
+    }
+
+    auto poolingOp = createPoolingOp(rewriter, sumOp);
+
+    if (!sumOp.getKeepDim()) {
+      auto outputType = multiplyOp.getOutput().getType();
+      auto reshapePoolOp =
+          createReshapePoolOutOp(rewriter, poolingOp, outputType);
+      rewriter.replaceOp(multiplyOp, reshapePoolOp.getResult());
+    } else {
+      rewriter.replaceOp(multiplyOp, poolingOp.getResult(0));
+    }
+
+    return mlir::success();
+  };
+
+private:
+  bool validateFullOp(FullOp fullOp, ArrayRef<int64_t> inputShape) const {
+    if (!fullOp) {
+      return false;
+    }
+    Attribute fillValueAttr = fullOp.getFillValue();
+    auto floatAttr = mlir::dyn_cast_or_null<FloatAttr>(fillValueAttr);
+    if (!floatAttr) {
+      return false;
+    }
+    float fillValue = floatAttr.getValue().convertToFloat();
+    int64_t inputHeight = inputShape[SPATIAL_HEIGHT_DIM];
+    int64_t inputWidth = inputShape[SPATIAL_WIDTH_DIM];
+    float expectedValue = 1.0f / static_cast<float>(inputHeight * inputWidth);
+    float tolerance =
+        std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
+    return std::abs(fillValue - expectedValue) <= tolerance;
+  }
+
+  bool validateSumOp(SumOp sumOp) const {
+    if (!sumOp || !sumOp.getDimArg() || !sumOp->hasOneUse()) {
+      return false;
+    }
+
+    auto inputShape = sumOp.getInput().getType().getShape();
+    if (inputShape.size() != EXPECTED_INPUT_RANK) {
+      return false;
+    }
+
+    // Check that dimensions 2 and 3 are being reduced (height and width)
+    auto reduceDims = *sumOp.getDimArg();
+    if (reduceDims.size() != 2) {
+      return false;
+    }
+
+    llvm::SmallSet<int64_t, 2> dimSet;
+    for (mlir::Attribute attr : reduceDims) {
+      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
+      if (!intAttr) {
+        return false;
+      }
+      dimSet.insert(intAttr.getInt());
+    }
+    return dimSet.contains(SPATIAL_HEIGHT_DIM) &&
+           dimSet.contains(SPATIAL_WIDTH_DIM);
+  }
+
+  PoolingConfig createPoolingConfig(ArrayRef<int64_t> inputShape) const {
+    PoolingConfig config;
+    int64_t inputRank = inputShape.size();
+    int64_t inputHeight = inputShape[SPATIAL_HEIGHT_DIM];
+    int64_t inputWidth = inputShape[SPATIAL_WIDTH_DIM];
+
+    // Window dimensions: [1, 1, height, width] for 4D tensor
+    config.windowDimensions.assign(inputRank, 1);
+    config.windowDimensions[SPATIAL_HEIGHT_DIM] = inputHeight;
+    config.windowDimensions[SPATIAL_WIDTH_DIM] = inputWidth;
+
+    // All other parameters are 1 for global pooling
+    config.windowStrides.assign(inputRank, 1);
+    config.baseDilations.assign(inputRank, 1);
+    config.windowDilations.assign(inputRank, 1);
+    config.padding.assign(inputRank * 2, 0);
+
+    return config;
+  }
+
+  RankedTensorType createPoolingOutputType(RankedTensorType inputType) const {
+    SmallVector<int64_t> poolOutputShape(inputType.getShape());
+    poolOutputShape[SPATIAL_HEIGHT_DIM] = 1;
+    poolOutputShape[SPATIAL_WIDTH_DIM] = 1;
+
+    return RankedTensorType::get(poolOutputShape, inputType.getElementType(),
+                                 inputType.getEncoding());
+  }
+
+  PoolingOp createPoolingOp(mlir::PatternRewriter &rewriter,
+                            SumOp sumOp) const {
+
+    auto config = createPoolingConfig(sumOp.getInput().getType().getShape());
+    auto outputType = createPoolingOutputType(sumOp.getInput().getType());
+    auto loc = sumOp.getLoc();
+
+    auto poolingOp = ttir::utils::createDPSOp<ttir::PoolingOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_pool"), outputType,
+        sumOp.getInput(), PoolingMethod::Average, config.windowDimensions,
+        config.windowStrides, config.baseDilations, config.windowDilations,
+        config.padding);
+    return poolingOp;
+  }
+
+  ReshapeOp createReshapePoolOutOp(mlir::PatternRewriter &rewriter,
+                                   PoolingOp poolingOp,
+                                   RankedTensorType outputType) const {
+    auto loc = poolingOp.getLoc();
+    llvm::SmallVector<int64_t> outputShape(outputType.getShape());
+    SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
+        outputType, poolingOp.getResult(0),
+        rewriter.getI32ArrayAttr(outputShapeI32));
   }
 };
 
@@ -2060,6 +2219,7 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
+      patterns.add<GlobalAveragePoolingPattern>(&getContext());
 
       if (conv2dWithMultiplyEnabled) {
         patterns.add<BatchNormDecomposition>(&getContext());
