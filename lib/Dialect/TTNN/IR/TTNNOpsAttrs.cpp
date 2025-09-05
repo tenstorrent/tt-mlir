@@ -9,7 +9,9 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include <cassert>
 #include <cstdint>
+#include <llvm/Support/ErrorHandling.h>
 #include <numeric>
 #include <optional>
 
@@ -180,13 +182,13 @@ TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
 //
 // Shard is defined as a piece of the tensor that is mapped to a single grid
 // core. This function returns the shard shape for tensors with INTERLEAVED
-// tensor memory layout.
+// tensor memory layout. Returned shard shape is in scalar elements.
 //
 // All examples assume that the tensor is mapped to a 8x8 grid.
 // Examples for TileType:
-// Example: tensor<1x1024xbf16> ( -> 32 tiles ) -> {1, 1}
-// Example: tensor<512x512xbf16> ( -> 256 tiles ) -> {1, 4}
-// Example: tensor<32x2049xbf16> ( -> 65 tiles ) -> {1, 2}
+// Example: tensor<1x1024xbf16> ( -> 32 tiles ) -> {32, 32}
+// Example: tensor<512x512xbf16> ( -> 256 tiles ) -> {32, 128}
+// Example: tensor<32x2049xbf16> ( -> 65 tiles ) -> {32, 64}
 //
 // Examples for RowMajor:
 // Example: tensor<1x1024xbf16> -> {1, 16}
@@ -1107,17 +1109,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 // return The new TTNNLayoutAttr with the specified layout.
 TTNNLayoutAttr TTNNLayoutAttr::withLayout(Layout layout,
                                           ArrayRef<int64_t> tensorShape) {
-  if (layout == Layout::RowMajor) {
-    return ttnn::utils::convertTTNNLayoutToRowMajor(getContext(), *this,
-                                                    tensorShape);
-  }
-
-  if (layout == Layout::Tile) {
-    Type elementType =
-        ttnn::utils::getElementType(getContext(), Layout::Tile, getDataType());
-    return withElementType(elementType, tensorShape);
-  }
-
-  // For any other layout, return the current layout unchanged
-  return *this;
+  assert(layout == Layout::RowMajor || layout == Layout::Tile);
+  Type elementType = utils::getElementType(getContext(), layout, getDataType());
+  return withElementType(elementType, tensorShape);
 }

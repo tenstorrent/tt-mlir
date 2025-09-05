@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-optimizer --ttnn-operation-validation-and-fallback %s -o %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-operation-validation-and-fallback %s -o %t.mlir
 // RUN: FileCheck %s --input-file %t.mlir
 
 #dram = #ttnn.buffer_type<dram>
@@ -10,8 +10,9 @@ module attributes {} {
   func.func @reshape_with_int32(%arg0: tensor<1x1x32x32xsi32, #ttnn_layout_tile_si32>) -> tensor<1x32x32xf32, #ttnn_layout_tile_f32> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
-    // CHECK: "ttnn.reshape"
+    // CHECK: %[[RESHAPE_RES:.*]] = "ttnn.reshape"
     // CHECK: "ttnn.to_layout"
+    // CHECK-SAME: (%[[RESHAPE_RES]]
 
     %1 = "ttnn.reshape"(%arg0) <{
       shape = [1 : i32, 32 : i32, 32 : i32]
