@@ -70,7 +70,7 @@ protected:
                 inputVirtualGrid] = std::get<0>(params);
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = std::get<1>(params);
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
                 expectedOutputSize] = std::get<2>(params);
 
     const TTNNLayoutAttr inputLayout = CreateTiledLayout(
@@ -89,7 +89,7 @@ protected:
 
       bool useGreaterThan = std::is_same_v<OpTy, CbrtOp>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
-      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedL1PeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -113,7 +113,7 @@ protected:
                 inputVirtualGrid] = std::get<0>(params);
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = std::get<1>(params);
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
                 expectedOutputSize] = std::get<2>(params);
 
     const TTNNLayoutAttr inputLayout = CreateTiledLayoutInt32(
@@ -132,7 +132,7 @@ protected:
 
       bool useGreaterThan = std::is_same_v<OpTy, BitwiseNotOp>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
-      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedL1PeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -346,7 +346,7 @@ protected:
                 outputVirtualGrid] = std::get<1>(params);
     const auto dimArg = std::get<2>(params);
     const auto keepDim = std::get<3>(params);
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
                 expectedOutputSize] = std::get<4>(params);
 
     const TTNNLayoutAttr inputLayout = CreateTiledLayout(
@@ -366,7 +366,7 @@ protected:
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(peakSize, expectedL1PeakSize);
       EXPECT_EQ(outputSize, expectedOutputSize);
     } else {
       // Must clean up the error
@@ -977,7 +977,7 @@ protected:
                 inputVirtualGrid] = std::get<0>(params);
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = std::get<1>(params);
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
                 expectedOutputSize] = std::get<2>(params);
 
     const TTNNLayoutAttr inputLayout = CreateTiledLayout(
@@ -995,7 +995,7 @@ protected:
       auto [cbSize, peakSize, outputSize, outputLayoutResult] =
           constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(peakSize, expectedL1PeakSize);
       EXPECT_EQ(outputSize, expectedOutputSize);
       EXPECT_TRUE(outputLayoutResult != nullptr);
     } else {
@@ -1381,7 +1381,7 @@ protected:
                 inputVirtualGridB] = GetParam().inputB;
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = GetParam().output;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
                 expectedOutputSize] = GetParam().expectedResult;
 
     const TTNNLayoutAttr inputLayoutA = CreateTiledLayout(
@@ -1404,7 +1404,7 @@ protected:
       bool useGreaterThan =
           std::is_same_v<OpTy, Atan2Op> || std::is_same_v<OpTy, RemainderOp>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
-      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedL1PeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -1429,7 +1429,7 @@ protected:
                 inputVirtualGridB] = GetParam().inputB;
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = GetParam().output;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
                 expectedOutputSize] = GetParam().expectedResult;
 
     const TTNNLayoutAttr inputLayoutA = CreateTiledLayoutInt32(
@@ -1452,7 +1452,7 @@ protected:
       bool useGreaterThan = std::is_same_v<OpTy, LogicalRightShiftOp> ||
                             std::is_same_v<OpTy, LogicalLeftShiftOp>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
-      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(peakSize, expectedL1PeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -1597,7 +1597,7 @@ generateBinaryEltwiseParams(std::initializer_list<BinaryEltwiseParam> values,
   for (const auto &v : values) {
     newValues.emplace_back(v);
     newValues.back().expectedResult.expectedCbSize += extraCbRequirement;
-    newValues.back().expectedResult.expectedPeakSize += extraPeakRequirement;
+    newValues.back().expectedResult.expectedL1PeakSize += extraPeakRequirement;
   }
   return ::testing::ValuesIn(newValues);
 }
@@ -1610,7 +1610,7 @@ generateBinaryBitwiseParams(std::initializer_list<BinaryEltwiseParam> values,
   for (const auto &v : values) {
     newValues.emplace_back(v);
     newValues.back().expectedResult.expectedCbSize *= 2;
-    newValues.back().expectedResult.expectedPeakSize *= 2;
+    newValues.back().expectedResult.expectedL1PeakSize *= 2;
     newValues.back().expectedResult.expectedOutputSize *= 2;
   }
   return ::testing::ValuesIn(newValues);
@@ -1730,7 +1730,7 @@ TEST_P(OpModelLinearParam, LinearParam) {
   const auto [outputShape, outputTensorLayout, outputBufferType,
               outputVirtualGrid] = std::get<3>(params);
   llvm::SmallVector<int64_t> physicalGrid = std::get<4>(params);
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
               expectedOutputSize] = std::get<5>(params);
 
   const TTNNLayoutAttr inputLayoutA = CreateTiledLayout(
@@ -1753,7 +1753,7 @@ TEST_P(OpModelLinearParam, LinearParam) {
     const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
         constraintsExp.get();
     EXPECT_EQ(cbSize, expectedCbSize);
-    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(peakSize, expectedL1PeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
   } else {
     // Must clean up the error
@@ -1971,7 +1971,7 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
   const auto [outputShape, outputTensorLayout, outputBufferType,
               outputVirtualGrid] = std::get<2>(params);
   llvm::SmallVector<int64_t> physicalGrid = std::get<3>(params);
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
               expectedOutputSize] = std::get<4>(params);
 
   const TTNNLayoutAttr inputLayoutA = CreateTiledLayout(
@@ -1992,7 +1992,7 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
     const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
         constraintsExp.get();
     EXPECT_EQ(cbSize, expectedCbSize);
-    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(peakSize, expectedL1PeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
   } else {
     // Must clean up the error
@@ -2178,7 +2178,7 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   const auto padding = params.padding;
   const auto dilation = params.dilation;
   const auto groups = params.groups;
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
               expectedOutputSize] = params.expectedResult;
 
   llvm::errs() << "--- input shape: ";
@@ -2295,7 +2295,7 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
   const auto output_padding = params.outputPadding;
   const auto dilation = params.dilation;
   const auto groups = params.groups;
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
               expectedOutputSize] = params.expectedResult;
 
   const TTNNLayoutAttr inputLayout =
@@ -2814,7 +2814,7 @@ protected:
         inputTensor;
     const auto [weightShape, weightLayout, weightBufferType,
                 weightVirtualGrid] = weightTensor;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
                 expectedOutputSize] = expected;
     // output shape: [batch, seq_len, hidden_size]
     llvm::SmallVector<int64_t> outputShape = {inputShape[0], inputShape[1],
@@ -2837,7 +2837,7 @@ protected:
       const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(peakSize, expectedL1PeakSize);
       EXPECT_EQ(outputSize, expectedOutputSize);
       ExpectLayoutsEQ(outputTiledLayout, outputLayoutReadBack);
     } else {
@@ -3011,7 +3011,7 @@ protected:
   void RunTest() {
     auto params = GetParam();
     const auto [tensorShape, expectedResult] = params;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
                 expectedOutputSize] = expectedResult;
 
     const mlir::tt::ttnn::TTNNLayoutAttr outputLayout =
@@ -3028,7 +3028,7 @@ protected:
       auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(peakSize, expectedL1PeakSize);
       EXPECT_EQ(outputSize, expectedOutputSize);
     }
   }
@@ -3106,7 +3106,7 @@ TEST_P(OpModelPrepareConv2dWeightsParam, PrepareConv2dWeights) {
   const auto dilation = std::get<12>(params);
   const auto has_bias = std::get<13>(params);
   const auto groups = std::get<14>(params);
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
               expectedOutputSize] = std::get<15>(params);
 
   const TTNNLayoutAttr weightLayout = CreateRowMajorLayout(
@@ -3193,7 +3193,7 @@ TEST_P(OpModelPrepareConv2dBiasParam, PrepareConv2dBias) {
   const auto padding = std::get<10>(params);
   const auto dilation = std::get<11>(params);
   const auto groups = std::get<12>(params);
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
               expectedOutputSize] = std::get<13>(params);
 
   const TTNNLayoutAttr biasLayout = CreateRowMajorLayout(
@@ -3335,7 +3335,7 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
     const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
         constraintsExp.get();
     EXPECT_EQ(cbSize, expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, expectedResult.expectedPeakSize);
+    EXPECT_EQ(peakSize, expectedResult.expectedL1PeakSize);
     EXPECT_EQ(outputSize, expectedResult.expectedOutputSize);
   } else {
     llvm::consumeError(constraintsExp.takeError());
@@ -3496,7 +3496,7 @@ TEST_P(OpModelRMSNormParam, RMSNormParam) {
     const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
         constraintsExp.get();
     EXPECT_EQ(cbSize, expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, expectedResult.expectedPeakSize);
+    EXPECT_EQ(peakSize, expectedResult.expectedL1PeakSize);
     EXPECT_EQ(outputSize, expectedResult.expectedOutputSize);
   } else {
     llvm::consumeError(constraintsExp.takeError());
@@ -3590,7 +3590,7 @@ protected:
     auto params = this->GetParam();
     const auto [tensorShape, constData, typeCreator, outputLayoutOpt,
                 expectedResult] = params;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
                 expectedOutputSize] = expectedResult;
 
     // Create element type using the provided function
@@ -3629,7 +3629,7 @@ protected:
       auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
           constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(peakSize, expectedL1PeakSize);
       EXPECT_EQ(outputSize, expectedOutputSize);
     } else {
       llvm::consumeError(constraintsExp.takeError());
@@ -3916,7 +3916,7 @@ protected:
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = GetParam().output;
     const auto axis = GetParam().axis;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
                 expectedOutputSize] = GetParam().expectedResult;
 
     // Create layouts - input and scale use BF16, zeroPoint and output use Int32
@@ -3940,7 +3940,7 @@ protected:
       const auto [cbSize, peakSize, outputSizeResult, outputLayoutReadBack] =
           constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(peakSize, expectedL1PeakSize);
       EXPECT_EQ(outputSizeResult, expectedOutputSize);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -4062,7 +4062,7 @@ protected:
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = GetParam().output;
     const auto axis = GetParam().axis;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
                 expectedOutputSize] = GetParam().expectedResult;
 
     // Create layouts - input and zero points use Int32, scales use BF16
@@ -4094,7 +4094,7 @@ protected:
       const auto [cbSize, peakSize, outputSizeResult, outputLayoutReadBack] =
           constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(peakSize, expectedL1PeakSize);
       EXPECT_EQ(outputSizeResult, expectedOutputSize);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -4228,7 +4228,7 @@ protected:
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = GetParam().output;
     const auto axis = GetParam().axis;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
                 expectedOutputSize] = GetParam().expectedResult;
 
     // Create layouts - input and zeroPoint use Int32, scale and output use BF16
@@ -4252,7 +4252,7 @@ protected:
       const auto [cbSize, peakSize, outputSizeResult, outputLayoutReadBack] =
           constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(peakSize, expectedL1PeakSize);
       EXPECT_EQ(outputSizeResult, expectedOutputSize);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {

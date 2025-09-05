@@ -94,7 +94,7 @@ detail::ExpectedResult parseExpectedResult(const YAML::Node &resultNode) {
     result.expectedCbSize = resultNode["cb_size"].as<size_t>();
   }
   if (resultNode["peak_size"]) {
-    result.expectedPeakSize = resultNode["peak_size"].as<size_t>();
+    result.expectedL1PeakSize = resultNode["peak_size"].as<size_t>();
   }
   if (resultNode["output_size"]) {
     result.expectedOutputSize = resultNode["output_size"].as<size_t>();

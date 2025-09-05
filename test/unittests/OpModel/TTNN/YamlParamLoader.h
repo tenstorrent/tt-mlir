@@ -27,7 +27,7 @@ struct TestTensor {
 struct ExpectedResult {
   bool expectedLegal = false;
   size_t expectedCbSize = 0;
-  size_t expectedPeakSize = 0;
+  size_t expectedL1PeakSize = 0;
   size_t expectedOutputSize = 0;
 };
 
