@@ -1308,6 +1308,52 @@ def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit"> {
     }];
 }
 
+def TTKernel_TransposeInitOp : TTKernel_Op<"transpose_wh_init"> {
+    let summary = "TransposeInitOp call.";
+    let description = [{
+      Initialize the transpose operation. To be called once at beginning of a
+      kernel before transpose operations.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TransposeTileOp : TTKernel_Op<"transpose_wh_tile"> {
+    let summary = "Transpose WH tile operation";
+    let description = [{
+      Performs a 32x32 transpose operation on a tile in the CB
+      at a given index and writes the result to the DST register at index
+      dst_tile_index.
+    }];
+
+    let arguments = (ins TTKernel_CB:$icb, IndexLike:$itile, IndexLike:$idst);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $icb `,` $itile `,` $idst `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TransposeUninitOp : TTKernel_Op<"transpose_wh_uninit"> {
+    let summary = "TransposeUninitOp call.";
+    let description = [{
+      Uninitialize transpose operation before re-initializing for another operation.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel NOC operations
 //===----------------------------------------------------------------------===//

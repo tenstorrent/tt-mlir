@@ -142,6 +142,7 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
     }
   }
 
+  assert(latestDefOp != nullptr);
   rewriter.setInsertionPointAfter(latestDefOp);
 }
 
@@ -502,6 +503,43 @@ public:
     rewriter.eraseOp(op);
     return success();
   };
+};
+} // namespace
+
+namespace {
+class TTIRTileTransposeRewriter
+    : public OpConversionPattern<ttir::TileTransposeOp> {
+public:
+  using OpConversionPattern<ttir::TileTransposeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::TileTransposeOp op,
+                  ttir::TileTransposeOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // TileTransposeOp is a unary op that takes an input tile and produces
+    // an output tile.
+
+    Value inCB = getInCB(rewriter, op);
+
+    Value outCB = getOutCB(rewriter, op);
+
+    auto insertionPoint = rewriter.getInsertionPoint();
+    setInsertionPointAfterOperands(rewriter, {inCB, outCB});
+    rewriter.create<ttkernel::TransposeInitOp>(op->getLoc(), inCB, outCB);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+    // Get the tile index from the input operand.
+    Value tileIndex = adaptor.getInput();
+
+    // Get the destination index where the result will be stored.
+    Value dstIdx = getDstIdxFromResult(op.getResult());
+
+    rewriter.create<ttkernel::TransposeTileOp>(op->getLoc(), inCB, tileIndex,
+                                               dstIdx);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
 };
 } // namespace
 
@@ -1150,6 +1188,7 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileTanOp>,
 
                ttkernel::TTIRTilizeUntilizeRewriter,
+               ttkernel::TTIRTileTransposeRewriter,
                ttkernel::TTIRTypecastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::MemrefLoadRewriter,

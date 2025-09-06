@@ -76,7 +76,7 @@ public:
 
     // If src or dst operand is DRAM they must be remote
     // else, Lower L1->L1 reblocking as READs (view applied to the src, dst is
-    // local)
+    // local).
     bool isSrcDramOrReblock =
         isSrcDram || (!isDstDram && (inputGridShape != outputGridShape));
 
@@ -242,8 +242,10 @@ public:
                                  : ttcore::getTensorTileShapeOrEmpty(baseType);
 
     // Create new layout
+    SmallVector<int64_t> squareGridShape =
+        ttir::utils::getSquareTargetGrid(workerGridShape);
     auto newLayout = ttcore::MetalLayoutAttr::get(
-        ctx, baseLayout.getLogicalShape(), workerGridShape,
+        ctx, baseLayout.getLogicalShape(), squareGridShape,
         baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals());
 
     // For physical shape derivation, use tile shape ONLY if element type is

@@ -810,6 +810,10 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubTilesOp>,
 
+        // Transpose Ops
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TransposeInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TransposeTileOp>,
+
         // SFPU Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::InitSFPUOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileInitOp>,
