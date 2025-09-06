@@ -114,7 +114,8 @@ public:
 struct ExpectedResult {
   bool expectedLegal = false;
   size_t expectedCbSize = 0;
-  size_t expectedPeakSize = 0;
+  size_t expectedL1PeakSize = 0;
+  size_t expectedTotalPeakSize = 0;
   size_t expectedOutputSize = 0;
 };
 struct UnaryOpTestParams {
@@ -147,9 +148,11 @@ TEST_P(UnaryOpModelTest, TestOpInterface) {
   auto constraintsExp = getOpConstraints(op);
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(l1PeakSize, params.expectedResult.expectedL1PeakSize);
+    EXPECT_EQ(totalPeakSize, params.expectedResult.expectedTotalPeakSize);
     EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints for " << params.testName
@@ -181,10 +184,11 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
   ASSERT_EQ(static_cast<bool>(constraintsExp),
             params.expectedResult.expectedLegal);
 
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-  EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+  EXPECT_EQ(l1PeakSize, params.expectedResult.expectedL1PeakSize);
+  EXPECT_EQ(totalPeakSize, params.expectedResult.expectedTotalPeakSize);
   EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
 
   ASSERT_TRUE(outputLayout);
@@ -192,8 +196,8 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
   EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
 }
 
-const ExpectedResult expected{true, 8192, 2048, 2048};
-const ExpectedResult cbrtExpected{true, 12288, 6144, 2048};
+const ExpectedResult expected{true, 8192, 2048, 10240, 2048};
+const ExpectedResult cbrtExpected{true, 12288, 6144, 18432, 2048};
 
 //===---------------------------------------------------------===
 const auto createRelu = [](OpBuilder &b, Location loc, Type type,
@@ -354,9 +358,11 @@ TEST_P(BinaryOpModelTest, TestOpInterface) {
   auto constraintsExp = getOpConstraints(op);
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(l1PeakSize, params.expectedResult.expectedL1PeakSize);
+    EXPECT_EQ(totalPeakSize, params.expectedResult.expectedTotalPeakSize);
     EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints for " << params.testName
@@ -389,10 +395,11 @@ TEST_P(BinaryOpModelTest, TestOpInterfaceNullOutput) {
   ASSERT_EQ(static_cast<bool>(constraintsExp),
             params.expectedResult.expectedLegal);
 
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-  EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+  EXPECT_EQ(l1PeakSize, params.expectedResult.expectedL1PeakSize);
+  EXPECT_EQ(totalPeakSize, params.expectedResult.expectedTotalPeakSize);
   EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
 
   ASSERT_TRUE(outputLayout);
@@ -442,7 +449,9 @@ TEST_P(BinaryBitwiseOpModelTest, TestOpInterface) {
   auto constraints = constraintsExp.get();
   EXPECT_EQ(constraints.cbL1PeakSize, params.expectedResult.expectedCbSize);
   EXPECT_EQ(constraints.tensorL1PeakSize,
-            params.expectedResult.expectedPeakSize);
+            params.expectedResult.expectedL1PeakSize);
+  EXPECT_EQ(constraints.peakMemorySize,
+            params.expectedResult.expectedTotalPeakSize);
   EXPECT_EQ(constraints.outputL1BufferSize,
             params.expectedResult.expectedOutputSize);
 
@@ -457,16 +466,18 @@ TEST_P(BinaryBitwiseOpModelTest, TestOpInterface) {
 }
 
 // The default expected result for binary operations:
-const ExpectedResult binaryExpected{true, 12288, 2048, 2048};
+const ExpectedResult binaryExpected{true, 12288, 2048, 14336, 2048};
 // Some binary ops (such as divide, logicalOr, etc.) require extra circular
 // buffer memory which is captured via the following expected values:
-const ExpectedResult binaryExpected_extraCb2048{true, 12288 + 2048, 2048, 2048};
-const ExpectedResult binaryExpected_extraCb4096{true, 12288 + 4096, 2048, 2048};
+const ExpectedResult binaryExpected_extraCb2048{true, 12288 + 2048, 2048, 16384,
+                                                2048};
+const ExpectedResult binaryExpected_extraCb4096{true, 12288 + 4096, 2048, 18432,
+                                                2048};
 const ExpectedResult binaryExpected_extraCb4096_extraPeak30720{
-    true, 12288 + 4096, 2048 + 30720, 2048};
+    true, 12288 + 4096, 2048 + 30720, 12288 + 4096 + 2048 + 30720, 2048};
 const ExpectedResult binaryExpected_extraCb20480_extraPeak26624{
-    true, 12288 + 20480, 2048 + 26624, 2048};
-const ExpectedResult binaryBitwiseExpected{true, 12288 * 2, 0, 0};
+    true, 12288 + 20480, 2048 + 26624, 12288 + 20480 + 2048 + 26624, 2048};
+const ExpectedResult binaryBitwiseExpected{true, 12288 * 2, 0, 24576, 0};
 
 //===---------------------------------------------------------===
 // Lambda functions for creating binary operations
@@ -616,9 +627,10 @@ TEST_F(OpModelBase, BitwiseNotOpInterface) {
   auto constraintsExp = getOpConstraints(bitwiseNot.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 16384);
-    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(l1PeakSize, 4096);
     EXPECT_EQ(outputSize, 4096);
   } else {
     FAIL() << "Missing L1 constraints for BitwiseNot; Error="
@@ -671,9 +683,10 @@ TEST_F(OpModelBase, LogicalRightShiftOpInterface) {
   auto constraintsExp = getOpConstraints(logicalRightShift.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 20480);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints for LogicalRightShift; Error="
@@ -725,9 +738,10 @@ TEST_F(OpModelBase, LogicalLeftShiftOpInterface) {
   auto constraintsExp = getOpConstraints(logicalLeftShift.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 24576);
-    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(l1PeakSize, 4096);
     EXPECT_EQ(outputSize, 4096);
   } else {
     FAIL() << "Missing L1 constraints for LogicalLeftShift; Error="
@@ -757,9 +771,10 @@ TEST_F(OpModelBase, SqrtOpInterface) {
   auto constraintsExp = getOpConstraints(sqrt.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 8192);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -788,9 +803,10 @@ TEST_F(OpModelBase, SigmoidOpInterface) {
   auto constraintsExp = getOpConstraints(sigmoid.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 8192);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -819,9 +835,10 @@ TEST_F(OpModelBase, SoftmaxOpInterface) {
   auto constraintsExp = getOpConstraints(softmax.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 137216);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -856,9 +873,10 @@ TEST_F(OpModelBase, LinearOpInterface) {
   auto constraintsExp = getOpConstraints(linear.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 262144);
-    EXPECT_EQ(peakSize, 262144);
+    EXPECT_EQ(l1PeakSize, 262144);
     EXPECT_EQ(outputSize, 131072);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -895,10 +913,10 @@ TEST_F(OpModelBase, LinearOpInterfaceNullOutput) {
       getInputLayouts(linear), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 262144);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 
   ASSERT_TRUE(outputLayout);
@@ -961,9 +979,10 @@ TEST_F(OpModelBase, MatmulOpInterface) {
   auto constraintsExp = getOpConstraints(matmul.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 786432);
-    EXPECT_EQ(peakSize, 131072);
+    EXPECT_EQ(l1PeakSize, 131072);
     EXPECT_EQ(outputSize, 131072);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -997,10 +1016,10 @@ TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
       getInputLayouts(matmul), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 786432);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 
   ASSERT_TRUE(outputLayout);
@@ -1050,7 +1069,7 @@ using OpRuntimeFn = llvm::Expected<size_t> (OpModelBase::*)(mlir::Operation *);
 template <typename OpType>
 void testReductionOp(OpModelBase *testFixture, mlir::OpBuilder &builder,
                      mlir::Value input, mlir::Type outputType,
-                     int64_t expectedCbSize, int64_t expectedPeakSize,
+                     int64_t expectedCbSize, int64_t expectedL1PeakSize,
                      int64_t expectedOutputSize,
                      OpConstraintsFn getOpConstraintsFn,
                      OpRuntimeFn getOpRuntimeFn) {
@@ -1065,9 +1084,10 @@ void testReductionOp(OpModelBase *testFixture, mlir::OpBuilder &builder,
   auto constraintsExp = (testFixture->*getOpConstraintsFn)(op.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, expectedCbSize);
-    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1091,7 +1111,7 @@ TEST_F(OpModelBase, MeanOpInterface) {
 
   testReductionOp<MeanOp>(
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
-      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      /*expectedL1PeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
@@ -1103,7 +1123,7 @@ TEST_F(OpModelBase, MaxOpInterface) {
 
   testReductionOp<MaxOp>(
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
-      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      /*expectedL1PeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
@@ -1115,7 +1135,7 @@ TEST_F(OpModelBase, MinOpInterface) {
 
   testReductionOp<MinOp>(
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
-      /*expectedPeakSize=*/69632, /*expectedOutputSize=*/2048,
+      /*expectedL1PeakSize=*/69632, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
@@ -1127,7 +1147,7 @@ TEST_F(OpModelBase, SumOpInterface) {
 
   testReductionOp<SumOp>(
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
-      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      /*expectedL1PeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 
   // Need to reset device other wise hangs. See tt-metal issue #25772
@@ -1159,9 +1179,11 @@ TEST_F(OpModelBase, ArgMaxOpInterface) {
       backend.getOpConstraints(getInputLayouts(argMax), OpConfig(outputLayout));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayoutReadBack] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize,
+                 outputLayoutReadBack] = l1;
     EXPECT_EQ(cbSize, 384);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(totalPeakSize, 384);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1191,9 +1213,11 @@ TEST_F(OpModelBase, ProdOpInterface) {
   auto constraintsExp = getOpConstraints(prod.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(peakSize, 8192);
+    EXPECT_EQ(l1PeakSize, 8192);
+    EXPECT_EQ(totalPeakSize, 12288 + 8192);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1227,9 +1251,10 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   auto constraintsExp = getOpConstraints(reshape.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 5120);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1248,9 +1273,10 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   auto cachedConstraintsExp = getOpConstraints(reshape.getOperation());
   if (cachedConstraintsExp) {
     auto l1 = cachedConstraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 5120);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1298,9 +1324,10 @@ TEST_F(OpModelBase, SliceStaticOpInterface) {
   auto constraintsExp = getOpConstraints(sliceStaticOp.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1343,9 +1370,11 @@ TEST_F(OpModelBase, SliceDynamicOpInterface) {
   auto constraintsExp = getOpConstraints(sliceDynamicOp.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 4096);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
+    EXPECT_EQ(totalPeakSize, 6144);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1388,9 +1417,10 @@ TEST_F(OpModelBase, toLayoutOp) {
       std::vector{layoutDRAMRowMajor}, layoutDRAMTiled);
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 131072);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1432,9 +1462,10 @@ TEST_F(OpModelBase, toMemoryConfigOp) {
       backend.getOpConstraints(std::vector{inputLayout_L1Tiled}, OpConfig());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_GT(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1470,9 +1501,10 @@ TEST_F(OpModelBase, concatOp) {
   auto constraintsExp = getOpConstraints(concatOp.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1502,9 +1534,10 @@ TEST_F(OpModelBase, transposeOp) {
   auto constraintsExp = getOpConstraints(transpose.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 8192);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1535,9 +1568,10 @@ TEST_F(OpModelBase, morehCumSumOp) {
   auto constraintsExp = getOpConstraints(morehCumSum.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 32768);
-    EXPECT_EQ(peakSize, 32768);
+    EXPECT_EQ(l1PeakSize, 32768);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1578,9 +1612,10 @@ TEST_F(OpModelBase, ConcatenateHeadsOpInterface) {
   auto constraintsExp = getOpConstraints(concatenateHeads.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 65536);
-    EXPECT_EQ(peakSize, 8192);
+    EXPECT_EQ(l1PeakSize, 8192);
     EXPECT_EQ(outputSize, 8192);
     EXPECT_TRUE(outputLayout != nullptr);
   } else {
@@ -1612,9 +1647,10 @@ TEST_F(OpModelBase, repeatInterleaveOp) {
   auto constraintsExp = getOpConstraints(repeatInterleave.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 16384);
-    EXPECT_EQ(peakSize, 512);
+    EXPECT_EQ(l1PeakSize, 512);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1648,9 +1684,10 @@ TEST_F(OpModelBase, repeatOp) {
   auto constraintsExp = getOpConstraints(repeat.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 16384);
-    EXPECT_EQ(peakSize, 3072);
+    EXPECT_EQ(l1PeakSize, 3072);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1684,9 +1721,10 @@ TEST_F(OpModelBase, padOp) {
   auto constraintsExp = getOpConstraints(pad.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 6144);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1720,9 +1758,10 @@ TEST_F(OpModelBase, sortOp) {
   auto constraintsExp = getOpConstraints(sort.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 33792);
-    EXPECT_EQ(peakSize, 8192);
+    EXPECT_EQ(l1PeakSize, 8192);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1759,9 +1798,10 @@ TEST_F(OpModelBase, typecastOp) {
   auto constraintsExp = getOpConstraints(typecast.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(l1PeakSize, 4096);
     EXPECT_EQ(outputSize, 4096);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1825,10 +1865,10 @@ TEST_F(OpModelBase, Conv2dInterface) {
   // test Conv2dOp interface
   auto constraintsExp = getOpConstraints(conv2d.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 229440);
-  EXPECT_EQ(peakSize, 190572);
+  EXPECT_EQ(l1PeakSize, 190572);
   EXPECT_EQ(outputSize, 26624);
 
   // Device hangs otherwise.
@@ -1894,10 +1934,10 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   auto constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d), OpConfig(/*outputLayout=*/nullptr));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 229440);
-  EXPECT_EQ(peakSize, 190572);
+  EXPECT_EQ(l1PeakSize, 190572);
   EXPECT_EQ(outputSize, 28672);
 
   ASSERT_TRUE(outputLayout);
@@ -2062,11 +2102,11 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       OpConfig(getOutputLayout(conv2d),
                Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cb_size, peak_size, output_size, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
-  EXPECT_EQ(cb_size, 69696);
-  EXPECT_EQ(peak_size, 88400);
-  EXPECT_EQ(output_size, 26624);
+  EXPECT_EQ(cbSize, 69696);
+  EXPECT_EQ(l1PeakSize, 88400);
+  EXPECT_EQ(outputSize, 26624);
 
   // Device hangs otherwise.
   op_model::SingletonDeviceContext::resetInstance();
@@ -2132,11 +2172,11 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
       OpConfig(getOutputLayout(conv2d), opConfigAttrs));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cb_size, peak_size, output_size, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
-  EXPECT_EQ(cb_size, 65600);
-  EXPECT_EQ(peak_size, 88400);
-  EXPECT_EQ(output_size, 26624);
+  EXPECT_EQ(cbSize, 65600);
+  EXPECT_EQ(l1PeakSize, 88400);
+  EXPECT_EQ(outputSize, 26624);
 
   // Device hangs otherwise.
   op_model::SingletonDeviceContext::resetInstance();
@@ -2210,11 +2250,11 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       OpConfig(getOutputLayout(convTranspose2d),
                Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cb_size, peak_size, output_size, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
-  EXPECT_GT(cb_size, 0);
-  EXPECT_GT(peak_size, 0);
-  EXPECT_GT(output_size, 0);
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
 
   // Device hangs otherwise.
   op_model::SingletonDeviceContext::resetInstance();
@@ -2313,10 +2353,10 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
 
   auto constraintsExp = getOpConstraints(prepareConv2dWeights.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 0);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 
   // Test that the op constraints are valid when the output layout is null.
@@ -2425,10 +2465,10 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
 
   auto constraintsExp = getOpConstraints(prepareConv2dBias.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 0);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 
   // Test that the op constraints are valid when the output layout is null.
@@ -2500,9 +2540,10 @@ TEST_F(OpModelBase, maxPool2DOp) {
              << llvm::toString(constraintsExp.takeError()) << std::endl;
     }
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
   }
   op_model::SingletonDeviceContext::resetInstance();
@@ -2568,9 +2609,10 @@ TEST_F(OpModelBase, avgPool2DOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
   auto l1 = constraintsExp.get();
-  const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      l1;
   EXPECT_GT(cbSize, 0);
-  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
 
   op_model::SingletonDeviceContext::resetInstance();
@@ -2607,10 +2649,10 @@ TEST_F(OpModelBase, LeakyReluOp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 8192);
-  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(l1PeakSize, 2048);
   EXPECT_EQ(outputSize, 2048);
 
   op_model::SingletonDeviceContext::resetInstance();
@@ -2649,10 +2691,10 @@ TEST_F(OpModelBase, clampScalarOp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
-  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
 
   op_model::SingletonDeviceContext::resetInstance();
@@ -2685,10 +2727,10 @@ TEST_F(OpModelBase, clampTensorOp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
-  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
 
   op_model::SingletonDeviceContext::resetInstance();
@@ -2720,10 +2762,10 @@ TEST_F(OpModelBase, permuteOp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
-  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
 
   op_model::SingletonDeviceContext::resetInstance();
@@ -2774,10 +2816,10 @@ TEST_F(OpModelBase, upsampleOp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 
   op_model::SingletonDeviceContext::resetInstance();
@@ -2811,9 +2853,10 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
   auto constraintsExp = getOpConstraints(embedding.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 16384);
-    EXPECT_EQ(peakSize, 525312);
+    EXPECT_EQ(l1PeakSize, 525312);
     EXPECT_EQ(outputSize, 262144);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -2851,9 +2894,10 @@ TEST_F(OpModelBase, EmbeddingOpNullOutputLayout) {
       getInputLayouts(embedding), OpConfig(/*outputLayout=*/nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 16384);
-    EXPECT_EQ(peakSize, 525312);
+    EXPECT_EQ(l1PeakSize, 525312);
     EXPECT_EQ(outputSize, 262144);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -2896,9 +2940,10 @@ TEST_F(OpModelBase, EmbeddingBackwardOp) {
   auto constraintsExp = getOpConstraints(embeddingBackward.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 12400);
-    EXPECT_EQ(peakSize, 409600);
+    EXPECT_EQ(l1PeakSize, 409600);
     EXPECT_EQ(outputSize, 409600);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3022,9 +3067,10 @@ TEST_F(OpModelBase, WhereOpInterface) {
   auto constraintsExp = getOpConstraints(where.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 16384);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3072,10 +3118,10 @@ TEST_F(OpModelBase, batchNormOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-      constraintsExp.get();
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
   EXPECT_EQ(cbSize, 36864);
-  EXPECT_EQ(peakSize, 16384);
+  EXPECT_EQ(l1PeakSize, 16384);
   EXPECT_EQ(outputSize, 16384);
 
   op_model::SingletonDeviceContext::resetInstance();
@@ -3113,10 +3159,10 @@ TEST_F(OpModelBase, batchNormOpTraining) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-      constraintsExp.get();
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
   EXPECT_EQ(cbSize, 49152);
-  EXPECT_EQ(peakSize, 16384);
+  EXPECT_EQ(l1PeakSize, 16384);
   EXPECT_EQ(outputSize, 8192);
 
   op_model::SingletonDeviceContext::resetInstance();
@@ -3173,10 +3219,10 @@ TEST_F(OpModelBase, batchNormOpL1Memory) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-      constraintsExp.get();
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
   EXPECT_EQ(cbSize, 36864);
-  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(l1PeakSize, 2048);
   EXPECT_EQ(outputSize, 2048);
 
   op_model::SingletonDeviceContext::resetInstance();
@@ -3218,10 +3264,10 @@ TEST_F(OpModelBase, rmsNormOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-      constraintsExp.get();
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
   EXPECT_EQ(cbSize, 94208);
-  EXPECT_EQ(peakSize, 16384);
+  EXPECT_EQ(l1PeakSize, 16384);
   EXPECT_EQ(outputSize, 16384);
 
   op_model::SingletonDeviceContext::resetInstance();
@@ -3257,10 +3303,10 @@ TEST_F(OpModelBase, rmsNormOpMinimal) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-      constraintsExp.get();
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
   EXPECT_EQ(cbSize, 45056);
-  EXPECT_EQ(peakSize, 8192);
+  EXPECT_EQ(l1PeakSize, 8192);
   EXPECT_EQ(outputSize, 8192);
 
   op_model::SingletonDeviceContext::resetInstance();
@@ -3311,10 +3357,10 @@ TEST_F(OpModelBase, rmsNormOpL1Memory) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-      constraintsExp.get();
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
   EXPECT_EQ(cbSize, 45056);
-  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(l1PeakSize, 2048);
   EXPECT_EQ(outputSize, 2048);
 
   op_model::SingletonDeviceContext::resetInstance();
@@ -3366,9 +3412,10 @@ TEST_F(OpModelBase, EmptyOpInterface) {
   auto constraintsExp = getOpConstraints(empty.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3399,9 +3446,10 @@ TEST_F(OpModelBase, ArangeOpInterface) {
       backend.getOpConstraints(getInputLayouts(arange), OpConfig(nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3442,9 +3490,10 @@ TEST_P(NamedFullOpModelTest, TestOpInterface) {
       backend.getOpConstraints(getInputLayouts(op), OpConfig(nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(l1PeakSize, params.expectedResult.expectedL1PeakSize);
     EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints for " << params.testName
@@ -3467,7 +3516,7 @@ const auto createOnes = [](OpBuilder &b, Location loc, Type type,
       .getOperation();
 };
 
-const ExpectedResult namedFullExpected{true, 0, 0, 0};
+const ExpectedResult namedFullExpected{true, 0, 0, 0, 0};
 
 const std::vector<NamedFullOpTestParams> namedFullOpTestParams = {
     {"Zeros", createZeros, namedFullExpected},
@@ -3498,9 +3547,10 @@ TEST_F(OpModelBase, FullOpInterface) {
       backendI.getOpConstraints(getInputLayouts(fullInt), OpConfig(nullptr));
   if (constraintsExpI) {
     auto l1 = constraintsExpI.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3517,9 +3567,10 @@ TEST_F(OpModelBase, FullOpInterface) {
       backendF.getOpConstraints(getInputLayouts(fullF), OpConfig(nullptr));
   if (constraintsExpF) {
     auto l1 = constraintsExpF.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3551,9 +3602,10 @@ TEST_F(OpModelBase, ConstantOpInterface) {
                                                  OpConfig(outputLayout));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(l1PeakSize, 4096);
     EXPECT_EQ(outputSize, 4096);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3586,9 +3638,10 @@ TEST_F(OpModelBase, ConstantOpInterfaceNullOutputLayout) {
       backend.getOpConstraints(getInputLayouts(constant), OpConfig(nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3623,9 +3676,10 @@ TEST_F(OpModelBase, RandOpInterface) {
       backend.getOpConstraints(getInputLayouts(randOp), OpConfig(nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints for RandOp (default params); Error="
@@ -3647,9 +3701,10 @@ TEST_F(OpModelBase, RandOpInterface) {
       getInputLayouts(randOpCustom), OpConfig(nullptr));
   if (constraintsExpCustom) {
     auto l1 = constraintsExpCustom.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints for RandOp (custom params); Error="
@@ -3670,10 +3725,11 @@ TEST_F(OpModelBase, DeallocateOpInterface) {
       getInputLayouts(deallocate.getOperation()), OpConfig());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     // Hardcoded to return zero; deallocate op has no memory footprint.
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints for DeallocateOp; Error="
@@ -3712,10 +3768,11 @@ TEST_F(OpModelBase, FillCacheOpInterface) {
       getInputLayouts(fillCache.getOperation()), OpConfig());
   if (constraintsExp) {
     auto constraints = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = constraints;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        constraints;
     // Basic validation that constraints are reasonable
     EXPECT_EQ(cbSize, 4096);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 32768);
   } else {
     FAIL() << "Missing constraints for FillCacheOp; Error="
@@ -3760,10 +3817,11 @@ TEST_F(OpModelBase, UpdateCacheOpInterface) {
       getInputLayouts(updateCache.getOperation()), OpConfig());
   if (constraintsExp) {
     auto constraints = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = constraints;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        constraints;
     // Basic validation that constraints are reasonable
     EXPECT_EQ(cbSize, 1310720);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 32768);
   } else {
     FAIL() << "Missing constraints for UpdateCacheOp; Error="
@@ -3821,11 +3879,12 @@ TEST_F(OpModelBase, QuantizeOpInterface) {
       getInputLayouts(quantizeOp), OpConfig(getOutputLayout(quantizeOp)));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
   EXPECT_GE(cbSize, 18432);
-  EXPECT_GE(peakSize, 12288);
+  EXPECT_GE(l1PeakSize, 12288);
+  EXPECT_GE(totalPeakSize, 28672); // smaller than 18432+12288
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -3877,11 +3936,12 @@ TEST_F(OpModelBase, QuantizeOpInterfaceNullOutput) {
       getInputLayouts(quantizeOp), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
   EXPECT_GE(cbSize, 18432);
-  EXPECT_GE(peakSize, 12288);
+  EXPECT_GE(l1PeakSize, 12288);
+  EXPECT_GE(totalPeakSize, 28672); // smaller than 18432+12288
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -3946,11 +4006,12 @@ TEST_F(OpModelBase, RequantizeOpInterface) {
       getInputLayouts(requantizeOp), OpConfig(getOutputLayout(requantizeOp)));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
   EXPECT_GE(cbSize, 32768);
-  EXPECT_GE(peakSize, 40960);
+  EXPECT_GE(l1PeakSize, 40960);
+  EXPECT_GE(totalPeakSize, 32768 + 40960);
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -4016,11 +4077,12 @@ TEST_F(OpModelBase, RequantizeOpInterfaceNullOutput) {
       getInputLayouts(requantizeOp), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
   EXPECT_GE(cbSize, 32768);
-  EXPECT_GE(peakSize, 40960);
+  EXPECT_GE(l1PeakSize, 40960);
+  EXPECT_GE(totalPeakSize, 32768 + 40960);
   EXPECT_GE(outputSize, 4096);
 
   ASSERT_TRUE(outputLayout);
@@ -4072,11 +4134,12 @@ TEST_F(OpModelBase, DequantizeOpInterface) {
       getInputLayouts(dequantizeOp), OpConfig(getOutputLayout(dequantizeOp)));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
   EXPECT_GE(cbSize, 32768);
-  EXPECT_GE(peakSize, 18432);
+  EXPECT_GE(l1PeakSize, 18432);
+  EXPECT_GE(totalPeakSize, 32768 + 18432);
   EXPECT_GE(outputSize, 2048);
 
   ASSERT_TRUE(outputLayout);
@@ -4129,11 +4192,12 @@ TEST_F(OpModelBase, DequantizeOpInterfaceNullOutput) {
       getInputLayouts(dequantizeOp), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
   EXPECT_GE(cbSize, 32768);
-  EXPECT_GE(peakSize, 18432);
+  EXPECT_GE(l1PeakSize, 18432);
+  EXPECT_GE(totalPeakSize, 32768 + 18432);
   EXPECT_GE(outputSize, 2048);
 
   ASSERT_TRUE(outputLayout);
