@@ -83,6 +83,8 @@ void createTTIRToTTMetalFrontendPipeline(
         llvm::to_vector(options.overrideDeviceShape);
   }
   pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
+  pm.addPass(createConvertElementwiseToLinalgPass());
+  pm.addPass(createLinalgGeneralizeNamedOpsPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttir::createTTIRLowerToLayout());
 }
