@@ -263,6 +263,40 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
   }];
 }
 
+def TTCore_HostLayoutAttr : TTCore_Attr<"HostLayout", "host_layout", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
+  let summary = "Host-side memref layout attribute with per-dimension alignment.";
+  let description = [{
+    Describes a host-side buffer layout for a logical tensor where each
+    dimension may be padded up to a requested alignment. This attribute encodes
+    row-major strides over aligned shapes, i.e. for each dimension i the
+    stride is computed using alignUp(shape[i], dim_alignments[i]).
+
+    This allows host buffers to reflect the padded footprint required by the
+    device while preserving the original logical shape, enabling I/O for
+    unaligned shapes (e.g., non-multiples of 32×32 tiles) without changing the
+    user-visible tensor type. The ttmetal-generate-dim-aligned-host-io pass
+    materializes this layout on temporary host allocations for TTMetal enqueue
+    read/write buffer operations.
+
+    - shape: The logical (unpadded) shape in elements.
+    - dim_alignments: Per-dimension alignment in elements used to compute
+      aligned shapes for stride calculation.
+  }];
+  let parameters = (ins ArrayRefParameter<"int64_t">:$logical_shape,
+                        ArrayRefParameter<"int64_t">:$host_strides,
+                        "int64_t":$host_volume);
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `host_strides` `=` custom<DimensionList>($host_strides) `,` `host_volume` `=` $host_volume `>`";
+  let extraClassDeclaration = [{
+    LogicalResult getStridesAndOffset(ArrayRef<int64_t> shape,
+                                      SmallVectorImpl<int64_t> &strides,
+                                      int64_t &offset) const;
+
+    AffineMap getAffineMap() const;
+
+    bool isPadded() const;
+  }];
+}
+
 def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_DeviceLayoutInterface]> {
   let summary = "Tensor layout attribute with explicit physical shape";
   let description = [{
@@ -306,7 +340,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // The logical tensor shape before distribution.
     ArrayRefParameter<"int64_t">:$logical_shape,
 
-    // Alignment for each logical dim, default is 32x1x...x1x32.
+    // Imposed alignment for each collapse stage in each collapsed interval, interpretation requires its corresponding collapsed_intervals.
+    // Default is 1x1x...x1x32x32.
     ArrayRefParameter<"int64_t">:$dim_alignments,
 
     // Dim collapse info; must be encoded as 2D array of pairs, where each pair represent a half-open range. Negative indexing is supported.
@@ -365,6 +400,10 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
 
     // Stride calculations for shard portion.
     llvm::SmallVector<int64_t> getShardStride(RankedTensorType tensorType) const;
+
+    std::pair<llvm::SmallVector<int64_t>, int64_t> getHostStrideAndVolume() const;
+    llvm::SmallVector<int64_t> getHostStride() const;
+    int64_t getHostVolume() const;
 
     llvm::SmallVector<int64_t> getNormalizedIntervals() const;
 

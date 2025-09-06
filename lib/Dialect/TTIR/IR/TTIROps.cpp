@@ -43,14 +43,25 @@
 namespace mlir::tt::ttir {
 
 // Convert TensorType + MetalLayout into a memref including a Shard/ViewAttr.
-MemRefType getBufferType(Type type, bool isView) {
+MemRefType
+getBufferType(Type type, bool isView,
+              std::optional<ttcore::MetalLayoutAttr> hostInfo = std::nullopt) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
+  MLIRContext *ctx = tensorType.getContext();
+
   if (!tensorType.getEncoding()) {
-    return MemRefType::get(tensorType.getShape(), tensorType.getElementType());
+    // Calculate host layout and attach
+    ttcore::HostLayoutAttr hostLayout = nullptr;
+    if (hostInfo.has_value()) {
+      hostLayout = ttcore::HostLayoutAttr::get(ctx, tensorType.getShape(),
+                                               hostInfo->getHostStride(),
+                                               hostInfo->getHostVolume());
+    }
+    return MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
+                           hostLayout);
   }
 
   auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-  MLIRContext *ctx = tensorType.getContext();
 
   auto gridShape = layout.getGridShape(tensorType);
   auto shardShape = layout.getShardShape(tensorType);
@@ -471,7 +482,8 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false,
+                                       /*hostInfo=*/std::nullopt);
 }
 
 //===----------------------------------------------------------------------===//
@@ -606,7 +618,8 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ConstantOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false,
+                                       /*hostInfo=*/std::nullopt);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2766,6 +2779,26 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
   return mlir::failure();
 }
 
+bool mlir::tt::ttir::ToLayoutOp::isHostToDevice() {
+  const bool hostInput =
+      mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding() ==
+      nullptr;
+  const bool hostOutput =
+      mlir::cast<mlir::RankedTensorType>(getOutput().getType()).getEncoding() ==
+      nullptr;
+  return hostInput && !hostOutput;
+}
+
+bool mlir::tt::ttir::ToLayoutOp::isDeviceToHost() {
+  const bool hostInput =
+      mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding() ==
+      nullptr;
+  const bool hostOutput =
+      mlir::cast<mlir::RankedTensorType>(getOutput().getType()).getEncoding() ==
+      nullptr;
+  return !hostInput && hostOutput;
+}
+
 void mlir::tt::ttir::ToLayoutOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // Fold into ttir.empty w/ desired layout
@@ -2807,9 +2840,41 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
     return maybeOutput;
   }
 
-  rewriter.create<::mlir::tt::ttir::ToLayoutOp>(getLoc(), TypeRange(),
-                                                *maybeInput, *maybeOutput,
-                                                getLayout().value_or(nullptr));
+  if (isHostToDevice()) {
+    llvm::SmallVector<mlir::Value> invocationStack;
+    MemRefType alignedHostMemref = mlir::cast<MemRefType>(
+        *getBufferType(getInput(), options, state, invocationStack));
+
+    if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
+            .isPadded()) {
+      auto alignedHostTensor =
+          rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
+      rewriter.create<memref::CopyOp>(getLoc(), *maybeInput, alignedHostTensor);
+      maybeInput = alignedHostTensor.getResult();
+    }
+  }
+
+  auto toLayoutOp = rewriter.create<::mlir::tt::ttir::ToLayoutOp>(
+      getLoc(), TypeRange(), *maybeInput, *maybeOutput,
+      getLayout().value_or(nullptr));
+  if (isDeviceToHost()) {
+    llvm::SmallVector<mlir::Value> invocationStack;
+    MemRefType alignedHostMemref = mlir::cast<MemRefType>(
+        *getBufferType(getOutput(), options, state, invocationStack));
+
+    if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
+            .isPadded()) {
+      rewriter.setInsertionPoint(toLayoutOp);
+      auto alignedHostTensor =
+          rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
+
+      rewriter.setInsertionPointAfter(toLayoutOp);
+      rewriter.create<memref::CopyOp>(getLoc(), alignedHostTensor,
+                                      *maybeOutput);
+      toLayoutOp.getOutputMutable().assign(alignedHostTensor);
+    }
+  }
+
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      *maybeOutput);
   return success();
@@ -2819,7 +2884,8 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ToLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false,
+                                       getLayout());
 }
 
 //===----------------------------------------------------------------------===//
@@ -2943,7 +3009,8 @@ mlir::tt::ttir::StreamLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/true);
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/true,
+                                       /*hostInfo=*/std::nullopt);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3099,7 +3166,8 @@ mlir::tt::ttir::ViewLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/true);
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/true,
+                                       /*hostInfo=*/std::nullopt);
 }
 
 mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
@@ -4254,7 +4322,8 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false,
+                                       /*hostInfo=*/std::nullopt);
 }
 
 static std::optional<std::string>
@@ -4916,7 +4985,8 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::GenericOp::getBufferType(
         ttcore::MemorySpaceAttr::get(tensorType.getContext(),
                                      ttcore::MemorySpace::DeviceL1));
   }
-  return mlir::tt::ttir::getBufferType(tensorType, /*isView=*/false);
+  return mlir::tt::ttir::getBufferType(tensorType, /*isView=*/false,
+                                       /*hostInfo=*/std::nullopt);
 }
 
 //===----------------------------------------------------------------------===//

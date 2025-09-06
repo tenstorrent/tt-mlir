@@ -245,7 +245,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   }
   uint8_t *buf = fbb.GetBufferPointer();
   auto size = fbb.GetSize();
-  auto handle = ::tt::runtime::utils::malloc_shared(size);
+  auto handle = ::tt::runtime::utils::mallocShared(size);
   std::memcpy(handle.get(), buf, size);
   return std::make_unique<::tt::runtime::SystemDesc>(handle);
 }
