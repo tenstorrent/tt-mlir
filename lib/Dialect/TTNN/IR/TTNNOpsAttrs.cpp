@@ -988,7 +988,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult KernelCBAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    uint32_t totalSize, CoreRangeAttr coreRange,
+    uint32_t totalSize, CoreRangeSetAttr coreRanges,
     llvm::ArrayRef<mlir::tt::ttnn::KernelCBFormatAttr> formats) {
   return ::llvm::success();
 }
@@ -1001,7 +1001,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult KernelSemaphoreAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    KernelCoreType coreType, ::mlir::tt::ttnn::CoreRangeAttr coreRange,
+    KernelCoreType coreType, ::mlir::tt::ttnn::CoreRangeSetAttr coreRanges,
     uint32_t initialValue) {
   return ::llvm::success();
 }
@@ -1036,7 +1036,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult ComputeKernelAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    SymbolRefAttr symbolRef, ::mlir::tt::ttnn::CoreRangeAttr coreRange,
+    SymbolRefAttr symbolRef, ::mlir::tt::ttnn::CoreRangeSetAttr coreRanges,
     ComputeKernelMathFidelity mathFidelity, bool fp32DestAccEn,
     bool dstFullSyncEn,
     ::llvm::ArrayRef<ComputeKernelUnpackToDestMode> unpackToDestModes,
@@ -1053,7 +1053,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult ReadKernelAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    mlir::SymbolRefAttr symbolRef, CoreRangeAttr coreRange,
+    mlir::SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
     ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
     ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
   if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
@@ -1066,7 +1066,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 
 ::llvm::LogicalResult WriteKernelAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    mlir::SymbolRefAttr symbolRef, CoreRangeAttr coreRange,
+    mlir::SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
     ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
     ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
   if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
