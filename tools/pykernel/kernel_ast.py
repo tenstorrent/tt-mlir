@@ -955,7 +955,7 @@ class D2MGenericCompiler(TTCompilerBase):
                     raise TypeError(
                         "Got Positional Argument in IR, unexpected argument type provided."
                     )
-            elif arg.annotation.id == "CircularBuffer":
+            elif arg.annotation.id == "Tensor":
                 shape = self.args[i].shape
                 dtype = F32Type.get(self.ctx)
                 func_operand_types.append(RankedTensorType.get(shape, dtype))

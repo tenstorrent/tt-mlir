@@ -17,27 +17,24 @@ matmul_template = {
 }
 
 
-# TODO:
-# - TensorShard = CircularBuffer, or some better name
-
-class CB:
+class Tensor:
     def __init__(self):
         self.dtype = "Float32"
         self.tilized_shape = [4, 4]
         self.shape = [128, 128]
 
 
-
 def pykernel_gen(blocking_factors=None, indexing_maps=None, iterator_types=None):
     def _decorator(f):
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
+            print(dir(f))
             threads = f(*args, **kwargs)
             if type(threads) is not list:
                 threads = [threads]
 
             for thread in threads:
-                thread(CB(), CB(), CB())
+                thread(Tensor(), Tensor(), Tensor())
 
         return _wrapper
     return _decorator
@@ -47,12 +44,12 @@ def pykernel_gen(blocking_factors=None, indexing_maps=None, iterator_types=None)
 def matmul(lhs, rhs, out):
     @compute()
     def mm(
-        cb_in0: CircularBuffer,
-        cb_in1: CircularBuffer,
-        cb_out: CircularBuffer,
+        lhs_shard: Tensor,
+        rhs_shard: Tensor,
+        out_shard: Tensor,
     ):
-        out = cb_in0 + cb_in1
-        yield cb_out
+        out = lhs_shard + rhs_shard
+        yield out_shard
 
     return mm
 
@@ -75,13 +72,13 @@ matmul(None, None, None)
 )
 def matmul(lhs, rhs, out):
     @compute()
-    def mm(
-        cb_in0: CircularBuffer,
-        cb_in1: CircularBuffer,
-        cb_out: CircularBuffer,
+    async def mm(
+        lhs_shard: Tensor,
+        rhs_shard: Tensor,
+        out_shard: Tensor,
     ):
-        cb_out += cb_in0 @ cb_in1
-        yield cb_out
+        out_shard += lhs_shard @ rhs_shard
+        yield out_shard
 
     return mm
 
@@ -98,30 +95,30 @@ def matmul(lhs, rhs, out):
 def matmul(lhs, rhs, out):
     @compute()
     async def mm(
-        cb_in0: CircularBuffer,
-        cb_in1: CircularBuffer,
-        cb_out: CircularBuffer,
+        lhs_shard: Tensor,
+        rhs_shard: Tensor,
+        out_shard: Tensor,
     ):
-        await (cb_in0, cb_in1)
-        cb_out = cb_in0 @ cb_in1
-        yield cb_out
+        await (lhs_shard, rhs_shard)
+        out_shard = lhs_shard @ rhs_shard
+        yield out_shard
 
     @datamovement()
-    def dm0(
-        cb_in0: CircularBuffer,
-        cb_in1: CircularBuffer,
+    async def dm0(
+        lhs_shard: Tensor,
+        rhs_shard: Tensor,
     ):
         if core_index(1) == 0:
-            tx = dma(lhs.indexing_map(0), cb_in0)
+            tx = dma(lhs.indexing_map(0), lhs_shard)
             dma_wait(tx)
             semaphore_wait(rec_ready, 1, reset=0)
-            tx = dma(cb_in0, cb_in0, core=(1, core_index(1)), mcast=(1, 1))
+            tx = dma(lhs_shard, lhs_shard, core=(1, core_index(1)), mcast=(1, 1))
             dma_wait(tx)
             semaphore_set(sent, 1, core=(1, core_index(1)), mcast=(1, 1))
         else:
             semaphore_inc(rec_ready, 1, core=(0, core_index(1)))
             semaphore_wait(sent, 1, reset=0)
-        yield cb_in0
+        yield lhs_shard
 
     return (mm, dm0, dm1)
 
@@ -138,44 +135,44 @@ def matmul(lhs, rhs, out):
 
     @compute()
     async def mm(
-        cb_in0: CircularBuffer,
-        cb_in1: CircularBuffer,
-        cb_out: CircularBuffer,
+        lhs_shard: Tensor,
+        rhs_shard: Tensor,
+        out_shard: Tensor,
     ):
         for m in range(M):
             for k in range(K):
-                await cb_in0
+                await lhs_shard
                 for n in range(N):
-                    await cb_in1
-                    cb_out += cb_in0 @ cb_in1
-                    yield cb_out
+                    await rhs_shard
+                    out_shard += lhs_shard @ rhs_shard
+                    yield out_shard
 
     @datamovement()
     async def dm_out(
-        cb_out: CircularBuffer,
+        out_shard: Tensor,
     ):
         for m in range(M):
             for k in range(K):
                 for n in range(N):
-                    await cb_out
+                    await out_shard
 
     @datamovement()
     def dm0(
-        cb_in0: CircularBuffer,
-        cb_in1: CircularBuffer,
+        lhs_shard: Tensor,
+        rhs_shard: Tensor,
     ):
         for m in range(M):
             for k in range(K):
                 if core_index(1) == 0:
-                    tx = dma(lhs[m, k], cb_in0)
+                    tx = dma(lhs[m, k], lhs_shard)
                     dma_wait(tx)
                     semaphore_wait(rec_ready, 1, reset=0)
-                    tx = dma(cb_in0, cb_in0, core=(1, core_index(1)), mcast=(1, 1))
+                    tx = dma(lhs_shard, lhs_shard, core=(1, core_index(1)), mcast=(1, 1))
                     dma_wait(tx)
                     semaphore_set(sent, 1, core=(1, core_index(1)), mcast=(1, 1))
                 else:
                     semaphore_inc(rec_ready, 1, core=(0, core_index(1)))
                     semaphore_wait(sent, 1, reset=0)
-                yield cb_in0
+                yield lhs_shard
 
     return (mm, dm0, dm1)
