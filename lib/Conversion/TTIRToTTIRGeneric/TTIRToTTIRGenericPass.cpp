@@ -12,6 +12,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -57,12 +58,16 @@ struct TTIRToTTIRGenericPass final
       target.addLegalDialect<mlir::BuiltinDialect>();
       target.addLegalDialect<mlir::func::FuncDialect>();
       target.addLegalDialect<mlir::linalg::LinalgDialect>();
+      target.addLegalDialect<mlir::arith::ArithDialect>();
+      target.addLegalDialect<mlir::scf::SCFDialect>();
 
       target.addLegalDialect<ttcore::TTCoreDialect>();
 
       // An explicit list of legal ttir.* ops.
 
-      target.addLegalOp<ttir::GenericOp>();
+      target.addDynamicallyLegalOp<ttir::GenericOp>([](ttir::GenericOp op) {
+        return llvm::all_of(op.getOperands(), hasMetalLayout);
+      });
       target.addLegalOp<ttir::ToLayoutOp>();
       target.addLegalOp<ttir::StreamLayoutOp>();
       target.addLegalOp<ttir::ViewLayoutOp>();

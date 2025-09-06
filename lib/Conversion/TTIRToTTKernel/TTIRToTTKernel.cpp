@@ -474,6 +474,9 @@ public:
       auto dstIdx = getDstIdxFromResult(op.getResult());
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
                               getCB(rewriter, op.getRhs()));
+      //// HACK
+      // setInsertionPointAfterOperands(
+      //     rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx});
       rewriter.create<FPUOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
                              getCB(rewriter, op.getRhs()), adaptor.getLhs(),
                              adaptor.getRhs(), dstIdx);

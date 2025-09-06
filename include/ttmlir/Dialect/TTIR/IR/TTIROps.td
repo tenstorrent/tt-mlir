@@ -118,6 +118,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 
     let assemblyFormat = [{ attr-dict `\n`
     ` ` ` ` ` ` ` ` `ins` `(` $inputs `:` type($inputs) `)` `\n`
@@ -207,6 +208,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<ttcore::IteratorType> getIteratorTypesValue();
       SmallVector<int64_t> getBlockFactorsValue();
+      SmallVector<int64_t> getExplicitBlockFactors(int64_t operandIndex);
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
       SmallVector<SmallVector<int64_t>> getOperandShardShapes(bool convertTileToScalar = false);
       ThreadType getRegionThreadType(unsigned regionIndex) {
@@ -219,6 +221,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
       bool isAffineMapForm() { return !getIndexingMaps().empty(); }
       bool isLoweredLoopForm() { return !isAffineMapForm(); }
       bool isExternalSymbolForm() { return getRegions().empty(); }
+      bool hasExplicitBlockFactors() { return getIndexingMaps().empty() && !getBlockFactors().empty(); }
     }];
 }
 

@@ -16,6 +16,7 @@
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
@@ -4462,7 +4463,7 @@ static mlir::LogicalResult verifyAffineBlocking(
 
 // GenericOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
-  if (hasPureTensorSemantics()) {
+  if (hasPureTensorSemantics() && getIndexingMaps().size() > 0) {
     if (this->getNumRegions() != 1) {
       return emitOpError(
           "generic op with pure tensor semantics must have exactly 1 region");
@@ -4500,6 +4501,18 @@ static mlir::LogicalResult verifyAffineBlocking(
 
   if (!getRegions().empty() && getRegions().size() != getThreads().size()) {
     return emitOpError("number of regions must match the number of threads");
+  }
+
+  if (hasExplicitBlockFactors()) {
+    auto gridRank = getGrid().getRank();
+    auto numOperands = getNumOperands();
+    SmallVector<int64_t> blockFactors = getBlockFactorsValue();
+    if (blockFactors.size() != gridRank * numOperands) {
+      return emitOpError(
+          "number of explicit block factors must be grid rank * num operands");
+    }
+
+    // TODO assert operand grid shapes
   }
 
   // Output grid shape must equal the GenericOp grid shape.
@@ -4695,6 +4708,83 @@ static mlir::LogicalResult verifyAffineBlocking(
   return success();
 }
 
+void mlir::tt::ttir::GenericOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(
+      // Check to see if any linalg generic passes have wired up ttir generic op
+      // inputs to the outputs (i.e. inplace) which we currently do not support.
+      // This canonicalization pattern will catch these cases and rewire the
+      // inputs.
+      +[](mlir::tt::ttir::GenericOp op, mlir::PatternRewriter &rewriter) {
+        if (op->getNumRegions() == 0) {
+          return mlir::failure();
+        }
+
+        auto replaceWithOutputCb =
+            +[](PatternRewriter &rewriter, Region &region, Operation *regionOp,
+                OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
+          BlockArgument blockArg =
+            mlir::dyn_cast<BlockArgument>(initOperand.get());
+          if (blockArg && blockArg.getArgNumber() >= dpsIOBoundary) {
+            return false;
+          }
+
+          Operation *origDefiningOp = initOperand.get().getDefiningOp();
+          if (origDefiningOp && (!mlir::isa<ttir::EmptyOp>(origDefiningOp) &&
+                                 !mlir::isa<memref::AllocOp>(origDefiningOp))) {
+            return false;
+          }
+
+          rewriter.modifyOpInPlace(regionOp, [&]() {
+            initOperand.assign(region.getArgument(dpsIOBoundary));
+          });
+
+          if (origDefiningOp && mlir::isa<ttir::EmptyOp>(origDefiningOp)) {
+            rewriter.replaceAllUsesWith(origDefiningOp->getResult(0),
+                                        initOperand.get());
+          }
+
+          if (origDefiningOp && mlir::isa<memref::AllocOp>(origDefiningOp)) {
+            for (auto user : origDefiningOp ->getUsers()) {
+              rewriter.eraseOp(user);
+            }
+          }
+
+          return true;
+        };
+
+        int64_t dpsIOBoundary = op.getNumDpsInputs();
+        bool updated = false;
+        for (Region &region : op->getRegions()) {
+          if (op.getRegionThreadType(region.getRegionNumber()) != ThreadType::Compute) {
+            continue;
+          }
+
+          region.walk([&](Operation *regionOp) {
+            if (DestinationStyleOpInterface dps =
+                    mlir::dyn_cast<DestinationStyleOpInterface>(regionOp);
+                dps) {
+              for (OpOperand &initOperand : dps.getDpsInitsMutable()) {
+                assert(op.getNumDpsInits() == dps.getNumDpsInits());
+                assert(op.getNumDpsInits() == 1);
+
+                updated |= replaceWithOutputCb(rewriter, region, regionOp,
+                                               initOperand, dpsIOBoundary);
+              }
+            } else if (TileMatmulBlockOp tmb =
+                           mlir::dyn_cast<TileMatmulBlockOp>(regionOp);
+                       tmb) {
+              updated |=
+                  replaceWithOutputCb(rewriter, region, regionOp,
+                                      tmb.getOutputMutable(), dpsIOBoundary);
+            }
+          });
+        }
+
+        return updated ? mlir::success() : mlir::failure();
+      });
+}
+
 unsigned mlir::tt::ttir::GenericOp::getNumLoops() { return getNumDims(); }
 
 unsigned mlir::tt::ttir::GenericOp::getNumDims() {
@@ -4726,6 +4816,18 @@ mlir::tt::ttir::GenericOp::getIteratorTypesValue() {
 
 mlir::SmallVector<int64_t> mlir::tt::ttir::GenericOp::getBlockFactorsValue() {
   return llvm::map_to_vector(getBlockFactors(), [](Attribute a) {
+    return mlir::cast<IntegerAttr>(a).getInt();
+  });
+}
+
+mlir::SmallVector<int64_t>
+mlir::tt::ttir::GenericOp::getExplicitBlockFactors(int64_t operandIndex) {
+  assert(hasExplicitBlockFactors());
+  assert(operandIndex < getNumOperands());
+  int64_t rank = getGrid().getRank();
+  int64_t begin = operandIndex * rank;
+  ArrayRef<Attribute> blockFactors = getBlockFactors().getValue();
+  return llvm::map_to_vector(blockFactors.slice(begin, rank), [](Attribute a) {
     return mlir::cast<IntegerAttr>(a).getInt();
   });
 }
@@ -4834,6 +4936,10 @@ mlir::tt::ttir::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
 
 mlir::SmallVector<int64_t>
 mlir::tt::ttir::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
+  if (getIndexingMaps().empty()) {
+    return {};
+  }
+
   AffineMap indexingMap = getIndexingMap(operandIndex);
   SmallVector<int64_t> participatingDims =
       getParticipatingLoopDims(operandIndex);
@@ -5340,7 +5446,7 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
 
 ::mlir::LogicalResult mlir::tt::ttir::YieldOp::verify() {
   auto generic = getOperation()->getParentOfType<GenericOp>();
-  if (generic && generic.hasPureTensorSemantics()) {
+  if (!generic || generic.hasPureTensorSemantics()) {
     return ::mlir::success();
   }
 
@@ -5351,11 +5457,13 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::AwaitOp::verify() {
+#if 0
   auto generic = getOperation()->getParentOfType<GenericOp>();
-  if (generic && generic.hasPureTensorSemantics()) {
+  if (!generic || generic.hasPureTensorSemantics()) {
     return emitOpError(
         "await op illegal to use inside generic with pure tensor semantics");
   }
+#endif
 
   return operandsInRegionArguments(
       getOperation(),

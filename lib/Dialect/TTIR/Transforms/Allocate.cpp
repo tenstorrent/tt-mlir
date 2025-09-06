@@ -135,6 +135,10 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
     unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
     ArrayAttr iteratorTypes = op.getIteratorTypes();
     for (OpOperand &operand : op->getOpOperands()) {
+      if (op.getIndexingMaps().empty()) {
+        continue;
+      }
+
       bool isOutput = operand.getOperandNumber() >= outputOperandsIndex;
       AffineMap operandIndexingMap =
           mlir::cast<AffineMapAttr>(

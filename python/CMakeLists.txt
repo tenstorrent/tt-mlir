@@ -37,6 +37,8 @@ declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   TD_FILE dialects/TTIRBinding.td
+  GEN_ENUM_BINDINGS ON
+  GEN_ENUM_BINDINGS_TD_FILE dialects/TTIREnumBinding.td
   SOURCES dialects/ttir.py
   DIALECT_NAME ttir
 )
@@ -98,6 +100,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   SOURCES
     TTMLIRModule.cpp
     TTModule.cpp
+    TTIRModule.cpp
     TTKernelModule.cpp
     TTNNModule.cpp
     OptimizerOverrides.cpp
@@ -153,6 +156,8 @@ set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Dialects.func
   MLIRPythonSources.Dialects.tensor
   MLIRPythonSources.Dialects.linalg
+  MLIRPythonSources.Dialects.math
+  MLIRPythonSources.Dialects.complex
   MLIRPythonSources.Dialects.ml_program
   MLIRPythonSources.Dialects.scf
   MLIRPythonSources.Dialects.tosa

@@ -600,7 +600,7 @@ class TTCore_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
-def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
+def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, FloatTypeInterface]> {
     let summary = "TT tile";
     let description = "Tile type in TT dialect";
     let parameters = (ins ArrayRefParameter<"int64_t">:$shape, "DataType":$dataType);
@@ -617,6 +617,11 @@ def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
       // Returns the scalar element type of the tile, if compressed it returns
       // the corresponding uncompressed element type, i.e. bfp_bf8 -> bf16
       Type getElementType() const;
+
+      const ::llvm::fltSemantics &getFloatSemantics() {
+        // TODO
+        return llvm::APFloat::IEEEsingle();
+      }
     }];
 
     let genVerifyDecl = 1;
