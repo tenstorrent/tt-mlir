@@ -99,7 +99,7 @@ def ttnn_to_flatbuffer_file_worker(
     try:
         module = create_mlir_module_from_string(module_str)
 
-        ttnn_to_flatbuffer_file(module, output_file_name)
+        ttnn_to_flatbuffer_file(module, output_file_name, {}, {})
 
         result_queue.put(TranslationProcessResult.success(output_file_name))
     except Exception as e:

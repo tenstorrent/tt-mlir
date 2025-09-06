@@ -38,11 +38,10 @@ def check_sharded_input_output(mlir_file: str, op_name: str):
             (16, 32, 32, 64),
             (64, 64, 3, 3),
             (1, 1, 1, 64),
-            (1, 1, 1, 64),
         ]
     ],
 )
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
 @pytest.mark.parametrize(
     "stride,padding,dilation,groups", [([1, 1], [1, 1], [1, 1], 1)]
 )
@@ -59,7 +58,6 @@ def test_conv2d_sharding(
         in0: Operand,
         weight: Operand,
         bias: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
@@ -67,7 +65,6 @@ def test_conv2d_sharding(
             in0,
             weight,
             bias,
-            in1,
             stride=stride,
             padding=padding,
             dilation=dilation,
