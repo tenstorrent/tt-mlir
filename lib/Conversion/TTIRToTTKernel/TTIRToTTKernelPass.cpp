@@ -58,6 +58,10 @@ struct ConvertTTIRToTTKernel
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
 
+    // Inputs to matmul_block. Will be folded in this pass.
+    target.addLegalOp<memref::CastOp>();
+    target.addLegalOp<memref::SubViewOp>();
+
     // Allow loads and stores to integer element types.
     //   i.e. riscv accesses to L1.
     target.addDynamicallyLegalOp<memref::LoadOp>([&](memref::LoadOp op) {

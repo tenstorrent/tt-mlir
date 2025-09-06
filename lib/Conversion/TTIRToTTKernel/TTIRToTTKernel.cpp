@@ -10,14 +10,15 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
-
 #include <type_traits>
+
 #include <utility>
 
 namespace mlir::tt::ttkernel {
@@ -70,11 +71,64 @@ static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
               index(rewriter, loc, 1))};
 }
 
+static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
+                                       Value inputView) {
+  if (auto subViewOp =
+          mlir::dyn_cast<memref::SubViewOp>(inputView.getDefiningOp())) {
+    // We have blocked this input. We need to get the indicies for the first
+    // tile in the subview.
+    SmallVector<Value> indices = {index(rewriter, loc, 0),
+                                  index(rewriter, loc, 0)};
+    SmallVector<Value> sourceIndices;
+
+    // TODO(#4717): This call alone should be enough to get the tile indices,
+    // but currently it returns block index instead. Once fixed, we can remove
+    // all the other calculations below.
+    affine::resolveIndicesIntoOpWithOffsetsAndStrides(
+        rewriter, loc, subViewOp.getMixedOffsets(), subViewOp.getMixedStrides(),
+        subViewOp.getDroppedDims(), indices, sourceIndices);
+
+    auto resultTy = mlir::cast<MemRefType>(subViewOp.getResult().getType());
+    Value rtIdx = index(rewriter, loc, resultTy.getShape()[0]);
+    Value ktIdx = index(rewriter, loc, resultTy.getShape()[1]);
+    Value tilesPerBlock = rewriter.create<arith::MulIOp>(loc, rtIdx, ktIdx);
+
+    // Convert the resolved source row offset to a block-row index.
+    Value rowBlockIdx =
+        rewriter.create<arith::DivSIOp>(loc, sourceIndices[0], rtIdx);
+    Value rowBase =
+        rewriter.create<arith::MulIOp>(loc, rowBlockIdx, tilesPerBlock);
+    return rewriter.create<arith::AddIOp>(loc, rowBase, sourceIndices[1]);
+  }
+
+  if (mlir::isa<memref::CastOp>(inputView.getDefiningOp())) {
+    // We have not blocked this input. Ignore the cast and start from index 0 of
+    // the input.
+    return index(rewriter, loc, 0);
+  }
+  llvm_unreachable("Expected subview or cast op");
+}
+
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
-  memref::LoadOp loadOp = mlir::cast<memref::LoadOp>(cb.getDefiningOp());
-  assert(loadOp.getIndices().size() == 1 &&
-         "Expected single index in load op, failing.");
-  return rewriter.getRemappedValue(loadOp.getMemref());
+  if (memref::LoadOp loadOp =
+          mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
+      loadOp) {
+    assert(loadOp.getIndices().size() == 1 &&
+           "Expected single index in load op, failing.");
+    return rewriter.getRemappedValue(loadOp.getMemref());
+  }
+
+  if (mlir::isa<memref::SubViewOp>(cb.getDefiningOp())) {
+    memref::SubViewOp subViewOp =
+        mlir::cast<memref::SubViewOp>(cb.getDefiningOp());
+    return rewriter.getRemappedValue(subViewOp.getSource());
+  }
+
+  if (mlir::isa<memref::CastOp>(cb.getDefiningOp())) {
+    memref::CastOp castOp = mlir::cast<memref::CastOp>(cb.getDefiningOp());
+    return rewriter.getRemappedValue(castOp.getSource());
+  }
+  llvm_unreachable("Expected load or subview op");
 }
 
 static Value getDstIdxFromResult(Value ttirOpResult) {
@@ -247,6 +301,7 @@ using ComputeOpMap = OpMap<
   // Elementwise FPU
   std::pair<ttir::TileAddOp,        std::pair<ttkernel::AddTilesInitOp,            ttkernel::AddTilesOp>>,
   std::pair<ttir::TileMatmulOp,     std::pair<ttkernel::MatmulInitOp,              ttkernel::MatmulTilesOp>>,
+  std::pair<ttir::TileMatmulBlockOp, std::pair<ttkernel::MatmulBlockInitOp,        ttkernel::ExperimentalMatmulBlockOp>>,
   std::pair<ttir::TileMulOp,        std::pair<ttkernel::MulTilesInitOp,            ttkernel::MulTilesOp>>,
   std::pair<ttir::TileSubOp,        std::pair<ttkernel::SubTilesInitOp,            ttkernel::SubTilesOp>>,
 
@@ -307,7 +362,7 @@ public:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    assert(op->hasOneUse());
+    assert(op->hasOneUse() || op->use_empty());
     if constexpr (arity == 1) {
       assert(op->getNumOperands() == 1u);
     } else if constexpr (arity == 2) {
@@ -341,6 +396,58 @@ public:
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
                                                adaptor.getA(), adaptor.getB(),
                                                adaptor.getC(), transpose);
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileMatmulBlockOp>) {
+      auto insertionPoint = rewriter.getInsertionPoint();
+      auto cbA = getCB(rewriter, op.getA());
+      auto cbB = getCB(rewriter, op.getB());
+      auto outCB = getCB(rewriter, op.getOutput());
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB});
+
+      // destIndex is always 0 because we call an experimental LLK that fills up
+      // the entire dest in a loop.
+      Value destIndex = index(rewriter, op->getLoc(), 0);
+
+      // Tile dimensions per block.
+      auto typeA = llvm::cast<MemRefType>(op.getA().getType());
+      auto typeB = llvm::cast<MemRefType>(op.getB().getType());
+      auto rt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[0]);
+      auto kt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[1]);
+      auto ct_i32 = i32(rewriter, op->getLoc(), typeB.getShape()[1]);
+
+      auto getNumColumns = [](Value view) {
+        if (auto castOp =
+                dyn_cast_or_null<memref::CastOp>(view.getDefiningOp())) {
+          view = castOp.getSource();
+        } else if (auto svOp = dyn_cast_or_null<memref::SubViewOp>(
+                       view.getDefiningOp())) {
+          view = svOp.getSource();
+        }
+
+        auto srcTy = cast<MemRefType>(view.getType());
+        return srcTy.getShape()[1];
+      };
+      auto nt_i32 = i32(rewriter, op->getLoc(), getNumColumns(op.getB()));
+
+      auto transpose = i32(rewriter, op->getLoc(), 0);
+
+      rewriter.create<ttkernel::MatmulBlockInitOp>(
+          op->getLoc(), cbA, cbB, outCB, transpose, ct_i32, rt_i32, kt_i32);
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+      rewriter.create<ttkernel::MatmulBlockInitShortOp>(
+          op->getLoc(), cbA, cbB, transpose, ct_i32, rt_i32, kt_i32);
+
+      // Get the tile index for each input in the global memref. This is done by
+      // resolving tile (0,0) from the subview, representing a block, into the
+      // address space of the source memref.
+      Value aTileIndex =
+          getTileIndexFromBlockView(rewriter, op->getLoc(), op.getA());
+      Value bTileIndex =
+          getTileIndexFromBlockView(rewriter, op->getLoc(), op.getB());
+
+      rewriter.create<ttkernel::ExperimentalMatmulBlockOp>(
+          op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
+          ct_i32, rt_i32, kt_i32, nt_i32);
+
     } else if constexpr (arity == 2) {
       auto dstIdx = getDstIdxFromResult(op.getResult());
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
@@ -1127,6 +1234,7 @@ void populateTTIRToTTKernelPatterns(
                // Elementwise FPU.
                ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp>,
+               ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulBlockOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileSubOp>,
 
