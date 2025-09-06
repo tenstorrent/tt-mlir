@@ -144,6 +144,9 @@ private:
   mlir::sdy::TensorShardingAttr sdySharding;
 };
 
+// Return true if every dimension has no axes -> replicated.
+bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh);
+
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 
 } // namespace mlir::tt::shardy_utils

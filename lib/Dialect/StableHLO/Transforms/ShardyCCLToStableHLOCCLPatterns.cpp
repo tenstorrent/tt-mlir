@@ -104,7 +104,7 @@ static mlir::tt::shardy_utils::MeshMap getMeshMap(SrcOp &srcOp) {
   return meshMap;
 }
 
-template <typename SrcOp>
+template <typename SrcOp, typename ReductionOp>
 static void addReductionBlock(PatternRewriter &rewriter, SrcOp &srcOp,
                               mlir::RankedTensorType outputType) {
   mlir::Location loc = srcOp.getLoc();
@@ -116,9 +116,9 @@ static void addReductionBlock(PatternRewriter &rewriter, SrcOp &srcOp,
   mlir::Block *block =
       rewriter.createBlock(&srcOp.getRegion(), /*insertPt*/ {},
                            {reductionType, reductionType}, {loc, loc});
-  mlir::stablehlo::AddOp addOp = rewriter.create<mlir::stablehlo::AddOp>(
+  ReductionOp reductionOp = rewriter.create<ReductionOp>(
       loc, block->getArgument(0), block->getArgument(1));
-  rewriter.create<mlir::stablehlo::ReturnOp>(loc, addOp.getResult());
+  rewriter.create<mlir::stablehlo::ReturnOp>(loc, reductionOp.getResult());
 }
 
 // AllGatherOp
@@ -253,8 +253,9 @@ public:
       // Create a single block because stablehlo.reduce_scatter op is a region
       // based op. Default the reduction type to sum since shardy does not have
       // support for custom reduction types.
-      addReductionBlock<mlir::stablehlo::ReduceScatterOp>(
-          rewriter, reduceScatterOp, newOutputType);
+      addReductionBlock<mlir::stablehlo::ReduceScatterOp,
+                        mlir::stablehlo::AddOp>(rewriter, reduceScatterOp,
+                                                newOutputType);
     }
 
     rewriter.replaceAllUsesWith(srcOp, result);
@@ -302,8 +303,8 @@ public:
       // Create a single block because stablehlo.all_reduce op is a region based
       // op. Default the reduction type to sum since shardy does not have
       // support for custom reduction types.
-      addReductionBlock<mlir::stablehlo::AllReduceOp>(rewriter, allReduceOp,
-                                                      newOutputType);
+      addReductionBlock<mlir::stablehlo::AllReduceOp, mlir::stablehlo::AddOp>(
+          rewriter, allReduceOp, newOutputType);
     }
 
     rewriter.replaceAllUsesWith(srcOp, result);
@@ -386,12 +387,135 @@ class ShardyToStableHLOAllSliceOpRewritePattern
   using OpRewritePattern::OpRewritePattern;
 
 public:
-  LogicalResult matchAndRewrite(mlir::sdy::AllSliceOp srcOp,
-                                PatternRewriter &rewriter) const override {
-    srcOp.emitError()
-        << "ShardyToStableHLO lowering for AllSliceOp is not implemented yet: "
-           "https://github.com/tenstorrent/tt-mlir/issues/3368.";
-    return failure();
+  LogicalResult
+  matchAndRewrite(mlir::sdy::AllSliceOp srcOp,
+                  mlir::PatternRewriter &rewriter) const override {
+    MLIRContext *context = getContext();
+
+    // Mesh axis -> parts mapping.
+    mlir::tt::shardy_utils::MeshMap meshMap =
+        getMeshMap<mlir::sdy::AllSliceOp>(srcOp);
+
+    // Channel handle used by AllToAll (opaque in this context).
+    auto ch = mlir::stablehlo::ChannelHandleAttr::get(context, /*handle=*/1,
+                                                      /*type=*/1);
+
+    // Current tensor value/type threaded through the loop.
+    mlir::Value result = srcOp.getOperand();
+    auto prevType = mlir::cast<mlir::RankedTensorType>(result.getType());
+
+    // Per-dimension slicing axes (we support at most one mesh axis per tensor
+    // dim).
+    auto axesPerDim = srcOp.getSlicingAxes();
+
+    for (auto it = axesPerDim.begin(), e = axesPerDim.end(); it != e; ++it) {
+      int64_t sliceDim =
+          static_cast<int64_t>(std::distance(axesPerDim.begin(), it));
+      llvm::ArrayRef<mlir::sdy::AxisRefAttr> axisRefs = it->getValue();
+
+      // No sharding/slicing on this dimension → skip.
+      if (axisRefs.empty()) {
+        continue;
+      }
+
+      // We don't support multiple mesh axes mapped to a single tensor
+      // dimension.
+      if (axisRefs.size() > 1) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "all_slice with multi-axis on a single tensor dimension is "
+                   "not supported.");
+      }
+
+      // Resolve parts for the target mesh axis.
+      mlir::StringRef meshAxis = axisRefs.front().getName();
+      auto found = meshMap.find(meshAxis.str());
+      if (found == meshMap.end()) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "mesh axis not found in mesh map.");
+      }
+      int64_t parts = found->second;
+
+      // Validate shape divisibility by parts and compute chunk length.
+      llvm::SmallVector<int64_t> shape(prevType.getShape().begin(),
+                                       prevType.getShape().end());
+      if (shape[sliceDim] < 0 || shape[sliceDim] % parts != 0) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "dimension size must be static and divisible by mesh axis "
+                   "size (parts).");
+      }
+      int64_t fullLen = shape[sliceDim];
+      int64_t chunkLen = fullLen / parts;
+
+      // 1) Reshape: [..., N, ...] → [..., parts, chunkLen, ...]
+      llvm::SmallVector<int64_t> reshapeShape;
+      reshapeShape.reserve(shape.size() + 1);
+      for (int64_t i = 0; i < static_cast<int64_t>(shape.size()); ++i) {
+        if (i == sliceDim) {
+          reshapeShape.push_back(parts);    // inserted "parts" axis
+          reshapeShape.push_back(chunkLen); // following "chunk" axis
+        } else {
+          reshapeShape.push_back(shape[i]);
+        }
+      }
+      auto reshapedType =
+          mlir::RankedTensorType::get(reshapeShape, prevType.getElementType());
+      auto reshaped = rewriter.create<mlir::stablehlo::ReshapeOp>(
+          srcOp.getLoc(), reshapedType, result);
+
+      // 2) Replica groups for the target mesh axis.
+      auto groups = createDenseAttrFromReplicaGroups(
+          context, populateReplicaGroups(meshMap, meshAxis));
+
+      // 3) AllToAll along the inserted "parts" axis (split and concat on same
+      // axis).
+      int64_t partsDim = sliceDim; // "parts" axis is inserted at sliceDim
+      auto allToAll = rewriter.create<mlir::stablehlo::AllToAllOp>(
+          srcOp.getLoc(),
+          reshapedType, // result type is identical to input
+          reshaped.getResult(),
+          /*split_dimension=*/partsDim,
+          /*concat_dimension=*/partsDim,
+          /*split_count=*/parts,
+          /*replica_groups=*/groups,
+          /*channel_handle=*/ch);
+
+      // 4) Static slice the "parts" axis to take index 0 only.
+      llvm::SmallVector<int64_t> startIdx(reshapeShape.size(), 0);
+      llvm::SmallVector<int64_t> limitIdx(reshapeShape.begin(),
+                                          reshapeShape.end());
+      llvm::SmallVector<int64_t> strides(reshapeShape.size(), 1);
+      limitIdx[partsDim] =
+          1; // take only the first entry along the "parts" axis
+
+      auto startAttr = rewriter.getDenseI64ArrayAttr(startIdx);
+      auto limitAttr = rewriter.getDenseI64ArrayAttr(limitIdx);
+      auto stridesAttr = rewriter.getDenseI64ArrayAttr(strides);
+
+      auto slicedShape = reshapeShape;
+      slicedShape[partsDim] = 1;
+      auto slicedType =
+          mlir::RankedTensorType::get(slicedShape, prevType.getElementType());
+
+      mlir::Value allToAllOut = allToAll.getResult(0);
+      auto slice = rewriter.create<mlir::stablehlo::SliceOp>(
+          srcOp.getLoc(), slicedType, allToAllOut, startAttr, limitAttr,
+          stridesAttr);
+
+      // 5) Remove the singleton "parts" axis → final shape with chunkLen at
+      // sliceDim.
+      shape[sliceDim] = chunkLen;
+      auto finalType =
+          mlir::RankedTensorType::get(shape, prevType.getElementType());
+      auto squeezed = rewriter.create<mlir::stablehlo::ReshapeOp>(
+          srcOp.getLoc(), finalType, slice.getResult());
+
+      // Thread through for the next dimension (if any).
+      result = squeezed.getResult();
+      prevType = finalType;
+    }
+
+    rewriter.replaceOp(srcOp, result);
+    return mlir::success();
   }
 };
 
