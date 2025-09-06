@@ -9,6 +9,7 @@
 
 #define FMT_HEADER_ONLY
 #include "tt-metalium/host_api.hpp"
+#include "tt-metalium/mesh_device.hpp"
 
 #include "tt-metalium/fabric_types.hpp"
 #include "tt/runtime/detail/common/flatbuffer_operator_ostream.h"
@@ -126,8 +127,21 @@ toUnpackToDestMode(const tt::target::UnpackToDestMode &unpackToDestMode) {
     return UnpackToDestMode::UnpackToDestFp32;
   case tt::target::UnpackToDestMode::Default:
     return UnpackToDestMode::Default;
-    LOG_FATAL("Unsupported unpack to dest mode");
   }
+}
+
+inline std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>
+createFullMeshDevice(
+    std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType) {
+
+  ::tt::tt_metal::DispatchCoreType type =
+      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
+
+  return ::tt::tt_metal::distributed::MeshDevice::create(
+      ::tt::tt_metal::distributed::MeshDeviceConfig(
+          /*mesh_shape=*/std::nullopt),
+      DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE,
+      /*num_command_queues=*/1, type);
 }
 
 } // namespace tt::runtime::common

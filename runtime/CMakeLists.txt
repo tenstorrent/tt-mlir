@@ -27,12 +27,19 @@ set(TT_RUNTIME_OPTIONS
   TTMLIR_ENABLE_RUNTIME_TESTS
 )
 
+if (TTMLIR_ENABLE_RUNTIME AND (TT_RUNTIME_ENABLE_TTNN OR TT_RUNTIME_ENABLE_TTMETAL))
+  set(TT_RUNTIME_ENABLED ON)
+else()
+  set(TT_RUNTIME_ENABLED OFF)
+endif()
+
 foreach(OPTION ${TT_RUNTIME_OPTIONS})
   if (${OPTION})
     add_definitions(-D${OPTION})
   endif()
 endforeach()
 
+add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(python)
 add_subdirectory(tools)
@@ -43,6 +50,8 @@ if (TTMLIR_ENABLE_RUNTIME_TESTS)
 else()
   add_library(TTRuntimeTTNNTestLib INTERFACE)
 endif()
+
+add_subdirectory(bin)
 
 # Add coverage_config to all targets in runtime
 if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

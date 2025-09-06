@@ -364,7 +364,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::GenericOp: {
     return operations::generic_op::run(op->type_as_GenericOp(), getContext());
   }
-  default: {
+  case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",
               ::tt::target::ttnn::EnumNameOpType(op->type_type()));
   }
