@@ -863,7 +863,7 @@ def TTIR_SemaphoreWaitOp : TTIR_GenericRegionOp<"semaphore_wait", [MemoryEffects
 // TTIR Generic Region Control Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [
+class TTIR_AsyncOp<string mnemonic, list<Trait> traits = []> : TTIR_GenericRegionOp<mnemonic, [
     MemoryEffects<[MemRead, MemWrite]>,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
@@ -872,18 +872,7 @@ def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [
       "getAliasingValues",
       "getBufferType"
     ]>
-  ]> {
-    let summary = "Yield op.";
-    let description = [{
-      Yield operation, return control flow to another thread. Corresponds to a circular buffer push.
-    }];
-
-    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
-
-    let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
-
-    let hasVerifier = 1;
-
+  ] # traits> {
     let extraClassDefinition = [{
       bool $cppClass::bufferizesToMemoryRead(
           mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
@@ -906,15 +895,39 @@ def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [
       }
       mlir::LogicalResult $cppClass::bufferize(
           mlir::RewriterBase &rewriter,
-          const mlir::bufferization::BufferizationOptions &,
+          const mlir::bufferization::BufferizationOptions &options,
           mlir::bufferization::BufferizationState &state) {
-        rewriter.eraseOp(*this);
+        assert(getValues().size() == 1);
+        Value input = getValues()[0];
+        if (mlir::isa<mlir::BlockArgument>(input)) {
+          ::llvm::SmallVector<mlir::Value> invocationStack;
+          auto bufferizedInput =
+              bufferization::getBuffer(rewriter, input, options, state);
+          assert(succeeded(bufferizedInput));
+          mlir::bufferization::replaceOpWithNewBufferizedOp<$cppClass>(
+              rewriter, *this, *bufferizedInput);
+        } else {
+          rewriter.eraseOp(*this);
+        }
         return mlir::success();
       }
     }];
 }
 
-def TTIR_AwaitOp : TTIR_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWrite]>]> {
+def TTIR_YieldOp : TTIR_AsyncOp<"yield"> {
+    let summary = "Yield op.";
+    let description = [{
+      Yield operation, return control flow to another thread. Corresponds to a circular buffer push.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
+
+    let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_AwaitOp : TTIR_AsyncOp<"await"> {
     let summary = "Await op.";
     let description = [{
       Await operation, await control flow from another thread. Corresponds to a circular buffer wait.

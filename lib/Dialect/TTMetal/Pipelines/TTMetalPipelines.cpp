@@ -83,6 +83,8 @@ void createTTIRToTTMetalFrontendPipeline(
         llvm::to_vector(options.overrideDeviceShape);
   }
   pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
+  pm.addPass(createConvertElementwiseToLinalgPass());
+  pm.addPass(createLinalgGeneralizeNamedOpsPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttir::createTTIRLowerToLayout());
 }
@@ -90,6 +92,8 @@ void createTTIRToTTMetalFrontendPipeline(
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   createTTIRBufferizationPipeline(pm);
+  pm.addPass(createCanonicalizerPassWithOptions(options));
+  pm.addPass(ttir::createTTIRInsertExplicitStreams());
   pm.addPass(ttir::createTTIRAllocate());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   ttir::TTIRGenericApplyInterchangeOptions applyInterchangeOptions;

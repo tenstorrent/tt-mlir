@@ -17,6 +17,7 @@ add_mlir_python_modules(TTPykernelModules
     INSTALL_PREFIX "python_packages/pykernel"
     DECLARED_SOURCES TTPykernelSources
 )
+add_dependencies(TTPykernelModules TTMLIRPythonModules)
 
 add_custom_target(pykernel COMMENT "pykernel" DEPENDS TTPykernelModules)
 add_dependencies(pykernel tt-metal-download)
@@ -31,7 +32,8 @@ set(PYKERNEL_EXTRA_PIP_PACKAGES graphviz)
 
 add_custom_command(TARGET pykernel POST_BUILD
     COMMENT "Setting up PyKernel dependencies"
-    COMMAND ${GREP_EXEC} -vE '${GREP_PATTERN}' ${METAL_REQUIREMENTS_PATH} > ${CMAKE_CURRENT_BINARY_DIR}/pykernel_requirements.txt
+    COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/pykernel_requirements.txt
+    #COMMAND ${GREP_EXEC} -vE '${GREP_PATTERN}' ${METAL_REQUIREMENTS_PATH} > ${CMAKE_CURRENT_BINARY_DIR}/pykernel_requirements.txt
     COMMAND PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install -r ${CMAKE_CURRENT_BINARY_DIR}/pykernel_requirements.txt
     COMMAND PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install ${PYKERNEL_EXTRA_PIP_PACKAGES}
 )

@@ -4,7 +4,8 @@
 
 import re
 import inspect
-from ttmlir.dialects import ttkernel, ttir
+from ttmlir.dialects import ttkernel, ttir, arith
+from ttmlir.ir import *
 
 
 def _camel_to_snake(name):
@@ -41,3 +42,13 @@ def _discover_dialect_ops(dialect, denylist=None):
             op_map[name] = func
 
     return op_map
+
+
+def _cast(val, ty):
+    if val.type == ty or (isinstance(ty, type) and isinstance(val.type, ty)):
+        return val
+
+    if ty is IndexType or isinstance(ty, IndexType):
+        return arith.index_cast(IndexType.get(), val)
+    else:
+        raise TypeError(f"Unhandled cast from {val.type} to {ty}")

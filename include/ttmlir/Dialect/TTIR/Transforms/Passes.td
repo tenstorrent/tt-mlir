@@ -629,4 +629,16 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
   ];
 }
 
+def TTIRGenericReplaceGlobals : Pass<"ttir-generic-replace-globals", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+}
+
+def TTIRInsertExplicitStreams : Pass<"ttir-insert-explicit-streams", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+}
+
 #endif

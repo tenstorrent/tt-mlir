@@ -608,7 +608,7 @@ memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
   return data;
 }
 
-static std::shared_ptr<void> translateModuleToFlatbuffer(
+std::shared_ptr<void> translateTTMetalToFlatbuffer(
     Operation *op,
     const std::unordered_map<std::string,
                              std::unordered_map<std::uint32_t, GoldenTensor>>
@@ -866,7 +866,7 @@ LogicalResult translateTTMetalToFlatbuffer(
         &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   std::shared_ptr<void> data =
-      translateModuleToFlatbuffer(op, goldenMap, moduleCache);
+      translateTTMetalToFlatbuffer(op, goldenMap, moduleCache);
   std::size_t size = flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
   os.write(reinterpret_cast<const char *>(data.get()), size);
