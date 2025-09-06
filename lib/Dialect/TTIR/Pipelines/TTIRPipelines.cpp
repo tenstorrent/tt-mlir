@@ -110,6 +110,9 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   //  explicitly iterate over tensor elements.
   manager.addPass(mlir::createConvertLinalgToAffineLoopsPass());
 
+  manager.addPass(mlir::affine::createLoopCoalescingPass());
+  manager.addPass(mlir::affine::createAffineLoopNormalizePass());
+
   // Performs loop-invariant code motion on affine loops, moving computations
   //  outside loops when possible to reduce redundant calculations.
   manager.addPass(affine::createAffineLoopInvariantCodeMotionPass());
@@ -163,6 +166,14 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   // Converts remaining SCF operations to control flow and LLVM dialect.
   manager.addPass(mlir::createSCFToControlFlowPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
+
+  // Embed CUDA target attributes for flatbuffer translation.
+  transforms::EmbedCudaTargetAttributesOptions embedCudaTargetAttributesOptions;
+  embedCudaTargetAttributesOptions.chip = options.chip;
+  embedCudaTargetAttributesOptions.features = options.features;
+  embedCudaTargetAttributesOptions.opt_level = options.optLevel;
+  manager.addPass(transforms::createEmbedCudaTargetAttributes(
+      embedCudaTargetAttributesOptions));
 }
 
 void createLinalgToLLVMPipeline(OpPassManager &manager,
