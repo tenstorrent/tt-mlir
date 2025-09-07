@@ -341,6 +341,10 @@ def TTNN_BitcastOp: TTNN_ElementwiseUnaryOp<"bitcast"> {
   let description = [{
     Eltwise Bitcast operation.
   }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       TTCore_DataTypeAttr:$dtype);
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
