@@ -8,7 +8,19 @@ import functools
 import textwrap
 
 from ttmlir.ir import *
-from ttmlir.dialects import ttcore, ttir, ttkernel, func, scf, arith, memref, emitc
+from ttmlir.passmanager import PassManager
+from ttmlir.dialects import (
+    ttcore,
+    ttir,
+    ttkernel,
+    func,
+    scf,
+    arith,
+    memref,
+    emitc,
+    linalg,
+    tensor,
+)
 from ttmlir.dialects._ods_common import get_default_loc_context
 from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
 
@@ -495,7 +507,8 @@ class TTCompilerBase(PyKernelAstBase):
                 rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
             ).result
         if isinstance(lhs.type, RankedTensorType):
-            is_float_type = isinstance(lhs.type.element_type, FloatType)
+            #is_float_type = isinstance(lhs.type.element_type, FloatType)
+            is_float_type = True
         match (node.op):
             case ast.Add():
                 f = arith.addf if is_float_type else arith.addi
@@ -959,7 +972,11 @@ class D2MGenericCompiler(TTCompilerBase):
                     )
             elif arg.annotation.id == "Tensor":
                 shape = self.args[i].shape
-                dtype = F32Type.get(self.ctx)
+                #dtype = F32Type.get(self.ctx)
+                #dtype = VectorType.get((32, 32), F32Type.get(self.ctx))
+                dtype = ttcore.ir.TileType.get(
+                    self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
+                )
                 func_operand_types.append(RankedTensorType.get(shape, dtype))
 
         self.func_entry = func.FuncOp(name=node.name, type=(func_operand_types, []))
@@ -1159,7 +1176,7 @@ def _affine_map_from_lambda(fn):
     exprs = []
     for result in results:
         if isinstance(result, Dim):
-            exprs.append(AffineConstantExpr.get(result.position))
+            exprs.append(AffineDimExpr.get(result.position))
         elif isinstance(result, int):
             assert (
                 result == 0
@@ -1208,6 +1225,8 @@ def _create_generic_func(
         )
         for compiled_thread, generic_region in zip(compiled_threads, generic.regions):
             compiled_thread.func_entry.entry_block.append_to(generic_region)
+            if generic_region.blocks[0].operations[-1].name == "func.return":
+                generic_region.blocks[0].operations[-1].erase()
         func.ReturnOp(generic.results)
 
 
@@ -1274,6 +1293,27 @@ def pykernel_gen(
                         iterator_types,
                         compiled_threads,
                     )
+
+                print(module)
+
+                print_ir = False
+                device_register_options = False
+                verify = True
+                pipeline = "convert-elementwise-to-linalg"
+
+                register_device = "ttcore-register-device"
+                if device_register_options:
+                    register_device = f"{register_device}{{{device_register_options}}}"
+
+                pipeline_str = f"builtin.module({','.join([register_device, pipeline])})"
+                pm = PassManager.parse(pipeline_str)
+                pm.enable_verifier(verify)
+                print("Running custom pipeline:", pm)
+                if print_ir:
+                    print_ir_path = print_ir if isinstance(print_ir, str) else None
+                    pm.enable_ir_printing(tree_printing_dir_path=print_ir_path)
+                pm.run(module.operation)
+
                 print(module)
 
         return _wrapper

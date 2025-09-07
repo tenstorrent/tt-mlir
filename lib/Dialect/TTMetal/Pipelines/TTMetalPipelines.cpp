@@ -74,6 +74,7 @@ void createTTIRToTTMetalFrontendPipeline(
   }
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(createConvertElementwiseToLinalgPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;
   {

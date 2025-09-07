@@ -156,6 +156,8 @@ set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Dialects.func
   MLIRPythonSources.Dialects.tensor
   MLIRPythonSources.Dialects.linalg
+  MLIRPythonSources.Dialects.math
+  MLIRPythonSources.Dialects.complex
   MLIRPythonSources.Dialects.ml_program
   MLIRPythonSources.Dialects.scf
   MLIRPythonSources.Dialects.tosa
