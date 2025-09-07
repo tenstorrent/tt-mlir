@@ -519,6 +519,12 @@ class TTCompilerBase(PyKernelAstBase):
             case ast.Mult():
                 f = arith.mulf if is_float_type else arith.muli
                 return f(lhs, rhs)
+            case ast.MatMult():
+                assert isinstance(lhs.type, RankedTensorType)
+                out_shape = lhs.type.shape
+                out_shape[-1] = rhs.type.shape[-1]
+                out = tensor.empty(out_shape, lhs.type.element_type)
+                return linalg.matmul(lhs, rhs, outs=(out,))
             case ast.FloorDiv():
                 # arith.floordivsi has no conversion to emitc..
                 # return arith.floordivsi(lhs, rhs)
@@ -1140,7 +1146,7 @@ class Tensor:
     def __init__(self):
         self.dtype = "Float32"
         self.tilized_shape = [4, 4]
-        self.shape = [128, 128]
+        self.shape = [4, 4]
 
 
 class _AffineMap:
@@ -1296,10 +1302,10 @@ def pykernel_gen(
 
                 print(module)
 
-                print_ir = False
+                print_ir = True
                 device_register_options = False
                 verify = True
-                pipeline = "convert-elementwise-to-linalg"
+                pipeline = "convert-elementwise-to-linalg,linalg-generalize-named-ops,ttir-to-ttmetal-me-pipeline"
 
                 register_device = "ttcore-register-device"
                 if device_register_options:

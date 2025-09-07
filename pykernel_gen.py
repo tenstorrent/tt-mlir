@@ -34,7 +34,7 @@ def matmul(lhs, rhs, out):
         out_shard: Tensor,
     ):
         out = lhs_shard + rhs_shard
-        yield out_shard
+        yield out
 
     return mm
 

@@ -5305,7 +5305,7 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
 
 ::mlir::LogicalResult mlir::tt::ttir::YieldOp::verify() {
   auto generic = getOperation()->getParentOfType<GenericOp>();
-  if (generic && generic.hasPureTensorSemantics()) {
+  if (!generic || generic.hasPureTensorSemantics()) {
     return ::mlir::success();
   }
 
@@ -5317,7 +5317,7 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
 
 ::mlir::LogicalResult mlir::tt::ttir::AwaitOp::verify() {
   auto generic = getOperation()->getParentOfType<GenericOp>();
-  if (generic && generic.hasPureTensorSemantics()) {
+  if (!generic || generic.hasPureTensorSemantics()) {
     return emitOpError(
         "await op illegal to use inside generic with pure tensor semantics");
   }
