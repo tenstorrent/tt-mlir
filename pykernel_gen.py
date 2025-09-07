@@ -3,11 +3,11 @@ import functools
 
 
 matmul_template = {
-    "blocking_factors": [1, 1, 1],  # | lambda | "auto" | "automatic"
+    "block_factors": [1, 1, 1],  # | lambda | "auto" | "automatic"
     "indexing_maps": [
-        lambda d0, d1, d2: (d0, d2),
-        lambda d0, d1, d2: (d2, d1),
-        lambda d0, d1, d2: (d0, d1),
+        lambda m, n, k: (m, k),
+        lambda m, n, k: (k, n),
+        lambda m, n, k: (m, n),
     ],
     "iterator_types": [
         "parallel",
@@ -15,29 +15,6 @@ matmul_template = {
         "reduction",
     ],
 }
-
-
-class Tensor:
-    def __init__(self):
-        self.dtype = "Float32"
-        self.tilized_shape = [4, 4]
-        self.shape = [128, 128]
-
-
-def pykernel_gen(blocking_factors=None, indexing_maps=None, iterator_types=None):
-    def _decorator(f):
-        @functools.wraps(f)
-        def _wrapper(*args, **kwargs):
-            print(dir(f))
-            threads = f(*args, **kwargs)
-            if type(threads) is not list:
-                threads = [threads]
-
-            for thread in threads:
-                thread(Tensor(), Tensor(), Tensor())
-
-        return _wrapper
-    return _decorator
 
 
 @pykernel_gen(**matmul_template)
@@ -58,11 +35,11 @@ matmul(None, None, None)
 
 
 @pykernel_gen(
-    blocking_factors=[1, 1, 1],  # | lambda | "auto"
+    block_factors=[1, 1, 1],  # | lambda | "auto"
     indexing_maps=[
-        lambda d0, d1, d2: (d0, d2),
-        lambda d0, d1, d2: (d2, d1),
-        lambda d0, d1, d2: (d0, d1),
+        lambda m, n, k: (m, k),
+        lambda m, n, k: (k, n),
+        lambda m, n, k: (m, n),
     ],
     iterator_types=[
         "parallel",
@@ -84,11 +61,11 @@ def matmul(lhs, rhs, out):
 
 
 @pykernel_gen(
-    blocking_factors=[1, 1, 1],
+    block_factors=[1, 1, 1],
     indexing_maps=[
-        lambda d0, d1, d2: (d0, d2),
-        lambda d0, d1, d2: (d2, d1),
-        lambda d0, d1, d2: (d0, d1),
+        lambda m, n, k: (m, k),
+        lambda m, n, k: (k, n),
+        lambda m, n, k: (m, n),
     ],
     iterator_types="explicit",
 )
@@ -124,7 +101,7 @@ def matmul(lhs, rhs, out):
 
 
 @pykernel_gen(
-    blocking_factors="explicit",
+    block_factors="explicit",
     indexing_maps="explicit",
     iterator_types="explicit",
 )

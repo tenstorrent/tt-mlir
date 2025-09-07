@@ -991,6 +991,7 @@ def ttkernel_compile(
     kernel_type=None,
     verbose: bool = False,
     optimize: bool = False,
+    return_func_entry: bool = False,
     thread_type="",
     dialect=None,
 ):
@@ -1038,6 +1039,9 @@ def ttkernel_compile(
             print(b.module)
             b.module.operation.verify()
 
+            if return_func_entry:
+                return (b.module, b.func_entry)
+
             # Run the PyKernel Compile Pipeline to fit model for Translation
             if optimize:
                 pykernel_compile_pipeline(b.module)
@@ -1055,26 +1059,6 @@ def ttkernel_compile(
         return _wrapper
 
     return _decorator
-
-
-def compute(verbose: bool = False, optimize: bool = False):
-    return ttkernel_compile(
-        kernel_type="compute",
-        verbose=verbose,
-        optimize=optimize,
-        thread_type="compute",
-        dialect=ttir,
-    )
-
-
-def datamovement(verbose: bool = False, optimize: bool = False):
-    return ttkernel_compile(
-        kernel_type="noc",
-        verbose=verbose,
-        optimize=optimize,
-        thread_type="datamovement",
-        dialect=ttir,
-    )
 
 
 def compute_thread(verbose: bool = False, optimize: bool = False):
@@ -1101,3 +1085,68 @@ def ttkernel_tensix_compile(verbose: bool = False, optimize: bool = False):
 
 def ttkernel_noc_compile(verbose: bool = False, optimize: bool = False):
     return ttkernel_compile(kernel_type="noc", verbose=verbose, optimize=optimize)
+
+
+def compute(verbose: bool = False, optimize: bool = False):
+    return ttkernel_compile(
+        kernel_type="compute",
+        verbose=verbose,
+        optimize=optimize,
+        thread_type="compute",
+        dialect=ttir,
+        return_func_entry=True,
+    )
+
+
+def datamovement(verbose: bool = False, optimize: bool = False):
+    return ttkernel_compile(
+        kernel_type="noc",
+        verbose=verbose,
+        optimize=optimize,
+        thread_type="datamovement",
+        dialect=ttir,
+        return_func_entry=True,
+    )
+
+
+class Tensor:
+    def __init__(self):
+        self.dtype = "Float32"
+        self.tilized_shape = [4, 4]
+        self.shape = [128, 128]
+
+
+def pykernel_gen(block_factors=None, indexing_maps=None, iterator_types=None):
+    assert block_factors is not None
+    assert indexing_maps is not None
+    assert iterator_types is not None
+    def _decorator(f):
+        @functools.wraps(f)
+        def _wrapper(*args, **kwargs):
+            threads_src = f(*args, **kwargs)
+            if type(threads_src) is not list:
+                threads_src = [threads_src]
+            assert len(threads_src) > 0
+
+            threads = []
+            for thread in threads_src:
+                module, func_entry = thread(Tensor(), Tensor(), Tensor())
+                threads.append((module, func_entry))
+
+            # create_generic
+            with Context() as ctx:
+                loc = Location.unknown(ctx)
+                module = Module.create(loc)
+                with InsertionPoint(module.body), loc:
+                    insert_point = module.body
+                    arg_types = threads[0][1].arguments.types
+                    ret_type = threads[0][1].arguments.types[-1]
+                    func_entry = func.FuncOp(name=f.__name__, type=(arg_types, [ret_type]))
+                    func_bb = func_entry.add_entry_block()
+                    with InsertionPoint(func_bb), loc:
+                        #ttir.generic(result_type, inputs, outputs, grid, block_factors, indexing_maps, iterator_types, threads, num_regions, *, loc=None, ip=None)
+                        func.ReturnOp([])
+                print(module)
+
+        return _wrapper
+    return _decorator
