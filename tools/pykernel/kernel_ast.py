@@ -9,6 +9,7 @@ import textwrap
 
 from ttmlir.ir import *
 from ttmlir.dialects import ttcore, ttir, ttkernel, func, scf, arith, memref, emitc
+from ttmlir.dialects._ods_common import get_default_loc_context
 from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
 
 from .kernel_types import *
@@ -82,7 +83,8 @@ class TTCompilerBase(PyKernelAstBase):
         ]
 
         self.name = name
-        self.ctx = Context()
+        default_context = get_default_loc_context()
+        self.ctx = default_context if default_context is not None else Context()
         self.cursor = Location.unknown(self.ctx)
         self.module = Module.create(self.cursor)
         self.insert_point = self.module.body
@@ -960,8 +962,11 @@ class D2MGenericCompiler(TTCompilerBase):
                 dtype = F32Type.get(self.ctx)
                 func_operand_types.append(RankedTensorType.get(shape, dtype))
 
-
         self.func_entry = func.FuncOp(name=node.name, type=(func_operand_types, []))
+
+        self.func_entry.attributes[ttir.ir.ThreadAttr.name] = ttir.ir.ThreadAttr.get(
+            self.ctx, self.kernel_type
+        )
 
         self.symbol_tables.append({})
 
@@ -991,7 +996,7 @@ def ttkernel_compile(
     kernel_type=None,
     verbose: bool = False,
     optimize: bool = False,
-    return_func_entry: bool = False,
+    return_compiler: bool = False,
     thread_type="",
     dialect=None,
 ):
@@ -1039,8 +1044,8 @@ def ttkernel_compile(
             print(b.module)
             b.module.operation.verify()
 
-            if return_func_entry:
-                return (b.module, b.func_entry)
+            if return_compiler:
+                return b
 
             # Run the PyKernel Compile Pipeline to fit model for Translation
             if optimize:
@@ -1087,6 +1092,11 @@ def ttkernel_noc_compile(verbose: bool = False, optimize: bool = False):
     return ttkernel_compile(kernel_type="noc", verbose=verbose, optimize=optimize)
 
 
+#
+# pykernel generic
+#
+
+
 def compute(verbose: bool = False, optimize: bool = False):
     return ttkernel_compile(
         kernel_type="compute",
@@ -1094,7 +1104,7 @@ def compute(verbose: bool = False, optimize: bool = False):
         optimize=optimize,
         thread_type="compute",
         dialect=ttir,
-        return_func_entry=True,
+        return_compiler=True,
     )
 
 
@@ -1105,7 +1115,7 @@ def datamovement(verbose: bool = False, optimize: bool = False):
         optimize=optimize,
         thread_type="datamovement",
         dialect=ttir,
-        return_func_entry=True,
+        return_compiler=True,
     )
 
 
@@ -1116,37 +1126,156 @@ class Tensor:
         self.shape = [128, 128]
 
 
-def pykernel_gen(block_factors=None, indexing_maps=None, iterator_types=None):
-    assert block_factors is not None
-    assert indexing_maps is not None
-    assert iterator_types is not None
+class _AffineMap:
+    def __init__(self, fn):
+        self.fn = fn
+        self.dims = tuple(inspect.signature(fn).parameters)
+        self.results = fn(*self.dims)
+
+    def __call__(self, *args):
+        return self.fn(*args)
+
+    def __repr__(self):
+        return f"({', '.join(self.dims)}) -> ({', '.join(self.results)})"
+
+    def num_dims(self):
+        return len(self.dims)
+
+    def num_results(self):
+        return len(self.results)
+
+
+def _affine_map_from_lambda(fn):
+    class Dim:
+        def __init__(self, position, name):
+            self.position = position
+            self.name = name
+
+    dims = tuple(
+        Dim(name, i) for name, i in enumerate(inspect.signature(fn).parameters)
+    )
+    num_dims = len(dims)
+    results = fn(*dims)
+    exprs = []
+    for result in results:
+        if isinstance(result, Dim):
+            exprs.append(AffineConstantExpr.get(result.position))
+        elif isinstance(result, int):
+            assert (
+                result == 0
+            ), "The only integer constant allowed in an indexing_map is 0"
+            exprs.append(AffineConstantExpr.get(result))
+        else:
+            raise TypeError(
+                "Unsupported indexing_map result type `{type(result)}` for result `{result}`"
+            )
+    num_syms = 0
+    return AffineMap.get(num_dims, num_syms, exprs)
+
+
+def _create_generic_func(
+    ctx, name, grid, block_factors, indexing_maps, iterator_types, compiled_threads
+):
+    arg_types = compiled_threads[0].func_entry.arguments.types
+    ret_type = compiled_threads[0].func_entry.arguments.types[-1]
+    func_entry = func.FuncOp(name=name, type=(arg_types, [ret_type]))
+    func_bb = func_entry.add_entry_block()
+    with InsertionPoint(func_bb):
+        inputs, outputs = (func_bb.arguments[:-1], func_bb.arguments[-1:])
+        threads = ArrayAttr.get(
+            [
+                ct.func_entry.attributes[ttir.ir.ThreadAttr.name]
+                for ct in compiled_threads
+            ]
+        )
+        generic = ttir.GenericOp(
+            [ret_type],
+            inputs,
+            outputs,
+            ttcore.ir.GridAttr.get(ctx, grid),
+            block_factors,
+            list(map(_affine_map_from_lambda, indexing_maps)),
+            ArrayAttr.get(
+                list(
+                    ttcore.ir.IteratorTypeAttr.get(
+                        ctx, ttcore.IteratorType[i.title()].value
+                    )
+                    for i in iterator_types
+                )
+            ),
+            threads,
+            len(compiled_threads),
+        )
+        for compiled_thread, generic_region in zip(compiled_threads, generic.regions):
+            compiled_thread.func_entry.entry_block.append_to(generic_region)
+        func.ReturnOp(generic.results)
+
+
+def pykernel_gen(
+    grid=None, block_factors=None, indexing_maps=None, iterator_types=None
+):
+    assert grid is not None
+    assert (iterator_types is None) or (
+        indexing_maps is not None
+    ), "if iterator_types is set, indexing_types must also be set"
+
+    if indexing_maps is None:
+        indexing_maps = []
+
+    if indexing_maps:
+        for indexing_map in indexing_maps:
+            m = _AffineMap(indexing_map)
+            if iterator_types is not None:
+                assert m.num_dims() == len(iterator_types)
+            if block_factors is None:
+                block_factors = [1] * len(m.num_dims())
+            assert len(block_factors) == m.num_dims()
+
+    if iterator_types is None:
+        iterator_types = []
+
     def _decorator(f):
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
-            threads_src = f(*args, **kwargs)
-            if type(threads_src) is not list:
-                threads_src = [threads_src]
-            assert len(threads_src) > 0
+            nonlocal grid
+            nonlocal block_factors
+            nonlocal indexing_maps
+            nonlocal iterator_types
 
-            threads = []
-            for thread in threads_src:
-                module, func_entry = thread(Tensor(), Tensor(), Tensor())
-                threads.append((module, func_entry))
+            if callable(grid):
+                grid = grid(*args, **kwargs)
 
-            # create_generic
-            with Context() as ctx:
-                loc = Location.unknown(ctx)
+            if callable(block_factors):
+                block_factors = block_factors(*args, **kwargs)
+
+            if block_factors is None:
+                block_factors = [1] * len(grid)
+
+            thread_srcs = f(*args, **kwargs)
+            if type(thread_srcs) is not list:
+                thread_srcs = [thread_srcs]
+            assert len(thread_srcs) > 0
+
+            ctx = Context()
+            loc = Location.unknown(ctx)
+            with ctx, loc:
+                compiled_threads = []
+                for thread in thread_srcs:
+                    compiled_threads.append(thread(Tensor(), Tensor(), Tensor()))
+
                 module = Module.create(loc)
-                with InsertionPoint(module.body), loc:
-                    insert_point = module.body
-                    arg_types = threads[0][1].arguments.types
-                    ret_type = threads[0][1].arguments.types[-1]
-                    func_entry = func.FuncOp(name=f.__name__, type=(arg_types, [ret_type]))
-                    func_bb = func_entry.add_entry_block()
-                    with InsertionPoint(func_bb), loc:
-                        #ttir.generic(result_type, inputs, outputs, grid, block_factors, indexing_maps, iterator_types, threads, num_regions, *, loc=None, ip=None)
-                        func.ReturnOp([])
+                with InsertionPoint(module.body):
+                    _create_generic_func(
+                        ctx,
+                        f.__name__,
+                        grid,
+                        block_factors,
+                        indexing_maps,
+                        iterator_types,
+                        compiled_threads,
+                    )
                 print(module)
 
         return _wrapper
+
     return _decorator

@@ -3,6 +3,7 @@ import functools
 
 
 matmul_template = {
+    "grid": (1, 1),  # | lambda | "auto" | "automatic"
     "block_factors": [1, 1, 1],  # | lambda | "auto" | "automatic"
     "indexing_maps": [
         lambda m, n, k: (m, k),
@@ -14,6 +15,13 @@ matmul_template = {
         "parallel",
         "reduction",
     ],
+}
+
+explicit_template = {
+    "grid": (1, 1),  # | lambda | "auto" | "automatic"
+    "block_factors": None,
+    "indexing_maps": None,
+    "iterator_types": None,
 }
 
 
@@ -35,6 +43,7 @@ matmul(None, None, None)
 
 
 @pykernel_gen(
+    grid=(1, 1),  # | lambda | "auto"
     block_factors=[1, 1, 1],  # | lambda | "auto"
     indexing_maps=[
         lambda m, n, k: (m, k),
@@ -61,13 +70,14 @@ def matmul(lhs, rhs, out):
 
 
 @pykernel_gen(
+    grid=(1, 1),  # | lambda | "auto"
     block_factors=[1, 1, 1],
     indexing_maps=[
         lambda m, n, k: (m, k),
         lambda m, n, k: (k, n),
         lambda m, n, k: (m, n),
     ],
-    iterator_types="explicit",
+    iterator_types=None,
 )
 def matmul(lhs, rhs, out):
     @compute()
@@ -100,11 +110,7 @@ def matmul(lhs, rhs, out):
     return (mm, dm0, dm1)
 
 
-@pykernel_gen(
-    block_factors="explicit",
-    indexing_maps="explicit",
-    iterator_types="explicit",
-)
+@pykernel_gen(grid=(1, 1))
 def matmul(lhs, rhs, out):
     M = 4
     N = 4
@@ -144,7 +150,9 @@ def matmul(lhs, rhs, out):
                     tx = dma(lhs[m, k], lhs_shard)
                     dma_wait(tx)
                     semaphore_wait(rec_ready, 1, reset=0)
-                    tx = dma(lhs_shard, lhs_shard, core=(1, core_index(1)), mcast=(1, 1))
+                    tx = dma(
+                        lhs_shard, lhs_shard, core=(1, core_index(1)), mcast=(1, 1)
+                    )
                     dma_wait(tx)
                     semaphore_set(sent, 1, core=(1, core_index(1)), mcast=(1, 1))
                 else:
