@@ -99,8 +99,8 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
 
 llvm::SmallVector<int64_t, 2>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
-  const int64_t minGridValue =
-      *(llvm::min_element(targetGridShape.begin(), targetGridShape.end()));
+  const int64_t minGridValue = *llvm::min_element(targetGridShape);
+
   llvm::SmallVector<int64_t, 2> squareGrid(targetGridShape.size(),
                                            minGridValue);
   return squareGrid;
