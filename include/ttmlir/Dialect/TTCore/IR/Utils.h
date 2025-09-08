@@ -105,18 +105,6 @@ ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType);
 
 ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
 
-// returns true if the memory space is a device memory space
-inline bool isDeviceMemspace(ttcore::MemorySpace s) {
-  return s == ttcore::MemorySpace::DeviceL1 ||
-         s == ttcore::MemorySpace::DeviceDRAM;
-}
-
-// returns true if the memory space is a system memory space
-inline bool isSystemMemspace(ttcore::MemorySpace s) {
-  return s == ttcore::MemorySpace::System ||
-         s == ttcore::MemorySpace::SystemMMIO;
-}
-
 } // namespace mlir::tt::ttcore
 
 #endif // TTMLIR_DIALECT_TTCORE_IR_UTILS_H

@@ -71,8 +71,8 @@ public:
           producer.getOrCreateInputLayout().getMemorySpace();
       auto outputOperandMemspace =
           producer.getOrCreateOutputLayout().getMemorySpace();
-      if (ttcore::isDeviceMemspace(inputOperandMemspace) &&
-          ttcore::isDeviceMemspace(outputOperandMemspace)) {
+      if (ttcore::isDeviceMemorySpace(inputOperandMemspace) &&
+          ttcore::isDeviceMemorySpace(outputOperandMemspace)) {
         return failure();
       }
     }
