@@ -1099,7 +1099,6 @@ def TTKernel_EqzTileInitOp : TTKernel_InitOp<"eqz_tile_init"> {
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
     }];
-
 }
 
 def TTKernel_EqzTileOp : TTKernel_SFPUOp<"eqz_tile", [TTKernel_UnaryOpTrait]> {
@@ -1134,6 +1133,232 @@ def TTKernel_EqzTileI32Op : TTKernel_SFPUOp<"eqz_tile_int32", [TTKernel_UnaryOpT
       `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
     }];
 }
+
+def TTKernel_NezTileInitOp : TTKernel_InitOp<"nez_tile_init"> {
+    let summary = "Init function for nez() operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before nez_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NezTileOp : TTKernel_SFPUOp<"nez_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Not equal to zero tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise inequality on DST register tiles.
+      DST[dst0_index] <- (DST[dst0_index] != 0)
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NezTileI32Op : TTKernel_SFPUOp<"nez_tile_int32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Not equal to zero tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise inequality on DST register tiles for int32 data type.
+      DST[dst0_index] <- (DST[dst0_index] != 0)
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GtzTileInitOp : TTKernel_InitOp<"gtz_tile_init"> {
+    let summary = "Init function for gtz() operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before gtz_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GtzTileOp : TTKernel_SFPUOp<"gtz_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Greater than zero tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise greater than zero comparison on DST register tiles.
+      DST[dst0_index] <- (DST[dst0_index] > 0)
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GtzTileI32Op : TTKernel_SFPUOp<"gtz_tile_int32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Greater than zero tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise greater than zero comparison on DST register tiles for int32 data type.
+      DST[dst0_index] <- (DST[dst0_index] > 0)
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GezTileInitOp : TTKernel_InitOp<"gez_tile_init"> {
+    let summary = "Init function for gez() operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before gez_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GezTileOp : TTKernel_SFPUOp<"gez_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Greater than or equal to zero tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise greater than or equal to zero comparison on DST register tiles.
+      DST[dst0_index] <- (DST[dst0_index] >= 0)
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GezTileI32Op : TTKernel_SFPUOp<"gez_tile_int32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Greater than or equal to zero tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise greater than or equal to zero comparison on DST register tiles for int32 data type.
+      DST[dst0_index] <- (DST[dst0_index] >= 0)
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LtzTileInitOp : TTKernel_InitOp<"ltz_tile_init"> {
+    let summary = "Init function for ltz() operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before ltz_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LtzTileOp : TTKernel_SFPUOp<"ltz_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Less than zero tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise less than zero comparison on DST register tiles.
+      DST[dst0_index] <- (DST[dst0_index] < 0)
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LtzTileI32Op : TTKernel_SFPUOp<"ltz_tile_int32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Less than zero tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise less than zero comparison on DST register tiles for int32 data type.
+      DST[dst0_index] <- (DST[dst0_index] < 0)
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LezTileInitOp : TTKernel_InitOp<"lez_tile_init"> {
+    let summary = "Init function for lez() operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before lez_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LezTileOp : TTKernel_SFPUOp<"lez_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Less than or equal to zero tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise less than or equal to zero comparison on DST register tiles.
+      DST[dst0_index] <- (DST[dst0_index] <= 0)
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LezTileI32Op : TTKernel_SFPUOp<"lez_tile_int32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Less than or equal to zero tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise less than or equal to zero comparison on DST register tiles for int32 data type.
+      DST[dst0_index] <- (DST[dst0_index] <= 0)
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 
 
 def TTKernel_FillTileInitOp : TTKernel_InitOp<"fill_tile_init"> {

@@ -332,8 +332,13 @@ using ComputeOpMap = OpMap<
   std::pair<ttir::TileSigmoidOp,    std::pair<ttkernel::SigmoidTileInitOp,         ttkernel::SigmoidTileOp>>,
   std::pair<ttir::TileSinOp,        std::pair<ttkernel::SinTileInitOp,             ttkernel::SinTileOp>>,
   std::pair<ttir::TileTanOp,        std::pair<ttkernel::TanTileInitOp,             ttkernel::TanTileOp>>,
+  std::pair<ttir::TileSubBinaryOp, std::pair<ttkernel::SubBinaryTilesInitOp, ttkernel::SubBinaryTilesOp>>,
   std::pair<ttir::TileEqzOp,       std::pair<ttkernel::EqzTileInitOp,            ttkernel::EqzTileOp>>,
-  std::pair<ttir::TileSubBinaryOp, std::pair<ttkernel::SubBinaryTilesInitOp,    ttkernel::SubBinaryTilesOp>>
+  std::pair<ttir::TileNezOp,       std::pair<ttkernel::NezTileInitOp,            ttkernel::NezTileOp>>,
+  std::pair<ttir::TileGtzOp,       std::pair<ttkernel::GtzTileInitOp,            ttkernel::GtzTileOp>>,
+  std::pair<ttir::TileGezOp,       std::pair<ttkernel::GezTileInitOp,            ttkernel::GezTileOp>>,
+  std::pair<ttir::TileLtzOp,       std::pair<ttkernel::LtzTileInitOp,            ttkernel::LtzTileOp>>,
+  std::pair<ttir::TileLezOp,       std::pair<ttkernel::LezTileInitOp,            ttkernel::LezTileOp>>
 >;
 // clang-format on
 
@@ -1418,6 +1423,11 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileTanOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileEqzOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileNezOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileGtzOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileGezOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileLtzOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileLezOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSubBinaryOp>,
 
               //  ttkernel::TTIRTileEqRewriter,

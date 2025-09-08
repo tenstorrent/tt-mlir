@@ -424,34 +424,6 @@ private:
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
-              // auto inputs = bbArgs.take_front(numInputs);
-              // auto outputs = bbArgs.take_back(numOutputs);
-
-              // // Use the input type for intermediate result (assuming inputs
-              // are same type) auto intermediateType = inputs[0].getType();
-
-              // // Create TileSubBinaryOp
-              // mlir::Value subResult =
-              // bbBuilder.create<ttir::TileSubBinaryOp>(
-              //     bbLoc,
-              //     /* resultTypes */ intermediateType,
-              //     /* lhs */ inputs[0],
-              //     /* rhs */ inputs[1]);
-
-              // // Then create TileEqzOp using the subtraction result
-              // mlir::Value yield = bbBuilder.create<ttir::TileEqzOp>(
-              //     bbLoc,
-              //     /* resultTypes */ outputs.getTypes(),
-              //     /* input */ subResult);
-              // auto intermediateType =
-              // bbArgs.take_back(numOutputs).getTypes()[0];  // Get the output
-              // type bbBuilder.create<ttir::EmptyOp>(loc, intermediateType);
-
-              // mlir::Value subResult =
-              // bbBuilder.create<ttir::TileSubBinaryOp>(
-              //   loc, /* resultTypes */ intermediateType,
-              //   /* operands */ bbArgs.take_front(numInputs));
-
               mlir::Value subResult = bbBuilder.create<ttir::TileSubBinaryOp>(
                   loc, /* resultTypes */ bbArgs.take_back(numOutputs),
                   /* operands */ bbArgs.take_front(numInputs));
@@ -1047,7 +1019,6 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::FloorOp,      ttir::TileFloorOp>,
     TTIRNamedElementwiseRewriter<ttir::LogOp,        ttir::TileLogOp>,
     TTIRNamedElementwiseRewriter<ttir::LogicalNotOp, ttir::TileLogicalNotOp>,
-    // TTIRNamedElementwiseRewriter<ttir::EqualOp,      ttir::TileEqOp>,
     TTIRNamedElementwiseRewriter<ttir::MultiplyOp,   ttir::TileMulOp>,
     TTIRNamedElementwiseRewriter<ttir::MaximumOp,    ttir::TileMaximumOp>,
     TTIRNamedElementwiseRewriter<ttir::NegOp,        ttir::TileNegativeOp>,
@@ -1060,9 +1031,13 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::SubtractOp,   ttir::TileSubOp>,
     TTIRNamedElementwiseRewriter<ttir::TanOp,        ttir::TileTanOp>,
 
-
+    // Comparison.
     TTIRNamedComparisonRewriter<ttir::EqualOp,      ttir::TileEqzOp>,
-
+    TTIRNamedComparisonRewriter<ttir::NotEqualOp,   ttir::TileNezOp>,
+    TTIRNamedComparisonRewriter<ttir::GreaterThanOp, ttir::TileGtzOp>,
+    TTIRNamedComparisonRewriter<ttir::GreaterEqualOp, ttir::TileGezOp>,
+    TTIRNamedComparisonRewriter<ttir::LessThanOp, ttir::TileLtzOp>,
+    TTIRNamedComparisonRewriter<ttir::LessEqualOp, ttir::TileLezOp>,
 
     // Reduction.
     TTIRNamedReductionRewriter<ttir::MaxOp,          ttir::TileReduceMaxOp>,

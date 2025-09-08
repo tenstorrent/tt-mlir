@@ -293,7 +293,7 @@ def TTIR_TileSubBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub_binary
 def TTIR_TileEqzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_eqz"> {
     let summary = "TTIR Tile Eqz Op";
     let description = [{
-        The `tile_eqz` operation checks equality between 0 and each element in the input tile.
+        The `tile_eqz` operation checks if each element in the input tile == 0
     }];
 
     let arguments = (ins TTCore_Tile:$input);
@@ -303,7 +303,47 @@ def TTIR_TileEqzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_eqz"> {
 def TTIR_TileNezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_nez"> {
     let summary = "TTIR Tile Nez Op";
     let description = [{
-        The `tile_nez` operation checks non-equality between 0 and each element in the input tile.
+        The `tile_nez` operation checks if each element in the input tile != 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileGtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gtz"> {
+    let summary = "TTIR Tile Gtz Op";
+    let description = [{
+        The `tile_gtz` operation checks if each element in the input tile > 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileGezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gez"> {
+    let summary = "TTIR Tile Gez Op";
+    let description = [{
+        The `tile_gez` operation checks if each element in the input tile >= 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileLtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ltz"> {
+    let summary = "TTIR Tile Ltz Op";
+    let description = [{
+        The `tile_ltz` operation checks if each element in the input tile < 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileLezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_lez"> {
+    let summary = "TTIR Tile Lez Op";
+    let description = [{
+        The `tile_lez` operation checks if each element in the input tile <= 0
     }];
 
     let arguments = (ins TTCore_Tile:$input);
