@@ -588,6 +588,17 @@ denseElementsAttrTo2D(mlir::DenseElementsAttr attr) {
   return result;
 }
 
+inline llvm::StringRef getKernelName(mlir::Operation *op) {
+  if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(op)) {
+    return funcOp.getSymName();
+  }
+  if (auto funcOp = op->getParentOfType<mlir::func::FuncOp>()) {
+    return funcOp.getSymName();
+  }
+
+  llvm_unreachable("Expected func op parent of op in call to getKernelName.");
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H
