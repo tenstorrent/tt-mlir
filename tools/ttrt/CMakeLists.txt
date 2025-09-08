@@ -50,7 +50,7 @@ add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
 )
 
-add_custom_target(ttrt
+add_custom_target(ttrt ALL
   COMMENT "python ttrt package"
   DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.installed)
 
