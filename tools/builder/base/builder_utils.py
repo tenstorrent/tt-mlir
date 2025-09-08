@@ -115,8 +115,7 @@ def _run_ttir_pipeline(
     pipeline_options.append(f"system-desc-path={system_desc_path}")
 
     mesh_shape = tuple(mesh_dict.values())
-    if len(mesh_shape) != 2:
-        raise ValueError(f"Mesh shape must be a tuple of length 2, got: {mesh_shape}")
+    mesh_shape_str = ",".join(str(dim) for dim in mesh_shape)
 
     pipeline_options.append(f"mesh-shape={mesh_shape[0]},{mesh_shape[1]}")
 
