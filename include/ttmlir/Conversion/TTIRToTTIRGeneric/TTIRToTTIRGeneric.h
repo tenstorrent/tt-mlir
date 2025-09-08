@@ -29,6 +29,12 @@ std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRGenericPass();
 std::unique_ptr<OperationPass<ModuleOp>>
 createTTIRToTTIRGenericPass(const ttir::TTIRToTTIRGenericOptions &options);
 
+inline bool hasMetalLayout(Value v) {
+  auto tensorType = mlir::dyn_cast<RankedTensorType>(v.getType());
+  return tensorType && mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+                           tensorType.getEncoding());
+}
+
 } // namespace mlir::tt
 
 #endif // TTMLIR_CONVERSION_TTIRTOTTIRGENERIC_TTIRTOTTIRGENERIC_H

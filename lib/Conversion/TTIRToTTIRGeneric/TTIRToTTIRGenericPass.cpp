@@ -58,12 +58,15 @@ struct TTIRToTTIRGenericPass final
       target.addLegalDialect<mlir::BuiltinDialect>();
       target.addLegalDialect<mlir::func::FuncDialect>();
       target.addLegalDialect<mlir::linalg::LinalgDialect>();
+      target.addLegalDialect<mlir::arith::ArithDialect>();
 
       target.addLegalDialect<ttcore::TTCoreDialect>();
 
       // An explicit list of legal ttir.* ops.
 
-      target.addLegalOp<ttir::GenericOp>();
+      target.addDynamicallyLegalOp<ttir::GenericOp>([](ttir::GenericOp op) {
+        return llvm::all_of(op.getOperands(), hasMetalLayout);
+      });
       target.addLegalOp<ttir::ToLayoutOp>();
       target.addLegalOp<ttir::StreamLayoutOp>();
       target.addLegalOp<ttir::ViewLayoutOp>();

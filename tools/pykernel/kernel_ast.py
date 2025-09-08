@@ -1305,7 +1305,7 @@ def pykernel_gen(
                 print_ir = True
                 device_register_options = False
                 verify = True
-                pipeline = "convert-elementwise-to-linalg,linalg-generalize-named-ops,ttir-to-ttmetal-me-pipeline"
+                pipeline = "convert-elementwise-to-linalg,linalg-generalize-named-ops,ttir-to-ttmetal-pipeline"
 
                 register_device = "ttcore-register-device"
                 if device_register_options:
