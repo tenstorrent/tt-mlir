@@ -2670,47 +2670,64 @@ verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
 mlir::tt::ttir::ToLayoutOp::CompoundComponents
 mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   CompoundComponents components;
-  if (mlir::isa<mlir::RankedTensorType>(getInput().getType())) {
-    auto inputTensor = mlir::cast<mlir::RankedTensorType>(getInput().getType());
-    auto outputTensor =
-        mlir::cast<mlir::RankedTensorType>(getOutput().getType());
+
+  auto inputType = getInput().getType();
+  auto outputType = getOutput().getType();
+
+  if (mlir::isa<mlir::RankedTensorType>(inputType)) {
+    auto inputTensor = mlir::cast<mlir::RankedTensorType>(inputType);
+    auto outputTensor = mlir::cast<mlir::RankedTensorType>(outputType);
+
     const bool hasInputLayout = inputTensor.getEncoding() != nullptr;
     const bool hasOutputLayout = outputTensor.getEncoding() != nullptr;
 
-    ttcore::MetalLayoutAttr inputLayout = getOrCreateInputLayout();
-    ttcore::MetalLayoutAttr outputLayout = getOrCreateOutputLayout();
+    // Layout versus no layout special case.
+    if (hasInputLayout != hasOutputLayout) {
+      // Always treat this as purely a host <-> device transition.
+      components.isMemorySpaceChange = true;
+      components.isGridChange = false;
+      components.isFormatChange =
+          inputTensor.getElementType() != outputTensor.getElementType();
+      components.isLayoutChange = false;
+      return components;
+    }
 
-    // Tensors without grids are assume to have 1 grids for comparison.
-    auto inputGrid =
-        (hasInputLayout)
-            ? llvm::SmallVector<int64_t>{inputLayout.getGridShape(inputTensor)}
-            // If the input has no layout, it should use the output's size grid
-            // filled with 1s
-            : llvm::SmallVector<int64_t>(
-                  outputLayout.getGridShape(outputTensor).size(), 1);
-    auto outputGrid =
-        (hasOutputLayout)
-            ? llvm::SmallVector<int64_t>{outputLayout.getGridShape(
-                  outputTensor)} // If the output has no layout, it should use
-                                 // the input's size grid filled with 1s
-            : llvm::SmallVector<int64_t>(
-                  inputLayout.getGridShape(inputTensor).size(), 1);
+    // Both lack layouts special case--purely host-side operation.
+    if (!hasInputLayout && !hasOutputLayout) {
+      components.isMemorySpaceChange = false;
+      components.isGridChange = false;
+      components.isLayoutChange = false;
+      components.isFormatChange =
+          inputTensor.getElementType() != outputTensor.getElementType();
+      return components;
+    }
 
-    components.isGridChange = inputGrid != outputGrid;
+    // Both have layouts--do a full comparison.
+    ttcore::MetalLayoutAttr inputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(inputTensor.getEncoding());
+    ttcore::MetalLayoutAttr outputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(outputTensor.getEncoding());
 
     components.isMemorySpaceChange =
         inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
 
+    auto inputGrid = inputLayout.getGridShape(inputTensor);
+    auto outputGrid = outputLayout.getGridShape(outputTensor);
+    components.isGridChange = inputGrid != outputGrid;
+
     components.isFormatChange =
         inputTensor.getElementType() != outputTensor.getElementType();
 
+    // Check layout (collapsed intervals and alignments).
     components.isLayoutChange =
         inputLayout.getNormalizedIntervals() !=
             outputLayout.getNormalizedIntervals() ||
         inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
+
   } else {
-    auto inputMemref = mlir::cast<mlir::MemRefType>(getInput().getType());
-    auto outputMemref = mlir::cast<mlir::MemRefType>(getOutput().getType());
+    auto inputMemref = mlir::cast<mlir::MemRefType>(inputType);
+    auto outputMemref = mlir::cast<mlir::MemRefType>(outputType);
+
     components.isLayoutChange = false;
     bool isShapeChange = inputMemref.getShape() != outputMemref.getShape();
     components.isGridChange = isShapeChange;
@@ -2721,52 +2738,6 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   }
 
   return components;
-}
-
-static mlir::tt::ttcore::MetalLayoutAttr
-createDefaultLayout(mlir::MLIRContext *ctx,
-                    mlir::ArrayRef<int64_t> workerGridShape,
-                    mlir::RankedTensorType tensorType) {
-  // Create default layout for tensor without encoding
-  llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
-
-  // TODO (#4820): Remove this during cleanup.
-  SmallVector<int64_t> squareGridShape =
-      ttir::utils::getSquareTargetGrid(workerGridShape);
-
-  return mlir::tt::ttcore::MetalLayoutAttr::get(
-      ctx, logicalShape, squareGridShape, mlir::tt::ttcore::OOBVal::Undef,
-      mlir::tt::ttcore::MemorySpace::System);
-}
-
-mlir::tt::ttcore::MetalLayoutAttr
-mlir::tt::ttir::ToLayoutOp::getOrCreateInputLayout() {
-  auto tensorType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
-  auto inputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-      tensorType.getEncoding());
-  if (inputLayout) {
-    return inputLayout;
-  }
-
-  ArrayRef<int64_t> workerGridShape =
-      ttcore::lookupDevice(*this).getWorkerGrid().getShape();
-
-  return createDefaultLayout(getContext(), workerGridShape, tensorType);
-}
-
-mlir::tt::ttcore::MetalLayoutAttr
-mlir::tt::ttir::ToLayoutOp::getOrCreateOutputLayout() {
-  auto tensorType = mlir::cast<mlir::RankedTensorType>(getOutput().getType());
-  auto outputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-      tensorType.getEncoding());
-  if (outputLayout) {
-    return outputLayout;
-  }
-
-  ArrayRef<int64_t> workerGridShape =
-      ttcore::lookupDevice(*this).getWorkerGrid().getShape();
-
-  return createDefaultLayout(getContext(), workerGridShape, tensorType);
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
