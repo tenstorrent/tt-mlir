@@ -2038,13 +2038,8 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
         ::tt::target::ttnn::KernelConfig::NONE;
     ::flatbuffers::Offset<void> config = 0;
 
-    if (auto readKernelAttr = llvm::dyn_cast<ReadKernelAttr>(kernelAttr);
-        readKernelAttr) {
-      configType = ::tt::target::ttnn::KernelConfig::ReaderKernelConfig;
-      config = ::tt::target::ttnn::CreateReaderKernelConfig(*cache.fbb).Union();
-    } else if (auto computeKernelAttr =
-                   llvm::dyn_cast<ComputeKernelAttr>(kernelAttr);
-               computeKernelAttr) {
+    if (auto computeKernelAttr = llvm::dyn_cast<ComputeKernelAttr>(kernelAttr);
+        computeKernelAttr) {
       ::tt::target::MathFidelity mathFidelity;
 
       switch (computeKernelAttr.getMathFidelity()) {
@@ -2083,11 +2078,17 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
               computeKernelAttr.getBfp8PackPrecise(),
               computeKernelAttr.getMathApproxMode())
               .Union();
+    } else if (auto readKernelAttr = llvm::dyn_cast<ReadKernelAttr>(kernelAttr);
+               readKernelAttr) {
+      configType = ::tt::target::ttnn::KernelConfig::ReaderKernelConfig;
+      config = ::tt::target::ttnn::CreateReaderKernelConfig(*cache.fbb).Union();
     } else if (auto writeKernelAttr =
                    llvm::dyn_cast<WriteKernelAttr>(kernelAttr);
                writeKernelAttr) {
       configType = ::tt::target::ttnn::KernelConfig::WriterKernelConfig;
       config = ::tt::target::ttnn::CreateWriterKernelConfig(*cache.fbb).Union();
+    } else {
+      llvm_unreachable("Unsupported kernel attribute");
     }
 
     std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>> ct_args =
