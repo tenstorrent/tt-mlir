@@ -2103,8 +2103,7 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
         toFlatbuffer(cache, llvm::cast<ttnn::CoreRangeSetAttr>(
                                 kernelInterface.getCoreRanges())),
         ::tt::target::ttnn::CreateKernelCoreArgsDirect(*cache.fbb, &ct_args),
-        nullptr, // TODO: Support non-common runtime arguments, see
-                 // https://github.com/tenstorrent/tt-mlir/issues/4827
+        nullptr, // TODO (#4827): Support non-common runtime arguments
         ::tt::target::ttnn::CreateKernelCoreArgsDirect(*cache.fbb,
                                                        &common_rt_args)));
   }
