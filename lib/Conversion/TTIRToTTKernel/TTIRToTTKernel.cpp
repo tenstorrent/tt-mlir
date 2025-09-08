@@ -114,8 +114,10 @@ static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
+  cb.dump();
   if (auto collapseOp =
           mlir::dyn_cast<memref::CollapseShapeOp>(cb.getDefiningOp())) {
+    std::cout << "bouncing" << std::endl;
     return getCB(rewriter, collapseOp.getSrc());
   }
 
@@ -407,12 +409,16 @@ public:
                                                adaptor.getC(), transpose);
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileMatmulBlockOp>) {
       auto insertionPoint = rewriter.getInsertionPoint();
+      std::cout << " === getting cbA === " << std::endl;
       auto cbA = getCB(rewriter, op.getA());
-      std::cout << "got cbA: " << std::endl;
+      cbA.dump();
+      std::cout << " === getting cbB === " << std::endl;
       auto cbB = getCB(rewriter, op.getB());
-      std::cout << "got cbB: " << std::endl;
+      cbB.dump();
+
+      std::cout << " === getting outCB === " << std::endl;
       auto outCB = getCB(rewriter, op.getOutput());
-      std::cout << "got outCB: " << std::endl;
+      outCB.dump();
       setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB});
 
       // destIndex is always 0 because we call an experimental LLK that fills up
@@ -456,6 +462,33 @@ public:
       rewriter.create<ttkernel::ExperimentalMatmulBlockOp>(
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
           ct_i32, rt_i32, kt_i32, nt_i32);
+      // Erase the original TTIR op and clean up now-dead view ops that
+      // produced its operands (A, B, Out) if they have no other uses.
+      Value oldA = op.getA();
+      Value oldB = op.getB();
+      Value oldO = op.getOutput();
+      rewriter.eraseOp(op);
+
+      // Also remove any dead CB reinterpret shapes created from those collapse
+      // shapes if they are now unused.
+      auto tryEraseDeadCBReinterpret = [&](Value v) {
+        Value remapped = rewriter.getRemappedValue(v);
+        if (!remapped) {
+          return;
+        }
+        if (auto *def = remapped.getDefiningOp()) {
+          if (auto cbri = dyn_cast<ttkernel::CBReinterpretShapeOp>(def)) {
+            if (cbri->use_empty()) {
+              std::cout << "erasing cbri" << std::endl;
+              rewriter.eraseOp(cbri);
+            }
+          }
+        }
+      };
+      tryEraseDeadCBReinterpret(oldA);
+      tryEraseDeadCBReinterpret(oldB);
+      tryEraseDeadCBReinterpret(oldO);
+      return success();
 
     } else if constexpr (arity == 2) {
       auto dstIdx = getDstIdxFromResult(op.getResult());
