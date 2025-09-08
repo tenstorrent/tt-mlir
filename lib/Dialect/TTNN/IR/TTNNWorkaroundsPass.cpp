@@ -350,7 +350,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
 }
 
 // Factory method to create a set of workarounds for reshape operation operands.
-// Reshape op only does not work with ui8 - force to bfloat16 then typecast
+// Reshape op only does not work with ui8 - force to int32 then typecast
 // separately.
 // TT-metal issue: https://github.com/tenstorrent/tt-metal/issues/27843
 TTNNOperandsWorkarounds
