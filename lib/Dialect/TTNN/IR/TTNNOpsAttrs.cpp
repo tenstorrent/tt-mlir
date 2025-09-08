@@ -968,3 +968,111 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   params.dstFullSyncEn = BoolAttr::get(getContext(), value);
   return params.buildDeviceComputeKernelConfigAttr(getContext());
 }
+
+::llvm::LogicalResult ProgramAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    llvm::ArrayRef<mlir::Attribute> kernels,
+    llvm::ArrayRef<mlir::tt::ttnn::KernelCBAttr> cbs,
+    llvm::ArrayRef<mlir::tt::ttnn::KernelSemaphoreAttr> semaphores) {
+
+  for (auto kernel : kernels) {
+    if (!llvm::isa<mlir::tt::ttnn::ComputeKernelAttr,
+                   mlir::tt::ttnn::ReadKernelAttr,
+                   mlir::tt::ttnn::WriteKernelAttr>(kernel)) {
+      return emitError() << "Unexpected kernel";
+    }
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult KernelCBAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    uint32_t totalSize, CoreRangeAttr coreRange,
+    llvm::ArrayRef<mlir::tt::ttnn::KernelCBFormatAttr> formats) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult KernelCBFormatAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    uint32_t bufferIndex, ttcore::DataType dtype, uint32_t pageSize) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult KernelSemaphoreAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    KernelCoreType coreType, ::mlir::tt::ttnn::CoreRangeAttr coreRange,
+    uint32_t initialValue) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult verifyCommonRuntimeArgs(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<mlir::Attribute> args) {
+
+  for (auto arg : args) {
+    if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
+                   mlir::tt::ttnn::KernelArgAddressOfTensorAttr,
+                   mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
+      return emitError() << "Unexpected common runtime argument";
+    }
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult verifyCompileTimeArgs(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<mlir::Attribute> args) {
+  for (auto arg : args) {
+    if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
+                   mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
+      return emitError() << "Unexpected compile time argument";
+    }
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult ComputeKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    SymbolRefAttr symbolRef, ::mlir::tt::ttnn::CoreRangeAttr coreRange,
+    ComputeKernelMathFidelity mathFidelity, bool fp32DestAccEn,
+    bool dstFullSyncEn,
+    ::llvm::ArrayRef<ComputeKernelUnpackToDestMode> unpackToDestModes,
+    bool bfp8PackPrecise, bool mathApproxMode,
+    ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
+    return ::llvm::failure();
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult ReadKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::SymbolRefAttr symbolRef, CoreRangeAttr coreRange,
+    ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
+    return ::llvm::failure();
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult WriteKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::SymbolRefAttr symbolRef, CoreRangeAttr coreRange,
+    ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
+    return ::llvm::failure();
+  }
+
+  return ::llvm::success();
+}

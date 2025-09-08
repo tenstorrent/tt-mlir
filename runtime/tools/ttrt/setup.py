@@ -35,7 +35,7 @@ enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
 debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
 arch = os.environ.get("CMAKE_SYSTEM_PROCESSOR", "x86_64")
 
-runtime_module = f"_ttmlir_runtime.cpython-310-{arch}-linux-gnu.so"
+runtime_module = f"_ttmlir_runtime.cpython-311-{arch}-linux-gnu.so"
 dylibs = []
 runlibs = []
 perflibs = []

@@ -65,7 +65,7 @@ def TTKernel_TileRegsCommitOp : TTKernel_Op<"tile_regs_commit"> {
     }];
 }
 
-def TTKernel_TileRegsWaitOp : TTKernel_Op<"tile_regs_wait"> {
+def TTKernel_TileRegsWaitOp : TTKernel_Op<"tile_regs_wait", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "tile_regs_wait";
     let description = [{
       Acquire an exclusive lock on the DST register for the PACK thread.
@@ -1171,7 +1171,7 @@ def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back"> {
     }];
 }
 
-def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
+def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "CBWaitFront call.";
     let description = [{
       CBWaitFront operation
@@ -1440,7 +1440,7 @@ def TTKernel_NocAsyncReadOnePacketWithStateOp : TTKernel_Op<"noc_async_read_one_
     }];
 }
 
-def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier"> {
+def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncReadBarrier";
     let description = [{
       NocAsyncReadBarrier
@@ -1479,7 +1479,7 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
     }];
 }
 
-def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier"> {
+def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncWriteBarrier";
     let description = [{
       NocAsyncWriteBarrier

@@ -462,6 +462,10 @@ const ExpectedResult binaryExpected{true, 12288, 2048, 2048};
 // buffer memory which is captured via the following expected values:
 const ExpectedResult binaryExpected_extraCb2048{true, 12288 + 2048, 2048, 2048};
 const ExpectedResult binaryExpected_extraCb4096{true, 12288 + 4096, 2048, 2048};
+const ExpectedResult binaryExpected_extraCb4096_extraPeak30720{
+    true, 12288 + 4096, 2048 + 30720, 2048};
+const ExpectedResult binaryExpected_extraCb20480_extraPeak26624{
+    true, 12288 + 20480, 2048 + 26624, 2048};
 const ExpectedResult binaryBitwiseExpected{true, 12288 * 2, 0, 0};
 
 //===---------------------------------------------------------===
@@ -526,6 +530,13 @@ const auto createBitwiseXor = [](OpBuilder &b, Location l, Type t,
                                  ValueRange r) {
   return b.create<BitwiseXorOp>(l, t, r).getOperation();
 };
+const auto createRemainder = [](OpBuilder &b, Location l, Type t,
+                                ValueRange r) {
+  return b.create<RemainderOp>(l, t, r).getOperation();
+};
+const auto createAtan2 = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<Atan2Op>(l, t, r).getOperation();
+};
 
 //===---------------------------------------------------------===
 
@@ -546,7 +557,9 @@ const std::vector<BinaryOpTestParams> binaryOpTestParams = {
     {"LogicalXor", createXor, binaryExpected_extraCb4096},
     {"Maximum", createMax, binaryExpected},
     {"Minimum", createMin, binaryExpected},
-    {"Pow", createPow, binaryExpected}};
+    {"Pow", createPow, binaryExpected},
+    {"Remainder", createRemainder, binaryExpected_extraCb20480_extraPeak26624},
+    {"Atan2", createAtan2, binaryExpected_extraCb4096_extraPeak30720}};
 
 // Define the test parameters for binary bitwise operations
 const std::vector<BinaryOpTestParams> binaryBitwiseOpTestParams = {
@@ -1119,6 +1132,73 @@ TEST_F(OpModelBase, SumOpInterface) {
 
   // Need to reset device other wise hangs. See tt-metal issue #25772
   op_model::SingletonDeviceContext::resetInstance();
+}
+
+TEST_F(OpModelBase, ArgMaxOpInterface) {
+  // create ArgMaxOp
+  llvm::SmallVector<int64_t> tensorShapeA = {64, 64};
+
+  // ArgMaxOp requires ROW_MAJOR layout for inputs and outputs
+  auto inputLayout = CreateRowMajorLayout(tensorShapeA, BufferType::DRAM,
+                                          TensorMemoryLayout::Interleaved);
+  auto outputLayout = CreateRowMajorLayout(tensorShapeA, BufferType::DRAM,
+                                           TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(), inputLayout);
+  auto outputType =
+      createRankedTensorType(tensorShapeA, builder.getBF16Type(), outputLayout);
+
+  auto argMax = builder.create<ArgMaxOp>(builder.getUnknownLoc(), outputType,
+                                         input, builder.getI32IntegerAttr(1),
+                                         false, false, nullptr);
+
+  // getOutputLayout() hardcodes tiled L1 layout, so we cannot use it
+  OpModel backend = dyn_cast<OpModel>(argMax.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(argMax), OpConfig(outputLayout));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayoutReadBack] = l1;
+    EXPECT_EQ(cbSize, 384);
+    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(argMax.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, ProdOpInterface) {
+  // create ProdOp
+  llvm::SmallVector<int64_t> tensorShapeA = {64, 64};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeA);
+
+  auto prod = builder.create<ProdOp>(builder.getUnknownLoc(), output.getType(),
+                                     input, builder.getI64IntegerAttr(0),
+                                     builder.getBoolAttr(false), nullptr);
+
+  // test prod Op interface
+  auto constraintsExp = getOpConstraints(prod.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(peakSize, 8192);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
 }
 
 TEST_F(OpModelBase, ReshapeOpInterface) {
@@ -3701,6 +3781,372 @@ TEST_F(OpModelBase, UpdateCacheOpInterface) {
   } else {
     FAIL() << "Error getting runtime for UpdateCacheOp: "
            << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, QuantizeOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {32, 64};
+  llvm::SmallVector<int64_t> scaleShape = {64};
+  llvm::SmallVector<int64_t> zeroPointShape = {64};
+  llvm::SmallVector<int64_t> outputShape = {32, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto scale = createEmptyTensor(scaleShape);
+
+  // Create zero_point tensor with explicit Int32 layout (required by quantize
+  // operation)
+  auto zeroPointLayout = CreateTiledLayoutInt32(
+      zeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto zeroPoint =
+      createEmptyTensor(zeroPointShape, builder.getI32Type(), zeroPointLayout);
+
+  // Create output type with int32 data type (required by quantize operation)
+  auto int32Layout = CreateTiledLayoutInt32(outputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto intType = builder.getIntegerType(32);
+  auto outputType =
+      mlir::RankedTensorType::get(outputShape, intType, int32Layout);
+
+  auto quantizeOp = builder.create<QuantizeOp>(
+      builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
+      builder.getI32IntegerAttr(1), // axis = 1
+      ttcore::DataTypeAttr::get(
+          &context,
+          ttcore::DataType::Int32), // output_dtype explicitly set to Int32
+      nullptr);
+
+  // Test QuantizeOp interface
+  OpModel backend = dyn_cast<OpModel>(quantizeOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(quantizeOp), OpConfig(getOutputLayout(quantizeOp)));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_GE(cbSize, 18432);
+  EXPECT_GE(peakSize, 12288);
+  EXPECT_GE(outputSize, 4096);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+
+  auto runtimeExp = backend.getOpRuntime(getInputLayouts(quantizeOp),
+                                         OpConfig(getOutputLayout(quantizeOp)));
+  EXPECT_EQ(static_cast<bool>(runtimeExp), true);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, QuantizeOpInterfaceNullOutput) {
+  // Test with null output layout
+  llvm::SmallVector<int64_t> inputShape = {16, 32};
+  llvm::SmallVector<int64_t> scaleShape = {32};
+  llvm::SmallVector<int64_t> zeroPointShape = {32};
+  llvm::SmallVector<int64_t> outputShape = {16, 32};
+
+  auto input = createEmptyTensor(inputShape);
+  auto scale = createEmptyTensor(scaleShape);
+
+  auto zeroPointLayout = CreateTiledLayoutInt32(
+      zeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto zeroPoint =
+      createEmptyTensor(zeroPointShape, builder.getI32Type(), zeroPointLayout);
+
+  auto int32Layout = CreateTiledLayoutInt32(outputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto intType = builder.getIntegerType(32);
+  auto outputType =
+      mlir::RankedTensorType::get(outputShape, intType, int32Layout);
+
+  auto quantizeOp = builder.create<QuantizeOp>(
+      builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
+      builder.getI32IntegerAttr(1), // axis = 1
+      ttcore::DataTypeAttr::get(
+          &context,
+          ttcore::DataType::Int32), // output_dtype explicitly set to Int32
+      nullptr);
+
+  // Test with null output layout
+  OpModel backend = dyn_cast<OpModel>(quantizeOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(quantizeOp), OpConfig(/*outputLayout=*/nullptr));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_GE(cbSize, 18432);
+  EXPECT_GE(peakSize, 12288);
+  EXPECT_GE(outputSize, 4096);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+
+  // Test runtime
+  auto runtimeExp = backend.getOpRuntime(getInputLayouts(quantizeOp),
+                                         OpConfig(/*outputLayout=*/nullptr));
+  EXPECT_EQ(static_cast<bool>(runtimeExp), true);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, RequantizeOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {32, 64};
+  llvm::SmallVector<int64_t> inScaleShape = {64};
+  llvm::SmallVector<int64_t> inZeroPointShape = {64};
+  llvm::SmallVector<int64_t> outScaleShape = {64};
+  llvm::SmallVector<int64_t> outZeroPointShape = {64};
+  llvm::SmallVector<int64_t> outputShape = {32, 64};
+
+  // Create input tensor with explicit Int32 layout (RequantizeOp input must be
+  // int32)
+  auto inputLayout = CreateTiledLayoutInt32(inputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto input = createEmptyTensor(inputShape, builder.getI32Type(), inputLayout);
+
+  auto inScale = createEmptyTensor(inScaleShape);
+  auto outScale = createEmptyTensor(outScaleShape);
+
+  auto inZeroPointLayout = CreateTiledLayoutInt32(
+      inZeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto inZeroPoint = createEmptyTensor(inZeroPointShape, builder.getI32Type(),
+                                       inZeroPointLayout);
+
+  auto outZeroPointLayout = CreateTiledLayoutInt32(
+      outZeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto outZeroPoint = createEmptyTensor(outZeroPointShape, builder.getI32Type(),
+                                        outZeroPointLayout);
+
+  auto int32Layout = CreateTiledLayoutInt32(outputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto intType = builder.getIntegerType(32);
+  auto outputType =
+      mlir::RankedTensorType::get(outputShape, intType, int32Layout);
+
+  auto requantizeOp = builder.create<RequantizeOp>(
+      builder.getUnknownLoc(), outputType, input, inScale, inZeroPoint,
+      outScale, outZeroPoint,
+      builder.getI32IntegerAttr(1), // axis = 1
+      ttcore::DataTypeAttr::get(
+          &context,
+          ttcore::DataType::Int32), // output_dtype explicitly set to Int32
+      nullptr);
+
+  // Test RequantizeOp interface
+  OpModel backend = dyn_cast<OpModel>(requantizeOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(requantizeOp), OpConfig(getOutputLayout(requantizeOp)));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_GE(cbSize, 32768);
+  EXPECT_GE(peakSize, 40960);
+  EXPECT_GE(outputSize, 4096);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(requantizeOp), OpConfig(getOutputLayout(requantizeOp)));
+  EXPECT_EQ(static_cast<bool>(runtimeExp), true);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, RequantizeOpInterfaceNullOutput) {
+  // Test with null output layout
+  llvm::SmallVector<int64_t> inputShape = {16, 32};
+  llvm::SmallVector<int64_t> inScaleShape = {32};
+  llvm::SmallVector<int64_t> inZeroPointShape = {32};
+  llvm::SmallVector<int64_t> outScaleShape = {32};
+  llvm::SmallVector<int64_t> outZeroPointShape = {32};
+  llvm::SmallVector<int64_t> outputShape = {16, 32};
+
+  // Create input tensor with explicit Int32 layout (RequantizeOp input must be
+  // int32)
+  auto inputLayout = CreateTiledLayoutInt32(inputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto input = createEmptyTensor(inputShape, builder.getI32Type(), inputLayout);
+
+  auto inScale = createEmptyTensor(inScaleShape);
+  auto outScale = createEmptyTensor(outScaleShape);
+
+  auto inZeroPointLayout = CreateTiledLayoutInt32(
+      inZeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto inZeroPoint = createEmptyTensor(inZeroPointShape, builder.getI32Type(),
+                                       inZeroPointLayout);
+
+  auto outZeroPointLayout = CreateTiledLayoutInt32(
+      outZeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto outZeroPoint = createEmptyTensor(outZeroPointShape, builder.getI32Type(),
+                                        outZeroPointLayout);
+
+  auto int32Layout = CreateTiledLayoutInt32(outputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto intType = builder.getIntegerType(32);
+  auto outputType =
+      mlir::RankedTensorType::get(outputShape, intType, int32Layout);
+
+  auto requantizeOp = builder.create<RequantizeOp>(
+      builder.getUnknownLoc(), outputType, input, inScale, inZeroPoint,
+      outScale, outZeroPoint,
+      builder.getI32IntegerAttr(1), // axis = 1
+      ttcore::DataTypeAttr::get(
+          &context,
+          ttcore::DataType::Int32), // output_dtype explicitly set to Int32
+      nullptr);
+
+  // Test with null output layout
+  OpModel backend = dyn_cast<OpModel>(requantizeOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(requantizeOp), OpConfig(/*outputLayout=*/nullptr));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_GE(cbSize, 32768);
+  EXPECT_GE(peakSize, 40960);
+  EXPECT_GE(outputSize, 4096);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+
+  // Test runtime
+  auto runtimeExp = backend.getOpRuntime(getInputLayouts(requantizeOp),
+                                         OpConfig(/*outputLayout=*/nullptr));
+  EXPECT_EQ(static_cast<bool>(runtimeExp), true);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, DequantizeOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {32, 64};
+  llvm::SmallVector<int64_t> scaleShape = {64};
+  llvm::SmallVector<int64_t> zeroPointShape = {64};
+  llvm::SmallVector<int64_t> outputShape = {32, 64};
+
+  // Create input tensor with explicit Int32 layout
+  auto inputLayout = CreateTiledLayoutInt32(inputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto input = createEmptyTensor(inputShape, builder.getI32Type(), inputLayout);
+
+  auto scale = createEmptyTensor(scaleShape);
+
+  auto zeroPointLayout = CreateTiledLayoutInt32(
+      zeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto zeroPoint =
+      createEmptyTensor(zeroPointShape, builder.getI32Type(), zeroPointLayout);
+
+  // Create output type with BF16 data type
+  auto outputType = createRankedTensorType(outputShape, builder.getBF16Type());
+
+  auto dequantizeOp = builder.create<DequantizeOp>(
+      builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
+      builder.getI32IntegerAttr(1), // axis = 1
+      ttcore::DataTypeAttr::get(
+          &context,
+          ttcore::DataType::BFloat16), // output_dtype explicitly set to BF16
+      nullptr);
+
+  // Test DequantizeOp interface
+  OpModel backend = dyn_cast<OpModel>(dequantizeOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(dequantizeOp), OpConfig(getOutputLayout(dequantizeOp)));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_GE(cbSize, 32768);
+  EXPECT_GE(peakSize, 18432);
+  EXPECT_GE(outputSize, 2048);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(dequantizeOp), OpConfig(getOutputLayout(dequantizeOp)));
+  EXPECT_EQ(static_cast<bool>(runtimeExp), true);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, DequantizeOpInterfaceNullOutput) {
+  // Test with null output layout
+  llvm::SmallVector<int64_t> inputShape = {16, 32};
+  llvm::SmallVector<int64_t> scaleShape = {32};
+  llvm::SmallVector<int64_t> zeroPointShape = {32};
+  llvm::SmallVector<int64_t> outputShape = {16, 32};
+
+  // Create input tensor with explicit Int32 layout (DequantizeOp input must be
+  // int32)
+  auto inputLayout = CreateTiledLayoutInt32(inputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto input = createEmptyTensor(inputShape, builder.getI32Type(), inputLayout);
+
+  auto scale = createEmptyTensor(scaleShape);
+
+  auto zeroPointLayout = CreateTiledLayoutInt32(
+      zeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto zeroPoint =
+      createEmptyTensor(zeroPointShape, builder.getI32Type(), zeroPointLayout);
+
+  auto outputType = createRankedTensorType(outputShape, builder.getBF16Type());
+
+  auto dequantizeOp = builder.create<DequantizeOp>(
+      builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
+      builder.getI32IntegerAttr(1), // axis = 1
+      ttcore::DataTypeAttr::get(
+          &context,
+          ttcore::DataType::BFloat16), // output_dtype explicitly set to BF16
+      nullptr);
+
+  // Test with null output layout
+  OpModel backend = dyn_cast<OpModel>(dequantizeOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(dequantizeOp), OpConfig(/*outputLayout=*/nullptr));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_GE(cbSize, 32768);
+  EXPECT_GE(peakSize, 18432);
+  EXPECT_GE(outputSize, 2048);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+
+  // Test runtime
+  auto runtimeExp = backend.getOpRuntime(getInputLayouts(dequantizeOp),
+                                         OpConfig(/*outputLayout=*/nullptr));
+  EXPECT_EQ(static_cast<bool>(runtimeExp), true);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
 

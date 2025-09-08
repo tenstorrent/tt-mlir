@@ -185,29 +185,6 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
       ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr, desiredTensorMesh,
       g_defaultCollapseDims);
 
-  // If the input tensor is a constant or empty tensor, we can replace it with a
-  // new tensor with the desired layout
-  ttir::EmptyOp existingEmpty = input.getDefiningOp<ttir::EmptyOp>();
-  if (existingEmpty) {
-    return rewriter
-        .replaceOpWithNewOp<ttir::EmptyOp>(existingEmpty, ty.getShape(),
-                                           ty.getElementType(), desiredLayout)
-        .getResult();
-  }
-
-  // If the input tensor is a constant, we can replace it with a new constant
-  // with the desired layout
-  ttir::ConstantOp existingConstant = input.getDefiningOp<ttir::ConstantOp>();
-  if (existingConstant) {
-    return rewriter
-        .replaceOpWithNewOp<ttir::ConstantOp>(
-            existingConstant,
-            mlir::RankedTensorType::get(ty.getShape(), ty.getElementType(),
-                                        desiredLayout),
-            existingConstant.getValue())
-        .getResult();
-  }
-
   // Create the ToLayoutOp which will convert the input tensor to the desired
   // layout.
   return ttir::utils::createDPSOp<ttir::ToLayoutOp>(

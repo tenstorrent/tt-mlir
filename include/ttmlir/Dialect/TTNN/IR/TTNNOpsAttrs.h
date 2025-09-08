@@ -11,6 +11,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.h.inc"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNKernelInterface.h"
 
 namespace mlir::tt::ttnn {
 

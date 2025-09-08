@@ -21,7 +21,7 @@ add_custom_command(
           TTMLIR_VERSION_PATCH=${TTMLIR_VERSION_PATCH}
           CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}
           SOURCE_ROOT=${TTMLIR_SOURCE_DIR}
-          python -m pip wheel . --wheel-dir build --verbose
+          python -m pip wheel . --wheel-dir build
   COMMAND python -m pip install build/*.whl --force-reinstall
   COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
