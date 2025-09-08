@@ -8,11 +8,11 @@ find_package(pybind11 CONFIG REQUIRED)
 set(TTMLIR_RUNTIME_PYTHON_SRCS
   __init__.cpp
   runtime/runtime.cpp
-  runtime/utils.cpp
+  # runtime/utils.cpp
   binary/binary.cpp
 )
 
-set_source_files_properties(runtime/utils.cpp PROPERTIES INCLUDE_DIRECTORIES "${pybind11_INCLUDE_DIRS}")
+# set_source_files_properties(runtime/utils.cpp PROPERTIES INCLUDE_DIRECTORIES "${pybind11_INCLUDE_DIRS}")
 
 if (TTMLIR_ENABLE_RUNTIME_TESTS)
   list(APPEND TTMLIR_RUNTIME_PYTHON_SRCS runtime/test.cpp)
@@ -22,8 +22,6 @@ nanobind_add_module(
   _ttmlir_runtime
   ${TTMLIR_RUNTIME_PYTHON_SRCS}
 )
-
-set_property(TARGET _ttmlir_runtime PROPERTY CXX_STANDARD 20)
 
 set_target_properties(_ttmlir_runtime PROPERTIES
   INSTALL_RPATH "$ORIGIN;$<TARGET_FILE_DIR:TTMLIRRuntime>"
@@ -41,10 +39,25 @@ target_include_directories(_ttmlir_runtime
 target_link_libraries(_ttmlir_runtime
   PRIVATE
   TTMLIRRuntime
-  TTRuntimeTTNNUtils
 )
-
 add_dependencies(_ttmlir_runtime TTMLIRRuntime)
+
+# Isolate utils.cpp to a separate TU to avoid pulling in pybinds.
+add_library(_mlir_runtime_utils OBJECT runtime/utils.cpp)
+target_include_directories(_mlir_runtime_utils
+  SYSTEM PRIVATE ${pybind11_INCLUDE_DIRS}
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+    ${PROJECT_SOURCE_DIR}/runtime/python/include
+)
+target_link_libraries(_mlir_runtime_utils
+  PRIVATE
+  TTRuntimeTTNNUtils
+  nanobind-static
+)
+target_sources(_ttmlir_runtime PRIVATE $<TARGET_OBJECTS:_mlir_runtime_utils>)
+set_property(TARGET _mlir_runtime_utils PROPERTY CXX_STANDARD 20)
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   target_compile_options(nanobind-static PRIVATE
@@ -54,20 +67,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
       -Wno-c++98-compat-extra-semi
       -Wno-covered-switch-default
   )
+  target_compile_options(_mlir_runtime_utils PRIVATE
+    -Wno-covered-switch-default
+  )
 endif()
-
-# if (TTMLIR_ENABLE_PYKERNEL)
-#   set(RT_PKG "${TTMLIR_PYTHON_PACKAGES_DIR}/tt_runtime")
-#   file(MAKE_DIRECTORY "${RT_PKG}")
-#   file(WRITE "${RT_PKG}/__init__.py" "from ._ttmlir_runtime import runtime as runtime, binary as binary\n")
-
-#   # Create symlinks to runtime pybinds and its dependencies.
-#   add_custom_command(TARGET _ttmlir_runtime POST_BUILD
-#     COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:_ttmlir_runtime> "${RT_PKG}/$<TARGET_FILE_NAME:_ttmlir_runtime>"
-#     COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:TTMLIRRuntime> "${RT_PKG}/$<TARGET_FILE_NAME:TTMLIRRuntime>"
-#     COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:TTMETAL_LIBRARY> "${RT_PKG}/$<TARGET_FILE_NAME:TTMETAL_LIBRARY>"
-#     COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:DEVICE_LIBRARY> "${RT_PKG}/$<TARGET_FILE_NAME:DEVICE_LIBRARY>"
-#     COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:TTNN_LIBRARY> "${RT_PKG}/$<TARGET_FILE_NAME:TTNN_LIBRARY>"
-#     COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:TT_STL_LIBRARY> "${RT_PKG}/$<TARGET_FILE_NAME:TT_STL_LIBRARY>"
-#   )
-# endif()
