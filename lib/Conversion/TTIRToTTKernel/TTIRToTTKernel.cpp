@@ -911,12 +911,12 @@ public:
           // If src and dst refer to the same memref, we do not loopback mcast
           // Dests are one less because the sender core is not included
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
-              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
+              op.getLoc(), dstL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
         } else {
           // If src != dst, we loopback mcast
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
-              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
+              op.getLoc(), dstL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
         }
       } else {
