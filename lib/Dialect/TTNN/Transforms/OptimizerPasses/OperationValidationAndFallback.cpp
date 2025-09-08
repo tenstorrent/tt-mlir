@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -114,11 +115,33 @@ public:
       TTNNOperationValidationAndFallback>::
       TTNNOperationValidationAndFallbackBase;
 
+  ~TTNNOperationValidationAndFallback() override {
+#ifdef TTMLIR_ENABLE_OPMODEL
+    if (openedDeviceInPass) {
+      op_model::SingletonDeviceContext::getInstance().closeInstance();
+    }
+#endif
+  }
+
   void runOnOperation() override {
+#ifndef TTMLIR_ENABLE_OPMODEL
+    // When OPMODEL is disabled, this pass should not run.
+    // It's a no-op but allows compilation to succeed.
+    return;
+#else
     ModuleOp moduleOp = getOperation();
 
     size_t totalOperationsChecked = 0;
     size_t operationsFixed = 0;
+
+    if (!op_model::SingletonDeviceContext::getInstance()
+             .isDeviceInitialized()) {
+      // Typically the device should be opened outside of the pass, but for
+      // testing purposes we open it here if it is not already opened. We will
+      // close it in the destructor.
+      op_model::SingletonDeviceContext::getInstance().openDevice();
+      openedDeviceInPass = true;
+    }
 
     moduleOp->walk([&](func::FuncOp func) {
       func.walk([&](Operation *operation) -> WalkResult {
@@ -145,11 +168,11 @@ public:
         // Extract OpConfig from IR
         OpConfig config = extractOpConfigFromIR(operation);
         if (!config.outputLayout) {
-          operation->emitError()
-              << "OperationValidationAndFallback: No output layout found in "
-                 "operation result type encoding";
-          signalPassFailure();
-          return WalkResult::interrupt();
+          // No output layout found, can't validate
+          // TODO(rpavlovicTT): this should be an error, but since all ops
+          // implement OpModel, we expect some of them to not have layout (e.g.
+          // GetDevice).
+          return WalkResult::skip();
         }
 
         // Extract input layouts from the operation
@@ -215,11 +238,18 @@ public:
         ttmlir::LogComponent::OpValidation,
         "Operation validation complete: {} operations checked, {} fixed",
         totalOperationsChecked, operationsFixed);
+#endif // TTMLIR_ENABLE_OPMODEL
   }
 
 private:
   // Extract OpConfig from operation's IR
   OpConfig extractOpConfigFromIR(Operation *operation) {
+    if (operation->getNumResults() == 0) {
+      // No results, return empty config. This is possible for ops like
+      // deallocate.
+      return OpConfig{};
+    }
+
     OpConfig config;
 
     assert(operation->getNumResults() == 1 &&
@@ -242,6 +272,8 @@ private:
 
     return config;
   }
+
+  [[maybe_unused]] bool openedDeviceInPass = false;
 };
 
 namespace fallbacks {

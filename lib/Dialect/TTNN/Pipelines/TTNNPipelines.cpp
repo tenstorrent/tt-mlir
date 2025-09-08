@@ -101,8 +101,8 @@ void createTTNNPipelineAnalysisPasses(
     pm.addPass(mlir::createCanonicalizerPass());
 #ifdef TTMLIR_ENABLE_OPMODEL
     pm.addPass(mlir::tt::ttnn::createTTNNOperationValidationAndFallback());
-#endif
     pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+#endif
   }
 }
 

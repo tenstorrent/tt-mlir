@@ -11,7 +11,6 @@
 
 #include <cassert>
 #include <cstdint>
-#include <llvm/Support/ErrorHandling.h>
 #include <numeric>
 #include <optional>
 
