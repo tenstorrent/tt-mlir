@@ -9,6 +9,7 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
+#include <ttnn/events.hpp>
 
 namespace tt::runtime::ttnn::utils {
 
@@ -84,6 +85,9 @@ std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
     const ::ttnn::Tensor &tensor,
     const std::optional<::ttnn::MeshEvent> &meshEvent = std::nullopt,
     bool retain = false);
+
+::tt::runtime::Device
+createRuntimeDeviceFromTTNN(::ttnn::MeshDevice *meshDevice);
 
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor);
 
