@@ -23,7 +23,7 @@ namespace tt::runtime::python {
 void registerRuntimeUtilsBindings(nb::module_ &m) {
   m.def(
       "create_runtime_tensor_from_ttnn",
-      [](nb::object tensor_obj, bool retain) {
+      [](nb::object tensor_obj, bool retain) -> ::tt::runtime::Tensor {
         py::handle tensor_pybind_obj(tensor_obj.ptr());
         const ::ttnn::Tensor &tensor =
             py::cast<const ::ttnn::Tensor &>(tensor_pybind_obj);
@@ -37,7 +37,7 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
 
   m.def(
       "create_runtime_device_from_ttnn",
-      [](nb::object mesh_device_obj) {
+      [](nb::object mesh_device_obj) -> ::tt::runtime::Device {
         py::handle mesh_device_pybind_obj(mesh_device_obj.ptr());
         ::ttnn::MeshDevice *mesh_device =
             py::cast<::ttnn::MeshDevice *>(mesh_device_pybind_obj);
@@ -47,8 +47,15 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
       "Create a tt::runtime device from a TTNN mesh device",
       nb::arg("mesh_device"));
 
-  m.def("get_ttnn_tensor_from_runtime_tensor",
-        &tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor,
-        "Get a TTNN tensor from a tt::runtime tensor");
+  m.def(
+      "get_ttnn_tensor_from_runtime_tensor",
+      [](tt::runtime::Tensor tensor) -> nb::object {
+        ::ttnn::Tensor &ttnn_tensor =
+            ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(tensor);
+        py::object py_tensor = py::cast(std::move(ttnn_tensor),
+                                        py::return_value_policy::reference);
+        return nb::borrow(py_tensor.ptr());
+      },
+      "Get a TTNN tensor from a tt::runtime tensor");
 }
 } // namespace tt::runtime::python
