@@ -264,6 +264,11 @@ mlir::ValueRange getDpsOutputsFromAdaptor(AdaptorT adaptor,
   return operands.take_back(numDpsInits);
 }
 
+// Helper to find largest square grid inside given targetGridShape. E.g. 13x10
+// => 10x10.
+llvm::SmallVector<int64_t, 2>
+getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape);
+
 } // namespace mlir::tt::ttir::utils
 
 #endif // TTMLIR_DIALECT_TTIR_UTILS_UTILS_H
