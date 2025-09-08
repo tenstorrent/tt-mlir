@@ -8,6 +8,7 @@
 
 #include "binary/binary.h"
 #include "runtime/runtime.h"
+#include "runtime/utils.h"
 
 #if defined(RUNTIME_TEST_ENABLED)
 #include "runtime/test.h"
@@ -21,6 +22,7 @@ namespace nb = nanobind;
 NB_MODULE(_ttmlir_runtime, m) {
   m.doc() = "Python bindings for TTMLIR runtime";
   auto m_runtime = m.def_submodule("runtime", "Runtime API bindings");
+  auto m_utils = m.def_submodule("utils", "Runtime utility helpers");
 #if defined(RUNTIME_TEST_ENABLED)
   auto m_runtime_test =
       m_runtime.def_submodule("test", "Runtime test API bindings");
@@ -28,6 +30,7 @@ NB_MODULE(_ttmlir_runtime, m) {
   auto m_binary = m.def_submodule("binary", "Binary API bindings");
 
   tt::runtime::python::registerRuntimeBindings(m_runtime);
+  tt::runtime::python::registerRuntimeUtilsBindings(m_utils);
 #if defined(RUNTIME_TEST_ENABLED)
   tt::runtime::python::registerRuntimeTestBindings(m_runtime_test);
 #endif
