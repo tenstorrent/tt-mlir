@@ -261,6 +261,47 @@ const std::initializer_list<
                                BufferType::L1},
             detail::ExpectedResult{false})};
 
+const std::initializer_list<
+    std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
+    tanhParams = {
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 28672, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 28672, 2048, 2048}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 28672, 0, 0}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024L1,
+                        detail::ExpectedResult{true, 28672, 2048, 2048}),
+        std::make_tuple(
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               TensorMemoryLayout::HeightSharded,
+                               BufferType::L1},
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               TensorMemoryLayout::HeightSharded,
+                               BufferType::L1},
+            detail::ExpectedResult{true, 143360, 14 * 32 * 32 * 2,
+                                   14 * 32 * 32 * 2}),
+        std::make_tuple(
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::L1},
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               TensorMemoryLayout::HeightSharded,
+                               BufferType::L1},
+            detail::ExpectedResult{false}),
+        std::make_tuple(
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               TensorMemoryLayout::HeightSharded,
+                               BufferType::L1},
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::L1},
+            detail::ExpectedResult{false})};
+
 INSTANTIATE_TEST_SUITE_P(ReluTests, OpModelReluParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
@@ -280,7 +321,7 @@ INSTANTIATE_TEST_SUITE_P(ExpTests, OpModelExpParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(TanhTests, OpModelTanhParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(tanhParams));
 
 INSTANTIATE_TEST_SUITE_P(LogTests, OpModelLogParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
