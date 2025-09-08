@@ -48,6 +48,22 @@ public:
     return success();
   }
 
+  // If the input operand to a ToLayoutOp is itself a result of a device->device
+  // memspace ToLayoutOp, return false.
+  static bool producerMustBeLoweredFirst(ToLayoutOp op) {
+    if (auto producer = op.getInput().getDefiningOp<ToLayoutOp>()) {
+      auto inputOperandMemspace =
+          producer.getOrCreateInputLayout().getMemorySpace();
+      auto outputOperandMemspace =
+          producer.getOrCreateOutputLayout().getMemorySpace();
+      if (ttcore::isDeviceMemorySpace(inputOperandMemspace) &&
+          ttcore::isDeviceMemorySpace(outputOperandMemspace)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   static LogicalResult lowerDatamovementGeneric(PatternRewriter &rewriter,
                                                 ToLayoutOp op) {
     ttcore::MetalLayoutAttr inputLayout = op.getOrCreateInputLayout();
@@ -57,24 +73,6 @@ public:
       // To/From host mem is a special case that is lowered to
       // ttmetal.enqueue_write_buffer or ttmetal.enqueue_read_buffer
       return lowerSystemLayoutChange(rewriter, op);
-    }
-
-    // Skip if input is result of a device->device ToLayoutOp. By convention,
-    // consecutive device->device ToLayout ops must be converted in producer to
-    // consumer order, such that the consumer ops DO NOT apply a view to an
-    // output that will itself be wrapped in a view by the producer op.
-    //
-    // The GreedyPatternRewriteDriver will handle iterating until all ToLayout
-    // ops have been rewritten in producer to consumer order.
-    if (auto producer = op.getInput().getDefiningOp<ToLayoutOp>()) {
-      auto inputOperandMemspace =
-          producer.getOrCreateInputLayout().getMemorySpace();
-      auto outputOperandMemspace =
-          producer.getOrCreateOutputLayout().getMemorySpace();
-      if (ttcore::isDeviceMemorySpace(inputOperandMemspace) &&
-          ttcore::isDeviceMemorySpace(outputOperandMemspace)) {
-        return failure();
-      }
     }
 
     // Get the shapes to determine if we need a view.
@@ -183,6 +181,17 @@ public:
     auto components = op.compoundComponents();
 
     if (components.isCompound()) {
+      return failure();
+    }
+
+    // By convention, consecutive device->device ToLayout ops must be converted
+    // in **producer to consumer order**, such that the consumer ops DO NOT
+    // apply a view to an output that will itself be wrapped in a view by the
+    // producer op.
+    //
+    // The GreedyPatternRewriteDriver will handle iterating until all ToLayout
+    // ops have been rewritten in producer to consumer order.
+    if (producerMustBeLoweredFirst(op)) {
       return failure();
     }
 
