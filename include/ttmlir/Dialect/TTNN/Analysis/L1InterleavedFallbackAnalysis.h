@@ -83,6 +83,16 @@ private:
   // Check if operation has a return op user.
   bool hasReturnOpUser(Operation *op) const;
 
+  // Check if a reshape operation should be skipped based on TTNN optimization
+  // rules. Returns true if the operation should be skipped, false otherwise.
+  // Parameters:
+  // - reshapeOp: The reshape operation to analyze
+  // - contextOp: The operation context for logging (producer op for user
+  // reshapes)
+  // - isUserOp: true if this is a user reshape check, false for direct reshape
+  bool checkReshapeSkip(Operation *reshapeOperation, Operation *contextOp,
+                        bool isUserOp) const;
+
   // Try to upgrade an operation to L1 interleaved layout by testing available
   // L1 configurations and selecting the first one that passes validation.
   void tryUpgradeToL1Interleaved(Operation *op);
