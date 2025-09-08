@@ -59,6 +59,24 @@ public:
       return lowerSystemLayoutChange(rewriter, op);
     }
 
+    // Skip if input is result of a device->device ToLayoutOp. By convention,
+    // consecutive device->device ToLayout ops must be converted in producer to
+    // consumer order, such that the consumer ops DO NOT apply a view to an
+    // output that will itself be wrapped in a view by the producer op.
+    //
+    // The GreedyPatternRewriteDriver will handle iterating until all ToLayout
+    // ops have been rewritten in producer to consumer order.
+    if (auto producer = op.getInput().getDefiningOp<ToLayoutOp>()) {
+      auto inputOperandMemspace =
+          producer.getOrCreateInputLayout().getMemorySpace();
+      auto outputOperandMemspace =
+          producer.getOrCreateOutputLayout().getMemorySpace();
+      if (ttcore::isDeviceMemspace(inputOperandMemspace) &&
+          ttcore::isDeviceMemspace(outputOperandMemspace)) {
+        return failure();
+      }
+    }
+
     // Get the shapes to determine if we need a view.
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
     auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
