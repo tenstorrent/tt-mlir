@@ -2718,6 +2718,7 @@ createDefaultLayout(mlir::MLIRContext *ctx,
   // Create default layout for tensor without encoding
   llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
 
+  // TODO (#4820): Remove this during cleanup.
   SmallVector<int64_t> squareGridShape =
       ttir::utils::getSquareTargetGrid(workerGridShape);
 
@@ -2738,10 +2739,7 @@ mlir::tt::ttir::ToLayoutOp::getOrCreateInputLayout() {
   ArrayRef<int64_t> workerGridShape =
       ttcore::lookupDevice(*this).getWorkerGrid().getShape();
 
-  SmallVector<int64_t> squareGridShape =
-      ttir::utils::getSquareTargetGrid(workerGridShape);
-
-  return createDefaultLayout(getContext(), squareGridShape, tensorType);
+  return createDefaultLayout(getContext(), workerGridShape, tensorType);
 }
 
 mlir::tt::ttcore::MetalLayoutAttr
