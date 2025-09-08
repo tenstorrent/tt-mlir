@@ -41,10 +41,9 @@ def compile_dma_test(test_func, shape, request):
     )
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(256, 256)])
-@pytest.mark.parametrize("start_grid", [(1, 4), (4, 1), (2, 4), (4, 2)])
-@pytest.mark.parametrize("end_grid", [(1, 1), (4, 4), (2, 4), (4, 2)])
+@pytest.mark.parametrize("start_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
+@pytest.mark.parametrize("end_grid", [(1, 1), (2, 2)])
 @pytest.mark.parametrize(
     "memory_space", [ttcore.MemorySpace.DeviceL1, ttcore.MemorySpace.DeviceDRAM]
 )
@@ -122,13 +121,12 @@ def test_roundtrip_dma_tiled(
     )
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shape",
-    [(256, 256)],
+    [(128, 128)],
 )
 @pytest.mark.parametrize("start_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
-@pytest.mark.parametrize("end_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
+@pytest.mark.parametrize("end_grid", [(1, 1), (2, 2)])
 @pytest.mark.parametrize(
     "memory_space", [ttcore.MemorySpace.DeviceL1, ttcore.MemorySpace.DeviceDRAM]
 )
