@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "OpModelFixture.h"
+#include "YamlParamLoader.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -111,12 +112,9 @@ public:
         ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
   }
 };
-struct ExpectedResult {
-  bool expectedLegal = false;
-  size_t expectedCbSize = 0;
-  size_t expectedPeakSize = 0;
-  size_t expectedOutputSize = 0;
-};
+
+using ExpectedResult = op_model::detail::ExpectedResult;
+
 struct UnaryOpTestParams {
   std::string testName;
   std::function<Operation *(OpBuilder &, Location, Type, ValueRange)> createOp;
@@ -149,7 +147,7 @@ TEST_P(UnaryOpModelTest, TestOpInterface) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
     EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(peakSize, params.expectedResult.expectedL1PeakSize);
     EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints for " << params.testName
@@ -184,7 +182,7 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-  EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+  EXPECT_EQ(peakSize, params.expectedResult.expectedL1PeakSize);
   EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
 
   ASSERT_TRUE(outputLayout);
@@ -357,7 +355,7 @@ TEST_P(BinaryOpModelTest, TestOpInterface) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
     EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(peakSize, params.expectedResult.expectedL1PeakSize);
     EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints for " << params.testName
@@ -393,7 +391,7 @@ TEST_P(BinaryOpModelTest, TestOpInterfaceNullOutput) {
   const auto &[cbSize, peakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-  EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+  EXPECT_EQ(peakSize, params.expectedResult.expectedL1PeakSize);
   EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
 
   ASSERT_TRUE(outputLayout);
@@ -443,7 +441,7 @@ TEST_P(BinaryBitwiseOpModelTest, TestOpInterface) {
   auto constraints = constraintsExp.get();
   EXPECT_EQ(constraints.cbL1PeakSize, params.expectedResult.expectedCbSize);
   EXPECT_EQ(constraints.tensorL1PeakSize,
-            params.expectedResult.expectedPeakSize);
+            params.expectedResult.expectedL1PeakSize);
   EXPECT_EQ(constraints.outputL1BufferSize,
             params.expectedResult.expectedOutputSize);
 
@@ -1051,7 +1049,7 @@ using OpRuntimeFn = llvm::Expected<size_t> (OpModelBase::*)(mlir::Operation *);
 template <typename OpType>
 void testReductionOp(OpModelBase *testFixture, mlir::OpBuilder &builder,
                      mlir::Value input, mlir::Type outputType,
-                     int64_t expectedCbSize, int64_t expectedPeakSize,
+                     int64_t expectedCbSize, int64_t expectedL1PeakSize,
                      int64_t expectedOutputSize,
                      OpConstraintsFn getOpConstraintsFn,
                      OpRuntimeFn getOpRuntimeFn) {
@@ -1068,7 +1066,7 @@ void testReductionOp(OpModelBase *testFixture, mlir::OpBuilder &builder,
     auto l1 = constraintsExp.get();
     const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
     EXPECT_EQ(cbSize, expectedCbSize);
-    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(peakSize, expectedL1PeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1092,7 +1090,7 @@ TEST_F(OpModelBase, MeanOpInterface) {
 
   testReductionOp<MeanOp>(
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
-      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      /*expectedL1PeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
@@ -1104,7 +1102,7 @@ TEST_F(OpModelBase, MaxOpInterface) {
 
   testReductionOp<MaxOp>(
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
-      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      /*expectedL1PeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
@@ -1116,7 +1114,7 @@ TEST_F(OpModelBase, MinOpInterface) {
 
   testReductionOp<MinOp>(
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
-      /*expectedPeakSize=*/69632, /*expectedOutputSize=*/2048,
+      /*expectedL1PeakSize=*/69632, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
@@ -1128,7 +1126,7 @@ TEST_F(OpModelBase, SumOpInterface) {
 
   testReductionOp<SumOp>(
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
-      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      /*expectedL1PeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 
   // Need to reset device other wise hangs. See tt-metal issue #25772
@@ -3445,7 +3443,7 @@ TEST_P(NamedFullOpModelTest, TestOpInterface) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
     EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(peakSize, params.expectedResult.expectedL1PeakSize);
     EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints for " << params.testName
