@@ -1040,10 +1040,10 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedComparisonRewriter<ttir::LessEqualOp,    ttir::TileLezOp>,
 
     // Reduction.
-    TTIRNamedReductionRewriter<ttir::MaxOp,          ttir::TileReduceMaxOp>,
-    TTIRNamedReductionRewriter<ttir::SumOp,          ttir::TileReduceSumOp>,
+    TTIRNamedReductionRewriter<ttir::MaxOp,           ttir::TileReduceMaxOp>,
+    TTIRNamedReductionRewriter<ttir::SumOp,           ttir::TileReduceSumOp>,
     // Data movement.
-    TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>,
+    TTIRNamedElementwiseRewriter<ttir::TypecastOp,    ttir::TileTypecastOp>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
     TTIRPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
