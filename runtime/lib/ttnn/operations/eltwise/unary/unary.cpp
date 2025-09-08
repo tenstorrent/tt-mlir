@@ -46,7 +46,7 @@ static void runEltwiseUnaryTanhOp(
              "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out =
-      ttnnOp(in, outputMemoryConfig, std::nullopt, /* accuracy= */ true);
+      ttnnOp(in, outputMemoryConfig, std::nullopt, /* approx= */ false);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
