@@ -48,8 +48,8 @@ public:
     return success();
   }
 
-  // If the input operand to a ToLayoutOp is itself a result of a device->device
-  // memspace ToLayoutOp, return false.
+  // Return true if the input operand to a ToLayoutOp is itself a result of a
+  // device->device memspace ToLayoutOp.
   static bool producerMustBeLoweredFirst(ToLayoutOp op) {
     if (auto producer = op.getInput().getDefiningOp<ToLayoutOp>()) {
       auto inputOperandMemspace =
