@@ -8,6 +8,8 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+// HACK
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
@@ -769,6 +771,19 @@ private:
         op.getThreads(), op.getNumRegions());
     for (mlir::Region &region : generic.getRegions()) {
       region.takeBody(op.getRegion(region.getRegionNumber()));
+    }
+
+    // HACK
+    {
+      auto insertPoint = rewriter.saveInsertionPoint();
+      generic.walk([&](arith::AddFOp addf) {
+        rewriter.setInsertionPoint(addf);
+        auto operands = addf.getOperands();
+        assert(operands.size() == 2);
+        rewriter.replaceOpWithNewOp<ttir::TileAddOp>(
+            addf, addf.getResult().getType(), operands[0], operands[1]);
+      });
+      rewriter.restoreInsertionPoint(insertPoint);
     }
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),

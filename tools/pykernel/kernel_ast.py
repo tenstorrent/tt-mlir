@@ -507,7 +507,7 @@ class TTCompilerBase(PyKernelAstBase):
                 rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
             ).result
         if isinstance(lhs.type, RankedTensorType):
-            #is_float_type = isinstance(lhs.type.element_type, FloatType)
+            # is_float_type = isinstance(lhs.type.element_type, FloatType)
             is_float_type = True
         match (node.op):
             case ast.Add():
@@ -978,8 +978,8 @@ class D2MGenericCompiler(TTCompilerBase):
                     )
             elif arg.annotation.id == "Tensor":
                 shape = self.args[i].shape
-                #dtype = F32Type.get(self.ctx)
-                #dtype = VectorType.get((32, 32), F32Type.get(self.ctx))
+                # dtype = F32Type.get(self.ctx)
+                # dtype = VectorType.get((32, 32), F32Type.get(self.ctx))
                 dtype = ttcore.ir.TileType.get(
                     self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
                 )
@@ -1311,13 +1311,21 @@ def pykernel_gen(
                 if device_register_options:
                     register_device = f"{register_device}{{{device_register_options}}}"
 
-                pipeline_str = f"builtin.module({','.join([register_device, pipeline])})"
+                pipeline_str = (
+                    f"builtin.module({','.join([register_device, pipeline])})"
+                )
                 pm = PassManager.parse(pipeline_str)
                 pm.enable_verifier(verify)
                 print("Running custom pipeline:", pm)
                 if print_ir:
                     print_ir_path = print_ir if isinstance(print_ir, str) else None
-                    pm.enable_ir_printing(tree_printing_dir_path=print_ir_path)
+                    ctx.enable_multithreading(False)
+                    pm.enable_ir_printing(
+                        #tree_printing_dir_path=print_ir_path,
+                        #print_after_all=True,
+                        print_before_all=True,
+                        print_after_failure=True,
+                    )
                 pm.run(module.operation)
 
                 print(module)
