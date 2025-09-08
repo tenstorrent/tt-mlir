@@ -103,8 +103,22 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
                    op->getName());
       return;
     }
+
+    if (isa<ttnn::ReshapeOp>(op)) {
+      if (checkReshapeSkip(op, op, false)) {
+        return;
+      }
+    }
+    for (auto *user : op->getUsers()) {
+      if (isa<ttnn::ReshapeOp>(user) && utils::producesDRAMLayout(user)) {
+        if (checkReshapeSkip(user, op, true)) {
+          return;
+        }
+      }
+    }
     tryUpgradeToL1Interleaved(op);
   });
+
   TTMLIR_TRACE(
       ttmlir::LogComponent::Optimizer,
       "L1InterleavedFallbackAnalysis: Completed - upgraded {} operations.",
@@ -182,6 +196,113 @@ bool L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(Operation *op) {
   }
 
   return true;
+}
+
+bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
+    Operation *reshapeOperation, Operation *contextOp, bool isUserOp) const {
+
+  auto reshapeOp = cast<ttnn::ReshapeOp>(reshapeOperation);
+
+  // Get input and output shapes
+  auto inputType = mlir::dyn_cast<mlir::RankedTensorType>(
+      reshapeOp->getOperand(0).getType());
+  auto outputType =
+      mlir::dyn_cast<mlir::RankedTensorType>(reshapeOp->getResult(0).getType());
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+
+  // Skip if reshape is a no-op (same shape in and out).
+  if (inputShape == outputShape) {
+    if (isUserOp) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
+                   "no-op.",
+                   contextOp->getName());
+    } else {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
+                   "no-op.",
+                   contextOp->getName());
+    }
+    return true;
+  }
+
+  // Check if padded shapes would be identical (TTNN early return case)
+  auto computePaddedDim = [](int64_t dim) -> int64_t {
+    return ((dim + 31) / 32) * 32; // Round up to next tile boundary
+  };
+
+  bool paddedShapesWouldBeIdentical = true;
+  if (inputShape.size() >= 2 && outputShape.size() >= 2) {
+    // Check if last 2 dimensions would have same padding
+    int64_t inputPaddedH = computePaddedDim(inputShape[inputShape.size() - 2]);
+    int64_t inputPaddedW = computePaddedDim(inputShape[inputShape.size() - 1]);
+    int64_t outputPaddedH =
+        computePaddedDim(outputShape[outputShape.size() - 2]);
+    int64_t outputPaddedW =
+        computePaddedDim(outputShape[outputShape.size() - 1]);
+
+    paddedShapesWouldBeIdentical =
+        (inputPaddedH == outputPaddedH) && (inputPaddedW == outputPaddedW);
+  }
+
+  if (paddedShapesWouldBeIdentical) {
+    if (isUserOp) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
+                   "padded no-op.",
+                   contextOp->getName());
+    } else {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
+                   "padded no-op.",
+                   contextOp->getName());
+    }
+    return true;
+  }
+
+  // Check if this reshape can be optimized to a view (TTNN-style check)
+  bool canBeView = false;
+  if (inputShape.size() >= 1 && outputShape.size() >= 1) {
+    // Get last dimensions
+    int64_t inputLastDim = inputShape.back();
+    int64_t outputLastDim = outputShape.back();
+
+    // Get second-to-last dimensions (or 1 if rank < 2)
+    int64_t inputSecondLastDim =
+        inputShape.size() >= 2 ? inputShape[inputShape.size() - 2] : 1;
+    int64_t outputSecondLastDim =
+        outputShape.size() >= 2 ? outputShape[outputShape.size() - 2] : 1;
+
+    // TTNN view conditions adapted for MLIR:
+    // 1. Last dimension must be the same
+    // 2. Either second-to-last dimension is the same OR no tile padding
+    const int64_t tileHeight = 32; // tt::constants::TILE_HEIGHT
+    const int64_t tileWidth = 32;  // tt::constants::TILE_WIDTH
+
+    canBeView =
+        (inputLastDim == outputLastDim) &&
+        ((inputSecondLastDim == outputSecondLastDim) || // Second last dim same
+         (outputSecondLastDim % tileHeight == 0 &&
+          inputSecondLastDim % tileWidth == 0)); // No tile padding
+  }
+
+  if (canBeView) {
+    if (isUserOp) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
+                   "can be optimized to view.",
+                   contextOp->getName());
+    } else {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
+                   "can be optimized to view.",
+                   contextOp->getName());
+    }
+    return true;
+  }
+
+  return false;
 }
 
 void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {
