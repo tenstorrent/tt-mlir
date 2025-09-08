@@ -62,6 +62,5 @@ using IDevice = ::tt::tt_metal::IDevice;
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/tensor_spec.hpp"
 #include "ttnn/tensor/types.hpp"
-#include <ttnn/tensor/enum_types.hpp>
 
 #endif // TTMLIR_OPMODEL_TTNN_METALHEADERS_H
