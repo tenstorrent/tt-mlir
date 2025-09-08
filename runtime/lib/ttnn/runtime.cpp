@@ -36,7 +36,6 @@
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
-using ::tt::tt_metal::DistributedTensorConfig;
 
 static tt::runtime::MemoryView
 createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
@@ -250,21 +249,8 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                    return utils::getTTNNTensorFromRuntimeTensor(tensorShard);
                  });
 
-  DistributedTensorConfig distributionStrategy =
-      ::tt::tt_metal::get_distributed_tensor_config(strategy);
-
   LOG_ASSERT(meshShape.size() == 2, "Only 2D mesh shape supported for now.");
   ::ttnn::MeshShape ttnnMeshShape(meshShape[0], meshShape[1]);
-
-  if (auto *shard2dConfig =
-          std::get_if<::tt::tt_metal::ShardTensor2D>(&distributionStrategy)) {
-    ::ttnn::MeshShape configMeshShape(shard2dConfig->shard_mesh.y,
-                                      shard2dConfig->shard_mesh.x);
-    LOG_ASSERT(
-        ttnnMeshShape == configMeshShape,
-        "Mesh shape mismatch between device mesh shape and config mesh shape",
-        ttnnMeshShape, " != ", configMeshShape);
-  }
 
   ::ttnn::Tensor multiDeviceHostTensor =
       ::ttnn::distributed::from_host_shards(ttnnTensorShards, ttnnMeshShape);
