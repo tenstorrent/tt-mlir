@@ -31,7 +31,7 @@ def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque", [PyExpressionInterface]> {
     Example:
 
     ```mlir
-    %2 = emitpy.call_opaque "ttnn.add"(%0, %1) {args = [0 : index, 1 : index]} : (!emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"ttnn.Tensor">
+    %2 = emitpy.call_opaque "ttnn.add"(%0, %1) {args = [0 : index, 1 : index, #emitpy.opaque<"ttnn.DataType.BFLOAT16">, #emitpy.opaque<"ttnn.MemoryConfig(ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.BufferType.DRAM, None)">], keyword_args = ["", "", "dtype", "memory_config"]} : (!emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"ttnn.Tensor">
     ```
   }];
 
@@ -50,7 +50,7 @@ def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque", [PyExpressionInterface]> {
       "::llvm::StringRef":$callee,
       "::mlir::ValueRange":$operands,
       CArg<"::mlir::ArrayAttr", "{}">:$args,
-     CArg<"::mlir::ArrayAttr", "{}">:$keyword_args), [{
+      CArg<"::mlir::ArrayAttr", "{}">:$keyword_args), [{
         build($_builder, $_state, result_types, callee, args, operands, keyword_args);
       }]
     >

@@ -15,6 +15,10 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+#include <iomanip>
+#include <limits>
+#include <sstream>
+
 // This namespace contains mock definitions of TTNN types for the purpose of
 // conversion.
 namespace ttsl {
@@ -25,23 +29,6 @@ struct SmallVector {
 } // namespace ttsl
 
 namespace ttnn {
-struct Shape;
-
-struct ShardSpec;
-struct CoreRangeSet;
-struct CoreRange;
-struct CoreCoord;
-
-struct DataType;
-struct TensorMemoryLayout;
-struct Layout;
-struct MemoryConfig;
-struct BufferType;
-
-namespace types {
-struct ShardOrientation;
-struct ShardMode;
-} // namespace types
 struct Shape;
 
 struct ShardSpec;
@@ -268,10 +255,10 @@ struct EmitPyTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {
   }
 };
 
-// Converter for floating point types.
-template <typename T>
-struct EmitPyTypeConverter<
-    T, std::enable_if_t<std::is_floating_point_v<T>, void>> {
+// Converter for floating point types. Double is the only type that makes sense
+// to convert to in Python.
+template <>
+struct EmitPyTypeConverter<double> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto floatAttr = mlir::dyn_cast_if_present<mlir::FloatAttr>(attr)) {
       return convert(floatAttr);
@@ -287,11 +274,13 @@ struct EmitPyTypeConverter<
     return convert(value.convertToDouble());
   }
 
-  template <typename U>
-  static std::enable_if_t<std::is_floating_point_v<U>, std::string>
-  convert(U value) {
+  static std::string convert(double value) {
     if (std::isfinite(value)) {
-      return std::to_string(static_cast<T>(value));
+      // Convert to string with full precision.
+      std::ostringstream oss;
+      oss << std::setprecision(std::numeric_limits<double>::max_digits10);
+      oss << value;
+      return oss.str();
     }
 
     if (std::isinf(value)) {
@@ -1094,7 +1083,7 @@ struct TTNNTarget<llvm::StringRef> {
 
 template <>
 struct TTNNTarget<llvm::APFloat> {
-  using type = float;
+  using type = double;
 };
 
 template <>
