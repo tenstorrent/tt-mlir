@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Affine/IR/AffineValueMap.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/ArrayRef.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRELEMENTWISEFUSION
@@ -89,7 +90,7 @@ static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
 // Identify which producer results must be preserved in fused op
 static llvm::SmallDenseSet<int> getPreservedProducerResults(GenericOp producer,
                                                             GenericOp consumer,
-                                                            OpOperand *fused) {
+                                                            ArrayRef<OpOperand *> fusedOperands) {
   llvm::SmallDenseSet<int> keep;
   // Only single output currently supported by TTIR GenericOp; be robust if
   // extended.
@@ -103,6 +104,15 @@ static llvm::SmallDenseSet<int> getPreservedProducerResults(GenericOp producer,
       keep.insert(idx);
       continue;
     }
+
+    // if input is used only by consumer, but not fused -> preserve
+    bool isFused = llvm::any_of(fusedOperands, [&](OpOperand *u) {
+      return it.value() == u->get();
+    });
+    if(!isFused) {
+      keep.insert(idx);
+      continue;
+    }
     // In doubt about dropping, conservatively keep for now.
     // TODO: Refine like linalg's invertibility concat check.
   }
@@ -112,7 +122,7 @@ static llvm::SmallDenseSet<int> getPreservedProducerResults(GenericOp producer,
 static bool isElementwiseFusable(GenericOp producer, GenericOp consumer,
                                  OpOperand *use) {
   // skip fusing operands that have users other than consumer
-  bool hasOtherUse = llvm::any_of(use->value().getUsers(), [&](Operation *u) {
+  bool hasOtherUse = llvm::any_of(use->get().getUsers(), [&](Operation *u) {
     return u != consumer.getOperation();
   });
   
