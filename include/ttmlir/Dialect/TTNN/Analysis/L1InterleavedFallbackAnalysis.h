@@ -125,7 +125,8 @@ private:
   // row-major input
   //
   // Called by handleReshapeOps() if conditions 3&4 are met.
-  bool checkReshapeSkip(ReshapeOp reshapeOp) const;
+  bool checkReshapeSkip(ReshapeOp reshapeOperation, Operation *contextOp,
+                        bool isUserOp) const;
 
   // Try to upgrade an operation to L1 interleaved layout by testing available
   // L1 configurations and selecting the first one that passes validation.

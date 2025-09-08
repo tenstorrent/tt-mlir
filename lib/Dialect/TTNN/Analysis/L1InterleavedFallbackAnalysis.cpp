@@ -197,7 +197,7 @@ bool L1InterleavedFallbackAnalysis::handleReshapeOps(Operation *op) const {
   // input is still in DRAM.
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op);
       reshapeOp && utils::hasFirstOperandInDRAM(reshapeOp) &&
-      checkReshapeSkip(reshapeOp)) {
+      checkReshapeSkip(reshapeOp, op, false)) {
     return true;
   }
   for (auto *user : op->getUsers()) {
@@ -205,7 +205,7 @@ bool L1InterleavedFallbackAnalysis::handleReshapeOps(Operation *op) const {
     // output is still in DRAM.
     if (auto userReshapeOp = dyn_cast<ReshapeOp>(user);
         userReshapeOp && utils::producesDRAMLayout(userReshapeOp) &&
-        checkReshapeSkip(userReshapeOp)) {
+        checkReshapeSkip(userReshapeOp, op, true)) {
       return true;
     }
   }
@@ -213,7 +213,7 @@ bool L1InterleavedFallbackAnalysis::handleReshapeOps(Operation *op) const {
 }
 
 bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
-    ReshapeOp reshapeOp) const {
+    ReshapeOp reshapeOp, Operation *contextOp, bool isUserOp) const {
   auto inputType = reshapeOp.getInput().getType();
   auto outputType = reshapeOp.getResult().getType();
   auto inputShape = inputType.getShape();
@@ -257,12 +257,17 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
         inputSecondLastDim % TILE_WIDTH == 0));
 
   if (canBeView) {
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                 "L1InterleavedFallbackAnalysis: Skipping {0} or its input "
-                 "producer {1} - reshape "
-                 "can be optimized to view.",
-                 reshapeOp->getName(),
-                 reshapeOp->getOperand(0).getDefiningOp()->getName());
+    if (isUserOp) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
+                   "can be optimized to view.",
+                   contextOp->getName());
+    } else {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
+                   "can be optimized to view.",
+                   contextOp->getName());
+    }
     return true;
   }
 
