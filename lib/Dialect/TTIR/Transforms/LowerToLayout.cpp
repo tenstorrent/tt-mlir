@@ -17,7 +17,8 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRLOWERTOLAYOUT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-// Helper to encapsulate tensor info without forcing layout creation
+// Helper struct to encapsulate tensor info; this allows us to package
+// MetalLayoutAttr as optional gracefully.
 struct TensorInfo {
   RankedTensorType type;
   std::optional<ttcore::MetalLayoutAttr> layout;
@@ -79,7 +80,7 @@ public:
       return failure();
     }
 
-    // Use the device-side layout
+    // Use the layout of whichever side has a layout (input or output).
     auto deviceLayout =
         inputInfo.isSystem() ? outputInfo.layout : inputInfo.layout;
     assert(deviceLayout.has_value() && "Device side must have a layout");
@@ -114,7 +115,7 @@ public:
       return lowerSystemLayoutChange(rewriter, op);
     }
 
-    // Both have layouts at this point
+    // Both input and output should have layouts at this point.
     assert(inputInfo.hasLayout() && outputInfo.hasLayout());
 
     Value viewInput = op.getInput();
@@ -135,7 +136,6 @@ public:
       auto baseLayout =
           mlir::cast<ttcore::MetalLayoutAttr>(fromTy.getEncoding());
 
-      // Use the primary constructor to create a new layout with the reblock map
       auto enc = ttcore::MetalLayoutAttr::get(
           ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
           baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
@@ -244,45 +244,45 @@ public:
 };
 
 class TTIRSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
-  // Helper to build intermediate bounce types
-  // Only uses the primary MetalLayoutAttr constructor - no worker grid
-  // dependencies
+  // Helper struct to build intermediate bounce types.
+  // This builder will always create a MetalLayoutAttr directly through the
+  // primary constructor--it should never make any decisions w.r.t. to grid
+  // shape, etc. (those decisions were already made in TTIRToTTIRGeneric, here
+  // we simply decompose ToLayoutOps).
   class BounceTypeBuilder {
-    MLIRContext *ctx;
-
   public:
     explicit BounceTypeBuilder(MLIRContext *ctx) : ctx(ctx) {}
 
-    // Create a device type from a system type, using reference layout's
-    // characteristics
+    // Create a device tensor type from a system tensor type, using reference
+    // layout's characteristics to populate the MetalLayoutAttr appropriately.
     RankedTensorType createDeviceType(RankedTensorType systemType,
                                       ttcore::MetalLayoutAttr referenceLayout,
                                       RankedTensorType referenceType,
                                       ttcore::MemorySpace memSpace) {
 
-      // Extract the tensor grid from the reference device tensor
+      // Extract the tensor grid from the reference device tensor.
       auto tensorGridShape = referenceLayout.getGridShape(referenceType);
 
-      // Use only the primary constructor - pass all fields explicitly
-      // This preserves all layout decisions from the reference
+      // Preserve all layout decisions from the referenceType tensor.
       auto layout = ttcore::MetalLayoutAttr::get(
           ctx, referenceLayout.getLogicalShape(),
           referenceLayout.getDimAlignments(),
           referenceLayout.getCollapsedIntervals(), referenceLayout.getOobVal(),
           memSpace, referenceLayout.getIndexAffineMap());
 
-      // Compute the device shape using the tensor's grid shape
+      // Compute the device shape using the referenceType's grid shape.
       ArrayRef<int64_t> tileShape;
       if (ttcore::isTiled(systemType)) {
         tileShape = ttcore::getTensorTileShape(systemType);
       }
-
       auto deviceShape = layout.getDeviceShape(tensorGridShape, tileShape);
+
       return RankedTensorType::get(deviceShape, systemType.getElementType(),
                                    layout);
     }
 
-    // Modify an existing device type while preserving layout characteristics
+    // Modify an existing device tensor type while preserving layout
+    // characteristics.
     RankedTensorType
     modifyDeviceType(RankedTensorType baseType,
                      ttcore::MetalLayoutAttr baseLayout,
@@ -296,7 +296,6 @@ class TTIRSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
       auto elementType = newElementType.value_or(baseType.getElementType());
 
-      // Get the tensor's grid shape
       SmallVector<int64_t> tensorGrid;
       if (newTensorGrid.has_value()) {
         tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
@@ -305,22 +304,23 @@ class TTIRSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         tensorGrid.assign(currentGrid.begin(), currentGrid.end());
       }
 
-      // Use only the primary constructor - pass all fields explicitly
       auto layout = ttcore::MetalLayoutAttr::get(
           ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
           baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(), memSpace,
           baseLayout.getIndexAffineMap());
 
-      // Compute device shape with the tensor's grid
       ArrayRef<int64_t> tileShape;
       if (mlir::isa<ttcore::TileType>(elementType)) {
         tileShape =
             newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
       }
-
       auto deviceShape = layout.getDeviceShape(tensorGrid, tileShape);
+
       return RankedTensorType::get(deviceShape, elementType, layout);
     }
+
+  private:
+    MLIRContext *ctx;
   };
 
 public:
@@ -330,6 +330,7 @@ public:
   ttir::ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
                                     Value input,
                                     RankedTensorType desiredType) const {
+    // Create empty tensor with desired type and layout
     auto layout =
         mlir::cast<ttcore::MetalLayoutAttr>(desiredType.getEncoding());
     auto output = rewriter.create<ttir::EmptyOp>(
@@ -350,6 +351,7 @@ public:
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
     auto components = op.compoundComponents();
+
     if (!components.isCompound()) {
       return failure();
     }
@@ -359,10 +361,10 @@ public:
 
     BounceTypeBuilder typeBuilder(rewriter.getContext());
 
-    // Handle system <-> device transitions specially
+    // Handle system <-> device transitions specially.
     if (inputInfo.hasLayout() != outputInfo.hasLayout()) {
       if (!inputInfo.hasLayout()) {
-        // System -> Device: move to L1 using output's layout characteristics
+        // System -> Device: move to L1 using output's layout characteristics.
         assert(outputInfo.layout &&
                "Output must have layout for system->device");
         auto bounceType = typeBuilder.createDeviceType(
@@ -371,7 +373,7 @@ public:
         bounce(rewriter, op, bounceType);
       } else {
         // Device -> System: need intermediate in L1 with input's
-        // characteristics
+        // characteristics.
         assert(inputInfo.layout && "Input must have layout for device->system");
         auto bounceType = typeBuilder.modifyDeviceType(
             inputInfo.type, *inputInfo.layout, ttcore::MemorySpace::DeviceL1,
@@ -381,7 +383,7 @@ public:
       return success();
     }
 
-    // Both have layouts or both lack layouts
+    // If neither has a layout, both are in system memory.
     if (!inputInfo.hasLayout() && !outputInfo.hasLayout()) {
       // Pure host-side operation - should have been handled by
       // compoundComponents
@@ -389,17 +391,18 @@ public:
       return failure();
     }
 
-    // Both have layouts - handle device-side transformations
+    // Otherwise, if both have layouts, we need to handle device-side
+    // transformations.
     assert(inputInfo.layout && outputInfo.layout);
 
-    // Prioritize L1 operations
+    // Prioritize L1 operations.
     if (!inputInfo.isL1()) {
-      // Move input to L1, preserving its grid and layout characteristics
+      // Move input to L1, preserving its grid and layout characteristics.
       auto bounceType = typeBuilder.modifyDeviceType(
           inputInfo.type, *inputInfo.layout, ttcore::MemorySpace::DeviceL1);
       bounce(rewriter, op, bounceType);
     } else if (!outputInfo.isL1()) {
-      // Move output to L1, preserving its grid and layout characteristics
+      // Move output to L1, preserving its grid and layout characteristics.
       auto bounceType = typeBuilder.modifyDeviceType(
           outputInfo.type, *outputInfo.layout, ttcore::MemorySpace::DeviceL1);
       bounce(rewriter, op, bounceType);
@@ -407,7 +410,7 @@ public:
                ttcore::isTiled(outputInfo.type)) {
       // Format conversion
       if (ttcore::isTiled(inputInfo.type)) {
-        // Tilized -> scalar: use output's layout/grid, change element type
+        // Tilized -> scalar: use output's layout/grid, change element type.
         auto bounceType = typeBuilder.modifyDeviceType(
             outputInfo.type, *outputInfo.layout,
             /*memSpace=*/{},
@@ -415,7 +418,7 @@ public:
             ttcore::getTensorTileShape(inputInfo.type));
         bounce(rewriter, op, bounceType);
       } else {
-        // Scalar -> tilized: use input's layout/grid, change element type
+        // Scalar -> tilized: use input's layout/grid, change element type.
         auto bounceType = typeBuilder.modifyDeviceType(
             inputInfo.type, *inputInfo.layout,
             /*memSpace=*/{},
@@ -424,7 +427,7 @@ public:
         bounce(rewriter, op, bounceType);
       }
     } else if (components.isLayoutChange && ttcore::isTiled(inputInfo.type)) {
-      // Layout change with tiled data - bounce through scalar
+      // Layout change with tiled data - bounce through scalar.
       Type scalarType = inputInfo.type.getElementType();
       if (auto tileType = mlir::dyn_cast<ttcore::TileType>(scalarType)) {
         scalarType = tileType.getElementType();
@@ -437,12 +440,15 @@ public:
                                        /*tileShape=*/std::nullopt);
       bounce(rewriter, op, bounceType);
     } else if (components.isGridChange) {
-      // Grid change - create intermediate with input's grid but output's layout
+      // Grid change - create intermediate with input's grid but output's
+      // layout.
       auto bounceType = typeBuilder.modifyDeviceType(
           outputInfo.type, *outputInfo.layout,
           /*memSpace=*/{}, inputInfo.getGridShape());
       bounce(rewriter, op, bounceType);
     } else {
+      // Note we should eventually support DRAM <-> DRAM, or System <-> System
+      // w/ format conversion via streaming supported.
       assert(false && "Unsupported compound layout change");
       return failure();
     }
