@@ -279,14 +279,34 @@ def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_no
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileEqOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_eq"> {
-    let summary = "TTIR Tile Eq Op";
+def TTIR_TileSubBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub_binary"> {
+    let summary = "TTIR Tile Subtract Binary Op";
     let description = [{
-        The `tile_eq` operation checks equality between two tiles element-wise.
+        The `tile_sub_binary` operation subtracts two tiles element-wise.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
                          TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileEqzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_eqz"> {
+    let summary = "TTIR Tile Eqz Op";
+    let description = [{
+        The `tile_eqz` operation checks equality between 0 and each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileNezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_nez"> {
+    let summary = "TTIR Tile Nez Op";
+    let description = [{
+        The `tile_nez` operation checks non-equality between 0 and each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
     let results = (outs TTCore_Tile:$result);
 }
 

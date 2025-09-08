@@ -331,7 +331,9 @@ using ComputeOpMap = OpMap<
   std::pair<ttir::TileSqrtOp,       std::pair<ttkernel::SqrtTileInitOp,            ttkernel::SqrtTileOp>>,
   std::pair<ttir::TileSigmoidOp,    std::pair<ttkernel::SigmoidTileInitOp,         ttkernel::SigmoidTileOp>>,
   std::pair<ttir::TileSinOp,        std::pair<ttkernel::SinTileInitOp,             ttkernel::SinTileOp>>,
-  std::pair<ttir::TileTanOp,        std::pair<ttkernel::TanTileInitOp,             ttkernel::TanTileOp>>
+  std::pair<ttir::TileTanOp,        std::pair<ttkernel::TanTileInitOp,             ttkernel::TanTileOp>>,
+  std::pair<ttir::TileEqzOp,       std::pair<ttkernel::EqzTileInitOp,            ttkernel::EqzTileOp>>,
+  std::pair<ttir::TileSubBinaryOp, std::pair<ttkernel::SubBinaryTilesInitOp,    ttkernel::SubBinaryTilesOp>>
 >;
 // clang-format on
 
@@ -567,89 +569,91 @@ public:
 
 } // namespace
 
-namespace {
+// namespace {
 
-// Enum to define different comparison types for generic handling
-enum class ComparisonType {
-  EQUAL,     // lhs == rhs -> eqz(lhs - rhs)
-  NOT_EQUAL, // lhs != rhs -> nez(lhs - rhs) or not(eqz(lhs - rhs))
-  // Future extensions could include:
-  // LESS_THAN,     // lhs < rhs  -> more complex implementation needed
-  // GREATER_THAN,  // lhs > rhs  -> more complex implementation needed
-  // LESS_EQUAL,    // lhs <= rhs -> more complex implementation needed
-  // GREATER_EQUAL  // lhs >= rhs -> more complex implementation needed
-};
+// // Enum to define different comparison types for generic handling
+// enum class ComparisonType {
+//   EQUAL,     // lhs == rhs -> eqz(lhs - rhs)
+//   NOT_EQUAL, // lhs != rhs -> nez(lhs - rhs) or not(eqz(lhs - rhs))
+//   // Future extensions could include:
+//   // LESS_THAN,     // lhs < rhs  -> more complex implementation needed
+//   // GREATER_THAN,  // lhs > rhs  -> more complex implementation needed
+//   // LESS_EQUAL,    // lhs <= rhs -> more complex implementation needed
+//   // GREATER_EQUAL  // lhs >= rhs -> more complex implementation needed
+// };
 
-// Base class for comparison operation rewriters
-template <typename ConcreteOp, ComparisonType CompType>
-class TTIRComparisonRewriter : public OpConversionPattern<ConcreteOp> {
-public:
-  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+// // Base class for comparison operation rewriters
+// template <typename ConcreteOp, ComparisonType CompType>
+// class TTIRComparisonRewriter : public OpConversionPattern<ConcreteOp> {
+// public:
+//   using OpConversionPattern<ConcreteOp>::OpConversionPattern;
 
-  LogicalResult
-  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    return rewriteComparison(op, adaptor, rewriter);
-  }
+//   LogicalResult
+//   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+//                   ConversionPatternRewriter &rewriter) const final {
+//     return rewriteComparison(op, adaptor, rewriter);
+//   }
 
-private:
-  LogicalResult rewriteComparison(ConcreteOp op,
-                                  typename ConcreteOp::Adaptor adaptor,
-                                  ConversionPatternRewriter &rewriter) const {
-    auto insertionPoint = rewriter.getInsertionPoint();
-    auto inCB = getInCB(rewriter, op);
-    auto outCB = getOutCB(rewriter, op);
-    setInsertionPointAfterOperands(rewriter, {inCB, outCB});
+// private:
+//   LogicalResult rewriteComparison(ConcreteOp op,
+//                                   typename ConcreteOp::Adaptor adaptor,
+//                                   ConversionPatternRewriter &rewriter) const
+//                                   {
+//     auto insertionPoint = rewriter.getInsertionPoint();
+//     auto inCB = getInCB(rewriter, op);
+//     auto outCB = getOutCB(rewriter, op);
+//     setInsertionPointAfterOperands(rewriter, {inCB, outCB});
 
-    // Step 1: Initialize SFPU
-    rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
+//     // Step 1: Initialize SFPU
+//     rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
 
-    auto lhsIdx = index(rewriter, op->getLoc(), 0);
-    auto rhsIdx = index(rewriter, op->getLoc(), 1);
+//     auto lhsIdx = index(rewriter, op->getLoc(), 0);
+//     auto rhsIdx = index(rewriter, op->getLoc(), 1);
 
-    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
-    // Step 3: Apply comparison operation based on type
-    switch (CompType) {
-    case ComparisonType::EQUAL:
-      // For equality: eqz(lhs - rhs) using SFPU operations
-      rewriter.create<ttkernel::SubBinaryTilesInitOp>(op->getLoc());
-      rewriter.create<ttkernel::SubBinaryTilesOp>(op->getLoc(), lhsIdx, rhsIdx);
-      rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
-      rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
-      rewriter.create<ttkernel::EqzTileInitOp>(op->getLoc());
-      rewriter.create<ttkernel::EqzTileOp>(op->getLoc(),
-                                           lhsIdx); // Result is in lhsIdx
-      rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
-      rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
-      rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
-      break;
+//     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+//     // Step 3: Apply comparison operation based on type
+//     switch (CompType) {
+//     case ComparisonType::EQUAL:
+//       // For equality: eqz(lhs - rhs) using SFPU operations
+//       rewriter.create<ttkernel::SubBinaryTilesInitOp>(op->getLoc());
+//       rewriter.create<ttkernel::SubBinaryTilesOp>(op->getLoc(), lhsIdx,
+//       rhsIdx); rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
+//       rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
+//       rewriter.create<ttkernel::EqzTileInitOp>(op->getLoc());
+//       rewriter.create<ttkernel::EqzTileOp>(op->getLoc(),
+//                                            lhsIdx); // Result is in lhsIdx
+//       rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
+//       rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
+//       rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
+//       break;
 
-    case ComparisonType::NOT_EQUAL:
-      // For inequality: nez(lhs - rhs) - not equal to zero
-      // This would require a nez_tile operation if it exists
-      // For now, fall back to not(eqz(lhs - rhs)) if nez_tile is not available
-      rewriter.create<ttkernel::SubBinaryTilesInitOp>(op->getLoc());
-      rewriter.create<ttkernel::SubBinaryTilesOp>(op->getLoc(), lhsIdx, rhsIdx);
-      rewriter.create<ttkernel::EqzTileInitOp>(op->getLoc());
-      rewriter.create<ttkernel::EqzTileOp>(op->getLoc(), lhsIdx);
-      // TODO: Apply logical_not to the result if nez_tile is not available
-      // rewriter.create<ttkernel::LogicalNotUnaryTileInitOp>(op->getLoc());
-      // rewriter.create<ttkernel::LogicalNotUnaryTileOp>(op->getLoc(), lhsIdx);
-      break;
-    }
+//     case ComparisonType::NOT_EQUAL:
+//       // For inequality: nez(lhs - rhs) - not equal to zero
+//       // This would require a nez_tile operation if it exists
+//       // For now, fall back to not(eqz(lhs - rhs)) if nez_tile is not
+//       available
+//       rewriter.create<ttkernel::SubBinaryTilesInitOp>(op->getLoc());
+//       rewriter.create<ttkernel::SubBinaryTilesOp>(op->getLoc(), lhsIdx,
+//       rhsIdx); rewriter.create<ttkernel::EqzTileInitOp>(op->getLoc());
+//       rewriter.create<ttkernel::EqzTileOp>(op->getLoc(), lhsIdx);
+//       // TODO: Apply logical_not to the result if nez_tile is not available
+//       // rewriter.create<ttkernel::LogicalNotUnaryTileInitOp>(op->getLoc());
+//       // rewriter.create<ttkernel::LogicalNotUnaryTileOp>(op->getLoc(),
+//       lhsIdx); break;
+//     }
 
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
+//     rewriter.eraseOp(op);
+//     return success();
+//   }
+// };
 
 // Concrete implementation for TileEqOp
-class TTIRTileEqRewriter
-    : public TTIRComparisonRewriter<ttir::TileEqOp, ComparisonType::EQUAL> {
-public:
-  using TTIRComparisonRewriter<ttir::TileEqOp,
-                               ComparisonType::EQUAL>::TTIRComparisonRewriter;
-};
+// class TTIRTileEqRewriter
+//     : public TTIRComparisonRewriter<ttir::TileEqOp, ComparisonType::EQUAL> {
+// public:
+//   using TTIRComparisonRewriter<ttir::TileEqOp,
+//                                ComparisonType::EQUAL>::TTIRComparisonRewriter;
+// };
 
 // Future comparison operations can easily extend this framework:
 // Example for tile_ne (not equal):
@@ -662,9 +666,9 @@ public:
 // For ordering comparisons (lt, le, gt, ge), you would need to add new
 // ComparisonType enums and implement the appropriate logic in the switch
 // statement, potentially using different strategies like conditional moves or
-// other comparison primitives.
+// other comparison primitives.s
 
-} // namespace
+// } // namespace
 
 namespace {
 
@@ -1413,8 +1417,10 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSigmoidOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileTanOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileEqzOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileSubBinaryOp>,
 
-               ttkernel::TTIRTileEqRewriter,
+              //  ttkernel::TTIRTileEqRewriter,
                ttkernel::TTIRTilizeUntilizeRewriter,
                ttkernel::TTIRTileTransposeRewriter,
                ttkernel::TTIRTypecastRewriter,

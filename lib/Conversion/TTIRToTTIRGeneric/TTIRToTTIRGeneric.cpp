@@ -231,7 +231,7 @@ namespace {
 // ----------------------------------------------------------------------------
 //
 // Rewrite elementwise ops by emitting a matching tile version of the op
-// into a ttir.generic/linang.generic nest.
+// into a ttir.generic/linalg.generic nest.
 template <typename ConcreteOp, typename TileOp>
 class TTIRNamedElementwiseRewriter final
     : public mlir::OpConversionPattern<ConcreteOp>,
@@ -312,6 +312,154 @@ private:
               mlir::Value yield = bbBuilder.create<TileOp>(
                   loc, /* resultTypes */ bbArgs.take_back(numOutputs),
                   /* operands */ bbArgs.take_front(numInputs));
+              bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+            });
+
+        rewriter.create<ttir::YieldOp>(loc, linalgGeneric->getResults());
+      }
+    }
+    rewriter.finalizeOpModification(generic);
+    rewriter.restoreInsertionPoint(insertPoint);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
+    return llvm::success();
+  }
+
+  static SmallVector<mlir::AffineMap>
+  getAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
+                     std::size_t rank) {
+    return getIdentityAffineMapsArray(builder, arity, rank);
+  }
+
+  static SmallVector<mlir::Attribute>
+  getIteratorTypesArray(mlir::OpBuilder &builder, std::size_t rank) {
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        builder.getContext(), ttcore::IteratorType::Parallel);
+    return SmallVector<mlir::Attribute>(rank, parallel);
+  }
+};
+} // namespace
+
+namespace {
+// ----------------------------------------------------------------------------
+//
+// Rewrite comparison elementwise ops by emitting subtract binary tile op
+// followed by zero comparsion tile version of the op into a
+// ttir.generic/linalg.generic nest.
+template <typename ConcreteOp, typename TileOp>
+class TTIRNamedComparisonRewriter final
+    : public mlir::OpConversionPattern<ConcreteOp>,
+      TTIRNamedRewriterCommon {
+
+public:
+  TTIRNamedComparisonRewriter<ConcreteOp, TileOp>(
+      const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+      ttcore::MemorySpace defaultInputMemSpace,
+      ttcore::MemorySpace defaultOutputMemSpace,
+      const llvm::SmallVector<int64_t> &targetGridShape)
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
+        TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                                targetGridShape) {}
+
+private:
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    mlir::MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = op->getLoc();
+
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ true);
+
+    const std::size_t numInputs = inputs.size();
+    const std::size_t numOutputs = outputs.size();
+    const std::size_t numOperands = (numInputs + numOutputs);
+
+    assert(numOperands == op->getNumOperands());
+
+    ttcore::GridAttr grid = ttcore::GridAttr::get(ctx, targetSquareGridShape);
+
+    const std::size_t rank = grid.getShape().size();
+
+    SmallVector<mlir::AffineMap> indexingMaps =
+        getAffineMapsArray(rewriter, numOperands, rank);
+    SmallVector<mlir::Attribute> iteratorTypes =
+        getIteratorTypesArray(rewriter, rank);
+
+    // Create 'ttir.generic' accepting 'op's operands.
+    auto generic = rewriter.create<ttir::GenericOp>(
+        loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
+
+    // Create one bb in 'generic''s region and set its arguments.
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    {
+      mlir::Region &region = generic->getRegions().front();
+      mlir::Block *block = rewriter.createBlock(&region);
+
+      // Populate 'block'.
+      {
+        auto blockArgs = createBlockArguments(block, loc, TypeRange(inputs),
+                                              TypeRange(outputs));
+
+        // Create 'linalg.generic' accepting 'blockArgs'.
+
+        SmallVector<mlir::AffineMap> linalgIndexingMaps =
+            getAffineMapsArray(rewriter, numOperands, rank);
+        SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
+            iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+
+        auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+            loc,
+            /* result tensor types */
+            llvm::to_vector(
+                mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+            /* inputs */ blockArgs.take_front(numInputs),
+            /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
+            linalgIteratorTypes,
+            [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                mlir::ValueRange bbArgs) {
+              // auto inputs = bbArgs.take_front(numInputs);
+              // auto outputs = bbArgs.take_back(numOutputs);
+
+              // // Use the input type for intermediate result (assuming inputs
+              // are same type) auto intermediateType = inputs[0].getType();
+
+              // // Create TileSubBinaryOp
+              // mlir::Value subResult =
+              // bbBuilder.create<ttir::TileSubBinaryOp>(
+              //     bbLoc,
+              //     /* resultTypes */ intermediateType,
+              //     /* lhs */ inputs[0],
+              //     /* rhs */ inputs[1]);
+
+              // // Then create TileEqzOp using the subtraction result
+              // mlir::Value yield = bbBuilder.create<ttir::TileEqzOp>(
+              //     bbLoc,
+              //     /* resultTypes */ outputs.getTypes(),
+              //     /* input */ subResult);
+              // auto intermediateType =
+              // bbArgs.take_back(numOutputs).getTypes()[0];  // Get the output
+              // type bbBuilder.create<ttir::EmptyOp>(loc, intermediateType);
+
+              // mlir::Value subResult =
+              // bbBuilder.create<ttir::TileSubBinaryOp>(
+              //   loc, /* resultTypes */ intermediateType,
+              //   /* operands */ bbArgs.take_front(numInputs));
+
+              mlir::Value subResult = bbBuilder.create<ttir::TileSubBinaryOp>(
+                  loc, /* resultTypes */ bbArgs.take_back(numOutputs),
+                  /* operands */ bbArgs.take_front(numInputs));
+
+              mlir::Value yield = bbBuilder.create<TileOp>(
+                  loc, /* resultTypes */ bbArgs.take_back(numOutputs),
+                  /* operands */ subResult);
+
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
 
@@ -899,7 +1047,7 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::FloorOp,      ttir::TileFloorOp>,
     TTIRNamedElementwiseRewriter<ttir::LogOp,        ttir::TileLogOp>,
     TTIRNamedElementwiseRewriter<ttir::LogicalNotOp, ttir::TileLogicalNotOp>,
-    TTIRNamedElementwiseRewriter<ttir::EqualOp,      ttir::TileEqOp>,
+    // TTIRNamedElementwiseRewriter<ttir::EqualOp,      ttir::TileEqOp>,
     TTIRNamedElementwiseRewriter<ttir::MultiplyOp,   ttir::TileMulOp>,
     TTIRNamedElementwiseRewriter<ttir::MaximumOp,    ttir::TileMaximumOp>,
     TTIRNamedElementwiseRewriter<ttir::NegOp,        ttir::TileNegativeOp>,
@@ -911,6 +1059,11 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::SqrtOp,       ttir::TileSqrtOp>,
     TTIRNamedElementwiseRewriter<ttir::SubtractOp,   ttir::TileSubOp>,
     TTIRNamedElementwiseRewriter<ttir::TanOp,        ttir::TileTanOp>,
+
+
+    TTIRNamedComparisonRewriter<ttir::EqualOp,      ttir::TileEqzOp>,
+
+
     // Reduction.
     TTIRNamedReductionRewriter<ttir::MaxOp,          ttir::TileReduceMaxOp>,
     TTIRNamedReductionRewriter<ttir::SumOp,          ttir::TileReduceSumOp>,
