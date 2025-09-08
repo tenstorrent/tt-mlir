@@ -517,7 +517,7 @@ tt::runtime::debug::Hooks
 tt::runtime::debug::Hooks::get
 ```
 
-2. Register callback functions in your python script. The following is registering the two callback functions written in `runtime/tools/ttrt/ttrt/common/callback.py`. The Debug Hooks get function has been pybinded to `ttrt.runtime.DebugHooks.get`
+2. Register callback functions in your python script. The following is registering the two callback functions written in `tools/ttrt/common/callback.py`. The Debug Hooks get function has been pybinded to `ttrt.runtime.DebugHooks.get`
 ```bash
 import ttrt.runtime
 

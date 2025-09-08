@@ -122,7 +122,7 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: ttrt-whl-${{ inputs.build-name }}
-        path: build/runtime/tools/ttrt/build/ttrt*.whl
+        path: build/tools/ttrt/build/ttrt*.whl
 
     - name: Upload tt-alchemist .whl
       uses: actions/upload-artifact@v4
