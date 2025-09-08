@@ -7,11 +7,13 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNDeviceOperandInterface.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNWorkaroundInterface.h"
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -24,7 +26,6 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #define GET_OP_CLASSES
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.h.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h.inc"
 
 #endif

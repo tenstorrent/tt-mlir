@@ -215,6 +215,18 @@ toTTNNStorageType(::tt::target::ttnn::StorageType storageType) {
   }
 }
 
+CoreType toCoreType(const ::tt::target::ttnn::CoreType &coreType) {
+  switch (coreType) {
+  case ::tt::target::ttnn::CoreType::WORKER: {
+    return CoreType::WORKER;
+  }
+  case ::tt::target::ttnn::CoreType::ETH: {
+    return CoreType::ETH;
+  }
+    LOG_FATAL("Unsupported core type");
+  }
+}
+
 ::ttnn::Layout
 inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef) {
   const ::tt::target::Dim2d *tileShape =

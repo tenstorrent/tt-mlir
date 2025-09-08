@@ -42,6 +42,11 @@ public:
   static constexpr int arity = 3;
 };
 
+template <typename ConcreteType>
+class TTKernelDeviceZoneOpTrait
+    : public mlir::OpTrait::TraitBase<ConcreteType, TTKernelDeviceZoneOpTrait> {
+};
+
 } // namespace mlir::tt::ttkernel
 
 #endif

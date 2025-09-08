@@ -68,6 +68,8 @@ toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation);
 
 ::ttnn::types::ShardMode toTTNNShardMode(tt::target::ttnn::ShardMode mode);
 
+CoreType toCoreType(const ::tt::target::ttnn::CoreType &coreType);
+
 const ::tt::target::ttnn::MemoryConfig *
 getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef);
 

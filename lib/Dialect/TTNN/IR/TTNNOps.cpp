@@ -3,13 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsResources.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/VerificationUtils.h"
 #include "ttmlir/Utils.h"
@@ -19,6 +22,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
+#include "mlir/IR/BuiltinTypes.h"
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -96,7 +100,6 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttnn::ConstantOp::verify() {
-
   if (!isa<DenseResourceElementsAttr, DenseElementsAttr>(getValue())) {
     return emitOpError("value attribute must be one of "
                        "DenseResourceElementsAttr or DenseElementsAttr.");
@@ -1792,6 +1795,133 @@ mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
+// ToLayoutOp canonicalization.
+void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Merge to layout op into TTNN creation ops.
+  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
+                   mlir::PatternRewriter &rewriter) {
+    Operation *creationOp = toLayoutOp.getInput().getDefiningOp();
+    if (!creationOp ||
+        !creationOp
+             ->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()) {
+      return failure();
+    }
+
+    // Verify that the creation op has a single use.
+    if (!creationOp->hasOneUse()) {
+      return failure();
+    }
+
+    // Check that the creation op has a single result.
+    if (creationOp->getNumResults() != 1) {
+      return failure();
+    }
+
+    auto ttnnLayoutAttr =
+        mlir::dyn_cast<TTNNLayoutAttr>(toLayoutOp.getType().getEncoding());
+    if (!ttnnLayoutAttr) {
+      return failure();
+    }
+
+    ttcore::DataTypeAttr targetDataTypeAttr = toLayoutOp.getDtypeAttr();
+    LayoutAttr targetLayoutAttr = toLayoutOp.getLayoutAttr();
+    MemoryConfigAttr targetMemoryConfigAttr = toLayoutOp.getMemoryConfigAttr();
+
+    // If the to layout op tends to move the tensor to host, we can't merge it
+    // into creation op if creation op doesn't support execution on host. For
+    // example Rand and Empty op can only work on device.
+    if (!creationOp->hasTrait<CanExecuteOnHostTrait>() &&
+        (!targetMemoryConfigAttr ||
+         isSystemBufferType(
+             targetMemoryConfigAttr.getBufferType().getValue()))) {
+      return failure();
+    }
+
+    auto tensorSpecOp = mlir::cast<TTNNTensorSpecInterface>(creationOp);
+    rewriter.startOpModification(tensorSpecOp);
+
+    tensorSpecOp.setDtypeAttr(targetDataTypeAttr);
+    tensorSpecOp.setLayoutAttr(targetLayoutAttr);
+    tensorSpecOp.setMemoryConfigAttr(targetMemoryConfigAttr);
+
+    BufferTypeAttr newBufferType = nullptr;
+    if (tensorSpecOp.getMemoryConfigAttr()) {
+      newBufferType = tensorSpecOp.getMemoryConfigAttr().getBufferType();
+    }
+
+    llvm::outs() << "Merging ToLayoutOp into "
+                 << creationOp->getName().getStringRef() << "\n";
+
+    TTNNDeviceOperandInterface deviceOperandInterface =
+        mlir::cast<TTNNDeviceOperandInterface>(creationOp);
+    // If the new buffer type is a device buffer type, we need to insert a
+    // device operand.
+    if (!deviceOperandInterface.getDevice() && newBufferType &&
+        isDeviceBufferType(newBufferType.getValue())) {
+      deviceOperandInterface.setDevice(
+          utils::getOrInsertDevice(rewriter, toLayoutOp));
+    } else if (deviceOperandInterface.getDevice() && newBufferType &&
+               isSystemBufferType(newBufferType.getValue())) {
+      // If the new buffer type is a system buffer type, we need to remove
+      // device operands.
+      deviceOperandInterface.setDevice(nullptr);
+    }
+
+    // Update the tensor ranked type of creation op with the new layout and new
+    // data type.
+    tensorSpecOp->getResult(0).setType(
+        RankedTensorType::Builder(
+            mlir::cast<RankedTensorType>(creationOp->getResult(0).getType()))
+            .setEncoding(ttnnLayoutAttr)
+            .setElementType(ttnnLayoutAttr.getScalarElementType()));
+
+    rewriter.finalizeOpModification(tensorSpecOp);
+    rewriter.replaceAllOpUsesWith(toLayoutOp, tensorSpecOp);
+    rewriter.eraseOp(toLayoutOp);
+    return success();
+  });
+
+  // Merging to layout op into TTNN empty op on host should produce ttnn.zeros
+  // op on host.
+  patterns.add(+[](mlir::tt::ttnn::ToLayoutOp toLayoutOp,
+                   mlir::PatternRewriter &rewriter) {
+    // Check if the toLayoutOp is being applied on a TTNN empty op
+    EmptyOp emptyOp = toLayoutOp.getInput().getDefiningOp<ttnn::EmptyOp>();
+    if (!emptyOp) {
+      return mlir::failure();
+    }
+
+    // Verify that the empty op has a single use.
+    if (!emptyOp->hasOneUse()) {
+      return failure();
+    }
+
+    // Verify that the target buffer type is a system memory.
+    BufferTypeAttr bufferTypeAttr = nullptr;
+    if (toLayoutOp.getMemoryConfigAttr()) {
+      bufferTypeAttr = toLayoutOp.getMemoryConfigAttr().getBufferType();
+    }
+
+    if (bufferTypeAttr && !isSystemBufferType(bufferTypeAttr.getValue())) {
+      return mlir::failure();
+    }
+
+    auto zerosOp = rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ZerosOp>(
+        emptyOp, toLayoutOp.getType(), /*device=*/nullptr, emptyOp.getShape(),
+        toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
+                                  : emptyOp.getDtypeAttr(),
+        toLayoutOp.getLayoutAttr() ? toLayoutOp.getLayoutAttr()
+                                   : emptyOp.getLayoutAttr(),
+        toLayoutOp.getMemoryConfigAttr() ? toLayoutOp.getMemoryConfigAttr()
+                                         : emptyOp.getMemoryConfigAttr());
+
+    rewriter.replaceAllOpUsesWith(toLayoutOp, zerosOp);
+    rewriter.eraseOp(toLayoutOp);
+    return mlir::success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
@@ -3227,4 +3357,44 @@ void CaptureOrExecuteTraceOp::getEffects(
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// GenericOp
+//===----------------------------------------------------------------------===//
+
+// GenericOp verification
+::mlir::LogicalResult mlir::tt::ttnn::GenericOp::verify() {
+  ProgramAttr program = getProgram();
+  size_t numberOfInputsAndOutputs = getInputsAndOutputs().size();
+  size_t numberOfSemaphores = program.getSemaphores().size();
+
+  for (auto kernel : program.getKernels()) {
+    auto kernelInterface = llvm::cast<KernelInterface>(kernel);
+
+    for (auto arg : kernelInterface.getCommonRtArgs()) {
+      if (auto addressOfTensor =
+              llvm::dyn_cast_or_null<KernelArgAddressOfTensorAttr>(arg)) {
+        if (addressOfTensor.getTensorIndex() >= numberOfInputsAndOutputs) {
+          return emitError() << "Address of tensor at index is out of bounds";
+        }
+      }
+      if (auto semaphoreAt =
+              llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
+        if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
+          return emitError() << "Semaphore at index is out of bounds";
+        }
+      }
+    }
+
+    for (auto arg : kernelInterface.getCtArgs()) {
+      if (auto semaphoreAt =
+              llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
+        if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
+          return emitError() << "Semaphore at index is out of bounds";
+        }
+      }
+    }
+  }
+
+  return mlir::success();
+}
 } // namespace mlir::tt::ttnn
