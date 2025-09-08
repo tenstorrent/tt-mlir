@@ -1327,6 +1327,7 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLtzOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLezOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSubBinaryOp>,
+
                ttkernel::TTIRTilizeUntilizeRewriter,
                ttkernel::TTIRTileTransposeRewriter,
                ttkernel::TTIRTypecastRewriter,
