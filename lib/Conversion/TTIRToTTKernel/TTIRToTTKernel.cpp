@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
-
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
+#include <iostream>
 
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -73,6 +73,10 @@ static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
 
 static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
                                        Value inputView) {
+  if (auto collapseOp =
+          mlir::dyn_cast<memref::CollapseShapeOp>(inputView.getDefiningOp())) {
+    return getTileIndexFromBlockView(rewriter, loc, collapseOp.getSrc());
+  }
   if (auto subViewOp =
           mlir::dyn_cast<memref::SubViewOp>(inputView.getDefiningOp())) {
     // We have blocked this input. We need to get the indicies for the first
@@ -110,6 +114,11 @@ static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
+  if (auto collapseOp =
+          mlir::dyn_cast<memref::CollapseShapeOp>(cb.getDefiningOp())) {
+    return getCB(rewriter, collapseOp.getSrc());
+  }
+
   if (memref::LoadOp loadOp =
           mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
       loadOp) {
@@ -399,34 +408,34 @@ public:
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileMatmulBlockOp>) {
       auto insertionPoint = rewriter.getInsertionPoint();
       auto cbA = getCB(rewriter, op.getA());
+      std::cout << "got cbA: " << std::endl;
       auto cbB = getCB(rewriter, op.getB());
+      std::cout << "got cbB: " << std::endl;
       auto outCB = getCB(rewriter, op.getOutput());
+      std::cout << "got outCB: " << std::endl;
       setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB});
 
       // destIndex is always 0 because we call an experimental LLK that fills up
       // the entire dest in a loop.
       Value destIndex = index(rewriter, op->getLoc(), 0);
 
-      // Tile dimensions per block.
-      auto typeA = llvm::cast<MemRefType>(op.getA().getType());
-      auto typeB = llvm::cast<MemRefType>(op.getB().getType());
-      auto rt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[0]);
-      auto kt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[1]);
-      auto ct_i32 = i32(rewriter, op->getLoc(), typeB.getShape()[1]);
+      // Tile dimensions per block. Attributes must be present.
+      if (!op.getBlockM().has_value() || !op.getBlockK().has_value() ||
+          !op.getBlockN().has_value() || !op.getBBlockStride().has_value()) {
+        (void)op.emitOpError(
+            "requires attributes 'block_m', 'block_k', 'block_n', and "
+            "'b_block_stride' to be present");
+        return failure();
+      }
 
-      auto getNumColumns = [](Value view) {
-        if (auto castOp =
-                dyn_cast_or_null<memref::CastOp>(view.getDefiningOp())) {
-          view = castOp.getSource();
-        } else if (auto svOp = dyn_cast_or_null<memref::SubViewOp>(
-                       view.getDefiningOp())) {
-          view = svOp.getSource();
-        }
-
-        auto srcTy = cast<MemRefType>(view.getType());
-        return srcTy.getShape()[1];
-      };
-      auto nt_i32 = i32(rewriter, op->getLoc(), getNumColumns(op.getB()));
+      auto rt_i32 =
+          i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockM()));
+      auto kt_i32 =
+          i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockK()));
+      auto ct_i32 =
+          i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockN()));
+      auto nt_i32 = i32(rewriter, op->getLoc(),
+                        static_cast<int32_t>(*op.getBBlockStride()));
 
       auto transpose = i32(rewriter, op->getLoc(), 0);
 
