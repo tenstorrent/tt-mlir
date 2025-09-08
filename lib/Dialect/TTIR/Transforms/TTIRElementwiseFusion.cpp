@@ -111,12 +111,12 @@ static llvm::SmallDenseSet<int> getPreservedProducerResults(GenericOp producer,
 
 static bool isElementwiseFusable(GenericOp producer, GenericOp consumer,
                                  OpOperand *use) {
-
   // skip fusing operands that have users other than consumer
-  auto preserveForOtherUsers = 
-    getPreservedProducerResults(producer, consumer, use);
-
-  if (!preserveForOtherUsers.empty()) {
+  bool hasOtherUse = llvm::any_of(use->value().getUsers(), [&](Operation *u) {
+    return u != consumer.getOperation();
+  });
+  
+  if (hasOtherUse) {
     return false;
   }
 
@@ -197,6 +197,10 @@ struct FuseTTIRElementwiseOpsPattern : OpRewritePattern<GenericOp> {
       auto producer = dyn_cast_or_null<GenericOp>(use->get().getDefiningOp());
       if (!producer) {
         continue;
+      }
+
+      if(producer.hasTrait<TTIRSkipOpEltWiseFusionTrait>()) {
+        return failure();
       }
 
       assert(producer.isComputeOnlyForm() && producer.hasPureTensorSemantics());
