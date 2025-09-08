@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
+
+#include "ttmlir/Dialect/TTIR/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
@@ -816,9 +818,11 @@ static Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
 class TTIRDMAReadRewriter : public OpConversionPattern<ttir::DMAReadOp> {
 public:
   TTIRDMAReadRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                      const ttir::AssociatedDMAWaits *associatedDMAWaits)
+                      const ttir::AssociatedDMAWaits *associatedDMAWaits,
+                      const ttir::CBProducerConsumer *cbProducerConsumer)
       : OpConversionPattern<ttir::DMAReadOp>(typeConverter, context),
-        associatedDMAWaits(associatedDMAWaits) {}
+        associatedDMAWaits(associatedDMAWaits),
+        cbProducerConsumer(cbProducerConsumer) {}
 
   LogicalResult
   matchAndRewrite(ttir::DMAReadOp op, ttir::DMAReadOpAdaptor adaptor,
@@ -836,8 +840,17 @@ public:
     auto srcNocAddr =
         buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
                         op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
-    auto dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
-        rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
+    auto dstCBMapping =
+        cbProducerConsumer->get(ttmlir::utils::getKernelName(op), op.getDst());
+    Value dstL1Addr;
+    if (dstCBMapping == ttir::ThreadCBMapping::Consumer) {
+      dstL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
+          rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
+    } else {
+      dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
+          rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
+    }
+
     auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
     rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
                                               dstL1Addr, size);
@@ -860,14 +873,17 @@ public:
 
 private:
   const ttir::AssociatedDMAWaits *associatedDMAWaits;
+  const ttir::CBProducerConsumer *cbProducerConsumer;
 };
 
 class TTIRDMAWriteRewriter : public OpConversionPattern<ttir::DMAWriteOp> {
 public:
   TTIRDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                       const ttir::AssociatedDMAWaits *associatedDMAWaits)
+                       const ttir::AssociatedDMAWaits *associatedDMAWaits,
+                       const ttir::CBProducerConsumer *cbProducerConsumer)
       : OpConversionPattern<ttir::DMAWriteOp>(typeConverter, context),
-        associatedDMAWaits(associatedDMAWaits) {}
+        associatedDMAWaits(associatedDMAWaits),
+        cbProducerConsumer(cbProducerConsumer) {}
 
   LogicalResult
   matchAndRewrite(ttir::DMAWriteOp op, ttir::DMAWriteOpAdaptor adaptor,
@@ -884,10 +900,29 @@ public:
 
       // Both src and dst are local, use the metal cb pointers to determine
       // addressing
-      Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
-          op.getLoc(), adaptor.getSrc());
-      Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
-          op.getLoc(), adaptor.getDst());
+
+      auto srcCBMapping = cbProducerConsumer->get(
+          ttmlir::utils::getKernelName(op), op.getSrc());
+      Value srcL1Start;
+      Value dstL1Start;
+      if (srcCBMapping == ttir::ThreadCBMapping::Producer) {
+        srcL1Start = rewriter.create<ttkernel::GetWritePtrOp>(op.getLoc(),
+                                                              adaptor.getSrc());
+      } else if (srcCBMapping == ttir::ThreadCBMapping::Consumer ||
+                 srcCBMapping == ttir::ThreadCBMapping::ProducerConsumer) {
+        srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(op.getLoc(),
+                                                             adaptor.getSrc());
+      }
+      auto dstCBMapping = cbProducerConsumer->get(
+          ttmlir::utils::getKernelName(op), op.getDst());
+      if (dstCBMapping == ttir::ThreadCBMapping::Producer ||
+          dstCBMapping == ttir::ThreadCBMapping::ProducerConsumer) {
+        dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(op.getLoc(),
+                                                              adaptor.getDst());
+      } else {
+        dstL1Start = rewriter.create<ttkernel::GetReadPtrOp>(op.getLoc(),
+                                                             adaptor.getDst());
+      }
 
       Value transferSize = i32(rewriter, op->getLoc(), op.getSizeBytes());
       if (op.isMcast()) {
@@ -911,12 +946,12 @@ public:
           // If src and dst refer to the same memref, we do not loopback mcast
           // Dests are one less because the sender core is not included
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
-              op.getLoc(), dstL1Start, mcastAddr, transferSize, numDests,
+              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
         } else {
           // If src != dst, we loopback mcast
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
-              op.getLoc(), dstL1Start, mcastAddr, transferSize, numDests,
+              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
         }
       } else {
@@ -964,6 +999,7 @@ public:
 
 private:
   const ttir::AssociatedDMAWaits *associatedDMAWaits;
+  const ttir::CBProducerConsumer *cbProducerConsumer;
 };
 } // namespace
 
@@ -1290,7 +1326,8 @@ namespace mlir::tt {
 
 void populateTTIRToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const ttir::AssociatedDMAWaits &associatedDMAWaits) {
+    const ttir::AssociatedDMAWaits &associatedDMAWaits,
+    const ttir::CBProducerConsumer &cbProducerConsumer) {
   // clang-format off
   patterns.add<ttkernel::TTIRKernelFunctionArgsRewriter,
 
@@ -1339,8 +1376,8 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreIncOp>,
                ttkernel::TTIRSemaphoreWaitRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::TTIRDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits);
-  patterns.add<ttkernel::TTIRDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits);
+  patterns.add<ttkernel::TTIRDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
+  patterns.add<ttkernel::TTIRDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   // clang-format on
 }
 
