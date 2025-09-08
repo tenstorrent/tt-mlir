@@ -574,107 +574,6 @@ public:
 
 } // namespace
 
-// namespace {
-
-// // Enum to define different comparison types for generic handling
-// enum class ComparisonType {
-//   EQUAL,     // lhs == rhs -> eqz(lhs - rhs)
-//   NOT_EQUAL, // lhs != rhs -> nez(lhs - rhs) or not(eqz(lhs - rhs))
-//   // Future extensions could include:
-//   // LESS_THAN,     // lhs < rhs  -> more complex implementation needed
-//   // GREATER_THAN,  // lhs > rhs  -> more complex implementation needed
-//   // LESS_EQUAL,    // lhs <= rhs -> more complex implementation needed
-//   // GREATER_EQUAL  // lhs >= rhs -> more complex implementation needed
-// };
-
-// // Base class for comparison operation rewriters
-// template <typename ConcreteOp, ComparisonType CompType>
-// class TTIRComparisonRewriter : public OpConversionPattern<ConcreteOp> {
-// public:
-//   using OpConversionPattern<ConcreteOp>::OpConversionPattern;
-
-//   LogicalResult
-//   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
-//                   ConversionPatternRewriter &rewriter) const final {
-//     return rewriteComparison(op, adaptor, rewriter);
-//   }
-
-// private:
-//   LogicalResult rewriteComparison(ConcreteOp op,
-//                                   typename ConcreteOp::Adaptor adaptor,
-//                                   ConversionPatternRewriter &rewriter) const
-//                                   {
-//     auto insertionPoint = rewriter.getInsertionPoint();
-//     auto inCB = getInCB(rewriter, op);
-//     auto outCB = getOutCB(rewriter, op);
-//     setInsertionPointAfterOperands(rewriter, {inCB, outCB});
-
-//     // Step 1: Initialize SFPU
-//     rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
-
-//     auto lhsIdx = index(rewriter, op->getLoc(), 0);
-//     auto rhsIdx = index(rewriter, op->getLoc(), 1);
-
-//     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
-//     // Step 3: Apply comparison operation based on type
-//     switch (CompType) {
-//     case ComparisonType::EQUAL:
-//       // For equality: eqz(lhs - rhs) using SFPU operations
-//       rewriter.create<ttkernel::SubBinaryTilesInitOp>(op->getLoc());
-//       rewriter.create<ttkernel::SubBinaryTilesOp>(op->getLoc(), lhsIdx,
-//       rhsIdx); rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
-//       rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
-//       rewriter.create<ttkernel::EqzTileInitOp>(op->getLoc());
-//       rewriter.create<ttkernel::EqzTileOp>(op->getLoc(),
-//                                            lhsIdx); // Result is in lhsIdx
-//       rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
-//       rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
-//       rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
-//       break;
-
-//     case ComparisonType::NOT_EQUAL:
-//       // For inequality: nez(lhs - rhs) - not equal to zero
-//       // This would require a nez_tile operation if it exists
-//       // For now, fall back to not(eqz(lhs - rhs)) if nez_tile is not
-//       available
-//       rewriter.create<ttkernel::SubBinaryTilesInitOp>(op->getLoc());
-//       rewriter.create<ttkernel::SubBinaryTilesOp>(op->getLoc(), lhsIdx,
-//       rhsIdx); rewriter.create<ttkernel::EqzTileInitOp>(op->getLoc());
-//       rewriter.create<ttkernel::EqzTileOp>(op->getLoc(), lhsIdx);
-//       // TODO: Apply logical_not to the result if nez_tile is not available
-//       // rewriter.create<ttkernel::LogicalNotUnaryTileInitOp>(op->getLoc());
-//       // rewriter.create<ttkernel::LogicalNotUnaryTileOp>(op->getLoc(),
-//       lhsIdx); break;
-//     }
-
-//     rewriter.eraseOp(op);
-//     return success();
-//   }
-// };
-
-// Concrete implementation for TileEqOp
-// class TTIRTileEqRewriter
-//     : public TTIRComparisonRewriter<ttir::TileEqOp, ComparisonType::EQUAL> {
-// public:
-//   using TTIRComparisonRewriter<ttir::TileEqOp,
-//                                ComparisonType::EQUAL>::TTIRComparisonRewriter;
-// };
-
-// Future comparison operations can easily extend this framework:
-// Example for tile_ne (not equal):
-// class TTIRTileNeRewriter : public TTIRComparisonRewriter<ttir::TileNeOp,
-// ComparisonType::NOT_EQUAL> { public:
-//   using TTIRComparisonRewriter<ttir::TileNeOp,
-//   ComparisonType::NOT_EQUAL>::TTIRComparisonRewriter;
-// };
-//
-// For ordering comparisons (lt, le, gt, ge), you would need to add new
-// ComparisonType enums and implement the appropriate logic in the switch
-// statement, potentially using different strategies like conditional moves or
-// other comparison primitives.s
-
-// } // namespace
-
 namespace {
 
 class TTIRTilizeUntilizeRewriter
@@ -1412,7 +1311,6 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileFloorOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLogOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLogicalNotOp>,
-
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileNegativeOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TilePowOp>,
@@ -1429,8 +1327,6 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLtzOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLezOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSubBinaryOp>,
-
-              //  ttkernel::TTIRTileEqRewriter,
                ttkernel::TTIRTilizeUntilizeRewriter,
                ttkernel::TTIRTileTransposeRewriter,
                ttkernel::TTIRTypecastRewriter,
