@@ -194,6 +194,7 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
 
 const ExpectedResult expected{true, 8192, 2048, 2048};
 const ExpectedResult cbrtExpected{true, 12288, 6144, 2048};
+const ExpectedResult tanhExpected{true, 28672, 2048, 2048};
 
 //===---------------------------------------------------------===
 const auto createRelu = [](OpBuilder &b, Location loc, Type type,
@@ -296,7 +297,7 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Sin", createSin, expected},
     {"Cos", createCos, expected},
     {"Exp", createExp, expected},
-    {"Tanh", createTanh, expected},
+    {"Tanh", createTanh, tanhExpected},
     {"Log", createLog, expected},
     {"Abs", createAbs, expected},
     {"Ceil", createCeil, expected},
