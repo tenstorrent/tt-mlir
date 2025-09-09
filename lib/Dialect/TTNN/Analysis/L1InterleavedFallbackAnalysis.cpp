@@ -13,7 +13,6 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
-#include "llvm/Support/Casting.h"
 
 #include <algorithm>
 #include <cassert>
@@ -43,7 +42,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     }
     // Skip output of Conv2D that uses matmul under the hood, inefficient for L1
     // interleaved.
-    if (utils::isConv2DConvertibleToMatMul(op)) {
+    if (L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(op)) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - Conv2D "
                    "uses matmul, inefficient for L1 interleaved.",
@@ -64,7 +63,7 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       }
       // Skip input of Conv2D that uses matmul under the hood, inefficient for
       // L1 interleaved.
-      if (utils::isConv2DConvertibleToMatMul(user)) {
+      if (L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(user)) {
         TTMLIR_TRACE(
             ttmlir::LogComponent::Optimizer,
             "L1InterleavedFallbackAnalysis: Skipping {} - Consumer Conv2D "
@@ -146,6 +145,47 @@ bool L1InterleavedFallbackAnalysis::hasReturnOpUser(Operation *op) const {
     }
   }
   return false;
+}
+
+bool L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(Operation *op) {
+  auto conv2dOp = dyn_cast<ttnn::Conv2dOp>(op);
+  if (!conv2dOp) {
+    return false;
+  }
+
+  // Get weight tensor to check kernel size
+  RankedTensorType weightType = conv2dOp.getWeight().getType();
+  llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
+
+  // Check kernel size is 1x1
+  if (weightShape[2] != 1 || weightShape[3] != 1) {
+    return false;
+  }
+
+  // Check all stride values are 1
+  auto stride = conv2dOp.getStride();
+  if (llvm::any_of(stride, [](int32_t v) { return v != 1; })) {
+    return false;
+  }
+
+  // Check all padding values are 0
+  auto padding = conv2dOp.getPadding();
+  if (llvm::any_of(padding, [](int32_t v) { return v != 0; })) {
+    return false;
+  }
+
+  // Check groups = 1
+  if (conv2dOp.getGroups() != 1) {
+    return false;
+  }
+
+  // Check dilation = 1
+  auto dilation = conv2dOp.getDilation();
+  if (llvm::any_of(dilation, [](int32_t v) { return v != 1; })) {
+    return false;
+  }
+
+  return true;
 }
 
 void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {

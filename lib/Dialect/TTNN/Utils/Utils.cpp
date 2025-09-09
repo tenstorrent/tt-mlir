@@ -321,46 +321,4 @@ mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
       ::mlir::IntegerType::get(ctx, /*width=*/32, IntegerType::Unsigned),
       ttnn::TraceIdAttr::get(ctx));
 }
-
-bool isConv2DConvertibleToMatMul(Operation *op) {
-  auto conv2dOp = dyn_cast<ttnn::Conv2dOp>(op);
-  if (!conv2dOp) {
-    return false;
-  }
-
-  // Get weight tensor to check kernel size
-  RankedTensorType weightType = conv2dOp.getWeight().getType();
-  llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
-
-  // Check kernel size is 1x1
-  if (weightShape[2] != 1 || weightShape[3] != 1) {
-    return false;
-  }
-
-  // Check all stride values are 1
-  auto stride = conv2dOp.getStride();
-  if (llvm::any_of(stride, [](int32_t v) { return v != 1; })) {
-    return false;
-  }
-
-  // Check all padding values are 0
-  auto padding = conv2dOp.getPadding();
-  if (llvm::any_of(padding, [](int32_t v) { return v != 0; })) {
-    return false;
-  }
-
-  // Check groups = 1
-  if (conv2dOp.getGroups() != 1) {
-    return false;
-  }
-
-  // Check dilation = 1
-  auto dilation = conv2dOp.getDilation();
-  if (llvm::any_of(dilation, [](int32_t v) { return v != 1; })) {
-    return false;
-  }
-
-  return true;
-}
-
 } // namespace mlir::tt::ttnn::utils
