@@ -1,0 +1,80 @@
+
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/Common/system_desc.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/binary.fbs";
+
+namespace tt.runtime.distributed.flatbuffer;
+
+table ErrorResponse {
+  message: string;
+}
+
+table GetSystemDescResponse {
+  system_desc: [ubyte]; // size-prefixed SystemDescRoot buffer
+}
+
+table MeshDeviceDesc {
+  mesh_shape: [uint32];
+  device_ids: [int];
+  num_hw_cqs: uint8;
+  program_cache_enabled: bool;
+  l1_small_size: uint64;
+  trace_region_size: uint64;
+  num_dram_channels: uint32;
+  dram_size_per_channel: uint64;
+  l1_size_per_core: uint32;
+}
+
+table OpenMeshDeviceResponse {
+  device: tt.target.DeviceRef;
+  desc: MeshDeviceDesc;
+}
+
+table CloseMeshDeviceResponse {
+}
+
+table CreateHostTensorResponse {
+}
+
+table GetLayoutResponse {
+}
+
+table ToLayoutResponse {
+}
+
+table SubmitResponse {
+}
+
+table ToHostResponse {
+}
+
+table MemcpyResponse {
+  data: [ubyte];
+}
+
+table ShutdownResponse {
+}
+
+union ResponseType {
+  ErrorResponse,
+  GetSystemDescResponse,
+  OpenMeshDeviceResponse,
+  CloseMeshDeviceResponse,
+  CreateHostTensorResponse,
+  GetLayoutResponse,
+  ToLayoutResponse,
+  SubmitResponse,
+  ToHostResponse,
+  MemcpyResponse,
+  ShutdownResponse,
+}
+
+table Response {
+  command_id: uint64;
+  type: ResponseType;
+}
+
+root_type Response;
+file_identifier "DRSP";
+file_extension "distrsp";
