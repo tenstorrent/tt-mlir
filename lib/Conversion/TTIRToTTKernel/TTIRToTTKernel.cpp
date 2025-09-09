@@ -563,6 +563,43 @@ public:
       } else {
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
       }
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::EqzTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::NezTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::GtzTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::GezTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::LtzTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::LezTileOp>) {
+      const auto elemType =
+          mlir::cast<ttcore::TileType>(op.getInput().getType())
+              .getElementType();
+      bool isCBI32 = false;
+      if (llvm::isa<IntegerType>(elemType)) {
+        isCBI32 = mlir::cast<IntegerType>(elemType).isSigned() &&
+                  mlir::cast<IntegerType>(elemType).getWidth() == 32;
+      }
+      if (isCBI32) {
+        if (std::is_same_v<SFPUOp, ttkernel::EqzTileOp>) {
+          rewriter.create<ttkernel::EqzTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if (std::is_same_v<SFPUOp, ttkernel::NezTileOp>) {
+          rewriter.create<ttkernel::NezTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if (std::is_same_v<SFPUOp, ttkernel::GtzTileOp>) {
+          rewriter.create<ttkernel::GtzTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if (std::is_same_v<SFPUOp, ttkernel::GezTileOp>) {
+          rewriter.create<ttkernel::GezTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if (std::is_same_v<SFPUOp, ttkernel::LtzTileOp>) {
+          rewriter.create<ttkernel::LtzTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if (std::is_same_v<SFPUOp, ttkernel::LezTileOp>) {
+          rewriter.create<ttkernel::LezTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        }
+      } else {
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
+      }
     } else if constexpr (arity == 1) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
     } else {
