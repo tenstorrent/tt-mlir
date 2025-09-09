@@ -1973,21 +1973,21 @@ createKernelArgs(FlatbufferObjectCache &cache,
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>> args;
 
   for (auto argAttr : argsAttrs) {
-    ::tt::target::ttnn::KernelArgType arg_type =
+    ::tt::target::ttnn::KernelArgType argType =
         ::tt::target::ttnn::KernelArgType::NONE;
     ::flatbuffers::Offset<void> arg = 0;
 
     if (auto kernelArgCBBufferIndexAttr =
             llvm::dyn_cast<KernelArgCBBufferIndexAttr>(argAttr);
         kernelArgCBBufferIndexAttr) {
-      arg_type = ::tt::target::ttnn::KernelArgType::KernelArgCBBufferIndex;
+      argType = ::tt::target::ttnn::KernelArgType::KernelArgCBBufferIndex;
       arg = ::tt::target::ttnn::CreateKernelArgCBBufferIndex(
                 *cache.fbb, kernelArgCBBufferIndexAttr.getBufferIndex())
                 .Union();
     } else if (auto kernelArgAddressOfTensorAttr =
                    llvm::dyn_cast<KernelArgAddressOfTensorAttr>(argAttr);
                kernelArgAddressOfTensorAttr) {
-      arg_type =
+      argType =
           ::tt::target::ttnn::KernelArgType::KernelArgBufferAddressOfTensor;
       arg = ::tt::target::ttnn::CreateKernelArgBufferAddressOfTensor(
                 *cache.fbb, kernelArgAddressOfTensorAttr.getTensorIndex())
@@ -1995,14 +1995,16 @@ createKernelArgs(FlatbufferObjectCache &cache,
     } else if (auto kernelArgSemaphoreAtAttr =
                    llvm::dyn_cast<KernelArgSemaphoreAtAttr>(argAttr);
                kernelArgSemaphoreAtAttr) {
-      arg_type = ::tt::target::ttnn::KernelArgType::KernelArgSemaphoreAt;
+      argType = ::tt::target::ttnn::KernelArgType::KernelArgSemaphoreAt;
       arg = ::tt::target::ttnn::CreateKernelArgSemaphoreAt(
                 *cache.fbb, kernelArgSemaphoreAtAttr.getSemaphoreIndex())
                 .Union();
+    } else {
+      llvm_unreachable("Unsupported kernel argument attribute");
     }
 
     args.push_back(
-        ::tt::target::ttnn::CreateKernelArg(*cache.fbb, arg_type, arg));
+        ::tt::target::ttnn::CreateKernelArg(*cache.fbb, argType, arg));
   }
 
   return args;
@@ -2021,7 +2023,7 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelDescriptor>>
       kernels;
 
-  ModuleOp module = dyn_cast<ModuleOp>(op->getParentOp()->getParentOp());
+  ModuleOp moduleOp = dyn_cast<ModuleOp>(op->getParentOp()->getParentOp());
 
   for (auto kernelAttr : programAttr.getKernels()) {
     auto kernelInterface = llvm::cast<KernelInterface>(kernelAttr);
@@ -2030,7 +2032,7 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
     std::string source;
     llvm::raw_string_ostream stream(source);
     LogicalResult result =
-        ttkernel::translateTopLevelKernelToCpp(module, stream, kernelSymbol);
+        ttkernel::translateTopLevelKernelToCpp(moduleOp, stream, kernelSymbol);
     assert(result.succeeded());
     assert(source.size() > 0 && "empty kernel source");
 
@@ -2040,44 +2042,19 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
 
     if (auto computeKernelAttr = llvm::dyn_cast<ComputeKernelAttr>(kernelAttr);
         computeKernelAttr) {
-      ::tt::target::MathFidelity mathFidelity;
 
-      switch (computeKernelAttr.getMathFidelity()) {
-      case ComputeKernelMathFidelity::LoFi:
-        mathFidelity = ::tt::target::MathFidelity::LoFi;
-        break;
-      case ComputeKernelMathFidelity::HiFi2:
-        mathFidelity = ::tt::target::MathFidelity::HiFi2;
-        break;
-      case ComputeKernelMathFidelity::HiFi3:
-        mathFidelity = ::tt::target::MathFidelity::HiFi3;
-        break;
-      case ComputeKernelMathFidelity::HiFi4:
-        mathFidelity = ::tt::target::MathFidelity::HiFi4;
-        break;
-      }
-
-      std::vector<::tt::target::UnpackToDestMode> unpackToDestModes;
-
-      for (auto mode : computeKernelAttr.getUnpackToDestModes()) {
-        switch (mode) {
-        case ComputeKernelUnpackToDestMode::Fp32:
-          unpackToDestModes.push_back(::tt::target::UnpackToDestMode::Fp32);
-          break;
-        case ComputeKernelUnpackToDestMode::Default:
-          unpackToDestModes.push_back(::tt::target::UnpackToDestMode::Default);
-          break;
-        }
-      }
+      std::vector<::tt::target::UnpackToDestMode> unpackToDestModes =
+          toFlatbuffer(cache, computeKernelAttr.getUnpackToDestModes());
 
       configType = ::tt::target::ttnn::KernelConfig::ComputeKernelConfig;
-      config =
-          ::tt::target::ttnn::CreateComputeKernelConfigDirect(
-              *cache.fbb, mathFidelity, computeKernelAttr.getFp32DestAccEn(),
-              computeKernelAttr.getDstFullSyncEn(), &unpackToDestModes,
-              computeKernelAttr.getBfp8PackPrecise(),
-              computeKernelAttr.getMathApproxMode())
-              .Union();
+      config = ::tt::target::ttnn::CreateComputeKernelConfigDirect(
+                   *cache.fbb,
+                   toFlatbuffer(cache, computeKernelAttr.getMathFidelity()),
+                   computeKernelAttr.getFp32DestAccEn(),
+                   computeKernelAttr.getDstFullSyncEn(), &unpackToDestModes,
+                   computeKernelAttr.getBfp8PackPrecise(),
+                   computeKernelAttr.getMathApproxMode())
+                   .Union();
     } else if (auto readKernelAttr = llvm::dyn_cast<ReadKernelAttr>(kernelAttr);
                readKernelAttr) {
       configType = ::tt::target::ttnn::KernelConfig::ReaderKernelConfig;
@@ -2112,19 +2089,8 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
       semaphores;
 
   for (auto semaphoresAttr : programAttr.getSemaphores()) {
-    ::tt::target::ttnn::CoreType coreType;
-
-    switch (semaphoresAttr.getCoreType()) {
-    case KernelCoreType::Eth:
-      coreType = ::tt::target::ttnn::CoreType::ETH;
-      break;
-    case KernelCoreType::Worker:
-      coreType = ::tt::target::ttnn::CoreType::WORKER;
-      break;
-    }
-
     semaphores.push_back(::tt::target::ttnn::CreateSemaphoreDescriptor(
-        *cache.fbb, coreType,
+        *cache.fbb, toFlatbuffer(cache, semaphoresAttr.getCoreType()),
         toFlatbuffer(cache, llvm::cast<ttnn::CoreRangeSetAttr>(
                                 semaphoresAttr.getCoreRanges())),
         semaphoresAttr.getInitialValue()));
