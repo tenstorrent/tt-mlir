@@ -151,9 +151,9 @@ public:
     // 3. Generate data copy loops to/from dst and output cb.
     dataCopyGenerate(rewriter, loc, dst, copyInfo);
 
-    // 4. Insert stores after tile operations
-    insertStoresAfterTileOps(rewriter, loc, region, dst,
-                             outermostInnerComputeLoop);
+    // 4. Insert dst access for tile operation chains
+    insertDstAccessForTileOpChain(rewriter, loc, region, dst,
+                                  outermostInnerComputeLoop);
 
     return true;
   }
@@ -406,9 +406,10 @@ public:
     }
   }
 
-  static void insertStoresAfterTileOps(PatternRewriter &rewriter, Location loc,
-                                       Region &region, Value dst,
-                                       Operation *outermostInnerComputeLoop) {
+  static void
+  insertDstAccessForTileOpChain(PatternRewriter &rewriter, Location loc,
+                                Region &region, Value dst,
+                                Operation *outermostInnerComputeLoop) {
     // Collect all tile operations for processing
     SmallVector<Operation *> tileOps;
     region.walk([&](Operation *op) {

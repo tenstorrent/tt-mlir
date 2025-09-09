@@ -2390,15 +2390,82 @@ def test_unary_ops_int32(
 @pytest.mark.parametrize(
     "test_fn",
     [
-        add,
-        multiply,
-        subtract,
         eq,
         ne,
         le,
         lt,
         ge,
         gt,
+    ],
+)
+def test_binary_comparison_ops(
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+):
+    # NOTE: this function is for binary comparison ops that take the same shape arguments
+    def comparison_wrapper(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        # Set up golden inputs exactly like the tan function does
+        import math
+
+        input_0 = torch.randn(shape, dtype=dtype)
+        # input_0 = randn_tensor_1.uniform_(
+        #     (-math.pi / 2 + 0.02), (math.pi / 2 - 0.02)
+        # )
+        input_1 = torch.randn(shape, dtype=dtype)
+        # input_1 = randn_tensor_2.uniform_(
+        #     (-math.pi / 2 + 0.02), (math.pi / 2 - 0.02)
+        # )
+
+        # Compute golden output using corresponding torch function
+        if test_fn == eq:
+            output_golden = torch.eq(input_0, input_1)
+            print("OUTPUT GOLDEN: ", output_golden)
+        elif test_fn == ne:
+            output_golden = torch.ne(input_0, input_1)
+        elif test_fn == le:
+            output_golden = torch.le(input_0, input_1)
+        elif test_fn == lt:
+            output_golden = torch.lt(input_0, input_1)
+        elif test_fn == ge:
+            output_golden = torch.ge(input_0, input_1)
+        elif test_fn == gt:
+            output_golden = torch.gt(input_0, input_1)
+
+        builder.set_graph_input_output(
+            [input_0, input_1], [output_golden], override=True
+        )
+        return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
+
+    pipeline_options = []
+    compile_ttir_to_flatbuffer(
+        comparison_wrapper,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        pipeline_options=pipeline_options,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        add,
+        multiply,
+        subtract,
         remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
         maximum
         | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4084")),
