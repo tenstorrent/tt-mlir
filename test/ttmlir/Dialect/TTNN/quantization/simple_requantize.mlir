@@ -20,11 +20,11 @@ module {
   func.func @requantize_per_axis_scales_per_tensor_zps(%arg0: tensor<1x3x320x320x!quant.uniform<i32:f32:1, {1.000000e-01,2.000000e-01,3.000000e-01}>>) -> tensor<1x3x320x320x!quant.uniform<i32:f32:1, {2.000000e-01,4.000000e-01,6.000000e-01}>> {
     // CHECK-LABEL: func.func @requantize_per_axis_scales_per_tensor_zps(
     %0 = ttir.empty() : tensor<1x3x320x320x!quant.uniform<i32:f32:1, {2.000000e-01,4.000000e-01,6.000000e-01}>>
-    // CHECK: "ttnn.constant"()
+    // CHECK: "ttnn.constant"
     // CHECK-SAME: value = dense<
     // CHECK-SAME: 1.000000e-01, 2.000000e-01, 3.000000e-01
     // CHECK-SAME: -> tensor<3xf32,
-    // CHECK: "ttnn.constant"()
+    // CHECK: "ttnn.constant"
     // CHECK-SAME: value = dense<
     // CHECK-SAME: 2.000000e-01, 4.000000e-01, 6.000000e-01
     // CHECK-SAME: -> tensor<3xf32,
@@ -40,7 +40,7 @@ module {
   func.func @requantize_per_axis_scales_per_axis_zps(%arg0: tensor<1x3x320x320x!quant.uniform<i32:f32:1, {1.000000e-01:10,2.000000e-01:20,3.000000e-01:30}>>) -> tensor<1x3x320x320x!quant.uniform<i32:f32:1, {2.000000e-01:10,4.000000e-01:20,6.000000e-01:30}>> {
     // CHECK-LABEL: func.func @requantize_per_axis_scales_per_axis_zps(
     %0 = ttir.empty() : tensor<1x3x320x320x!quant.uniform<i32:f32:1, {2.000000e-01:10,4.000000e-01:20,6.000000e-01:30}>>
-    // CHECK: "ttnn.constant"()
+    // CHECK: "ttnn.constant"
     // CHECK-SAME: value = dense<
     // CHECK-SAME: 2.000000e-01, 4.000000e-01, 6.000000e-01
     // CHECK-SAME: -> tensor<3xf32,
@@ -48,7 +48,7 @@ module {
     // CHECK-SAME: value = dense<
     // CHECK-SAME: 10, 20, 30
     // CHECK-SAME: -> tensor<3xsi32,
-    // CHECK: "ttnn.constant"()
+    // CHECK: "ttnn.constant"
     // CHECK-SAME: value = dense<
     // CHECK-SAME: 1.000000e-01, 2.000000e-01, 3.000000e-01
     // CHECK-SAME: -> tensor<3xf32,

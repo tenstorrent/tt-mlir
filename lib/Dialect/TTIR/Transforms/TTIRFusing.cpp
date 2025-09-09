@@ -2061,8 +2061,9 @@ public:
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
 
-      patterns.add<BatchNormDecomposition>(&getContext());
-
+      if (conv2dWithMultiplyEnabled) {
+        patterns.add<BatchNormDecomposition>(&getContext());
+      }
       patterns.add<GeluFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;

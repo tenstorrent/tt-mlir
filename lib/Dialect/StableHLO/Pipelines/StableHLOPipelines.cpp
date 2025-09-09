@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Pipelines/StableHLOPipelines.h"
+#include "shardy/dialect/sdy/transforms/propagation/aggressive_propagation.h"
 
 #include "mlir/Transforms/Passes.h"
 
@@ -35,7 +36,22 @@ void createStableHLOPipeline(OpPassManager &pm,
       mlir::sdy::createApplyShardingConstraintsPass());
 
   // Propagate tensor shardings through the entire graph.
-  pm.addPass(mlir::sdy::createAggressivePropagationPass());
+  // This propagation is taken from
+  // https://github.com/openxla/shardy/blob/0b8873d121008abc3edf7db2281f2b48cc647978/docs/sdy_propagation_passes.md?plain=1#L27.
+  // Aggressive propagation is a wrapper ontop of basic propagation with
+  // additional options user can set. With basic propagation, only shardings
+  // that have no conflicts are propagated. With aggressive propagation, we can
+  // set options to resolve conflicts and propagate more shardings. However,
+  // sometimes, the propagation algorithm can be too aggressive and propagate
+  // shardings that are not valid. To mitigate this, we set
+  // conservativePropagation to true, which ensures that only shardings that are
+  // valid are propagated.
+  mlir::sdy::PropagationOptions propagationOptions;
+  mlir::sdy::PropagationStrategy propagationStrategy =
+      mlir::sdy::PropagationStrategy::Aggressive;
+  propagationOptions.conservativePropagation = true;
+  pm.addPass(mlir::sdy::createAggressivePropagationPass(propagationOptions,
+                                                        propagationStrategy));
 
   // Convert sharding constraints to reshards
   pm.nest<mlir::func::FuncOp>().addPass(

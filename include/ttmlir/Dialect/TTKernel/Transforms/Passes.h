@@ -5,6 +5,9 @@
 #ifndef TTMLIR_DIALECT_TTKERNEL_TRANSFORMS_PASSES_H
 #define TTMLIR_DIALECT_TTKERNEL_TRANSFORMS_PASSES_H
 
+#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 

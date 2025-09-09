@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-#include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNWorkaroundInterface.h"
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
@@ -11,7 +11,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn::wa {
-#include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.cpp.inc"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNWorkaroundInterface.cpp.inc"
 
 // Verifier function for TTNN Workaround Interface.
 mlir::LogicalResult verifyTTNNWorkaroundInterface(mlir::Operation *op) {

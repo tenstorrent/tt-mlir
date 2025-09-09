@@ -269,6 +269,12 @@ struct OpModel<BitwiseOrOp> : BinaryCompositeOpModel<BitwiseOrOp> {};
 template <>
 struct OpModel<BitwiseXorOp> : BinaryCompositeOpModel<BitwiseXorOp> {};
 
+template <>
+struct OpModel<RemainderOp> : BinaryCompositeOpModel<RemainderOp> {};
+
+template <>
+struct OpModel<Atan2Op> : BinaryCompositeOpModel<Atan2Op> {};
+
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops
 //===----------------------------------------------------------------------===//
@@ -372,6 +378,54 @@ struct OpModel<ZerosOp> : NamedFullOpModel<ZerosOp> {};
 
 template <>
 struct OpModel<OnesOp> : NamedFullOpModel<OnesOp> {};
+
+//===----------------------------------------------------------------------===//
+// Quantization Ops
+//===----------------------------------------------------------------------===//
+template <typename OpT>
+struct QuantizationOpModel {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> scaleShape,
+      TTNNLayoutAttr scaleLayout, llvm::ArrayRef<int64_t> zeroPointShape,
+      TTNNLayoutAttr zeroPointLayout, std::optional<int32_t> axis,
+      std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> scaleShape, TTNNLayoutAttr scaleLayout,
+               llvm::ArrayRef<int64_t> zeroPointShape,
+               TTNNLayoutAttr zeroPointLayout, std::optional<int32_t> axis,
+               std::optional<ttcore::DataType> outputDtype,
+               TTNNLayoutAttr outputLayout);
+};
+
+template <>
+struct OpModel<QuantizeOp> : QuantizationOpModel<QuantizeOp> {};
+
+template <>
+struct OpModel<DequantizeOp> : QuantizationOpModel<DequantizeOp> {};
+
+template <>
+struct OpModel<RequantizeOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> inScaleShape,
+      TTNNLayoutAttr inScaleLayout, llvm::ArrayRef<int64_t> inZeroPointShape,
+      TTNNLayoutAttr inZeroPointLayout, llvm::ArrayRef<int64_t> outScaleShape,
+      TTNNLayoutAttr outScaleLayout, llvm::ArrayRef<int64_t> outZeroPointShape,
+      TTNNLayoutAttr outZeroPointLayout, std::optional<int32_t> axis,
+      std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> inScaleShape, TTNNLayoutAttr inScaleLayout,
+      llvm::ArrayRef<int64_t> inZeroPointShape,
+      TTNNLayoutAttr inZeroPointLayout, llvm::ArrayRef<int64_t> outScaleShape,
+      TTNNLayoutAttr outScaleLayout, llvm::ArrayRef<int64_t> outZeroPointShape,
+      TTNNLayoutAttr outZeroPointLayout, std::optional<int32_t> axis,
+      std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout);
+};
 
 //===----------------------------------------------------------------------===//
 // SoftmaxOp

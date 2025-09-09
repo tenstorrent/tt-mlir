@@ -149,5 +149,6 @@ def test_batch_norm_decomposition(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        pipeline_options=["enable-fusing-conv2d-with-multiply-pattern=true"],
     )
     assert check_op(output, "conv2d") and not check_op(output, "batch_norm")

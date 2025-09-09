@@ -2144,8 +2144,14 @@ def test_hoisted_where(shapes, request, target: str):
         [(32, 3, 224, 224), (32, 150528)],  # Large ML pattern: batch flatten
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.int32, torch.uint8], ids=["f32", "i32", "ui8"]
+)
 def test_reshape(shapes, dtype: torch.dtype, request):
+    if dtype == torch.uint8:
+        pytest.skip(
+            "ttrt cannot support uint8 input: https://github.com/tenstorrent/tt-mlir/issues/4813"
+        )
     input_shape, output_shape = shapes
 
     def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
@@ -2496,24 +2502,35 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
         (transpose, [(64, 32)], [torch.float32]),
-        (reshape, [(64, 32)], [torch.float32]),
+        pytest.param(
+            reshape,
+            [(64, 32)],
+            [torch.float32],
+            marks=[pytest.mark.skip_config(["ttmetal"])],
+        ),
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
             [torch.float32] * 2,
+            marks=[pytest.mark.skip_config(["ttmetal"])],
         ),
         pytest.param(
             where,
             [(64, 64)] * 3,
             [torch.float32, torch.float32, torch.float32],
-            marks=pytest.mark.fails_golden,
+            marks=[
+                pytest.mark.fails_golden,
+                pytest.mark.skip_config(["ttmetal"]),
+            ],
         ),
     ],
 )
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_unique_ops(
     test_fn: Callable,
     inputs_shapes: List[Shape],
     inputs_dtypes: List[torch.dtype],
+    target: str,
     request,
 ):
     compile_ttir_to_flatbuffer(
@@ -2523,6 +2540,7 @@ def test_unique_ops(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
 
 

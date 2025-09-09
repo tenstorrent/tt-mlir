@@ -264,6 +264,9 @@ public:
   createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
 
   static TTNNOperandsWorkarounds
+  createReshapeOpOperandsWorkarounds(RankedTensorType inputType);
+
+  static TTNNOperandsWorkarounds
   createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
 
   // Create workarounds for binary op operands.
@@ -288,9 +291,6 @@ public:
   // Create workarounds for conv2d/convtranspose2d op.
   template <typename T>
   static TTNNOperandsWorkarounds createConvOpOperandsWorkarounds(T op);
-
-  // Create workarounds for arange op.
-  static TTNNOperandsWorkarounds createArangeOpOperandsWorkarounds();
 
   // Create workarounds for reduction op operands.
   static TTNNOperandsWorkarounds

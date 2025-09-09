@@ -41,6 +41,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary/unary_composite.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding_backward.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/generic/generic_op.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/fill_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/update_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/from_device.cpp

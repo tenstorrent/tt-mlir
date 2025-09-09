@@ -1,0 +1,10 @@
+add_mlir_interface(TTNNDeviceOperandInterface)
+add_mlir_interface(TTNNOpModelInterface)
+add_mlir_interface(TTNNWorkaroundInterface)
+add_mlir_interface(TTNNTensorSpecInterface)
+
+set(LLVM_TARGET_DEFINITIONS TTNNKernelInterface.td)
+mlir_tablegen(TTNNKernelInterface.h.inc -gen-attr-interface-decls)
+mlir_tablegen(TTNNKernelInterface.cpp.inc -gen-attr-interface-defs)
+add_public_tablegen_target(MLIRTTNNKernelInterfaceIncGen)
+add_dependencies(mlir-headers MLIRTTNNKernelInterfaceIncGen)
