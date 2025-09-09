@@ -117,8 +117,8 @@ public:
         collapseOps(&collapseOps) {}
 
   static memref::CollapseShapeOp
-  ensureLinearized(Value val, PatternRewriter &rewriter,
-                   DenseMap<Value, memref::CollapseShapeOp> *cache) {
+  linearize(Value val, PatternRewriter &rewriter,
+            DenseMap<Value, memref::CollapseShapeOp> *cache) {
     auto memrefTy = mlir::cast<MemRefType>(val.getType());
     memref::CollapseShapeOp linearized = cache->lookup(val);
     if (!linearized) {
@@ -136,13 +136,13 @@ public:
   }
 
   static int64_t getNumColumns(Value view) {
-    if (auto castOp = dyn_cast_or_null<memref::CastOp>(view.getDefiningOp())) {
+    if (auto castOp = mlir::dyn_cast<memref::CastOp>(view.getDefiningOp())) {
       view = castOp.getSource();
     } else if (auto svOp =
-                   dyn_cast_or_null<memref::SubViewOp>(view.getDefiningOp())) {
+                   mlir::dyn_cast<memref::SubViewOp>(view.getDefiningOp())) {
       view = svOp.getSource();
     }
-    auto srcTy = cast<MemRefType>(view.getType());
+    auto srcTy = mlir::cast<MemRefType>(view.getType());
     return srcTy.getShape()[1];
   }
 
@@ -151,47 +151,28 @@ public:
     auto typeA = mlir::cast<MemRefType>(op.getA().getType());
     auto typeB = mlir::cast<MemRefType>(op.getB().getType());
 
-    // If already linearized, skip.
     if (typeA.getRank() == 1 && typeB.getRank() == 1) {
       return failure();
     }
+
+    assert(op.hasNoBlockDims() &&
+           "Unexpected block dimensions present for matmul_block. Proceeding "
+           "would override the present attributes");
 
     int64_t rtDim = typeA.getShape()[0];
     int64_t ktDim = typeA.getShape()[1];
     int64_t ctDim = typeB.getShape()[1];
     int64_t ntDim = getNumColumns(op.getB());
 
-    auto linA = ensureLinearized(op.getA(), rewriter, collapseOps);
-    auto linB = ensureLinearized(op.getB(), rewriter, collapseOps);
-    auto linO = ensureLinearized(op.getOutput(), rewriter, collapseOps);
+    auto linA = linearize(op.getA(), rewriter, collapseOps);
+    auto linB = linearize(op.getB(), rewriter, collapseOps);
+    auto linO = linearize(op.getOutput(), rewriter, collapseOps);
 
-    // Preserve old operands for cleanup before replacing the op.
-    Value oldA = op.getA();
-    Value oldB = op.getB();
-    Value oldO = op.getOutput();
-
-    OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(op);
-
-    // Replace the op with a new one using linearized operands and block attrs.
     rewriter.replaceOpWithNewOp<TileMatmulBlockOp>(
         op, linA.getResult(), linB.getResult(), linO.getResult(),
         rewriter.getI64IntegerAttr(rtDim), rewriter.getI64IntegerAttr(ktDim),
         rewriter.getI64IntegerAttr(ctDim), rewriter.getI64IntegerAttr(ntDim));
-
-    // Best-effort cleanup: erase now-dead subview/cast producers.
-    auto tryEraseDeadDef = [&](Value v) {
-      if (Operation *def = v.getDefiningOp()) {
-        if ((llvm::isa<memref::SubViewOp>(def) ||
-             llvm::isa<memref::CastOp>(def)) &&
-            def->use_empty()) {
-          rewriter.eraseOp(def);
-        }
-      }
-    };
-    tryEraseDeadDef(oldA);
-    tryEraseDeadDef(oldB);
-    tryEraseDeadDef(oldO);
 
     return success();
   }

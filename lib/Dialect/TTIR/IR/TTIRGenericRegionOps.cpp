@@ -61,16 +61,20 @@ static mlir::Value wrapValueInTensorCompatibleType(mlir::RewriterBase &rewriter,
                        "element type");
   }
 
-  bool allOptionalAttrsPresent =
-      getBlockM() && getBlockK() && getBlockN() && getBBlockStride();
-  bool noneOptionalAttrsPresent =
-      !getBlockM() && !getBlockK() && !getBlockN() && !getBBlockStride();
-  if (!(allOptionalAttrsPresent || noneOptionalAttrsPresent)) {
+  if (!(hasAllBlockDims() || hasNoBlockDims())) {
     return emitOpError(
-        "all or none of the optional attributes must be present");
+        "all or none of the block dim attributes must be present");
   }
 
   return success();
+}
+
+bool mlir::tt::ttir::TileMatmulBlockOp::hasAllBlockDims() {
+  return getBlockM() && getBlockK() && getBlockN() && getBBlockStride();
+}
+
+bool mlir::tt::ttir::TileMatmulBlockOp::hasNoBlockDims() {
+  return !getBlockM() && !getBlockK() && !getBlockN() && !getBBlockStride();
 }
 
 // TileTilizeBlockOp verification

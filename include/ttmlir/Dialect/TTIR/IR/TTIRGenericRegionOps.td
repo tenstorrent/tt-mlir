@@ -354,6 +354,8 @@ def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      bool hasAllBlockDims();
+      bool hasNoBlockDims();
     }];
 
     let hasVerifier = 1;

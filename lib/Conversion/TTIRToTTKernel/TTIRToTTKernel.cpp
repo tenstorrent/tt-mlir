@@ -8,7 +8,6 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
-#include <iostream>
 
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -114,10 +113,8 @@ static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
-  cb.dump();
   if (auto collapseOp =
           mlir::dyn_cast<memref::CollapseShapeOp>(cb.getDefiningOp())) {
-    std::cout << "bouncing" << std::endl;
     return getCB(rewriter, collapseOp.getSrc());
   }
 
@@ -409,31 +406,17 @@ public:
                                                adaptor.getC(), transpose);
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileMatmulBlockOp>) {
       auto insertionPoint = rewriter.getInsertionPoint();
-      std::cout << " === getting cbA === " << std::endl;
       auto cbA = getCB(rewriter, op.getA());
-      cbA.dump();
-      std::cout << " === getting cbB === " << std::endl;
       auto cbB = getCB(rewriter, op.getB());
-      cbB.dump();
-
-      std::cout << " === getting outCB === " << std::endl;
       auto outCB = getCB(rewriter, op.getOutput());
-      outCB.dump();
       setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB});
 
       // destIndex is always 0 because we call an experimental LLK that fills up
       // the entire dest in a loop.
       Value destIndex = index(rewriter, op->getLoc(), 0);
 
-      // Tile dimensions per block. Attributes must be present.
-      if (!op.getBlockM().has_value() || !op.getBlockK().has_value() ||
-          !op.getBlockN().has_value() || !op.getBBlockStride().has_value()) {
-        (void)op.emitOpError(
-            "requires attributes 'block_m', 'block_k', 'block_n', and "
-            "'b_block_stride' to be present");
-        return failure();
-      }
-
+      assert(op.hasAllBlockDims() &&
+             "MatmulBlockOp must have all block dimensions");
       auto rt_i32 =
           i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockM()));
       auto kt_i32 =
@@ -462,15 +445,11 @@ public:
       rewriter.create<ttkernel::ExperimentalMatmulBlockOp>(
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
           ct_i32, rt_i32, kt_i32, nt_i32);
-      // Erase the original TTIR op and clean up now-dead view ops that
-      // produced its operands (A, B, Out) if they have no other uses.
-      Value oldA = op.getA();
-      Value oldB = op.getB();
-      Value oldO = op.getOutput();
-      rewriter.eraseOp(op);
 
-      // Also remove any dead CB reinterpret shapes created from those collapse
-      // shapes if they are now unused.
+      // Operands are linearized, so this pass creates a
+      // ttkernel.cb_reinterpret_shape from each memref.collapse_shape. However,
+      // ttkernel.matmul_block does *not* use the cb_reinterpret_shape so we
+      // need to clean it up. Cannonicalize does *not* do this automatically.
       auto tryEraseDeadCBReinterpret = [&](Value v) {
         Value remapped = rewriter.getRemappedValue(v);
         if (!remapped) {
@@ -479,16 +458,14 @@ public:
         if (auto *def = remapped.getDefiningOp()) {
           if (auto cbri = dyn_cast<ttkernel::CBReinterpretShapeOp>(def)) {
             if (cbri->use_empty()) {
-              std::cout << "erasing cbri" << std::endl;
               rewriter.eraseOp(cbri);
             }
           }
         }
       };
-      tryEraseDeadCBReinterpret(oldA);
-      tryEraseDeadCBReinterpret(oldB);
-      tryEraseDeadCBReinterpret(oldO);
-      return success();
+      tryEraseDeadCBReinterpret(op.getA());
+      tryEraseDeadCBReinterpret(op.getB());
+      tryEraseDeadCBReinterpret(op.getOutput());
 
     } else if constexpr (arity == 2) {
       auto dstIdx = getDstIdxFromResult(op.getResult());
