@@ -21,10 +21,12 @@
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
+#include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
 #include "ttmlir/Target/TTNN/operations/conv_generated.h"
 #include "ttmlir/Target/TTNN/operations/creation_generated.h"
+#include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
 #include "ttmlir/Target/TTNN/operations/pool_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/utils.h"
@@ -1965,6 +1967,162 @@ createOp(FlatbufferObjectCache &cache, ConcatenateHeadsOp op) {
                                                       memoryConfig);
 }
 
+std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
+createKernelArgs(FlatbufferObjectCache &cache,
+                 llvm::ArrayRef<mlir::Attribute> argsAttrs) {
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>> args;
+
+  for (auto argAttr : argsAttrs) {
+    ::tt::target::ttnn::KernelArgType argType =
+        ::tt::target::ttnn::KernelArgType::NONE;
+    ::flatbuffers::Offset<void> arg = 0;
+
+    if (auto kernelArgCBBufferIndexAttr =
+            llvm::dyn_cast<KernelArgCBBufferIndexAttr>(argAttr);
+        kernelArgCBBufferIndexAttr) {
+      argType = ::tt::target::ttnn::KernelArgType::KernelArgCBBufferIndex;
+      arg = ::tt::target::ttnn::CreateKernelArgCBBufferIndex(
+                *cache.fbb, kernelArgCBBufferIndexAttr.getBufferIndex())
+                .Union();
+    } else if (auto kernelArgAddressOfTensorAttr =
+                   llvm::dyn_cast<KernelArgAddressOfTensorAttr>(argAttr);
+               kernelArgAddressOfTensorAttr) {
+      argType =
+          ::tt::target::ttnn::KernelArgType::KernelArgBufferAddressOfTensor;
+      arg = ::tt::target::ttnn::CreateKernelArgBufferAddressOfTensor(
+                *cache.fbb, kernelArgAddressOfTensorAttr.getTensorIndex())
+                .Union();
+    } else if (auto kernelArgSemaphoreAtAttr =
+                   llvm::dyn_cast<KernelArgSemaphoreAtAttr>(argAttr);
+               kernelArgSemaphoreAtAttr) {
+      argType = ::tt::target::ttnn::KernelArgType::KernelArgSemaphoreAt;
+      arg = ::tt::target::ttnn::CreateKernelArgSemaphoreAt(
+                *cache.fbb, kernelArgSemaphoreAtAttr.getSemaphoreIndex())
+                .Union();
+    } else {
+      llvm_unreachable("Unsupported kernel argument attribute");
+    }
+
+    args.push_back(
+        ::tt::target::ttnn::CreateKernelArg(*cache.fbb, argType, arg));
+  }
+
+  return args;
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::GenericOp>
+createOp(FlatbufferObjectCache &cache, GenericOp op) {
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ios;
+  for (auto operand : op.getInputsAndOutputs()) {
+    ios.push_back(cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(operand)));
+  }
+
+  ::mlir::tt::ttnn::ProgramAttr programAttr = op.getProgramAttr();
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelDescriptor>>
+      kernels;
+
+  ModuleOp moduleOp = dyn_cast<ModuleOp>(op->getParentOp()->getParentOp());
+
+  for (auto kernelAttr : programAttr.getKernels()) {
+    auto kernelInterface = llvm::cast<KernelInterface>(kernelAttr);
+    StringRef kernelSymbol = kernelInterface.getSymbolRef().getRootReference();
+
+    std::string source;
+    llvm::raw_string_ostream stream(source);
+    LogicalResult result =
+        ttkernel::translateTopLevelKernelToCpp(moduleOp, stream, kernelSymbol);
+    assert(result.succeeded());
+    assert(source.size() > 0 && "empty kernel source");
+
+    ::tt::target::ttnn::KernelConfig configType =
+        ::tt::target::ttnn::KernelConfig::NONE;
+    ::flatbuffers::Offset<void> config = 0;
+
+    if (auto computeKernelAttr = llvm::dyn_cast<ComputeKernelAttr>(kernelAttr);
+        computeKernelAttr) {
+
+      std::vector<::tt::target::UnpackToDestMode> unpackToDestModes =
+          toFlatbuffer(cache, computeKernelAttr.getUnpackToDestModes());
+
+      configType = ::tt::target::ttnn::KernelConfig::ComputeKernelConfig;
+      config = ::tt::target::ttnn::CreateComputeKernelConfigDirect(
+                   *cache.fbb,
+                   toFlatbuffer(cache, computeKernelAttr.getMathFidelity()),
+                   computeKernelAttr.getFp32DestAccEn(),
+                   computeKernelAttr.getDstFullSyncEn(), &unpackToDestModes,
+                   computeKernelAttr.getBfp8PackPrecise(),
+                   computeKernelAttr.getMathApproxMode())
+                   .Union();
+    } else if (auto readKernelAttr = llvm::dyn_cast<ReadKernelAttr>(kernelAttr);
+               readKernelAttr) {
+      configType = ::tt::target::ttnn::KernelConfig::ReaderKernelConfig;
+      config = ::tt::target::ttnn::CreateReaderKernelConfig(*cache.fbb).Union();
+    } else if (auto writeKernelAttr =
+                   llvm::dyn_cast<WriteKernelAttr>(kernelAttr);
+               writeKernelAttr) {
+      configType = ::tt::target::ttnn::KernelConfig::WriterKernelConfig;
+      config = ::tt::target::ttnn::CreateWriterKernelConfig(*cache.fbb).Union();
+    } else {
+      llvm_unreachable("Unsupported kernel attribute");
+    }
+
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>> ct_args =
+        createKernelArgs(cache, kernelInterface.getCtArgs());
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
+        common_rt_args =
+            createKernelArgs(cache, kernelInterface.getCommonRtArgs());
+
+    kernels.push_back(::tt::target::ttnn::CreateKernelDescriptorDirect(
+        *cache.fbb, source.data(), ::tt::target::ttnn::SourceType::SOURCE_CODE,
+        configType, config,
+        toFlatbuffer(cache, llvm::cast<ttnn::CoreRangeSetAttr>(
+                                kernelInterface.getCoreRanges())),
+        ::tt::target::ttnn::CreateKernelCoreArgsDirect(*cache.fbb, &ct_args),
+        nullptr, // TODO (#4827): Support non-common runtime arguments
+        ::tt::target::ttnn::CreateKernelCoreArgsDirect(*cache.fbb,
+                                                       &common_rt_args)));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::SemaphoreDescriptor>>
+      semaphores;
+
+  for (auto semaphoresAttr : programAttr.getSemaphores()) {
+    semaphores.push_back(::tt::target::ttnn::CreateSemaphoreDescriptor(
+        *cache.fbb, toFlatbuffer(cache, semaphoresAttr.getCoreType()),
+        toFlatbuffer(cache, llvm::cast<ttnn::CoreRangeSetAttr>(
+                                semaphoresAttr.getCoreRanges())),
+        semaphoresAttr.getInitialValue()));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelCBDescriptor>>
+      cbs;
+
+  for (auto kernelCbAttr : programAttr.getCbs()) {
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelCBFormat>>
+        formats;
+
+    for (auto formatAttr : kernelCbAttr.getFormats()) {
+      formats.push_back(::tt::target::ttnn::CreateKernelCBFormat(
+          *cache.fbb, formatAttr.getBufferIndex(),
+          toFlatbuffer(cache, formatAttr.getDtype()),
+          formatAttr.getPageSize()));
+    }
+
+    cbs.push_back(::tt::target::ttnn::CreateKernelCBDescriptorDirect(
+        *cache.fbb, kernelCbAttr.getTotalSize(),
+        toFlatbuffer(cache, llvm::cast<ttnn::CoreRangeSetAttr>(
+                                kernelCbAttr.getCoreRanges())),
+        &formats));
+  }
+
+  auto program = ::tt::target::ttnn::CreateProgramDescriptorDirect(
+      *cache.fbb, &kernels, &semaphores, &cbs);
+
+  return ::tt::target::ttnn::CreateGenericOpDirect(*cache.fbb, &ios, program);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -2482,6 +2640,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, concatenateHeadsOp),
                            debugString, locInfo);
   }
+  if (auto genericOp = dyn_cast<GenericOp>(op); genericOp) {
+    return createOperation(cache, createOp(cache, genericOp), debugString,
+                           locInfo);
+  }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
@@ -2560,7 +2722,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   // pass.
   populateProgramIdxMap([](func::FuncOp func) {
     return ttmlir::utils::isConstEvalFunc(func) ||
-           ttnn::utils::isTTNNTraceFunc(func);
+           ttnn::utils::isTTNNTraceFunc(func) ||
+           func->hasAttr(ttkernel::ThreadTypeAttr::name);
   });
   // Add const-eval funcs after normal funcs.
   populateProgramIdxMap(
@@ -2596,7 +2759,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   generatePrograms(
       [](func::FuncOp func) {
         return ttmlir::utils::isConstEvalFunc(func) ||
-               ttnn::utils::isTTNNTraceFunc(func);
+               ttnn::utils::isTTNNTraceFunc(func) ||
+               func->hasAttr(ttkernel::ThreadTypeAttr::name);
       },
       /*isPrivate=*/false);
   // Then process const-eval funcs in 2nd pass.

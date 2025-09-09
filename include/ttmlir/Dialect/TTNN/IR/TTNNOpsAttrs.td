@@ -703,7 +703,7 @@ def TTNN_KernelSemaphoreAttr: TTNN_Attr<"KernelSemaphore", "kernel_semaphore"> {
   }];
 
   let parameters = (ins "KernelCoreType":$core_type,
-                        TTNN_CoreRangeAttr:$core_range,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
                         "uint32_t":$initial_value);
   let assemblyFormat = "`<` struct(params) `>`";
 
@@ -731,9 +731,9 @@ def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
   }];
 
   let parameters = (ins "uint32_t":$total_size,
-                        TTNN_CoreRangeAttr:$core_range,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
                         ArrayRefParameter<"KernelCBFormatAttr">:$formats);
-  let assemblyFormat = "`<` struct($total_size, $core_range) `,` `formats` `=` `[` $formats `]` `>`";
+  let assemblyFormat = "`<` struct($total_size, $core_ranges) `,` `formats` `=` `[` $formats `]` `>`";
 
   let genVerifyDecl = 1;
 }
@@ -775,7 +775,7 @@ def TTNN_ComputeKernelAttr: TTNN_Attr<"ComputeKernel", "compute_kernel", [TTNN_K
   }];
 
   let parameters = (ins "SymbolRefAttr":$symbol_ref,
-                        TTNN_CoreRangeAttr:$core_range,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
                         "ComputeKernelMathFidelity":$math_fidelity,
                         "bool":$fp32_dest_acc_en,
                         "bool":$dst_full_sync_en,
@@ -785,7 +785,7 @@ def TTNN_ComputeKernelAttr: TTNN_Attr<"ComputeKernel", "compute_kernel", [TTNN_K
                         OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
                         OptionalArrayRefParameter<"mlir::Attribute">:$ct_args
                         );
-  let assemblyFormat = "`<` struct($symbol_ref, $core_range, $math_fidelity, $fp32_dest_acc_en, $dst_full_sync_en)  `,` `unpack_to_dest_modes` `=` `[` $unpack_to_dest_modes `]` `,` struct($bfp8_pack_precise, $math_approx_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges, $math_fidelity, $fp32_dest_acc_en, $dst_full_sync_en)  `,` `unpack_to_dest_modes` `=` `[` $unpack_to_dest_modes `]` `,` struct($bfp8_pack_precise, $math_approx_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;
 }
@@ -797,10 +797,10 @@ def TTNN_ReadKernelAttr: TTNN_Attr<"ReadKernel", "read_kernel", [TTNN_KernelInte
   }];
 
   let parameters = (ins "SymbolRefAttr":$symbol_ref,
-                        TTNN_CoreRangeAttr:$core_range,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
                         OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
                         OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
-  let assemblyFormat = "`<` struct($symbol_ref, $core_range) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;
 }
@@ -812,10 +812,10 @@ def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelI
   }];
 
   let parameters = (ins "SymbolRefAttr":$symbol_ref,
-                        TTNN_CoreRangeAttr:$core_range,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
                         OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
                         OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
-  let assemblyFormat = "`<` struct($symbol_ref, $core_range) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;
 }
