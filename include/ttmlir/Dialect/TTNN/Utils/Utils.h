@@ -110,7 +110,8 @@ bool producesTiledTensorLayout(Operation *op);
 
 mlir::RankedTensorType getTraceIdType(MLIRContext *ctx);
 
-// Check if conv2D uses matmul (1x1 kernel, stride=1, padding=0, groups=1)
+// Check if conv2D uses matmul (1x1 kernel, stride=1, padding=0, groups=1,
+// dilation=1)
 bool isConv2DConvertibleToMatMul(Operation *op);
 } // namespace mlir::tt::ttnn::utils
 

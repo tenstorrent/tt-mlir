@@ -355,6 +355,12 @@ bool isConv2DConvertibleToMatMul(Operation *op) {
     return false;
   }
 
+  // Check dilation = 1
+  auto dilation = conv2dOp.getDilation();
+  if (llvm::any_of(dilation, [](int32_t v) { return v != 1; })) {
+    return false;
+  }
+
   return true;
 }
 
