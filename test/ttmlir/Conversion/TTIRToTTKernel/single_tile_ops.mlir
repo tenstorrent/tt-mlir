@@ -433,8 +433,8 @@ module {
     // CHECK-NOT: ttir.tile_sub_binary
     // CHECK-NOT: ttir.tile_eqz
     // CHECK: ttkernel.init_sfpu
-    // CHECK: ttkernel.sub_binary_tiles_init
-    // CHECK: ttkernel.sub_binary_tiles
+    // CHECK: ttkernel.sub_binary_tile_init
+    // CHECK: ttkernel.sub_binary_tile
     // CHECK: ttkernel.eqz_tile_init
     // CHECK: ttkernel.eqz_tile
     %2 = "ttir.tile_sub_binary"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
@@ -452,8 +452,8 @@ module {
     // CHECK-NOT: ttir.tile_sub_binary
     // CHECK-NOT: ttir.tile_nez
     // CHECK: ttkernel.init_sfpu
-    // CHECK: ttkernel.sub_binary_tiles_init
-    // CHECK: ttkernel.sub_binary_tiles
+    // CHECK: ttkernel.sub_binary_tile_init
+    // CHECK: ttkernel.sub_binary_tile
     // CHECK: ttkernel.nez_tile_init
     // CHECK: ttkernel.nez_tile
     %2 = "ttir.tile_sub_binary"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
@@ -471,8 +471,8 @@ module {
     // CHECK-NOT: ttir.tile_sub_binary
     // CHECK-NOT: ttir.tile_gtz
     // CHECK: ttkernel.init_sfpu
-    // CHECK: ttkernel.sub_binary_tiles_init
-    // CHECK: ttkernel.sub_binary_tiles
+    // CHECK: ttkernel.sub_binary_tile_init
+    // CHECK: ttkernel.sub_binary_tile
     // CHECK: ttkernel.gtz_tile_init
     // CHECK: ttkernel.gtz_tile
     %2 = "ttir.tile_sub_binary"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
@@ -490,8 +490,8 @@ module {
     // CHECK-NOT: ttir.tile_sub_binary
     // CHECK-NOT: ttir.tile_gez
     // CHECK: ttkernel.init_sfpu
-    // CHECK: ttkernel.sub_binary_tiles_init
-    // CHECK: ttkernel.sub_binary_tiles
+    // CHECK: ttkernel.sub_binary_tile_init
+    // CHECK: ttkernel.sub_binary_tile
     // CHECK: ttkernel.gez_tile_init
     // CHECK: ttkernel.gez_tile
     %2 = "ttir.tile_sub_binary"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
@@ -509,8 +509,8 @@ module {
     // CHECK-NOT: ttir.tile_sub_binary
     // CHECK-NOT: ttir.tile_ltz
     // CHECK: ttkernel.init_sfpu
-    // CHECK: ttkernel.sub_binary_tiles_init
-    // CHECK: ttkernel.sub_binary_tiles
+    // CHECK: ttkernel.sub_binary_tile_init
+    // CHECK: ttkernel.sub_binary_tile
     // CHECK: ttkernel.ltz_tile_init
     // CHECK: ttkernel.ltz_tile
     %2 = "ttir.tile_sub_binary"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
@@ -528,8 +528,8 @@ module {
     // CHECK-NOT: ttir.tile_sub_binary
     // CHECK-NOT: ttir.tile_lez
     // CHECK: ttkernel.init_sfpu
-    // CHECK: ttkernel.sub_binary_tiles_init
-    // CHECK: ttkernel.sub_binary_tiles
+    // CHECK: ttkernel.sub_binary_tile_init
+    // CHECK: ttkernel.sub_binary_tile
     // CHECK: ttkernel.lez_tile_init
     // CHECK: ttkernel.lez_tile
     %2 = "ttir.tile_sub_binary"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
