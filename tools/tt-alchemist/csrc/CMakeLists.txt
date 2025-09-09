@@ -132,12 +132,14 @@ add_custom_command(
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/_ttnncpp.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_stl.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtracy.so.0.10.0
   DEPENDS ${ALCHEMIST_LIBRARY_NAME} ${PYTHON_BUILD_DIR}/tt_alchemist/lib
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${ALCHEMIST_LIBRARY_NAME}> ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libtt_metal.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libdevice.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libtt_stl.so ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
+  COMMAND ${CMAKE_COMMAND} -E copy ${TTMETAL_LIBRARY_DIR}/libtracy.so.0.10.0 ${PYTHON_BUILD_DIR}/tt_alchemist/lib/
   COMMENT "Copying shared libraries to Python package"
 )
 
@@ -166,6 +168,7 @@ add_custom_target(build-wheel-tt-alchemist
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtt_metal.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/_ttnncpp.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
+    ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtracy.so.0.10.0
     tt_alchemist_copy_templates
   COMMAND ${Python3_EXECUTABLE} -m pip wheel -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR}
   WORKING_DIRECTORY ${PYTHON_BUILD_DIR}
