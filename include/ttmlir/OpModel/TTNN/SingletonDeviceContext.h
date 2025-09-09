@@ -73,6 +73,9 @@ public:
     return m_device.get();
   }
 
+  // Returns true if the device is initialized.
+  bool isDeviceInitialized() const { return m_device != nullptr; }
+
 private:
   SingletonDeviceContext() = default;
   ~SingletonDeviceContext();
