@@ -53,31 +53,3 @@ add_custom_command(
 add_custom_target(ttrt ALL
   COMMENT "python ttrt package"
   DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.installed)
-
-declare_mlir_python_sources(TTRTSources
-  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
-  SOURCES
-    binary/__init__.py
-    binary/stats.py
-
-    common/__init__.py
-    common/api.py
-    common/callback.py
-    common/check.py
-    common/perf.py
-    common/query.py
-    common/read.py
-    common/run.py
-    common/util.py
-
-    runtime/__init__.py
-
-    __init__.py
-    library_tweaks.py
-)
-
-add_mlir_python_modules(TTRTPythonModules
-  ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/ttrt"
-  INSTALL_PREFIX "python_packages/ttrt"
-  DECLARED_SOURCES TTRTSources
-)
