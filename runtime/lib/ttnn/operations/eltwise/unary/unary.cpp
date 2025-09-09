@@ -11,6 +11,8 @@
 #include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
 #include <cstdint>
 
+#include "tt/runtime/detail/ttnn/utils.h"
+
 namespace tt::runtime::ttnn::operations::eltwise::unary {
 
 static void runEltwiseUnaryOp(
@@ -136,10 +138,13 @@ runEltwiseUnaryBitcastOp(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     new_data[i] = as_float;
   }
 
-  auto tensor_spec = in.tensor_spec();
+  auto old_spec = in.tensor_spec();
+  auto new_spec = ::tt::runtime::ttnn::utils::createTensorSpec(
+      old_spec.logical_shape(), ::ttnn::DataType::FLOAT32, ::ttnn::TILE_LAYOUT,
+      ::ttnn::DRAM_MEMORY_CONFIG);
 
-  ::ttnn::Tensor out = ::ttnn::Tensor::from_vector(new_data, tensor_spec,
-                                                   in.mesh_device_.value());
+  ::ttnn::Tensor out =
+      ::ttnn::Tensor::from_vector(new_data, new_spec, in.mesh_device_.value());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
