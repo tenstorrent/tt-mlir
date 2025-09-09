@@ -8,6 +8,7 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -140,6 +141,11 @@ public:
 
     // 3. Generate data copy loops to/from dst and output cb.
     dataCopyGenerate(rewriter, loc, dst, copyInfo);
+
+    // 4. Insert dst access for tile operation chains
+    insertDstAccessForTileOpChain(rewriter, loc, region, dst,
+                                  outermostInnerComputeLoop);
+
     return true;
   }
 
@@ -335,6 +341,92 @@ public:
             rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
                 op, op.getValue(), dst, dstAccessMap, dstAccessIndices);
           });
+    }
+  }
+
+  static void
+  insertDstAccessForTileOpChain(PatternRewriter &rewriter, Location loc,
+                                Region &region, Value dst,
+                                Operation *outermostInnerComputeLoop) {
+    // Collect all tile operations for processing
+    SmallVector<Operation *> tileOps;
+    region.walk([&](Operation *op) {
+      if (op->getName().getStringRef().starts_with("ttir.tile_")) {
+        tileOps.push_back(op);
+      }
+    });
+
+    // Process each tile operation and add stores/loads
+    for (size_t i = 0; i < tileOps.size(); ++i) {
+      Operation *currentTileOp = tileOps[i];
+      Operation *nextTileOp =
+          (i + 1 < tileOps.size()) ? tileOps[i + 1] : nullptr;
+
+      // Only process if current tile op has exactly one result and it's used by
+      // next tile op
+      if (currentTileOp->getNumResults() == 1 && nextTileOp &&
+          nextTileOp->getNumOperands() > 0) {
+        Value tileResult = currentTileOp->getResult(0);
+
+        // Check if the tile result is used by the next tile operation
+        bool usedByNext = false;
+        for (Value operand : nextTileOp->getOperands()) {
+          if (operand == tileResult) {
+            usedByNext = true;
+            break;
+          }
+        }
+
+        if (usedByNext && tileResult.hasOneUse()) {
+          // Set insertion point before the next tile operation
+          rewriter.setInsertionPoint(nextTileOp);
+
+          // Get the dst memref type
+          auto dstType = dyn_cast<MemRefType>(dst.getType());
+          if (!dstType) {
+            continue;
+          }
+          unsigned dstRank = dstType.getRank();
+
+          // Create indices for the load - need to match dst rank
+          SmallVector<Value> loadIndices;
+          if (outermostInnerComputeLoop) {
+            // Collect loop indices from the outermost compute loop
+            if (auto affineFor =
+                    dyn_cast<affine::AffineForOp>(outermostInnerComputeLoop)) {
+              loadIndices.push_back(affineFor.getInductionVar());
+            }
+          }
+
+          // Add zero constants for remaining dimensions to match dst rank
+          auto zero = rewriter.create<arith::ConstantOp>(
+              loc, rewriter.getIndexType(),
+              rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
+          while (loadIndices.size() < dstRank) {
+            loadIndices.push_back(zero);
+          }
+
+          // Create the load operation with identity map for dst rank
+          auto loadMap =
+              AffineMap::getMultiDimIdentityMap(dstRank, rewriter.getContext());
+          auto dstLoad = rewriter.create<affine::AffineLoadOp>(
+              loc, dst, loadMap, loadIndices);
+
+          // Replace the tile result operand in the next tile operation
+          for (unsigned operandIdx = 0;
+               operandIdx < nextTileOp->getNumOperands(); ++operandIdx) {
+            if (nextTileOp->getOperand(operandIdx) == tileResult) {
+              nextTileOp->setOperand(operandIdx, dstLoad);
+              break;
+            }
+          }
+
+          // Now create a store after the current tile operation to dst
+          rewriter.setInsertionPointAfter(currentTileOp);
+          rewriter.create<affine::AffineStoreOp>(loc, tileResult, dst, loadMap,
+                                                 loadIndices);
+        }
+      }
     }
   }
 
