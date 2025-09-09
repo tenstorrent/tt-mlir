@@ -277,6 +277,19 @@ public:
     return {reduceType, reduceDim};
   }
 
+  StringRef getBroadcastType(ttkernel::BcastType bcastType) const {
+    switch (bcastType) {
+    case ttkernel::BcastType::Row:
+      return "BroadcastType::ROW";
+    case ttkernel::BcastType::Col:
+      return "BroadcastType::COL";
+    case ttkernel::BcastType::Scalar:
+      return "BroadcastType::SCALAR";
+    default:
+      return "BroadcastType::NONE";
+    }
+  }
+
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
                   std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
@@ -298,7 +311,13 @@ public:
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reduceDim));
       return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp> or
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::UnaryBcastInitOp> ||
+                         std::is_same_v<SourceOp, ttkernel::UnaryBcastTileOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), getBroadcastType(op.getBcastType())));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp> ||
                          std::is_same_v<SourceOp,
                                         ttkernel::GetCommonArgValOp>) {
       SmallVector<Attribute, 1> template_args;
@@ -821,6 +840,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
 
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
