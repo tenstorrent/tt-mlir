@@ -2687,7 +2687,6 @@ def gather(
     ids=[
         "simple_1d-f32",
         "complex_indices-f32",
-        "complex_indices-bf16",
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
