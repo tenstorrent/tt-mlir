@@ -1699,38 +1699,436 @@ public:
 
 namespace {
 class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
+  /**
+  * Converts TTIR scatter operations to TTNN scatter operations.
+  *
+  * len(scatter_dims_to_operand_dims) = 1 --> single-dimensional scatter
+  * len(scatter_dims_to_operand_dims) > 1 --> multi-dimensional scatter
+    - Multi-dimensional scatter is more complex and requires flattening tensors
+      to 1D, performing linear indexing, then reshaping back.
+  *
+  * In each case, we ensure tensors are compatible in rank and shape.
+  * As per torch.scatter:
+  * `self, index and src (if it is a Tensor) should all have the same number of
+  dimensions`
+  *
+  */
 public:
   using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
 
-  LogicalResult
-  matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    if (!hasValidInsertedWindowDims(op)) {
-      return rewriter.notifyMatchFailure(
-          op, "ttnn and tt-metal have limited scatter support. Inserted window "
-              "dimenstion must be 1 in the input tensor shape.");
-    }
-    // The ttnn interface has the inverse inputs of the TTIR dialect op (which
-    // matches torch ops).
-    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
-        op, adaptor.getOutput().getType(), adaptor.getUpdate(),
-        adaptor.getInput());
-
-    return success();
-  }
-
 private:
-  bool hasValidInsertedWindowDims(ttir::ScatterOp op) const {
-    ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
+  Value extractIndices(ttir::ScatterOp op, Value scatterIndices,
+                       int32_t indexVectorDim, int32_t dimIndex,
+                       ConversionPatternRewriter &rewriter) const {
+    /**
+     * Extracts indices for a specific dimension from packed scatter_indices
+     * tensor.
+     *
+     * index_vector_dim: specifies where the coordinate pairs are stored.
+     * dim_index: specifies which dimension's indices to extract.
+     *
+     * Example:
+     * Input: tensor<71x4x2xi64> with index_vector_dim=2, dimIndex=0
+     * Each element at position [batch, operation, :] contains [row_index,
+     * col_index]. We are extracting row_index (dimIndex=0).
+     *
+     * Operations:
+     *   1. ttnn.slice_static: begins=[0,0,0], ends=[71,4,1] ->
+     * tensor<71x4x1xi64>
+     *   2. ttnn.reshape: shape=[71,4] -> tensor<71x4xi64>
+     * Result: Indices for dimension 0 extracted from packed format.
+     */
+    auto scatterIndicesType =
+        mlir::cast<RankedTensorType>(scatterIndices.getType());
+    auto scatterIndicesShape = scatterIndicesType.getShape();
 
-    for (uint64_t insertedWindowDims : op.getInsertedWindowDims()) {
-      if (insertedWindowDims < inputShape.size() &&
-          inputShape[insertedWindowDims] != 1) {
-        return false;
+    // Slice to extract indices for the target dimension
+    llvm::SmallVector<int32_t> begins(scatterIndicesShape.size(), 0);
+    llvm::SmallVector<int32_t> ends(scatterIndicesShape.begin(),
+                                    scatterIndicesShape.end());
+    llvm::SmallVector<int32_t> steps(scatterIndicesShape.size(), 1);
+
+    begins[indexVectorDim] = dimIndex;
+    ends[indexVectorDim] = dimIndex + 1;
+
+    llvm::SmallVector<int64_t> sliceShape(scatterIndicesShape.begin(),
+                                          scatterIndicesShape.end());
+    sliceShape[indexVectorDim] = 1;
+
+    RankedTensorType sliceType =
+        RankedTensorType::get(sliceShape, scatterIndicesType.getElementType(),
+                              scatterIndicesType.getEncoding());
+
+    ttnn::SliceStaticOp sliceOp = rewriter.create<ttnn::SliceStaticOp>(
+        op.getLoc(), sliceType, scatterIndices,
+        rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+        rewriter.getI32ArrayAttr(steps));
+
+    // Remove the sliced dimension (squeeze)
+    llvm::SmallVector<int64_t> squeezedShape;
+    for (size_t i = 0; i < sliceShape.size(); ++i) {
+      if (i != static_cast<size_t>(indexVectorDim)) {
+        squeezedShape.push_back(sliceShape[i]);
       }
     }
 
-    return true;
+    RankedTensorType squeezedType = RankedTensorType::get(
+        squeezedShape, scatterIndicesType.getElementType(),
+        scatterIndicesType.getEncoding());
+
+    llvm::SmallVector<int32_t> squeezedShapeI32;
+    for (int64_t dim : squeezedShape) {
+      squeezedShapeI32.push_back(static_cast<int32_t>(dim));
+    }
+
+    ttnn::ReshapeOp reshapeOp = rewriter.create<ttnn::ReshapeOp>(
+        op.getLoc(), squeezedType, sliceOp.getResult(),
+        rewriter.getI32ArrayAttr(squeezedShapeI32), nullptr);
+
+    return reshapeOp.getResult();
+  }
+
+  LogicalResult
+  convertMultidimensionalScatter(ttir::ScatterOp op, OpAdaptor adaptor,
+                                 ConversionPatternRewriter &rewriter) const {
+
+    /**
+     * Converts multi-dimensional scatter operations using flattening strategy.
+     *
+     * When scatter_dims_to_operand_dims.size() > 1, we cannot use simple rank
+     * expansion. Instead, we flatten all tensors to 1D and use linear indexing.
+     *
+     * Example:
+     * Input: tensor<71x32xbf16>, indices: tensor<71x4x2xi64>, updates:
+     * tensor<71x4xbf16> Attributes: scatter_dims_to_operand_dims = [0, 1]
+     *
+     * Operations:
+     *   1. Extract dimension indices:
+     *      - ttnn.slice_static + ttnn.reshape for dim 0 indices
+     *      - ttnn.slice_static + ttnn.reshape for dim 1 indices
+     *   2. Calculate linear indices:
+     *      - ttnn.full: create stride tensor (value=32)
+     *      - ttnn.multiply: dim0_indices * 32
+     *      - ttnn.add: (dim0_indices * 32) + dim1_indices
+     *   3. Flatten all tensors:
+     *      - ttnn.reshape: input tensor<71x32> -> tensor<2272>
+     *      - ttnn.reshape: indices -> tensor<284>
+     *      - ttnn.reshape: updates -> tensor<284>
+     *   4. Perform 1D scatter:
+     *      - ttnn.scatter: always with dim=0
+     *   5. Reshape back:
+     *      - ttnn.reshape: result tensor<2272> -> tensor<71x32>
+     */
+
+    auto scatterDimsToOperandDims = op.getScatterDimsToOperandDims();
+    auto indexVectorDim = op.getIndexVectorDim();
+
+    Value inputTensor = adaptor.getInput();
+    Value sourceTensor = adaptor.getUpdate();
+    Value scatterIndices = adaptor.getScatterIndices();
+
+    auto inputType = mlir::cast<RankedTensorType>(inputTensor.getType());
+    auto inputShape = inputType.getShape();
+
+    // Calculate linear indices.
+    Value linearIndices = nullptr;
+
+    // Generalized stride calculation for N-dimensional tensors:
+    //
+    // For tensor with shape [D0, D1, D2, ..., Dn-1]:
+    // stride[i] = product of all dimensions after position i.
+
+    llvm::SmallVector<int64_t> strides;
+    int64_t stride = 1;
+    for (int i = scatterDimsToOperandDims.size() - 1; i >= 0; --i) {
+      strides.insert(strides.begin(), stride);
+      stride *= inputShape[scatterDimsToOperandDims[i]];
+    }
+
+    for (size_t dimIdx = 0; dimIdx < scatterDimsToOperandDims.size();
+         ++dimIdx) {
+      Value dimensionIndices =
+          extractIndices(op, scatterIndices, indexVectorDim, dimIdx, rewriter);
+
+      if (strides[dimIdx] != 1) {
+        auto indexType =
+            mlir::cast<RankedTensorType>(dimensionIndices.getType());
+        auto scalarAttr =
+            rewriter.getI32IntegerAttr(static_cast<int32_t>(strides[dimIdx]));
+
+        auto ttnnLayoutAttr =
+            mlir::cast<ttnn::TTNNLayoutAttr>(indexType.getEncoding());
+        bool isOnDevice =
+            ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
+        ttnn::GetDeviceOp deviceOp;
+        if (isOnDevice) {
+          deviceOp = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+        }
+
+        Value strideTensor = rewriter.create<ttnn::FullOp>(
+            op.getLoc(), indexType, scalarAttr, deviceOp);
+        auto dtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
+            rewriter.getContext(), mlir::tt::ttcore::DataType::Int32);
+        dimensionIndices = rewriter.create<ttnn::MultiplyOp>(
+            op.getLoc(), indexType, dimensionIndices, strideTensor, dtypeAttr,
+            mlir::tt::ttnn::MemoryConfigAttr());
+      }
+
+      if (linearIndices == nullptr) {
+        linearIndices = dimensionIndices;
+      } else {
+        auto indexType = mlir::cast<RankedTensorType>(linearIndices.getType());
+        auto dtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
+            rewriter.getContext(), mlir::tt::ttcore::DataType::Int32);
+        linearIndices = rewriter.create<ttnn::AddOp>(
+            op.getLoc(), indexType, linearIndices, dimensionIndices, dtypeAttr,
+            mlir::tt::ttnn::MemoryConfigAttr());
+      }
+    }
+
+    // Flatten and scatter using dim = 0.
+    int64_t totalElements = 1;
+    for (auto dim : inputShape) {
+      totalElements *= dim;
+    }
+
+    llvm::SmallVector<int64_t> flatInputShape = {totalElements};
+    RankedTensorType flatInputType = RankedTensorType::get(
+        flatInputShape, inputType.getElementType(), inputType.getEncoding());
+
+    llvm::SmallVector<int32_t> flatInputShapeI32 = {
+        static_cast<int32_t>(totalElements)};
+    ttnn::ReshapeOp flattenInputOp = rewriter.create<ttnn::ReshapeOp>(
+        op.getLoc(), flatInputType, inputTensor,
+        rewriter.getI32ArrayAttr(flatInputShapeI32), nullptr);
+
+    auto sourceTensorType =
+        mlir::cast<RankedTensorType>(sourceTensor.getType());
+    auto sourceShape = sourceTensorType.getShape();
+    int64_t sourceElements = 1;
+    for (auto dim : sourceShape) {
+      sourceElements *= dim;
+    }
+
+    llvm::SmallVector<int64_t> flatSourceShape = {sourceElements};
+    RankedTensorType flatSourceType = RankedTensorType::get(
+        flatSourceShape, sourceTensorType.getElementType(),
+        sourceTensorType.getEncoding());
+
+    llvm::SmallVector<int32_t> flatSourceShapeI32 = {
+        static_cast<int32_t>(sourceElements)};
+    ttnn::ReshapeOp flattenSourceOp = rewriter.create<ttnn::ReshapeOp>(
+        op.getLoc(), flatSourceType, sourceTensor,
+        rewriter.getI32ArrayAttr(flatSourceShapeI32), nullptr);
+
+    RankedTensorType flatIndicesType = RankedTensorType::get(
+        flatSourceShape,
+        mlir::cast<RankedTensorType>(linearIndices.getType()).getElementType(),
+        mlir::cast<RankedTensorType>(linearIndices.getType()).getEncoding());
+
+    ttnn::ReshapeOp flattenIndicesOp = rewriter.create<ttnn::ReshapeOp>(
+        op.getLoc(), flatIndicesType, linearIndices,
+        rewriter.getI32ArrayAttr(flatSourceShapeI32), nullptr);
+
+    auto dimAttr = rewriter.getI32IntegerAttr(0);
+    ttnn::ScatterOp scatterOp = rewriter.create<ttnn::ScatterOp>(
+        op.getLoc(), flatInputType, flattenInputOp.getResult(),
+        flattenIndicesOp.getResult(), flattenSourceOp.getResult(), dimAttr,
+        nullptr);
+
+    llvm::SmallVector<int32_t> originalInputShapeI32;
+    for (auto dim : inputShape) {
+      originalInputShapeI32.push_back(static_cast<int32_t>(dim));
+    }
+
+    Type convertedResultType =
+        this->getTypeConverter()->convertType(op.getType());
+    ttnn::ReshapeOp reshapeResultOp = rewriter.create<ttnn::ReshapeOp>(
+        op.getLoc(), convertedResultType, scatterOp.getResult(),
+        rewriter.getI32ArrayAttr(originalInputShapeI32), nullptr);
+
+    rewriter.replaceOp(op, reshapeResultOp.getResult());
+    return success();
+  }
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    /**
+     * Decides between single-dimensional and multi-dimensional conversion based
+     * on scatter_dims_to_operand_dims size, then ensures rank consistency for
+     * PyTorch-style scatter operation.
+     *
+     * Example:
+     * Input: tensor<2050x768xf32>, indices: tensor<1x5x1xi32>, updates:
+     * tensor<1x5x768xf32> Attributes: scatter_dims_to_operand_dims=[0],
+     * update_window_dims=[2], inserted_window_dims=[0]
+     *
+     * Operations:
+     *   1. Extract indices:
+     *      - ttnn.slice_static: begins=[0,0,0], ends=[1,5,1] ->
+     * tensor<1x5x1xi32>
+     *   2. Expand input tensor (rank 2 -> 3):
+     *      - ttnn.reshape: <205x768xf32> -> tensor<1x2050x768xf32>
+     *   3. Broadcast indices to match updates:
+     *      - ttnn.repeat: repeat_dims=<1x1x768> -> tensor<1x5x768xi32>
+     *   4. Final scatter:
+     *      - ttnn.scatter: dim=0, all tensors rank 3
+     */
+
+    auto scatterDimsToOperandDims = op.getScatterDimsToOperandDims();
+    auto indexVectorDim = op.getIndexVectorDim();
+
+    if (scatterDimsToOperandDims.size() > 1) {
+      return convertMultidimensionalScatter(op, adaptor, rewriter);
+    }
+
+    int32_t dim = scatterDimsToOperandDims[0];
+    if (dim < 0) {
+      return rewriter.notifyMatchFailure(
+          op, "Negative dimension values not supported");
+    }
+
+    Value indexTensor = extractIndices(op, adaptor.getScatterIndices(),
+                                       indexVectorDim, 0, rewriter);
+
+    // Ensure all tensors have the same rank.
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto updateType =
+        mlir::cast<RankedTensorType>(adaptor.getUpdate().getType());
+    auto indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
+
+    Value finalInput = adaptor.getInput();
+    Value finalSource = adaptor.getUpdate();
+    Value finalIndex = indexTensor;
+
+    // Determine target rank (use the highest rank among all tensors).
+    size_t targetRank =
+        std::max({inputType.getShape().size(), updateType.getShape().size(),
+                  indexType.getShape().size()});
+
+    // Expand input tensor if needed.
+    // Add dims at inserted_window_dims positions
+    // Example: tensor<2050x768> -> tensor<1x2050x768> when
+    // inserted_window_dims=[0]
+    if (inputType.getShape().size() < targetRank) {
+      auto insertedWindowDims = op.getInsertedWindowDims();
+      llvm::SmallVector<int64_t> expandedInputShape;
+
+      size_t originalDim = 0;
+      for (size_t i = 0; i < targetRank; ++i) {
+        // Check if this dimension should be inserted (singleton)
+        if (std::find(insertedWindowDims.begin(), insertedWindowDims.end(),
+                      i) != insertedWindowDims.end()) {
+          expandedInputShape.push_back(1);
+        } else {
+          if (originalDim < inputType.getShape().size()) {
+            expandedInputShape.push_back(inputType.getShape()[originalDim++]);
+          }
+        }
+      }
+
+      RankedTensorType expandedInputType =
+          RankedTensorType::get(expandedInputShape, inputType.getElementType(),
+                                inputType.getEncoding());
+
+      llvm::SmallVector<int32_t> expandedInputShapeI32;
+      for (int64_t dim : expandedInputShape) {
+        expandedInputShapeI32.push_back(static_cast<int32_t>(dim));
+      }
+
+      ttnn::ReshapeOp expandInputOp = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), expandedInputType, finalInput,
+          rewriter.getI32ArrayAttr(expandedInputShapeI32), nullptr);
+
+      finalInput = expandInputOp.getResult();
+    }
+
+    // Expand index tensor if needed to match target rank.
+    // Add dims at update_window_dims positions.
+    // Example: tensor<1x5> -> tensor<1x5x1> when update_window_dims=[2]
+    if (indexType.getShape().size() < targetRank) {
+      auto updateWindowDims = op.getUpdateWindowDims();
+      llvm::SmallVector<int64_t> expandedIndexShape;
+
+      size_t originalDim = 0;
+      for (size_t i = 0; i < targetRank; ++i) {
+        bool isWindowDim =
+            std::find(updateWindowDims.begin(), updateWindowDims.end(),
+                      static_cast<int32_t>(i)) != updateWindowDims.end();
+        if (isWindowDim) {
+          expandedIndexShape.push_back(1);
+        } else {
+          if (originalDim < indexType.getShape().size()) {
+            expandedIndexShape.push_back(indexType.getShape()[originalDim++]);
+          } else {
+            expandedIndexShape.push_back(1);
+          }
+        }
+      }
+
+      RankedTensorType expandedIndexType =
+          RankedTensorType::get(expandedIndexShape, indexType.getElementType(),
+                                indexType.getEncoding());
+
+      llvm::SmallVector<int32_t> expandedIndexShapeI32;
+      for (int64_t dim : expandedIndexShape) {
+        expandedIndexShapeI32.push_back(static_cast<int32_t>(dim));
+      }
+
+      ttnn::ReshapeOp expandIndexOp = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), expandedIndexType, finalIndex,
+          rewriter.getI32ArrayAttr(expandedIndexShapeI32), nullptr);
+
+      finalIndex = expandIndexOp.getResult();
+
+      // Repeat index tensor to match update tensor shape as per PyTorch
+      // semantics.
+      llvm::SmallVector<int64_t> repeatDims;
+      bool needsRepeat = false;
+      auto updateShape = updateType.getShape();
+
+      for (size_t i = 0; i < targetRank; ++i) {
+        int64_t repeatCount = updateShape[i] / expandedIndexShape[i];
+        repeatDims.push_back(repeatCount);
+        if (repeatCount > 1) {
+          needsRepeat = true;
+        }
+      }
+
+      if (needsRepeat) {
+        llvm::SmallVector<int64_t> targetIndexShape(updateShape.begin(),
+                                                    updateShape.end());
+        RankedTensorType targetIndexType =
+            RankedTensorType::get(targetIndexShape, indexType.getElementType(),
+                                  indexType.getEncoding());
+
+        auto repeatDimsAttr =
+            mlir::tt::ttnn::ShapeAttr::get(rewriter.getContext(), repeatDims);
+        ttnn::RepeatOp repeatOp = rewriter.create<ttnn::RepeatOp>(
+            op.getLoc(), targetIndexType, finalIndex, repeatDimsAttr);
+
+        finalIndex = repeatOp.getResult();
+      }
+    }
+
+    if (updateType.getShape().size() < targetRank) {
+      return rewriter.notifyMatchFailure(
+          op, "Please add support for source tensor expansion to match index/ "
+              "input tensor rank");
+    }
+
+    Type convertedResultType =
+        this->getTypeConverter()->convertType(op.getType());
+    auto dimAttr = rewriter.getI32IntegerAttr(dim);
+
+    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(op, convertedResultType,
+                                                 finalInput, finalIndex,
+                                                 finalSource, dimAttr, nullptr);
+
+    return success();
   }
 };
 } // namespace
