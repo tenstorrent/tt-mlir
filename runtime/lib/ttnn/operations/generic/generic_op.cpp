@@ -98,13 +98,8 @@ createKernelConfigDescriptor(
   switch (kernelDesc.config_type()) {
   case ::tt::target::ttnn::KernelConfig::ComputeKernelConfig: {
     const auto *computeConfig = kernelDesc.config_as_ComputeKernelConfig();
-    std::vector<UnpackToDestMode> unpackToDestModes(
-        computeConfig->unpack_to_dest_modes()->size());
-    for (unsigned int i = 0; i < computeConfig->unpack_to_dest_modes()->size();
-         i++) {
-      unpackToDestModes[i] = common::toUnpackToDestMode(
-          computeConfig->unpack_to_dest_modes()->Get(i));
-    }
+    std::vector<UnpackToDestMode> unpackToDestModes =
+        common::toUnpackToDestModes(computeConfig->unpack_to_dest_modes());
     return ::tt::tt_metal::ComputeConfigDescriptor{
         .math_fidelity = tt::runtime::ttnn::utils::toTTNNMathFidelity(
             computeConfig->math_fidelity()),
@@ -180,21 +175,27 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
   CoreRangeSet coreRanges =
       tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*kernelDesc.core_ranges());
   ::tt::tt_metal::KernelDescriptor::CommonRuntimeArgs commonRuntimeArgs =
-      createKernelArgs(*kernelDesc.common_rt_args());
+      createKernelArgs(*kernelDesc.common_rt_args(), ioTensors);
   ::tt::tt_metal::KernelDescriptor::CompileTimeArgs compileTimeArgs =
       createKernelArgs(*kernelDesc.ct_args());
 
-  auto sizeX = kernelDesc.rt_args()->size();
-  auto sizeY = kernelDesc.rt_args()->Get(0)->args()->size();
-  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs(
-      sizeX,
-      std::vector<::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs>(sizeY));
-  for (unsigned int i = 0; i < sizeX; i++) {
-    for (unsigned int j = 0; j < sizeY; j++) {
-      ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreRuntimeArgs =
-          createKernelArgs(*kernelDesc.rt_args()->Get(i)->args()->Get(j),
-                           ioTensors);
-      runtimeArgs[i][j] = coreRuntimeArgs;
+  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs;
+  if (kernelDesc.rt_args()) {
+    auto sizeX = kernelDesc.rt_args()->size();
+    auto sizeY = kernelDesc.rt_args()->Get(0)->args()->size();
+    runtimeArgs.resize(
+        sizeX,
+        std::vector<::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs>(sizeY));
+    // ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs(
+    // sizeX,
+    // std::vector<::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs>(sizeY));
+    for (unsigned int i = 0; i < sizeX; i++) {
+      for (unsigned int j = 0; j < sizeY; j++) {
+        ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreRuntimeArgs =
+            createKernelArgs(*kernelDesc.rt_args()->Get(i)->args()->Get(j),
+                             ioTensors);
+        runtimeArgs[i][j] = coreRuntimeArgs;
+      }
     }
   }
   ::tt::tt_metal::KernelDescriptor kernelDescriptor = {
@@ -225,20 +226,24 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   // ProgramDescriptor is initialized with pre-allocated SmallVector capacity
   const auto *programDesc = op->program();
   tt::tt_metal::ProgramDescriptor programDescriptor;
+  LOG_DEBUG("creating kernel descs");
   for (const tt::target::ttnn::KernelDescriptor *kernelDesc :
        *programDesc->kernels()) {
     programDescriptor.kernels.push_back(
         createKernelDescriptor(*kernelDesc, ioTensors));
   }
+  LOG_DEBUG("creating cb descs");
   for (const tt::target::ttnn::KernelCBDescriptor *cbDesc :
        *programDesc->cbs()) {
     programDescriptor.cbs.push_back(createCBDescriptor(*cbDesc));
   }
+  LOG_DEBUG("creating semaphore descs");
   for (const tt::target::ttnn::SemaphoreDescriptor *semaphoreDesc :
        *programDesc->semaphores()) {
     programDescriptor.semaphores.push_back(
         createSemaphoreDescriptor(*semaphoreDesc));
   }
+  LOG_DEBUG("running generic op");
   ::ttnn::Tensor outputTensor =
       ::ttnn::generic_op(ioTensors, programDescriptor);
   tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),

@@ -130,5 +130,22 @@ toUnpackToDestMode(const tt::target::UnpackToDestMode &unpackToDestMode) {
   }
 }
 
+inline std::vector<UnpackToDestMode>
+toUnpackToDestModes(const ::flatbuffers::Vector<tt::target::UnpackToDestMode>
+                        *unpackToDestModesFB) {
+  std::vector<UnpackToDestMode> unpackToDestModes(NUM_CIRCULAR_BUFFERS,
+                                                  UnpackToDestMode::Default);
+  if (unpackToDestModesFB == nullptr) {
+    return unpackToDestModes;
+  }
+  uint32_t modeIdx = 0;
+  for (auto mode : *unpackToDestModesFB) {
+    LOG_ASSERT(modeIdx < NUM_CIRCULAR_BUFFERS);
+    unpackToDestModes[modeIdx] = toUnpackToDestMode(mode);
+    ++modeIdx;
+  }
+  return unpackToDestModes;
+}
+
 } // namespace tt::runtime::common
 #endif // TT_RUNTIME_DETAIL_COMMON_COMMON_H
