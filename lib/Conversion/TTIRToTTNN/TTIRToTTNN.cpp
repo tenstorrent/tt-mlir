@@ -264,6 +264,40 @@ public:
 } // namespace
 
 namespace {
+// Specialized conversion pattern for BitcastOp to handle dtype attribute
+class BitcastOpConversionPattern : public OpConversionPattern<ttir::BitcastOp> {
+public:
+  using OpConversionPattern<ttir::BitcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::BitcastOp op, ttir::BitcastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+
+    // Extract the target dtype from the result type
+    auto resultTensorType = dyn_cast<RankedTensorType>(resultTypes[0]);
+    if (!resultTensorType) {
+      return failure();
+    }
+
+    auto targetElementType = resultTensorType.getElementType();
+    auto dtype = ttcore::elementTypeToDataType(targetElementType);
+    auto dtypeAttr = ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
+
+    auto inputs =
+        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
+    rewriter.replaceOpWithNewOp<ttnn::BitcastOp>(op, resultTypes[0], inputs[0],
+                                                 dtypeAttr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // Conversion pattern for binary operations
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
@@ -1906,7 +1940,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::NegOp, ttnn::NegOp>,
            ElementwiseOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
            ElementwiseOpConversionPattern<ttir::GeluOp, ttnn::GeluOp>,
-           ElementwiseOpConversionPattern<ttir::BitcastOp, ttnn::BitcastOp>,
+           BitcastOpConversionPattern,
            ElementwiseOpConversionPattern<ttir::SqrtOp, ttnn::SqrtOp>,
            ElementwiseOpConversionPattern<ttir::RsqrtOp, ttnn::RsqrtOp>,
            ElementwiseOpConversionPattern<ttir::SignOp, ttnn::SignOp>,
