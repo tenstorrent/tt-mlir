@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "operations/eltwise/binary/binary_composite.h"
-#include "operations/data_movement/scatter.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -79,10 +78,6 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::remainder);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter: {
-    ::tt::runtime::ttnn::operations::data_movement::run(op, context);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow: {

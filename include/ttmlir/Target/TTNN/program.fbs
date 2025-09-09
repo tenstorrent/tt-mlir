@@ -88,6 +88,7 @@ union OpType {
   ReshapeOp,
   ScaledDotProductAttentionOp,
   ScaledDotProductAttentionDecodeOp,
+  ScatterOp,
   SliceOp,
   SoftmaxOp,
   SortOp,
