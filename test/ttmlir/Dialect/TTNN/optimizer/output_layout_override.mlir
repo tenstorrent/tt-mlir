@@ -32,7 +32,7 @@ module attributes {} {
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_4]]>
     %11 = "ttir.add"(%arg1, %9, %10) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc10)
     %12 = ttir.empty() : tensor<1x32x32xf32>
-    // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xbf16, #[[LAYOUT_5]]>
+    // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xbf16, #[[LAYOUT_3]]>
     %13 = "ttir.add"(%arg1, %11, %12) : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc11)
     %14 = ttir.empty() : tensor<1x32x32xf32>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_6]]>

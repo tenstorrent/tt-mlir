@@ -129,7 +129,12 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);
-  pm.addPass(createConvertTTIRToTTMetalPass());
+  pm.addPass(tt::createConvertTTIRToTTMetalPass());
+  // Insert DeviceZone scopes around selected ttkernel ops before EmitC
+  // lowering.
+  if (options.insertProfilerTraces) {
+    pm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes());
+  }
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(mlir::emitc::createFormExpressionsPass());

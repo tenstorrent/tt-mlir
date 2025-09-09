@@ -15,4 +15,14 @@ def TTKernelControlDstSection: Pass<"ttkernel-control-dst-section", "::mlir::Mod
   let dependentDialects = ["mlir::tt::ttkernel::TTKernelDialect"];
 }
 
+def TTKernelInsertDeviceZoneScopes: Pass<"insert-device-zone-scopes", "::mlir::ModuleOp"> {
+  let summary = "Insert DeviceZoneScopedN around selected TTKernel ops";
+  let description = [{
+    Insert scoping braces and DeviceZoneScopedN statements around TTKernel ops
+    marked with DeviceZoneOpTrait, to annotate device zone regions prior to
+    lowering to EmitC.
+  }];
+  let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttkernel::TTKernelDialect"];
+}
+
 #endif

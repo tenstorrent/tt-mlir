@@ -94,7 +94,10 @@ struct LayoutDesc {
   ::ttnn::DataType dataType;
   std::optional<::ttnn::MemoryConfig> memoryConfig;
 
-  static LayoutDesc fromTensor(const ::tt::runtime::Tensor &tensor);
+  static std::shared_ptr<LayoutDesc>
+  fromTensor(const ::tt::runtime::Tensor &tensor);
+  static std::shared_ptr<LayoutDesc>
+  fromMemoryDesc(const ::tt::target::ttnn::MemoryDesc *memoryDesc);
 
   LayoutDesc(const ::ttnn::StorageType &storageType,
              const ::ttnn::Layout &layout, const ::ttnn::DataType &dataType,
@@ -103,6 +106,9 @@ struct LayoutDesc {
   bool isOnHost() const;
   bool isOnDevice() const;
   bool isTilized() const;
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
+  toMemoryDesc(::flatbuffers::FlatBufferBuilder &fbb) const;
 
   bool operator==(const LayoutDesc &other) const;
 };

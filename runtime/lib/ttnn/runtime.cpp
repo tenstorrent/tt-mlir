@@ -773,7 +773,8 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
 
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
                                Layout layout, std::optional<bool> retain) {
-  const LayoutDesc tensorLayoutDesc = LayoutDesc::fromTensor(tensor);
+  const std::shared_ptr<LayoutDesc> tensorLayoutDesc =
+      LayoutDesc::fromTensor(tensor);
 
   const LayoutDesc &desiredLayoutDesc =
       layout.as<LayoutDesc>(DeviceRuntime::TTNN);
@@ -787,7 +788,7 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   const ::ttnn::Tensor &ttnnTensor = tensorWrapper.getTensor();
   bool shouldRetain = retain.value_or(tensorWrapper.shouldRetain());
 
-  LayoutConverter converter(tensorLayoutDesc, desiredLayoutDesc);
+  LayoutConverter converter(*tensorLayoutDesc, desiredLayoutDesc);
   ::ttnn::Tensor out = converter.convertTensorLayout(ttnnTensor, meshDevice);
 
   ::tt::runtime::Tensor result = utils::createRuntimeTensorFromTTNN(
@@ -1176,7 +1177,6 @@ getOpOutputRef(OpContext opContextHandle,
     return std::nullopt;
   }
   case ::tt::target::ttnn::OpType::GenericOp: {
-    LOG_FATAL("GenericOp runtime to be implemented.");
     auto size = opContext.type_as_GenericOp()->io_tensors()->size();
     tensorRef = opContext.type_as_GenericOp()->io_tensors()->Get(size - 1);
     break;
@@ -1475,7 +1475,6 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::GenericOp: {
-    LOG_FATAL("GenericOp runtime to be implemented.");
     for (const auto *input : *opContext.type_as_GenericOp()->io_tensors()) {
       tensorRefs.push_back(input);
     }

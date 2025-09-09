@@ -65,7 +65,7 @@ def TTKernel_TileRegsCommitOp : TTKernel_Op<"tile_regs_commit"> {
     }];
 }
 
-def TTKernel_TileRegsWaitOp : TTKernel_Op<"tile_regs_wait"> {
+def TTKernel_TileRegsWaitOp : TTKernel_Op<"tile_regs_wait", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "tile_regs_wait";
     let description = [{
       Acquire an exclusive lock on the DST register for the PACK thread.
@@ -1171,7 +1171,7 @@ def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back"> {
     }];
 }
 
-def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
+def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "CBWaitFront call.";
     let description = [{
       CBWaitFront operation
@@ -1308,6 +1308,52 @@ def TTKernel_UntilizeUninitOp : TTKernel_Op<"untilize_uninit"> {
     }];
 }
 
+def TTKernel_TransposeInitOp : TTKernel_Op<"transpose_wh_init"> {
+    let summary = "TransposeInitOp call.";
+    let description = [{
+      Initialize the transpose operation. To be called once at beginning of a
+      kernel before transpose operations.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TransposeTileOp : TTKernel_Op<"transpose_wh_tile"> {
+    let summary = "Transpose WH tile operation";
+    let description = [{
+      Performs a 32x32 transpose operation on a tile in the CB
+      at a given index and writes the result to the DST register at index
+      dst_tile_index.
+    }];
+
+    let arguments = (ins TTKernel_CB:$icb, IndexLike:$itile, IndexLike:$idst);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $icb `,` $itile `,` $idst `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TransposeUninitOp : TTKernel_Op<"transpose_wh_uninit"> {
+    let summary = "TransposeUninitOp call.";
+    let description = [{
+      Uninitialize transpose operation before re-initializing for another operation.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
+
+    let assemblyFormat = [{
+      `(` $cbIn `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel NOC operations
 //===----------------------------------------------------------------------===//
@@ -1394,7 +1440,7 @@ def TTKernel_NocAsyncReadOnePacketWithStateOp : TTKernel_Op<"noc_async_read_one_
     }];
 }
 
-def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier"> {
+def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncReadBarrier";
     let description = [{
       NocAsyncReadBarrier
@@ -1433,7 +1479,7 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
     }];
 }
 
-def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier"> {
+def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncWriteBarrier";
     let description = [{
       NocAsyncWriteBarrier

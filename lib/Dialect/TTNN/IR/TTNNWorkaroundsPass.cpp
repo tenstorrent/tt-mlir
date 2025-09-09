@@ -349,6 +349,26 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
       .addOutputOperandWorkaround(outputTypeWorkaround);
 }
 
+// Factory method to create a set of workarounds for reshape operation operands.
+// Reshape op only does not work with ui8 - force to int32 then typecast
+// separately.
+// TT-metal issue: https://github.com/tenstorrent/tt-metal/issues/27843
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
+    RankedTensorType inputType) {
+  mlir::Type inputElementType = inputType.getElementType();
+  TTNNOperandWorkarounds typeWorkarounds;
+  mlir::tt::ttcore::DataType dataType =
+      mlir::tt::ttcore::elementTypeToDataType(inputElementType);
+  if (dataType == mlir::tt::ttcore::DataType::UInt8) {
+    typeWorkarounds.tensorDataTypeWorkaround =
+        mlir::tt::ttcore::DataType::Int32;
+  }
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(typeWorkarounds)
+      .addOutputOperandWorkaround(typeWorkarounds);
+}
+
 // Factory method to create a set of workarounds for UpdateCache operation
 // operands. Update index of UpdateCacheOp must be unsigned
 TTNNOperandsWorkarounds
@@ -572,17 +592,6 @@ TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(T op) {
   }
 
   return workaround;
-}
-
-// TTNN Arange op only supports row-major output. Adding workaround to enforce
-// row-major layout on its output.
-// tt-metal issue to support tile layout for arange op:
-// https://github.com/tenstorrent/tt-metal/issues/20251
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createArangeOpOperandsWorkarounds() {
-  wa::TTNNOperandWorkarounds arangeOpOperandWorkaround(Layout::RowMajor);
-  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addOutputOperandWorkaround(arangeOpOperandWorkaround);
 }
 
 // Factory method to create a set of workaround for reduction ops operands.
