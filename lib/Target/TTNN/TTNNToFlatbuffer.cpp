@@ -109,6 +109,15 @@ getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op) {
              : getMemoryConfigFromTensorTypeIfNeeded(cache, result);
 }
 
+// Template specialization for BitcastOp which doesn't have getMemoryConfig
+// method VIbecoded hack, do not commit
+template <>
+::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
+getMemoryConfigIfNeeded<BitcastOp>(FlatbufferObjectCache &cache, BitcastOp op) {
+  auto result = op.getResult();
+  return getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+}
+
 static bool isCpuHoistedFuncCall(func::CallOp op) {
   return op->hasAttr(ttmlir::utils::g_cpuHoistFuncCallAttrName);
 }

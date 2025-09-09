@@ -336,15 +336,17 @@ def TTNN_ErfcOp : TTNN_ElementwiseUnaryOp<"erfc"> {
       }];
 }
 
-def TTNN_BitcastOp: TTNN_ElementwiseUnaryOp<"bitcast"> {
-  let summary = "Eltwise Bitcast.";
-  let description = [{
-    Eltwise Bitcast operation.
-  }];
+def TTNN_BitcastOp : TTNN_Op<"bitcast",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>]
+      > {
+    let summary = "Typecast op.";
+    let description = [{
+      This op reinterprets the data type of the input tensor based on the given data type.
+    }];
 
-  let arguments = (ins AnyRankedTensor:$input,
-                       TTCore_DataTypeAttr:$dtype);
-  let results = (outs AnyRankedTensor:$result);
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTCore_DataTypeAttr:$dtype);
+    let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
