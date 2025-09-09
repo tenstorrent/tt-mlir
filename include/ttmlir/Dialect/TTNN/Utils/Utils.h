@@ -10,8 +10,6 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
-#include "llvm/Support/CommandLine.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
@@ -112,7 +110,8 @@ bool producesL1Layout(Operation *op);
 // Check if operation's first result uses tiled tensor layout.
 bool producesTiledTensorLayout(Operation *op);
 
-// Check if conv2D uses matmul (1x1 kernel, stride=1, padding=0, groups=1)
+// Check if conv2D uses matmul (1x1 kernel, stride=1, padding=0, groups=1,
+// dilation=1)
 bool isConv2DConvertibleToMatMul(Operation *op);
 } // namespace mlir::tt::ttnn::utils
 
