@@ -518,7 +518,9 @@ public:
     auto inCB = getInCB(rewriter, op);
     auto outCB = getOutCB(rewriter, op);
     setInsertionPointAfterOperands(rewriter, {inCB, outCB});
-    rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
+    if constexpr (!std::is_same_v<ConcreteOp, ttir::TileSubBinaryOp>) {
+      rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
+    }
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     rewriter.create<InitOp>(op->getLoc());
