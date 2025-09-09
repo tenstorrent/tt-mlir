@@ -44,8 +44,13 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
 
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
 
+  // NOTE: The caller is currently responsible for creating/passing semaphores.
+  // TODO(hkwon): Remove semaphore creation here once
+  // reduce_scatter_minimal_async manages semaphores internally. Tracking:
+  // https://github.com/tenstorrent/tt-metal/issues/26952
   std::vector<::ttnn::GlobalSemaphore> semaphores;
-  // reduce_scatter_minimal_async requires 3 semaphores.
+  // reduce_scatter_minimal_async currently requires 3 semaphores.
+  // See: https://github.com/tenstorrent/tt-metal/issues/25212 for details.
   for (int i = 0; i < 3; i++) {
     semaphores.push_back(::ttnn::global_semaphore::create_global_semaphore(
         &meshDevice,
