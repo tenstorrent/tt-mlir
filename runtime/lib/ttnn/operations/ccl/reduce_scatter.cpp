@@ -44,28 +44,6 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
 
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
 
-  ::ttnn::Shape outputShape =
-      operations::utils::toTTNNShape(*op->out()->desc()->shape());
-  // Line RS requires double-sized input for forward/backward
-  const auto &originalShape = *op->in()->desc()->shape();
-  std::vector<uint32_t> modifiedShape{2}; // Start with '2'
-  modifiedShape.insert(modifiedShape.end(), originalShape.begin(),
-                       originalShape.end()); // Fill the rest of the shape
-  ::ttnn::Shape intermediateShape = ::ttnn::Shape(modifiedShape);
-  ::ttnn::DataType ttnnDtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
-      op->out()->desc()->layout()->memory_desc()->data_type());
-  ::ttnn::Layout ttnnLayout =
-      ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
-
-  ::ttnn::Tensor intermediateBuffer =
-      ::ttnn::empty(intermediateShape, ttnnDtype, ttnnLayout, &meshDevice,
-                    outputMemoryConfig.value());
-  ::ttnn::Tensor outputBuffer =
-      ::ttnn::empty(outputShape, ttnnDtype, ttnnLayout, &meshDevice,
-                    outputMemoryConfig.value());
-  std::vector<::ttnn::Tensor> persistent_buffers = {intermediateBuffer,
-                                                    outputBuffer};
-
   std::vector<::ttnn::GlobalSemaphore> semaphores;
   // reduce_scatter_minimal_async requires 3 semaphores.
   for (int i = 0; i < 3; i++) {
@@ -76,10 +54,9 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
         0, tt::tt_metal::BufferType::L1));
   }
   ::ttnn::Tensor out = ::ttnn::experimental::reduce_scatter_minimal_async(
-      input, std::make_optional(persistent_buffers), scatterDimension,
-      semaphores, std::nullopt, numLinks, outputMemoryConfig.value(),
-      outputMemoryConfig.value(), ::ttnn::ccl::Topology::Linear, std::nullopt,
-      clusterAxis);
+      input, std::nullopt, scatterDimension, semaphores, std::nullopt, numLinks,
+      outputMemoryConfig.value(), std::nullopt, ::ttnn::ccl::Topology::Linear,
+      std::nullopt, clusterAxis);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::ccl
