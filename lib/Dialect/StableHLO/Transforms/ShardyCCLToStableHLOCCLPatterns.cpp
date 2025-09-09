@@ -380,44 +380,12 @@ public:
   }
 };
 
-// AllSliceOp
-class ShardyToStableHLOAllSliceOpRewritePattern
-    : public OpRewritePattern<mlir::sdy::AllSliceOp> {
-  using OpRewritePattern::OpRewritePattern;
-
-public:
-  LogicalResult matchAndRewrite(mlir::sdy::AllSliceOp srcOp,
-                                PatternRewriter &rewriter) const override {
-    srcOp.emitError()
-        << "ShardyToStableHLO lowering for AllSliceOp is not implemented yet: "
-           "https://github.com/tenstorrent/tt-mlir/issues/3368.";
-    return failure();
-  }
-};
-
-// CollectivePermuteOp
-class ShardyToStableHLOCollectivePermuteOpRewritePattern
-    : public OpRewritePattern<mlir::sdy::CollectivePermuteOp> {
-  using OpRewritePattern::OpRewritePattern;
-
-public:
-  LogicalResult matchAndRewrite(mlir::sdy::CollectivePermuteOp srcOp,
-                                PatternRewriter &rewriter) const override {
-    srcOp.emitError() << "ShardyToStableHLO lowering for CollectivePermuteOp "
-                         "is not implemented yet: "
-                         "https://github.com/tenstorrent/tt-mlir/issues/3370.";
-    return failure();
-  }
-};
-
 void populateShardyCCLToStableHLOCCLPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns) {
   patterns.add<ShardyToStableHLOAllGatherOpRewritePattern>(ctx);
   patterns.add<ShardyToStableHLOAllReduceOpRewritePattern>(ctx);
   patterns.add<ShardyToStableHLOReduceScatterOpRewritePattern>(ctx);
   patterns.add<ShardyToStableHLOAllToAllOpRewritePattern>(ctx);
-  patterns.add<ShardyToStableHLOAllSliceOpRewritePattern>(ctx);
-  patterns.add<ShardyToStableHLOCollectivePermuteOpRewritePattern>(ctx);
 }
 
 } // namespace mlir::tt::stablehlo
