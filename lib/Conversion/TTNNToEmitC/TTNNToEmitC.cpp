@@ -180,7 +180,7 @@ public:
 
 namespace {
 template <typename SourceOp>
-class EltwiseUnaryWithAccuracyModeOpConversionPattern
+class EltwiseUnaryWithOutputAndApproxModeOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
 
 public:
@@ -198,7 +198,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         /*output=*/emitter.emit(std::nullopt),
-        /*accuracy=*/emitter.emit(true),
+        /*approx=*/emitter.emit(false),
     };
 
     emitter.replaceOp(*this, args);
@@ -2557,45 +2557,46 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Eltwise unary ops
   //
-  patterns.add<
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AbsOp>,
-      EltwiseUnaryCompositeOpConversionPattern<mlir::tt::ttnn::CbrtOp>,
-      ClampOpConversionPattern<::mlir::tt::ttnn::ClampScalarOp>,
-      ClampOpConversionPattern<mlir::tt::ttnn::ClampTensorOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::FloorOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::IsFiniteOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::LogicalNotOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::BitwiseNotOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::NegOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
-      ElementwiseUnaryWithFloatParameterOpConversionPattern<
-          mlir::tt::ttnn::LeakyReluOp>,
-      EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
-          mlir::tt::ttnn::GeluOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SqrtOp>,
-      EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
-          mlir::tt::ttnn::RsqrtOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SignOp>,
-      EltwiseUnaryWithVectorAndFastAndApproximateModeOpConversionPattern<
-          mlir::tt::ttnn::SigmoidOp>,
-      EltwiseUnaryCompositeWithFastAndApproximateModeOpConversionPattern<
-          mlir::tt::ttnn::Log1pOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReciprocalOp>,
-      EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
-          mlir::tt::ttnn::ExpOp>,
-      EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
-          mlir::tt::ttnn::ErfOp>,
-      EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
-          mlir::tt::ttnn::ErfcOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CeilOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SinOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CosOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Expm1Op>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::TanOp>,
-      EltwiseUnaryWithAccuracyModeOpConversionPattern<mlir::tt::ttnn::TanhOp>,
-      EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AtanOp>,
-      EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
-          mlir::tt::ttnn::LogOp>>(typeConverter, ctx);
+  patterns
+      .add<EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AbsOp>,
+           EltwiseUnaryCompositeOpConversionPattern<mlir::tt::ttnn::CbrtOp>,
+           ClampOpConversionPattern<::mlir::tt::ttnn::ClampScalarOp>,
+           ClampOpConversionPattern<mlir::tt::ttnn::ClampTensorOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::FloorOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::IsFiniteOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::LogicalNotOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::BitwiseNotOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::NegOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
+           ElementwiseUnaryWithFloatParameterOpConversionPattern<
+               mlir::tt::ttnn::LeakyReluOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::GeluOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SqrtOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::RsqrtOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SignOp>,
+           EltwiseUnaryWithVectorAndFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::SigmoidOp>,
+           EltwiseUnaryCompositeWithFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::Log1pOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReciprocalOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::ExpOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::ErfOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::ErfcOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CeilOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SinOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CosOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Expm1Op>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::TanOp>,
+           EltwiseUnaryWithOutputAndApproxModeOpConversionPattern<
+               mlir::tt::ttnn::TanhOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AtanOp>,
+           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
+               mlir::tt::ttnn::LogOp>>(typeConverter, ctx);
 
   // Eltwise binary ops
   //

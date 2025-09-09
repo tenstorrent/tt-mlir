@@ -40,6 +40,7 @@
 #include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
 #include "operations/embedding/embedding_backward.h"
+#include "operations/generic/generic_op.h"
 #include "operations/kv_cache/fill_cache.h"
 #include "operations/kv_cache/update_cache.h"
 #include "operations/layout/from_device.h"
@@ -360,7 +361,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::PointToPointOp: {
     return operations::ccl::run(op->type_as_PointToPointOp(), getContext());
   }
-  default: {
+  case ::tt::target::ttnn::OpType::GenericOp: {
+    return operations::generic_op::run(op->type_as_GenericOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",
               ::tt::target::ttnn::EnumNameOpType(op->type_type()));
   }

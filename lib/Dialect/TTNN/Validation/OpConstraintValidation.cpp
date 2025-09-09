@@ -23,14 +23,6 @@ llvm::Expected<ValidationResult>
 validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                   const OpConfig &config) {
 
-  // Validate input layout count matches operation input count
-  if (inputLayouts.size() != op->getNumOperands()) {
-    llvm::report_fatal_error(
-        llvm::Twine("Input layout count (") + llvm::Twine(inputLayouts.size()) +
-        llvm::Twine(") doesn't match operation input count (") +
-        llvm::Twine(op->getNumOperands()) + llvm::Twine(")"));
-  }
-
   // Call core constraint validation.
   auto constraintResult = validateConstraints(op, inputLayouts, config);
 
@@ -48,15 +40,6 @@ validateWithMultipleAttributes(Operation *op,
                                llvm::ArrayRef<OpConfig> referenceConfigs) {
 
   std::vector<ValidationResult> results;
-
-  // Validate input layout count matches operation input count
-  if (inputLayouts.size() != op->getNumOperands()) {
-    llvm::report_fatal_error(
-        llvm::Twine("Input layout count (") + llvm::Twine(inputLayouts.size()) +
-        llvm::Twine(") doesn't match operation input count (") +
-        llvm::Twine(op->getNumOperands()) + llvm::Twine(")"));
-  }
-
   for (const auto &testConfig : opConfigs) {
     // 1. Call core constraint checking.
     auto constraintResult = validateConstraints(op, inputLayouts, testConfig);

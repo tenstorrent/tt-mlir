@@ -4405,9 +4405,15 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingOp>::getOpConstraints(
   // as in the runtime/embedding.cpp. Subject to change in the future.
   std::optional<int> padToken = std::nullopt;
   ::ttnn::Layout layout =
-      inputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
+      outputLayout ? (outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT
+                                             : ::ttnn::ROW_MAJOR_LAYOUT)
+                   : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT
+                                             : ::ttnn::ROW_MAJOR_LAYOUT);
   auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
-  ::ttnn::DataType dtype = conversion::getDataType(inputLayout.getDataType());
+  std::optional<::ttnn::DataType> dtype =
+      outputLayout ? std::make_optional(
+                         conversion::getDataType(outputLayout.getDataType()))
+                   : std::nullopt;
 
   auto embeddingOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -4443,9 +4449,15 @@ llvm::Expected<size_t> OpModel<EmbeddingOp>::getOpRuntime(
   // as in the runtime/embedding.cpp. Subject to change in the future.
   std::optional<int> padToken = std::nullopt;
   ::ttnn::Layout layout =
-      inputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
+      outputLayout ? (outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT
+                                             : ::ttnn::ROW_MAJOR_LAYOUT)
+                   : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT
+                                             : ::ttnn::ROW_MAJOR_LAYOUT);
   auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
-  ::ttnn::DataType dtype = conversion::getDataType(inputLayout.getDataType());
+  std::optional<::ttnn::DataType> dtype =
+      outputLayout ? std::make_optional(
+                         conversion::getDataType(outputLayout.getDataType()))
+                   : std::nullopt;
 
   auto embeddingOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(

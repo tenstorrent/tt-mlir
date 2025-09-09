@@ -68,7 +68,7 @@ multi-level functionality of MLIR, with different dialects a user can
 essentially "lower" through their software stack by just transforming
 between the different dialects for their layers. Dialects can exist in a
 broad range from purely mathematical dialects, to a LinAlg Dialect, or a
-Tensorflow Dialect defined for ML Graphs. Each dialect encodes it's own
+Tensorflow Dialect defined for ML Graphs. Each dialect encodes its own
 information and their operations can use the Types/Attributes of other
 dialects as parameters. Multiple dialects are possible in one module,
 and encouraged to highlight optimizations of different dialects. In our
@@ -101,11 +101,11 @@ module {
 -   Operations
 
     -   These operations are accessed with the . method, so you'll see
-        some examples like func.func or ttir.empty. Each operation
+        some examples like `func.func` or `ttir.empty`. Each operation
         also provides it's own assembly instructions but often strictly
         defines the type of result
 
-    -   Quotes are added around ttir.multiply since it's part of a
+    -   Quotes are added around `ttir.permute` since it's part of a
         custom dialect.
 
     -   Operations typically have operands (arguments) and results which
@@ -118,12 +118,12 @@ module {
         module, where tensor and array are some examples.
 
     -   They help to demonstrate the transformation of information and
-        it's representation as it's processed across this module.
+        its representation as it's processed across this module.
 
 ### MLIR Workflow
 
-The overall MLIR workflow doesn't involve writing .mlir files, not necessarily even
-modifying them. The Intermediate Representations are truly just
+The overall MLIR workflow doesn't necessarily involve writing .mlir files
+or even modifying them. The Intermediate Representations are truly just
 representations, we can parse them to demonstrate what the graph looks
 like at that current stage of optimization, or run a **pass** through
 them to optimize certain functions. The overall framework is designed
@@ -290,7 +290,7 @@ A unique project related to TT-MLIR is the integration of Performance
 Optimization Tools such that users are easily able to visualize and
 readily tune their models without needing an expert level understanding
 of the tech stack.
-['tt-explorer'](./tt-explorer.md)
+['tt-explorer'](./tt-explorer/tt-explorer.md)
 is built with Google AI's [Model
 Explorer](https://github.com/google-ai-edge/model-explorer)
 as a base for the visualization tool, and a [custom

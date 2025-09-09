@@ -39,7 +39,19 @@ func.func @non_batch_dim_slice(%arg0: tensor<4x40x256xf32> {sdy.sharding = #sdy.
   return %2 : tensor<4x80x256xf32>
 }
 
-// CHECK: sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{}, {"batch"}, {}]>, <@mesh, [{}, {"batch"}, {}]>] out_shardings=[<@mesh, [{}, {"batch"}, {}]>]
-// CHECK: stablehlo.slice %arg2 [0:4, 0:16, 0:256] : (tensor<4x20x256xf32>) -> tensor<4x16x256xf32>
-// CHECK: stablehlo.slice %arg3 [0:4, 0:24, 0:256] : (tensor<4x30x256xf32>) -> tensor<4x24x256xf32>
-// CHECK: sdy.return %3 : tensor<4x40x256xf32>
+// CHECK: sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{}, {"batch"}, {}]>, <@mesh, [{}, {}, {}]>] out_shardings=[<@mesh, [{}, {}, {}]>]
+// CHECK: stablehlo.all_gather
+// CHECK: stablehlo.slice %1 [0:4, 0:32, 0:256]
+// CHECK: stablehlo.slice %arg3 [0:4, 0:48, 0:256]
+// CHECK: stablehlo.concatenate %2, %3
+// CHECK: sdy.return %4 : tensor<4x80x256xf32>
+
+func.func @partial_arg(%arg0: tensor<4x128x16384xbf16> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}, {"batch"}]>}) -> (tensor<4x128x8192xbf16>) {
+  %1 = stablehlo.slice %arg0 [0:4, 0:128, 1:16384:2] : (tensor<4x128x16384xbf16>) -> tensor<4x128x8192xbf16>
+  return %1 : tensor<4x128x8192xbf16>
+}
+
+// CHECK: sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{}, {}, {"batch"}]>] out_shardings=[<@mesh, [{}, {}, {}]>]
+// CHECK: stablehlo.all_gather
+// CHECK: stablehlo.slice %1 [0:4, 0:128, 1:16384:2]
+// CHECK: sdy.return %2 : tensor<4x128x8192xbf16>
