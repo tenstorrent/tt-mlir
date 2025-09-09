@@ -3372,24 +3372,28 @@ void CaptureOrExecuteTraceOp::getEffects(
 
     for (auto arg : kernelInterface.getCommonRtArgs()) {
       if (auto addressOfTensor =
-              llvm::dyn_cast_or_null<KernelArgAddressOfTensorAttr>(arg)) {
+              llvm::dyn_cast<KernelArgAddressOfTensorAttr>(arg)) {
         if (addressOfTensor.getTensorIndex() >= numberOfInputsAndOutputs) {
-          return emitError() << "Address of tensor at index is out of bounds";
+          return emitError() << "Address of tensor at index is out of bounds: "
+                             << addressOfTensor.getTensorIndex()
+                             << " >= " << numberOfInputsAndOutputs;
         }
       }
-      if (auto semaphoreAt =
-              llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
+      if (auto semaphoreAt = llvm::dyn_cast<KernelArgSemaphoreAtAttr>(arg)) {
         if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
-          return emitError() << "Semaphore at index is out of bounds";
+          return emitError() << "Semaphore at index is out of bounds: "
+                             << semaphoreAt.getSemaphoreIndex()
+                             << " >= " << numberOfSemaphores;
         }
       }
     }
 
     for (auto arg : kernelInterface.getCtArgs()) {
-      if (auto semaphoreAt =
-              llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
+      if (auto semaphoreAt = llvm::dyn_cast<KernelArgSemaphoreAtAttr>(arg)) {
         if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
-          return emitError() << "Semaphore at index is out of bounds";
+          return emitError() << "Semaphore at index is out of bounds: "
+                             << semaphoreAt.getSemaphoreIndex()
+                             << " >= " << numberOfSemaphores;
         }
       }
     }
