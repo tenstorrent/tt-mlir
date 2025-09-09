@@ -85,7 +85,7 @@ private:
 
   // Check if conv2D uses matmul in tt-metal,
   // reference: ttnn::operations::conv::use_matmul_for_1x1_conv
-  // (1x1 kernel, stride=1, padding=0, groups=1, dilation=1)
+  // (1x1 kernel, stride=1, padding=0, dilation=1)
   bool isConv2DConvertibleToMatMul(Operation *op);
 
   // Try to upgrade an operation to L1 interleaved layout by testing available
