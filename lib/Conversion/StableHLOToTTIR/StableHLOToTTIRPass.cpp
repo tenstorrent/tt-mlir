@@ -48,6 +48,7 @@ struct ConvertStableHLOToTTIRPass
     // Common legal/illegal ops/dialects for both partial and full conversion.
     target.addLegalDialect<mlir::quant::QuantDialect>();
     target.addLegalDialect<ttir::TTIRDialect>();
+    target.addLegalDialect<ttcore::TTCoreDialect>();
     target.addLegalOp<mlir::tt::ttir::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();
     target.addIllegalOp<mlir::tensor::EmptyOp>();

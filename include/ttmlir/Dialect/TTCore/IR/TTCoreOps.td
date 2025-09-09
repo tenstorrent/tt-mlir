@@ -168,4 +168,22 @@ def TTCore_LoadCachedOp : TTCore_Op<"load_cached", []> {
   let hasVerifier = 1;
 }
 
+def TTCore_OptimizationBarrierOp : TTCore_Op<"optimization_barrier", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "Optimization barrier operation.";
+  let description = [{
+    The `optimization_barrier` operation prevents compiler optimizations from reordering or eliminating
+    the values passed through it. It acts as a barrier for optimization passes.
+
+    Inputs:
+    - `inputs` (Variadic): Values of tensor type.
+
+    Outputs:
+    - `results` (Variadic): Same values as inputs, passed through unchanged.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs);
+
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+}
+
 #endif // TTMLIR_DIALECT_TTCORE_IR_TTCOREOPS_TD
