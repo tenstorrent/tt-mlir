@@ -7,6 +7,7 @@
 
 #include "flatbuffers/vector.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
@@ -30,7 +31,7 @@ bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
 bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
 
 const ::tt::target::ttnn::TTNNBinary *
-getBinary(::tt::runtime::Flatbuffer binary);
+getBinary(const ::tt::runtime::Flatbuffer &binary);
 
 const ::tt::target::ttnn::Program *getProgram(const Binary &executableHandle,
                                               std::uint32_t programIndex);
@@ -45,28 +46,57 @@ MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity);
 
 ::ttnn::Layout toTTNNLayout(::tt::target::TensorLayout layout);
 
+::tt::target::TensorLayout fromTTNNLayout(::ttnn::Layout layout);
+
 ::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
     ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout);
 
+::tt::target::ttnn::TensorMemoryLayout
+fromTTNNTensorMemoryLayout(::ttnn::TensorMemoryLayout tensorMemoryLayout);
+
 ::ttnn::BufferType toTTNNBufferType(::tt::target::BufferType bufferType);
+
+::tt::target::BufferType fromTTNNBufferType(::ttnn::BufferType bufferType);
 
 ::ttnn::StorageType
 toTTNNStorageType(::tt::target::ttnn::StorageType storageType);
+
+::tt::target::ttnn::StorageType
+fromTTNNStorageType(::ttnn::StorageType storageType);
+
+::ttnn::Layout inferLayoutFromTileShape(const ::tt::target::Dim2d *tileShape);
 
 ::ttnn::Layout
 inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 CoreCoord toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord);
 
+::tt::target::ttnn::CoreCoord fromTTNNCoreCoord(const CoreCoord &coreCoord);
+
 CoreRange toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange);
+
+::tt::target::ttnn::CoreRange fromTTNNCoreRange(const CoreRange &coreRange);
 
 CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet);
 
-::ttnn::types::ShardOrientation
+::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
+fromTTNNCoreRangeSet(::flatbuffers::FlatBufferBuilder &fbb,
+                     const CoreRangeSet &coreRangeSet);
+
+::ttnn::ShardOrientation
 toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation);
 
-::ttnn::types::ShardMode toTTNNShardMode(tt::target::ttnn::ShardMode mode);
+::tt::target::ttnn::ShardOrientation
+fromTTNNShardOrientation(::ttnn::ShardOrientation orientation);
+
+::ttnn::ShardMode toTTNNShardMode(tt::target::ttnn::ShardMode mode);
+
+::tt::target::ttnn::ShardMode fromTTNNShardMode(::ttnn::ShardMode mode);
+
+::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
+fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
+                  const ::tt::tt_metal::ShardSpec &ttnnShardSpec);
 
 CoreType toCoreType(const ::tt::target::ttnn::CoreType &coreType);
 
@@ -75,6 +105,10 @@ getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 std::optional<::ttnn::MemoryConfig>
 createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);
+
+::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
+fromTTNNMemoryConfig(::flatbuffers::FlatBufferBuilder &fbb,
+                     const ::ttnn::MemoryConfig &ttnnMemoryConfig);
 
 std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
