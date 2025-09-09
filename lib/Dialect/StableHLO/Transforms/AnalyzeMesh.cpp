@@ -271,23 +271,12 @@ public:
         return;
       }
 
+      // If mesh is 1D, we will bump it up to 2D mesh with dim0 as 1.
       llvm::SmallVector<int64_t> originalMeshShape =
           shardy_utils::getMeshShapeFromMeshAttr(
               parsedMeshOps[0].getMeshAttr());
-
-      if (originalMeshShape.size() > 2) {
-        rootModule.emitError("Currently, only 1D and 2D meshes are supported");
-        signalPassFailure();
-        return;
-      }
-
-      // If the mesh is not 2D (or if the mesh is empty), we need to update the
-      // mesh to either insert a 1x1 mesh (if the mesh is empty), or bump up a
-      // 1D mesh to 1xn.
       llvm::SmallVector<int64_t> newMeshShape = originalMeshShape;
-      if (newMeshShape.size() == 0) {
-        newMeshShape = {1, 1};
-      } else if (newMeshShape.size() == 1) {
+      if (newMeshShape.size() == 1) {
         newMeshShape = {1, newMeshShape[0]};
       }
 
@@ -303,7 +292,7 @@ public:
         // Get the old mesh axis name. We will make the new dim0 "1" axis name
         // from the old mesh axis name. This is to ensure that we don't have
         // duplicate axis names in the mesh.
-        std::string existingAxisName = "default";
+        std::string existingAxisName;
         for (auto meshAxisAttr : parsedMeshOps[0].getMeshAttr().getAxes()) {
           existingAxisName = meshAxisAttr.getName().str();
         }
