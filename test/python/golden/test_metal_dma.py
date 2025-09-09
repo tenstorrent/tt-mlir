@@ -43,6 +43,7 @@ def compile_dma_test(test_func, shape, request):
     )
 
 
+@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4835")
 @pytest.mark.parametrize("shape", [(256, 256)])
 @pytest.mark.parametrize("start_grid", [(1, 4), (4, 1), (4, 4)])
 @pytest.mark.parametrize("end_grid", [(1, 1), (4, 4)])
