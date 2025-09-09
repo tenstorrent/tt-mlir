@@ -5,7 +5,7 @@ set -e  # Stop script if any command fails
 # Update system and install base tools
 # -------------------------------
 apt update
-apt install -y git cmake ninja-build python3.10-venv python3-pip wget
+apt install -y git cmake ninja-build python3.11-venv wget pip
 
 # -------------------------------
 # Install LLVM 17
@@ -26,8 +26,8 @@ clang --version
 apt-get install -y \
     software-properties-common \
     build-essential \
-    python3-dev \
-    python3-venv \
+    python3.11-dev \
+    python3.11-venv \
     python3-pip \
     git \
     libhwloc-dev \
