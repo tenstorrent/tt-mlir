@@ -329,8 +329,7 @@ bool isConv2DConvertibleToMatMul(Operation *op) {
   }
 
   // Get weight tensor to check kernel size
-  RankedTensorType weightType =
-      mlir::cast<RankedTensorType>(conv2dOp.getWeight().getType());
+  RankedTensorType weightType = conv2dOp.getWeight().getType();
   llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
 
   // Check kernel size is 1x1
