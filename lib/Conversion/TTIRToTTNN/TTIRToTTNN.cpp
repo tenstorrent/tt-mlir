@@ -1594,6 +1594,12 @@ public:
     // Get the source tensor (values to scatter)
     Value sourceTensor = adaptor.getUpdate();
 
+    // Get update tensor shape and window dims for broadcasting
+    auto updateTensorType =
+        mlir::cast<RankedTensorType>(sourceTensor.getType());
+    auto updateShape = updateTensorType.getShape();
+    auto updateWindowDims = op.getUpdateWindowDims();
+
     // Find dimIndex for scatter_indices.select(index_vector_dim,
     // scatter_dims_to_operand_dims.index(dim))
     auto it = std::find(scatterDimsToOperandDims.begin(),
@@ -1661,6 +1667,78 @@ public:
 
     auto indexTensor = reshapeOp.getResult();
 
+    // NEW: Broadcast index tensor to match update tensor shape
+    Value finalIndexTensor = indexTensor;
+
+    // Check if we need to broadcast to match update tensor dimensionality
+    llvm::SmallVector<int64_t> targetIndexShape(updateShape.begin(),
+                                                updateShape.end());
+
+    if (indexTensorShape.size() != targetIndexShape.size()) {
+      // First, reshape to match target dimensionality with singleton dimensions
+      llvm::SmallVector<int64_t>
+          expandedShape; // Keep as int64_t for RankedTensorType
+
+      // Build expanded shape: keep existing dims, add singletons for window
+      // dims
+      size_t originalDimIndex = 0;
+      for (size_t targetDim = 0; targetDim < targetIndexShape.size();
+           ++targetDim) {
+        bool isWindowDim =
+            std::find(updateWindowDims.begin(), updateWindowDims.end(),
+                      static_cast<int32_t>(targetDim)) !=
+            updateWindowDims.end();
+
+        if (isWindowDim) {
+          expandedShape.push_back(1); // Add singleton for window dimension
+        } else {
+          // Use original dimension size
+          if (originalDimIndex < indexTensorShape.size()) {
+            expandedShape.push_back(indexTensorShape[originalDimIndex++]);
+          } else {
+            expandedShape.push_back(1);
+          }
+        }
+      }
+
+      // Reshape to expanded dimensions
+      RankedTensorType expandedType = RankedTensorType::get(
+          expandedShape, scatterIndicesType.getElementType(),
+          scatterIndicesType.getEncoding());
+
+      // Convert to int32_t for the reshape op attribute
+      llvm::SmallVector<int32_t> expandedShapeI32;
+      for (int64_t dim : expandedShape) {
+        expandedShapeI32.push_back(static_cast<int32_t>(dim));
+      }
+
+      auto expandShapeAttr = rewriter.getI32ArrayAttr(expandedShapeI32);
+      ttnn::ReshapeOp expandReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), expandedType, indexTensor, expandShapeAttr,
+          /*memory_config=*/nullptr);
+
+      finalIndexTensor = expandReshapeOp.getResult();
+
+      // Calculate repeat dimensions: target_shape / expanded_shape for each dim
+      llvm::SmallVector<int64_t> repeatDims;
+      for (size_t i = 0; i < targetIndexShape.size(); ++i) {
+        repeatDims.push_back(targetIndexShape[i] / expandedShape[i]);
+      }
+
+      // Now repeat to target shape (tensor ranks now match)
+      RankedTensorType targetIndexType = RankedTensorType::get(
+          targetIndexShape, scatterIndicesType.getElementType(),
+          scatterIndicesType.getEncoding());
+
+      auto repeatDimsAttr =
+          mlir::tt::ttnn::ShapeAttr::get(rewriter.getContext(), repeatDims);
+
+      ttnn::RepeatOp repeatOp = rewriter.create<ttnn::RepeatOp>(
+          op.getLoc(), targetIndexType, finalIndexTensor, repeatDimsAttr);
+
+      finalIndexTensor = repeatOp.getResult();
+    }
+
     // Create the dim attribute for TTNN scatter
     auto dimAttr = rewriter.getI32IntegerAttr(dim);
 
@@ -1669,12 +1747,13 @@ public:
         this->getTypeConverter()->convertType(op.getType());
 
     // Create the TTNN scatter operation
-    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(op, convertedResultType,
-                                                 inputTensor,  // input_tensor
-                                                 indexTensor,  // index_tensor
-                                                 sourceTensor, // source_tensor
-                                                 dimAttr,      // dim
-                                                 /*memory_config=*/nullptr);
+    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
+        op, convertedResultType,
+        inputTensor,      // input_tensor
+        finalIndexTensor, // index_tensor
+        sourceTensor,     // source_tensor
+        dimAttr,          // dim
+        /*memory_config=*/nullptr);
 
     return success();
   }
