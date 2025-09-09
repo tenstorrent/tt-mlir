@@ -2827,9 +2827,9 @@ def test_hoisted_gather(
     ids=["standard_matmul", "batched_matmul", "3d_tensor_2d_tensor"],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.skip(
-    "Need to rework this, https://github.com/tenstorrent/tt-mlir/issues/3851"
-)
+# @pytest.mark.skip(
+#    "Need to rework this, https://github.com/tenstorrent/tt-mlir/issues/3851"
+# )
 def test_hoisted_dot_general(
     shapes: List[Shape],
     batch_dims_lhs: List[int],
