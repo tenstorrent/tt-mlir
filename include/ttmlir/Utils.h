@@ -32,13 +32,19 @@ constexpr inline llvm::StringLiteral g_cpuHoistFuncCallAttrName =
     "ttir.cpu_hoist_call";
 constexpr inline llvm::StringLiteral g_skipQdqCommuteAttrName =
     "ttir.skip_qdq_commute";
-constexpr inline llvm::StringLiteral g_decomposedFromAllReduceAttrName =
-    "ttir.decomposed_from_all_reduce";
 
 template <typename T>
-T alignUp(T ptr, T alignment) {
-  T distance = ptr % alignment;
-  return ptr + (distance == 0 ? 0 : (alignment - distance));
+T alignUp(const T val, const T alignment) {
+  assert(alignment > 0);
+  return ((val + alignment - 1) / alignment) * alignment;
+}
+
+template <typename Iter>
+auto product(const Iter begin, const Iter end) ->
+    typename std::iterator_traits<Iter>::value_type {
+  using ValueType = typename std::iterator_traits<Iter>::value_type;
+  return std::accumulate(begin, end, static_cast<ValueType>(1),
+                         std::multiplies<ValueType>());
 }
 
 template <typename T>

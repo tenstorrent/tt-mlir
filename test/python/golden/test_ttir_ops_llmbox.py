@@ -9,9 +9,17 @@ from collections import OrderedDict
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
+from builder.base.builder_golden import BuilderGoldenTensor
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
 pytestmark = [pytest.mark.llmbox, pytest.mark.frontend("ttir")]
+
+
+def get_input_tensors_from_builder(args: List, builder: TTIRBuilder):
+    input_tensors = []
+    for arg in args:
+        input_tensors.append(builder._get_golden_tensor(arg))
+    return input_tensors
 
 
 @pytest.mark.parametrize(
@@ -70,12 +78,12 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize(
     "shape",
     [
-        pytest.param((1, 1, 256, 512), marks=pytest.mark.run_error),
-        pytest.param((1, 1, 2, 4), marks=pytest.mark.run_error),
+        (1, 1, 256, 512),
+        pytest.param((1, 1, 2, 4), marks=pytest.mark.fails_golden),
         pytest.param((1, 1, 64, 128), marks=pytest.mark.run_error),
         pytest.param((1, 1, 64, 256), marks=pytest.mark.run_error),
         pytest.param((1, 1, 128, 256), marks=pytest.mark.run_error),
-        pytest.param((1, 1, 256, 256), marks=pytest.mark.run_error),
+        (1, 1, 256, 256),
         pytest.param((1, 1, 128, 512), marks=pytest.mark.run_error),
     ],
 )
@@ -241,33 +249,40 @@ def test_collective_permute(shape: Shape, mesh_shape: Tuple[int, int], request):
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
 def test_matmul_2x4(shapes: List[Shape], mesh_shape: Tuple[int, int], request):
     def matmul_2x4(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        sharded_in0 = builder.mesh_shard(
+        mesh_shard_0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 4),
             shard_dims=(0, 1),
         )
-        sharded_in1 = builder.mesh_shard(
+        mesh_shard_1 = builder.mesh_shard(
             in1,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=(4, 1),
             shard_dims=(-1, 0),
         )
-        partial_matmul = builder.matmul(sharded_in0, sharded_in1)
+        partial_matmul = builder.matmul(mesh_shard_0, mesh_shard_1)
         reduced = builder.all_reduce(
             partial_matmul,
             reduce_type="#ttcore.reduce_type<sum>",
             cluster_axis=1,
         )
-        return builder.mesh_shard(
+        mesh_shard_2 = builder.mesh_shard(
             reduced,
             shard_direction="#ttcore.shard_direction<shard_to_full>",
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=(2, 1),
             shard_dims=(0, -1),
         )
+        operands = [in0, in1]
+        input_tensors = get_input_tensors_from_builder(operands, builder)
+        builder.set_goldens_from_builder_tensor(
+            {operands[0]: input_tensors[0], operands[1]: input_tensors[1]},
+            {mesh_shard_2: torch.matmul(input_tensors[0], input_tensors[1])},
+        )
+        return mesh_shard_2
 
     compile_ttir_to_flatbuffer(
         matmul_2x4,
