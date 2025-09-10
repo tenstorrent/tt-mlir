@@ -5,7 +5,9 @@
 from importlib import import_module
 
 from pykernel._src.kernel_types import CircularBuffer, Kernel, CompileTimeValue
-from pykernel._src.kernel_ast import (
+
+from pykernel.api import (
+    jit,
     ttkernel_compile,
     compute_thread,
     reader_thread,
@@ -13,7 +15,6 @@ from pykernel._src.kernel_ast import (
     ttkernel_tensix_compile,
     ttkernel_noc_compile,
 )
-from pykernel.api import jit
 
 # Hide ttnn import behind a lazy import for now.
 # `import pykernel` will not import ttnn, but `from pykernel import PykernelOp` will

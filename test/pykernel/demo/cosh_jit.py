@@ -5,7 +5,7 @@ import pykernel
 import ttnn
 
 
-@pykernel.jit(debug=True, to_flatbuffer_file="cosh.ttm")
+@pykernel.jit(backend="ttnn", debug=True, dump_flatbuffer=True)
 def cosh(a):
     e_pos_x = exp(a)
     e_neg_x = exp(-a)
