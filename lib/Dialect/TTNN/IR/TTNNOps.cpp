@@ -3494,6 +3494,9 @@ void CaptureOrExecuteTraceOp::getEffects(
       return emitOpError(
           "Accum tensor must match input tensor in shape and element type.");
     }
+    if (getReceiveCoord() == getSendCoord()) {
+      return emitOpError() << "Can't send/receive to the same device";
+    }
   }
   return success();
 }
