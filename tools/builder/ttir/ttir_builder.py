@@ -67,15 +67,32 @@ class TTIRBuilder(Builder):
             assert l % g == 0, f"Logical shape {l} must be divisible by grid shape {g}"
             shard_shape.append(l // g)
 
-        # Sharded shape = grid + logical shape.
-        device_shape = grid_shape + shard_shape
+        # Get sharded shape w/ proper collapse & alignment logic.
+        typed_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
+        if typed_layout is None:
+            raise RuntimeError("Failed to downcast MetalLayoutAttr")
+        device_shape = typed_layout.getDeviceShape(
+            grid_shape, [32, 32] if tiled else [1, 1]
+        )
 
         elemType = F32Type.get(ctx)
 
+        # For tiled layouts, ensure the device shape accounts for tiles.
         if tiled:
             elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
-            device_shape[-2] //= 32
-            device_shape[-1] //= 32
+            if grid is None or grid == (1, 1):
+                # For default 1x1 grid, use exact tile count.
+                tile_count_h = (logical_shape[-2] + 31) // 32
+                tile_count_w = (logical_shape[-1] + 31) // 32
+                device_shape[-2] = tile_count_h
+                device_shape[-1] = tile_count_w
+            else:
+                # For explicit grids, calculate proper sharded tile count.
+                shard_h, shard_w = shard_shape[-2], shard_shape[-1]
+                tiles_per_shard_h = (shard_h + 31) // 32
+                tiles_per_shard_w = (shard_w + 31) // 32
+                device_shape[-2] = tiles_per_shard_h
+                device_shape[-1] = tiles_per_shard_w
 
         return RankedTensorType.get(
             device_shape, elemType, layout, Location.unknown(ctx)

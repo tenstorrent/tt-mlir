@@ -53,6 +53,8 @@ union BufferDetail {
 
 table BufferDesc {
   shape: [int];
+  host_strides: [int];
+  host_volume: uint64;
   data_type: DataType;
   element_shape: Dim2d;
   buffer_detail: BufferDetail;

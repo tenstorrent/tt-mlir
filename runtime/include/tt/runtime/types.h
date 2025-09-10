@@ -7,9 +7,7 @@
 
 #include <cassert>
 #include <memory>
-#include <numeric>
 #include <optional>
-#include <string_view>
 #include <vector>
 
 #include "tt/runtime/utils.h"
@@ -167,35 +165,30 @@ struct RuntimeCheckedConstObjectImpl {
 } // namespace detail
 
 struct TensorDesc {
-  std::vector<std::uint32_t> shape;
-  std::vector<std::uint32_t> stride;
-  std::uint32_t itemsize;
-  ::tt::target::DataType dataType;
-  std::int64_t alignment = 1;
+  std::vector<uint32_t> shape = {}; // Logical.
+  ::tt::target::DataType dataType = ::tt::target::DataType::MAX;
+  uint32_t itemsize = 0;
+  std::vector<uint32_t> stride = {}; // Potentially padded.
+  uint64_t physicalVolume = 0;       // Potentially padded.
 
   TensorDesc() = default;
-  TensorDesc(const std::vector<std::uint32_t> &shape,
-             const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
-             ::tt::target::DataType dataType, std::int64_t alignment = 1)
-      : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType),
-        alignment(alignment) {}
-  TensorDesc(const std::vector<std::uint32_t> &shape,
-             const std::vector<std::uint32_t> &stride,
-             ::tt::target::DataType dataType, std::int64_t alignment = 1)
-      : TensorDesc(shape, stride, utils::dataTypeElementSize(dataType),
-                   dataType, alignment) {}
-  TensorDesc(const std::vector<std::uint32_t> &shape,
-             ::tt::target::DataType dataType, std::int64_t alignment = 1)
-      : TensorDesc(shape, utils::calculateStride(shape), dataType, alignment) {}
 
-  std::int64_t volume() const {
-    return std::accumulate(shape.begin(), shape.end(), static_cast<int64_t>(1),
-                           std::multiplies<int64_t>());
+  TensorDesc(const std::vector<uint32_t> &shape,
+             const ::tt::target::DataType dataType,
+             const std::optional<uint32_t> itemsize = {},
+             const std::optional<std::vector<uint32_t>> &stride = {},
+             const std::optional<uint64_t> physicalVolume = {})
+      : shape(shape), dataType(dataType) {
+    this->itemsize = itemsize.value_or(utils::dataTypeElementSize(dataType));
+    this->stride = stride.value_or(utils::calculateStride(shape));
+    this->physicalVolume = physicalVolume.value_or(volume());
   }
-  std::int64_t sizeBytesUnaligned() const { return volume() * itemsize; }
-  std::int64_t sizeBytes() const {
-    return utils::alignUp(sizeBytesUnaligned(), alignment);
-  }
+
+  size_t volume() const { return utils::product(shape.cbegin(), shape.cend()); }
+
+  size_t sizeBytes() const { return physicalVolume * itemsize; }
+
+  bool isPadded() const { return physicalVolume > volume(); }
 };
 
 struct MemoryView {

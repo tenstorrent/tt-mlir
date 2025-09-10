@@ -155,13 +155,9 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
   std::vector<TensorDesc> inputs;
   const auto *program = getBinary(binary)->programs()->Get(programIndex);
   for (const auto *input : *program->inputs()) {
-    TensorDesc desc;
-    desc.shape = {input->desc()->shape()->begin(),
-                  input->desc()->shape()->end()};
-    desc.stride = utils::calculateStride(desc.shape);
-    desc.itemsize = ::tt::runtime::utils::dataTypeElementSize(
+    TensorDesc desc(
+        {input->desc()->shape()->begin(), input->desc()->shape()->end()},
         input->desc()->layout()->memory_desc()->data_type());
-    desc.dataType = input->desc()->layout()->memory_desc()->data_type();
     inputs.push_back(desc);
   }
   return inputs;
@@ -172,13 +168,9 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
   std::vector<TensorDesc> outputs;
   const auto *program = getBinary(binary)->programs()->Get(programIndex);
   for (const auto *output : *program->outputs()) {
-    TensorDesc desc;
-    desc.shape = {output->desc()->shape()->begin(),
-                  output->desc()->shape()->end()};
-    desc.stride = utils::calculateStride(desc.shape);
-    desc.itemsize = ::tt::runtime::utils::dataTypeElementSize(
+    TensorDesc desc(
+        {output->desc()->shape()->begin(), output->desc()->shape()->end()},
         output->desc()->layout()->memory_desc()->data_type());
-    desc.dataType = output->desc()->layout()->memory_desc()->data_type();
     outputs.push_back(desc);
   }
   return outputs;
@@ -323,12 +315,9 @@ getTensorDescs(const ::flatbuffers::Vector<
   std::vector<TensorDesc> tensorDescs;
   tensorDescs.reserve(tensors->size());
   for (const auto *tensor : *tensors) {
-    TensorDesc desc;
-    desc.shape = {tensor->desc()->shape()->begin(),
-                  tensor->desc()->shape()->end()};
-    desc.stride = utils::calculateStride(desc.shape);
-    desc.dataType = tensor->desc()->layout()->memory_desc()->data_type();
-    desc.itemsize = utils::dataTypeElementSize(desc.dataType);
+    TensorDesc desc(
+        {tensor->desc()->shape()->begin(), tensor->desc()->shape()->end()},
+        tensor->desc()->layout()->memory_desc()->data_type());
     tensorDescs.push_back(desc);
   }
   return tensorDescs;
@@ -415,7 +404,7 @@ Flatbuffer Flatbuffer::loadFromPath(const char *path) {
   LOG_ASSERT(fbb.is_open(), "Failed to open file: ", path);
   std::streampos size = fbb.tellg();
   fbb.seekg(0, std::ios::beg);
-  auto buffer = ::tt::runtime::utils::malloc_shared(size);
+  auto buffer = ::tt::runtime::utils::mallocShared(size);
   fbb.read(static_cast<char *>(buffer.get()), size);
   return Flatbuffer(buffer);
 }
@@ -424,7 +413,7 @@ Flatbuffer Flatbuffer::loadFromMemory(const void *memory, size_t size) {
   // load a flatbuffer from memory
   LOG_ASSERT(memory != nullptr, "Memory pointer is null");
   LOG_ASSERT(size > 0, "Size must be greater than zero");
-  auto buffer = ::tt::runtime::utils::malloc_shared(size);
+  auto buffer = ::tt::runtime::utils::mallocShared(size);
   std::memcpy(buffer.get(), memory, size);
   return Flatbuffer(buffer);
 }

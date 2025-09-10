@@ -83,7 +83,9 @@ def test_untilize(shape: Shape, target: str, request):
 
         to_device = builder.to_layout(
             in0,
-            output_type=builder.get_metal_tensor_layout(shape, (1, 1), False),
+            output_type=builder.get_metal_tensor_layout(
+                shape, tiled=False, grid=(1, 1)
+            ),
             unit_attrs=unit_attrs,
         )
 
@@ -127,7 +129,7 @@ def test_tilize_untilize(shape: Shape, target: str, request):
     ):
         to_device = builder.tilize(
             in0,
-            output_type=builder.get_metal_tensor_layout(shape, (1, 1), True),
+            output_type=builder.get_metal_tensor_layout(shape, tiled=True, grid=(1, 1)),
             unit_attrs=unit_attrs,
         )
         from_device = builder.untilize(

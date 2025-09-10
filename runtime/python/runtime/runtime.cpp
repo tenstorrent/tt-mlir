@@ -51,7 +51,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def_ro("shape", &tt::runtime::TensorDesc::shape)
       .def_ro("stride", &tt::runtime::TensorDesc::stride)
       .def_ro("item_size", &tt::runtime::TensorDesc::itemsize)
-      .def_ro("dtype", &tt::runtime::TensorDesc::dataType);
+      .def_ro("dtype", &tt::runtime::TensorDesc::dataType)
+      .def_ro("physical_volume", &tt::runtime::TensorDesc::physicalVolume);
 
   nb::class_<tt::runtime::MeshDeviceOptions>(m, "MeshDeviceOptions")
       .def(nb::init<>())
