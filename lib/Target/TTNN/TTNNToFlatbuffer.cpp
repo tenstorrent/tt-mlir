@@ -124,13 +124,32 @@ flatbuffers::Offset<::tt::target::ttnn::TensorDesc>
 tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
                        ttcore::DeviceAttr deviceAttr) {
   auto tensorType = mlir::cast<RankedTensorType>(type);
+
+  // Runtime deals with a trace id as a system memory tensor. Appropriate
+  // TTNNLayoutAttr is created for it.
+  TTNNLayoutAttr layoutAttr;
+  if (mlir::isa<ttnn::TraceIdAttr>(tensorType.getEncoding())) {
+    MLIRContext *ctx = tensorType.getContext();
+
+    constexpr size_t bitWidth = 32;
+    const BufferType bufferType = BufferType::SystemMemory;
+
+    layoutAttr = TTNNLayoutAttr::get(
+        ctx, /*shape=*/{},
+        ::mlir::IntegerType::get(ctx, bitWidth, IntegerType::Unsigned),
+        bufferType, ttcore::GridAttr::get(ctx), /*memoryLayoutAttr=*/nullptr,
+        /*tensorMeshAttr=*/nullptr);
+  } else {
+    layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+  }
+
   auto shapeInt64 = tensorType.getShape();
   std::vector<int32_t> shape;
   shape.reserve(shapeInt64.size());
   std::transform(
       shapeInt64.begin(), shapeInt64.end(), std::back_inserter(shape),
       [](int64_t val) -> int32_t { return static_cast<int32_t>(val); });
-  auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+
   // Set meshShape to {1, 1} for single device tensor.
   std::vector<int32_t> meshShape = {1, 1};
   if (layoutAttr.getTensorMesh()) {
