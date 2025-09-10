@@ -278,7 +278,7 @@ void MCQExecutor::execute(const target::metal::ReturnCommand *command) {
     if (meshBufferFound) {
       outputs.emplace_back(
           std::static_pointer_cast<void>(meshBufferIter->second), nullptr,
-          std::static_pointer_cast<void>(meshEvent), DeviceRuntime::TTMetal);
+          DeviceRuntime::TTMetal, std::static_pointer_cast<void>(meshEvent));
     } else {
       outputs.emplace_back(hostBufferIter->second);
       outputs.back().event = Event(std::static_pointer_cast<void>(meshEvent),

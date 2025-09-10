@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -17,15 +18,14 @@
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include <algorithm>
 #include <array>
 
-// ----------------------------------------------------------------------------
 namespace mlir::tt {
-
-using namespace llvm;
 
 namespace {
 class TTIRNamedRewriterCommon {
@@ -36,7 +36,9 @@ protected:
                           ttcore::MemorySpace defaultOutputMemSpace,
                           const llvm::SmallVector<int64_t> &targetGridShape)
       : memorySpaces{defaultInputMemSpace, defaultOutputMemSpace},
-        targetGridShape(targetGridShape) {
+        targetGridShape(targetGridShape),
+        targetSquareGridShape(
+            ttir::utils::getSquareTargetGrid(targetGridShape)) {
     assert(!targetGridShape.empty());
   }
 
@@ -45,13 +47,13 @@ protected:
   computeOptimalGrid(ArrayRef<int64_t> physicalShape) const {
     llvm::SmallVector<int64_t> grid;
 
-    assert(physicalShape.size() == targetGridShape.size());
+    assert(physicalShape.size() == targetSquareGridShape.size());
 
     for (size_t i = 0; i < physicalShape.size(); ++i) {
       const int64_t dim = physicalShape[i];
       assert(dim > 0);
       // Find largest grid dimension that divides evenly
-      for (int64_t g = targetGridShape[i]; g > 0; g--) {
+      for (int64_t g = targetSquareGridShape[i]; g > 0; g--) {
         if (dim % g == 0) {
           grid.push_back(g);
           break;
@@ -80,9 +82,9 @@ protected:
       elementType = ttcore::TileType::get(elementType, tileShape);
     }
 
-    auto layout = ttcore::MetalLayoutAttr::get(rewriter.getContext(),
-                                               logicalShape, targetGridShape,
-                                               ttcore::OOBVal::Undef, memSpace);
+    auto layout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), logicalShape, targetSquareGridShape,
+        ttcore::OOBVal::Undef, memSpace);
 
     // Get raw, unsharded physical shape.
     llvm::SmallVector<int64_t> unshardedShape =
@@ -208,21 +210,28 @@ protected:
     return defaultMemSpaceAttr ? defaultMemSpaceAttr.getValue() : dflt;
   }
 
-  static constexpr mlir::ArrayRef<int64_t> expectedInputGridShape() {
-    return s_expectedInputGridShape;
-  }
-
+protected:
   // Default memory spaces for {inputs, outputs}.
   std::array<ttcore::MemorySpace, 2> memorySpaces;
+
+private:
+  // This should become protected instead once we remove square grid workaround.
   llvm::SmallVector<int64_t> targetGridShape;
 
-  static constexpr std::array<int64_t, 2> s_expectedInputGridShape{1, 1};
+protected:
+  // Workaround variable to represent maximum square grid actual target grid can
+  // hold. We need this to make Blackhole's nonsquare grid work properly for
+  // tranpose.  This will treat e.g. 13x10 grid as 10x10 (take minimum element
+  // in targetGridShape, and extend it to all indexes).
+  llvm::SmallVector<int64_t> targetSquareGridShape;
 };
 } // namespace
-// ............................................................................
+
+namespace {
+// ----------------------------------------------------------------------------
+//
 // Rewrite elementwise ops by emitting a matching tile version of the op
 // into a ttir.generic/linang.generic nest.
-namespace {
 template <typename ConcreteOp, typename TileOp>
 class TTIRNamedElementwiseRewriter final
     : public mlir::OpConversionPattern<ConcreteOp>,
@@ -257,8 +266,7 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    ttcore::GridAttr grid =
-        ttcore::GridAttr::get(ctx, expectedInputGridShape());
+    ttcore::GridAttr grid = ttcore::GridAttr::get(ctx, targetSquareGridShape);
 
     const std::size_t rank = grid.getShape().size();
 
@@ -332,7 +340,9 @@ private:
   }
 };
 } // namespace
-// ............................................................................
+
+// ----------------------------------------------------------------------------
+//
 // Rewriting reduction ops is similar to the elementwise group except for
 // ops whose tiled counterparts require a scaler operand ('weights', etc).
 // This rewriter will emit a single tile scaler operand that will be
@@ -380,8 +390,7 @@ private:
     // minus 1 for the scaler operand
     assert((numOperands - 1) == op->getNumOperands());
 
-    ttcore::GridAttr grid =
-        ttcore::GridAttr::get(ctx, expectedInputGridShape());
+    ttcore::GridAttr grid = ttcore::GridAttr::get(ctx, targetSquareGridShape);
 
     const std::size_t rank = grid.getShape().size();
 
@@ -568,7 +577,11 @@ private:
   }
 };
 } // namespace
-// ............................................................................
+
+// ----------------------------------------------------------------------------
+//
+// Rewrite a MatmulOp into either a TileMatmulOp or TileMatmulBlockOp (selected
+// by TileOp template).
 namespace {
 template <typename TileOp>
 class TTIRMatmulRewriter final
@@ -609,8 +622,7 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    ttcore::GridAttr grid =
-        ttcore::GridAttr::get(ctx, expectedInputGridShape());
+    ttcore::GridAttr grid = ttcore::GridAttr::get(ctx, targetSquareGridShape);
 
     const std::size_t rank = grid.getShape().size();
 
@@ -720,10 +732,156 @@ private:
   }
 };
 } // namespace
-} // namespace mlir::tt
-// ............................................................................
-namespace mlir::tt {
 
+// ----------------------------------------------------------------------------
+//
+// Lower PermuteOp into a StreamLayoutOp (to reblock into new tile-level
+// shape) + GenericOp (to transpose individual tiles).
+namespace {
+class TTIRPermuteRewriter final
+    : public mlir::OpConversionPattern<ttir::PermuteOp>,
+      TTIRNamedRewriterCommon {
+
+  using ConcreteOp = ttir::PermuteOp;
+
+public:
+  TTIRPermuteRewriter(const TypeConverter &typeConverter,
+                      mlir::MLIRContext *ctx,
+                      ttcore::MemorySpace defaultInputMemSpace,
+                      ttcore::MemorySpace defaultOutputMemSpace,
+                      const llvm::SmallVector<int64_t> &targetGridShape)
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
+        TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                                targetGridShape) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    auto permutation = op.getPermutation();
+
+    const int64_t permuteSize = static_cast<int64_t>(permutation.size());
+    // Tranpose pattern on inner dims.
+    if (permuteSize == 2 || permutation[permuteSize - 2] == permuteSize - 1 ||
+        permutation[permuteSize - 1] == permuteSize - 2) {
+      return permuteInnerDims(op, adaptor, rewriter);
+    }
+    // Unhandled conversion case.
+    return failure();
+  }
+
+  // Handler for permutation of inner dims (i.e. transpose).
+  LogicalResult
+  permuteInnerDims(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
+                   mlir::ConversionPatternRewriter &rewriter) const {
+    auto permutation = op.getPermutation();
+    assert(permutation.size() == 2 && permutation[0] == 1 &&
+           permutation[1] == 0 && "Only 2D transpose supported");
+
+    mlir::MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = op->getLoc();
+
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
+
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ true);
+
+    auto inputTensorType =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    auto inputShape = inputTensorType.getShape();
+    const unsigned deviceRank = static_cast<unsigned>(inputShape.size());
+
+    // Compute permutation map and permuted shape.
+    auto [transposeMap, resultShape] = computePermutationMapAndShape(
+        rewriter, permutation, inputShape, deviceRank);
+
+    // Create the result layout by composing with input layout.
+    auto inputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
+    AffineMap composedMap = transposeMap.compose(
+        inputLayout.getIndexAffineMapOrIdentity(deviceRank));
+
+    auto resultLayout = ttcore::MetalLayoutAttr::get(
+        ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
+        inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
+        inputLayout.getMemorySpace(), composedMap);
+
+    auto viewType = mlir::RankedTensorType::get(
+        resultShape, inputTensorType.getElementType(), resultLayout);
+
+    // For inner permute, we need as streamLayout to do reblocking.
+    auto storage = rewriter.create<ttir::EmptyOp>(loc, viewType);
+    auto stream = rewriter.create<ttir::StreamLayoutOp>(loc, viewType,
+                                                        inputs[0], storage);
+    inputs[0] = stream.getResult();
+
+    // For inner permute, we alse need a GenericOp to transpose each individual
+    // tile.
+    auto generic = rewriter.create<ttir::GenericOp>(
+        loc, inputs, outputs,
+        [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
+          auto identityMap = builder.getMultiDimIdentityMap(2);
+          SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
+              2, mlir::utils::IteratorType::parallel);
+
+          auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
+              bodyLoc,
+              llvm::to_vector(
+                  mlir::ValueRange(blockArgs.take_back(1)).getTypes()),
+              blockArgs.take_front(1), blockArgs.take_back(1),
+              SmallVector<mlir::AffineMap>{identityMap, identityMap},
+              linalgIteratorTypes,
+              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                  mlir::ValueRange bbArgs) {
+                mlir::Value yield = bbBuilder.create<ttir::TileTransposeOp>(
+                    bbLoc, bbArgs.take_back(1).getTypes(),
+                    bbArgs.take_front(1));
+                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+              });
+
+          builder.create<ttir::YieldOp>(bodyLoc, linalgGeneric->getResults());
+        });
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
+    return success();
+  }
+
+private:
+  // Apply permutation mapping to affine map and input shape to get permuted map
+  // and shape.
+  std::pair<AffineMap, SmallVector<int64_t>> computePermutationMapAndShape(
+      mlir::ConversionPatternRewriter &rewriter, ArrayRef<int64_t> permutation,
+      ArrayRef<int64_t> inputShape, unsigned deviceRank) const {
+
+    unsigned logicalRank = deviceRank / 2;
+    assert(logicalRank == permutation.size());
+    SmallVector<AffineExpr> results(deviceRank);
+    SmallVector<int64_t> resultShape(deviceRank);
+
+    for (auto [dstIdx, srcIdx] : llvm::enumerate(permutation)) {
+      // Permute grid mapping.
+      results[dstIdx] = rewriter.getAffineDimExpr(srcIdx);
+      // Permute shard mapping.
+      results[logicalRank + dstIdx] =
+          rewriter.getAffineDimExpr(logicalRank + srcIdx);
+
+      // Permute grid shape.
+      resultShape[dstIdx] = inputShape[srcIdx];
+      // Permute shard shape.
+      resultShape[dstIdx + logicalRank] = inputShape[srcIdx + logicalRank];
+    }
+
+    AffineMap transposeMap =
+        AffineMap::get(deviceRank, 0, results, rewriter.getContext());
+    return {transposeMap, resultShape};
+  }
+};
+} // namespace
+} // namespace mlir::tt
+
+namespace mlir::tt {
 void populateTTIRToTTIRGenericPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     ttcore::MemorySpace defaultInputMemSpace,
@@ -752,12 +910,15 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::SqrtOp,       ttir::TileSqrtOp>,
     TTIRNamedElementwiseRewriter<ttir::SubtractOp,   ttir::TileSubOp>,
     TTIRNamedElementwiseRewriter<ttir::TanOp,        ttir::TileTanOp>,
-    // Reductions.
+    // Reduction.
     TTIRNamedReductionRewriter<ttir::MaxOp,          ttir::TileReduceMaxOp>,
     TTIRNamedReductionRewriter<ttir::SumOp,          ttir::TileReduceSumOp>,
     // Data movement.
-    TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>
+    TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>,
+    // Permute (handles tranpose ops, since they're canonicalized into permutes).
+    TTIRPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
+
 
   // Matmul.
   if (useTileMatmul) {

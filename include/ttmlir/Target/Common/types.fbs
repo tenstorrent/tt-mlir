@@ -16,6 +16,11 @@ enum Arch: uint {
   Blackhole
 }
 
+enum DispatchCoreType: uint {
+  Worker,
+  Ethernet
+}
+
 enum DataType: uint16 {
   Float32,
   Float16,

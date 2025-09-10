@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include <cassert>
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -180,12 +181,18 @@ TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
 //
 // Shard is defined as a piece of the tensor that is mapped to a single grid
 // core. This function returns the shard shape for tensors with INTERLEAVED
-// tensor memory layout.
+// tensor memory layout. Returned shard shape is in scalar elements.
 //
 // All examples assume that the tensor is mapped to a 8x8 grid.
-// Example: tensor<1x1024xbf16> ( -> 32 tiles ) -> {1, 1}
-// Example: tensor<512x512xbf16> ( -> 256 tiles ) -> {1, 4}
-// Example: tensor<32x2049xbf16> ( -> 65 tiles ) -> {1, 2}
+// Examples for TileType:
+// Example: tensor<1x1024xbf16> ( -> 32 tiles ) -> {32, 32}
+// Example: tensor<512x512xbf16> ( -> 256 tiles ) -> {32, 128}
+// Example: tensor<32x2049xbf16> ( -> 65 tiles ) -> {32, 64}
+//
+// Examples for RowMajor:
+// Example: tensor<1x1024xbf16> -> {1, 16}
+// Example: tensor<512x512xbf16> -> {1, 4096}
+// Example: tensor<32x2049xbf16> -> {1, 1025}
 //
 // return The logical shard shape in case of interleaved tensor memory layout.
 llvm::SmallVector<int64_t>
@@ -193,22 +200,38 @@ TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
     ArrayRef<int64_t> tensorShape, mlir::Type elementType,
     mlir::AffineMap linear, mlir::tt::ttcore::GridAttr grid) {
   assert(linear.getNumResults() == grid.getShape().size());
-  assert(mlir::isa<mlir::tt::ttcore::TileType>(elementType));
 
   mlir::SmallVector<std::int64_t> physicalShape =
       ttmlir::utils::evalShape(linear, tensorShape);
+
+  uint64_t numOfGridUnits =
+      std::accumulate(grid.getShape().begin(), grid.getShape().end(), 1,
+                      std::multiplies<std::int64_t>());
+
+  // Create shard shape with all dims set to 1 except the last one which is
+  // set to shardVolume.
+  mlir::SmallVector<std::int64_t> shardShape;
+  shardShape.resize(grid.getShape().size() - 1, 1);
+
+  if (!mlir::isa<mlir::tt::ttcore::TileType>(elementType)) {
+    // If RowMajor, single shard should be TensorVolume / NumCores rounded up.
+    // So in case of tensor<5120x1024xbf16> on 8x8 grid we have
+    // 5120*1024/64 = 81920 -> shard shape is <1x81920xbf16>
+    int64_t tensorVolume =
+        std::accumulate(physicalShape.begin(), physicalShape.end(), 1,
+                        std::multiplies<int64_t>());
+    int64_t shardVolume = (tensorVolume + numOfGridUnits - 1) / numOfGridUnits;
+    shardShape.push_back(shardVolume);
+    return shardShape;
+  }
+
+  // TileType case
   mlir::SmallVector<std::int64_t> physicalTiledShape =
       mlir::cast<mlir::tt::ttcore::TileType>(elementType)
           .getTiledShape(physicalShape);
   uint64_t numOfTiles =
       std::accumulate(physicalTiledShape.begin(), physicalTiledShape.end(), 1,
                       std::multiplies<std::int64_t>());
-  uint64_t numOfGridUnits =
-      std::accumulate(grid.getShape().begin(), grid.getShape().end(), 1,
-                      std::multiplies<std::int64_t>());
-
-  mlir::SmallVector<std::int64_t> shardShape;
-  shardShape.resize(grid.getShape().size() - 1, 1);
   shardShape.push_back((numOfTiles + numOfGridUnits - 1) / numOfGridUnits);
   return mlir::cast<mlir::tt::ttcore::TileType>(elementType)
       .getScalarShape(shardShape);
@@ -967,4 +990,125 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   DeviceComputeKernelConfigAttrParams params(*this);
   params.dstFullSyncEn = BoolAttr::get(getContext(), value);
   return params.buildDeviceComputeKernelConfigAttr(getContext());
+}
+
+::llvm::LogicalResult ProgramAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    llvm::ArrayRef<mlir::Attribute> kernels,
+    llvm::ArrayRef<mlir::tt::ttnn::KernelCBAttr> cbs,
+    llvm::ArrayRef<mlir::tt::ttnn::KernelSemaphoreAttr> semaphores) {
+
+  for (auto kernel : kernels) {
+    if (!llvm::isa<mlir::tt::ttnn::ComputeKernelAttr,
+                   mlir::tt::ttnn::ReadKernelAttr,
+                   mlir::tt::ttnn::WriteKernelAttr>(kernel)) {
+      return emitError() << "Unexpected kernel";
+    }
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult KernelCBAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    uint32_t totalSize, CoreRangeSetAttr coreRanges,
+    llvm::ArrayRef<mlir::tt::ttnn::KernelCBFormatAttr> formats) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult KernelCBFormatAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    uint32_t bufferIndex, ttcore::DataType dtype, uint32_t pageSize) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult KernelSemaphoreAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    KernelCoreType coreType, ::mlir::tt::ttnn::CoreRangeSetAttr coreRanges,
+    uint32_t initialValue) {
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult verifyCommonRuntimeArgs(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<mlir::Attribute> args) {
+
+  for (auto arg : args) {
+    if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
+                   mlir::tt::ttnn::KernelArgAddressOfTensorAttr,
+                   mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
+      return emitError() << "Unexpected common runtime argument";
+    }
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult verifyCompileTimeArgs(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<mlir::Attribute> args) {
+  for (auto arg : args) {
+    if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
+                   mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
+      return emitError() << "Unexpected compile time argument";
+    }
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult ComputeKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    SymbolRefAttr symbolRef, ::mlir::tt::ttnn::CoreRangeSetAttr coreRanges,
+    ComputeKernelMathFidelity mathFidelity, bool fp32DestAccEn,
+    bool dstFullSyncEn,
+    ::llvm::ArrayRef<ComputeKernelUnpackToDestMode> unpackToDestModes,
+    bool bfp8PackPrecise, bool mathApproxMode,
+    ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
+    return ::llvm::failure();
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult ReadKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
+    ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
+    return ::llvm::failure();
+  }
+
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult WriteKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
+    ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
+    return ::llvm::failure();
+  }
+
+  return ::llvm::success();
+}
+
+// Transform TTNNLayoutAttr with a different layout while preserving the
+// element type.
+//
+// param layout The target layout (RowMajor or Tile).
+// param tensorShape The shape of the tensor.
+// return The new TTNNLayoutAttr with the specified layout.
+TTNNLayoutAttr TTNNLayoutAttr::withLayout(Layout layout,
+                                          ArrayRef<int64_t> tensorShape) {
+  assert(layout == Layout::RowMajor || layout == Layout::Tile);
+  Type elementType = utils::getElementType(getContext(), layout, getDataType());
+  return withElementType(elementType, tensorShape);
 }

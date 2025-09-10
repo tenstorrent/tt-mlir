@@ -173,7 +173,7 @@ jobs:
 
   run-tests:
 
-    timeout-minutes: 45
+    timeout-minutes: 70
     needs:
       - build-image
       - build-ttmlir
@@ -339,6 +339,7 @@ jobs:
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_generate_sys_desc
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_float_bfloat_buffer_cast
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_integer_buffer_cast
+        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/ttnn/gtest/test_runtime_client
 
     - name: Run TTNN-Standalone test
       shell: bash
