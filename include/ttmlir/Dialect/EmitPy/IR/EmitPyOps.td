@@ -1,26 +1,28 @@
 // SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
-//
-// SPDX-License-Identifier: Apache-2.0
+//// SPDX-License-Identifier: Apache-2.0
 
 #ifndef TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD
 #define TTMLIR_TTMLIR_DIALECT_EMITPY_EMITPYOPS_TD
 
-include "mlir/IR/OpBase.td"
+
+include "EmitPyAttrs.td"
+include "EmitPyBase.td"
+include "EmitPyInterfaces.td"
+include "EmitPyTypes.td"
+
+include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
-include "mlir/Interfaces/SideEffectInterfaces.td"
-
-include "EmitPyBase.td"
-include "EmitPyTypes.td"
-include "EmitPyAttrs.td"
+include "mlir/IR/OpBase.td"
+include "mlir/IR/RegionKindInterface.td"
 
 //===----------------------------------------------------------------------===//
-// EmitPy ops definitions
+// EmitPy ops definitions.
 //===----------------------------------------------------------------------===//
 
 
-def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque"> {
+def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque", [PyExpressionInterface]> {
   let summary = "Opaque call operation";
   let description = [{
     The `emitpy.call_opaque` operation represents a Python function call. The callee
@@ -29,15 +31,15 @@ def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque"> {
     Example:
 
     ```mlir
-    // Custom form defining a call to `foo()`.
-    %2 = emitpy.call_opaque "ttnn.add"(%0, %1) {args = [0 : index, 1 : index]} : (!emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"ttnn.Tensor">
+    %2 = emitpy.call_opaque "ttnn.add"(%0, %1) {args = [0 : index, 1 : index, #emitpy.opaque<"ttnn.DataType.BFLOAT16">, #emitpy.opaque<"ttnn.MemoryConfig(ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.BufferType.DRAM, None)">], keyword_args = ["", "", "dtype", "memory_config"]} : (!emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"ttnn.Tensor">
     ```
   }];
 
   let arguments = (ins
     Arg<StrAttr, "the Python function to call">:$callee,
     Arg<OptionalAttr<ArrayAttr>, "the order of operands and further attributes">:$args,
-    Variadic<AnyType>:$operands
+    Variadic<AnyType>:$operands,
+    Arg<OptionalAttr<StrArrayAttr>>:$keyword_args
   );
 
   let results = (outs Variadic<AnyType>);
@@ -47,8 +49,9 @@ def EmitPy_CallOpaqueOp : EmitPy_Op<"call_opaque"> {
       "::mlir::TypeRange":$result_types,
       "::llvm::StringRef":$callee,
       "::mlir::ValueRange":$operands,
-      CArg<"::mlir::ArrayAttr", "{}">:$args), [{
-        build($_builder, $_state, result_types,  callee, args, operands);
+      CArg<"::mlir::ArrayAttr", "{}">:$args,
+      CArg<"::mlir::ArrayAttr", "{}">:$keyword_args), [{
+        build($_builder, $_state, result_types, callee, args, operands, keyword_args);
       }]
     >
   ];
@@ -82,7 +85,7 @@ def EmitPy_ImportOp : EmitPy_Op<"import"> {
   let hasCustomAssemblyFormat = 1;
 }
 
-def EmitPy_LiteralOp : EmitPy_Op<"literal", [Pure]> {
+def EmitPy_LiteralOp : EmitPy_Op<"literal", [Pure, PyExpressionInterface]> {
   let summary = "Literal operation";
   let description = [{
     The `emitpy.literal` operation produces an SSA value equal to some constant
@@ -103,7 +106,7 @@ def EmitPy_LiteralOp : EmitPy_Op<"literal", [Pure]> {
   let assemblyFormat = "$value attr-dict `:` type($result)";
 }
 
-def EmitPy_SubscriptOp : EmitPy_Op<"subscript"> {
+def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [PyExpressionInterface]> {
   let summary = "Subscript operation";
   let description = [{
     With the `emitpy.subscript` operation the subscript operator `[]` can be applied
@@ -148,6 +151,7 @@ def EmitPy_AssignOp : EmitPy_Op<"assign"> {
     EmitPy_OpaqueType:$value);
 
   let results = (outs AnyType:$result);
+  let assemblyFormat = "$value attr-dict `:` functional-type(operands, results)";
 }
 
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {
