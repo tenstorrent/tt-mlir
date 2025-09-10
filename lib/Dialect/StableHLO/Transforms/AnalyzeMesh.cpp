@@ -201,6 +201,285 @@ public:
   }
 };
 
+// Parse axis definitions from SDY mesh string format
+// Input: '"axis_name"=size, "axis2"=size2'
+// Output: vector of (axis_name, size) pairs
+static std::vector<std::pair<std::string, int64_t>>
+parseAxisDefinitions(const std::string &axesContent) {
+  std::vector<std::pair<std::string, int64_t>> axes;
+  size_t pos = 0;
+
+  while (pos < axesContent.length()) {
+    // Skip whitespace and commas
+    while (pos < axesContent.length() &&
+           (axesContent[pos] == ' ' || axesContent[pos] == ',')) {
+      pos++;
+    }
+    if (pos >= axesContent.length()) {
+      break;
+    }
+
+    // Look for quote start (")
+    size_t quoteStart = axesContent.find('"', pos);
+    if (quoteStart == std::string::npos) {
+      break;
+    }
+
+    // Look for quote end (")
+    size_t quoteEnd = axesContent.find('"', quoteStart + 1);
+    if (quoteEnd == std::string::npos) {
+      break;
+    }
+
+    // Extract axis name between the quotes
+    std::string axisName =
+        axesContent.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+
+    // Look for equals sign
+    size_t equalPos = axesContent.find("=", quoteEnd + 1);
+    if (equalPos == std::string::npos) {
+      break;
+    }
+
+    // Extract the size number
+    size_t numStart = equalPos + 1;
+    size_t numEnd = axesContent.find_first_of(",] ", numStart);
+    if (numEnd == std::string::npos) {
+      numEnd = axesContent.length();
+    }
+
+    std::string sizeStr = axesContent.substr(numStart, numEnd - numStart);
+    // Remove any trailing whitespace
+    while (!sizeStr.empty() &&
+           (sizeStr.back() == ' ' || sizeStr.back() == '\t')) {
+      sizeStr.pop_back();
+    }
+
+    if (!sizeStr.empty()) {
+      int64_t size = std::stoi(sizeStr);
+      axes.push_back({axisName, size});
+    }
+
+    pos = numEnd;
+  }
+
+  return axes;
+}
+
+// Parse mesh information from mhlo.frontend_attributes and create sdy.mesh
+static mlir::LogicalResult
+parseMeshFromFrontendAttributes(mlir::ModuleOp &rootModule,
+                                mlir::MLIRContext *context) {
+  auto moduleAttrs = rootModule->getAttrDictionary();
+  if (!moduleAttrs.contains("mhlo.frontend_attributes")) {
+    return mlir::success(); // No frontend attributes to process
+  }
+
+  auto frontendAttrs = moduleAttrs.get("mhlo.frontend_attributes");
+  auto dictAttr = mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs);
+  if (!dictAttr || !dictAttr.contains("xla.sdy.meshes")) {
+    return mlir::success(); // No mesh information to process
+  }
+
+  // Parse the mesh string and create sdy.mesh
+  auto meshesStr =
+      mlir::dyn_cast<mlir::StringAttr>(dictAttr.get("xla.sdy.meshes"));
+  if (!meshesStr) {
+    return mlir::success();
+  }
+
+  // Parse SDY mesh string like "{mesh = #sdy.mesh<[\"axis_name\"=size, ...]>}"
+  std::string meshStr = meshesStr.getValue().str();
+
+  // Extract mesh name (assumes "mesh" for now, but could be generalized)
+  std::string meshName = "mesh";
+
+  // Parse axis definitions from the string
+  // Find the content between < and >
+  size_t startPos = meshStr.find("<[");
+  size_t endPos = meshStr.find("]>");
+  if (startPos == std::string::npos || endPos == std::string::npos) {
+    return mlir::success(); // Invalid format, skip
+  }
+
+  std::string axesContent = meshStr.substr(startPos + 2, endPos - startPos - 2);
+  std::vector<std::pair<std::string, int64_t>> axes =
+      parseAxisDefinitions(axesContent);
+
+  // Create mesh based on parsed axes
+  if (axes.size() == 1) {
+    // Single axis: convert to 2D mesh (existing behavior from original code)
+    shardy_utils::addMeshToModule(rootModule, meshName,
+                                  axes[0].first + "_updated", axes[0].first, 1,
+                                  axes[0].second);
+  } else if (axes.size() == 2) {
+    // Two axes: use directly
+    shardy_utils::addMeshToModule(rootModule, meshName, axes[0].first,
+                                  axes[1].first, axes[0].second,
+                                  axes[1].second);
+  } else {
+    rootModule.emitError(
+        "Unsupported mesh configuration: only 1D and 2D meshes are supported");
+    return mlir::failure();
+  }
+
+  return mlir::success();
+}
+
+// Parse dimension shardings from SDY sharding string format
+// Input: "{}, {\"axis_name\"}, {}"
+// Output: vector of DimensionShardingAttr
+static llvm::SmallVector<mlir::sdy::DimensionShardingAttr>
+parseDimensionShardings(const std::string &dimsContent,
+                        mlir::MLIRContext *context) {
+  llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
+  size_t pos = 0;
+
+  while (pos < dimsContent.length()) {
+    size_t braceStart = dimsContent.find("{", pos);
+    if (braceStart == std::string::npos) {
+      break;
+    }
+
+    size_t braceEnd = dimsContent.find("}", braceStart);
+    if (braceEnd == std::string::npos) {
+      break;
+    }
+
+    std::string dimContent =
+        dimsContent.substr(braceStart + 1, braceEnd - braceStart - 1);
+
+    if (dimContent.empty()) {
+      // Empty dimension sharding
+      dimShardings.push_back(
+          mlir::sdy::DimensionShardingAttr::get(context, {}, false));
+    } else {
+      // Parse axis names from dimension content
+      llvm::SmallVector<mlir::sdy::AxisRefAttr> axisRefs;
+      size_t axisPos = 0;
+      while (axisPos < dimContent.length()) {
+        size_t quoteStart = dimContent.find('"', axisPos);
+        if (quoteStart == std::string::npos) {
+          break;
+        }
+
+        size_t quoteEnd = dimContent.find('"', quoteStart + 1);
+        if (quoteEnd == std::string::npos) {
+          break;
+        }
+
+        std::string axisName =
+            dimContent.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+        axisRefs.push_back(mlir::sdy::AxisRefAttr::get(context, axisName));
+        axisPos = quoteEnd + 1;
+      }
+
+      dimShardings.push_back(
+          mlir::sdy::DimensionShardingAttr::get(context, axisRefs, false));
+    }
+
+    pos = braceEnd + 1;
+  }
+
+  return dimShardings;
+}
+
+// Convert function argument from mhlo.frontend_attributes to sdy.sharding
+static mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
+                                                   mlir::BlockArgument &arg,
+                                                   mlir::MLIRContext *context) {
+  auto currentArgAttrDict = funcOp.getArgAttrDict(arg.getArgNumber());
+  if (!currentArgAttrDict ||
+      !currentArgAttrDict.contains("mhlo.frontend_attributes")) {
+    return mlir::success(); // No frontend attributes to convert
+  }
+
+  auto frontendAttrs = currentArgAttrDict.get("mhlo.frontend_attributes");
+  auto dictAttr = mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs);
+  if (!dictAttr || !dictAttr.contains("xla.sdy.sharding")) {
+    return mlir::success(); // No sharding to convert
+  }
+
+  auto shardingStr =
+      mlir::dyn_cast<mlir::StringAttr>(dictAttr.get("xla.sdy.sharding"));
+  if (!shardingStr) {
+    return mlir::success();
+  }
+
+  // Parse SDY sharding string like "#sdy.sharding<@mesh, [{}, {\"axis_name\"},
+  // ...]>"
+  std::string shardingValue = shardingStr.getValue().str();
+
+  // Create new argument attributes without mhlo.frontend_attributes and
+  // mhlo.sharding
+  llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
+  for (auto attr : currentArgAttrDict) {
+    if (attr.getName() != "mhlo.frontend_attributes" &&
+        attr.getName() != "mhlo.sharding") {
+      newArgAttrs.push_back(attr);
+    }
+  }
+
+  // Extract mesh name
+  std::string meshName =
+      "mesh"; // Default, could be parsed from sharding string
+
+  // Parse dimension shardings from the string
+  size_t startPos = shardingValue.find("[");
+  size_t endPos = shardingValue.rfind("]");
+  if (startPos != std::string::npos && endPos != std::string::npos) {
+    std::string dimsContent =
+        shardingValue.substr(startPos + 1, endPos - startPos - 1);
+
+    // Parse each dimension sharding
+    llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings =
+        parseDimensionShardings(dimsContent, context);
+
+    if (!dimShardings.empty()) {
+      mlir::sdy::TensorShardingAttr sharding =
+          mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings,
+                                             {}, {});
+      newArgAttrs.emplace_back(
+          mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
+          sharding);
+    }
+  }
+
+  funcOp.setArgAttrs(arg.getArgNumber(),
+                     mlir::DictionaryAttr::get(context, newArgAttrs));
+  return mlir::success();
+}
+
+// Convert all function arguments from frontend attributes format to SDY format
+static mlir::LogicalResult
+convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
+                               mlir::MLIRContext *context) {
+  mlir::WalkResult result = rootModule.walk([&](func::FuncOp funcOp) {
+    for (BlockArgument arg : funcOp.getArguments()) {
+      if (mlir::failed(convertArgumentSharding(funcOp, arg, context))) {
+        return WalkResult::interrupt();
+      }
+    }
+    return WalkResult::advance();
+  });
+
+  if (result.wasInterrupted()) {
+    return mlir::failure();
+  }
+
+  // Remove mhlo.frontend_attributes from module
+  auto moduleAttrs = rootModule->getAttrDictionary();
+  llvm::SmallVector<mlir::NamedAttribute> newModuleAttrs;
+  for (auto attr : moduleAttrs) {
+    if (attr.getName() != "mhlo.frontend_attributes") {
+      newModuleAttrs.push_back(attr);
+    }
+  }
+  rootModule->setAttrs(mlir::DictionaryAttr::get(context, newModuleAttrs));
+
+  return mlir::success();
+}
+
 // Check if tt argument annotations exist in the module.
 static bool ttAnnotationsExist(mlir::ModuleOp &rootModule) {
   mlir::WalkResult result = rootModule.walk([&](func::FuncOp funcOp) {
@@ -318,10 +597,13 @@ public:
       bool hasFrontendSdyAttrs = false;
       rootModule.walk([&](func::FuncOp funcOp) {
         for (BlockArgument arg : funcOp.getArguments()) {
-          if (auto currentArgAttrDict = funcOp.getArgAttrDict(arg.getArgNumber())) {
+          if (auto currentArgAttrDict =
+                  funcOp.getArgAttrDict(arg.getArgNumber())) {
             if (currentArgAttrDict.contains("mhlo.frontend_attributes")) {
-              auto frontendAttrs = currentArgAttrDict.get("mhlo.frontend_attributes");
-              if (auto dictAttr = mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs)) {
+              auto frontendAttrs =
+                  currentArgAttrDict.get("mhlo.frontend_attributes");
+              if (auto dictAttr =
+                      mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs)) {
                 if (dictAttr.contains("xla.sdy.sharding")) {
                   hasFrontendSdyAttrs = true;
                   return WalkResult::interrupt();
@@ -335,188 +617,19 @@ public:
 
       if (hasFrontendSdyAttrs) {
         // Handle frontend_attributes conversion
-        // First, extract mesh information from module attributes
-        auto moduleAttrs = rootModule->getAttrDictionary();
-        if (moduleAttrs.contains("mhlo.frontend_attributes")) {
-          auto frontendAttrs = moduleAttrs.get("mhlo.frontend_attributes");
-          if (auto dictAttr = mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs)) {
-            if (dictAttr.contains("xla.sdy.meshes")) {
-              // Parse the mesh string and create sdy.mesh
-              auto meshesStr = mlir::dyn_cast<mlir::StringAttr>(dictAttr.get("xla.sdy.meshes"));
-              if (meshesStr) {
-                // Parse SDY mesh string like "{mesh = #sdy.mesh<[\"axis_name\"=size, ...]>}"
-                std::string meshStr = meshesStr.getValue().str();
-                
-                // Extract mesh name (assumes "mesh" for now, but could be generalized)
-                std::string meshName = "mesh";
-                
-                // Parse axis definitions from the string
-                // Find the content between < and >
-                size_t startPos = meshStr.find("<[");
-                size_t endPos = meshStr.find("]>");
-                if (startPos != std::string::npos && endPos != std::string::npos) {
-                  std::string axesContent = meshStr.substr(startPos + 2, endPos - startPos - 2);
-                  
-                  // Parse axes (format: "axis_name"=size)
-                  std::vector<std::pair<std::string, int64_t>> axes;
-                  size_t pos = 0;
-                  while (pos < axesContent.length()) {
-                    // Skip whitespace and commas
-                    while (pos < axesContent.length() && (axesContent[pos] == ' ' || axesContent[pos] == ',')) {
-                      pos++;
-                    }
-                    if (pos >= axesContent.length()) break;
-                    
-                    // Look for quote start (")
-                    size_t quoteStart = axesContent.find('"', pos);
-                    if (quoteStart == std::string::npos) break;
-                    
-                    // Look for quote end (")
-                    size_t quoteEnd = axesContent.find('"', quoteStart + 1);
-                    if (quoteEnd == std::string::npos) break;
-                    
-                    // Extract axis name between the quotes
-                    std::string axisName = axesContent.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
-                    
-                    // Look for equals sign
-                    size_t equalPos = axesContent.find("=", quoteEnd + 1);
-                    if (equalPos == std::string::npos) break;
-                    
-                    // Extract the size number
-                    size_t numStart = equalPos + 1;
-                    size_t numEnd = axesContent.find_first_of(",] ", numStart);
-                    if (numEnd == std::string::npos) numEnd = axesContent.length();
-                    
-                    std::string sizeStr = axesContent.substr(numStart, numEnd - numStart);
-                    // Remove any trailing whitespace
-                    while (!sizeStr.empty() && (sizeStr.back() == ' ' || sizeStr.back() == '\t')) {
-                      sizeStr.pop_back();
-                    }
-                    
-                    if (!sizeStr.empty()) {
-                      int64_t size = std::stoi(sizeStr);
-                      axes.push_back({axisName, size});
-                    }
-                    
-                    pos = numEnd;
-                  }
-                  
-                  // Create mesh based on parsed axes
-                  if (axes.size() == 1) {
-                    // Single axis: convert to 2D mesh (existing behavior from original code)
-                    shardy_utils::addMeshToModule(rootModule, meshName, axes[0].first + "_updated", axes[0].first, 1, axes[0].second);
-                  } else if (axes.size() == 2) {
-                    // Two axes: use directly
-                    shardy_utils::addMeshToModule(rootModule, meshName, axes[0].first, axes[1].first, axes[0].second, axes[1].second);
-                  } else {
-                    rootModule.emitError("Unsupported mesh configuration: only 1D and 2D meshes are supported");
-                    signalPassFailure();
-                    return;
-                  }
-                }
-              }
-            }
-          }
+        // Parse mesh information from module attributes and create sdy.mesh
+        if (mlir::failed(
+                parseMeshFromFrontendAttributes(rootModule, context))) {
+          signalPassFailure();
+          return;
         }
 
-        // Convert argument attributes
-        rootModule.walk([&](func::FuncOp funcOp) {
-          for (BlockArgument arg : funcOp.getArguments()) {
-            if (auto currentArgAttrDict = funcOp.getArgAttrDict(arg.getArgNumber())) {
-              if (currentArgAttrDict.contains("mhlo.frontend_attributes")) {
-                auto frontendAttrs = currentArgAttrDict.get("mhlo.frontend_attributes");
-                if (auto dictAttr = mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs)) {
-                  if (dictAttr.contains("xla.sdy.sharding")) {
-                    auto shardingStr = mlir::dyn_cast<mlir::StringAttr>(dictAttr.get("xla.sdy.sharding"));
-                    if (shardingStr) {
-                      // Parse SDY sharding string like "#sdy.sharding<@mesh, [{}, {\"axis_name\"}, ...]>"
-                      std::string shardingValue = shardingStr.getValue().str();
-                      
-                      // Create new argument attributes without mhlo.frontend_attributes and mhlo.sharding
-                      llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
-                      for (auto attr : currentArgAttrDict) {
-                        if (attr.getName() != "mhlo.frontend_attributes" && 
-                            attr.getName() != "mhlo.sharding") {
-                          newArgAttrs.push_back(attr);
-                        }
-                      }
-                      
-                      // Extract mesh name
-                      std::string meshName = "mesh";  // Default, could be parsed from sharding string
-                      
-                      // Parse dimension shardings from the string
-                      size_t startPos = shardingValue.find("[");
-                      size_t endPos = shardingValue.rfind("]");
-                      if (startPos != std::string::npos && endPos != std::string::npos) {
-                        std::string dimsContent = shardingValue.substr(startPos + 1, endPos - startPos - 1);
-                        
-                        // Parse each dimension sharding
-                        llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
-                        size_t pos = 0;
-                        while (pos < dimsContent.length()) {
-                          size_t braceStart = dimsContent.find("{", pos);
-                          if (braceStart == std::string::npos) break;
-                          
-                          size_t braceEnd = dimsContent.find("}", braceStart);
-                          if (braceEnd == std::string::npos) break;
-                          
-                          std::string dimContent = dimsContent.substr(braceStart + 1, braceEnd - braceStart - 1);
-                          
-                          if (dimContent.empty()) {
-                            // Empty dimension sharding
-                            dimShardings.push_back(
-                                mlir::sdy::DimensionShardingAttr::get(context, {}, false));
-                          } else {
-                            // Parse axis names from dimension content
-                            llvm::SmallVector<mlir::sdy::AxisRefAttr> axisRefs;
-                            size_t axisPos = 0;
-                            while (axisPos < dimContent.length()) {
-                              size_t quoteStart = dimContent.find('"', axisPos);
-                              if (quoteStart == std::string::npos) break;
-                              
-                              size_t quoteEnd = dimContent.find('"', quoteStart + 1);
-                              if (quoteEnd == std::string::npos) break;
-                              
-                              std::string axisName = dimContent.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
-                              axisRefs.push_back(mlir::sdy::AxisRefAttr::get(context, axisName));
-                              axisPos = quoteEnd + 1;
-                            }
-                            
-                            dimShardings.push_back(
-                                mlir::sdy::DimensionShardingAttr::get(context, axisRefs, false));
-                          }
-                          
-                          pos = braceEnd + 1;
-                        }
-                        
-                        if (!dimShardings.empty()) {
-                          mlir::sdy::TensorShardingAttr sharding = 
-                              mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings, {}, {});
-                          newArgAttrs.emplace_back(
-                              mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
-                              sharding);
-                        }
-                      }
-                      
-                      funcOp.setArgAttrs(arg.getArgNumber(), 
-                                        mlir::DictionaryAttr::get(context, newArgAttrs));
-                    }
-                  }
-                }
-              }
-            }
-          }
-        });
-
-        // Remove mhlo.frontend_attributes from module
-        llvm::SmallVector<mlir::NamedAttribute> newModuleAttrs;
-        for (auto attr : moduleAttrs) {
-          if (attr.getName() != "mhlo.frontend_attributes") {
-            newModuleAttrs.push_back(attr);
-          }
+        // Convert function arguments from frontend_attributes to sdy.sharding
+        if (mlir::failed(convertFrontendAttributesToSDY(rootModule, context))) {
+          signalPassFailure();
+          return;
         }
-        rootModule->setAttrs(mlir::DictionaryAttr::get(context, newModuleAttrs));
-        
+
         return;
       }
 
