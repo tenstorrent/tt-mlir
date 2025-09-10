@@ -355,9 +355,6 @@ private:
 // 2. It doesn't really matter which tensor dimension we do the
 // reduce scatter and the all gather on but they must be equal to each other
 // and within the constraints of the rank of the tensor.
-// 2-1. It turned out that using any dimension other than 3 generates
-// incorrect output under the current ttnn implementation. Temporarily use
-// dimension == 3.
 // 3. We also need to make sure the tensor dimension we select is divisible by
 // the number of devices along the cluster axis dimension we want to perform the
 // all reduce on.
@@ -376,15 +373,18 @@ public:
     auto deviceDesc = ttcore::lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
 
-    // TODO(hongseok): Restore dynamic dimension selection once the issue
-    // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
-    // Currently, dimension 3 must be used to produce correct outputs.
-    int32_t dimension =
-        std::min(3, static_cast<int32_t>(inputTypeShape.size() - 1));
-    // If the target dimension is not evenly divisible by the number of
-    // devices in the cluster, use the all-gather + local reduce breakdown
-    // approach.
-    if (inputTypeShape[dimension] % meshShape[clusterAxis] != 0) {
+    // Algorithm: iterate through all tensor dimension values and select first
+    // tensor dimension which is divisible by number of devices along the
+    // cluster axis on which we are performing the all reduce.
+    auto sizeOfDevices = meshShape[clusterAxis];
+    auto inputShape = inputType.getShape();
+    const auto *tensorDimDevice = llvm::find_if(
+        inputShape, [&](int64_t dim) { return dim % sizeOfDevices == 0; });
+
+    if (tensorDimDevice == inputShape.end()) {
+      // If all the dimensions are not evenly divisible by the number of
+      // devices in the cluster, use the all-gather + local reduce breakdown
+      // approach.
       // Estimate memory usage of AllGather + LocalReduce breakdown and check
       // if it exceeds the allowed memory limit. This breakdown requires
       // significantly more memory than ReduceScatter + AllGather due to
@@ -396,6 +396,8 @@ public:
         return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
       }
     }
+
+    int32_t dimension = std::distance(inputShape.begin(), tensorDimDevice);
 
     // TODO(wooseoklee): Once ttnn supports all_reduce op
     // (https://github.com/tenstorrent/tt-metal/issues/13835), we can
@@ -415,15 +417,11 @@ public:
             ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
             scatteredInputType, op.getInput(), deviceValue, op.getReduceType(),
             dimension, clusterAxis);
-    reduceScatterOp->setAttr(ttmlir::utils::g_decomposedFromAllReduceAttrName,
-                             rewriter.getUnitAttr());
 
     // Replace all_reduce op with all_gather op.
-    auto allGatherOp = rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
+    rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, op.getType(), reduceScatterOp.getResult(), deviceValue, dimension,
         clusterAxis);
-    allGatherOp->setAttr(ttmlir::utils::g_decomposedFromAllReduceAttrName,
-                         rewriter.getUnitAttr());
     return success();
   }
 

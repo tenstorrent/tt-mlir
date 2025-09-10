@@ -85,7 +85,6 @@ void createTTIRToTTMetalFrontendPipeline(
   }
   pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttir::createTTIRLowerToLayout());
 }
 
@@ -116,8 +115,8 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(ttir::createTTIRGenericLinearizeMemref());
   pm.addPass(ttir::createTTIRGenericGenerateDatamovement());
-  pm.addPass(ttir::createTTIRGenericLowerDMAs());
   pm.addPass(ttir::createTTIRGenericHWThreadSelection());
+  pm.addPass(ttir::createTTIRGenericLowerDMAs());
   pm.addPass(ttir::createTTIRGenericGenerateLoops());
   createOptimizationPasses(pm, options);
   pm.addPass(ttir::createTTIRGenericRegionsToFuncs());

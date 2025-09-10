@@ -282,6 +282,29 @@ class ModelRunner:
 
         ############################### Compile ##################################
 
+        # Compile to StableHLO or Shardy module to TTIR
+        if utils.needs_stablehlo_pass(model_path):
+            ttir_ir_file = (
+                f"{state.model_output_dir}/{model_name.replace('.mlir', '_ttir.mlir')}"
+            )
+            compile_command = [
+                f"{self._build_dir}/bin/ttmlir-opt",
+                "--stablehlo-to-ttir-pipeline",
+                model_path,
+                "-o",
+                ttir_ir_file,
+            ]
+
+            self.log("Running StableHLO / Shardy to TTIR Pipeline")
+
+            compile_process = self.run_in_subprocess(compile_command)
+            if compile_process.returncode != 0:
+                error = "Error running StableHLO / Shardy to TTIR Pipeline"
+                self.log(error, severity=logging.error)
+                raise ExplorerRunException(error)
+        else:
+            ttir_ir_file = model_path
+
         ttnn_ir_file = (
             f"{state.model_output_dir}/{model_name.replace('.mlir', '_ttnn.mlir')}"
         )
@@ -292,7 +315,7 @@ class ModelRunner:
         compile_command = [
             f"{self._build_dir}/bin/ttmlir-opt",
             f"--ttir-to-ttnn-backend-pipeline={overrides_string}",
-            model_path if not FLATBUFFER else ttir_module_path,
+            ttir_ir_file if not FLATBUFFER else ttir_module_path,
             "-o",
             ttnn_ir_file,
             "--mlir-print-debuginfo",

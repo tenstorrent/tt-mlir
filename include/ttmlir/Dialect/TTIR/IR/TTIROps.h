@@ -46,7 +46,9 @@ inline void getDpsEffects(
   }
 }
 
-MemRefType getBufferType(Type type, bool isView);
+MemRefType
+getBufferType(Type type, bool isView,
+              std::optional<ttcore::MetalLayoutAttr> hostInfo = std::nullopt);
 
 } // namespace mlir::tt::ttir
 
