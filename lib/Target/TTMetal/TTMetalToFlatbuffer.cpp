@@ -186,20 +186,20 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
 
   auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(memref.getLayout());
   auto memrefGridShape = shardLayout.getGridShape(memref);
-  uint64_t actualShardSize = device.getMemrefSizeBytes(memref);
+  uint64_t actualShardSize = device.getShardSizeInBytes(memref, 1, true);
   uint64_t gridVolume = ttmlir::utils::volume(memrefGridShape);
 
   // determine how many DRAM banks are actually used by D2M
   uint64_t numDramBanks =
       systemDesc.getChipDescs().front().getNumDramChannels();
   uint64_t numDRAMBanksUsed = std::min(numDramBanks, gridVolume);
-  assert(numDramBanks == 12);
   std::vector<target::Dim2dRange> coreRangeSet = {target::Dim2dRange(
       target::Dim2d(0, 0), target::Dim2d(numDRAMBanksUsed, 1))};
 
-  uint64_t actualShardsPerBank = std::ceil(float(gridVolume) / numDramBanks);
+  uint64_t actualShardsPerBank =
+      ttmlir::utils::alignUp(gridVolume, numDramBanks) / numDramBanks;
 
-  // compute dummy shapes that occupy same space as actual D2M memref
+  // Compute dummy shapes that occupy same space as actual D2M memref.
   target::Dim2d dummyShardShape(actualShardsPerBank, actualShardSize);
   target::Dim2d dummyPageShape(actualShardsPerBank, actualShardSize);
   uint64_t dummyShardSize = dummyShardShape.x() * dummyShardShape.y();

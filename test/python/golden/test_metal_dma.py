@@ -41,8 +41,6 @@ def compile_dma_test(test_func, shape, request):
     )
 
 
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #4835")
 @pytest.mark.parametrize("shape", [(256, 256)])
 @pytest.mark.parametrize("memory_space", [ttcore.MemorySpace.DeviceDRAM])
 def test_host_interop_single_bank_dram_dma(
