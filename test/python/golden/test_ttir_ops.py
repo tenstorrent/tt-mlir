@@ -2390,83 +2390,6 @@ def test_unary_ops_int32(
 @pytest.mark.parametrize(
     "test_fn",
     [
-        eq,
-        ne,
-        le,
-        lt,
-        ge,
-        gt,
-    ],
-)
-def test_binary_comparison_ops(
-    test_fn: Callable,
-    shape: Shape,
-    dtype: torch.dtype,
-    target: str,
-    request,
-):
-    # NOTE: this function is for binary comparison ops that take the same shape arguments
-    def comparison_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # Generate randn tensors and convert to float for input tensors
-        randn_tensor1 = torch.randn(shape, dtype=torch.float32)
-        randn_tensor2 = torch.randn(shape, dtype=torch.float32)
-
-        # Set some indices in randn_tensor2 to be the same as randn_tensor1
-        # This ensures we have both equal and unequal values for comprehensive testing
-        num_elements = torch.numel(randn_tensor1)
-        num_equal_indices = num_elements // 2  # Make half the indices equal
-
-        # Randomly select indices to make equal
-        equal_indices = torch.randperm(num_elements)[:num_equal_indices]
-        randn_tensor2.view(-1)[equal_indices] = randn_tensor1.view(-1)[equal_indices]
-
-        # Convert to the target dtype
-        input_tensor1 = randn_tensor1.to(dtype)
-        input_tensor2 = randn_tensor2.to(dtype)
-
-        # Compute golden output based on the test function
-        if test_fn.__name__ == "eq":
-            golden_output = torch.eq(input_tensor1, input_tensor2).to(dtype)
-        elif test_fn.__name__ == "ne":
-            golden_output = torch.ne(input_tensor1, input_tensor2).to(dtype)
-        elif test_fn.__name__ == "le":
-            golden_output = torch.le(input_tensor1, input_tensor2).to(dtype)
-        elif test_fn.__name__ == "lt":
-            golden_output = torch.lt(input_tensor1, input_tensor2).to(dtype)
-        elif test_fn.__name__ == "ge":
-            golden_output = torch.ge(input_tensor1, input_tensor2).to(dtype)
-        elif test_fn.__name__ == "gt":
-            golden_output = torch.gt(input_tensor1, input_tensor2).to(dtype)
-
-        builder.set_graph_input_output(
-            [input_tensor1, input_tensor2], [golden_output], override=True
-        )
-        return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
-
-    pipeline_options = []
-    compile_ttir_to_flatbuffer(
-        comparison_wrapper,
-        [shape, shape],
-        [dtype, dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        pipeline_options=pipeline_options,
-    )
-
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.parametrize(
-    "test_fn",
-    [
         add,
         multiply,
         subtract,
@@ -2512,6 +2435,67 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        eq,
+        ne,
+        le,
+        lt,
+        ge,
+        gt,
+    ],
+)
+def test_binary_comparison_ops(
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+):
+    def binary_comparison_ops(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        # Generate randn tensors and convert to float for input tensors
+        randn_tensor1 = torch.randn(shape, dtype=torch.float32)
+        randn_tensor2 = torch.randn(shape, dtype=torch.float32)
+
+        # Set some indices in randn_tensor2 to be the same as randn_tensor1
+        # This ensures we have both equal and unequal values for comprehensive testing
+        num_elements = torch.numel(randn_tensor1)
+        num_equal_indices = num_elements // 2  # Make half the indices equal
+
+        # Randomly select indices to make equal
+        equal_indices = torch.randperm(num_elements)[:num_equal_indices]
+        randn_tensor2.view(-1)[equal_indices] = randn_tensor1.view(-1)[equal_indices]
+
+        # Convert to the target dtype
+        input_tensor1 = randn_tensor1.to(dtype)
+        input_tensor2 = randn_tensor2.to(dtype)
+
+        # Set input goldens using the new API - output goldens will be computed automatically
+        builder.set_goldens(inputs={in0: input_tensor1, in1: input_tensor2})
+
+        # The builder will automatically compute output goldens
+        return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
+
+    compile_ttir_to_flatbuffer(
+        binary_comparison_ops,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
 
 
