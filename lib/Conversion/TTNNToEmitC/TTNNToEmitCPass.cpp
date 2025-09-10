@@ -42,7 +42,11 @@ public:
       return emitc::PointerType::get(
           emitc::OpaqueType::get(ctx, "ttnn::distributed::MeshDevice"));
     });
-    addConversion([ctx](mlir::TensorType type) -> emitc::OpaqueType {
+    addConversion([ctx](mlir::RankedTensorType type) -> emitc::OpaqueType {
+      if (mlir::isa_and_present<mlir::tt::ttnn::TraceIdAttr>(
+              type.getEncoding())) {
+        return emitc::OpaqueType::get(ctx, "ttnn::MeshTraceId");
+      }
       return emitc::OpaqueType::get(ctx,
                                     ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
     });

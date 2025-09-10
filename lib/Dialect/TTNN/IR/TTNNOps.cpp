@@ -3056,8 +3056,8 @@ static ::mlir::LogicalResult verifyTraceIdTensor(Operation *op, Value traceId) {
   if (intType.getWidth() != 32) {
     return op->emitError() << "Trace ID must be 32-bit";
   }
-  if (utils::isTensorOnDevice(traceIdTensor)) {
-    return op->emitError() << "Trace ID must be on system memory";
+  if (!mlir::isa_and_present<ttnn::TraceIdAttr>(traceIdTensor.getEncoding())) {
+    return op->emitError() << "Trace ID must have the TraceIdAttr encoding";
   }
   return ::mlir::success();
 }
