@@ -2547,7 +2547,7 @@ public:
         emitter.emit(srcOp.getHostTensor()),
         emitter.emit(srcOp.getDeviceTensor()),
         emitter.emit(srcOp.getBlocking()),
-        emitter.emitCQ(srcOp.getCqId()),
+        emitter.emit<::ttnn::QueueId>(srcOp.getCqId()),
     };
 
     emitter.replaceOp(*this, args);
@@ -2579,7 +2579,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getDevice()),
-        emitter.emitCQ(srcOp.getCqId()),
+        emitter.emit<::ttnn::QueueId>(srcOp.getCqId()),
     };
 
     emitter.replaceOp(*this, args);
@@ -2612,7 +2612,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getDevice()),
         emitter.emit(srcOp.getTraceId()),
-        emitter.emitCQ(srcOp.getCqId()),
+        emitter.emit<::ttnn::QueueId>(srcOp.getCqId()),
     };
 
     emitter.replaceOp(*this, args);
@@ -2894,7 +2894,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getDevice()),
         emitter.emit(srcOp.getTraceId()),
-        emitter.emitCQ(srcOp.getCqId()),
+        emitter.emit<::ttnn::QueueId>(srcOp.getCqId()),
         emitter.emit(srcOp.getBlocking()),
     };
 
