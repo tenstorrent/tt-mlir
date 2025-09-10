@@ -3349,44 +3349,65 @@ void CaptureOrExecuteTraceOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
-// GenericOp
+// NLPConcatHeadsDecodeOp
 //===----------------------------------------------------------------------===//
 
-// GenericOp verification
-::mlir::LogicalResult mlir::tt::ttnn::GenericOp::verify() {
-  ProgramAttr program = getProgram();
-  size_t numberOfInputsAndOutputs = getInputsAndOutputs().size();
-  size_t numberOfSemaphores = program.getSemaphores().size();
+// NLPConcatHeadsDecodeOp verification
+::mlir::LogicalResult NLPConcatHeadsDecodeOp::verify() {
+  const ::mlir::RankedTensorType inputType = this->getInput().getType();
+  const ::mlir::RankedTensorType outputType = this->getResult().getType();
 
-  for (auto kernel : program.getKernels()) {
-    auto kernelInterface = llvm::cast<KernelInterface>(kernel);
-
-    for (auto arg : kernelInterface.getCommonRtArgs()) {
-      if (auto addressOfTensor =
-              llvm::dyn_cast_or_null<KernelArgAddressOfTensorAttr>(arg)) {
-        if (addressOfTensor.getTensorIndex() >= numberOfInputsAndOutputs) {
-          return emitError() << "Address of tensor at index is out of bounds";
-        }
-      }
-      if (auto semaphoreAt =
-              llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
-        if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
-          return emitError() << "Semaphore at index is out of bounds";
-        }
-      }
-    }
-
-    for (auto arg : kernelInterface.getCtArgs()) {
-      if (auto semaphoreAt =
-              llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
-        if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
-          return emitError() << "Semaphore at index is out of bounds";
-        }
-      }
-    }
+  if (inputType.getRank() != 4) {
+    return emitOpError() << "Input tensor must be a 4D tensor";
   }
 
-  return mlir::success();
+  if (outputType.getRank() != 4) {
+    return emitOpError() << "Output tensor must be a 4D tensor";
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  // Input tensor dimensions [sequence_size, batch_size, num_heads, head_size]
+  // Output tensor dimensions [sequence_size, 1, batch_size, num_heads * head_size]
+  enum InputDimensions {
+    INPUT_SEQ= 0,
+    INPUT_BATCH = 1,
+    INPUT_NUM_HEADS = 2,
+    INPUT_HEAD_SIZE = 3
+  };
+  enum OutputDimensions { OUTPUT_SEQ = 0, OUTPUT_BATCH = 2, OUTPUT_HIDDEN = 3 };
+
+  uint32_t numHeads = getNumHeads();
+
+  // if (inputShape[INPUT_BATCH] != outputShape[OUTPUT_BATCH]) {
+  //   return emitOpError() << "input and output batch dimensions must match,"
+  //                           "got input batch size = "
+  //                        << inputShape[INPUT_BATCH] << ", output batch size = "
+  //                        << outputShape[OUTPUT_BATCH];
+  // }
+
+  if (inputShape[INPUT_SEQ] != outputShape[OUTPUT_SEQ]) {
+    return emitOpError()
+           << "input sequence dimension must match output sequence dimension, "
+              "got input sequence size = "
+           << inputShape[INPUT_SEQ]
+           << ", output sequence size = " << outputShape[OUTPUT_SEQ];
+  }
+
+  // Verify that num_heads * head_size equals the output hidden dimension
+  int64_t expectedHiddenSize = numHeads * inputShape[INPUT_HEAD_SIZE];
+  if (expectedHiddenSize != outputShape[OUTPUT_HIDDEN]) {
+    return emitOpError()
+           << "Output hidden dimension must equal num_heads * head_size, "
+              "got num_heads = "
+           << inputShape[INPUT_NUM_HEADS]
+           << ", head_size = " << numHeads
+           << ", expected hidden size = " << expectedHiddenSize
+           << ", actual output hidden size = " << outputShape[OUTPUT_HIDDEN];
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -3473,6 +3494,47 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
   // Output shape should match input shape
   if (outputType.getShape() != inputType.getShape()) {
     return emitOpError("output shape must match input shape.");
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// GenericOp
+//===----------------------------------------------------------------------===//
+
+// GenericOp verification
+::mlir::LogicalResult mlir::tt::ttnn::GenericOp::verify() {
+  ProgramAttr program = getProgram();
+  size_t numberOfInputsAndOutputs = getInputsAndOutputs().size();
+  size_t numberOfSemaphores = program.getSemaphores().size();
+
+  for (auto kernel : program.getKernels()) {
+    auto kernelInterface = llvm::cast<KernelInterface>(kernel);
+
+    for (auto arg : kernelInterface.getCommonRtArgs()) {
+      if (auto addressOfTensor =
+              llvm::dyn_cast_or_null<KernelArgAddressOfTensorAttr>(arg)) {
+        if (addressOfTensor.getTensorIndex() >= numberOfInputsAndOutputs) {
+          return emitError() << "Address of tensor at index is out of bounds";
+        }
+      }
+      if (auto semaphoreAt =
+              llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
+        if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
+          return emitError() << "Semaphore at index is out of bounds";
+        }
+      }
+    }
+
+    for (auto arg : kernelInterface.getCtArgs()) {
+      if (auto semaphoreAt =
+              llvm::dyn_cast_or_null<KernelArgSemaphoreAtAttr>(arg)) {
+        if (semaphoreAt.getSemaphoreIndex() >= numberOfSemaphores) {
+          return emitError() << "Semaphore at index is out of bounds";
+        }
+      }
+    }
   }
 
   return mlir::success();
