@@ -48,6 +48,22 @@ public:
     return success();
   }
 
+  // Return true if the input operand to a ToLayoutOp is itself a result of a
+  // device->device memspace ToLayoutOp.
+  static bool producerMustBeLoweredFirst(ToLayoutOp op) {
+    if (auto producer = op.getInput().getDefiningOp<ToLayoutOp>()) {
+      auto inputOperandMemspace =
+          producer.getOrCreateInputLayout().getMemorySpace();
+      auto outputOperandMemspace =
+          producer.getOrCreateOutputLayout().getMemorySpace();
+      if (ttcore::isDeviceMemorySpace(inputOperandMemspace) &&
+          ttcore::isDeviceMemorySpace(outputOperandMemspace)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   static LogicalResult lowerDatamovementGeneric(PatternRewriter &rewriter,
                                                 ToLayoutOp op) {
     ttcore::MetalLayoutAttr inputLayout = op.getOrCreateInputLayout();
@@ -165,6 +181,17 @@ public:
     auto components = op.compoundComponents();
 
     if (components.isCompound()) {
+      return failure();
+    }
+
+    // By convention, consecutive device->device ToLayout ops must be converted
+    // in **producer to consumer order**, such that the consumer ops DO NOT
+    // apply a view to an output that will itself be wrapped in a view by the
+    // producer op.
+    //
+    // The GreedyPatternRewriteDriver will handle iterating until all ToLayout
+    // ops have been rewritten in producer to consumer order.
+    if (producerMustBeLoweredFirst(op)) {
       return failure();
     }
 

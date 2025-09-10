@@ -1,0 +1,102 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/binary.fbs";
+
+namespace tt.runtime.distributed.flatbuffer;
+
+table GetSystemDescCommand {
+  device: tt.target.DeviceRef;
+  dispatch_core_type: tt.target.DispatchCoreType;
+}
+
+table MeshDeviceOptions {
+  mesh_offset: [uint32];
+  device_ids: [int];
+  num_hw_cqs: uint8;
+  enable_program_cache: bool;
+  mesh_shape: [uint32];
+  l1_small_size: uint64 = null;
+  trace_region_size: uint64 = null;
+  dispatch_core_type: tt.target.DispatchCoreType = null;
+}
+
+table OpenMeshDeviceCommand {
+  device_global_id: uint64;
+  options: MeshDeviceOptions;
+}
+
+table CloseMeshDeviceCommand {
+  device: tt.target.DeviceRef;
+}
+
+table CreateHostTensorCommand {
+  output_global_id: uint64;
+  data: [ubyte];
+  shape: [uint32];
+  stride: [uint32];
+  item_size: uint32;
+  data_type: tt.target.DataType;
+}
+
+table GetLayoutCommand {
+  binary_id: uint64;
+  binary: [ubyte]; // raw bytes of size-prefixed TTNNBinary
+  program_id: uint32;
+  input_id: uint32;
+  output_layout_id: uint64;
+}
+
+table ToLayoutCommand {
+  input_global_id: uint64;
+  output_global_id: uint64;
+  device: tt.target.DeviceRef;
+  layout_global_id: uint64;
+  retain: bool = null;
+}
+
+table SubmitCommand {
+  input_global_ids: [uint64];
+  output_global_ids: [uint64];
+  binary_id: uint64;
+  binary: [ubyte]; // raw bytes of size-prefixed TTNNBinary
+  program_id: uint32;
+  device: tt.target.DeviceRef;
+}
+
+table ToHostCommand {
+  input_global_id: uint64;
+  output_global_ids: [uint64];
+  untilize: bool;
+  blocking: bool;
+}
+
+table MemcpyCommand {
+  src_global_id: uint64;
+  dst_global_id: uint64 = null; // If null, will send raw data to the server in the response
+  dst_data_type: tt.target.DataType = null;
+}
+
+table ShutdownCommand {
+}
+
+union CommandType {
+  GetSystemDescCommand,
+  OpenMeshDeviceCommand,
+  CloseMeshDeviceCommand,
+  CreateHostTensorCommand,
+  GetLayoutCommand,
+  ToLayoutCommand,
+  SubmitCommand,
+  ToHostCommand,
+  MemcpyCommand,
+  ShutdownCommand,
+}
+
+table Command {
+  command_id: uint64;
+  type: CommandType;
+}
+
+root_type Command;
+file_identifier "DCMD";
+file_extension "distcmd";

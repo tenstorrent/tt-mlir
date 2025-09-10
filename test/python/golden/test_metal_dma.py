@@ -26,9 +26,7 @@ def compile_dma_test(test_func, shape, request):
     pipeline_options = "{disable-tolayout-folding=1}"
     pipeline = ",".join(
         [
-            "ttir-lower-to-layout",
-            f"ttir-to-ttmetal-me-pipeline{pipeline_options}",
-            f"ttir-to-ttmetal-be-pipeline{pipeline_options}",
+            f"ttir-to-ttmetal-pipeline{pipeline_options}",
         ]
     )
     compile_ttir_to_flatbuffer(
