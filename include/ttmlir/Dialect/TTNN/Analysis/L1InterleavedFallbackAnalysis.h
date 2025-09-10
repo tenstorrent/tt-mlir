@@ -13,6 +13,7 @@
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/DenseMap.h"
 
+#include <cstddef>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -96,7 +97,8 @@ private:
   // reshapes)
   // - isUserOp: true if this is a user reshape check, false for direct reshape
   bool checkReshapeSkip(Operation *reshapeOperation, Operation *contextOp,
-                        bool isUserOp) const;
+                        bool isUserOp, size_t &skippedReshapeNoOp,
+                        size_t &skippedUserReshapeNoOp) const;
 
   // Try to upgrade an operation to L1 interleaved layout by testing available
   // L1 configurations and selecting the first one that passes validation.

@@ -46,6 +46,8 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   size_t skippedNotOneUser = 0;
   size_t skippedNotImmediate = 0;
   size_t skippedReturnOp = 0;
+  size_t skippedReshapeNoOp = 0;
+  size_t skippedUserReshapeNoOp = 0;
   size_t attemptedUpgrade = 0;
   // Failure reason counters for checkUpgradeToL1Interleaved
   failedBackend = 0;
@@ -197,13 +199,15 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     }
 
     if (isa<ttnn::ReshapeOp>(op)) {
-      if (checkReshapeSkip(op, op, false)) {
+      if (checkReshapeSkip(op, op, false, skippedReshapeNoOp,
+                           skippedUserReshapeNoOp)) {
         return;
       }
     }
     for (auto *user : op->getUsers()) {
       if (isa<ttnn::ReshapeOp>(user) && utils::producesDRAMLayout(user)) {
-        if (checkReshapeSkip(user, op, true)) {
+        if (checkReshapeSkip(user, op, true, skippedReshapeNoOp,
+                             skippedUserReshapeNoOp)) {
           return;
         }
       }
@@ -268,6 +272,11 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   llvm::outs() << "[L1IFA]  Skipped (output is returnOp input): "
                << skippedReturnOp << " (" << percent(skippedReturnOp, totalOps)
                << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (reshape no-op): " << skippedReshapeNoOp
+               << " (" << percent(skippedReshapeNoOp, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (user reshape no-op): "
+               << skippedUserReshapeNoOp << " ("
+               << percent(skippedUserReshapeNoOp, totalOps) << "%)\n";
   llvm::outs() << "[L1IFA]  Attempted upgrades: " << attemptedUpgrade << " ("
                << percent(attemptedUpgrade, totalOps) << "%)\n";
   llvm::outs() << "[L1IFA]  Successful upgrades: " << upgraded << " ("
@@ -388,7 +397,8 @@ bool L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(Operation *op) {
 }
 
 bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
-    Operation *reshapeOperation, Operation *contextOp, bool isUserOp) const {
+    Operation *reshapeOperation, Operation *contextOp, bool isUserOp,
+    size_t &skippedReshapeNoOp, size_t &skippedUserReshapeNoOp) const {
 
   auto reshapeOp = cast<ttnn::ReshapeOp>(reshapeOperation);
 
@@ -403,11 +413,17 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
   // Skip if reshape is a no-op (same shape in and out).
   if (inputShape == outputShape) {
     if (isUserOp) {
+      ++skippedUserReshapeNoOp;
+      llvm::outs() << "[L1IFA] Skipped op (user reshape no-op): "
+                   << contextOp->getName() << "\n";
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
                    "no-op.",
                    contextOp->getName());
     } else {
+      ++skippedReshapeNoOp;
+      llvm::outs() << "[L1IFA] Skipped op (reshape no-op): "
+                   << contextOp->getName() << "\n";
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
                    "no-op.",
@@ -437,11 +453,17 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
 
   if (paddedShapesWouldBeIdentical) {
     if (isUserOp) {
+      ++skippedUserReshapeNoOp;
+      llvm::outs() << "[L1IFA] Skipped op (user reshape padded no-op): "
+                   << contextOp->getName() << "\n";
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
                    "padded no-op.",
                    contextOp->getName());
     } else {
+      ++skippedReshapeNoOp;
+      llvm::outs() << "[L1IFA] Skipped op (reshape padded no-op): "
+                   << contextOp->getName() << "\n";
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
                    "padded no-op.",
@@ -478,11 +500,17 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
 
   if (canBeView) {
     if (isUserOp) {
+      ++skippedUserReshapeNoOp;
+      llvm::outs() << "[L1IFA] Skipped op (user reshape can be view): "
+                   << contextOp->getName() << "\n";
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
                    "can be optimized to view.",
                    contextOp->getName());
     } else {
+      ++skippedReshapeNoOp;
+      llvm::outs() << "[L1IFA] Skipped op (reshape can be view): "
+                   << contextOp->getName() << "\n";
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
                    "can be optimized to view.",
