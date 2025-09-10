@@ -9,15 +9,10 @@ from conftest import x86_only
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
-from builder.base.builder_utils import build_stablehlo_module
+from builder.base.builder_utils import compile_stablehlo_to_flatbuffer
 from test_utils import Marks, shape_str
 
 pytestmark = pytest.mark.frontend("shlo")
-
-from ttmlir.passes import (
-    stablehlo_pipeline,
-    stablehlo_to_ttir_pipeline,
-)
 
 
 def add(
@@ -31,6 +26,7 @@ def add(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -41,13 +37,15 @@ def test_binary_ops(
     test_fn: Callable,
     shape: Shape,
     dtype: torch.dtype,
+    target: str,
     request,
 ):
-    module, shlo_builder = build_stablehlo_module(
+    compile_stablehlo_to_flatbuffer(
         test_fn,
         [shape, shape],
         [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
-
-    stablehlo_pipeline(module)
-    stablehlo_to_ttir_pipeline(module)
