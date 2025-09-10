@@ -33,6 +33,29 @@ TTNNOpModel.h/.cpp (Core model implementations and helpers)
 Metal Backend (Runtime execution and constraint validation)
 ```
 
+Important note: `getOpConstraints` and `getOpRuntime` API calls should be identical to regular op invocation path through runtime.
+The only difference is that one call is generated from the IR while the other is from serialised FB. For example, you can compare:
+
+The runtime code `runtime/lib/ttnn/operations/conv/conv2d.cpp`:
+```c++
+void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
+  // ...
+}
+```
+With the constraint API implementation code `lib/OpModel/TTNN/TTNNOpModel.cpp`:
+```c++
+llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(/* args */){
+  // ...
+}
+// and:
+llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(/* args */){
+  // ...
+}
+
+```
+And observe the similarities. This is very important to maintain throughout the lifetime of the project to guarantee
+consistency and functional correctness.
+
 ## Implementation Steps
 
 ### Step 1: Implement Operation-Specific Methods
