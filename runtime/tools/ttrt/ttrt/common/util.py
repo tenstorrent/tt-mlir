@@ -648,6 +648,7 @@ class Artifacts:
     def save_torch_tensor(self, folder_path, torch_tensor, torch_tensor_name):
         import torch
 
+        torch_tensor_name = get_sanitized_filename(torch_tensor_name)
         self.logging.info(
             f"saving torch tensor={torch_tensor_name} to folder_path={folder_path}"
         )

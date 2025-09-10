@@ -149,13 +149,19 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 
         output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
         if callback_runtime_config.save_golden_tensors:
+            golden_tensor_torch_name = get_sanitized_filename(
+                f"{loc}_{device_id}_golden.pt"
+            )
+            device_tensor_torch_name = get_sanitized_filename(
+                f"{loc}_{device_id}_device.pt"
+            )
             torch.save(
                 golden_tensor_torch,
-                f"{callback_runtime_config.artifact_dir}/{loc}_{device_id}_golden.pt",
+                f"{callback_runtime_config.artifact_dir}/{golden_tensor_torch_name}",
             )
             torch.save(
                 output_tensor_torch,
-                f"{callback_runtime_config.artifact_dir}/{loc}_{device_id}_device.pt",
+                f"{callback_runtime_config.artifact_dir}/{device_tensor_torch_name}",
             )
 
         if golden_tensor_torch.shape != output_tensor_torch.shape:
