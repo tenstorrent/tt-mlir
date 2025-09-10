@@ -154,6 +154,77 @@ def EmitPy_AssignOp : EmitPy_Op<"assign"> {
   let assemblyFormat = "$value attr-dict `:` functional-type(operands, results)";
 }
 
+def EmitPy_ExpressionOp : EmitPy_Op<"expression",
+      [HasOnlyGraphRegion, OpAsmOpInterface,
+       SingleBlockImplicitTerminator<"emitpy::YieldOp">, NoRegionArguments]> {
+  let summary = "Expression operation";
+  let description = [{
+    The `emitpy.expression` operation returns a single SSA value which is yielded by
+    its single-basic-block region. The operation doesn't take any arguments.
+
+    As the operation is to be emitted as a Python expression, the operations within
+    its body must form a single Def-Use tree of emitpy ops whose result is
+    yielded by a terminating `emitpy.yield`.
+
+    The operations allowed within expression body are EmitPy operations with the
+    PyExpressionInterface interface.
+
+    When specified, the optional `do_not_inline` indicates that the expression is
+    to be emitted as seen above, i.e. as the rhs of an EmitPy SSA value
+    definition. Otherwise, the expression may be emitted inline, i.e. directly
+    at its use.
+  }];
+
+  let arguments = (ins UnitAttr:$do_not_inline);
+  let results = (outs AnyType:$result);
+  let regions = (region SizedRegion<1>:$region);
+
+  let hasVerifier = 1;
+  let assemblyFormat = "attr-dict (`noinline` $do_not_inline^)? `:` type($result) $region";
+
+  let extraClassDeclaration = [{
+    bool hasSideEffects() {
+      auto predicate = [](Operation &op) {
+        assert(isa<emitpy::PyExpressionInterface>(op) && "Expected a Py expression");
+        return cast<emitpy::PyExpressionInterface>(op).hasSideEffects();
+      };
+      return llvm::any_of(getRegion().front().without_terminator(), predicate);
+    };
+    Operation *getRootOp();
+
+    //===------------------------------------------------------------------===//
+    // OpAsmOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    /// EmitPy ops in the body can omit their 'emitpy.' prefix in the assembly.
+    static ::llvm::StringRef getDefaultDialect() {
+      return "emitpy";
+    }
+  }];
+}
+
+def EmitPy_YieldOp : EmitPy_Op<"yield",
+      [Pure, Terminator, ParentOneOf<["ExpressionOp"]>]> {
+  let summary = "Block termination operation";
+  let description = [{
+    The `emitpy.yield` terminates its parent EmitPy op's region, optionally yielding
+    an SSA value. The semantics of how the values are yielded is defined by the
+    parent operation.
+
+    If `emitpy.yield` has an operand, the operand must match the parent operation's
+    result. If the parent operation defines no values, then the `emitpy.yield`
+    may be left out in the custom syntax and the builders will insert one
+    implicitly. Otherwise, it has to be present in the syntax to indicate which
+    value is yielded.
+  }];
+
+  let arguments = (ins Optional<AnyType>:$result);
+  let builders = [OpBuilder<(ins), [{ /* nothing to do */ }]>];
+
+  let hasVerifier = 1;
+  let assemblyFormat = [{ attr-dict ($result^ `:` type($result))? }];
+}
+
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {
   let summary = "Verbatim operation";
   let description = [{
