@@ -407,9 +407,25 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     dtype = ttcore::elementTypeToDataType(elementType);
   }
 
+  std::vector<int32_t> hostStrides{};
+  uint64_t hostVolume = 0;
+  auto hostLayout =
+      mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(memref.getLayout());
+  if (hostLayout) {
+    hostStrides = ttmlir::utils::castContainer<std::vector<int32_t>>(
+        hostLayout.getHostStrides());
+    hostVolume = hostLayout.getHostVolume();
+  } else {
+    // Default values for host strides & volume when H2D/D2H copy doesn't need
+    // host-side alignment & padding.
+    hostStrides = ttmlir::utils::castContainer<std::vector<int32_t>>(
+        ttmlir::utils::calculateStrides(memref.getShape()));
+    hostVolume = ttmlir::utils::volume(memref.getShape());
+  }
+
   return target::metal::CreateBufferDescDirect(
-      *cache.fbb, &shape, toFlatbuffer(cache, dtype), &elementShape,
-      bufferDetailType, bufferDetail);
+      *cache.fbb, &shape, &hostStrides, hostVolume, toFlatbuffer(cache, dtype),
+      &elementShape, bufferDetailType, bufferDetail);
 }
 
 static flatbuffers::Offset<target::metal::BufferRef>
@@ -594,7 +610,9 @@ memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
 
 static std::shared_ptr<void> translateModuleToFlatbuffer(
     Operation *op,
-    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::unordered_map<std::string,
+                             std::unordered_map<std::uint32_t, GoldenTensor>>
+        &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   flatbuffers::FlatBufferBuilder fbb;
   FlatbufferObjectCache cache(&fbb);
@@ -843,7 +861,9 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
 LogicalResult translateTTMetalToFlatbuffer(
     Operation *op, llvm::raw_ostream &os,
-    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::unordered_map<std::string,
+                             std::unordered_map<std::uint32_t, GoldenTensor>>
+        &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   std::shared_ptr<void> data =
       translateModuleToFlatbuffer(op, goldenMap, moduleCache);

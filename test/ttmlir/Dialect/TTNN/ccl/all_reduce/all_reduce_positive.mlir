@@ -72,13 +72,13 @@ module attributes {} {
 // Verify transform for all_reduce with non-divisible dimension
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions
-  func.func @all_reduce_positive_with_non_divisible_dimensions(%arg0: tensor<1x1x32x31xf32>) -> tensor<1x1x32x31xf32> {
-    %0 = ttir.empty() : tensor<1x1x32x31xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x1x32x31xf32>, tensor<1x1x32x31xf32>) -> tensor<1x1x32x31xf32>
+  func.func @all_reduce_positive_with_non_divisible_dimensions(%arg0: tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32> {
+    %0 = ttir.empty() : tensor<1x1x31x31xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<1x1x31x31xf32>, tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32>
     // CHECK-NOT: "ttnn.reduce_scatter"
     // CHECK: "ttnn.all_gather"
     // CHECK: "ttnn.sum"
-    return %1 : tensor<1x1x32x31xf32>
+    return %1 : tensor<1x1x31x31xf32>
   }
 }
 
@@ -88,13 +88,13 @@ module attributes {} {
 // Verify breakdown of all_reduce into all_gather and reduce with reduce_type Min
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions_min
-  func.func @all_reduce_positive_with_non_divisible_dimensions_min(%arg0: tensor<1x1x32x31xf32>) -> tensor<1x1x32x31xf32> {
-    %0 = ttir.empty() : tensor<1x1x32x31xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<min>}> : (tensor<1x1x32x31xf32>, tensor<1x1x32x31xf32>) -> tensor<1x1x32x31xf32>
+  func.func @all_reduce_positive_with_non_divisible_dimensions_min(%arg0: tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32> {
+    %0 = ttir.empty() : tensor<1x1x31x31xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<min>}> : (tensor<1x1x31x31xf32>, tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32>
     // CHECK-NOT: "ttnn.reduce_scatter"
     // CHECK: "ttnn.all_gather"
     // CHECK: "ttnn.min"
-    return %1 : tensor<1x1x32x31xf32>
+    return %1 : tensor<1x1x31x31xf32>
   }
 }
 
@@ -103,13 +103,13 @@ module attributes {} {
 // Verify breakdown of all_reduce into all_gather and reduce with reduce_type Max
 module attributes {} {
   // CHECK-LABEL: all_reduce_positive_with_non_divisible_dimensions_max
-  func.func @all_reduce_positive_with_non_divisible_dimensions_max(%arg0: tensor<1x1x32x31xf32>) -> tensor<1x1x32x31xf32> {
-    %0 = ttir.empty() : tensor<1x1x32x31xf32>
-    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<max>}> : (tensor<1x1x32x31xf32>, tensor<1x1x32x31xf32>) -> tensor<1x1x32x31xf32>
+  func.func @all_reduce_positive_with_non_divisible_dimensions_max(%arg0: tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32> {
+    %0 = ttir.empty() : tensor<1x1x31x31xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<max>}> : (tensor<1x1x31x31xf32>, tensor<1x1x31x31xf32>) -> tensor<1x1x31x31xf32>
     // CHECK-NOT: "ttnn.reduce_scatter"
     // CHECK: "ttnn.all_gather"
     // CHECK: "ttnn.max"
-    return %1 : tensor<1x1x32x31xf32>
+    return %1 : tensor<1x1x31x31xf32>
   }
 }
 

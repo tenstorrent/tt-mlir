@@ -9,10 +9,7 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
-#include <atomic>
-#include <memory>
 #include <optional>
-#include <utility>
 #include <vector>
 
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
@@ -183,7 +180,7 @@ Tensor createBorrowedHostTensor(void *data,
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::createBorrowedHostTensor(
-            data, TensorDesc(shape, stride, itemsize, dataType));
+            data, TensorDesc(shape, dataType, itemsize, stride));
       });
 }
 
@@ -670,9 +667,10 @@ std::string getOpLocInfo(OpContext opContextHandle) {
       });
 }
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
-  using RetType = Tensor;
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
+  using RetType = std::unordered_map<std::uint32_t, Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {

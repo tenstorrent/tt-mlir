@@ -222,8 +222,6 @@ def build_ttir_module(
     except (OSError, TypeError):
         loc = Location.unknown(ctx)
 
-    # Instantiate builder which is passed as the last argument to
-    # `fn` so the user can use it to build ops.
     mesh_shape = tuple(mesh_dict.values())
     ttir_builder = TTIRBuilder(ctx, loc, mesh_shape)
 
@@ -248,32 +246,32 @@ def build_ttir_module(
             for (shape, dtype) in zip(inputs_shapes, inputs_types)
         ]
 
-        # Wrap everything in a mlir module.
         module = Module.create()
         with InsertionPoint(module.body):
-            # Wrap everything in a mlir function.
+
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                # Randomly generate golden tensors for function inputs.
-                input_goldens = []
+                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
-                    input_goldens.append(
-                        ttir_builder._generate_input_golden(
-                            operand, dtype, index
-                        ).tensor
+                    input_goldens[operand] = ttir_builder._generate_golden_tensor(
+                        operand, dtype
                     )
+                ttir_builder._set_goldens(input_goldens)
+                ttir_builder._set_input_ordering(inputs)
+
                 result = fn(*inputs, ttir_builder)
-                output_ops = result if hasattr(result, "__iter__") else (result,)
-                output_goldens = [
-                    ttir_builder._get_golden_tensor(op) for op in output_ops
-                ]
-                ttir_builder.set_graph_input_output(input_goldens, output_goldens)
+
+                outputs = result if hasattr(result, "__iter__") else (result,)
+                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = ttir_builder._get_golden_tensor(op)
+                ttir_builder._set_goldens(output_goldens)
+                ttir_builder._set_output_ordering(outputs)
+
                 return result
 
         print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
-
         base = fn.__name__ if base is None else base
-
         filename = _get_target_path(output_root, base + "_ttir.mlir", "ttir")
 
         if module_dump:
@@ -584,26 +582,27 @@ def build_stablehlo_module(
             # Wrap everything in a mlir function.
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                # Randomly generate golden tensors for function inputs.
-                input_goldens = []
+                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
-                    input_goldens.append(
-                        stablehlo_builder._generate_input_golden(
-                            operand, dtype, index
-                        ).tensor
+                    input_goldens[operand] = stablehlo_builder._generate_golden_tensor(
+                        operand, dtype
                     )
+                stablehlo_builder._set_goldens(input_goldens)
+                stablehlo_builder._set_input_ordering(inputs)
+
                 result = fn(*inputs, stablehlo_builder)
-                output_ops = result if hasattr(result, "__iter__") else (result,)
-                output_goldens = [
-                    stablehlo_builder._get_golden_tensor(op) for op in output_ops
-                ]
-                stablehlo_builder.set_graph_input_output(input_goldens, output_goldens)
+
+                outputs = result if hasattr(result, "__iter__") else (result,)
+                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = stablehlo_builder._get_golden_tensor(op)
+                stablehlo_builder._set_goldens(output_goldens)
+                stablehlo_builder._set_output_ordering(outputs)
+
                 return result
 
         print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
-
         base = fn.__name__ if base is None else base
-
         filename = _get_target_path(output_root, base + "_shlo.mlir", "shlo")
 
         if module_dump:
@@ -669,20 +668,23 @@ def experimental_build_stablehlo_module(
             # Wrap everything in a mlir function.
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                # Randomly generate golden tensors for function inputs.
-                input_goldens = []
+                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
                 for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
-                    input_goldens.append(
-                        stablehlo_builder._generate_input_golden(
-                            operand, dtype, index
-                        ).tensor
+                    input_goldens[operand] = stablehlo_builder._generate_golden_tensor(
+                        operand, dtype
                     )
+                stablehlo_builder._set_goldens(input_goldens)
+                stablehlo_builder._set_input_ordering(inputs)
+
                 result = fn(*inputs, stablehlo_builder)
-                output_ops = result if hasattr(result, "__iter__") else (result,)
-                output_goldens = [
-                    stablehlo_builder._get_golden_tensor(op) for op in output_ops
-                ]
-                stablehlo_builder.set_graph_input_output(input_goldens, output_goldens)
+
+                outputs = result if hasattr(result, "__iter__") else (result,)
+                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = stablehlo_builder._get_golden_tensor(op)
+                stablehlo_builder._set_goldens(output_goldens)
+                stablehlo_builder._set_output_ordering(outputs)
+
                 return result
 
             # Create named meshes and add them to the module

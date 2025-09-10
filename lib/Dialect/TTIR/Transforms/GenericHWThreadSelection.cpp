@@ -14,21 +14,30 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-class TTIRGenericMoveTrivialOutputThreadToComputeRewritePattern
+class TTIRGenericMergeDatamovementThreadsRewritePattern
     : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
+  unsigned numDMAHWThreads;
 
-  static Block *getIfTrivialBlock(Region &region,
-                                  unsigned outputOperandsIndex) {
+  TTIRGenericMergeDatamovementThreadsRewritePattern(MLIRContext *context,
+                                                    unsigned numDMAHWThreads)
+      : OpRewritePattern<GenericOp>(context), numDMAHWThreads(numDMAHWThreads) {
+    assert(numDMAHWThreads > 0 && "numDMAHWThreads must be greater than 0");
+  }
+
+  // Returns true if the region contains only a ttir.await
+  // associated with the output CB.
+  static bool isLocalAwaitForOutputCB(Region &region,
+                                      unsigned outputOperandsIndex) {
     assert(region.getBlocks().size() == 1);
     auto &block = region.front();
     if (block.getOperations().size() != 1) {
-      return nullptr;
+      return false;
     }
     ttir::AwaitOp awaitOp = dyn_cast<ttir::AwaitOp>(block.front());
     if (!awaitOp) {
-      return nullptr;
+      return false;
     }
 
     if (!llvm::all_of(awaitOp.getOperands(), [&](Value operand) {
@@ -37,46 +46,95 @@ public:
                  mlir::cast<BlockArgument>(operand).getArgNumber() ==
                      outputOperandsIndex;
         })) {
-      return nullptr;
+      return false;
     }
 
-    return &block;
+    return true;
   }
 
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
+
     unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
-    unsigned outputOperandsLength = op.getOutputs().size();
-    assert(outputOperandsLength == 1);
-    if (outputOperandsIndex >= op.getNumRegions()) {
-      return failure();
-    }
-    Region &outputRegion = op.getRegion(outputOperandsIndex);
-    Block *outputBlock = getIfTrivialBlock(outputRegion, outputOperandsIndex);
-    if (!outputBlock) {
+    unsigned numInputs = op.getInputs().size();
+    unsigned numOutputs = op.getOutputs().size();
+
+    // Ops with # operands <= # DMA HW Threads don't need to be merged.
+    if (numInputs + numOutputs <= numDMAHWThreads) {
       return failure();
     }
 
-    SmallVector<Attribute> threads(op.getThreads().getValue());
-    // Skip the output operands block
-    threads.erase(threads.begin() + outputOperandsIndex);
+    // Check if the last thread in op has ThreadType::Compute
+    ThreadAttr lastThreadAttr =
+        mlir::cast<ThreadAttr>(op.getThreads()[op.getThreads().size() - 1]);
+    bool hasComputeThread =
+        lastThreadAttr && lastThreadAttr.getThreadType() == ThreadType::Compute;
+
+    // The final merged region will always have numDMAHWThreads datamovement
+    // threads and (if present in original op) a compute thread
+    SmallVector<Attribute> threads(
+        numDMAHWThreads,
+        rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement));
+    if (hasComputeThread) {
+      threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
+    }
+
+    size_t numNewRegions = threads.size();
+
     auto newGeneric = rewriter.create<GenericOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         op.getOutputs(), op.getGrid(), op.getBlockFactors(),
         op.getIndexingMaps(), op.getIteratorTypes(),
-        rewriter.getArrayAttr(threads), op.getNumRegions() - 1);
+        rewriter.getArrayAttr(threads), numNewRegions);
 
-    unsigned regionIndex = 0;
-    for (mlir::Region &region : op.getRegions()) {
-      if (region.getRegionNumber() == outputOperandsIndex) {
-        continue;
-      }
-      rewriter.modifyOpInPlace(
-          op, [&] { newGeneric.getRegion(regionIndex++).takeBody(region); });
+    // Copy compute region from op to newGeneric, if it exists.
+    if (hasComputeThread) {
+      rewriter.modifyOpInPlace(op, [&] {
+        newGeneric.getRegions().back().takeBody(op.getRegions().back());
+      });
     }
 
-    Block *newBlock = &newGeneric.getRegions().back().front();
-    rewriter.mergeBlocks(outputBlock, newBlock, newBlock->getArguments());
+    // Copy initial dma threads to newGeneric. Merging to an empty block
+    // results in discarding cb block args, so we must copy the first
+    // numDMAHWThreads blocks instead of uniformly merging everything.
+    unsigned regionIndex = 0;
+    for (unsigned i = 0; i < numDMAHWThreads; ++i) {
+      assert(op.getRegion(i).getBlocks().size() == 1 &&
+             "all datamovement regions should have exactly one block");
+      rewriter.modifyOpInPlace(op, [&] {
+        newGeneric.getRegion(regionIndex++).takeBody(op.getRegion(i));
+      });
+    }
+
+    // Merge remaining DMA threads into existing DMA regions in newGeneric.
+    // IMPORTANT: output DMA blocks MUST be merged after all input DMA blocks in
+    // a region.
+    unsigned dmaInputThreadsMerged = 0;
+    for (unsigned i = numDMAHWThreads; i <= outputOperandsIndex; ++i) {
+      assert(op.getRegion(i).getBlocks().size() == 1 &&
+             "all datamovement regions should have exactly one block");
+      Block *mergeSrcBlock = &op.getRegion(i).front();
+
+      unsigned dmaMergeTargetIndex = 0;
+      if (hasComputeThread &&
+          isLocalAwaitForOutputCB(op.getRegion(i), outputOperandsIndex)) {
+        // Merge trivial output DMA into compute region, if it exists.
+        dmaMergeTargetIndex = newGeneric->getNumRegions() - 1;
+      } else if (i == outputOperandsIndex) {
+        // Always merge output to last DMA region (associated with NOC1).
+        dmaMergeTargetIndex = numDMAHWThreads - 1;
+      } else {
+        // Merge input DMA threads to alternate DMA regions.
+        dmaMergeTargetIndex = dmaInputThreadsMerged % numDMAHWThreads;
+        dmaInputThreadsMerged++;
+      }
+      Block *mergeDestBlock =
+          &newGeneric.getRegion(dmaMergeTargetIndex).front();
+
+      rewriter.mergeBlocks(mergeSrcBlock, mergeDestBlock,
+                           mergeDestBlock->getArguments());
+    }
+
     rewriter.replaceOp(op, newGeneric.getResults());
 
     return success();
@@ -93,17 +151,18 @@ public:
       TTIRGenericHWThreadSelection>::TTIRGenericHWThreadSelectionBase;
 
   void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericMoveTrivialOutputThreadToComputeRewritePattern>(
-        &getContext());
-    walkAndApplyPatterns(getOperation(), std::move(patterns));
-
     ModuleOp moduleOp = getOperation();
     auto systemDesc = moduleOp->getAttrOfType<mlir::tt::ttcore::SystemDescAttr>(
         mlir::tt::ttcore::SystemDescAttr::name);
     auto chipDesc = systemDesc.getChipDescs().front();
+
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRGenericMergeDatamovementThreadsRewritePattern>(
+        &getContext(), chipDesc.getNumDatamovementThreads());
+    walkAndApplyPatterns(getOperation(), std::move(patterns));
+
     moduleOp.walk([&](GenericOp op) {
-      // assert that the op has a valid HW thread selection
+      // Assert that the op has a valid HW thread selection.
       if (op.getNumRegions() > (chipDesc.getNumComputeThreads() +
                                 chipDesc.getNumDatamovementThreads())) {
         op.emitError("invalid number of regions (")

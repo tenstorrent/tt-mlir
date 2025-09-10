@@ -50,18 +50,18 @@ def test_to_layout(
     ):
         to_device = builder.to_layout(
             in0,
-            output_type=builder.get_metal_tensor_layout(shape),
+            output_type=builder.get_metal_tensor_layout(shape, tiled=tiled),
             unit_attrs=unit_attrs,
             loc="to_device",
         )
         reblock = builder.to_layout(
-            in0,
-            output_type=builder.get_metal_tensor_layout(shape),
+            to_device,
+            output_type=builder.get_metal_tensor_layout(shape, tiled=tiled),
             unit_attrs=unit_attrs,
             loc="reblock",
         )
         from_device = builder.to_layout(
-            to_device,
+            reblock,
             output_type=in0.type,
             unit_attrs=unit_attrs,
             loc="from_device",

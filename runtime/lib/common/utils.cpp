@@ -135,8 +135,12 @@ void handleBFloat16ToFloat16(const uint16_t *oldBuffer, uint16_t *newBuffer,
 }
 } // namespace detail
 
-std::shared_ptr<void> malloc_shared(size_t size) {
+std::shared_ptr<void> mallocShared(const size_t size) {
   return std::shared_ptr<void>(std::malloc(size), std::free);
+}
+
+std::shared_ptr<void> callocShared(const size_t size) {
+  return std::shared_ptr<void>(std::calloc(size, 1), std::free);
 }
 
 ::tt::target::DispatchCoreType
@@ -182,16 +186,6 @@ std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
     LOG_FATAL("Unsupported element size for data type");
     return 0;
   }
-}
-
-std::int64_t tileRowAlignment(::tt::target::DataType dataType) {
-  std::int64_t numAlignElems = 32;
-  return dataTypeElementSize(dataType) * numAlignElems;
-}
-
-std::int64_t tileAlignment(::tt::target::DataType dataType) {
-  std::int64_t numAlignRows = 32;
-  return tileRowAlignment(dataType) * numAlignRows;
 }
 
 bool isSupportedDataType(::tt::target::DataType dataType) {
