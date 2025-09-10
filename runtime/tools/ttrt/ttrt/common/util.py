@@ -1102,8 +1102,8 @@ class Results:
 
 def get_sanitized_filename(name: str, replacement: str = "_") -> str:
     # make string safe for file name
-    forbidden = r':"/\\|?*\0'
-    s = re.sub(rf"[{re.escape(forbidden)}\x00-\x1F]", replacement, name)
+    forbidden = ':"/\\|?*\0'
+    s = re.sub(f"[{re.escape(forbidden)}\\x00-\\x1F]", replacement, name)
     if not s:
         s = "untitled"
     return s.strip()
