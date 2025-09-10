@@ -155,7 +155,7 @@ public:
       return failure();
     }
 
-    assert(op.hasNoBlockDims() &&
+    assert(!op.hasBlockDims() &&
            "Unexpected block dimensions present for matmul_block. Proceeding "
            "would override the present attributes");
 

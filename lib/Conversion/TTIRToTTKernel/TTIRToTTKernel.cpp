@@ -415,8 +415,8 @@ public:
       // the entire dest in a loop.
       Value destIndex = index(rewriter, op->getLoc(), 0);
 
-      assert(op.hasAllBlockDims() &&
-             "MatmulBlockOp must have all block dimensions");
+      assert(op.hasBlockDims() &&
+             "MatmulBlockOp must have all block dimensions to be lowered");
       auto rt_i32 =
           i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockM()));
       auto kt_i32 =

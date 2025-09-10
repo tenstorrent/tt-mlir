@@ -26,9 +26,8 @@ struct TTIRInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOrFuncOp> {
 public:
   TTIRInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx,
-                                      const bool useTileMatmul)
+                                      bool useTileMatmul)
       : OpRewritePattern<GenericOrFuncOp>(ctx), useTileMatmul(useTileMatmul) {};
-  bool useTileMatmul;
 
   template <typename OpT>
   using OpAndIndexOffset = std::pair<OpT, int64_t>;
@@ -506,6 +505,8 @@ public:
     SmallVector<Value> dstAccessIndices = l1AccessIndices;
     return {l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices};
   }
+
+  bool useTileMatmul;
 };
 } // namespace
 
