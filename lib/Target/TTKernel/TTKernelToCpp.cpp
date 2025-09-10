@@ -8,6 +8,7 @@
 
 #include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
 
@@ -186,6 +187,13 @@ void dprint(Arg &&arg, ArgV&&... argv) {
           StringRef(experimental_dataflow_api_generated,
                     experimental_dataflow_api_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalDataflowLLKs);
+    }
+
+    if (hasCall("experimental::matmul_block")) {
+      auto experimentalMatmulLLKs =
+          StringRef(experimental_matmul_llks_generated,
+                    experimental_matmul_llks_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalMatmulLLKs);
     }
 
     if (hasVerbatim("experimental::invoke_sfpi")) {
