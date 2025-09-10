@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRTTIRAnalysis
   AllocationPlanner.cpp
   AssociatedDMAWaits.cpp
+  CBProducerConsumer.cpp
   GenericInterchangeAnalysis.cpp
 
   ADDITIONAL_HEADER_DIRS
