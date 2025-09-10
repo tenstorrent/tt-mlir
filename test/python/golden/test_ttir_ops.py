@@ -299,7 +299,6 @@ def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request):
     def rsqrt(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        torch.manual_seed(0)
         input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
         golden_output_tensor = torch.rsqrt(input_tensor)
         rsqrt_0 = builder.rsqrt(in0, unit_attrs=unit_attrs)
@@ -2306,7 +2305,6 @@ def test_reciprocal(shape: Shape, dtype: torch.dtype, target: str, request):
     def reciprocal(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        torch.manual_seed(0)
         reciprocal_0 = builder.reciprocal(in0, unit_attrs=unit_attrs)
 
         # Constrain values for reciprocal
