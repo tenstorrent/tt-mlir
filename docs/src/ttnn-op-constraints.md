@@ -37,13 +37,15 @@ Important note: `getOpConstraints` and `getOpRuntime` API calls should be identi
 The only difference is that one call is generated from the IR while the other is from serialised FB. For example, you can compare:
 
 The runtime code `runtime/lib/ttnn/operations/conv/conv2d.cpp`:
-```c++
+```cpp
 void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   // ...
 }
 ```
+
 With the constraint API implementation code `lib/OpModel/TTNN/TTNNOpModel.cpp`:
-```c++
+
+```cpp
 llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(/* args */){
   // ...
 }
