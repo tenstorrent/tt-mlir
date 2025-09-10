@@ -262,25 +262,19 @@ static mlir::LogicalResult
 parseMeshFromFrontendAttributes(mlir::ModuleOp &rootModule,
                                 mlir::MLIRContext *context) {
   auto moduleAttrs = rootModule->getAttrDictionary();
-  if (!moduleAttrs.contains("mhlo.frontend_attributes")) {
-    return mlir::success();
-  }
-
   auto frontendAttrs = moduleAttrs.get("mhlo.frontend_attributes");
-  auto dictAttr = mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs);
-  if (!dictAttr || !dictAttr.contains("xla.sdy.meshes")) {
-    return mlir::success();
-  }
+  auto dictAttr =
+      mlir::dyn_cast_if_present<mlir::DictionaryAttr>(frontendAttrs);
+  auto meshesStr = dictAttr ? mlir::dyn_cast_if_present<mlir::StringAttr>(
+                                  dictAttr.get("xla.sdy.meshes"))
+                            : nullptr;
 
-  auto meshesStr =
-      mlir::dyn_cast<mlir::StringAttr>(dictAttr.get("xla.sdy.meshes"));
-  if (!meshesStr) {
+  if (!moduleAttrs.contains("mhlo.frontend_attributes") || !dictAttr ||
+      !dictAttr.contains("xla.sdy.meshes") || !meshesStr) {
     return mlir::success();
   }
 
   std::string meshStr = meshesStr.getValue().str();
-  std::string meshName = "mesh";
-
   size_t startPos = meshStr.find("<[");
   size_t endPos = meshStr.find("]>");
   if (startPos == std::string::npos || endPos == std::string::npos) {
@@ -291,6 +285,7 @@ parseMeshFromFrontendAttributes(mlir::ModuleOp &rootModule,
   std::vector<std::pair<std::string, int64_t>> axes =
       parseAxisDefinitions(axesContent);
 
+  std::string meshName = "mesh";
   if (axes.size() == 1) {
     shardy_utils::addMeshToModule(rootModule, meshName,
                                   axes[0].first + "_updated", axes[0].first, 1,
