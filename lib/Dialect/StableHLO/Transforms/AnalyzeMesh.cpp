@@ -208,6 +208,7 @@ parseAxisDefinitions(const std::string &axesContent) {
   size_t pos = 0;
 
   while (pos < axesContent.length()) {
+    // Skip whitespace and commas
     while (pos < axesContent.length() &&
            (axesContent[pos] == ' ' || axesContent[pos] == ',')) {
       pos++;
@@ -216,39 +217,46 @@ parseAxisDefinitions(const std::string &axesContent) {
       break;
     }
 
+    // Find opening quote for axis name
     size_t quoteStart = axesContent.find('"', pos);
     if (quoteStart == std::string::npos) {
       break;
     }
 
+    // Find closing quote for axis name
     size_t quoteEnd = axesContent.find('"', quoteStart + 1);
     if (quoteEnd == std::string::npos) {
       break;
     }
 
-    std::string axisName =
-        axesContent.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
-
-    size_t equalPos = axesContent.find("=", quoteEnd + 1);
+    // Find equals sign after axis name
+    size_t equalPos = axesContent.find('=', quoteEnd + 1);
     if (equalPos == std::string::npos) {
       break;
     }
 
+    // Extract axis name between quotes
+    std::string axisName =
+        axesContent.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+
+    // Find start of size value after equals
     size_t numStart = equalPos + 1;
+    // Find end of size value
     size_t numEnd = axesContent.find_first_of(",] ", numStart);
     if (numEnd == std::string::npos) {
       numEnd = axesContent.length();
     }
 
+    // Extract size string
     std::string sizeStr = axesContent.substr(numStart, numEnd - numStart);
+    // Trim trailing whitespace from size string
     while (!sizeStr.empty() &&
            (sizeStr.back() == ' ' || sizeStr.back() == '\t')) {
       sizeStr.pop_back();
     }
 
     if (!sizeStr.empty()) {
-      int64_t size = std::stoi(sizeStr);
-      axes.push_back({axisName, size});
+      axes.push_back({axisName, std::stoi(sizeStr)});
     }
 
     pos = numEnd;
@@ -261,13 +269,14 @@ parseAxisDefinitions(const std::string &axesContent) {
 static mlir::LogicalResult
 parseMeshFromFrontendAttributes(mlir::ModuleOp &rootModule,
                                 mlir::MLIRContext *context) {
-  auto moduleAttrs = rootModule->getAttrDictionary();
-  auto frontendAttrs = moduleAttrs.get("mhlo.frontend_attributes");
-  auto dictAttr =
+  mlir::DictionaryAttr moduleAttrs = rootModule->getAttrDictionary();
+  mlir::Attribute frontendAttrs = moduleAttrs.get("mhlo.frontend_attributes");
+  mlir::DictionaryAttr dictAttr =
       mlir::dyn_cast_if_present<mlir::DictionaryAttr>(frontendAttrs);
-  auto meshesStr = dictAttr ? mlir::dyn_cast_if_present<mlir::StringAttr>(
-                                  dictAttr.get("xla.sdy.meshes"))
-                            : nullptr;
+  mlir::StringAttr meshesStr =
+      dictAttr ? mlir::dyn_cast_if_present<mlir::StringAttr>(
+                     dictAttr.get("xla.sdy.meshes"))
+               : nullptr;
 
   if (!moduleAttrs.contains("mhlo.frontend_attributes") || !dictAttr ||
       !dictAttr.contains("xla.sdy.meshes") || !meshesStr) {
@@ -361,19 +370,22 @@ parseDimensionShardings(const std::string &dimsContent,
 static mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
                                                    mlir::BlockArgument &arg,
                                                    mlir::MLIRContext *context) {
-  auto currentArgAttrDict = funcOp.getArgAttrDict(arg.getArgNumber());
+  mlir::DictionaryAttr currentArgAttrDict =
+      funcOp.getArgAttrDict(arg.getArgNumber());
   if (!currentArgAttrDict ||
       !currentArgAttrDict.contains("mhlo.frontend_attributes")) {
     return mlir::success();
   }
 
-  auto frontendAttrs = currentArgAttrDict.get("mhlo.frontend_attributes");
-  auto dictAttr = mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs);
+  mlir::Attribute frontendAttrs =
+      currentArgAttrDict.get("mhlo.frontend_attributes");
+  mlir::DictionaryAttr dictAttr =
+      mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs);
   if (!dictAttr || !dictAttr.contains("xla.sdy.sharding")) {
     return mlir::success();
   }
 
-  auto shardingStr =
+  mlir::StringAttr shardingStr =
       mlir::dyn_cast<mlir::StringAttr>(dictAttr.get("xla.sdy.sharding"));
   if (!shardingStr) {
     return mlir::success();
@@ -382,7 +394,7 @@ static mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
   std::string shardingValue = shardingStr.getValue().str();
 
   llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
-  for (auto attr : currentArgAttrDict) {
+  for (mlir::NamedAttribute attr : currentArgAttrDict) {
     if (attr.getName() != "mhlo.frontend_attributes" &&
         attr.getName() != "mhlo.sharding") {
       newArgAttrs.push_back(attr);
@@ -432,9 +444,9 @@ convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
     return mlir::failure();
   }
 
-  auto moduleAttrs = rootModule->getAttrDictionary();
+  mlir::DictionaryAttr moduleAttrs = rootModule->getAttrDictionary();
   llvm::SmallVector<mlir::NamedAttribute> newModuleAttrs;
-  for (auto attr : moduleAttrs) {
+  for (mlir::NamedAttribute attr : moduleAttrs) {
     if (attr.getName() != "mhlo.frontend_attributes") {
       newModuleAttrs.push_back(attr);
     }
