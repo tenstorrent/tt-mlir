@@ -2132,6 +2132,42 @@ public:
 };
 } // namespace
 
+// AllReduceOp conversion pattern
+//
+namespace {
+class AllReduceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::AllReduceOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AllReduceOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllReduceOp srcOp,
+                  mlir::tt::ttnn::AllReduceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AllReduceOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emit(srcOp.getDevice()),
+        /*barrier_semaphores=*/rewriter.getType<emitc::OpaqueAttr>("{}"),
+        /*rs_global_semaphores=*/rewriter.getType<emitc::OpaqueAttr>("{}"),
+        /*ag_global_semaphores=*/rewriter.getType<emitc::OpaqueAttr>("{}"),
+        emitter.emit(srcOp.getReduceType()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        /*ttnn::ccl::Topology=*/
+        rewriter.getType<emitc::OpaqueAttr>("::ttnn::ccl::Topology::Linear"),
+        emitter.emit(srcOp.getNumLinks()),
+        /*worker_subdevice_id_opt=*/emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // ReduceScatterOp conversion pattern
 //
 namespace {
@@ -3392,6 +3428,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // CCL ops
   //
   patterns.add<AllGatherOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AllReduceOpConversionPattern>(typeConverter, ctx);
   patterns.add<ReduceScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<CollectivePermuteOpConversionPattern>(typeConverter, ctx);
   patterns.add<MeshShardOpConversionPattern>(typeConverter, ctx);
