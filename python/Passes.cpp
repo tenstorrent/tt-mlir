@@ -296,7 +296,8 @@ void populatePassesModule(nb::module_ &m) {
       .value("Float32", ::tt::target::DataType::Float32)
       .value("Float16", ::tt::target::DataType::Float16)
       .value("BFloat16", ::tt::target::DataType::BFloat16)
-      .value("Int32", ::tt::target::DataType::Int32);
+      .value("Int32", ::tt::target::DataType::Int32)
+      .value("UInt8", ::tt::target::DataType::UInt8);
 
   m.def("lookup_dtype", [](std::string enumName) {
     // Function to return the enum value based on the name.
