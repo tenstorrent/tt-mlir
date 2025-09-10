@@ -6,12 +6,9 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/distributed/types.hpp"
+#include "ttnn/operations/point_to_point/point_to_point.hpp"
 #include <cstdint>
 #include <optional>
-
-/*
-This is a temporary host fallback to ttnn::PointToPoint(..) API.
-*/
 
 namespace tt::runtime::ttnn::operations::ccl {
 
@@ -24,45 +21,25 @@ void run(const ::tt::target::ttnn::PointToPointOp *op,
   const ::ttnn::Tensor &inputTensor =
       tensorPool.getTTNNTensorAndValidate(op->in());
 
-  auto extractShardsToHost = [](const ::ttnn::Tensor &deviceTensor) {
-    return ::ttnn::distributed::get_device_tensors(
-        ::ttnn::from_device(deviceTensor));
-  };
+  const auto *sendCoordFb = op->send_coord();
+  const auto *receiveCoordFb = op->receive_coord();
 
-  std::vector<::ttnn::Tensor> inputTensorsHost =
-      extractShardsToHost(inputTensor);
+  std::vector<uint32_t> sendCoordVec(sendCoordFb->begin(), sendCoordFb->end());
+  std::vector<uint32_t> receiveCoordVec(receiveCoordFb->begin(),
+                                        receiveCoordFb->end());
 
-  std::vector<::ttnn::Tensor> outputTensorsHost;
-  bool hasUserProvidedAccumTensor = op->accum_tensor();
+  ::ttnn::MeshCoordinate sendCoord(ttsl::make_span(sendCoordVec));
+  ::ttnn::MeshCoordinate receiveCoord(ttsl::make_span(receiveCoordVec));
 
-  if (hasUserProvidedAccumTensor) {
-    outputTensorsHost = extractShardsToHost(
-        tensorPool.getTTNNTensorAndValidate(op->accum_tensor()));
-  } else {
-    outputTensorsHost = inputTensorsHost;
+  const auto *accumTensor = op->accum_tensor();
+  std::optional<::ttnn::Tensor> providedOutputTensor = std::nullopt;
+  if (accumTensor) {
+    providedOutputTensor =
+        tensorPool.getTTNNTensorAndValidate(op->accum_tensor());
   }
-
-  ::ttnn::MeshShape meshShape = inputTensor.device()->shape();
-  auto calcIdFromCoords =
-      [&](const flatbuffers::Vector<uint32_t> *coords) -> size_t {
-    DEBUG_ASSERT(coords->size() == meshShape.dims(),
-                 "MeshShape and coords size mismatch");
-    size_t id = 0;
-    for (size_t i = 0; i < meshShape.dims(); i++) {
-      id = id * meshShape[i] + (*coords)[i];
-    }
-    return id;
-  };
-
-  size_t sendId = calcIdFromCoords(op->send_coord());
-  size_t recvId = calcIdFromCoords(op->receive_coord());
-
-  outputTensorsHost[recvId] = inputTensorsHost[sendId];
-
-  ::ttnn::Tensor outputTensor =
-      ::ttnn::to_device(::ttnn::distributed::from_host_shards(
-                            outputTensorsHost, inputTensor.device()->shape()),
-                        inputTensor.device(), inputTensor.memory_config());
+  auto outputTensor = ::ttnn::point_to_point(
+      inputTensor, receiveCoord, sendCoord, ::ttnn::ccl::Topology::Linear,
+      providedOutputTensor);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), outputTensor);
 }
