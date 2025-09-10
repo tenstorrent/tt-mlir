@@ -432,45 +432,44 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
     return true;
   }
 
-  // Check if padded shapes would be identical (TTNN early return case)
-  auto computePaddedDim = [](int64_t dim) -> int64_t {
-    return ((dim + 31) / 32) * 32; // Round up to next tile boundary
-  };
+  // // Check if padded shapes would be identical (TTNN early return case)
+  // auto computePaddedDim = [](int64_t dim) -> int64_t {
+  //   return ((dim + 31) / 32) * 32; // Round up to next tile boundary
+  // };
 
-  bool paddedShapesWouldBeIdentical = true;
-  if (inputShape.size() >= 2 && outputShape.size() >= 2) {
-    // Check if last 2 dimensions would have same padding
-    int64_t inputPaddedH = computePaddedDim(inputShape[inputShape.size() - 2]);
-    int64_t inputPaddedW = computePaddedDim(inputShape[inputShape.size() - 1]);
-    int64_t outputPaddedH =
-        computePaddedDim(outputShape[outputShape.size() - 2]);
-    int64_t outputPaddedW =
-        computePaddedDim(outputShape[outputShape.size() - 1]);
+  // bool paddedShapesWouldBeIdentical = true;
+  // if (inputShape.size() >= 2 && outputShape.size() >= 2) {
+  //   // Check if last 2 dimensions would have same padding
+  //   int64_t inputPaddedH = computePaddedDim(inputShape[inputShape.size() -
+  //   2]); int64_t inputPaddedW = computePaddedDim(inputShape[inputShape.size()
+  //   - 1]); int64_t outputPaddedH =
+  //       computePaddedDim(outputShape[outputShape.size() - 2]);
+  //   int64_t outputPaddedW =
+  //       computePaddedDim(outputShape[outputShape.size() - 1]);
 
-    paddedShapesWouldBeIdentical =
-        (inputPaddedH == outputPaddedH) && (inputPaddedW == outputPaddedW);
-  }
+  //   paddedShapesWouldBeIdentical =
+  //       (inputPaddedH == outputPaddedH) && (inputPaddedW == outputPaddedW);
+  // }
 
-  if (paddedShapesWouldBeIdentical) {
-    if (isUserOp) {
-      ++skippedUserReshapeNoOp;
-      llvm::outs() << "[L1IFA] Skipped op (user reshape padded no-op): "
-                   << contextOp->getName() << "\n";
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
-                   "padded no-op.",
-                   contextOp->getName());
-    } else {
-      ++skippedReshapeNoOp;
-      llvm::outs() << "[L1IFA] Skipped op (reshape padded no-op): "
-                   << contextOp->getName() << "\n";
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
-                   "padded no-op.",
-                   contextOp->getName());
-    }
-    return true;
-  }
+  // if (paddedShapesWouldBeIdentical) {
+  //   if (isUserOp) {
+  //     ++skippedUserReshapeNoOp;
+  //     llvm::outs() << "[L1IFA] Skipped op (user reshape padded no-op): "
+  //                  << contextOp->getName() << "\n";
+  //     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+  //                  "L1InterleavedFallbackAnalysis: Skipping {} - user reshape
+  //                  " "padded no-op.", contextOp->getName());
+  //   } else {
+  //     ++skippedReshapeNoOp;
+  //     llvm::outs() << "[L1IFA] Skipped op (reshape padded no-op): "
+  //                  << contextOp->getName() << "\n";
+  //     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+  //                  "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
+  //                  "padded no-op.",
+  //                  contextOp->getName());
+  //   }
+  //   return true;
+  // }
 
   // Check if this reshape can be optimized to a view (TTNN-style check)
   bool canBeView = false;
