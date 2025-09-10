@@ -59,9 +59,11 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
         0, tt::tt_metal::BufferType::L1));
   }
   ::ttnn::Tensor out = ::ttnn::experimental::reduce_scatter_minimal_async(
-      input, std::nullopt, scatterDimension, semaphores, std::nullopt, numLinks,
-      outputMemoryConfig.value(), std::nullopt, ::ttnn::ccl::Topology::Linear,
-      std::nullopt, clusterAxis);
+      input, /*persistent_output_buffers=*/std::nullopt, scatterDimension,
+      semaphores, /*barrier_semaphore=*/std::nullopt, numLinks,
+      outputMemoryConfig.value(), /*intermediate_memory_config=*/std::nullopt,
+      ::ttnn::ccl::Topology::Linear, /*subdevice_id=*/std::nullopt,
+      clusterAxis);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::ccl
