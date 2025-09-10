@@ -18,6 +18,7 @@ Here is a summary of the steps needed:
    - `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
    - `-DTTMLIR_ENABLE_RUNTIME=ON`
    - `-DTT_RUNTIME_DEBUG=ON`
+   - `-DTTMLIR_ENABLE_STABLEHLO=ON`
 4. Build `explorer` target in `tt-mlir` using `cmake --build build -- explorer`
 5. Run `tt-explorer` in terminal to start `tt-explorer` instance. (Refer to CLI section in API for specifics)
    - **Note**: `tt-explorer` requires [Pandas](https://pypi.org/project/pandas/) in addition to the `tt-mlir` [System Dependencies](https://docs.tenstorrent.com/tt-mlir/getting-started.html#system-dependencies).
@@ -38,6 +39,7 @@ Flags required:
 - `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
 - `-DTTMLIR_ENABLE_RUNTIME=ON`
 - `-DTT_RUNTIME_DEBUG=ON`
+- `-DTTMLIR_ENABLE_STABLEHLO=ON`
 
 Then build the `explorer` target by running the following command:
 

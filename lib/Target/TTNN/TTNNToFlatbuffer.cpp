@@ -2597,7 +2597,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
 
 std::shared_ptr<void> ttnnToFlatbuffer(
     Operation *op,
-    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::unordered_map<std::string,
+                             std::unordered_map<std::uint32_t, GoldenTensor>>
+        &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   ModuleOp rootModule = dyn_cast<ModuleOp>(op);
   assert(rootModule && "Expected ModuleOp as top level operation");
@@ -2738,7 +2740,9 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
 LogicalResult translateTTNNToFlatbuffer(
     Operation *op, llvm::raw_ostream &os,
-    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::unordered_map<std::string,
+                             std::unordered_map<std::uint32_t, GoldenTensor>>
+        &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap, moduleCache);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
