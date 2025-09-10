@@ -1882,7 +1882,8 @@ createOp(FlatbufferObjectCache &cache, NLPConcatHeadsDecodeOp op) {
   uint32_t numHeads = op.getNumHeads();
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
-  return ::tt::target::ttnn::CreateNLPConcatHeadsDecodeOp(*cache.fbb, in, out, numHeads, memoryConfig);
+  return ::tt::target::ttnn::CreateNLPConcatHeadsDecodeOp(
+      *cache.fbb, in, out, numHeads, memoryConfig);
 }
 
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>

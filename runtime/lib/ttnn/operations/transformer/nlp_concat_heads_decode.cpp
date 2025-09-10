@@ -9,18 +9,17 @@
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
-
 namespace tt::runtime::ttnn::operations::transformer {
 
 void run(const ::tt::target::ttnn::NLPConcatHeadsDecodeOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
-  ::ttnn::Tensor out =
-      ::ttnn::experimental::nlp_concat_heads_decode(in, op->num_heads(), outputMemoryConfig);
+  ::ttnn::Tensor out = ::ttnn::experimental::nlp_concat_heads_decode(
+      in, op->num_heads(), outputMemoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
