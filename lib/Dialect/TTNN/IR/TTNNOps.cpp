@@ -3378,9 +3378,10 @@ void CaptureOrExecuteTraceOp::getEffects(
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
   // Input tensor dimensions [sequence_size, batch_size, num_heads, head_size]
-  // Output tensor dimensions [sequence_size, 1, batch_size, num_heads * head_size]
+  // Output tensor dimensions [sequence_size, 1, batch_size, num_heads *
+  // head_size]
   enum InputDimensions {
-    INPUT_SEQ= 0,
+    INPUT_SEQ = 0,
     INPUT_BATCH = 1,
     INPUT_NUM_HEADS = 2,
     INPUT_HEAD_SIZE = 3
@@ -3392,7 +3393,8 @@ void CaptureOrExecuteTraceOp::getEffects(
   // if (inputShape[INPUT_BATCH] != outputShape[OUTPUT_BATCH]) {
   //   return emitOpError() << "input and output batch dimensions must match,"
   //                           "got input batch size = "
-  //                        << inputShape[INPUT_BATCH] << ", output batch size = "
+  //                        << inputShape[INPUT_BATCH] << ", output batch size =
+  //                        "
   //                        << outputShape[OUTPUT_BATCH];
   // }
 
@@ -3410,8 +3412,7 @@ void CaptureOrExecuteTraceOp::getEffects(
     return emitOpError()
            << "Output hidden dimension must equal num_heads * head_size, "
               "got num_heads = "
-           << inputShape[INPUT_NUM_HEADS]
-           << ", head_size = " << numHeads
+           << inputShape[INPUT_NUM_HEADS] << ", head_size = " << numHeads
            << ", expected hidden size = " << expectedHiddenSize
            << ", actual output hidden size = " << outputShape[OUTPUT_HIDDEN];
   }
