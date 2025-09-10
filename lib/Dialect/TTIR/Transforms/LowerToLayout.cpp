@@ -19,6 +19,7 @@ namespace mlir::tt::ttir {
 
 // Helper struct to encapsulate tensor info; this allows us to package
 // MetalLayoutAttr as optional gracefully.
+namespace {
 struct TensorInfo {
   RankedTensorType type;
   std::optional<ttcore::MetalLayoutAttr> layout;
@@ -56,7 +57,9 @@ struct TensorInfo {
     return layout->getGridShape(type);
   }
 };
+} // namespace
 
+namespace {
 class TTIRLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 public:
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
@@ -242,7 +245,9 @@ public:
     llvm_unreachable("Unknown compound component");
   }
 };
+} // namespace
 
+namespace {
 class TTIRSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
   // Helper struct to build intermediate bounce types.
   // This builder will always create a MetalLayoutAttr directly through the
@@ -456,7 +461,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TTIRLowerToLayout
     : public impl::TTIRLowerToLayoutBase<TTIRLowerToLayout> {
 public:
@@ -472,5 +479,6 @@ public:
     }
   }
 };
+} // namespace
 
 } // namespace mlir::tt::ttir
