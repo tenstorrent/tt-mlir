@@ -696,6 +696,18 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
       op.getAllGatherDim(), op.getClusterAxis(), op.getNumLinks());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AllReduceOp>
+createOp(FlatbufferObjectCache &cache, AllReduceOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  return ::tt::target::ttnn::CreateAllReduceOp(
+      *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
+      static_cast<uint32_t>(op.getReduceType()), op.getClusterAxis(),
+      op.getNumLinks());
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::ReduceScatterOp>
 createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2542,6 +2554,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto allGatherOp = dyn_cast<AllGatherOp>(op); allGatherOp) {
     return createOperation(cache, createOp(cache, allGatherOp), debugString,
+                           locInfo);
+  }
+  if (auto allReduceOp = dyn_cast<AllReduceOp>(op); allReduceOp) {
+    return createOperation(cache, createOp(cache, allReduceOp), debugString,
                            locInfo);
   }
   if (auto reduceScatterOp = dyn_cast<ReduceScatterOp>(op); reduceScatterOp) {
