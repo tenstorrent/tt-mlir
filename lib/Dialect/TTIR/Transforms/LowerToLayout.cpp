@@ -97,12 +97,13 @@ public:
   // device->device memspace ToLayoutOp.
   static bool producerMustBeLoweredFirst(ToLayoutOp op) {
     if (auto producer = op.getInput().getDefiningOp<ToLayoutOp>()) {
-      auto inputOperandMemspace =
-          producer.getOrCreateInputLayout().getMemorySpace();
-      auto outputOperandMemspace =
-          producer.getOrCreateOutputLayout().getMemorySpace();
-      if (ttcore::isDeviceMemorySpace(inputOperandMemspace) &&
-          ttcore::isDeviceMemorySpace(outputOperandMemspace)) {
+      auto producerInputInfo = TensorInfo::from(producer.getInput());
+      auto producerOutputInfo = TensorInfo::from(producer.getOutput());
+
+      // Check if both producer's input and output are on device
+      // (i.e., both have layouts and neither is system memory)
+      if (producerInputInfo.hasLayout() && producerOutputInfo.hasLayout() &&
+          !producerInputInfo.isSystem() && !producerOutputInfo.isSystem()) {
         return true;
       }
     }
