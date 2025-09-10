@@ -10,9 +10,14 @@ table GoldenTensor {
   data: [uint8];
 }
 
+table GoldenDeviceTensor {
+  device: uint32;
+  value: GoldenTensor;
+}
+
 table GoldenKV {
   key: string;
-  value: GoldenTensor;
+  value: [GoldenDeviceTensor];
 }
 
 table GoldenInfo {
