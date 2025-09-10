@@ -51,14 +51,6 @@ def DeviceOrRegisterMemRefOrAnyRankedTensor : AnyTypeOf<[
   AnyRankedTensor
 ]>;
 
-def TTIR_TransposeUnpackCapable : OpTrait<"TransposeUnpackCapable"> {
-  let summary = "Op supports transposing tiles during unpack";
-  let description = [{
-    Indicates this op can transpose tiles during the unpack phase,
-    avoiding the need for a separate transpose operation.
-  }];
-}
-
 class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIR_GenericParent] # traits> {}
 
