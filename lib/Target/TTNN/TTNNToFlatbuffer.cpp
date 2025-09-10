@@ -720,8 +720,7 @@ createOp(FlatbufferObjectCache &cache, ScatterOp op) {
       getOperandThroughDPSOps(op.getIndexTensor()));
   auto sourceTensor = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getSourceTensor()));
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedSize);
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   return ::tt::target::ttnn::CreateScatterOp(*cache.fbb, input, output,
                                              indexTensor, sourceTensor,
