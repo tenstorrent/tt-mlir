@@ -9,8 +9,8 @@
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
-#include "mlir/Pass/PassOptions.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Pass/PassOptions.h"
 
 namespace tt::tt_metal::distributed {
 class MeshDevice;
