@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 from pprint import pprint
+import re
 
 import torch
 from pkg_resources import get_distribution
@@ -1096,3 +1097,12 @@ class Results:
 
     def get_results(self):
         return self.results
+
+
+def get_sanitized_filename(name: str, replacement: str = "_") -> str:
+    # make string safe for file name
+    forbidden = rf':"/\\|?*\0'
+    s = re.sub(rf"[{re.escape(forbidden)}\x00-\x1F]", replacement, name)
+    if not s:
+        s = "untitled"
+    return s.strip()
