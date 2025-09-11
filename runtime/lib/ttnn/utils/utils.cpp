@@ -463,7 +463,7 @@ createRuntimeDeviceFromTTNN(::ttnn::MeshDevice *meshDevice) {
   // Create a non-owning shared_ptr to the provided MeshDevice with no-op
   // deleter.
   std::shared_ptr<void> unsafeMeshDeviceSharedPtr =
-      ::tt::runtime::utils::unsafe_borrow_shared(meshDevice);
+      ::tt::runtime::utils::unsafeBorrowShared(meshDevice);
   // Wrap the the device in the runtime device.
   auto ttnnTraceCache = std::make_shared<::tt::runtime::ttnn::TraceCache>(
       std::static_pointer_cast<::ttnn::MeshDevice>(unsafeMeshDeviceSharedPtr));
@@ -481,7 +481,7 @@ createRuntimeDeviceFromTTNN(::ttnn::MeshDevice *meshDevice) {
 ::tt::runtime::TensorRef
 createRuntimeTensorRefFromTTNN(const ::tt::target::ttnn::TensorRef *tensorRef) {
   std::shared_ptr<const void> tensorRefPtr =
-      ::tt::runtime::utils::unsafe_borrow_shared(tensorRef);
+      ::tt::runtime::utils::unsafeBorrowShared(tensorRef);
   return tt::runtime::TensorRef(tensorRefPtr, DeviceRuntime::TTNN);
 }
 

@@ -191,7 +191,7 @@ def test_create_tensor_memcpy(helper: Helper, shape, dtype, request):
 )
 @pytest.mark.parametrize("with_device", [False, True], ids=["no_device", "with_device"])
 def test_get_system_desc(runtime, dispatch_core_type, with_device):
-    ttrt.runtime.set_current_runtime(runtime)
+    ttrt.runtime.set_current_device_runtime(runtime)
     num_devices = ttrt.runtime.get_num_available_devices()
 
     if with_device:
@@ -211,7 +211,7 @@ def test_get_system_desc(runtime, dispatch_core_type, with_device):
     [torch.float64, torch.int64, torch.uint64, torch.int16, torch.int8, torch.bool],
 )
 def test_create_owned_tensor_with_unsupported_data_type(dtype):
-    ttrt.runtime.set_current_runtime(ttrt.runtime.DeviceRuntime.TTNN)
+    ttrt.runtime.set_current_device_runtime(ttrt.runtime.DeviceRuntime.TTNN)
     torch_input_tensor = (127 * torch.rand((64, 128))).to(dtype)
     runtime_dtype = Binary.Program.to_data_type(dtype)
     runtime_input_tensor = ttrt.runtime.create_owned_host_tensor(
@@ -233,7 +233,7 @@ def test_create_owned_tensor_with_unsupported_data_type(dtype):
 
 @pytest.mark.parametrize("num_loops", [64])
 def test_unblocking_to_host(num_loops):
-    ttrt.runtime.set_current_runtime(ttrt.runtime.DeviceRuntime.TTNN)
+    ttrt.runtime.set_current_device_runtime(ttrt.runtime.DeviceRuntime.TTNN)
     dtype = torch.bfloat16
     torch_input_tensor = torch.randn((256, 784, 892), dtype=dtype)
     runtime_dtype = Binary.Program.to_data_type(dtype)
