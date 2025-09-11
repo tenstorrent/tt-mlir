@@ -320,4 +320,5 @@ mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
       ::mlir::IntegerType::get(ctx, /*width=*/32, IntegerType::Unsigned),
       ttnn::TraceIdAttr::get(ctx));
 }
+
 } // namespace mlir::tt::ttnn::utils
