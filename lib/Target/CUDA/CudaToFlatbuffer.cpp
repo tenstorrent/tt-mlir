@@ -21,6 +21,7 @@
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
@@ -457,6 +458,25 @@ processLaunchFuncOp(mlir::gpu::LaunchFuncOp launchFuncOp,
       constantValue = constantOp.getValue();
     }
 
+    auto getGlobalOp = (finalDefiningOp)
+                           ? dyn_cast<memref::GetGlobalOp>(finalDefiningOp)
+                           : nullptr;
+    if (getGlobalOp) {
+      auto globalSymbolRef =
+          mlir::cast<mlir::FlatSymbolRefAttr>(getGlobalOp->getAttr("name"));
+
+      ModuleOp parentModule = getGlobalOp->getParentOfType<ModuleOp>();
+      SymbolTable symbolTable(parentModule);
+      auto globalOp = mlir::cast<memref::GlobalOp>(
+          symbolTable.lookup(globalSymbolRef.getValue()));
+
+      // Extract the constant value from the global's initial value.
+      if (globalOp.getInitialValue().has_value()) {
+        constantValue =
+            mlir::cast<TypedAttr>(globalOp.getInitialValue().value());
+      }
+    }
+
     if (constantValue && !constantMemRefDescMap.count(operandName)) {
       constantMemRefDescMap.insert(
           {operandName, MemRefDesc{operandName, operandValue.getType(),
@@ -481,7 +501,6 @@ processLaunchFuncOp(mlir::gpu::LaunchFuncOp launchFuncOp,
       memRefDescMap[operandName] = memRefDesc;
     }
   }
-
   kernel.inputNames = inputNames;
 
   auto nameOffset = fbb.CreateString(kernel.name);
