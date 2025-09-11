@@ -22,6 +22,9 @@ public:
   DeviceRuntime getCurrentRuntime() const;
   void setCurrentRuntime(const DeviceRuntime &runtime);
 
+  HostRuntime getCurrentHostRuntime() const;
+  void setCurrentHostRuntime(const HostRuntime &runtime);
+
   FabricConfig getCurrentFabricConfig() const;
   void setCurrentFabricConfig(const FabricConfig &config);
 
@@ -30,6 +33,7 @@ private:
   ~RuntimeContext() = default;
 
   std::atomic<DeviceRuntime> currentRuntime = DeviceRuntime::Disabled;
+  std::atomic<HostRuntime> currentHostRuntime = HostRuntime::Default;
   std::atomic<FabricConfig> currentFabricConfig = FabricConfig::DISABLED;
 };
 

@@ -374,6 +374,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
               ::tt::target::ttnn::EnumNameOpType(op->type_type()));
   }
   }
+
+  LOG_FATAL("Unreachable code path, all operations should be handled in switch "
+            "statement");
 }
 
 void ProgramExecutor::dumpPerfCountersIfNeeded() {

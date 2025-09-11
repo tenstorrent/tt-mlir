@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/common/socket.h"
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
 #include "tt/runtime/detail/distributed/server/command_factory.h"
+#include "tt/runtime/detail/distributed/utils/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
@@ -18,19 +19,9 @@
 
 using tt::runtime::distributed::server::CommandFactory;
 
-static std::string getMlirHome() {
-  const char *mlirHomeEnv = std::getenv("TT_MLIR_HOME");
-  LOG_ASSERT(mlirHomeEnv, "TT_MLIR_HOME is not set");
-  return std::string(mlirHomeEnv);
-}
-
 static auto runClientSubprocess(uint16_t port) {
-  std::string mlirHome = getMlirHome();
-  std::string portString = std::to_string(port);
   std::string command =
-      "/" + mlirHome + "/build/runtime/bin/distributed/runtime-client --port " +
-      portString;
-
+      tt::runtime::distributed::utils::getClientExecutableCommand(port);
   return std::async(std::launch::async,
                     [command]() { return std::system(command.c_str()); });
 }
@@ -122,7 +113,7 @@ TEST(RuntimeClientTest, TestSubmit) {
 
   flatbuffers::FlatBufferBuilder fbb;
 
-  std::string binaryPath = getMlirHome() +
+  std::string binaryPath = ::tt::runtime::utils::getMlirHome() +
                            "/build/test/ttmlir/Runtime/TTNN/n150/consteval/"
                            "Output/binary_ops.mlir.tmp.ttnn";
   ::tt::runtime::Binary binary =

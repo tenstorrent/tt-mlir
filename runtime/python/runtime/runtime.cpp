@@ -39,11 +39,11 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("get_dram_size_per_channel", &tt::runtime::getDramSizePerChannel)
       .def("get_l1_size_per_core", &tt::runtime::getL1SizePerCore)
       .def("release_trace", &tt::runtime::releaseTrace)
-      .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
-      .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
+      .def("deallocate_buffers", &tt::runtime::deallocateBuffers)
+      .def("dump_memory_report", &tt::runtime::dumpMemoryReport)
       .def("read_device_profiler_results",
-           &tt::runtime::detail::readDeviceProfilerResults)
-      .def("get_memory_view", &tt::runtime::detail::getMemoryView);
+           &tt::runtime::readDeviceProfilerResults)
+      .def("get_memory_view", &tt::runtime::getMemoryView);
 
   nb::class_<tt::runtime::Event>(m, "Event");
 

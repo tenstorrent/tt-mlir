@@ -51,6 +51,14 @@ void RuntimeContext::setCurrentRuntime(const DeviceRuntime &runtime) {
   currentRuntime.store(runtime, std::memory_order_relaxed);
 }
 
+HostRuntime RuntimeContext::getCurrentHostRuntime() const {
+  return currentHostRuntime.load(std::memory_order_relaxed);
+}
+
+void RuntimeContext::setCurrentHostRuntime(const HostRuntime &runtime) {
+  currentHostRuntime.store(runtime, std::memory_order_relaxed);
+}
+
 FabricConfig RuntimeContext::getCurrentFabricConfig() const {
   FabricConfig config = currentFabricConfig.load(std::memory_order_relaxed);
   return config;

@@ -52,6 +52,11 @@ inline std::string toString(DeviceRuntime runtime) {
   }
 }
 
+enum class HostRuntime {
+  Default,
+  Distributed,
+};
+
 enum class DispatchCoreType {
   WORKER,
   ETH,
@@ -75,6 +80,7 @@ enum class FabricConfig {
 enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
 namespace detail {
+
 struct ObjectImpl {
 
   std::shared_ptr<void> handle;
@@ -164,6 +170,63 @@ struct RuntimeCheckedConstObjectImpl {
 
 } // namespace detail
 
+struct SharedHandle {
+
+public:
+  SharedHandle() : container_(std::make_shared<Container>()) {}
+
+  explicit SharedHandle(std::shared_ptr<void> handle)
+      : container_(std::make_shared<Container>(std::move(handle))) {}
+
+  ~SharedHandle() = default;
+
+  SharedHandle(const SharedHandle &) = default;
+  SharedHandle(SharedHandle &&) = default;
+  SharedHandle &operator=(const SharedHandle &) = default;
+  SharedHandle &operator=(SharedHandle &&) = default;
+
+  explicit operator bool() const { return container_->handle != nullptr; }
+
+  void reset() { container_->handle.reset(); }
+  void reset(const std::shared_ptr<void> &newHandle) {
+    container_->handle = newHandle;
+  }
+  void reset(std::shared_ptr<void> &&newHandle) {
+    container_->handle = std::move(newHandle);
+  }
+  void *get() const { return container_->handle.get(); }
+  std::shared_ptr<void> getHandle() const { return container_->handle; }
+
+  template <typename T>
+  const T &as() const {
+    assert(container_->handle && "Handle should not be null");
+    return *static_cast<const T *>(container_->handle.get());
+  }
+
+  template <typename T>
+  T &as() {
+    assert(container_->handle && "Handle should not be null");
+    return *static_cast<T *>(container_->handle.get());
+  }
+
+  template <typename T>
+  std::shared_ptr<T> asSharedPtr() const {
+    assert(container_->handle && "Handle should not be null");
+    return std::static_pointer_cast<T>(container_->handle);
+  }
+
+private:
+  struct Container {
+  public:
+    Container() = default;
+    Container(std::shared_ptr<void> &&handle) : handle(std::move(handle)) {}
+
+    std::shared_ptr<void> handle;
+  };
+
+  std::shared_ptr<Container> container_;
+};
+
 struct TensorDesc {
   std::vector<uint32_t> shape = {}; // Logical.
   ::tt::target::DataType dataType = ::tt::target::DataType::MAX;
@@ -211,8 +274,10 @@ struct MeshDeviceOptions {
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
 };
 
-struct Flatbuffer : public detail::ObjectImpl {
-  using detail::ObjectImpl::ObjectImpl;
+struct Flatbuffer {
+  std::shared_ptr<void> handle;
+
+  Flatbuffer(std::shared_ptr<void> handle) : handle(std::move(handle)) {}
 
   static Flatbuffer loadFromPath(const char *path);
   static Flatbuffer loadFromMemory(const void *memory, size_t size);
@@ -269,6 +334,8 @@ struct Binary : public Flatbuffer {
   std::string getProgramInputsAsJson(std::uint32_t programIndex) const;
   std::string getProgramOutputsAsJson(std::uint32_t programIndex) const;
   std::string getMlirAsJson() const;
+  std::uint32_t getNumProgramInputs(std::uint32_t programIndex) const;
+  std::uint32_t getNumProgramOutputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
   std::unordered_map<std::uint32_t, const ::tt::target::GoldenTensor *>
@@ -291,18 +358,20 @@ private:
   std::shared_ptr<TensorCache> tensorCache;
 };
 
-struct TraceCache : public detail::RuntimeCheckedObjectImpl {
-  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
-};
-
 struct Device : public detail::RuntimeCheckedObjectImpl {
+  Device(DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(nullptr, runtime),
+        globalId(nextDeviceGlobalId()), traceCacheHandle(nullptr) {}
 
-  Device(std::shared_ptr<void> handle, std::shared_ptr<TraceCache> traceCache,
+  Device(std::shared_ptr<void> handle, std::shared_ptr<void> traceCacheHandle,
          DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime),
-        globalId(nextDeviceGlobalId()), traceCache(traceCache) {}
+        globalId(nextDeviceGlobalId()), traceCacheHandle(traceCacheHandle) {}
 
-  std::shared_ptr<TraceCache> getTraceCache() { return traceCache; }
+  SharedHandle getTraceCacheHandle(DeviceRuntime expectedRuntime) {
+    assertMatchesRuntime(expectedRuntime);
+    return traceCacheHandle;
+  }
 
   void setGlobalId(std::uint32_t id) { globalId = id; }
   std::uint32_t getGlobalId() const { return globalId; }
@@ -313,7 +382,7 @@ private:
   std::uint32_t globalId;
 
   // The trace cache associated with this device.
-  std::shared_ptr<TraceCache> traceCache;
+  SharedHandle traceCacheHandle;
 };
 
 struct Event : public detail::RuntimeCheckedObjectImpl {

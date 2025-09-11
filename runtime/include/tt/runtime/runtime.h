@@ -22,31 +22,19 @@ SystemDesc getCurrentSystemDesc(
 } // namespace system_desc
 
 namespace detail {
-void deallocateBuffers(Device device);
-void dumpMemoryReport(Device device);
-void readDeviceProfilerResults(Device device);
 
-/*
-This function get the memory view per device
-  {
-    "DRAM": MemoryView,
-    "L1": MemoryView,
-    "L1Small": MemoryView,
-    "Trace": MemoryView
-  }
-*/
-std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device device);
+uint32_t getNumShards(Tensor tensor);
 
 } // namespace detail
 
 std::vector<DeviceRuntime> getAvailableRuntimes();
 
 DeviceRuntime getCurrentRuntime();
-
 void setCurrentRuntime(const DeviceRuntime &runtime);
-
 void setCompatibleRuntime(const Binary &binary);
+
+HostRuntime getCurrentHostRuntime();
+void setCurrentHostRuntime(const HostRuntime &runtime);
 
 SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
@@ -163,6 +151,22 @@ size_t getL1SizePerCore(Device meshDevice);
 
 void releaseTrace(Device meshDevice, std::uint64_t binaryId,
                   size_t mainProgramId);
+
+void deallocateBuffers(Device device);
+void dumpMemoryReport(Device device);
+void readDeviceProfilerResults(Device device);
+
+/*
+This function gets the memory view per device
+  {
+    "DRAM": MemoryView,
+    "L1": MemoryView,
+    "L1Small": MemoryView,
+    "Trace": MemoryView
+  }
+*/
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device device);
 
 void setFabricConfig(FabricConfig config);
 

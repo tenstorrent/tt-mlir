@@ -1,4 +1,4 @@
-if (NOT TT_RUNTIME_ENABLED)
+if (NOT DISTRIBUTED_RUNTIME_ENABLED)
   add_library(TTRuntimeDistributedServer INTERFACE)
   return()
 endif()
@@ -6,6 +6,7 @@ endif()
 add_library(TTRuntimeDistributedServer
   STATIC
   command_factory.cpp
+  server.cpp
 )
 
 set_target_properties(TTRuntimeDistributedServer PROPERTIES CXX_STANDARD 20)
@@ -18,4 +19,4 @@ target_include_directories(TTRuntimeDistributedServer PRIVATE
 target_include_directories(TTRuntimeDistributedServer SYSTEM PRIVATE "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 
 add_dependencies(TTRuntimeDistributedServer RUNTIME_FBS_GENERATION)
-target_link_libraries(TTRuntimeDistributedServer PRIVATE TTBinary TTRuntimeTypes TTRuntimeTTNN)
+target_link_libraries(TTRuntimeDistributedServer PRIVATE TTBinary TTRuntimeTypes TTRuntimeTTNN TTRuntimeDistributedUtils)

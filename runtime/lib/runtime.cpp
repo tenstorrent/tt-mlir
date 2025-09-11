@@ -76,37 +76,13 @@ fatalNotImplemented(const std::string &funcName, DeviceRuntime runtime) {
   LOG_FATAL(message);
 }
 
-void deallocateBuffers(Device device) {
-  using RetType = void;
-  return DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::deallocateBuffers(device); },
-      [&]() { ::tt::runtime::ttmetal::deallocateBuffers(device); });
-}
-
-void dumpMemoryReport(Device device) {
-  using RetType = void;
-  return DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::dumpMemoryReport(device); },
-      [&]() { ::tt::runtime::ttmetal::dumpMemoryReport(device); });
-}
-
-void readDeviceProfilerResults(Device device) {
-  using RetType = void;
+uint32_t getNumShards(Tensor tensor) {
+  using RetType = uint32_t;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
-      [&]() { ::tt::runtime::ttnn::readDeviceProfilerResults(device); },
-      [&]() { ::tt::runtime::ttmetal::readDeviceProfilerResults(device); });
-}
-
-using MemoryViewResult = std::unordered_map<::tt::runtime::MemoryBufferType,
-                                            ::tt::runtime::MemoryView>;
-MemoryViewResult getMemoryView(Device device) {
-  using RetType = MemoryViewResult;
-  return DISPATCH_TO_CURRENT_RUNTIME(
-      RetType,
-      [&]() -> RetType { return ::tt::runtime::ttnn::getMemoryView(device); },
+      [&]() -> RetType { return ::tt::runtime::ttnn::getNumShards(tensor); },
       [&]() -> RetType {
-        return ::tt::runtime::ttmetal::getMemoryView(device);
+        fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
       });
 }
 } // namespace detail
@@ -153,6 +129,22 @@ void setCompatibleRuntime(const Binary &binary) {
   }
 #endif
   LOG_FATAL("Unsupported binary file identifier or runtime not enabled");
+}
+
+HostRuntime getCurrentHostRuntime() {
+#if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \
+    (defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1))
+  return RuntimeContext::instance().getCurrentHostRuntime();
+#endif
+  return HostRuntime::Default;
+}
+
+void setCurrentHostRuntime(const HostRuntime &runtime) {
+#if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \
+    (defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1))
+  return RuntimeContext::instance().setCurrentHostRuntime(runtime);
+#endif
+  LOG_FATAL("Runtime is not enabled");
 }
 
 SystemDesc
@@ -557,6 +549,40 @@ void releaseTrace(Device meshDevice, std::uint64_t binaryId,
       },
       [&]() -> RetType {
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
+      });
+}
+
+void deallocateBuffers(Device device) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::deallocateBuffers(device); },
+      [&]() { ::tt::runtime::ttmetal::deallocateBuffers(device); });
+}
+
+void dumpMemoryReport(Device device) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::dumpMemoryReport(device); },
+      [&]() { ::tt::runtime::ttmetal::dumpMemoryReport(device); });
+}
+
+void readDeviceProfilerResults(Device device) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() { ::tt::runtime::ttnn::readDeviceProfilerResults(device); },
+      [&]() { ::tt::runtime::ttmetal::readDeviceProfilerResults(device); });
+}
+
+using MemoryViewResult = std::unordered_map<::tt::runtime::MemoryBufferType,
+                                            ::tt::runtime::MemoryView>;
+MemoryViewResult getMemoryView(Device device) {
+  using RetType = MemoryViewResult;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ::tt::runtime::ttnn::getMemoryView(device); },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getMemoryView(device);
       });
 }
 
