@@ -49,32 +49,32 @@ def _build_matmul_parallel(
     shard_shape_inout = make_shard_shape(2, shard_dims_inout, mesh_shape)
     shard_shape_wt = make_shard_shape(2, shard_dims_wt, mesh_shape)
 
-    sharded_input = builder.mesh_shard(
+    mesh_shard_in = builder.mesh_shard(
         input,
         shard_direction="#ttcore.shard_direction<full_to_shard>",
         shard_type="#ttcore.shard_type<devices>",
         shard_shape=shard_shape_inout,
         shard_dims=shard_dims_inout,
     )
-    sharded_weight = builder.mesh_shard(
+    mesh_shard_wt = builder.mesh_shard(
         weight,
         shard_direction="#ttcore.shard_direction<full_to_shard>",
         shard_type="#ttcore.shard_type<devices>",
         shard_shape=shard_shape_wt,
         shard_dims=shard_dims_wt,
     )
-    partial_matmul = builder.matmul(sharded_input, sharded_weight)
-    sharded_result = builder.reduce_scatter(
+    partial_matmul = builder.matmul(mesh_shard_in, mesh_shard_wt)
+    reduced = builder.reduce_scatter(
         partial_matmul,
         reduce_type="#ttcore.reduce_type<sum>",
         scatter_dim=1,
         cluster_axis=parallelize_axis,
     )
     if not do_unshard:
-        return sharded_result
+        return reduced
     else:
         return builder.mesh_shard(
-            sharded_result,
+            reduced,
             shard_direction="#ttcore.shard_direction<shard_to_full>",
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=shard_shape_inout,
@@ -148,14 +148,14 @@ def test_parallelized_matmul_with_unary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        sharded_matmul_result = _build_matmul_parallel(
+        matmul_shard = _build_matmul_parallel(
             in0,
             in1,
             builder,
             mesh_shape,
             do_unshard=False,
         )
-        output = builder.neg(sharded_matmul_result)
+        output = builder.neg(matmul_shard)
 
         shard_dims_out = [0, 1]
         shard_shape_out = make_shard_shape(2, shard_dims_out, mesh_shape)
@@ -200,7 +200,7 @@ def test_parallelized_matmul_with_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request
 ):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
-        sharded_matmul_result = _build_matmul_parallel(
+        matmul_shard = _build_matmul_parallel(
             in0,
             in1,
             builder,
@@ -210,16 +210,16 @@ def test_parallelized_matmul_with_binary_chaining(
 
         shard_dims = [0, 1]
         shard_shape = make_shard_shape(2, shard_dims, mesh_shape)
-        sharded_in2 = builder.mesh_shard(
+        mesh_shard_in2 = builder.mesh_shard(
             in2,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=shard_shape,
             shard_dims=shard_dims,
         )
-        sharded_result = builder.add(sharded_matmul_result, sharded_in2)
+        add = builder.add(matmul_shard, mesh_shard_in2)
         output = builder.mesh_shard(
-            sharded_result,
+            add,
             shard_direction="#ttcore.shard_direction<shard_to_full>",
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=shard_shape,
@@ -337,21 +337,21 @@ def test_parallelized_elementwise_operations(
 ):
     def eltwise_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
         shard_shape = make_shard_shape(len(shape), shard_dims, mesh_shape)
-        sharded_in0 = builder.mesh_shard(
+        mesh_shard_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=shard_shape,
             shard_dims=shard_dims,
         )
-        sharded_in1 = builder.mesh_shard(
+        mesh_shard_in1 = builder.mesh_shard(
             in1,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=shard_shape,
             shard_dims=shard_dims,
         )
-        partial_sum = builder.add(sharded_in0, sharded_in1)
+        partial_sum = builder.add(mesh_shard_in0, mesh_shard_in1)
         output = builder.mesh_shard(
             partial_sum,
             shard_direction="#ttcore.shard_direction<shard_to_full>",
