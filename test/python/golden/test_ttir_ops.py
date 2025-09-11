@@ -2438,6 +2438,9 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
     )
 
 
+@pytest.mark.skip_config(
+    ["ttmetal", "p150"], reason="https://github.com/tenstorrent/tt-mlir/issues/4910"
+)
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
