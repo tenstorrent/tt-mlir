@@ -57,6 +57,9 @@ class Builder:
         # Map from operand to its location string.
         self._operand_to_loc: Dict[Operand, str] = {}
 
+        # Set torch seed for reproducibility.
+        torch.manual_seed(0)
+
     # ----- Public methods -----
 
     @property
