@@ -72,6 +72,8 @@ private:
    */
   void syncAfterOpIfNeeded();
 #endif
+
+  void sampleDeviceDRAM(::ttnn::MeshDevice &meshDevice);
 };
 
 } // namespace tt::runtime::ttnn
