@@ -153,8 +153,8 @@ public:
 
     llvm::SmallVector<int32_t> newShape(outputType.getShape());
     ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(newShape);
-    ttir::utils::replaceOpWithNewDPSOp(rewriter, srcOp, outputType,
-                                       adaptor.getInput1(), newShapeAttr);
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
+        rewriter, srcOp, outputType, adaptor.getInput1(), newShapeAttr);
     return success();
   }
 };
@@ -413,59 +413,60 @@ static void addCompareOpsConversionPatterns(MLIRContext *ctx,
       tosa::GreaterOp, mlir::tt::ttir::GreaterThanOp>>(typeConverter, ctx);
 }
 
+void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
+                                                RewritePatternSet &patterns,
+                                                TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
+}
+
 void addShapeOpsConversionPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
                                    TypeConverter &typeConverter) {
   patterns.add<TosaToTTIRReshapeOpConversionPattern>(typeConverter, ctx);
 }
 
-void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
-                                                RewritePatternSet &patterns,
-                                                TypeConverter &typeConverter) {
-  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
-      tosa::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
+static void addMatmulOpsConversionPatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns,
+                                           TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRMatmulOpConversionPattern>(typeConverter, ctx);
+}
 
-  static void addMatmulOpsConversionPatterns(MLIRContext * ctx,
-                                             RewritePatternSet & patterns,
-                                             TypeConverter & typeConverter) {
-    patterns.add<TosaToTTIRMatmulOpConversionPattern>(typeConverter, ctx);
-  }
+static void addReductionOpsConversionPatterns(MLIRContext *ctx,
+                                              RewritePatternSet &patterns,
+                                              TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRReduceOpConversionPattern<tosa::ReduceMaxOp,
+                                                   mlir::tt::ttir::MaxOp>>(
+      typeConverter, ctx);
+  patterns.add<TosaToTTIRReduceOpConversionPattern<tosa::ReduceSumOp,
+                                                   mlir::tt::ttir::SumOp>>(
+      typeConverter, ctx);
+}
 
-  static void addReductionOpsConversionPatterns(MLIRContext * ctx,
-                                                RewritePatternSet & patterns,
-                                                TypeConverter & typeConverter) {
-    patterns.add<TosaToTTIRReduceOpConversionPattern<tosa::ReduceMaxOp,
-                                                     mlir::tt::ttir::MaxOp>>(
-        typeConverter, ctx);
-    patterns.add<TosaToTTIRReduceOpConversionPattern<tosa::ReduceSumOp,
-                                                     mlir::tt::ttir::SumOp>>(
-        typeConverter, ctx);
-  }
+static void addPoolingOpsConversionPatterns(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRMaxPool2DOpConversionPattern>(typeConverter, ctx);
+}
 
-  static void addPoolingOpsConversionPatterns(MLIRContext * ctx,
-                                              RewritePatternSet & patterns,
-                                              TypeConverter & typeConverter) {
-    patterns.add<TosaToTTIRMaxPool2DOpConversionPattern>(typeConverter, ctx);
-  }
+namespace mlir::tt {
 
-  namespace mlir::tt {
+void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                                TypeConverter &typeConverter) {
+  addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
+  addBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
+  addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
+  addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
+  addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
+  addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
+  addShapeOpsConversionPatterns(ctx, patterns, typeConverter);
 
-  void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
-                                  TypeConverter &typeConverter) {
-    addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
-    addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
-    addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
-    addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
-    addBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
-    addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
-    addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
-    addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
-    addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
-    addShapeOpsConversionPatterns(ctx, patterns, typeConverter);
+  patterns.add<TosaToTTIRClampOpConversionPattern,
+               TosaToTTIRConcatOpConversionPattern,
+               TosaToTTIRConstantOpConversionPattern>(typeConverter, ctx);
+}
 
-    patterns.add<TosaToTTIRClampOpConversionPattern,
-                 TosaToTTIRConcatOpConversionPattern,
-                 TosaToTTIRConstantOpConversionPattern>(typeConverter, ctx);
-  }
-
-  } // namespace mlir::tt
+} // namespace mlir::tt
