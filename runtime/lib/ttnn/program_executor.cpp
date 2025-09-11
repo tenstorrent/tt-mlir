@@ -130,8 +130,9 @@ void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
-    LOG_DEBUG(LogType::LogRuntimeTTNN,
+    LOG_INFO(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
+              sampleDeviceDRAM(context->getMeshDevice());
     perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
@@ -146,6 +147,32 @@ void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
 }
+
+void ProgramExecutor::sampleDeviceDRAM(::ttnn::MeshDevice &meshDevice) {
+
+  // Get memory view for device index 0
+  //::tt::runtime::Device device(
+  //    std::shared_ptr<void>(&meshDevice, [](void *) {}), DeviceRuntime::TTNN);
+  auto memory_view = getMemoryView(context->getDeviceHandle());;
+  auto dram_memory_view = memory_view[tt::runtime::MemoryBufferType::DRAM];
+
+  LOG_INFO(
+      LogType::LogRuntimeTTNN,
+      "KCM DRAM View - Banks: " + std::to_string(dram_memory_view.numBanks) +
+          " Size: " +
+          std::to_string(dram_memory_view.totalBytesPerBank / (1024 * 1024)) +
+          " MB " + "TotalBytesAllocatedPerBank: " +
+          std::to_string(dram_memory_view.totalBytesAllocatedPerBank /
+                         (1024 * 1024)) +
+          " MB " + "FreePerBank: " +
+          std::to_string(dram_memory_view.totalBytesFreePerBank /
+                         (1024 * 1024)) +
+          " MB " + "ContiguousFreePerBank: " +
+          std::to_string(dram_memory_view.largestContiguousBytesFreePerBank /
+                         (1024 * 1024)) +
+          " MB");
+}
+
 
 std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
   return context->getTensorPool().gatherOutputTensors();
