@@ -840,10 +840,9 @@ public:
     auto srcNocAddr =
         buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
                         op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
-    auto dstCBMapping =
-        cbProducerConsumer->get(ttmlir::utils::getKernelName(op), op.getDst());
+    auto dstCBMapping = cbProducerConsumer->get(op.getDst());
     Value dstL1Addr;
-    if (dstCBMapping == ttir::ThreadCBMapping::Consumer) {
+    if (dstCBMapping == ttir::ThreadCBOrientation::Consumer) {
       dstL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
     } else {
@@ -901,22 +900,20 @@ public:
       // Both src and dst are local, use the metal cb pointers to determine
       // addressing
 
-      auto srcCBMapping = cbProducerConsumer->get(
-          ttmlir::utils::getKernelName(op), op.getSrc());
+      auto srcCBMapping = cbProducerConsumer->get(op.getSrc());
       Value srcL1Start;
       Value dstL1Start;
-      if (srcCBMapping == ttir::ThreadCBMapping::Producer) {
+      if (srcCBMapping == ttir::ThreadCBOrientation::Producer) {
         srcL1Start = rewriter.create<ttkernel::GetWritePtrOp>(op.getLoc(),
                                                               adaptor.getSrc());
-      } else if (srcCBMapping == ttir::ThreadCBMapping::Consumer ||
-                 srcCBMapping == ttir::ThreadCBMapping::ProducerConsumer) {
+      } else if (srcCBMapping == ttir::ThreadCBOrientation::Consumer ||
+                 srcCBMapping == ttir::ThreadCBOrientation::ProducerConsumer) {
         srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(op.getLoc(),
                                                              adaptor.getSrc());
       }
-      auto dstCBMapping = cbProducerConsumer->get(
-          ttmlir::utils::getKernelName(op), op.getDst());
-      if (dstCBMapping == ttir::ThreadCBMapping::Producer ||
-          dstCBMapping == ttir::ThreadCBMapping::ProducerConsumer) {
+      auto dstCBMapping = cbProducerConsumer->get(op.getDst());
+      if (dstCBMapping == ttir::ThreadCBOrientation::Producer ||
+          dstCBMapping == ttir::ThreadCBOrientation::ProducerConsumer) {
         dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(op.getLoc(),
                                                               adaptor.getDst());
       } else {
