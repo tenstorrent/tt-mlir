@@ -119,7 +119,9 @@ def test_matmul_k_split_parallelism(
         input_0 = builder._get_golden_tensor(in0)
         input_1 = builder._get_golden_tensor(in1)
         golden = torch.matmul(input_0, input_1)
-        builder.set_graph_input_output([input_0, input_1], [golden])
+        builder.set_goldens_from_builder_tensor(
+            {in0: input_0, in1: input_1}, {output: golden}
+        )
         return output
 
     compile_ttir_to_flatbuffer(
@@ -170,7 +172,9 @@ def test_parallelized_matmul_with_unary_chaining(
         input_0 = builder._get_golden_tensor(in0)
         input_1 = builder._get_golden_tensor(in1)
         golden = torch.neg(torch.matmul(input_0, input_1))
-        builder.set_graph_input_output([input_0, input_1], [golden])
+        builder.set_goldens_from_builder_tensor(
+            {in0: input_0, in1: input_1}, {output: golden}
+        )
 
         return output
 
@@ -229,7 +233,9 @@ def test_parallelized_matmul_with_binary_chaining(
         input_1 = builder._get_golden_tensor(in1)
         input_2 = builder._get_golden_tensor(in2)
         golden = torch.add(torch.matmul(input_0, input_1), input_2)
-        builder.set_graph_input_output([input_0, input_1, input_2], [golden])
+        builder.set_goldens_from_builder_tensor(
+            {in0: input_0, in1: input_1, in2: input_2}, {output: golden}
+        )
         return output
 
     compile_ttir_to_flatbuffer(
@@ -293,7 +299,9 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
         golden = torch.add(
             torch.matmul(input_0, input_1), torch.matmul(input_2, input_3)
         )
-        builder.set_graph_input_output([input_0, input_1, input_2, input_3], [golden])
+        builder.set_goldens_from_builder_tensor(
+            {in0: input_0, in1: input_1, in2: input_2, in3: input_3}, {output: golden}
+        )
         return output
 
     compile_ttir_to_flatbuffer(
@@ -362,7 +370,9 @@ def test_parallelized_elementwise_operations(
         input_0 = builder._get_golden_tensor(in0)
         input_1 = builder._get_golden_tensor(in1)
         golden = torch.add(input_0, input_1)
-        builder.set_graph_input_output([input_0, input_1], [golden])
+        builder.set_goldens_from_builder_tensor(
+            {in0: input_0, in1: input_1}, {output: golden}
+        )
         return output
 
     compile_ttir_to_flatbuffer(
@@ -410,7 +420,9 @@ def test_mixed_device_parallelism_with_unary(
         input_0 = builder._get_golden_tensor(in0)
         input_1 = builder._get_golden_tensor(in1)
         golden = torch.neg(torch.matmul(input_0, input_1))
-        builder.set_graph_input_output([input_0, input_1], [golden])
+        builder.set_goldens_from_builder_tensor(
+            {in0: input_0, in1: input_1}, {output: golden}
+        )
 
         return output
 
@@ -454,7 +466,9 @@ def test_mixed_device_parallelism_with_binary(
         input_1 = builder._get_golden_tensor(in1)
         input_2 = builder._get_golden_tensor(in2)
         golden = torch.add(torch.matmul(input_0, input_1), input_2)
-        builder.set_graph_input_output([input_0, input_1, input_2], [golden])
+        builder.set_goldens_from_builder_tensor(
+            {in0: input_0, in1: input_1, in2: input_2}, {output: golden}
+        )
         return output
 
     compile_ttir_to_flatbuffer(
@@ -509,7 +523,9 @@ def test_mixed_device_parallelism_with_dual_matmul(
         golden = torch.add(
             torch.matmul(input_0, input_1), torch.matmul(input_2, input_3)
         )
-        builder.set_graph_input_output([input_0, input_1, input_2, input_3], [golden])
+        builder.set_goldens_from_builder_tensor(
+            {in0: input_0, in1: input_1, in2: input_2, in3: input_3}, {output: golden}
+        )
 
         return output
 
