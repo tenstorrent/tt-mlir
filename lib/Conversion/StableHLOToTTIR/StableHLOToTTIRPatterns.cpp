@@ -3057,9 +3057,8 @@ public:
           this->getTypeConverter()->convertType(resultType));
     }
 
-    auto newOp = rewriter.create<ttcore::OptimizationBarrierOp>(
-        srcOp.getLoc(), convertedResultTypes, adaptor.getOperands());
-    rewriter.replaceOp(srcOp, newOp.getResults());
+    rewriter.replaceOpWithNewOp<ttcore::OptimizationBarrierOp>(
+        srcOp, convertedResultTypes, adaptor.getOperands());
 
     return success();
   }

@@ -40,11 +40,10 @@ struct ConvertTTIRToTTNNPass
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttnn::TTNNDialect>();
+    target.addLegalDialect<quant::QuantDialect>();
+    target.addIllegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<ttcore::DeviceOp>();
     target.addLegalOp<ttcore::OptimizationBarrierOp>();
-    target.addIllegalDialect<ttir::TTIRDialect>();
-
-    target.addLegalDialect<quant::QuantDialect>();
 
     TypeConverter typeConverter;
     // All types map 1:1.
