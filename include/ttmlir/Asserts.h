@@ -114,13 +114,16 @@ namespace impl {
 template <typename T>
 struct always_false : std::false_type {};
 
+template <typename T>
+constexpr bool always_false_v = always_false<T>::value;
+
 //===---------------------------------------------------------------------===//
 
 template <typename T, typename = void>
 struct UnsignedCast {
   // Specializing for non-integral types in order to generate nicer compiler
   // error messages.
-  static_assert(always_false<T>::value,
+  static_assert(always_false_v<T>,
                 "range asserts are only supported for integral types");
 };
 
@@ -157,7 +160,7 @@ struct PrintAdaptor {
   static constexpr bool enabled = false;
   static void evaluate(Stream &os, T &&obj) {
     static_assert(
-        always_false<T>::value,
+        always_false_v<T>,
         "assert condition contains an expression type that isn't printable "
         "(wrap in parentheses to disable expression decomposition)");
   }
@@ -260,7 +263,7 @@ struct BinaryExpr {
   template <typename T>                                                        \
   auto operator op(T) -> BinaryExpr<LHS, RHS, Op> const {                      \
     static_assert(                                                             \
-        impl::always_false<T>::value,                                          \
+        impl::always_false_v<T>,                                               \
         "chained comparisons are not supported inside assertions (e.g., wrap " \
         "`x < y && a < b` inside parentheses, e.g. `(x < y && a < b)`)");      \
   }
@@ -313,7 +316,7 @@ struct ExprLHS {
   template <typename RHS>                                                      \
   constexpr friend auto operator op(ExprLHS &&lhs, RHS &&rhs)                  \
       -> BinaryExpr<LHS, RHS, BinaryOp::undefined> {                           \
-    static_assert(impl::always_false<RHS>::value,                              \
+    static_assert(impl::always_false_v<RHS>,                                   \
                   "operators ||, && are not supported inside TT_assert() "     \
                   "assertions: wrap condition in parentheses");                \
   }
@@ -381,8 +384,8 @@ decltype(auto) unsigned_cast(T x) {
 
 // Single-branch `a < x < b` check.
 #define in_exclusive_range(x, a, b)                                            \
-  (::ttmlir::utils::asserts::unsigned_cast((x) - (a)-1) <                      \
-   ::ttmlir::utils::asserts::unsigned_cast((b) - (a)-1))
+  (::ttmlir::utils::asserts::unsigned_cast((x) - (a) - 1) <                    \
+   ::ttmlir::utils::asserts::unsigned_cast((b) - (a) - 1))
 
 // Single-branch `a <= x <= b` check.
 #define in_inclusive_range(x, a, b)                                            \
@@ -425,7 +428,7 @@ decltype(auto) unsigned_cast(T x) {
 # define TT_assert_open_range(x, a, b) \
     TT_assertv(in_open_range(x, a, b), "{} ({}) is not in [{}, {})", TT_ASSERT_STRINGIZE(x), x, a, b)
 
-// 0 <= x < b, convenience shortcut.
+// 0 <= x < limit, convenience shortcut.
 # define TT_assert_limit(x, limit) \
     TT_assertv(in_open_range(x, 0, limit), "{} ({}) is not in [0, {})", TT_ASSERT_STRINGIZE(x), x, limit)
 
