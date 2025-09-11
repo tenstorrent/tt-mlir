@@ -5,8 +5,10 @@
 #ifndef TT_RUNTIME_DETAIL_DISTRIBUTED_TYPES_SPSC_QUEUE_H
 #define TT_RUNTIME_DETAIL_DISTRIBUTED_TYPES_SPSC_QUEUE_H
 
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <optional>
 #include <queue>
 
 namespace tt::runtime::distributed {
@@ -28,6 +30,12 @@ public:
     cv_.notify_one();
   }
 
+  void push(T &&item) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    queue_.push(std::move(item));
+    cv_.notify_one();
+  }
+
   T popBlocking() {
     std::unique_lock<std::mutex> lock(mutex_);
     cv_.wait(lock, [this] { return !queue_.empty(); });
@@ -36,6 +44,26 @@ public:
     queue_.pop();
 
     return result;
+  }
+
+  std::optional<T> popWithTimeout(const std::chrono::milliseconds &timeout =
+                                      std::chrono::milliseconds(100)) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait_for(lock, timeout, [this] { return !queue_.empty(); });
+
+    if (queue_.empty()) {
+      return std::nullopt;
+    }
+
+    T result = std::move(queue_.front());
+    queue_.pop();
+
+    return result;
+  }
+
+  bool empty() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return queue_.empty();
   }
 
 private:

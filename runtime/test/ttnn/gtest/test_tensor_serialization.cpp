@@ -18,7 +18,7 @@
 class TensorSerializationTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    tt::runtime::setCurrentRuntime(tt::runtime::DeviceRuntime::TTNN);
+    tt::runtime::setCurrentDeviceRuntime(tt::runtime::DeviceRuntime::TTNN);
   }
 
   void TearDown() override {

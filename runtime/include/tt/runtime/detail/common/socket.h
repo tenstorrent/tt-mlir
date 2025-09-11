@@ -6,6 +6,7 @@
 #define TT_RUNTIME_DETAIL_COMMON_SOCKET_H
 
 #include <chrono>
+#include <future>
 #include <memory>
 #include <string>
 #include <vector>
@@ -48,10 +49,16 @@ public:
 
   bool hasDataToRead(const std::chrono::milliseconds &timeout =
                          std::chrono::milliseconds(100)) const;
-  ssize_t readExact(void *buf, size_t nbytes);
-  ssize_t writeExact(const void *buf, size_t nbytes);
-  SizedBuffer sizePrefixedRead();
-  ssize_t sizePrefixedWrite(const void *msg, uint32_t msgSize);
+
+  ssize_t readExact(void *buf, size_t nbytes) const;
+  ssize_t writeExact(const void *buf, size_t nbytes) const;
+
+  SizedBuffer sizePrefixedRead() const;
+  ssize_t sizePrefixedWrite(const void *msg, uint32_t msgSize) const;
+
+  std::future<SizedBuffer> sizePrefixedReadAsync();
+  std::future<ssize_t> sizePrefixedWriteAsync(const void *msg,
+                                              uint32_t msgSize) const;
 
 private:
   SocketFd fd_;
@@ -69,7 +76,8 @@ public:
   ServerSocket &operator=(ServerSocket &&) = default;
 
   uint16_t port() const { return port_; }
-  std::vector<std::unique_ptr<Socket>> connectToClients(size_t numClients);
+  std::vector<std::unique_ptr<Socket>>
+  connectToClients(size_t numClients) const;
 
 private:
   std::unique_ptr<Socket> listenSocket_;
@@ -94,9 +102,9 @@ public:
   bool hasDataToRead(const std::chrono::milliseconds &timeout =
                          std::chrono::milliseconds(100)) const;
 
-  SizedBuffer sizePrefixedRead();
+  SizedBuffer sizePrefixedRead() const;
 
-  ssize_t sizePrefixedWrite(const void *msg, uint32_t msgSize);
+  ssize_t sizePrefixedWrite(const void *msg, uint32_t msgSize) const;
 
 private:
   std::unique_ptr<Socket> socket_;

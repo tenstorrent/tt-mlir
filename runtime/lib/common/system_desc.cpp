@@ -270,7 +270,7 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
   if (meshDevice.has_value()) {
     meshDevicePtr =
         meshDevice.value().asSharedPtr<::tt::tt_metal::distributed::MeshDevice>(
-            getCurrentRuntime());
+            getCurrentDeviceRuntime());
   } else {
     meshDevicePtr = createNewMeshDevice(dispatchCoreType);
   }

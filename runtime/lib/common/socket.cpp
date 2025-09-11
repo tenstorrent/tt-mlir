@@ -10,8 +10,10 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
+#include <future>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -26,6 +28,16 @@ Socket::Socket(int domain, int type, int protocol) {
   fd_ = ::socket(domain, type, protocol);
   if (fd_ < 0) {
     LOG_ERROR("Failed to create socket with error: ", std::strerror(errno));
+    return;
+  }
+
+  int opt = 1;
+  if (::setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+    LOG_ERROR("SO_REUSEADDR failed with error: ", std::strerror(errno));
+  }
+
+  if (::setsockopt(fd_, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt)) < 0) {
+    LOG_ERROR("TCP_NODELAY failed with error: ", std::strerror(errno));
   }
 }
 
@@ -40,7 +52,7 @@ bool Socket::close() {
   return false;
 }
 
-ssize_t Socket::readExact(void *buf, size_t nbytes) {
+ssize_t Socket::readExact(void *buf, size_t nbytes) const {
   std::byte *dst = static_cast<std::byte *>(buf);
   size_t total = 0;
   while (total < nbytes) {
@@ -60,7 +72,7 @@ ssize_t Socket::readExact(void *buf, size_t nbytes) {
   return static_cast<ssize_t>(total);
 }
 
-ssize_t Socket::writeExact(const void *buf, size_t nbytes) {
+ssize_t Socket::writeExact(const void *buf, size_t nbytes) const {
   const std::byte *src = static_cast<const std::byte *>(buf);
   size_t total = 0;
   while (total < nbytes) {
@@ -87,7 +99,7 @@ bool Socket::hasDataToRead(const std::chrono::milliseconds &timeout) const {
   return (result > 0) && ((pfd.revents & POLLIN) != 0);
 }
 
-SizedBuffer Socket::sizePrefixedRead() {
+SizedBuffer Socket::sizePrefixedRead() const {
   if (!valid()) {
     LOG_ERROR(__FUNCTION__, ": Invalid socket file descriptor");
     return SizedBuffer();
@@ -115,7 +127,7 @@ SizedBuffer Socket::sizePrefixedRead() {
   return SizedBuffer(buffer, msgSize);
 }
 
-ssize_t Socket::sizePrefixedWrite(const void *msg, uint32_t msgSize) {
+ssize_t Socket::sizePrefixedWrite(const void *msg, uint32_t msgSize) const {
   if (!valid()) {
     LOG_ERROR(__FUNCTION__, ": Invalid socket file descriptor");
     return -1;
@@ -136,6 +148,18 @@ ssize_t Socket::sizePrefixedWrite(const void *msg, uint32_t msgSize) {
   return writeResult;
 }
 
+std::future<SizedBuffer> Socket::sizePrefixedReadAsync() {
+  return std::async(std::launch::async,
+                    [this]() -> SizedBuffer { return sizePrefixedRead(); });
+}
+
+std::future<ssize_t> Socket::sizePrefixedWriteAsync(const void *msg,
+                                                    uint32_t msgSize) const {
+  return std::async(std::launch::async, [this, msg, msgSize]() -> ssize_t {
+    return sizePrefixedWrite(msg, msgSize);
+  });
+}
+
 //
 // ServerSocket
 //
@@ -146,9 +170,6 @@ ServerSocket::ServerSocket(uint16_t port) {
     LOG_FATAL("Failed to create server socket on port ", port,
               " with error: ", std::strerror(errno));
   }
-
-  int opt = 1;
-  ::setsockopt(socket->fd(), SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
   sockaddr_in addr{};
   addr.sin_family = AF_INET;
@@ -180,7 +201,7 @@ ServerSocket::ServerSocket(uint16_t port) {
 }
 
 std::vector<std::unique_ptr<Socket>>
-ServerSocket::connectToClients(size_t numClients) {
+ServerSocket::connectToClients(size_t numClients) const {
   std::vector<std::unique_ptr<Socket>> clientConnections;
   clientConnections.reserve(numClients);
   for (size_t i = 0; i < numClients; i++) {
@@ -258,12 +279,13 @@ bool ClientSocket::hasDataToRead(
   return socket_->hasDataToRead(timeout);
 }
 
-SizedBuffer ClientSocket::sizePrefixedRead() {
+SizedBuffer ClientSocket::sizePrefixedRead() const {
   LOG_ASSERT(isConnected(), "ClientSocket is not connected");
   return socket_->sizePrefixedRead();
 }
 
-ssize_t ClientSocket::sizePrefixedWrite(const void *msg, uint32_t msgSize) {
+ssize_t ClientSocket::sizePrefixedWrite(const void *msg,
+                                        uint32_t msgSize) const {
   LOG_ASSERT(isConnected(), "ClientSocket is not connected");
   return socket_->sizePrefixedWrite(msg, msgSize);
 }

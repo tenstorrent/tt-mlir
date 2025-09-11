@@ -39,11 +39,11 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("get_dram_size_per_channel", &tt::runtime::getDramSizePerChannel)
       .def("get_l1_size_per_core", &tt::runtime::getL1SizePerCore)
       .def("release_trace", &tt::runtime::releaseTrace)
-      .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
-      .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
+      .def("deallocate_buffers", &tt::runtime::deallocateBuffers)
+      .def("dump_memory_report", &tt::runtime::dumpMemoryReport)
       .def("read_device_profiler_results",
-           &tt::runtime::detail::readDeviceProfilerResults)
-      .def("get_memory_view", &tt::runtime::detail::getMemoryView);
+           &tt::runtime::readDeviceProfilerResults)
+      .def("get_memory_view", &tt::runtime::getMemoryView);
 
   nb::class_<tt::runtime::Event>(m, "Event");
 
@@ -116,6 +116,11 @@ void registerRuntimeBindings(nb::module_ &m) {
                     : std::make_optional(
                           nb::cast<tt::runtime::DispatchCoreType>(value));
           });
+
+  nb::class_<tt::runtime::DistributedOptions>(m, "DistributedOptions")
+      .def(nb::init<>())
+      .def_rw("port", &tt::runtime::DistributedOptions::port)
+      .def_rw("mode", &tt::runtime::DistributedOptions::mode);
 
   nb::class_<tt::runtime::Tensor>(m, "Tensor")
       .def("is_allocated",
@@ -201,6 +206,14 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("TTNN", ::tt::runtime::DeviceRuntime::TTNN)
       .value("TTMetal", ::tt::runtime::DeviceRuntime::TTMetal);
 
+  nb::enum_<::tt::runtime::HostRuntime>(m, "HostRuntime")
+      .value("Local", ::tt::runtime::HostRuntime::Local)
+      .value("Distributed", ::tt::runtime::HostRuntime::Distributed);
+
+  nb::enum_<::tt::runtime::DistributedMode>(m, "DistributedMode")
+      .value("LocalSubprocess",
+             ::tt::runtime::DistributedMode::LocalSubprocess);
+
   nb::enum_<::tt::runtime::DispatchCoreType>(m, "DispatchCoreType")
       .value("WORKER", ::tt::runtime::DispatchCoreType::WORKER)
       .value("ETH", ::tt::runtime::DispatchCoreType::ETH);
@@ -232,19 +245,32 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("BLACKHOLE", ::tt::runtime::Arch::BLACKHOLE)
       .value("QUASAR", ::tt::runtime::Arch::QUASAR);
 
-  m.def("get_current_runtime", &tt::runtime::getCurrentRuntime,
+  m.def("get_current_device_runtime", &tt::runtime::getCurrentDeviceRuntime,
         "Get the backend device runtime type");
-  m.def("get_available_runtimes", &tt::runtime::getAvailableRuntimes,
+  m.def("get_available_device_runtimes",
+        &tt::runtime::getAvailableDeviceRuntimes,
         "Get the available backend device runtime types");
-  m.def("set_compatible_runtime", &tt::runtime::setCompatibleRuntime,
-        nb::arg("binary"),
+  m.def("set_compatible_device_runtime",
+        &tt::runtime::setCompatibleDeviceRuntime, nb::arg("binary"),
         "Set the backend device runtime type to match the binary");
-  m.def("set_current_runtime", &tt::runtime::setCurrentRuntime,
+  m.def("set_current_device_runtime", &tt::runtime::setCurrentDeviceRuntime,
         nb::arg("runtime"), "Set the backend device runtime type");
+  m.def("get_current_host_runtime", &tt::runtime::getCurrentHostRuntime,
+        "Get the host runtime type");
+  m.def("get_available_host_runtimes", &tt::runtime::getAvailableHostRuntimes,
+        "Get the available host runtime types");
+  m.def("set_current_host_runtime", &tt::runtime::setCurrentHostRuntime,
+        nb::arg("runtime"), "Set the host runtime type");
   m.def("get_current_system_desc", &tt::runtime::getCurrentSystemDesc,
         nb::arg("dispatch_core_type") = nb::none(),
         nb::arg("mesh_device") = nb::none(),
         "Get the current system descriptor");
+  m.def("launch_distributed_runtime", &tt::runtime::launchDistributedRuntime,
+        nb::arg("options") = tt::runtime::DistributedOptions(),
+        "Launch the distributed runtime");
+  m.def("shutdown_distributed_runtime",
+        &tt::runtime::shutdownDistributedRuntime,
+        "Shutdown the distributed runtime");
   m.def(
       "create_borrowed_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
