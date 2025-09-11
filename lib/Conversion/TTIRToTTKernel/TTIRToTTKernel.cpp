@@ -307,38 +307,40 @@ struct OpMap {};
 
 // clang-format off
 using ComputeOpMap = OpMap<
-  // Elementwise FPU
-  std::pair<ttir::TileAddOp,        std::pair<ttkernel::AddTilesInitOp,            ttkernel::AddTilesOp>>,
-  std::pair<ttir::TileMatmulOp,     std::pair<ttkernel::MatmulInitOp,              ttkernel::MatmulTilesOp>>,
-  std::pair<ttir::TileMatmulBlockOp, std::pair<ttkernel::MatmulBlockInitOp,        ttkernel::ExperimentalMatmulBlockOp>>,
-  std::pair<ttir::TileMulOp,        std::pair<ttkernel::MulTilesInitOp,            ttkernel::MulTilesOp>>,
-  std::pair<ttir::TileSubOp,        std::pair<ttkernel::SubTilesInitOp,            ttkernel::SubTilesOp>>,
+  // Elementwise FPU.
+  std::pair<ttir::TileAddOp,         std::pair<ttkernel::AddTilesInitOp,            ttkernel::AddTilesOp>>,
+  std::pair<ttir::TileMatmulOp,      std::pair<ttkernel::MatmulInitOp,              ttkernel::MatmulTilesOp>>,
+  std::pair<ttir::TileMatmulBlockOp, std::pair<ttkernel::MatmulBlockInitOp,         ttkernel::ExperimentalMatmulBlockOp>>,
+  std::pair<ttir::TileMulOp,         std::pair<ttkernel::MulTilesInitOp,            ttkernel::MulTilesOp>>,
+  std::pair<ttir::TileSubOp,         std::pair<ttkernel::SubTilesInitOp,            ttkernel::SubTilesOp>>,
 
-  // Elementwise SFPU
-  std::pair<ttir::TileAbsOp,        std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
-  std::pair<ttir::TileCeilOp,       std::pair<ttkernel::RoundingTileInitOp,        ttkernel::CeilTileOp>>,
-  std::pair<ttir::TileCosOp,        std::pair<ttkernel::CosTileInitOp,             ttkernel::CosTileOp>>,
-  std::pair<ttir::TileDivOp,        std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
-  std::pair<ttir::TileExpOp,        std::pair<ttkernel::ExpTileInitOp,             ttkernel::ExpTileOp>>,
-  std::pair<ttir::TileFloorOp,      std::pair<ttkernel::RoundingTileInitOp,        ttkernel::FloorTileOp>>,
-  std::pair<ttir::TileLogOp,        std::pair<ttkernel::LogTileInitOp,             ttkernel::LogTileOp>>,
-  std::pair<ttir::TileLogicalNotOp, std::pair<ttkernel::LogicalNotUnaryTileInitOp, ttkernel::LogicalNotUnaryTileOp>>,
-  std::pair<ttir::TileMaximumOp,    std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
-  std::pair<ttir::TileNegativeOp,   std::pair<ttkernel::NegativeTileInitOp,        ttkernel::NegativeTileOp>>,
-  std::pair<ttir::TilePowOp,        std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>,
-  std::pair<ttir::TileRecipOp,      std::pair<ttkernel::RecipTileInitOp,           ttkernel::RecipTileOp>>,
-  std::pair<ttir::TileRsqrtOp,      std::pair<ttkernel::RsqrtTileInitOp,           ttkernel::RsqrtTileOp>>,
-  std::pair<ttir::TileSqrtOp,       std::pair<ttkernel::SqrtTileInitOp,            ttkernel::SqrtTileOp>>,
-  std::pair<ttir::TileSigmoidOp,    std::pair<ttkernel::SigmoidTileInitOp,         ttkernel::SigmoidTileOp>>,
-  std::pair<ttir::TileSinOp,        std::pair<ttkernel::SinTileInitOp,             ttkernel::SinTileOp>>,
-  std::pair<ttir::TileTanOp,        std::pair<ttkernel::TanTileInitOp,             ttkernel::TanTileOp>>,
-  std::pair<ttir::TileSubBinaryOp,  std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
-  std::pair<ttir::TileEqzOp,        std::pair<ttkernel::EqzTileInitOp,             ttkernel::EqzTileOp>>,
-  std::pair<ttir::TileNezOp,        std::pair<ttkernel::NezTileInitOp,             ttkernel::NezTileOp>>,
-  std::pair<ttir::TileGtzOp,        std::pair<ttkernel::GtzTileInitOp,             ttkernel::GtzTileOp>>,
-  std::pair<ttir::TileGezOp,        std::pair<ttkernel::GezTileInitOp,             ttkernel::GezTileOp>>,
-  std::pair<ttir::TileLtzOp,        std::pair<ttkernel::LtzTileInitOp,             ttkernel::LtzTileOp>>,
-  std::pair<ttir::TileLezOp,        std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>
+  // Elementwise SFPU Unary.
+  std::pair<ttir::TileAbsOp,         std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
+  std::pair<ttir::TileCeilOp,        std::pair<ttkernel::RoundingTileInitOp,        ttkernel::CeilTileOp>>,
+  std::pair<ttir::TileCosOp,         std::pair<ttkernel::CosTileInitOp,             ttkernel::CosTileOp>>,
+  std::pair<ttir::TileExpOp,         std::pair<ttkernel::ExpTileInitOp,             ttkernel::ExpTileOp>>,
+  std::pair<ttir::TileFloorOp,       std::pair<ttkernel::RoundingTileInitOp,        ttkernel::FloorTileOp>>,
+  std::pair<ttir::TileLogOp,         std::pair<ttkernel::LogTileInitOp,             ttkernel::LogTileOp>>,
+  std::pair<ttir::TileLogicalNotOp,  std::pair<ttkernel::LogicalNotUnaryTileInitOp, ttkernel::LogicalNotUnaryTileOp>>,
+  std::pair<ttir::TileNegativeOp,    std::pair<ttkernel::NegativeTileInitOp,        ttkernel::NegativeTileOp>>,
+  std::pair<ttir::TileRecipOp,       std::pair<ttkernel::RecipTileInitOp,           ttkernel::RecipTileOp>>,
+  std::pair<ttir::TileRsqrtOp,       std::pair<ttkernel::RsqrtTileInitOp,           ttkernel::RsqrtTileOp>>,
+  std::pair<ttir::TileSqrtOp,        std::pair<ttkernel::SqrtTileInitOp,            ttkernel::SqrtTileOp>>,
+  std::pair<ttir::TileSigmoidOp,     std::pair<ttkernel::SigmoidTileInitOp,         ttkernel::SigmoidTileOp>>,
+  std::pair<ttir::TileSinOp,         std::pair<ttkernel::SinTileInitOp,             ttkernel::SinTileOp>>,
+  std::pair<ttir::TileTanOp,         std::pair<ttkernel::TanTileInitOp,             ttkernel::TanTileOp>>,
+  std::pair<ttir::TileEqzOp,         std::pair<ttkernel::EqzTileInitOp,             ttkernel::EqzTileOp>>,
+  std::pair<ttir::TileNezOp,         std::pair<ttkernel::NezTileInitOp,             ttkernel::NezTileOp>>,
+  std::pair<ttir::TileGtzOp,         std::pair<ttkernel::GtzTileInitOp,             ttkernel::GtzTileOp>>,
+  std::pair<ttir::TileGezOp,         std::pair<ttkernel::GezTileInitOp,             ttkernel::GezTileOp>>,
+  std::pair<ttir::TileLtzOp,         std::pair<ttkernel::LtzTileInitOp,             ttkernel::LtzTileOp>>,
+  std::pair<ttir::TileLezOp,         std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>,
+
+  // Elementwise SFPU Binary.
+  std::pair<ttir::TileSubBinaryOp,   std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
+  std::pair<ttir::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
+  std::pair<ttir::TileMaximumOp,     std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
+  std::pair<ttir::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>
 >;
 // clang-format on
 
@@ -602,8 +604,12 @@ public:
       }
     } else if constexpr (arity == 1) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
-    } else {
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs());
+    } else {
+      const auto dstIdx = getDstIdxFromResult(op.getResult());
+      rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs(),
+                              dstIdx);
     }
 
     rewriter.eraseOp(op);
@@ -1341,18 +1347,15 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileSubOp>,
 
-               // Elementwise SFPU.
+               // Elementwise SFPU Unary.
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileAbsOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileCeilOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileCosOp>,
-               ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileExpOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileFloorOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLogOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLogicalNotOp>,
-               ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileNegativeOp>,
-               ttkernel::TTIRSFPUOpsRewriter<ttir::TilePowOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileRecipOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileRsqrtOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSqrtOp>,
@@ -1365,7 +1368,12 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileGezOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLtzOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLezOp>,
+
+               // Elementwise SFPU Binary.
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSubBinaryOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TilePowOp>,
 
                ttkernel::TTIRTilizeUntilizeRewriter,
                ttkernel::TTIRTileTransposeRewriter,

@@ -464,10 +464,12 @@ module {
     func.func @test_add_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
-      // CHECK: emitc.call_opaque "add_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[DST0_INDEX]])
-      "ttkernel.add_binary_tile"(%c0, %c1) : (index, index) -> ()
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      // CHECK: emitc.call_opaque "add_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.add_binary_tile"(%c0, %c1, %c2) : (index, index, index) -> ()
       return
     }
 
@@ -482,10 +484,12 @@ module {
     func.func @test_mul_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
-      // CHECK: emitc.call_opaque "mul_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[DST0_INDEX]])
-      "ttkernel.mul_binary_tile"(%c0, %c1) : (index, index) -> ()
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      // CHECK: emitc.call_opaque "mul_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.mul_binary_tile"(%c0, %c1, %c2) : (index, index, index) -> ()
       return
     }
 
@@ -500,10 +504,12 @@ module {
     func.func @test_sub_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
-      // CHECK: emitc.call_opaque "sub_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[DST0_INDEX]])
-      "ttkernel.sub_binary_tile"(%c0, %c1) : (index, index) -> ()
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      // CHECK: emitc.call_opaque "sub_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.sub_binary_tile"(%c0, %c1, %c2) : (index, index, index) -> ()
       return
     }
 
@@ -538,8 +544,10 @@ module {
       %dst0_index = arith.constant 1 : i32
       // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
       %dst1_index = arith.constant 2 : i32
-      // CHECK: emitc.call_opaque "div_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[DST0_INDEX]])
-      "ttkernel.div_binary_tile"(%dst0_index, %dst1_index) : (i32, i32) -> ()
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "div_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.div_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
       return
     }
 
@@ -572,8 +580,10 @@ module {
       %dst0_index = arith.constant 1 : i32
       // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
       %dst1_index = arith.constant 2 : i32
-      // CHECK: emitc.call_opaque "power_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[DST0_INDEX]])
-      "ttkernel.power_binary_tile"(%dst0_index, %dst1_index) : (i32, i32) -> ()
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "power_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.power_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
       return
     }
 

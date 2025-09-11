@@ -531,15 +531,15 @@ def TTKernel_AddBinaryTilesOp : TTKernel_SFPUOp<"add_binary_tile", [TTKernel_Bin
     let summary = "Addition operation between two tiles";
     let description = [{
       Performs element-wise computation of addition operation
-      DST[dst0_index] <- DST[dst0_index] + DST[dst1_index]
+      DST[odst_index] <- DST[dst0_index] + DST[dst1_index]
       on DST register operands. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -560,15 +560,15 @@ def TTKernel_MulBinaryTilesOp : TTKernel_SFPUOp<"mul_binary_tile", [TTKernel_Bin
     let summary = "Multiplication operation between two tiles";
     let description = [{
       Performs element-wise computation of multiplication operation
-      DST[dst0_index] <- DST[dst0_index] * DST[dst1_index]
+      DST[odst_index] <- DST[dst0_index] * DST[dst1_index]
       on DST register operands. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -589,15 +589,15 @@ def TTKernel_SubBinaryTilesOp : TTKernel_SFPUOp<"sub_binary_tile", [TTKernel_Bin
     let summary = "Subtraction operation between two tiles";
     let description = [{
       Performs element-wise computation of subtraction operation
-      DST[dst0_index] <- DST[dst0_index] - DST[dst1_index]
+      DST[odst_index] <- DST[dst0_index] - DST[dst1_index]
       on DST register operands. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -618,15 +618,15 @@ def TTKernel_DivBinaryTilesOp : TTKernel_SFPUOp<"div_binary_tile", [TTKernel_Bin
     let summary = "Divide operation between two tiles";
     let description = [{
       Performs element-wise computation of division operation
-      DST[dst0_index] <- DST[dst0_index] / DST[dst1_index]
+      DST[odst_index] <- DST[dst0_index] / DST[dst1_index]
       on DST register operands. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -677,15 +677,15 @@ def TTKernel_PowBinaryTilesOp : TTKernel_SFPUOp<"power_binary_tile", [TTKernel_B
     let summary = "Power operation between two tiles";
     let description = [{
       Performs element-wise computation of power operation
-      DST[dst0_index] <- DST[dst0_index] ^ DST[dst1_index]
+      DST[odst_index] <- DST[dst0_index] ^ DST[dst1_index]
       on DST register operands. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

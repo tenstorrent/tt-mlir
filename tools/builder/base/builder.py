@@ -162,11 +162,11 @@ class Builder:
                 return DataType.Float16
             case torch.bfloat16:
                 return DataType.BFloat16
-            case torch.float32:
-                return DataType.Float32
+            case torch.uint8:
+                return DataType.UInt8
             case torch.int32 | torch.qint32:
                 return DataType.Int32
-            case None:
+            case torch.float32 | None:
                 return DataType.Float32
 
     def _get_type(self, input: Operand) -> RankedTensorType:

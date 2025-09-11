@@ -41,6 +41,45 @@ def compile_dma_test(test_func, shape, request):
     )
 
 
+@pytest.mark.parametrize("shape", [(256, 256)])
+@pytest.mark.parametrize("memory_space", [ttcore.MemorySpace.DeviceDRAM])
+def test_host_interop_single_bank_dram_dma(
+    shape: Shape,
+    memory_space: ttcore.MemorySpace,
+    request,
+):
+    """tests that host enqueue_read|write_buffer works for single-shard DRAM
+    buffers"""
+
+    def tilize(
+        in0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+
+        to_device = builder.to_layout(
+            in0,
+            output_type=builder.get_metal_tensor_layout(
+                shape, tiled=False, memorySpace=memory_space
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+        system_out = builder.to_layout(
+            to_device,
+            output_type=in0.type,
+            unit_attrs=unit_attrs,
+        )
+
+        return system_out
+
+    compile_dma_test(
+        tilize,
+        shape,
+        request,
+    )
+
+
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #4835")
 @pytest.mark.parametrize("shape", [(256, 256)])
