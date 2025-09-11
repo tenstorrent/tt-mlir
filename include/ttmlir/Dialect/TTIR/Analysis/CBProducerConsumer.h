@@ -13,18 +13,22 @@
 
 namespace mlir::tt::ttir {
 
+enum ThreadCBOrientation {
+  Producer,
+  Consumer,
+  ProducerConsumer,
+};
 struct CBProducerConsumer {
   CBProducerConsumer(Operation *op);
 
-  ttir::ThreadCBMapping get(mlir::StringRef threadRef, Value cb) const {
-    auto match = threadCBMappingMap.find(std::make_pair(threadRef, cb));
-    assert(match != threadCBMappingMap.end() &&
-           "CB producer consumer mapping not found.");
+  ThreadCBOrientation get(Value cb) const {
+    auto match = threadCBOrientationMap.find(cb);
+    assert(match != threadCBOrientationMap.end() &&
+           "CB orientation mapping not found.");
     return match->second;
   }
 
-  llvm::DenseMap<std::pair<mlir::StringRef, Value>, ttir::ThreadCBMapping>
-      threadCBMappingMap;
+  llvm::DenseMap<Value, ThreadCBOrientation> threadCBOrientationMap;
 };
 
 } // namespace mlir::tt::ttir

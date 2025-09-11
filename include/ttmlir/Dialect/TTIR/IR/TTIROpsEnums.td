@@ -44,17 +44,4 @@ def TTIR_ThreadType : I32EnumAttr<"ThreadType", "TTIR ThreadType", [
   let cppNamespace = "::mlir::tt::ttir";
 }
 
-def TTIR_ThreadCBMappingProducer : I32EnumAttrCase<"Producer", 0, "producer">;
-def TTIR_ThreadCBMappingConsumer : I32EnumAttrCase<"Consumer", 1, "consumer">;
-def TTIR_ThreadCBMappingProducerConsumer : I32EnumAttrCase<"ProducerConsumer", 2, "producer_consumer">;
-
-def TTIR_ThreadCBMapping : I32EnumAttr<"ThreadCBMapping", "TTIR ThreadCBMapping", [
-                                  TTIR_ThreadCBMappingProducer,
-                                  TTIR_ThreadCBMappingConsumer,
-                                  TTIR_ThreadCBMappingProducerConsumer
-                                ]> {
-  let genSpecializedAttr = 1;
-  let cppNamespace = "::mlir::tt::ttir";
-}
-
 #endif
