@@ -14,6 +14,7 @@ add_mlir_dialect_library(MLIRTTNNPipelines
   MLIRTTUtils
   MLIRTTNNDialect
   MLIRTTIRPipelines
+  MLIRTTMetalPipelines
   MLIRTTIRTransforms
   MLIRTTNNTransforms
   MLIRTTNNAnalysis

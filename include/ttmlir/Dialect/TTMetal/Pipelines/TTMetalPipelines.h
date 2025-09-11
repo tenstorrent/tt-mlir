@@ -94,12 +94,21 @@ struct TTIRToTTMetalPipelineOptions
       *this, "insert-profiler-traces",
       llvm::cl::desc("Insert DeviceZone scopes around selected TTKernel ops"),
       llvm::cl::init(false)};
+
+  // Option to mark ops to lower to TTNN GenericOp.
+  Option<bool> lowerToTTNNGeneric{
+      *this, "lower-to-ttnn-generic",
+      llvm::cl::desc("Mark ops to lower to TTNN GenericOp"),
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);
 
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
+void createTTIRToTTMetalPipeline(OpPassManager &pm,
+                                 const TTIRToTTMetalPipelineOptions &options);
 
 void registerTTMetalPipelines();
 } // namespace mlir::tt::ttmetal

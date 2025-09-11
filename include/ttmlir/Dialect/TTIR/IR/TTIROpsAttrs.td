@@ -111,6 +111,14 @@ def TTIR_ReturnToOutputMappingAttr : AttrDef<TTIR_Dialect, "ReturnToOutputMappin
   }];
 }
 
+def TTIR_LowerToTTNNGenericAttr : AttrDef<TTIR_Dialect, "ToTTNNGenericOp", [], "::mlir::Attribute"> {
+  let mnemonic = "to_ttnn_generic_op";
+  let summary = "Op marker to fork to TTIRtoTTNNGeneric instead of TTIRtoTTMetal pass";
+  let description = [{
+    Named attr key used in tandem with __interface to lower op to TTNN Generic instead of TTMetal host code.
+  }];
+}
+
 def TTIR_ThreadAttr : AttrDef<TTIR_Dialect, "Thread", [], "::mlir::Attribute"> {
   let mnemonic = "thread";
   let summary = "Thread information for a generic op.";

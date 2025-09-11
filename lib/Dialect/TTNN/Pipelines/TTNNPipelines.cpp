@@ -13,13 +13,14 @@
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
-#include <llvm/Support/raw_ostream.h>
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
@@ -237,6 +238,12 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
   pm.addPass(createTTNNTuplifyTensors());
   pm.addPass(createTTNNCreateInputGenerators());
   pm.addPass(createConvertTTNNToEmitPyPass());
+}
+
+void createTTIRtoGenericPipeline(
+    OpPassManager &pm, const ttmetal::TTIRToTTMetalPipelineOptions &options) {
+
+  ttmetal::createTTIRToTTMetalPipeline(pm, options);
 }
 
 //===----------------------------------------------------------------------===//
