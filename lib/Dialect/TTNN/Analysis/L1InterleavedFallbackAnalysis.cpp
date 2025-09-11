@@ -312,6 +312,7 @@ L1InterleavedFallbackAnalysis::getL1InterleavedLayoutConfigs(
     Operation *op) const {
   const auto it = analysisInput.legalL1InterleavedConfigs.find(op);
   assert(it != analysisInput.legalL1InterleavedConfigs.end());
+  assert(!it->second.empty());
   return it->second;
 }
 
@@ -388,6 +389,7 @@ void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {
 
   // Try both L1 interleaved configs until one works if there are multiple
   // (rowMajor and tiled).
+  bool failCounted = false;
   for (auto opL1InterleavedConfig : opL1InterleavedConfigs) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "=== Start of debug dump for op {} ===",
@@ -398,11 +400,17 @@ void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {
                                     /*upgradedProducerLayout=*/nullptr);
 
     if (!possibleL1Layout) {
+      if (failCounted || opL1InterleavedConfigs.size() == 1) {
+        // Point out it truly failed, as each specific config fail is counted in subcategories
+        llvm::outs() << "[L1IFA] Upgrade failed for op: " << op->getName()
+                     << "\n";
+      }
       llvm::Error error = possibleL1Layout.takeError();
       std::string errorStr = llvm::toString(std::move(error));
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Invalid upgrade, error: {}",
                    errorStr);
+      failCounted = true;
       continue;
     }
     TTNNLayoutAttr l1InterleavedLayout = possibleL1Layout.get();
@@ -435,6 +443,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
 
   // Verify device attribute exists (will assert if not found).
   mlir::tt::ttcore::lookupDevice(consumerOp);
+  llvm::outs() << "[L1IFA]     Device found " << consumerOp->getName() << "\n";
 
   uint32_t numOperands = consumerOp->getNumOperands();
   std::vector<TTNNLayoutAttr> inputLayouts;

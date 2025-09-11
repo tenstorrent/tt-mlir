@@ -318,7 +318,9 @@ public:
               l1InterleavedConfigs.push_back(config);
             }
           }
-          l1InterleavedLegalConfigs[op] = std::move(l1InterleavedConfigs);
+          if (l1InterleavedConfigs.size() > 0) {
+            l1InterleavedLegalConfigs[op] = std::move(l1InterleavedConfigs);
+          }
         }
       });
     });
