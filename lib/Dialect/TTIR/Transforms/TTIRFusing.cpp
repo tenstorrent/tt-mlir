@@ -877,9 +877,8 @@ public:
   /// Input pattern:
   ///   %result = scatter(%cache, %indices, %updates)
   ///   - Given a cache with shape (B, N, M, H) and a updates tensor with shape
-  ///   (B, N, S, H), the indices tensor should have shape (B, N, S, H, 4),
-  ///   representing the index where each element in %updates should placed in
-  ///   the %cache.
+  ///   (B, N, S, H), the indices tensor represents the index where each element
+  ///   in %updates should placed in the %cache.
   ///   - %indices can be tracked back to the function's cachePositions input
   ///   that represents the indices of the cache to fill/update.
   /// Output pattern:
@@ -934,19 +933,22 @@ private:
   // cachePositions input tensor if it is.
   //
   // We are looking for:
-  // %indices = "ttir.concat"(%0, %1, %2, %3):
-  //        (B,N,S,H,1), (B,N,S,H,1), (B,N,S,H,1), (B,N,S,H,1)) -> (B,N,S,H,4)
   // %result = "ttir.scatter"(%cache, %indices, %updates)
   // Where:
-  //    1. %0, %1, and %3 come from a const aranged vector representing
-  //       the first, second, and fourth dimension indices of the cache.
-  //    2. %2 comes from the input representing the cachePositions tensor.
+  //    1. %cache and %updates are 4D tensors who's shape match except on the
+  //    3rd dimension,
+  //       (B, N, M, H) and (B, N, S, H) respectively, M being the max cache
+  //       length and S being the sequence length of the update.
+  //    2. %indices comes from a block argument representing the cachePositions
+  //    tensor.
   static std::optional<mlir::Value>
   getCacheUpdatePositions(ttir::ScatterOp scatterOp) {
     // Check that the scatter op inputs represent a cache fill/update:
     //    1. The input is a 4D (B, N, M, H)
     //    2. The update tensor is a 4D tensor (B, N, S, H)
-    //    3. The scatter indices is a 5D tensor (B, N, S, H, 4)
+    //    3. The scatter indices is either a 1D equivalent tensor or 5D index
+    //       grid tensor (B, N, S, H, 4). Both can be tracked to a block
+    //       argument representing the cachePositions input.
     auto scatterIndices = scatterOp.getScatterIndices();
     ArrayRef<int64_t> inputShape =
         mlir::cast<RankedTensorType>(scatterOp.getInput().getType()).getShape();
@@ -955,246 +957,59 @@ private:
     ArrayRef<int64_t> updateShape =
         mlir::cast<RankedTensorType>(scatterOp.getUpdate().getType())
             .getShape();
-    if (inputShape.size() != 4 || scatterIdxShape.size() != 5 ||
-        updateShape.size() != 4) {
+    if (inputShape.size() != 4 || updateShape.size() != 4) {
       return std::nullopt;
     }
-    for (size_t i = 0; i < updateShape.size(); ++i) {
-      if (scatterIdxShape[i] != updateShape[i]) {
-        return std::nullopt;
-      }
-    }
-    if (scatterIdxShape[4] != 4) {
-      return std::nullopt;
-    }
+
     if (!(inputShape[0] == updateShape[0] && inputShape[1] == updateShape[1] &&
           inputShape[3] == updateShape[3])) {
       return std::nullopt;
     }
 
-    // Check that the scatter indices input is a concat op that produces the
-    // scatter indices for a cache update/fill:
-    //    1. Check that the 1st, 2nd and 4th inputs come from a 1D const aranged
-    //    tensor
-    //    2. Check that the 3rd input comes from the cachePositions func input
-    ConcatOp concatOp = scatterIndices.getDefiningOp<ttir::ConcatOp>();
-    if (!concatOp) {
+    int cacheUpdateSize = updateShape[2];
+
+    bool effectively1D = isEffectively1D(scatterIdxShape);
+    if (effectively1D &&
+        ttmlir::utils::volume(scatterIdxShape) != cacheUpdateSize) {
       return std::nullopt;
     }
 
-    mlir::OperandRange inputs = concatOp.getInputs();
-    int32_t dim = concatOp.getDim();
-    if (inputs.size() != 4 || dim != 4) {
+    bool isIndexGrid =
+        (scatterIdxShape.size() == 5 && scatterIdxShape[0] == inputShape[0] &&
+         scatterIdxShape[1] == inputShape[1] &&
+         scatterIdxShape[2] == cacheUpdateSize &&
+         scatterIdxShape[3] == inputShape[3] && scatterIdxShape[4] == 4);
+
+    // Check that scatter indices is either a 1D cache positions tensor or a 5D
+    // index grid.
+    if (!effectively1D && !isIndexGrid) {
       return std::nullopt;
     }
 
-    if (!isBroadcastedDimIndices(inputs[0], 0) ||
-        !isBroadcastedDimIndices(inputs[1], 1) ||
-        !isBroadcastedDimIndices(inputs[3], 3)) {
-      return std::nullopt;
+    // The cachePositions tensor is expected to be a 1D blockargument tensor
+    // with the same size as the cache update size.
+    auto useDefChain = ttmlir::utils::getUseDefChain(scatterIndices);
+    auto blockArgs =
+        ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
+    for (auto blockArg : blockArgs) {
+      // Check if the block argument is a cachePositions input.
+      auto argTensorShape =
+          mlir::cast<RankedTensorType>(blockArg.getType()).getShape();
+      effectively1D = isEffectively1D(argTensorShape);
+      if (!effectively1D) {
+        continue;
+      }
+      if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize) {
+        // We found the cachePositions input tensor.
+        return blockArg;
+      }
     }
 
-    auto cachePositionInput = getCachePositionsInput(inputs[2]);
-    return cachePositionInput;
+    return std::nullopt;
   }
 
-  // For the concat input that can be tracked to the cachePositions input,
-  // check the pattern and track value up to the cachePositions tensor input.
-  //  %1 = "ttir.reshape"(%arg, %0) -> (S, 1)
-  //  %3 = "ttir.reshape"(%1, %2) -> (1, 1, S, 1)
-  //  %5 = "ttir.broadcast"(%3, %4) -> (B, N, S, H)
-  //  %7 = "ttir.reshape"(%5, %6) -> (B, N, S, H, 1)
-  // Where:
-  //  1. %arg is (S, ) and is the cachePositions input tensor.
-  //  2. B, S and H are const values.
-  static std::optional<mlir::Value>
-  getCachePositionsInput(mlir::Value inputValue) {
-    // 1. Check that value is a reshape op.
-    // 2. Check that the reshape's input and output shapes are compatible:
-    //    - Output.rank() = Input.rank() + 1
-    //    - All the input dims are the same as the output dims except the
-    //      last one which is 1.
-    auto reshapeOp = inputValue.getDefiningOp<ttir::ReshapeOp>();
-    if (!reshapeOp) {
-      return std::nullopt;
-    }
-    auto reshapeInput = reshapeOp.getInput();
-    auto inputShape =
-        mlir::cast<RankedTensorType>(reshapeInput.getType()).getShape();
-    auto outputShape =
-        mlir::cast<RankedTensorType>(reshapeOp.getOutput().getType())
-            .getShape();
-    if (inputShape.size() != outputShape.size() - 1) {
-      return std::nullopt;
-    }
-    for (size_t i = 0; i < inputShape.size(); ++i) {
-      if (inputShape[i] != outputShape[i]) {
-        return std::nullopt;
-      }
-    }
-
-    // 1. Check that input to reshape is a broadcast op.
-    // 2. Check that the broadcast's input and output ranks are the same.
-    // 3. Check that all dims in broadcast input are 1 or inputShape[i] ==
-    //    outputShape[i]
-    auto broadcastOp = reshapeInput.getDefiningOp<BroadcastOp>();
-    if (!broadcastOp) {
-      return std::nullopt;
-    }
-    inputShape = mlir::cast<RankedTensorType>(broadcastOp.getInput().getType())
-                     .getShape();
-    outputShape =
-        mlir::cast<RankedTensorType>(broadcastOp.getOutput().getType())
-            .getShape();
-    if (inputShape.size() != outputShape.size()) {
-      return std::nullopt;
-    }
-    for (size_t i = 0; i < inputShape.size(); ++i) {
-      if (inputShape[i] != 1 && inputShape[i] != outputShape[i]) {
-        return std::nullopt;
-      }
-    }
-
-    // Check that the input to broadcast are reshapes and loop through them
-    // until we reach the input to the first reshape.
-    auto nextInput = broadcastOp.getInput();
-    while (auto intermediateReshapeOp =
-               nextInput.getDefiningOp<ttir::ReshapeOp>()) {
-      nextInput = intermediateReshapeOp.getInput();
-    }
-
-    // Check that the input of the reshape chain is a single dim flat
-    // tensor. We will assume that this is the cachePositions tensor.
-    // TODO(jazpur): Check that this is a 1D aranged tensor coming from the
-    // input.
-    auto inputTensor = nextInput;
-    auto inputTensorShape =
-        mlir::cast<RankedTensorType>(inputTensor.getType()).getShape();
-    if (inputTensorShape.size() != 1) {
-      return std::nullopt;
-    }
-
-    return inputTensor;
-  }
-
-  // For each (const) input of the concat op we check for:
-  //  %2 = "ttir.reshape"(%0, %1) -> (N, 1)
-  //  %4 = "ttir.reshape"(%2, %3) -> (N, 1, 1)
-  //  %6 = "ttir.reshape"(%4, %5) -> (1, N, 1, 1)
-  //  %8 = "ttir.broadcast"(%6, %7) -> (B, N, S, H)
-  //  %10 = "ttir.reshape"(%8, %9) -> (B, N, S, H, 1)
-  // Where:
-  //  1. %0 is a const aranged tensor with shape (N,))
-  //  2. depending on dimIdx, same pattern applies for the B, and H dims
-  static bool isBroadcastedDimIndices(mlir::Value inputValue, int64_t dimIdx) {
-    // 1. Check that valueInput is a reshape op.
-    // 2. Check that the reshape's input and output shapes are compatible:
-    //    - Output.rank() = input.rank() + 1
-    //    - All the input dims are the same as the output dims except the
-    //      last one which is 1.
-    auto reshapeOp = inputValue.getDefiningOp<ttir::ReshapeOp>();
-    if (!reshapeOp) {
-      return false;
-    }
-    auto reshapeInput = reshapeOp.getInput();
-    auto inputShape =
-        mlir::cast<RankedTensorType>(reshapeInput.getType()).getShape();
-    auto outputShape =
-        mlir::cast<RankedTensorType>(reshapeOp.getOutput().getType())
-            .getShape();
-    if (inputShape.size() != outputShape.size() - 1) {
-      return false;
-    }
-    for (size_t i = 0; i < inputShape.size(); ++i) {
-      if (inputShape[i] != outputShape[i]) {
-        return false;
-      }
-    }
-
-    // 1. Check that input to reshape is a broadcast op.
-    // 2. Check that broadcast input and output rank is the same.
-    // 3. Check that all dims in broadcast input are 1 or inputShape[i] ==
-    //    outputShape[i]
-    auto broadcastOp = reshapeInput.getDefiningOp<BroadcastOp>();
-    if (!broadcastOp) {
-      return false;
-    }
-    inputShape = mlir::cast<RankedTensorType>(broadcastOp.getInput().getType())
-                     .getShape();
-    outputShape =
-        mlir::cast<RankedTensorType>(broadcastOp.getOutput().getType())
-            .getShape();
-    if (inputShape.size() != outputShape.size()) {
-      return false;
-    }
-    for (size_t i = 0; i < inputShape.size(); ++i) {
-      if (inputShape[i] != 1 && inputShape[i] != outputShape[i]) {
-        return false;
-      }
-    }
-
-    // Check that the input to broadcast is a reshape and loop through it until
-    // we reach the input to the first reshape.
-    auto nextInput = broadcastOp.getInput();
-    while (auto intermediateReshapeOp =
-               nextInput.getDefiningOp<ttir::ReshapeOp>()) {
-      nextInput = intermediateReshapeOp.getInput();
-    }
-
-    // 1. Check that the first input of the reshape chain is a single dim flat
-    //    tensor.
-    // 2. Check that the input is a const aranged tensor.
-    auto arangedTensor = nextInput;
-    auto arangedTensorShape =
-        mlir::cast<RankedTensorType>(arangedTensor.getType()).getShape();
-    if (arangedTensorShape.size() != 1) {
-      return false;
-    }
-
-    auto tensorType = mlir::cast<RankedTensorType>(inputValue.getType());
-    auto tensorShape = tensorType.getShape();
-    int64_t dim = tensorShape[dimIdx];
-    if (!isConstArangedTensor(arangedTensor, dim)) {
-      return false;
-    }
-
-    return true;
-  }
-
-  // We are looking for a pattern like to this (from bottom up):
-  //  %0 = "ttir.arange"() {arr_dim = 0, end = N, start = 0, step = 1} -> (N, )
-  //  %2 = "ttir.multiply"(%0, 1, %1) -> (N,)
-  //  %4 = "ttir.add"(%2, 0, %3) -> (N,)
-  static bool isConstArangedTensor(mlir::Value inputValue, int64_t dim) {
-    // 1. Check that inputValue is an add op.
-    // 2. Check that the add's input is a multiply op.
-    auto addOp = inputValue.getDefiningOp<AddOp>();
-    if (!addOp) {
-      return false;
-    }
-    auto addInput = addOp.getLhs();
-    auto multiplyOp = addInput.getDefiningOp<MultiplyOp>();
-    if (!multiplyOp) {
-      return false;
-    }
-
-    // 1. Check that the multiply's input is an arange op.
-    // 2. Check that the arange op has start=0, end=dim, step=1, and
-    //    arange_dim=0.
-    auto arangeOp = multiplyOp.getLhs().getDefiningOp<ArangeOp>();
-    if (!arangeOp) {
-      return false;
-    }
-    const int64_t arangeStart = arangeOp.getStart();
-    const int64_t arangeEnd = arangeOp.getEnd();
-    const int64_t arangeStep = arangeOp.getStep();
-    const int64_t arangeDim = arangeOp.getArangeDimension();
-    if (arangeStart != 0 || arangeEnd != dim || arangeStep != 1 ||
-        arangeDim != 0) {
-      return false;
-    }
-
-    return true;
+  static bool isEffectively1D(ArrayRef<int64_t> shape) {
+    return llvm::count_if(shape, [](int64_t dim) { return dim != 1; }) <= 1;
   }
 };
 
