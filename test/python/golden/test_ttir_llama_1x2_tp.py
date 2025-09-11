@@ -173,7 +173,7 @@ def golden_llama(
         ],
     ],
 )
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 15], ids=["bf16"])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 15], ids=["fp32"])
 @pytest.mark.parametrize(
     "target",
     [
@@ -372,7 +372,7 @@ def test_llama_attention_1x2_tp(
         output87 = shard_to_full_device(output87, builder, 3)
         output87 = full_to_shard_device(output87, builder, 2)
         output89 = builder.softmax(
-            output87, -1, numeric_stable=True
+            output87, -1, numeric_stable=False
         )  # [1, 32, 64, 128]
         output89 = shard_to_full_device(output89, builder, 2)
         output89 = full_to_shard_device(output89, builder, 3)
@@ -401,12 +401,15 @@ def test_llama_attention_1x2_tp(
         output115 = builder.unsqueeze(output113, 0)  # [1, 128, 2048]
         output116 = shard_to_full_device(output115, builder, dim=2)  # [1, 128, 4096]
 
-        # builder.set_goldens_from_builder_tensor(
-        #     {operand : input_tensor for operand, input_tensor in zip(operands, input_tensors)},
-        #     {
-        #         output116: golden,
-        #     }
-        # )
+        builder.set_goldens(
+            {
+                operand: input_tensor
+                for operand, input_tensor in zip(operands, input_tensors_torch)
+            },
+            # {
+            #     output116: golden,
+            # }
+        )
 
         return output116
 
