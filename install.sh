@@ -9,17 +9,18 @@ set -eo pipefail
 show_help() {
     echo "Usage: $0 [options]..."
     echo "  -h, --help                       Show this help message."
+    echo "  --clean                          Remove build workspaces."
+
     echo "  --debug                          Set the build type as Debug."
     echo "  --release                        Set the build type as Release."
-    echo "  --clean                          Remove build workspaces."
-    echo "  -r, --enable-runtime             Enable the ttnn/metal runtime."
-    echo "  --enable-runtime-tests           Enable runtime tests. Will implicitly enable runtime."
-    echo "  -p, --enable-profiler            Enable Tracy profiler."
-    echo "  --enable-op-model                Enable Op Model. Will implicitly enable runtime."
-    echo "  -c, --enable-ccache              Enable ccache for the build."
-    echo "  --disable-python-bindings        Disable python bindings to accelerate builds."
-    echo "  --c-compiler-path                Set path to C compiler."
-    echo "  --cxx-compiler-path              Set path to C++ compiler."
+
+    echo "  --opmodel                        Op Model work settings."
+    echo "  --d2m                            D2M work settings."
+    echo "  --explorer                       Explorer work settings."
+
+    echo "  --speedy                         Speedy CI build settings."
+    echo "  --tracy                          Tracy CI build settings."
+
     echo "  --skip-tests                     Skip running check-ttmlir tests."
     echo "  --skip-ttrt                      Skip building ttrt utils."
 }
@@ -30,34 +31,35 @@ clean() {
     rm -rf third_party/tt-metal/src/tt-metal-build third_party/tt-metal/src/tt-metal-stamp
 }
 
+
+# options and defaults:
 build_type="Release"
 enable_runtime="OFF"
 enable_runtime_tests="OFF"
 enable_profiler="OFF"
 enable_op_model="OFF"
-enable_ccache="OFF"
-disable_python_bindings="OFF"
-c_compiler_path="clang-17"
-cxx_compiler_path="clang++-17"
+enable_emitc="OFF"
+enable_explorer="OFF"
+enable_runtime_debug="OFF"
+enable_pykernel="OFF"
+enable_stablehlo="OFF"
 skip_tests="OFF"
 skip_ttrt="OFF"
+# to add: TTMLIR_ENABLE_TTIRTONVVM, CODE_COVERAGE
 
 declare -a cmake_args
 
-OPTIONS=h,c,p,r
+OPTIONS=h
 LONGOPTIONS="
 help
+clean
 debug
 release
-clean
-enable-ccache
-c-compiler-path:
-cxx-compiler-path:
-enable-runtime
-enable-runtime-tests
-enable-profiler
-enable-op-model
-disable-python-bindings
+opmodel
+d2m
+explorer
+speedy
+tracy
 skip-tests
 skip-ttrt
 "
@@ -80,25 +82,19 @@ while true; do
         -h|--help)
             show_help;exit 0;;
         --debug)
-            build_type="Debug";;
+            build_type="Debug"; enable_runtime_debug="ON";;
         --release)
             build_type="Release";;
-        -c|--enable-ccache)
-            enable_ccache="ON";;
-        --c-compiler-path)
-            c_compiler_path="$2";shift;;
-        --cxx-compiler-path)
-            cxx_compiler_path="$2";shift;;
-        -r|--enable-runtime)
-            enable_runtime="ON";;
-        --enable-runtime-tests)
-            enable_runtime="ON"; enable_runtime_tests="ON";;
-        -p|--enable-profiler)
-            enable_runtime="ON"; enable_profiler="ON";;
-        --enable-op-model)
-            enable_runtime="ON"; enable_op_model="ON";;
-        --disable-python-bindings)
-            disable_python_bindings="ON";;
+        --opmodel)
+            enable_runtime="ON"; enable_op_model="ON"; enable_profiler="ON";;
+        --d2m)
+            enable_runtime="ON"; enable_runtime_tests="ON"; enable_stablehlo="ON";;
+        --explorer)
+            enable_runtime="ON"; enable_explorer="ON"; enable_runtime_debug="ON";;
+        --speedy)
+            enable_runtime="ON"; enable_op_model="ON"; enable_emitc="ON";;
+        --tracy)
+            enable_runtime="ON"; enable_profiler="ON"; enable_emitc="ON"; enable_runtime_debug="ON"; enable_explorer="ON"; enable_pykernel="ON";;
         --skip-tests)
             skip_tests="ON";;
         --skip-ttrt)
@@ -121,7 +117,7 @@ fi
 # Validate the build_type
 VALID_BUILD_TYPES=("Release" "Debug" "RelWithDebInfo" "ASan" "TSan")
 if [[ ! " ${VALID_BUILD_TYPES[@]} " =~ " ${build_type} " ]]; then
-    echo "ERROR: Invalid build type '$build_type'. Allowed values are Release, Debug, RelWithDebInfo, ASan, TSan."
+    echo "ERROR: Invalid build type '$build_type'. Allowed values may include: Release, Debug, RelWithDebInfo, ASan, TSan."
     show_help
     exit 1
 fi
@@ -144,40 +140,36 @@ if [ -z "$TTMLIR_ENV_ACTIVATED" ]; then
 fi
 
 # Debug output to verify parsed options
-echo "INFO: Enable ccache: $enable_ccache"
 echo "INFO: Build type: $build_type"
 echo "INFO: Build directory: $build_dir"
-echo "INFO: Enable metal runtime: $enable_runtime"
-echo "INFO: Enable metal runtime tests: $enable_runtime_tests"
-echo "INFO: Enable metal perf trace: $enable_profiler"
-echo "INFO: Enable op model: $enable_op_model"
-echo "INFO: Disable python bindings: $disable_python_bindings"
 
 # Prepare cmake arguments
 cmake_args+=("-B" "$build_dir")
 cmake_args+=("-G" "Ninja")
 cmake_args+=("-DCMAKE_BUILD_TYPE=$build_type")
 
-if [ "$c_compiler_path" != "" ]; then
-    echo "INFO: C compiler: $c_compiler_path"
-    cmake_args+=("-DCMAKE_C_COMPILER=$c_compiler_path")
-fi
-
-if [ "$cxx_compiler_path" != "" ]; then
-    echo "INFO: C++ compiler: $cxx_compiler_path"
-    cmake_args+=("-DCMAKE_CXX_COMPILER=$cxx_compiler_path")
-fi
+cmake_args+=("-DCMAKE_C_COMPILER=clang-17")
+cmake_args+=("-DCMAKE_CXX_COMPILER=clang++-17")
+cmake_args+=("-DCMAKE_CXX_COMPILER_LAUNCHER=ccache")
 
 if [ "$enable_runtime" = "ON" ]; then
     cmake_args+=("-DTTMLIR_ENABLE_RUNTIME=ON")
-else
-    cmake_args+=("-DTTMLIR_ENABLE_RUNTIME=OFF")
+fi
+
+if [ "$enable_runtime_debug" = "ON" ]; then
+    cmake_args+=("-DTT_RUNTIME_DEBUG=ON")
 fi
 
 if [ "$enable_runtime_tests" = "ON" ]; then
     cmake_args+=("-DTTMLIR_ENABLE_RUNTIME_TESTS=ON")
-else
-    cmake_args+=("-DTTMLIR_ENABLE_RUNTIME_TESTS=OFF")
+fi
+
+if [ "$enable_pykernel" = "ON" ]; then
+    cmake_args+=("-DTTMLIR_ENABLE_PYKERNEL=ON")
+fi
+
+if [ "$enable_stablehlo" = "ON" ]; then
+    cmake_args+=("-DTTMLIR_ENABLE_STABLEHLO=ON")
 fi
 
 if [ "$enable_profiler" = "ON" ]; then
@@ -188,16 +180,13 @@ if [ "$enable_op_model" = "ON" ]; then
     cmake_args+=("-DTTMLIR_ENABLE_OPMODEL=ON")
 fi
 
-if [ "$enable_ccache" = "ON" ]; then
-    cmake_args+=("-DCMAKE_CXX_COMPILER_LAUNCHER=ccache")
+if [ "$enable_explorer" = "ON" ]; then
+    cmake_args+=("-DTTMLIR_ENABLE_EXPLORER=ON")
 fi
 
-if [ "$disable_python_bindings" = "ON" ]; then
-    cmake_args+=("-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF")
-fi
 
 echo "INFO: Configuring Project"
-echo "INFO: Running: cmake "${cmake_args[@]}""
+echo "INFO: Running: cmake ${cmake_args[@]}"
 cmake "${cmake_args[@]}"
 
 echo "INFO: Building Project"
@@ -217,4 +206,6 @@ if [ "$skip_ttrt" != "ON" ]; then
         fi
     fi
     cmake --build $build_dir -- ttrt
+    echo "INFO: ttrt build done, now try:"
+    echo "  ttrt query --save-artifacts && export SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys"
 fi
