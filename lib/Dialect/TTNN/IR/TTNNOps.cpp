@@ -1850,9 +1850,6 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
       newBufferType = tensorSpecOp.getMemoryConfigAttr().getBufferType();
     }
 
-    llvm::outs() << "Merging ToLayoutOp into "
-                 << creationOp->getName().getStringRef() << "\n";
-
     TTNNDeviceOperandInterface deviceOperandInterface =
         mlir::cast<TTNNDeviceOperandInterface>(creationOp);
     // If the new buffer type is a device buffer type, we need to insert a
