@@ -364,6 +364,7 @@ def parse_tt_layout(attr):
 
 @AttrHandler.register_handler("ttnn_layout")
 def parse_ttnn_ttnn_layout(attr):
+    raise ValueError("Brata: ttnn_layout is not supported" + (50 * "\nlines\n"))
     layout = ttnn.ir.TTNNLayoutAttr.maybe_downcast(attr)
     result = []
     result.append(graph_builder.KeyValue(key="linear", value=str(layout.linear)))
