@@ -160,32 +160,44 @@ public:
 };
 } // namespace
 
-void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
-                                              RewritePatternSet &patterns,
-                                              TypeConverter &typeConverter) {
-  FloatAttr minValAttr;
-  FloatAttr maxValueAttr;
+namespace {
+class TosaToTTIRClampOpConversionPattern
+    : public OpConversionPattern<tosa::ClampOp> {
+  using OpConversionPattern<tosa::ClampOp>::OpConversionPattern;
+  using Adaptor = tosa::ClampOp::Adaptor;
 
-  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(srcOp.getMinVal())) {
-    minValAttr = rewriter.getF32FloatAttr(intAttr.getSInt());
-  } else {
-    minValAttr = rewriter.getF32FloatAttr(
-        cast<mlir::FloatAttr>(srcOp.getMinVal()).getValue().convertToFloat());
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ClampOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    FloatAttr minValAttr;
+    FloatAttr maxValueAttr;
+
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(srcOp.getMinVal())) {
+      minValAttr = rewriter.getF32FloatAttr(intAttr.getSInt());
+    } else {
+      minValAttr = rewriter.getF32FloatAttr(
+          cast<mlir::FloatAttr>(srcOp.getMinVal()).getValue().convertToFloat());
+    }
+
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(srcOp.getMaxVal())) {
+      maxValueAttr = rewriter.getF32FloatAttr(intAttr.getSInt());
+    } else {
+      maxValueAttr = rewriter.getF32FloatAttr(
+          cast<mlir::FloatAttr>(srcOp.getMaxVal()).getValue().convertToFloat());
+    }
+
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
+        rewriter, srcOp, outputType, adaptor.getInput(), minValAttr,
+        maxValueAttr);
+
+    return success();
   }
-
-  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(srcOp.getMaxVal())) {
-    maxValueAttr = rewriter.getF32FloatAttr(intAttr.getSInt());
-  } else {
-    maxValueAttr = rewriter.getF32FloatAttr(
-        cast<mlir::FloatAttr>(srcOp.getMaxVal()).getValue().convertToFloat());
-  }
-
-  ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
-      rewriter, srcOp, outputType, adaptor.getInput(), minValAttr,
-      maxValueAttr);
-
-  return success();
-}
+};
+} // namespace
 
 namespace {
 class TosaToTTIRConcatOpConversionPattern
@@ -349,6 +361,7 @@ addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::SinOp,
                                                        mlir::tt::ttir::SinOp>>(
       typeConverter, ctx);
+  patterns.add<TosaToTTIRClampOpConversionPattern>(typeConverter, ctx);
 }
 
 static void
@@ -413,13 +426,6 @@ static void addCompareOpsConversionPatterns(MLIRContext *ctx,
       tosa::GreaterOp, mlir::tt::ttir::GreaterThanOp>>(typeConverter, ctx);
 }
 
-void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
-                                                RewritePatternSet &patterns,
-                                                TypeConverter &typeConverter) {
-  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
-      tosa::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
-}
-
 void addShapeOpsConversionPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
                                    TypeConverter &typeConverter) {
@@ -464,8 +470,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
   addShapeOpsConversionPatterns(ctx, patterns, typeConverter);
 
-  patterns.add<TosaToTTIRClampOpConversionPattern,
-               TosaToTTIRConcatOpConversionPattern,
+  patterns.add<TosaToTTIRConcatOpConversionPattern,
                TosaToTTIRConstantOpConversionPattern>(typeConverter, ctx);
 }
 
