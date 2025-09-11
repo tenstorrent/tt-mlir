@@ -405,7 +405,8 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
   auto memref = mlir::cast<MemRefType>(value.getType());
 
   Type elementType = memref.getElementType();
-  assert(!mlir::isa<ttcore::TileType>(elementType));
+  // HACK
+  // assert(!mlir::isa<ttcore::TileType>(elementType));
   ttcore::DataType dtype = ttcore::elementTypeToDataType(elementType);
 
   assert(!mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout()));
@@ -566,7 +567,7 @@ memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
   return data;
 }
 
-static std::shared_ptr<void> translateModuleToFlatbuffer(
+std::shared_ptr<void> translateTTMetalToFlatbuffer(
     Operation *op,
     const std::unordered_map<std::string, GoldenTensor> &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
@@ -819,7 +820,7 @@ LogicalResult translateTTMetalToFlatbuffer(
     const std::unordered_map<std::string, GoldenTensor> &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   std::shared_ptr<void> data =
-      translateModuleToFlatbuffer(op, goldenMap, moduleCache);
+      translateTTMetalToFlatbuffer(op, goldenMap, moduleCache);
   std::size_t size = flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
   os.write(reinterpret_cast<const char *>(data.get()), size);

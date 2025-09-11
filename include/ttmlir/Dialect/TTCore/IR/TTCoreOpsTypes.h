@@ -135,6 +135,8 @@ inline std::optional<DataType> elementTypeToDataTypeImpl(Type elementType) {
   }
 
   if (auto tileType = dyn_cast<TileType>(elementType)) {
+    // HACK
+    return tileType.getDataType();
     switch (tileType.getDataType()) {
     case DataType::BFP_BFloat8:
     case DataType::BFP_BFloat4:

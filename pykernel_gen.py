@@ -1,5 +1,6 @@
 from pykernel.kernel_ast import *
 import functools
+import torch
 
 
 matmul_template = {
@@ -39,7 +40,10 @@ def matmul(lhs, rhs, out):
     return mm
 
 
-matmul(None, None, None)
+lhs = torch.randn(128, 128)
+rhs = torch.randn(128, 128)
+out = torch.randn(128, 128)
+matmul(lhs, rhs, out)
 
 
 @pykernel_gen(

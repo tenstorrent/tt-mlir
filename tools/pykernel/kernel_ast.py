@@ -22,7 +22,7 @@ from ttmlir.dialects import (
     tensor,
 )
 from ttmlir.dialects._ods_common import get_default_loc_context
-from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline
+from ttmlir.passes import ttkernel_to_cpp, pykernel_compile_pipeline, ttmetal_to_flatbuffer_bin
 
 from .kernel_types import *
 from .common.ast_base import PyKernelAstBase
@@ -1236,6 +1236,75 @@ def _create_generic_func(
         func.ReturnOp(generic.results)
 
 
+def to_data_type(dtype):
+    import torch
+    from _ttmlir_runtime import runtime
+
+    if dtype == torch.float32:
+        return runtime.DataType.Float32
+    if dtype == torch.float16:
+        return runtime.DataType.Float16
+    if dtype == torch.bfloat16:
+        return runtime.DataType.BFloat16
+    if dtype == torch.uint32:
+        return runtime.DataType.UInt32
+    if dtype == torch.uint16:
+        return runtime.DataType.UInt16
+    if dtype == torch.uint8:
+        return runtime.DataType.UInt8
+    if dtype == torch.int32:
+        return runtime.DataType.Int32
+    # Data types which are unsupported on ttnn
+    if dtype == torch.float64:
+        return runtime.DataType.Float64
+    if dtype == torch.int64:
+        return runtime.DataType.Int64
+    if dtype == torch.uint64:
+        return runtime.DataType.UInt64
+    if dtype == torch.int16:
+        return runtime.DataType.Int16
+    if dtype == torch.int8:
+        return runtime.DataType.Int8
+    if dtype == torch.bool:
+        return runtime.DataType.Bool
+    raise ValueError(f"Torch dtype: {dtype} has no runtime DataType equivalent")
+
+
+def from_data_type(dtype):
+    import torch
+
+    if dtype == "Float32":
+        return torch.float32
+    if dtype == "Float16":
+        return torch.float16
+    if dtype == "BFloat16":
+        return torch.bfloat16
+    if dtype == "UInt32":
+        return torch.uint32
+    if dtype == "UInt16":
+        return torch.uint16
+    if dtype == "UInt8":
+        return torch.uint8
+    if dtype == "Int32":
+        return torch.int32
+    # Data types which are unsupported on ttnn
+    if dtype == "Float64":
+        return torch.float64
+    if dtype == "Int64":
+        return torch.int64
+    if dtype == "UInt64":
+        return torch.uint64
+    if dtype == "Int16":
+        return torch.int16
+    if dtype == "Int8":
+        return torch.int8
+    if dtype == "Bool":
+        return torch.bool
+
+    raise ValueError(f"unsupported dtype: {dtype}")
+
+_g_current_system_desc = None
+
 def pykernel_gen(
     grid=None, block_factors=None, indexing_maps=None, iterator_types=None
 ):
@@ -1243,6 +1312,19 @@ def pykernel_gen(
     assert (iterator_types is None) or (
         indexing_maps is not None
     ), "if iterator_types is set, indexing_types must also be set"
+
+    from _ttmlir_runtime import runtime, binary
+    import torch
+    import json
+    import os
+
+    global _g_current_system_desc
+    if _g_current_system_desc is None:
+        _g_current_system_desc = os.environ.get("SYSTEM_DESC_PATH", None)
+    if _g_current_system_desc is None:
+        system_desc = runtime.get_current_system_desc()
+        _g_current_system_desc = "current.ttsys"
+        system_desc.store(_g_current_system_desc)
 
     if indexing_maps is None:
         indexing_maps = []
@@ -1285,8 +1367,8 @@ def pykernel_gen(
             loc = Location.unknown(ctx)
             with ctx, loc:
                 compiled_threads = []
-                for thread in thread_srcs:
-                    compiled_threads.append(thread(Tensor(), Tensor(), Tensor()))
+                for compile_thread in thread_srcs:
+                    compiled_threads.append(compile_thread(Tensor(), Tensor(), Tensor()))
 
                 module = Module.create(loc)
                 with InsertionPoint(module.body):
@@ -1303,7 +1385,7 @@ def pykernel_gen(
                 print(module)
 
                 print_ir = True
-                device_register_options = False
+                device_register_options = f"system-desc-path={_g_current_system_desc}"
                 verify = True
                 pipeline = "convert-elementwise-to-linalg,linalg-generalize-named-ops,ttir-to-ttmetal-pipeline"
 
@@ -1329,6 +1411,58 @@ def pykernel_gen(
                 pm.run(module.operation)
 
                 print(module)
+                bin = ttmetal_to_flatbuffer_bin(module)
+
+                #
+                # Runtime
+                #
+                fbb = binary.load_binary_from_capsule(bin)
+                program_index = 0
+                device_options = runtime.MeshDeviceOptions()
+                device_options.mesh_shape = fbb.get_program_mesh_shape(program_index)
+                runtime.set_compatible_runtime(fbb)
+
+                debug_env = runtime.DebugEnv.get(
+                    False, # dump_kernels_to_disk
+                    False, # load_kernels_from_disk
+                    False, # disable_device_address_validation
+                    True, # blocking_cq
+                )
+                print(f"setting tt runtime debug env={debug_env}")
+
+                inputs = []
+                for tensor in args:
+                    inputs.append(runtime.create_borrowed_host_tensor(
+                        tensor.data_ptr(),
+                        list(tensor.shape),
+                        list(tensor.stride()),
+                        tensor.element_size(),
+                        to_data_type(tensor.dtype),
+                    ))
+
+                outputs = []
+                output_descs = json.loads(fbb.get_program_outputs_as_json(program_index))
+                for output_desc in output_descs:
+                    tensor = torch.zeros(output_desc["desc"]["shape"],
+                        dtype=from_data_type(
+                            output_desc["desc"]["layout"]["memory_desc"]["data_type"]
+                        ))
+                    outputs.append(runtime.create_borrowed_host_tensor(
+                        tensor.data_ptr(),
+                        list(tensor.shape),
+                        list(tensor.stride()),
+                        tensor.element_size(),
+                        to_data_type(tensor.dtype),
+                    ))
+
+                device = runtime.open_mesh_device(device_options)
+                runtime_outputs = runtime.submit(device, fbb, program_index, inputs)
+                runtime.wait(outputs)
+                for runtime_output_tensor in runtime_outputs:
+                    output_host = runtime.to_host(runtime_output_tensor, untilize=True)[0]
+                    runtime.memcpy(outputs[i], output_host)
+                    runtime.deallocate_tensor(runtime_output_tensor, force=True)
+                runtime.close_mesh_device(device)
 
         return _wrapper
 
