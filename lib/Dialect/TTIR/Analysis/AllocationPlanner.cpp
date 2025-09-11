@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/Analysis/AllocationPlanner.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "llvm/ADT/IntervalTree.h"
@@ -16,8 +17,6 @@
 namespace mlir::tt::ttir {
 
 // Define some local convenience macros.
-
-#define TT_assert(condition, msg) assert((condition) && msg)
 
 #define TT_ALLOC_DEBUG(/* fmt, args */...)                                     \
   TTMLIR_DEBUG(ttmlir::LogComponent::Allocator, __VA_ARGS__)
@@ -32,9 +31,9 @@ using IndexT = std::int32_t;
 
 void AllocationPlanner::Context::add(AllocSizeT size, SequenceT first,
                                      SequenceT last) {
-  TT_assert(size > 0, "expected positive size");
-  TT_assert(0 <= first && 0 <= last, "expected non-negative op positions");
-  TT_assert(first <= last, "expected first <= last");
+  TT_assertv(size > 0, "expected positive size: {}", size);
+  TT_assert((0 <= first && 0 <= last));
+  TT_assert(first <= last);
 
   [[maybe_unused]] const auto &r =
       records.emplace_back(Record{-1, size, first, last});
@@ -129,7 +128,8 @@ PlannerImpl<AllocationPlanner::Algorithm::Greedy>::allocate(
     pq.pop();
     Record &record = records[i];
     TT_ALLOC_TRACE("record #{}: {}", i, record);
-    TT_assert(record.offset < 0, "record should not be marked allocated yet");
+    TT_assertv(record.offset < 0,
+               "record should not be marked allocated yet: {}", record);
 
     AllocSizeT gapBest = std::numeric_limits<AllocSizeT>::max();
     AllocSizeT offsetPrev = 0;
@@ -137,7 +137,7 @@ PlannerImpl<AllocationPlanner::Algorithm::Greedy>::allocate(
 
     for (const auto &[kOffset, k] : allocatedOrderedByOffset) {
       const Record &allocatedRecord = records[k];
-      TT_assert(kOffset >= 0 && kOffset == allocatedRecord.offset,
+      TT_debugv((kOffset >= 0 && kOffset == allocatedRecord.offset),
                 "iterating over allocated records");
 
       const SequenceT maxFirst = std::max(record.first, allocatedRecord.first);
@@ -214,6 +214,7 @@ AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
     const Record &record = context[i];
     iv.insert(record.first, record.last, i);
   }
+  // NOLINTNEXTLINE
   iv.create();
 
   AllocSizeT memUsage = 0;
@@ -223,7 +224,7 @@ AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
   for (IndexT i = 0; i < n; ++i) {
     const Record &record = context[i];
 
-    TT_assert(record.offset >= 0, "unallocated record");
+    TT_assertv(record.offset >= 0, "unallocated record: {}", record);
     AllocSizeT load = record.size;
 
     const auto conflicts = iv.getContaining(record.first);
@@ -238,7 +239,8 @@ AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
             std::max(record.offset, conflict.offset) <
             std::min(record.offset + record.size,
                      conflict.offset + conflict.size);
-        TT_assert(!memOverlap, "memory overlap");
+        TT_assertv(!memOverlap, "memory overlap b/w {} and {}", record,
+                   conflict);
 
         load += conflict.size;
       }
@@ -252,9 +254,8 @@ AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
     maxSize = std::max(maxSize, record.size);
   }
 
-  TT_assert(maxLoad > 0, "should have seen positive max load");
-  TT_assert(maxLoad <= memUsage,
-            "inconsistent max load/mem usage metrics inferred");
+  TT_assert(maxLoad > 0);
+  TT_assert(maxLoad <= memUsage);
 
   TT_ALLOC_DEBUG(
       "verified allocation plan with {} record(s): max alloc size {}, mem "
