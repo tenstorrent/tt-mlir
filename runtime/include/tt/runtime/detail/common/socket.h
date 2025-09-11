@@ -6,6 +6,7 @@
 #define TT_RUNTIME_DETAIL_COMMON_SOCKET_H
 
 #include <chrono>
+#include <future>
 #include <memory>
 #include <string>
 #include <vector>
@@ -48,10 +49,16 @@ public:
 
   bool hasDataToRead(const std::chrono::milliseconds &timeout =
                          std::chrono::milliseconds(100)) const;
+
   ssize_t readExact(void *buf, size_t nbytes);
   ssize_t writeExact(const void *buf, size_t nbytes);
+
   SizedBuffer sizePrefixedRead();
   ssize_t sizePrefixedWrite(const void *msg, uint32_t msgSize);
+
+  std::future<SizedBuffer> sizePrefixedReadAsync();
+  std::future<ssize_t> sizePrefixedWriteAsync(const void *msg,
+                                              uint32_t msgSize);
 
 private:
   SocketFd fd_;

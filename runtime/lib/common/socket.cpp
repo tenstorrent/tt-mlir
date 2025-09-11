@@ -10,8 +10,10 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
+#include <future>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -26,6 +28,16 @@ Socket::Socket(int domain, int type, int protocol) {
   fd_ = ::socket(domain, type, protocol);
   if (fd_ < 0) {
     LOG_ERROR("Failed to create socket with error: ", std::strerror(errno));
+    return;
+  }
+
+  int opt = 1;
+  if (::setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+    LOG_ERROR("SO_REUSEADDR failed with error: ", std::strerror(errno));
+  }
+
+  if (::setsockopt(fd_, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt)) < 0) {
+    LOG_ERROR("TCP_NODELAY failed with error: ", std::strerror(errno));
   }
 }
 
@@ -136,6 +148,18 @@ ssize_t Socket::sizePrefixedWrite(const void *msg, uint32_t msgSize) {
   return writeResult;
 }
 
+std::future<SizedBuffer> Socket::sizePrefixedReadAsync() {
+  return std::async(std::launch::async,
+                    [this]() -> SizedBuffer { return sizePrefixedRead(); });
+}
+
+std::future<ssize_t> Socket::sizePrefixedWriteAsync(const void *msg,
+                                                    uint32_t msgSize) {
+  return std::async(std::launch::async, [this, msg, msgSize]() -> ssize_t {
+    return sizePrefixedWrite(msg, msgSize);
+  });
+}
+
 //
 // ServerSocket
 //
@@ -146,9 +170,6 @@ ServerSocket::ServerSocket(uint16_t port) {
     LOG_FATAL("Failed to create server socket on port ", port,
               " with error: ", std::strerror(errno));
   }
-
-  int opt = 1;
-  ::setsockopt(socket->fd(), SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
   sockaddr_in addr{};
   addr.sin_family = AF_INET;

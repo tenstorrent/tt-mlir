@@ -6,6 +6,7 @@ endif()
 add_library(TTRuntimeDistributedServer
   STATIC
   command_factory.cpp
+  runtime_server.cpp
 )
 
 set_target_properties(TTRuntimeDistributedServer PROPERTIES CXX_STANDARD 20)
