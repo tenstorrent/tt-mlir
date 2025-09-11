@@ -841,14 +841,11 @@ public:
         buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
                         op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
     auto dstCBMapping = cbProducerConsumer->get(op.getDst());
-    Value dstL1Addr;
-    if (dstCBMapping == ttir::ThreadCBOrientation::Consumer) {
-      dstL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
-          rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
-    } else {
-      dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
-          rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
-    }
+    assert(dstCBMapping == ttir::ThreadCBOrientation::Producer &&
+           "Expected dst cb of a read op to have a producer orientation, "
+           "failing.");
+    Value dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
+        rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
 
     auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
     rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
@@ -899,27 +896,22 @@ public:
 
       // Both src and dst are local, use the metal cb pointers to determine
       // addressing
-
-      auto srcCBMapping = cbProducerConsumer->get(op.getSrc());
       Value srcL1Start;
-      Value dstL1Start;
+      auto srcCBMapping = cbProducerConsumer->get(op.getSrc());
       if (srcCBMapping == ttir::ThreadCBOrientation::Producer) {
         srcL1Start = rewriter.create<ttkernel::GetWritePtrOp>(op.getLoc(),
                                                               adaptor.getSrc());
-      } else if (srcCBMapping == ttir::ThreadCBOrientation::Consumer ||
-                 srcCBMapping == ttir::ThreadCBOrientation::ProducerConsumer) {
+      } else {
         srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(op.getLoc(),
                                                              adaptor.getSrc());
       }
       auto dstCBMapping = cbProducerConsumer->get(op.getDst());
-      if (dstCBMapping == ttir::ThreadCBOrientation::Producer ||
-          dstCBMapping == ttir::ThreadCBOrientation::ProducerConsumer) {
-        dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(op.getLoc(),
-                                                              adaptor.getDst());
-      } else {
-        dstL1Start = rewriter.create<ttkernel::GetReadPtrOp>(op.getLoc(),
-                                                             adaptor.getDst());
-      }
+      assert((dstCBMapping == ttir::ThreadCBOrientation::Producer ||
+              dstCBMapping == ttir::ThreadCBOrientation::ProducerConsumer) &&
+             "Expected dst cb of a write op to have a producer or "
+             "producer-consumer orientation, failing.");
+      Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
+          op.getLoc(), adaptor.getDst());
 
       Value transferSize = i32(rewriter, op->getLoc(), op.getSizeBytes());
       if (op.isMcast()) {
