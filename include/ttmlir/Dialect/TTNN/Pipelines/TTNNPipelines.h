@@ -12,6 +12,10 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
 
+namespace mlir::tt::ttmetal {
+struct TTIRToTTMetalPipelineOptions;
+} // namespace mlir::tt::ttmetal
+
 namespace tt::tt_metal::distributed {
 class MeshDevice;
 } // namespace tt::tt_metal::distributed
@@ -348,6 +352,12 @@ struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
 // Passes and pipelines
 //===----------------------------------------------------------------------===//
 
+// TTIR to generic pipeline options.
+// Inherit from TTIRToTTNNBackendPipelineOptions to reuse the options.
+//
+struct TTIRToGenericPipelineOptions : public TTIRToTTNNBackendPipelineOptions {
+};
+
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
@@ -377,6 +387,9 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options);
+
+void createTTIRtoGenericPipeline(
+    OpPassManager &pm, const ttmetal::TTIRToTTMetalPipelineOptions &options);
 
 /// Registers all pipelines for the `bufferization` dialect. Currently,
 /// this includes only the "ttir-to-ttnn-backend-pipeline".

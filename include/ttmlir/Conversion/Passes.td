@@ -221,5 +221,14 @@ let summary = "Convert TTNN dialect to TTIR dialect.";
   let constructor = "createConvertTTNNToTTIRPass()";
   let dependentDialects = ["mlir::tt::ttnn::TTNNDialect", "mlir::tt::ttir::TTIRDialect"];
 }
+def ConvertTTIRToTTNNGeneric: Pass<"convert-ttir-to-ttnn-generic", "::mlir::ModuleOp">{
+  let summary = "";
+  let description = [{
+
+  }];
+  let constructor = "createConvertTTIRToTTNNGenericPass()";
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttnn::TTNNDialect"];
+}
+
 
 #endif // TTMLIR_CONVERSION_PASSES
