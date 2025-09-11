@@ -2172,8 +2172,7 @@ createOp(FlatbufferObjectCache &cache,
   auto scale = op.getScale().convertToFloat();
   auto is_causal = op.getIsCausal();
 
-  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                               kHostAllocatedSize);
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
 
   return ::tt::target::ttnn::CreatePagedScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, keys, values, page_table, out, is_causal, attn_mask,
