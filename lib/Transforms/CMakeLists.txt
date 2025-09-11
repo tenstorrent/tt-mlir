@@ -1,4 +1,5 @@
 add_mlir_extension_library(TTMLIRTransforms
+        CollapseParallelLoops.cpp
         ConstEvalHoist.cpp
         ReenableLostDPS.cpp
         RemoveReturnValues.cpp

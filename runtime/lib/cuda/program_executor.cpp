@@ -96,10 +96,36 @@ void ProgramExecutor::finishing() {
   }
 
   for (auto *constant : *program->constants()) {
-    constantMap.insert({constant->id()->str(), constant});
+    uint64_t totalElements = 1;
+    for (size_t dim = 0; dim < constant->type()->shape()->size(); ++dim) {
+      totalElements *= constant->type()->shape()->Get(dim);
+    }
+    if (totalElements == 1) {
+      constantMap.insert({constant->id()->str(), constant});
+      continue;
+    }
+    const uint8_t *byteData = constant->value()->data();
+
+    size_t size = totalElements * getDim(constant->type()->data_type());
+    CUdeviceptr devicePtr;
+    auto cudaStatus = cuMemAlloc(&devicePtr, size);
+    if (cudaStatus != 0) {
+      llvm::errs() << "cudaMalloc failed for tensor " << constant->id()->str()
+                   << " with error code " << cudaStatus << "\n";
+    }
+    tensorMap.insert({constant->id()->str(), devicePtr});
+
+    size_t originalSize = constant->value()->size();
+    std::vector<uint8_t> repeatedData;
+
+    for (size_t i = 0; i < totalElements; ++i) {
+      for (size_t j = 0; j < originalSize; ++j) {
+        repeatedData.push_back(*(byteData + j));
+      }
+    }
+    cuMemcpyHtoD(devicePtr, repeatedData.data(), size);
   }
 
-  llvm::outs() << program->actions()->size() << "\n";
   // Process actions.
   for (size_t i = 0; i < program->actions()->size(); ++i) {
     ::cuda::Action actionType = program->actions_type()->Get(i);
@@ -159,6 +185,7 @@ void ProgramExecutor::finishing() {
           tensorMap.erase(name->str());
         }
       }
+
       break;
     }
     case ::cuda::Action::CopyFunction: {
@@ -366,8 +393,16 @@ void ProgramExecutor::runKernel(const ::cuda::Kernel *kernel) {
   }
   CUmodule module;
   CUfunction function;
-  cuModuleLoadData(&module, kernel->ptx()->c_str());
-  cuModuleGetFunction(&function, module, kernel->name()->c_str());
+  if (cuModuleLoadData(&module, kernel->ptx()->c_str()) != CUDA_SUCCESS) {
+    llvm::errs() << "Failed to load module!\n";
+    return;
+  }
+  if (cuModuleGetFunction(&function, module, kernel->name()->c_str()) !=
+      CUDA_SUCCESS) {
+    llvm::errs() << "Failed to load func!\n";
+    cuModuleUnload(module);
+    return;
+  }
 
   dim3 gridSize(kernel->grid_size_x(), kernel->grid_size_y(),
                 kernel->grid_size_z());
@@ -379,8 +414,16 @@ void ProgramExecutor::runKernel(const ::cuda::Kernel *kernel) {
   if (result != CUDA_SUCCESS) {
     llvm::errs() << kernel->name()->c_str() << " failed with code " << result
                  << "\n";
+    for (const auto *arg : *kernel->input_names()) {
+      llvm::errs() << arg->str() << " ";
+    }
+    llvm::errs() << "\n";
+    llvm::errs() << gridSize.x << " " << gridSize.y << " " << gridSize.z
+                 << "\n";
+    llvm::errs() << blockSize.x << " " << blockSize.y << " " << blockSize.z
+                 << "\n\n";
   }
-  // cudaDeviceSynchronize();
+
   cuModuleUnload(module);
 }
 
