@@ -3083,14 +3083,14 @@ def test_mesh_shard_devices(
     input_shape = [n_shards for idx, n_shards in enumerate(shard_shape)]
 
     def mesh_shard_devices(in0: Operand, builder: TTIRBuilder):
-        sharded_in0 = builder.mesh_shard(
+        mesh_shard_in0 = builder.mesh_shard(
             in0,
             shard_direction="#ttcore.shard_direction<full_to_shard>",
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=shard_shape,
             shard_dims=shard_dims,
         )
-        neg_output = builder.neg(sharded_in0)
+        neg_output = builder.neg(mesh_shard_in0)
         return builder.mesh_shard(
             neg_output,
             shard_direction="#ttcore.shard_direction<shard_to_full>",
@@ -3143,9 +3143,9 @@ def test_all_gather(
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("all_gather across 1 device is meaningless")
 
-    def all_gather(sharded_in: Operand, builder: TTIRBuilder):
+    def all_gather(mesh_shard_in: Operand, builder: TTIRBuilder):
         return builder.all_gather(
-            sharded_in,
+            mesh_shard_in,
             all_gather_dim=all_gather_dim,
             cluster_axis=cluster_axis,
         )
@@ -3195,9 +3195,9 @@ def test_all_reduce(
         pytest.skip("CCL across 1 device is meaningless")
 
     # test 'sum' only for now. Other reduce types are not supported yet.
-    def all_reduce(sharded_in: Operand, builder: TTIRBuilder):
+    def all_reduce(mesh_shard_in: Operand, builder: TTIRBuilder):
         return builder.all_reduce(
-            sharded_in,
+            mesh_shard_in,
             reduce_type="#ttcore.reduce_type<sum>",
             cluster_axis=cluster_axis,
         )
@@ -3251,9 +3251,9 @@ def test_reduce_scatter(
         pytest.skip("scatter_dim is not divisible by mesh_shape[cluster_axis]")
 
     # test 'sum' only for now. Other reduce types are not supported yet.
-    def reduce_scatter(sharded_in: Operand, builder: TTIRBuilder):
+    def reduce_scatter(mesh_shard_in: Operand, builder: TTIRBuilder):
         return builder.reduce_scatter(
-            sharded_in,
+            mesh_shard_in,
             reduce_type="#ttcore.reduce_type<sum>",
             scatter_dim=scatter_dim,
             cluster_axis=cluster_axis,
@@ -3309,9 +3309,9 @@ def test_collective_permute(
     if not all(pair[0] < max_id and pair[1] < max_id for pair in source_target_pairs):
         pytest.skip("Source and target pairs are out of range")
 
-    def collective_permute(sharded_in: Operand, builder: TTIRBuilder):
+    def collective_permute(mesh_shard_in: Operand, builder: TTIRBuilder):
         return builder.collective_permute(
-            sharded_in,
+            mesh_shard_in,
             source_target_pairs=source_target_pairs,
         )
 
@@ -3365,9 +3365,9 @@ def test_all_to_all(
     if concat_dim >= len(test_shape):
         pytest.skip("Concat dimension is out of range")
 
-    def all_to_all(sharded_in: Operand, builder: TTIRBuilder):
+    def all_to_all(mesh_shard_in: Operand, builder: TTIRBuilder):
         return builder.all_to_all(
-            sharded_in,
+            mesh_shard_in,
             split_dim=split_dim,
             concat_dim=concat_dim,
             split_count=split_count,
@@ -3415,9 +3415,9 @@ def test_collective_broadcast(
     replica_groups,
     request,
 ):
-    def collective_broadcast(sharded_in: Operand, builder: TTIRBuilder):
+    def collective_broadcast(mesh_shard_in: Operand, builder: TTIRBuilder):
         return builder.collective_broadcast(
-            sharded_in,
+            mesh_shard_in,
             replica_groups=replica_groups,
         )
 
