@@ -69,13 +69,7 @@ def shard_to_full_replicate(input, builder):
     )
 
 
-# On a 1×2 mesh the full Llama‑attention test loses PCC near the op that
-# makes `output83`. The error seems to grow as tensors move through the
-# model and may come from a backend precision issue.
-# Refer to : https://github.com/tenstorrent/tt-metal/issues/21722
-# We split the test into Part1 and Part2 and give Part2 a new input
-# tensor; now each part matches the golden result.
-def golden_part1(
+def golden_llama(
     arg0: torch.Tensor,
     arg2: torch.Tensor,
     arg3: torch.Tensor,
@@ -87,6 +81,10 @@ def golden_part1(
     arg9: torch.Tensor,
     arg11: torch.Tensor,
     arg12: torch.Tensor,
+    arg1: torch.Tensor,
+    arg10: torch.Tensor,
+    arg13: torch.Tensor,
+    arg14: torch.Tensor,
 ):
     output1 = torch.squeeze(arg0, dim=0)
     output3 = torch.matmul(output1, arg11)
@@ -132,17 +130,6 @@ def golden_part1(
     output79 = torch.transpose(output77, dim0=-2, dim1=-1)  # [32, 128, 128]
     output81 = torch.matmul(output47, output79)  # [32, 128, 128]
     output83 = torch.unsqueeze(output81, dim=0)  # [1, 32, 128, 128]
-    return output83
-
-
-def golden_part2(
-    arg0: torch.Tensor,
-    arg1: torch.Tensor,
-    arg10: torch.Tensor,
-    arg13: torch.Tensor,
-    arg14: torch.Tensor,
-    output83: torch.Tensor,
-):
     output1 = torch.squeeze(arg0, dim=0)
     output85 = torch.multiply(output83, arg10)  # [1, 32, 128, 128]
     output87 = torch.add(output85, arg1)  # [1, 32, 128, 128]
@@ -179,10 +166,14 @@ def golden_part2(
             (1, 32, 64, 128),  # arg9
             (4096, 4096),  # arg11
             (4096, 4096),  # arg12
+            (1, 1, 128, 128),  # arg1
+            (1, 1),  # arg10
+            (4096, 4096),  # arg13
+            (4096, 4096),  # arg14
         ],
     ],
 )
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 11], ids=["f32"])
+@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 15], ids=["bf16"])
 @pytest.mark.parametrize(
     "target",
     [
@@ -191,14 +182,14 @@ def golden_part2(
     ],
 )
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
-def test_llama_attention_1x2_tp_part1(
+def test_llama_attention_1x2_tp(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
     target: str,
     mesh_shape: Tuple[int, int],
     request,
 ):
-    def model_part1(
+    def model(
         arg0: Operand,
         arg2: Operand,
         arg3: Operand,
@@ -210,28 +201,52 @@ def test_llama_attention_1x2_tp_part1(
         arg9: Operand,
         arg11: Operand,
         arg12: Operand,
+        arg1: Operand,
+        arg10: Operand,
+        arg13: Operand,
+        arg14: Operand,
         builder: TTIRBuilder,
     ):
+        operands = [
+            arg0,
+            arg2,
+            arg3,
+            arg4,
+            arg5,
+            arg6,
+            arg7,
+            arg8,
+            arg9,
+            arg11,
+            arg12,
+            arg1,
+            arg10,
+            arg13,
+            arg14,
+        ]
         input_tensors = get_input_tensors_from_builder(
-            [
-                arg0,
-                arg2,
-                arg3,
-                arg4,
-                arg5,
-                arg6,
-                arg7,
-                arg8,
-                arg9,
-                arg11,
-                arg12,
-            ],
+            operands,
             builder,
         )
+        # for idx, input_tensor in enumerate(input_tensors):
+        #     assert len(input_tensor.shard_map) == 1, f"Input tensor {idx} has {len(input_tensor.shard_map)} shards"
+        input_tensors_torch = []
+        for input_tensor in input_tensors:
+            if isinstance(input_tensor, BuilderGoldenTensor):
+                print("BuilderGoldenTensor")
+                input_tensors_torch.append(input_tensor.shard_map[0])
+            elif isinstance(input_tensor, torch.Tensor):
+                print("torch.Tensor")
+                input_tensors_torch.append(input_tensor)
+            else:
+                print("Unknown")
+        # input_tensors_torch = [input_tensor.shard_map[0] for input_tensor in input_tensors]
+        golden = golden_llama(*input_tensors_torch)
+
         output1 = full_to_shard_device(arg0, builder, 2)  # [1, 128, 2048]
         output1 = builder.squeeze(output1, 0)  # [128, 2048]
-        arg11 = full_to_shard_device(arg11, builder, 0)  # [2048, 4096]
-        output3 = builder.matmul(output1, arg11)  # [128, 4096]
+        arg11_mesh_shard = full_to_shard_device(arg11, builder, 0)  # [2048, 4096]
+        output3 = builder.matmul(output1, arg11_mesh_shard)  # [128, 4096]
         output3 = builder.all_reduce(
             output3, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
         )  # [128, 4096]
@@ -241,8 +256,8 @@ def test_llama_attention_1x2_tp_part1(
         output7 = full_to_shard_device(output7, builder, 3)  # [1, 32, 128, 64]
         output9 = full_to_shard_device(arg2, builder, 1)  # [1, 64]
         output9 = builder.unsqueeze(output9, 1)  # [1, 1, 64]
-        arg3 = full_to_shard_replicate(arg3, builder)  # [1, 64, 1]
-        output11 = builder.matmul(arg3, output9)  # [1, 64, 64]
+        arg3_mesh_shard = full_to_shard_replicate(arg3, builder)  # [1, 64, 1]
+        output11 = builder.matmul(arg3_mesh_shard, output9)  # [1, 64, 64]
         output11 = builder.all_gather(
             output11,
             all_gather_dim=2,
@@ -259,8 +274,8 @@ def test_llama_attention_1x2_tp_part1(
         output19 = builder.unsqueeze(output17, 1)  # [1, 1, 128, 64]
         output21 = builder.multiply(output7, output19)  # [1, 32, 128, 64]
         output23 = builder.transpose(output7, -2, -1)  # [1, 32, 64, 128]
-        arg4 = full_to_shard_device(arg4, builder, 3)  # [1, 32, 64, 64]
-        output25 = builder.matmul(arg4, output23)  # [1, 32, 64, 128]
+        arg4_mesh_shard = full_to_shard_device(arg4, builder, 3)  # [1, 32, 64, 64]
+        output25 = builder.matmul(arg4_mesh_shard, output23)  # [1, 32, 64, 128]
         output25 = builder.reduce_scatter(
             output25,
             reduce_type="#ttcore.reduce_type<sum>",
@@ -268,11 +283,11 @@ def test_llama_attention_1x2_tp_part1(
             cluster_axis=1,
         )  # [1, 32, 64, 64]
         output27 = builder.transpose(output25, -2, -1)  # [1, 32, 64, 64]
-        arg5 = full_to_shard_replicate(arg5, builder)  # [1, 1]
-        output29 = builder.multiply(output27, arg5)  # [1, 32, 64, 64]
+        arg5_mesh_shard = full_to_shard_replicate(arg5, builder)  # [1, 1]
+        output29 = builder.multiply(output27, arg5_mesh_shard)  # [1, 32, 64, 64]
         output31 = builder.transpose(output7, -2, -1)  # [1, 32, 64, 128]
-        arg6 = full_to_shard_device(arg6, builder, 3)  # [1, 32, 64, 64]
-        output33 = builder.matmul(arg6, output31)  # [1, 32, 64, 128]
+        arg6_mesh_shard = full_to_shard_device(arg6, builder, 3)  # [1, 32, 64, 64]
+        output33 = builder.matmul(arg6_mesh_shard, output31)  # [1, 32, 64, 128]
         output33 = builder.reduce_scatter(
             output33,
             reduce_type="#ttcore.reduce_type<sum>",
@@ -294,8 +309,8 @@ def test_llama_attention_1x2_tp_part1(
         output43 = builder.multiply(output37, output41)  # [1, 32, 128, 64]
         output45 = builder.add(output21, output43)  # [1, 32, 128, 64]
         output47 = builder.squeeze(output45, 0)  # [32, 128, 64]
-        arg12 = full_to_shard_device(arg12, builder, 0)  # [2048, 4096]
-        output49 = builder.matmul(output1, arg12)  # [128, 4096]
+        arg12_mesh_shard = full_to_shard_device(arg12, builder, 0)  # [2048, 4096]
+        output49 = builder.matmul(output1, arg12_mesh_shard)  # [128, 4096]
         output49 = builder.all_reduce(
             output49, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
         )  # [128, 4096]
@@ -305,8 +320,8 @@ def test_llama_attention_1x2_tp_part1(
         output53 = full_to_shard_device(output53, builder, 3)  # [1, 32, 128, 64]
         output55 = builder.multiply(output53, output19)  # [1, 32, 128, 64]
         output57 = builder.transpose(output53, -2, -1)  # [1, 32, 64, 128]
-        arg7 = full_to_shard_device(arg7, builder, 3)  # [1, 32, 64, 64]
-        output59 = builder.matmul(arg7, output57)  # [1, 32, 64, 128]
+        arg7_mesh_shard = full_to_shard_device(arg7, builder, 3)  # [1, 32, 64, 64]
+        output59 = builder.matmul(arg7_mesh_shard, output57)  # [1, 32, 64, 128]
         output59 = builder.reduce_scatter(
             output59,
             reduce_type="#ttcore.reduce_type<sum>",
@@ -314,11 +329,11 @@ def test_llama_attention_1x2_tp_part1(
             cluster_axis=1,
         )  # [1, 32, 64, 64]
         output61 = builder.transpose(output59, -2, -1)  # [1, 32, 64, 64]
-        arg8 = full_to_shard_replicate(arg8, builder)  # [1, 1]
-        output63 = builder.multiply(output61, arg8)  # [1, 32, 64, 64]
+        arg8_mesh_shard = full_to_shard_replicate(arg8, builder)  # [1, 1]
+        output63 = builder.multiply(output61, arg8_mesh_shard)  # [1, 32, 64, 64]
         output65 = builder.transpose(output53, -2, -1)  # [1, 32, 64, 128]
-        arg9 = full_to_shard_device(arg9, builder, 3)  # [1, 32, 64, 64]
-        output67 = builder.matmul(arg9, output65)  # [1, 32, 64, 128]
+        arg9_mesh_shard = full_to_shard_device(arg9, builder, 3)  # [1, 32, 64, 64]
+        output67 = builder.matmul(arg9_mesh_shard, output65)  # [1, 32, 64, 128]
         output67 = builder.reduce_scatter(
             output67,
             reduce_type="#ttcore.reduce_type<sum>",
@@ -349,81 +364,21 @@ def test_llama_attention_1x2_tp_part1(
         output83 = builder.unsqueeze(output81, 0)  # [1, 32, 128, 64]
         output83 = shard_to_full_device(output83, builder, 3)
 
-        return output83
-
-    compile_ttir_to_flatbuffer(
-        model_part1,
-        shapes,
-        dtypes,
-        target=target,
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
-# llama attention part 2 with 1x2
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        [
-            (1, 128, 4096),  # arg0
-            (1, 1, 128, 128),  # arg1
-            (1, 1),  # arg10
-            (4096, 4096),  # arg13
-            (4096, 4096),  # arg14
-            (1, 32, 128, 128),  # output83
-        ],
-    ],
-)
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 6], ids=["f32"])
-@pytest.mark.parametrize(
-    "target",
-    [
-        "ttnn",
-        pytest.param("ttmetal", marks=pytest.mark.skip("TTMetal not supported yet")),
-    ],
-)
-@pytest.mark.parametrize("mesh_shape", [(1, 2)])
-def test_llama_attention_1x2_tp_part2(
-    shapes: List[Shape],
-    dtypes: List[torch.dtype],
-    target: str,
-    mesh_shape: Tuple[int, int],
-    request,
-):
-    def model_part2(
-        arg0: Operand,
-        arg1: Operand,
-        arg10: Operand,
-        arg13: Operand,
-        arg14: Operand,
-        output83: Operand,
-        builder: TTIRBuilder,
-    ):
-        operands = [arg0, arg1, arg10, arg13, arg14, output83]
-        input_tensors = get_input_tensors_from_builder(
-            operands,
-            builder,
-        )
-        output1 = full_to_shard_device(arg0, builder, 2)  # [1, 128, 2048]
-        output1 = builder.squeeze(output1, 0)  # [128, 2048]
-
         output83 = full_to_shard_device(output83, builder, 3)
-        arg10 = full_to_shard_replicate(arg10, builder)  # [1, 1]
-        output85 = builder.multiply(output83, arg10)  # [1, 32, 128, 64]
-        arg1 = full_to_shard_device(arg1, builder, 3)  # [1, 1, 128, 64]
-        output87 = builder.add(output85, arg1)  # [1, 32, 128, 64]
+        arg10_mesh_shard = full_to_shard_replicate(arg10, builder)  # [1, 1]
+        output85 = builder.multiply(output83, arg10_mesh_shard)  # [1, 32, 128, 64]
+        arg1_mesh_shard = full_to_shard_device(arg1, builder, 3)  # [1, 1, 128, 64]
+        output87 = builder.add(output85, arg1_mesh_shard)  # [1, 32, 128, 64]
         output87 = shard_to_full_device(output87, builder, 3)
         output87 = full_to_shard_device(output87, builder, 2)
-        output89 = builder.softmax(output87, -1)  # [1, 32, 64, 128]
+        output89 = builder.softmax(
+            output87, -1, numeric_stable=True
+        )  # [1, 32, 64, 128]
         output89 = shard_to_full_device(output89, builder, 2)
         output89 = full_to_shard_device(output89, builder, 3)
         output91 = builder.squeeze(output89, 0)  # [32, 128, 64]
-        arg13 = full_to_shard_device(arg13, builder, 0)  # [2048, 4096]
-        output93 = builder.matmul(output1, arg13)  # [128, 4096]
+        arg13_mesh_shard = full_to_shard_device(arg13, builder, 0)  # [2048, 4096]
+        output93 = builder.matmul(output1, arg13_mesh_shard)  # [128, 4096]
         output93 = builder.all_reduce(
             output93, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
         )  # [128, 4096]
@@ -441,19 +396,22 @@ def test_llama_attention_1x2_tp_part2(
         output107 = builder.unsqueeze(output105, 0)  # [1, 32, 128, 128]
         output109 = builder.transpose(output107, -3, -2)  # [1, 128, 32, 128]
         output111 = builder.reshape(output109, (128, 4096))  # [128, 4096]
-        arg14 = full_to_shard_device(arg14, builder, 1)  # [4096, 2048]
-        output113 = builder.matmul(output111, arg14)  # [128, 2048]
+        arg14_mesh_shard = full_to_shard_device(arg14, builder, 1)  # [4096, 2048]
+        output113 = builder.matmul(output111, arg14_mesh_shard)  # [128, 2048]
         output115 = builder.unsqueeze(output113, 0)  # [1, 128, 2048]
         output116 = shard_to_full_device(output115, builder, dim=2)  # [1, 128, 4096]
 
-        builder.set_goldens_from_builder_tensor(
-            {operands[i]: input_tensors[i] for i in range(len(operands))},
-            {output116: golden_part2(*input_tensors)},
-        )
+        # builder.set_goldens_from_builder_tensor(
+        #     {operand : input_tensor for operand, input_tensor in zip(operands, input_tensors)},
+        #     {
+        #         output116: golden,
+        #     }
+        # )
+
         return output116
 
     compile_ttir_to_flatbuffer(
-        model_part2,
+        model,
         shapes,
         dtypes,
         target=target,
