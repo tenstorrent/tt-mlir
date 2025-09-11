@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/Mesh.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -2901,6 +2902,31 @@ public:
 };
 } // namespace
 
+namespace {
+class StableHLOToTTIROpOptimizationBarrierOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::OptimizationBarrierOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::OptimizationBarrierOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::OptimizationBarrierOp srcOp,
+                  mlir::stablehlo::OptimizationBarrierOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> convertedResultTypes;
+    for (auto resultType : srcOp->getResultTypes()) {
+      convertedResultTypes.push_back(
+          this->getTypeConverter()->convertType(resultType));
+    }
+
+    rewriter.replaceOpWithNewOp<ttcore::OptimizationBarrierOp>(
+        srcOp, convertedResultTypes, adaptor.getOperands());
+
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -3178,6 +3204,15 @@ static void addSortOpConversionPattern(MLIRContext *ctx,
                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRSortOpConversionPattern>(typeConverter, ctx);
 }
+
+static void
+addOptimizationBarrierOpConversionPattern(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpOptimizationBarrierOpConversionPattern>(
+      typeConverter, ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -3211,6 +3246,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addRngOpConversionPattern(ctx, patterns, typeConverter);
   addErfOpConversionPattern(ctx, patterns, typeConverter);
   addSortOpConversionPattern(ctx, patterns, typeConverter);
+  addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

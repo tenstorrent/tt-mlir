@@ -73,4 +73,14 @@ def TTCoreRegisterDevicePass : Pass<"ttcore-register-device", "::mlir::ModuleOp"
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
+def TTCoreOptimizationBarrierFold : Pass<"ttcore-optimization-barrier-fold", "::mlir::ModuleOp">
+{
+  let summary = "Fold optimization barrier operations.";
+  let description = [{
+    This pass folds optimization barrier operations by replacing them with their operands.
+    Since optimization barriers do not hold and function runtime meaning, they can be safely
+    removed.
+  }];
+}
+
 #endif
