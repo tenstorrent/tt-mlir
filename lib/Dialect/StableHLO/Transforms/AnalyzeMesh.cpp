@@ -201,7 +201,16 @@ public:
   }
 };
 
-// Parse axis definitions from SDY mesh string format.
+/// Parse axis definitions from SDY mesh string format.
+///
+/// Extracts axis name-size pairs from a mesh axes string that follows the SDY
+/// format. The input string contains axis definitions in the format:
+/// "axis_name"=size Multiple axes are separated by commas and/or spaces.
+///
+/// Example input formats:
+///   - Single axis: ""batch"=4"
+///   - Multiple axes: ""x"=2, "y"=4" or ""batch"=8 "model"=2"
+///   - Whitespace variations: " "data" = 4 , "model" = 2 "
 static std::vector<std::pair<std::string, int64_t>>
 parseAxisDefinitions(const std::string &axesContent) {
   std::vector<std::pair<std::string, int64_t>> axes;
@@ -265,7 +274,25 @@ parseAxisDefinitions(const std::string &axesContent) {
   return axes;
 }
 
-// Parse mesh information from mhlo.frontend_attributes and create sdy.mesh.
+/// Parse mesh information from mhlo.frontend_attributes and create sdy.mesh.
+///
+/// Extracts mesh configuration from MHLO frontend attributes and creates
+/// corresponding SDY mesh operations in the MLIR module. The function looks for
+/// "xla.sdy.meshes" attribute in the module's "mhlo.frontend_attributes" and
+/// parses the mesh definition.
+///
+/// Expected input format in mhlo.frontend_attributes:
+///   "xla.sdy.meshes": "mesh_name=<[axis_definitions]>"
+///
+/// Example frontend attribute values:
+///   - 1D mesh: "mesh=<[\"batch\"=4]>"
+///   - 2D mesh: "mesh=<[\"x\"=2, \"y\"=4]>"
+///   - Complex: "mesh=<[\"data_parallel\"=8, \"model_parallel\"=2]>"
+///
+/// The function supports:
+///   - 1D meshes (converted to 1xN format with updated axis name)
+///   - 2D meshes (used directly)
+///   - Skips processing if no frontend attributes found
 static mlir::LogicalResult
 parseMeshFromFrontendAttributes(mlir::ModuleOp &rootModule,
                                 mlir::MLIRContext *context) {
@@ -312,7 +339,24 @@ parseMeshFromFrontendAttributes(mlir::ModuleOp &rootModule,
   return mlir::success();
 }
 
-// Parse dimension shardings from SDY sharding string format.
+/// Parse dimension shardings from SDY sharding string format.
+///
+/// Converts a string representation of tensor dimension shardings into MLIR SDY
+/// DimensionShardingAttr objects. Each dimension's sharding is represented by
+/// curly braces containing zero or more axis references.
+///
+/// Input format: sequence of {axis_refs} where:
+///   - {} represents an unsharded (replicated) dimension
+///   - {"axis_name"} represents sharding along one axis
+///   - {"axis1", "axis2"} represents sharding along multiple axes
+///
+/// Example input strings:
+///   - "{}{}{}{}" - 4D tensor, all dimensions replicated
+///   - "{\"batch\"}{}{}{}" - 4D tensor, first dim sharded on "batch", rest
+///   replicated
+///   - "{\"x\"}{\"y\"}" - 2D tensor, first dim on "x", second dim on "y"
+///   - "{\"batch\", \"model\"}{}" - 2D tensor, first dim sharded on both
+///   "batch" and "model"
 static llvm::SmallVector<mlir::sdy::DimensionShardingAttr>
 parseDimensionShardings(const std::string &dimsContent,
                         mlir::MLIRContext *context) {
@@ -366,7 +410,24 @@ parseDimensionShardings(const std::string &dimsContent,
   return dimShardings;
 }
 
-// Convert function argument from mhlo.frontend_attributes to sdy.sharding.
+/// Convert function argument from mhlo.frontend_attributes to sdy.sharding.
+///
+/// Transforms MHLO frontend sharding annotations on function arguments into
+/// equivalent SDY (Shardy) tensor sharding attributes. This enables the SDY
+/// partitioning system to understand and work with shardings originally
+/// specified in MHLO/XLA format.
+///
+/// The function processes arguments that have:
+///   - "mhlo.frontend_attributes" dictionary containing
+///   - "xla.sdy.sharding" string with sharding specification
+///
+/// Example input frontend attribute:
+///   mhlo.frontend_attributes = {
+///     "xla.sdy.sharding" = "[{\"batch\"}{}{}{}, {}, {}]"
+///   }
+///
+/// This gets converted to:
+///   sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}, {}, {}]>
 static mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
                                                    mlir::BlockArgument &arg,
                                                    mlir::MLIRContext *context) {
