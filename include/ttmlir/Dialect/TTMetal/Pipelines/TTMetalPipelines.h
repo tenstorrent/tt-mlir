@@ -113,6 +113,9 @@ void createTTIRBufferizationPipeline(
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
+void createTTIRToTTMetalPipeline(OpPassManager &pm,
+                                 const TTIRToTTMetalPipelineOptions &options);
+
 void registerTTMetalPipelines();
 } // namespace mlir::tt::ttmetal
 
