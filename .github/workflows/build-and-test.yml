@@ -197,7 +197,7 @@ jobs:
           {runs-on: llmbox,       sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/llmbox/perf"},
           # {runs-on: tg,           sh-run: false, name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch"},
           # {runs-on: tg,           sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch"},
-          {runs-on: n150,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "pytest",          path: "runtime/tools/ttrt/test"},
+          {runs-on: n150,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "pytest",          path: "tools/ttrt/test"},
           {runs-on: n150,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
           {runs-on: n300,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
           {runs-on: n300-llmbox,  sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
