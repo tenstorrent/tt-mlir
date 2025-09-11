@@ -2169,10 +2169,6 @@ def test_hoisted_where(shapes, request, target: str):
     "dtype", [torch.float32, torch.int32, torch.uint8], ids=["f32", "i32", "ui8"]
 )
 def test_reshape(shapes, dtype: torch.dtype, request):
-    if dtype == torch.uint8:
-        pytest.skip(
-            "ttrt cannot support uint8 input: https://github.com/tenstorrent/tt-mlir/issues/4813"
-        )
     input_shape, output_shape = shapes
 
     def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
