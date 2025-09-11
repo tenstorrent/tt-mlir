@@ -224,7 +224,7 @@ public:
         op, [&]() { operand.assign(streamLayout.getResult()); });
   }
 
-  unsigned numStreamBuffers = 1;
+  unsigned numStreamBuffers;
 };
 } // namespace
 
