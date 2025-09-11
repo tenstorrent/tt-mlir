@@ -459,6 +459,21 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
       //   - includeBuffers: If true, will multiply the size by the number of back buffers.
       size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize = 0, bool includeBuffers = false) const;
 
+      // Returns the size in bytes of a single shard of the given memref type.
+      //
+      // This function computes the size of a single shard for a memref that may be sharded across a device grid.
+      // If the memref uses a ShardLayout, the shard shape is determined from the ShardLayout; otherwise, the memref's
+      // shape is used directly. The size is calculated as the product of the shard shape dimensions and the element
+      // size in bytes, optionally multiplied by the number of buffers if includeBuffers is true. The result is then
+      // aligned up to the specified alignSize.
+      //
+      // Arguments:
+      //   - memrefType: The memref type whose shard size is to be computed.
+      //   - alignSize: The alignment size in bytes to which the result will be rounded up.
+      //   - includeBuffers: If true and the layout specifies multiple buffers, the size will be multiplied accordingly.
+      //
+      size_t getShardSizeInBytes(MemRefType memrefType, size_t alignSize, bool includeBuffers) const;
+
       // Returns the circular buffer page size in bytes of the given memref type. The general heursitic is:
       //   - If element type is tile type, return the size of the tile type.
       //   - If element type is scalar type, return the size of a tile type with underlying scalar type.

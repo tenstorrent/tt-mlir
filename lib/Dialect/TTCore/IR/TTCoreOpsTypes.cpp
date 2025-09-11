@@ -1369,10 +1369,30 @@ DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
                       baseOffset);
 }
 
-size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
-                                      bool includeBuffers) const {
+size_t DeviceAttr::getShardSizeInBytes(MemRefType memrefType, size_t alignSize,
+                                       bool includeBuffers) const {
+
+  ShardLayoutAttr layout =
+      mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout());
+  assert(
+      (layout || !mlir::isa<DeviceLayoutInterface>(memrefType.getLayout())) &&
+      "expected shard layout");
+  bool isLocalMemref = (layout == nullptr);
+  auto shardShape =
+      isLocalMemref ? memrefType.getShape() : layout.getShardShape(memrefType);
+
   mlir::Type elementType = memrefType.getElementType();
   int64_t elementSizeBytes = getElementSizeBytes(elementType);
+  auto numBuffers = (includeBuffers && layout) ? layout.getBuffers() : 1;
+  auto bytesPerElem = elementSizeBytes * numBuffers;
+
+  return ttmlir::utils::alignUp(
+      static_cast<size_t>(ttmlir::utils::volume(shardShape, bytesPerElem)),
+      alignSize);
+}
+
+size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
+                                      bool includeBuffers) const {
   size_t alignSize = pageSize;
   if (alignSize == 0) {
     auto memorySpace = getMemorySpace(memrefType);
@@ -1391,21 +1411,8 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
     }
   }
 
-  ShardLayoutAttr layout =
-      mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout());
-  assert(
-      (layout || !mlir::isa<DeviceLayoutInterface>(memrefType.getLayout())) &&
-      "expected shard layout");
-  bool isLocalMemref = (layout == nullptr);
-  auto shardShape =
-      isLocalMemref ? memrefType.getShape() : layout.getShardShape(memrefType);
-
-  return ttmlir::utils::alignUp(
-      static_cast<size_t>(ttmlir::utils::volume(
-          shardShape,
-          elementSizeBytes *
-              ((includeBuffers && layout) ? layout.getBuffers() : 1))),
-      alignSize);
+  // Assume that memref size footprint is equal to shard size
+  return getShardSizeInBytes(memrefType, alignSize, includeBuffers);
 }
 
 size_t DeviceAttr::getMemrefCBPageSizeBytes(MemRefType memrefType) const {

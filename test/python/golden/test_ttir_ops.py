@@ -299,7 +299,6 @@ def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request):
     def rsqrt(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        torch.manual_seed(0)
         input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
         golden_output_tensor = torch.rsqrt(input_tensor)
         rsqrt_0 = builder.rsqrt(in0, unit_attrs=unit_attrs)
@@ -2306,7 +2305,6 @@ def test_reciprocal(shape: Shape, dtype: torch.dtype, target: str, request):
     def reciprocal(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        torch.manual_seed(0)
         reciprocal_0 = builder.reciprocal(in0, unit_attrs=unit_attrs)
 
         # Constrain values for reciprocal
@@ -2582,8 +2580,7 @@ unaligned_shapes = [
 @pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_neg_unaligned_shapes(shape: Shape, dtype: torch.dtype, target: str, request):
-    pipeline_options = []
+def test_unaligned_shapes_neg(shape: Shape, dtype: torch.dtype, target: str, request):
     compile_ttir_to_flatbuffer(
         neg,
         [shape],
@@ -2592,15 +2589,30 @@ def test_neg_unaligned_shapes(shape: Shape, dtype: torch.dtype, target: str, req
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
-        pipeline_options=pipeline_options,
     )
 
 
 @pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_add_unaligned_shapes(shape: Shape, dtype: torch.dtype, target: str, request):
-    pipeline_options = []
+def test_unaligned_shapes_add(shape: Shape, dtype: torch.dtype, target: str, request):
+    def add(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        # Magnitudes of the elements should be in [0.01, 1) to avoid FP accuracy issue.
+        tensor_lhs = torch.rand(shape) * 0.99 + 0.01
+        tensor_rhs = torch.rand(shape) * 0.99 + 0.01
+        signs_lhs = torch.randint(0, 2, shape) * 2 - 1
+        signs_rhs = torch.randint(0, 2, shape) * 2 - 1
+        tensor_lhs *= signs_lhs
+        tensor_rhs *= signs_rhs
+        tensor_out = torch.add(tensor_lhs, tensor_rhs)
+        builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
+        return builder.add(in0, in1, unit_attrs=unit_attrs)
+
     compile_ttir_to_flatbuffer(
         add,
         [shape, shape],
@@ -2609,7 +2621,6 @@ def test_add_unaligned_shapes(shape: Shape, dtype: torch.dtype, target: str, req
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
-        pipeline_options=pipeline_options,
     )
 
 

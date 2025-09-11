@@ -10,8 +10,6 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
-#include "llvm/Support/CommandLine.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
