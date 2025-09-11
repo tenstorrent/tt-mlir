@@ -144,12 +144,18 @@ struct is_streamable<
     std::void_t<decltype(std::declval<Stream &>() << std::declval<T>())>>
     : std::true_type {};
 
+template <typename T, typename Stream>
+constexpr bool is_streamable_v = is_streamable<T, Stream>::value;
+
 template <typename T, typename = void>
 struct has_to_string : std::false_type {};
 
 template <typename T>
 struct has_to_string<T, std::void_t<decltype(to_string(std::declval<T>()))>>
     : std::true_type {};
+
+template <typename T>
+constexpr bool has_to_string_v = has_to_string<T>::value;
 
 //===---------------------------------------------------------------------===//
 
@@ -167,16 +173,15 @@ struct PrintAdaptor {
 };
 
 template <typename T, typename Stream>
-struct PrintAdaptor<T, Stream,
-                    std::enable_if_t<is_streamable<T, Stream>::value>> {
+struct PrintAdaptor<T, Stream, std::enable_if_t<is_streamable_v<T, Stream>>> {
   static constexpr bool enabled = true;
   static void evaluate(Stream &os, T &&obj) { os << obj; }
 };
 
 template <typename T, typename Stream>
-struct PrintAdaptor<T, Stream,
-                    std::enable_if_t<not is_streamable<T, Stream>::value and
-                                     has_to_string<T>::value>> {
+struct PrintAdaptor<
+    T, Stream,
+    std::enable_if_t<not is_streamable_v<T, Stream> and has_to_string_v<T>>> {
   static constexpr bool enabled = true;
   static void evaluate(Stream &os, T &&obj) {
     using std::to_string;
