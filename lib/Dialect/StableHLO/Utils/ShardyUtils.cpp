@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
+#include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -646,6 +647,164 @@ bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh) {
     }
   }
   return true;
+}
+
+// Get all mesh names from a function, returning empty vector if none found.
+llvm::SmallVector<std::string> getMeshNames(mlir::func::FuncOp &funcOp) {
+  llvm::SmallVector<std::string> meshNames;
+  if (auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>()) {
+    llvm::SmallVector<mlir::sdy::MeshOp> meshOps = getMeshOps(moduleOp);
+    for (auto meshOp : meshOps) {
+      meshNames.push_back(meshOp.getSymName().str());
+    }
+  }
+  return meshNames;
+}
+
+// Parse dimension shardings from a string representation.
+llvm::SmallVector<mlir::sdy::DimensionShardingAttr>
+parseDimensionShardings(const std::string &dimsContent,
+                        mlir::MLIRContext *context) {
+  llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings;
+  size_t pos = 0;
+
+  while (pos < dimsContent.length()) {
+    size_t braceStart = dimsContent.find("{", pos);
+    if (braceStart == std::string::npos) {
+      break;
+    }
+
+    size_t braceEnd = dimsContent.find("}", braceStart);
+    if (braceEnd == std::string::npos) {
+      break;
+    }
+
+    std::string dimContent =
+        dimsContent.substr(braceStart + 1, braceEnd - braceStart - 1);
+
+    if (dimContent.empty()) {
+      dimShardings.push_back(
+          mlir::sdy::DimensionShardingAttr::get(context, {}, false));
+    } else {
+      llvm::SmallVector<mlir::sdy::AxisRefAttr> axisRefs;
+      size_t axisPos = 0;
+      while (axisPos < dimContent.length()) {
+        size_t quoteStart = dimContent.find('"', axisPos);
+        if (quoteStart == std::string::npos) {
+          break;
+        }
+
+        size_t quoteEnd = dimContent.find('"', quoteStart + 1);
+        if (quoteEnd == std::string::npos) {
+          break;
+        }
+
+        std::string axisName =
+            dimContent.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+        axisRefs.push_back(mlir::sdy::AxisRefAttr::get(context, axisName));
+        axisPos = quoteEnd + 1;
+      }
+
+      dimShardings.push_back(
+          mlir::sdy::DimensionShardingAttr::get(context, axisRefs, false));
+    }
+
+    pos = braceEnd + 1;
+  }
+
+  return dimShardings;
+}
+
+// Convert function argument from mhlo.frontend_attributes to sdy.sharding.
+mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
+                                            mlir::BlockArgument &arg,
+                                            mlir::MLIRContext *context) {
+  mlir::DictionaryAttr currentArgAttrDict =
+      funcOp.getArgAttrDict(arg.getArgNumber());
+  if (!currentArgAttrDict ||
+      !currentArgAttrDict.contains(gspmd_utils::kFrontendAttributesAttr)) {
+    return mlir::success();
+  }
+
+  mlir::Attribute frontendAttrs =
+      currentArgAttrDict.get(gspmd_utils::kFrontendAttributesAttr);
+  mlir::DictionaryAttr dictAttr =
+      mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs);
+  if (!dictAttr || !dictAttr.contains(sharding_utils::kXlaSdyShardingAttr)) {
+    return mlir::success();
+  }
+
+  mlir::StringAttr shardingStr = mlir::dyn_cast<mlir::StringAttr>(
+      dictAttr.get(sharding_utils::kXlaSdyShardingAttr));
+  if (!shardingStr) {
+    return mlir::success();
+  }
+
+  std::string shardingValue = shardingStr.getValue().str();
+
+  llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
+  llvm::copy_if(currentArgAttrDict.getValue(), std::back_inserter(newArgAttrs),
+                [&](mlir::NamedAttribute attr) {
+                  return attr.getName() !=
+                             gspmd_utils::kFrontendAttributesAttr &&
+                         attr.getName() != gspmd_utils::kXlaShardingAttr;
+                });
+
+  llvm::SmallVector<std::string> meshNames = getMeshNames(funcOp);
+  std::string meshName = meshNames.empty()
+                             ? std::string(sharding_utils::kDefaultMeshName)
+                             : meshNames[0];
+
+  size_t startPos = shardingValue.find("[");
+  size_t endPos = shardingValue.rfind("]");
+  if (startPos != std::string::npos && endPos != std::string::npos) {
+    std::string dimsContent =
+        shardingValue.substr(startPos + 1, endPos - startPos - 1);
+
+    llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings =
+        parseDimensionShardings(dimsContent, context);
+
+    if (!dimShardings.empty()) {
+      mlir::sdy::TensorShardingAttr sharding =
+          mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings,
+                                             {}, {});
+      newArgAttrs.emplace_back(
+          mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
+          sharding);
+    }
+  }
+
+  funcOp.setArgAttrs(arg.getArgNumber(),
+                     mlir::DictionaryAttr::get(context, newArgAttrs));
+  return mlir::success();
+}
+
+// Convert all function arguments from frontend attributes format to SDY format.
+mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
+                                                   mlir::MLIRContext *context) {
+  mlir::WalkResult result = rootModule.walk([&](func::FuncOp funcOp) {
+    for (BlockArgument arg : funcOp.getArguments()) {
+      if (mlir::failed(convertArgumentSharding(funcOp, arg, context))) {
+        return WalkResult::interrupt();
+      }
+    }
+    return WalkResult::advance();
+  });
+
+  if (result.wasInterrupted()) {
+    return mlir::failure();
+  }
+
+  mlir::DictionaryAttr moduleAttrs = rootModule->getAttrDictionary();
+  llvm::SmallVector<mlir::NamedAttribute> newModuleAttrs;
+  llvm::copy_if(moduleAttrs.getValue(), std::back_inserter(newModuleAttrs),
+                [&](mlir::NamedAttribute currentArgAttr) {
+                  return currentArgAttr.getName() !=
+                         gspmd_utils::kFrontendAttributesAttr;
+                });
+  rootModule->setAttrs(mlir::DictionaryAttr::get(context, newModuleAttrs));
+
+  return mlir::success();
 }
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
