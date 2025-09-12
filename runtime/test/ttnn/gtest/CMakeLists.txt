@@ -1,0 +1,1 @@
+add_runtime_gtest(test_runtime_client)

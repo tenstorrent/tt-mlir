@@ -78,18 +78,30 @@ toMLIR(::flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
 
 inline flatbuffers::Offset<::tt::target::DebugInfo> debugInfoToFlatbuffer(
     flatbuffers::FlatBufferBuilder &fbb,
-    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::unordered_map<std::string,
+                             std::unordered_map<std::uint32_t, GoldenTensor>>
+        &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache,
     const char *cpp = nullptr) {
   std::vector<flatbuffers::Offset<::tt::target::GoldenKV>> goldenKVList;
   goldenKVList.reserve(goldenMap.size());
 
-  for (const auto &[key, value] : goldenMap) {
-    auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
-        fbb, value.name.c_str(), &value.shape, &value.strides, value.dtype,
-        &value.data);
-    auto goldenKV =
-        ::tt::target::CreateGoldenKVDirect(fbb, key.c_str(), goldenTensor);
+  for (const auto &[loc, device_map] : goldenMap) {
+    std::vector<flatbuffers::Offset<::tt::target::GoldenDeviceTensor>>
+        goldenDeviceTensorList;
+    goldenDeviceTensorList.reserve(device_map.size());
+
+    for (const auto &[deviceId, value] : device_map) {
+      auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
+          fbb, value.name.c_str(), &value.shape, &value.strides, value.dtype,
+          &value.data);
+      auto goldenDeviceTensor =
+          ::tt::target::CreateGoldenDeviceTensor(fbb, deviceId, goldenTensor);
+      goldenDeviceTensorList.push_back(goldenDeviceTensor);
+    }
+
+    auto goldenKV = ::tt::target::CreateGoldenKVDirect(fbb, loc.c_str(),
+                                                       &goldenDeviceTensorList);
     goldenKVList.push_back(goldenKV);
   }
 
@@ -844,20 +856,12 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
   ttcore::DataType dtype = ttcore::DataType::Float32;
   ::tt::target::Dim2d tileShape(1, 1);
   mlir::Type elementType = memref.getElementType();
-  std::uint64_t elementSize = 0;
   if (mlir::isa<ttcore::TileType>(elementType)) {
     auto tileType = mlir::cast<ttcore::TileType>(elementType);
     dtype = tileType.getDataType();
     tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
-    elementSize = tileType.getSizeBytes();
   } else {
     dtype = ttcore::elementTypeToDataType(elementType);
-    elementSize = getElementSizeBytes(dtype);
-  }
-
-  std::uint64_t size = elementSize;
-  for (auto dim : shapeInt64) {
-    size *= dim;
   }
 
   ::tt::target::ttnn::StorageType storageType;
@@ -913,7 +917,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
 
   return ::tt::target::ttnn::CreateMemoryDesc(
       *cache.fbb, storageType, &tileShape, toFlatbuffer(cache, dtype),
-      memoryConfig, size);
+      memoryConfig);
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::LayoutDesc>
@@ -932,6 +936,64 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
       toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
                    layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
                    layoutAttr.getGrid(), deviceAttr.getWorkerGrid()));
+}
+
+inline ::tt::target::ttnn::CoreType
+toFlatbuffer(FlatbufferObjectCache &cache, ttnn::KernelCoreType coreType) {
+  ::tt::target::ttnn::CoreType fbCoreType;
+
+  switch (coreType) {
+  case ttnn::KernelCoreType::Eth:
+    fbCoreType = ::tt::target::ttnn::CoreType::ETH;
+    break;
+  case ttnn::KernelCoreType::Worker:
+    fbCoreType = ::tt::target::ttnn::CoreType::WORKER;
+    break;
+  }
+
+  return fbCoreType;
+}
+
+inline std::vector<::tt::target::UnpackToDestMode> toFlatbuffer(
+    FlatbufferObjectCache &cache,
+    ::llvm::ArrayRef<ttnn::ComputeKernelUnpackToDestMode> unpackToDestModes) {
+  std::vector<::tt::target::UnpackToDestMode> fbUnpackToDestModes;
+
+  for (auto mode : unpackToDestModes) {
+    switch (mode) {
+    case ttnn::ComputeKernelUnpackToDestMode::Fp32:
+      fbUnpackToDestModes.push_back(::tt::target::UnpackToDestMode::Fp32);
+      break;
+    case ttnn::ComputeKernelUnpackToDestMode::Default:
+      fbUnpackToDestModes.push_back(::tt::target::UnpackToDestMode::Default);
+      break;
+    }
+  }
+
+  return fbUnpackToDestModes;
+}
+
+inline ::tt::target::MathFidelity
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::ComputeKernelMathFidelity mathFidelity) {
+
+  ::tt::target::MathFidelity fbMathFidelity;
+
+  switch (mathFidelity) {
+  case ttnn::ComputeKernelMathFidelity::LoFi:
+    fbMathFidelity = ::tt::target::MathFidelity::LoFi;
+    break;
+  case ttnn::ComputeKernelMathFidelity::HiFi2:
+    fbMathFidelity = ::tt::target::MathFidelity::HiFi2;
+    break;
+  case ttnn::ComputeKernelMathFidelity::HiFi3:
+    fbMathFidelity = ::tt::target::MathFidelity::HiFi3;
+    break;
+  case ttnn::ComputeKernelMathFidelity::HiFi4:
+    fbMathFidelity = ::tt::target::MathFidelity::HiFi4;
+    break;
+  }
+  return fbMathFidelity;
 }
 
 } // namespace mlir::tt

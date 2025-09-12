@@ -663,6 +663,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     TTNNLayoutAttr withBufferType(BufferType bufferType);
     TTNNLayoutAttr withMemoryLayout(TensorMemoryLayoutAttr memLayoutAttr);
     TTNNLayoutAttr withMemoryLayout(TensorMemoryLayout memLayout);
+    TTNNLayoutAttr withLayout(Layout layout, ArrayRef<int64_t> tensorShape);
     TTNNLayoutAttr withShardShape(llvm::SmallVector<int64_t> shardShape);
     TTNNLayoutAttr withTensorShape(ArrayRef<int64_t> tensorShape);
     TTNNLayoutAttr withIgnorePhysicalLayout(bool ignorePhysicalLayout);
@@ -688,9 +689,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     static llvm::SmallVector<int64_t> calculateLogicalShardShapeForL1Interleaved(ArrayRef<int64_t> tensorShape, Type elementType, mlir::AffineMap linear, ttcore::GridAttr grid);
     llvm::SmallVector<int64_t> getShardShape() const;
     llvm::SmallVector<int64_t> getScalarShardShape() const;
-    AffineMap getIdentityTileLinearMap() const;
     llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
-    AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
     std::pair<std::int64_t, std::int64_t> getDefaultCollapseIntervals() const;
   }];
 
@@ -704,7 +703,7 @@ def TTNN_KernelSemaphoreAttr: TTNN_Attr<"KernelSemaphore", "kernel_semaphore"> {
   }];
 
   let parameters = (ins "KernelCoreType":$core_type,
-                        TTNN_CoreRangeAttr:$core_range,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
                         "uint32_t":$initial_value);
   let assemblyFormat = "`<` struct(params) `>`";
 
@@ -732,9 +731,9 @@ def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
   }];
 
   let parameters = (ins "uint32_t":$total_size,
-                        TTNN_CoreRangeAttr:$core_range,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
                         ArrayRefParameter<"KernelCBFormatAttr">:$formats);
-  let assemblyFormat = "`<` struct($total_size, $core_range) `,` `formats` `=` `[` $formats `]` `>`";
+  let assemblyFormat = "`<` struct($total_size, $core_ranges) `,` `formats` `=` `[` $formats `]` `>`";
 
   let genVerifyDecl = 1;
 }
@@ -776,7 +775,7 @@ def TTNN_ComputeKernelAttr: TTNN_Attr<"ComputeKernel", "compute_kernel", [TTNN_K
   }];
 
   let parameters = (ins "SymbolRefAttr":$symbol_ref,
-                        TTNN_CoreRangeAttr:$core_range,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
                         "ComputeKernelMathFidelity":$math_fidelity,
                         "bool":$fp32_dest_acc_en,
                         "bool":$dst_full_sync_en,
@@ -786,7 +785,7 @@ def TTNN_ComputeKernelAttr: TTNN_Attr<"ComputeKernel", "compute_kernel", [TTNN_K
                         OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
                         OptionalArrayRefParameter<"mlir::Attribute">:$ct_args
                         );
-  let assemblyFormat = "`<` struct($symbol_ref, $core_range, $math_fidelity, $fp32_dest_acc_en, $dst_full_sync_en)  `,` `unpack_to_dest_modes` `=` `[` $unpack_to_dest_modes `]` `,` struct($bfp8_pack_precise, $math_approx_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges, $math_fidelity, $fp32_dest_acc_en, $dst_full_sync_en)  `,` `unpack_to_dest_modes` `=` `[` $unpack_to_dest_modes `]` `,` struct($bfp8_pack_precise, $math_approx_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;
 }
@@ -798,10 +797,10 @@ def TTNN_ReadKernelAttr: TTNN_Attr<"ReadKernel", "read_kernel", [TTNN_KernelInte
   }];
 
   let parameters = (ins "SymbolRefAttr":$symbol_ref,
-                        TTNN_CoreRangeAttr:$core_range,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
                         OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
                         OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
-  let assemblyFormat = "`<` struct($symbol_ref, $core_range) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;
 }
@@ -813,10 +812,10 @@ def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelI
   }];
 
   let parameters = (ins "SymbolRefAttr":$symbol_ref,
-                        TTNN_CoreRangeAttr:$core_range,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
                         OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
                         OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
-  let assemblyFormat = "`<` struct($symbol_ref, $core_range) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;
 }
@@ -833,6 +832,13 @@ def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
   let assemblyFormat = "`<` `kernels` `=` `[` $kernels `]` `,` `cbs` `=` `[` (`]`) : ($cbs^ `]`)? `,` `semaphores` `=` `[` (`]`) : ($semaphores^ `]`)? `>`";
 
   let genVerifyDecl = 1;
+}
+
+def TTNN_TraceIdAttr : TTNN_Attr<"TraceId", "trace_id"> {
+  let summary = "TTNN Trace ID attribute";
+  let description = [{
+    A unit attribute indicating that the tensor represents `trace_id`.
+  }];
 }
 
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD

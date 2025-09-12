@@ -84,7 +84,6 @@ table MemoryDesc {
   tile_shape: Dim2d;
   data_type: DataType;
   memory_config: MemoryConfig;
-  size: uint64;
 }
 
 table LayoutDesc {
@@ -101,6 +100,5 @@ table TensorDesc {
 
 table TensorRef {
   global_id: uint32;
-  size: uint64;
   desc: TensorDesc;
 }

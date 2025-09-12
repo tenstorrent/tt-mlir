@@ -20,7 +20,7 @@ def TTNN_KernelInterface: AttrInterface<"KernelInterface"> {
     >,
     InterfaceMethod<
       "Get the core range for this kernel",
-      "mlir::Attribute", "getCoreRange", (ins)
+      "mlir::Attribute", "getCoreRanges", (ins)
     >,
     InterfaceMethod<
       "Get common runtime arguments",

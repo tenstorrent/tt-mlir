@@ -342,7 +342,7 @@ convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
 
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
 getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
-  if (!conv2dConfig) {
+  if (!conv2dConfig || !conv2dConfig.has_value() || !conv2dConfig.value()) {
     return std::nullopt;
   }
 
@@ -443,10 +443,12 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
 std::optional<::ttnn::DeviceComputeKernelConfig>
 getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
                                  &deviceComputeKernelConfig) {
-  if (!deviceComputeKernelConfig || !deviceComputeKernelConfig.has_value()) {
+  if (!deviceComputeKernelConfig || !deviceComputeKernelConfig.has_value() ||
+      !deviceComputeKernelConfig.value()) {
     return std::nullopt;
   }
-  DeviceComputeKernelConfigAttr devConfig = deviceComputeKernelConfig.value();
+  const DeviceComputeKernelConfigAttr &devConfig =
+      deviceComputeKernelConfig.value();
 
   // Note: Currently, we only support creating WormholeComputeKernelConfig.
   // If we need to support GrayskullComputeKernelConfig in the future, we

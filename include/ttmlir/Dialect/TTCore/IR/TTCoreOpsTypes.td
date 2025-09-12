@@ -263,6 +263,43 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
   }];
 }
 
+def TTCore_HostLayoutAttr : TTCore_Attr<"HostLayout", "host_layout", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
+  let summary = "Host-side memref layout attribute with padding support.";
+  let description = [{
+    Describes a host-side memref layout with a logical shape where each
+    dimension may be padded up to a requested alignment. This attribute encodes
+    row-major strides and volume of the aligned shape, both computed in the
+    bufferization pass to match the corresponding device memref's shape.
+
+    This allows host memrefs to reflect the padded footprint required by the
+    device while preserving the original logical shape, enabling I/O for
+    unaligned densly-packed shapes (e.g., non-multiples of 32×32 tiles). The
+    correct element placement in data copys between padded and unpadded host
+    memrefs is ensured by the strided-memcpy of the runtime's `memref.copy`
+    implementation.
+
+    - logical_shape: The unpadded logical shape in elements.
+    - host_strides: Per-dimension alignment in elements used to compute aligned shapes for stride calculation.
+    - host_volume: The (potentially padded) volume in elements.
+  }];
+
+  let parameters = (ins ArrayRefParameter<"int64_t">:$logical_shape,
+                        ArrayRefParameter<"int64_t">:$host_strides,
+                        "int64_t":$host_volume);
+
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `host_strides` `=` custom<DimensionList>($host_strides) `,` `host_volume` `=` $host_volume `>`";
+
+  let extraClassDeclaration = [{
+    LogicalResult getStridesAndOffset(ArrayRef<int64_t> shape,
+                                      SmallVectorImpl<int64_t> &strides,
+                                      int64_t &offset) const;
+
+    AffineMap getAffineMap() const;
+
+    bool isPadded() const;
+  }];
+}
+
 def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_DeviceLayoutInterface]> {
   let summary = "Tensor layout attribute with explicit physical shape";
   let description = [{
@@ -306,7 +343,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // The logical tensor shape before distribution.
     ArrayRefParameter<"int64_t">:$logical_shape,
 
-    // Alignment for each logical dim, default is 32x1x...x1x32.
+    // Imposed alignment for each collapse stage in each collapsed interval, interpretation requires its corresponding collapsed_intervals.
+    // Default is 1x1x...x1x32x32.
     ArrayRefParameter<"int64_t">:$dim_alignments,
 
     // Dim collapse info; must be encoded as 2D array of pairs, where each pair represent a half-open range. Negative indexing is supported.
@@ -366,6 +404,11 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Stride calculations for shard portion.
     llvm::SmallVector<int64_t> getShardStride(RankedTensorType tensorType) const;
 
+    // Calculate and return the aligned host tensor strides and volume.
+    std::pair<llvm::SmallVector<int64_t>, int64_t> getHostStrideAndVolume() const;
+    llvm::SmallVector<int64_t> getHostStride() const;
+    int64_t getHostVolume() const;
+
     llvm::SmallVector<int64_t> getNormalizedIntervals() const;
 
     // Returns the explicit index_map if present; otherwise returns an
@@ -415,6 +458,21 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
       //     of the memref type for the given memory space.
       //   - includeBuffers: If true, will multiply the size by the number of back buffers.
       size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize = 0, bool includeBuffers = false) const;
+
+      // Returns the size in bytes of a single shard of the given memref type.
+      //
+      // This function computes the size of a single shard for a memref that may be sharded across a device grid.
+      // If the memref uses a ShardLayout, the shard shape is determined from the ShardLayout; otherwise, the memref's
+      // shape is used directly. The size is calculated as the product of the shard shape dimensions and the element
+      // size in bytes, optionally multiplied by the number of buffers if includeBuffers is true. The result is then
+      // aligned up to the specified alignSize.
+      //
+      // Arguments:
+      //   - memrefType: The memref type whose shard size is to be computed.
+      //   - alignSize: The alignment size in bytes to which the result will be rounded up.
+      //   - includeBuffers: If true and the layout specifies multiple buffers, the size will be multiplied accordingly.
+      //
+      size_t getShardSizeInBytes(MemRefType memrefType, size_t alignSize, bool includeBuffers) const;
 
       // Returns the circular buffer page size in bytes of the given memref type. The general heursitic is:
       //   - If element type is tile type, return the size of the tile type.

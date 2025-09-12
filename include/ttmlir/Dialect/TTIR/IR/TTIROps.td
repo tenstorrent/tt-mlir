@@ -273,6 +273,9 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
       bool isCompound() { return compoundComponents().isCompound(); }
       ttcore::MetalLayoutAttr getOrCreateInputLayout();
       ttcore::MetalLayoutAttr getOrCreateOutputLayout();
+
+      bool isHostToDevice();
+      bool isDeviceToHost();
     }];
 
     let hasVerifier = 1;

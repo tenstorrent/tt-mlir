@@ -299,8 +299,7 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(
                     .withMemoryLayout(TensorMemoryLayout::Interleaved);
 
   if (rowMajorInputOverride) {
-    inputLayout = utils::convertTTNNLayoutToRowMajor(op->getContext(),
-                                                     inputLayout, tensorShape);
+    inputLayout = inputLayout.withLayout(Layout::RowMajor, tensorShape);
   }
 
   llvm::Expected<TTNNLayoutAttr> shardCompatible =

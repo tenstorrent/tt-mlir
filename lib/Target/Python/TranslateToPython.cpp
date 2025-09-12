@@ -14,6 +14,10 @@
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/raw_ostream.h"
 #include <stack>
 
 using namespace mlir;
@@ -97,15 +101,10 @@ struct PythonEmitter {
   LogicalResult emitOperand(Value value);
 
   /// Return the existing or a new name for a Value.
-  StringRef getOrCreateName(Value val);
+  StringRef getOrCreateName(Value value);
 
   // Return the textual representation of a subscript operation.
   std::string getSubscriptName(SubscriptOp op);
-
-  /// Determine whether op result should be emitted in a deferred way.
-  static bool hasDeferredEmission(Operation *op) {
-    return isa_and_nonnull<LiteralOp, SubscriptOp>(op);
-  }
 
   /// Insert the op result into the value cache.
   void cacheDeferredOpResult(Value value, StringRef str);
@@ -124,7 +123,7 @@ struct PythonEmitter {
   };
 
   /// Returns wether the Value is assigned to a Python variable in the scope.
-  bool hasValueInScope(Value val) { return valueMapper.count(val); };
+  bool hasValueInScope(Value value) { return valueMapper.count(value); };
 
   /// Returns the output stream.
   raw_indented_ostream &ostream() { return os; };
@@ -144,17 +143,21 @@ private:
 };
 } // namespace
 
-StringRef PythonEmitter::getOrCreateName(Value val) {
-  if (!valueMapper.count(val)) {
-    valueMapper.insert(val, formatv("v{0}", ++valueInScopeCount.top()));
+/// Determine whether op result should be emitted in a deferred way.
+static bool hasDeferredEmission(Operation *op) {
+  return isa_and_nonnull<LiteralOp>(op);
+}
+
+StringRef PythonEmitter::getOrCreateName(Value value) {
+  if (!valueMapper.count(value)) {
+    valueMapper.insert(value, formatv("v{0}", ++valueInScopeCount.top()));
   }
-  return *valueMapper.begin(val);
+  return *valueMapper.begin(value);
 }
 
 std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
   std::string name;
   llvm::raw_string_ostream ss(name);
-  ss << getOrCreateName(op.getValue());
   auto index = op.getIndex();
   ss << "[" << getOrCreateName(index) << "]";
   return name;
@@ -175,7 +178,11 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     return failure();
   }
 
-  auto emitArgs = [&](Attribute attr) -> LogicalResult {
+  auto emitArgs = [&](const auto &pair) -> LogicalResult {
+    auto [attr, keywordArg] = pair;
+    auto keywordArgStr = mlir::cast<StringAttr>(keywordArg).getValue();
+    keywordArgStr != "" ? os << keywordArgStr << "=" : os << keywordArgStr;
+
     if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
       if (iAttr.getType().isIndex()) {
         int64_t idx = iAttr.getInt();
@@ -204,10 +211,11 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     os << "]";
   } else {
     os << callee << "(";
+    auto args =
+        llvm::zip(*callOpaqueOp.getArgs(), *callOpaqueOp.getKeywordArgs());
     LogicalResult emittedArgs =
-        callOpaqueOp.getArgs()
-            ? interleaveCommaWithError(*callOpaqueOp.getArgs(), os, emitArgs)
-            : emitter.emitOperands(op);
+        callOpaqueOp.getArgs() ? interleaveCommaWithError(args, os, emitArgs)
+                               : emitter.emitOperands(op);
     if (failed(emittedArgs)) {
       return failure();
     }
@@ -353,6 +361,22 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    SubscriptOp subscriptOp) {
+  if (failed(emitter.emitAssignPrefix(*subscriptOp))) {
+    return failure();
+  }
+
+  raw_indented_ostream &os = emitter.ostream();
+  if (failed(emitter.emitOperand(subscriptOp.getOperand(0)))) {
+    return failure();
+  }
+
+  os << emitter.getSubscriptName(subscriptOp);
+
+  return success();
+}
+
 static LogicalResult printOperation(PythonEmitter &emitter, AssignOp assignOp) {
   if (failed(emitter.emitAssignPrefix(*assignOp))) {
     return failure();
@@ -378,14 +402,10 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           // Builtin ops.
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
-          .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp>(
+          .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             cacheDeferredOpResult(op.getResult(), op.getValue());
-            return success();
-          })
-          .Case<SubscriptOp>([&](auto op) {
-            cacheDeferredOpResult(op.getResult(), getSubscriptName(op));
             return success();
           })
           // Func ops.
@@ -399,20 +419,29 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
     return failure();
   }
 
-  if (!hasDeferredEmission(&op)) {
-    os << "\n";
+  if (hasDeferredEmission(&op)) {
+    return success();
   }
+
+  os << "\n";
+
   return success();
 }
 
-LogicalResult PythonEmitter::emitOperand(Value val) {
-  os << getOrCreateName(val);
+LogicalResult PythonEmitter::emitOperand(Value value) {
+  os << getOrCreateName(value);
+
   return success();
 }
 
 LogicalResult PythonEmitter::emitOperands(Operation &op) {
-  return interleaveCommaWithError(op.getOperands(), os,
-                                  [&](Value val) { return emitOperand(val); });
+  return interleaveCommaWithError(op.getOperands(), os, [&](Value value) {
+    if (failed(emitOperand(value))) {
+      return failure();
+    }
+
+    return success();
+  });
 }
 
 LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {

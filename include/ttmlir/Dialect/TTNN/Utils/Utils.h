@@ -10,8 +10,6 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
-#include "llvm/Support/CommandLine.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
@@ -95,11 +93,6 @@ createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
 
 bool isTTNNTraceFunc(func::FuncOp funcOp);
 
-// Converts TTNNLayoutAttr to RowMajor layout and returns new layout.
-TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
-                                           TTNNLayoutAttr layout,
-                                           llvm::ArrayRef<int64_t> shape);
-
 // Returns all TTNN dialect registered operations.
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context);
 
@@ -114,6 +107,8 @@ bool producesL1Layout(Operation *op);
 
 // Check if operation's first result uses tiled tensor layout.
 bool producesTiledTensorLayout(Operation *op);
+
+mlir::RankedTensorType getTraceIdType(MLIRContext *ctx);
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

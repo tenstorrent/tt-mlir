@@ -5,10 +5,12 @@ set(CLANG_TIDY_DEPS
   tt-metal-download
   tt-metal-configure
   FBS_GENERATION
+  RUNTIME_FBS_GENERATION
 )
 
 set(CLANG_TIDY_CI_DEPS
   FBS_GENERATION
+  RUNTIME_FBS_GENERATION
   mlir-headers
   mlir-generic-headers
   tt-metal-download

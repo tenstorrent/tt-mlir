@@ -254,15 +254,6 @@ bool isTTNNTraceFunc(func::FuncOp funcOp) {
   return funcOp->hasAttr(g_TTNNTraceAttrName);
 }
 
-// Converts TTNNLayoutAttr to RowMajor layout and returns new layout.
-TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
-                                           TTNNLayoutAttr layout,
-                                           llvm::ArrayRef<int64_t> shape) {
-  Type elementType =
-      utils::getElementType(context, Layout::RowMajor, layout.getDataType());
-  return layout.withElementType(elementType, shape);
-}
-
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
   std::set<mlir::StringRef> opNames;
   TTNNDialect *dialect = context->getLoadedDialect<TTNNDialect>();
@@ -321,6 +312,13 @@ bool producesL1Layout(Operation *op) {
 bool producesTiledTensorLayout(Operation *op) {
   auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
   return ttnnLayout && ttnnLayout->isTiled();
+}
+
+mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
+  return ::mlir::RankedTensorType::get(
+      /*shape=*/{},
+      ::mlir::IntegerType::get(ctx, /*width=*/32, IntegerType::Unsigned),
+      ttnn::TraceIdAttr::get(ctx));
 }
 
 } // namespace mlir::tt::ttnn::utils

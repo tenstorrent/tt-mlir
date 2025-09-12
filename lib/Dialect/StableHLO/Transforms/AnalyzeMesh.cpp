@@ -283,8 +283,6 @@ public:
 
       // If mesh shape was changed, insert the new mesh shape.
       if (originalMeshShape != newMeshShape) {
-        shardy_utils::removeMeshOps(rootModule);
-
         // Get the old mesh axis name. We will make the new dim0 "1" axis name
         // from the old mesh axis name. This is to ensure that we don't have
         // duplicate axis names in the mesh.
@@ -295,9 +293,11 @@ public:
         std::string newAxisName = existingAxisName + "_updated";
 
         // Create the new mesh.
-        shardy_utils::addMeshToModule(
-            rootModule, parsedMeshOps[0].getSymName().str(), newAxisName,
-            existingAxisName, newMeshShape[0], newMeshShape[1]);
+        std::string meshOpName = parsedMeshOps[0].getSymName().str();
+        shardy_utils::removeMeshOps(rootModule);
+        shardy_utils::addMeshToModule(rootModule, meshOpName, newAxisName,
+                                      existingAxisName, newMeshShape[0],
+                                      newMeshShape[1]);
       }
 
       // Check if the graph is already solved by shardy. If so, we will remove

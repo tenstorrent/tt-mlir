@@ -57,12 +57,12 @@ struct TTIRToTTMetalPipelineOptions
           "maps and iterator types. The interchange indices here always "
           "correspond to the innermost 3 dims.")};
 
-  // Option to control whether generic conversion uses 'tile_matmul'
-  // (default) or 'tile_matmul_block'.
-  //
-  Option<bool> useTileMatmul{*this, "use-tile-matmul",
-                             llvm::cl::desc("Use tile_matmul"),
-                             llvm::cl::init(true)};
+  // Option to control whether ttir.matmul is lowered to ttir.tile_matmul or
+  // ttir.tile_matmul_block.
+  Option<bool> useTileMatmul{
+      *this, "use-tile-matmul",
+      llvm::cl::desc("Use ttir.tile_matmul instead of ttir.tile_matmul_block"),
+      llvm::cl::init(false)};
 
   // Options to control the default memspaces for placing input/output tensors.
   //
