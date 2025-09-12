@@ -702,8 +702,7 @@ public:
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(srcOp.getInPlaceHalo()),
-        emitter.emit(false), // return_indices = false (for parity with runtime)
-    };
+        /*return_indices=*/emitter.emit(false)};
 
     // MaxPool2d now returns std::variant<Tensor, MaxPoolWithIndicesResult>
     // Since we always call with return_indices=false, it will always return the
