@@ -222,17 +222,6 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
 
   std::vector<std::uint32_t> shape(bufferDesc->shape()->begin(),
                                    bufferDesc->shape()->end());
-  // HACK
-  if (bufferDesc->element_shape()) 
-  {
-    if (shape.size() >= 2) {
-      shape[shape.size() - 2] *= bufferDesc->element_shape()->y();
-    }
-
-    if (shape.size() >= 1) {
-      shape[shape.size() - 1] *= bufferDesc->element_shape()->x();
-    }
-  }
   TensorDesc desc(shape, bufferDesc->data_type(),
                   utils::tileAlignment(bufferDesc->data_type()));
   size_t size = desc.sizeBytes();

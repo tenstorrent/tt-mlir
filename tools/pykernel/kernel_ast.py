@@ -1449,9 +1449,7 @@ def pykernel_gen(
                 outputs_torch = []
                 output_descs = json.loads(fbb.get_program_outputs_as_json(program_index))
                 for output_desc in output_descs:
-                    # HACK
-                    expand_tile = lambda x: x * 32
-                    tensor = torch.zeros(list(map(expand_tile, output_desc["desc"]["shape"])),
+                    tensor = torch.zeros(output_desc["desc"]["shape"],
                         dtype=from_data_type(
                             output_desc["desc"]["layout"]["memory_desc"]["data_type"]
                         ))

@@ -405,8 +405,7 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
   auto memref = mlir::cast<MemRefType>(value.getType());
 
   Type elementType = memref.getElementType();
-  // HACK
-  // assert(!mlir::isa<ttcore::TileType>(elementType));
+  assert(!mlir::isa<ttcore::TileType>(elementType));
   ttcore::DataType dtype = ttcore::elementTypeToDataType(elementType);
 
   assert(!mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout()));
