@@ -5418,8 +5418,9 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
                        Optional<AnyRankedTensor>:$attn_mask,
                        Optional<AnyRankedTensor>:$cur_pos_tensor,
                        Optional<AnyRankedTensor>:$attn_sink,
-                       OptionalAttr<BoolAttr>:$is_causal,
-                       OptionalAttr<F32Attr>:$scale);
+                       AnyRankedTensor:$output,
+                       BoolAttr:$is_causal,
+                       F32Attr:$scale);
 
   let results = (outs AnyRankedTensor:$result);
 }

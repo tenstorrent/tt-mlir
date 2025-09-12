@@ -2559,8 +2559,8 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
                        Optional<AnyRankedTensor>:$attn_mask,
                        Optional<AnyRankedTensor>:$cur_pos_tensor,
                        Optional<AnyRankedTensor>:$attn_sink,
-                       OptionalAttr<BoolAttr>:$is_causal,
-                       OptionalAttr<F32Attr>:$scale);
+                       BoolAttr:$is_causal,
+                       F32Attr:$scale);
 
   let results = (outs AnyRankedTensor:$result);
 

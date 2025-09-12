@@ -3370,12 +3370,216 @@ public:
 
     auto frontendAttributes =
         srcOp->getDiscardableAttrDictionary().getAs<DictionaryAttr>(
-            "frontend_attributes");
-    uint32_t numRequiredOperands = 4;
+            "mhlo.frontend_attributes");
+
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "PagedScaledDotProductAttentionDecode custom call op must have "
+          "mhlo.frontend_attributes attribute.");
+    }
+
+    Value query = adaptor.getOperands()[0];
+    Value keyCache = adaptor.getOperands()[1];
+    Value valueCache = adaptor.getOperands()[2];
+    Value pageTable = adaptor.getOperands()[3];
+
+    // Return exact LogicalResult object upon failure to preserve the failure
+    // message.
+    LogicalResult isQKVValid = verifyQKV(query, keyCache, valueCache, rewriter);
+    if (isQKVValid.failed()) {
+      return isQKVValid;
+    }
+
+    int64_t hiddenSize = cast<RankedTensorType>(query.getType()).getShape()[3];
+
+    bool hasAttnMask = false;
+    bool hasCurPosTensor = false;
+    bool hasAttnSink = false;
+    bool isCausal = true;
+    float scale = std::pow(static_cast<float>(hiddenSize), -0.5);
+
+    if (StringAttr hasAttnMaskAttr =
+            frontendAttributes.getAs<StringAttr>("has_attn_mask")) {
+      StringRef hasAttnMaskStr = hasAttnMaskAttr.getValue();
+      if (hasAttnMaskStr == "false") {
+        hasAttnMask = false;
+      } else if (hasAttnMaskStr == "true") {
+        hasAttnMask = true;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "has_attn_mask attribute must be true or false. Got " +
+                       hasAttnMaskStr + ".");
+      }
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_attn_mask attribute must be present.");
+    }
+
+    if (StringAttr hasCurPosTensorAttr =
+            frontendAttributes.getAs<StringAttr>("has_cur_pos_tensor")) {
+      StringRef hasCurPosTensorStr = hasCurPosTensorAttr.getValue();
+      if (hasCurPosTensorStr == "false") {
+        hasCurPosTensor = false;
+      } else if (hasCurPosTensorStr == "true") {
+        hasCurPosTensor = true;
+      }
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_cur_pos_tensor attribute must be present.");
+    }
+
+    if (StringAttr hasAttnSinkAttr =
+            frontendAttributes.getAs<StringAttr>("has_attn_sink")) {
+      StringRef hasAttnSinkStr = hasAttnSinkAttr.getValue();
+      if (hasAttnSinkStr == "false") {
+        hasAttnSink = false;
+      } else if (hasAttnSinkStr == "true") {
+        hasAttnSink = true;
+      }
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_attn_sink attribute must be present.");
+    }
+
+    if (StringAttr isCausalAttr =
+            frontendAttributes.getAs<StringAttr>("is_causal")) {
+      StringRef isCausalStr = isCausalAttr.getValue();
+      if (isCausalStr == "false") {
+        isCausal = false;
+      } else if (isCausalStr == "true") {
+        isCausal = true;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "is_causal attribute must be true or false. Got " +
+                       isCausalStr + ".");
+      }
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp, "is_causal attribute must be present.");
+    }
+
+    if (StringAttr scaleAttr = frontendAttributes.getAs<StringAttr>("scale")) {
+      StringRef scaleStr = scaleAttr.getValue();
+      if (llvm::to_float(scaleStr, scale)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "scale attribute must be a float. Got " + scaleStr + ".");
+      }
+    } else {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "scale attribute must be present.");
+    }
+
+    Value attn_mask, cur_pos_tensor, attn_sink;
+    uint32_t attn_mask_index = 4, cur_pos_tensor_index = 4, attn_sink_index = 4;
+    uint32_t numRequiredOperands = 4; // query, keyCache, valueCache, pageTable
+    // optional operands
+    if (hasAttnMask) {
+      cur_pos_tensor_index += 1;
+      attn_sink_index += 1;
+      numRequiredOperands++;
+    }
+    if (hasCurPosTensor) {
+      attn_sink_index += 1;
+      numRequiredOperands++;
+    }
+    if (hasAttnSink) {
+      numRequiredOperands++;
+    }
+
+    if (operands.size() != numRequiredOperands) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "PagedScaledDotProductAttentionDecode op must have " +
+                     std::to_string(numRequiredOperands) + " operands. Got " +
+                     std::to_string(operands.size()) + ".");
+    }
+
+    if (hasAttnMask) {
+      attn_mask = operands[attn_mask_index];
+    }
+    if (hasCurPosTensor) {
+      cur_pos_tensor = operands[cur_pos_tensor_index];
+    }
+    if (hasAttnSink) {
+      attn_sink = operands[attn_sink_index];
+    }
+
+    ttir::utils::replaceOpWithNewDPSOp<
+        ttir::PagedScaledDotProductAttentionDecodeOp>(
+        rewriter, srcOp,
+        cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+        query, keyCache, valueCache, pageTable, attn_mask, cur_pos_tensor,
+        attn_sink, isCausal, scale);
 
     return success();
   }
-};
+
+private:
+  LogicalResult verifyQKV(Value query, Value keyCache, Value valueCache,
+                          PatternRewriter &rewriter) const {
+    if (!isa<RankedTensorType>(query.getType())) {
+      return rewriter.notifyMatchFailure(query,
+                                         "Query must be a ranked tensor.");
+    }
+
+    if (!isa<RankedTensorType>(keyCache.getType())) {
+      return rewriter.notifyMatchFailure(keyCache,
+                                         "Key cache must be a ranked tensor.");
+    }
+
+    if (!isa<RankedTensorType>(valueCache.getType())) {
+      return rewriter.notifyMatchFailure(
+          valueCache, "Value cache must be a ranked tensor.");
+    }
+
+    RankedTensorType queryType = cast<RankedTensorType>(query.getType());
+    ArrayRef<int64_t> queryShape = queryType.getShape();
+    RankedTensorType keyCacheType = cast<RankedTensorType>(keyCache.getType());
+    ArrayRef<int64_t> keyCacheShape = keyCacheType.getShape();
+    RankedTensorType valueCacheType =
+        cast<RankedTensorType>(valueCache.getType());
+    ArrayRef<int64_t> valueCacheShape = valueCacheType.getShape();
+
+    if (queryType.getRank() != 4) {
+      return rewriter.notifyMatchFailure(query, "Query must be a 4D tensor.");
+    }
+
+    if (keyCacheShape != valueCacheShape) {
+      return rewriter.notifyMatchFailure(
+          keyCache, "Key cache and value cache must have the same shape.");
+    }
+
+    if (keyCacheType.getRank() != 4) {
+      return rewriter.notifyMatchFailure(keyCache,
+                                         "Cache tensors must be a 4D tensor.");
+    }
+
+    if (queryShape[0] != 1) {
+      return rewriter.notifyMatchFailure(query,
+                                         "Query shape at dim 0 must be 1.");
+    }
+
+    int64_t batchSize = queryShape[1];
+    int64_t hiddenSize = queryShape[3];
+
+    if (keyCacheShape[0] % batchSize != 0) {
+      return rewriter.notifyMatchFailure(
+          keyCache, "Cache shape at dim 0 must be divisible by batch size.");
+    }
+
+    if (hiddenSize != keyCacheShape[3]) {
+      return rewriter.notifyMatchFailure(
+          query,
+          "Cache Hidden size must be the same as the query hidden size.");
+    }
+
+    return success();
+  }
+
+  bool verifyKeyCache(Value keyCache) const {
+
+  };
 } // namespace
 
 static void
