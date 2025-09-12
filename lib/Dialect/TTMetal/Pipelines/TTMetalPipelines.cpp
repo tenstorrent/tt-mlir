@@ -77,14 +77,12 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(createCanonicalizerPassWithOptions(options));
   ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;
   {
-    toTTIRGenericOptions.useTileMatmul = options.useTileMatmul;
     toTTIRGenericOptions.defaultInputMemSpace = options.defaultInputMemSpace;
     toTTIRGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
     toTTIRGenericOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
   }
   pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
-  pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttir::createTTIRLowerToLayout());
 }
@@ -106,7 +104,10 @@ void createTTIRToTTMetalMiddleendPipeline(
         options.maxDstRegisterSizeTiles;
   }
   pm.addPass(ttir::createTTIRGenericTileComputeLoops(tileComputeLoopsOptions));
-  pm.addPass(ttir::createTTIRInsertDstRegisterAccess());
+  ttir::TTIRInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
+  { insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul; }
+  pm.addPass(
+      ttir::createTTIRInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
   OpPassManager &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(affine::createLoopCoalescingPass());

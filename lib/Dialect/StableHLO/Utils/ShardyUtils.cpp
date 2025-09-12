@@ -639,6 +639,15 @@ ShardyMeshSharding::generate(sdy::MeshAttr meshAttr,
                             shardStatus,    meshAttr,  sdySharding};
 }
 
+bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh) {
+  for (auto dim : tsh.getDimShardings()) {
+    if (!dim.getAxes().empty()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 
 } // namespace mlir::tt::shardy_utils

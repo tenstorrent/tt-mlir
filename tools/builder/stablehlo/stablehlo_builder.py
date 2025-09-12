@@ -21,8 +21,14 @@ from builder.base import builder_golden
 class StableHLOBuilder(Builder):
     # ----- Methods -----
 
-    def __init__(self, ctx: Context, location: Location):
-        super().__init__(ctx, location)
+    def __init__(
+        self,
+        ctx: Context,
+        location: Location,
+        mesh_shape=(1, 1),
+        disable_golden_check: bool = False,
+    ):
+        super().__init__(ctx, location, mesh_shape, disable_golden_check)
 
     # ----- Private Methods ----
     def _create_mesh_attr_from_ordered_dict(
@@ -49,50 +55,13 @@ class StableHLOBuilder(Builder):
         stablehlo_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
     ) -> Any:
-        stack = inspect.stack()
-        cur_filename = stack[0].filename
-
-        while len(stack) > 0 and stack[0].filename == cur_filename:
-            stack = stack[1:]
-
-        if len(stack) == 0:
-            raise RuntimeError(
-                "Top of callstack to builder funcs must be outside this file"
-            )
+        if not golden_kwargs:
+            golden_kwargs = stablehlo_kwargs
 
         if organize_golden_args is None:
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            op_golden_function = builder_golden.get_golden_function(
-                op_stablehlo_function, **golden_kwargs
-            )
-
-            if (
-                not isinstance(organize_golden_args(inputs), torch.Tensor)
-                and organize_golden_args(inputs) == 0
-            ):
-                golden_output = op_golden_function(**golden_kwargs)
-            else:
-                golden_output = op_golden_function(
-                    *(organize_golden_args(inputs)),
-                    **golden_kwargs,
-                )
-
-            golden = (
-                Golden(golden_output[0])
-                if not isinstance(golden_output, torch.Tensor)
-                else Golden(golden_output)
-            )
-
-            output_shape = golden.tensor.shape if not output_shape else output_shape
-            if not output_type and inputs:
-                output_type = self._get_type_from_torch_dtype(
-                    self._get_golden_tensor(inputs[0]).dtype
-                )
-            elif not output_type:
-                output_type = self._default_type
-
             id = self._get_next_global_id()
             loc = (
                 self._get_loc_from_str(loc)
@@ -107,12 +76,18 @@ class StableHLOBuilder(Builder):
             )
 
             if unit_attrs is not None:
-                from ttmlir.ir import UnitAttr
-
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-            self._id_golden_map[str(loc)] = golden
-            self._store_golden(op, golden)
+
+            # If automatic golden check is enabled, generate golden output.
+            op_golden_function = builder_golden.get_golden_function(
+                op_stablehlo_function, **golden_kwargs
+            )
+            golden_output = op_golden_function(
+                *(organize_golden_args(inputs)), **golden_kwargs
+            )
+            self._set_golden_tensor(op, golden_output)
+
             return op
 
     def _eltwise_proxy(

@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 from pprint import pprint
+import re
 
 import torch
 from pkg_resources import get_distribution
@@ -647,6 +648,7 @@ class Artifacts:
     def save_torch_tensor(self, folder_path, torch_tensor, torch_tensor_name):
         import torch
 
+        torch_tensor_name = get_sanitized_filename(torch_tensor_name)
         self.logging.info(
             f"saving torch tensor={torch_tensor_name} to folder_path={folder_path}"
         )
@@ -1096,3 +1098,12 @@ class Results:
 
     def get_results(self):
         return self.results
+
+
+def get_sanitized_filename(name: str, replacement: str = "_") -> str:
+    # make string safe for file name
+    forbidden = ':"/\\|?*\0'
+    s = re.sub(f"[{re.escape(forbidden)}\\x00-\\x1F]", replacement, name)
+    if not s:
+        s = "untitled"
+    return s.strip()

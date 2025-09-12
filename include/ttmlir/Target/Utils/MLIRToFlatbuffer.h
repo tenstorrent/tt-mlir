@@ -11,7 +11,6 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
-#include "ttmlir/Target/TTNN/utils.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
 
@@ -78,18 +77,30 @@ toMLIR(::flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
 
 inline flatbuffers::Offset<::tt::target::DebugInfo> debugInfoToFlatbuffer(
     flatbuffers::FlatBufferBuilder &fbb,
-    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::unordered_map<std::string,
+                             std::unordered_map<std::uint32_t, GoldenTensor>>
+        &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache,
     const char *cpp = nullptr) {
   std::vector<flatbuffers::Offset<::tt::target::GoldenKV>> goldenKVList;
   goldenKVList.reserve(goldenMap.size());
 
-  for (const auto &[key, value] : goldenMap) {
-    auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
-        fbb, value.name.c_str(), &value.shape, &value.strides, value.dtype,
-        &value.data);
-    auto goldenKV =
-        ::tt::target::CreateGoldenKVDirect(fbb, key.c_str(), goldenTensor);
+  for (const auto &[loc, device_map] : goldenMap) {
+    std::vector<flatbuffers::Offset<::tt::target::GoldenDeviceTensor>>
+        goldenDeviceTensorList;
+    goldenDeviceTensorList.reserve(device_map.size());
+
+    for (const auto &[deviceId, value] : device_map) {
+      auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
+          fbb, value.name.c_str(), &value.shape, &value.strides, value.dtype,
+          &value.data);
+      auto goldenDeviceTensor =
+          ::tt::target::CreateGoldenDeviceTensor(fbb, deviceId, goldenTensor);
+      goldenDeviceTensorList.push_back(goldenDeviceTensor);
+    }
+
+    auto goldenKV = ::tt::target::CreateGoldenKVDirect(fbb, loc.c_str(),
+                                                       &goldenDeviceTensorList);
     goldenKVList.push_back(goldenKV);
   }
 
@@ -215,18 +226,21 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   return toFlatbuffer(cache, memLayoutAttr.getValue());
 }
 
-inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
-                                              ttnn::BufferType bufferType) {
+inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
+                                             ttnn::BufferType bufferType) {
   switch (bufferType) {
   case ttnn::BufferType::SystemMemory:
-    return ::tt::target::MemorySpace::System;
+    return ::tt::target::BufferType::SystemMemory;
   case ttnn::BufferType::DRAM:
-    return ::tt::target::MemorySpace::DeviceDRAM;
+    return ::tt::target::BufferType::DRAM;
   case ttnn::BufferType::L1:
-    return ::tt::target::MemorySpace::DeviceL1;
-  default:
-    llvm_unreachable("unhandled buffer type");
+    return ::tt::target::BufferType::L1;
+  case ttnn::BufferType::L1Small:
+    return ::tt::target::BufferType::L1Small;
+  case ttnn::BufferType::Trace:
+    return ::tt::target::BufferType::Trace;
   }
+  llvm_unreachable("Unknown ttnn::BufferType");
 }
 
 inline ::tt::target::TensorLayout toFlatbuffer(FlatbufferObjectCache &cache,
@@ -816,8 +830,7 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   }
 
   ::tt::target::BufferType bufferType =
-      ::mlir::tt::ttnn::utils::toTargetBufferType(
-          memoryConfigAttr.getBufferType().getValue());
+      toFlatbuffer(cache, memoryConfigAttr.getBufferType().getValue());
   ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
       memoryConfigAttr.getTensorMemoryLayout();
   assert(tensorMemoryLayoutAttr && "Expected valid TensorMemoryLayoutAttr");

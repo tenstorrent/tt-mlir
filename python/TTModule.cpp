@@ -2,18 +2,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cstdint>
-#include <vector>
-
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
+
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/CAPI/AffineMap.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/IR/AffineMap.h"
 
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Target/Common/Target.h"
-#include "ttmlir/Utils.h"
+#include <cstdint>
+#include <vector>
 
 namespace mlir::ttmlir::python {
 void populateTTModule(nb::module_ &m) {
@@ -61,6 +59,12 @@ void populateTTModule(nb::module_ &m) {
            })
       .def("wrapped",
            [](const tt::ttcore::MetalLayoutAttr &self) { return wrap(self); })
+      .def("getDeviceShape",
+           [](const tt::ttcore::MetalLayoutAttr &self,
+              std::vector<int64_t> gridShape, std::vector<int64_t> tileShape) {
+             const auto shape = self.getDeviceShape(gridShape, tileShape);
+             return std::vector<int64_t>(shape.begin(), shape.end());
+           })
       // Properties
       .def_prop_ro("logical_shape",
                    [](const tt::ttcore::MetalLayoutAttr &self) {
