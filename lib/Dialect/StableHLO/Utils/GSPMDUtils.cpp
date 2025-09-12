@@ -214,6 +214,28 @@ bool gspmdAnnotationsExist(mlir::ModuleOp &module) {
   return false;
 }
 
+// Check if the module has frontend SDY attributes.
+bool hasFrontendSdyAttributes(mlir::ModuleOp &module) {
+  mlir::WalkResult result = module.walk([&](func::FuncOp funcOp) {
+    for (BlockArgument arg : funcOp.getArguments()) {
+      if (auto currentArgAttrDict = funcOp.getArgAttrDict(arg.getArgNumber())) {
+        if (currentArgAttrDict.contains(kFrontendAttributesAttr)) {
+          auto frontendAttrs = currentArgAttrDict.get(kFrontendAttributesAttr);
+          if (auto dictAttr =
+                  mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs)) {
+            if (dictAttr.contains(sharding_utils::kXlaSdyShardingAttr)) {
+              return WalkResult::interrupt();
+            }
+          }
+        }
+      }
+    }
+    return WalkResult::advance();
+  });
+
+  return result.wasInterrupted();
+}
+
 // Update @Sharding custom call with the shard status for the argument.
 void updateShardStatusForArgument(MLIRContext *context,
                                   mlir::BlockArgument &arg,

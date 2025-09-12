@@ -25,6 +25,8 @@ inline constexpr llvm::StringRef kSPMDFullToShardShapeCallTargetName =
 inline constexpr llvm::StringRef kSPMDShardToFullShapeCallTargetName =
     "SPMDShardToFullShape";
 inline constexpr llvm::StringRef kXlaShardingAttr = "mhlo.sharding";
+inline constexpr llvm::StringRef kFrontendAttributesAttr =
+    "mhlo.frontend_attributes";
 
 // Parse meshes from the GSPMD module.
 llvm::Expected<llvm::SmallVector<llvm::SmallVector<int64_t>>>
@@ -32,6 +34,9 @@ parseMeshesFromGspmdModule(mlir::ModuleOp &module);
 
 // Check if the module has any gspmd annotations.
 bool gspmdAnnotationsExist(mlir::ModuleOp &module);
+
+// Check if the module has frontend SDY attributes.
+bool hasFrontendSdyAttributes(mlir::ModuleOp &module);
 
 // Update @Sharding custom call with the shard status for the argument.
 void updateShardStatusForArgument(MLIRContext *context,

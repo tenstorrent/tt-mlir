@@ -297,16 +297,18 @@ static mlir::LogicalResult
 parseMeshFromFrontendAttributes(mlir::ModuleOp &rootModule,
                                 mlir::MLIRContext *context) {
   mlir::DictionaryAttr moduleAttrs = rootModule->getAttrDictionary();
-  mlir::Attribute frontendAttrs = moduleAttrs.get("mhlo.frontend_attributes");
+  mlir::Attribute frontendAttrs =
+      moduleAttrs.get(gspmd_utils::kFrontendAttributesAttr);
   mlir::DictionaryAttr dictAttr =
       mlir::dyn_cast_if_present<mlir::DictionaryAttr>(frontendAttrs);
   mlir::StringAttr meshesStr =
       dictAttr ? mlir::dyn_cast_if_present<mlir::StringAttr>(
-                     dictAttr.get("xla.sdy.meshes"))
+                     dictAttr.get(sharding_utils::kXlaSdyMeshesAttr))
                : nullptr;
 
-  if (!moduleAttrs.contains("mhlo.frontend_attributes") || !dictAttr ||
-      !dictAttr.contains("xla.sdy.meshes") || !meshesStr) {
+  if (!moduleAttrs.contains(gspmd_utils::kFrontendAttributesAttr) ||
+      !dictAttr || !dictAttr.contains(sharding_utils::kXlaSdyMeshesAttr) ||
+      !meshesStr) {
     return mlir::success();
   }
 
@@ -434,20 +436,20 @@ static mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
   mlir::DictionaryAttr currentArgAttrDict =
       funcOp.getArgAttrDict(arg.getArgNumber());
   if (!currentArgAttrDict ||
-      !currentArgAttrDict.contains("mhlo.frontend_attributes")) {
+      !currentArgAttrDict.contains(gspmd_utils::kFrontendAttributesAttr)) {
     return mlir::success();
   }
 
   mlir::Attribute frontendAttrs =
-      currentArgAttrDict.get("mhlo.frontend_attributes");
+      currentArgAttrDict.get(gspmd_utils::kFrontendAttributesAttr);
   mlir::DictionaryAttr dictAttr =
       mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs);
-  if (!dictAttr || !dictAttr.contains("xla.sdy.sharding")) {
+  if (!dictAttr || !dictAttr.contains(sharding_utils::kXlaSdyShardingAttr)) {
     return mlir::success();
   }
 
-  mlir::StringAttr shardingStr =
-      mlir::dyn_cast<mlir::StringAttr>(dictAttr.get("xla.sdy.sharding"));
+  mlir::StringAttr shardingStr = mlir::dyn_cast<mlir::StringAttr>(
+      dictAttr.get(sharding_utils::kXlaSdyShardingAttr));
   if (!shardingStr) {
     return mlir::success();
   }
@@ -455,12 +457,12 @@ static mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
   std::string shardingValue = shardingStr.getValue().str();
 
   llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
-  for (mlir::NamedAttribute attr : currentArgAttrDict) {
-    if (attr.getName() != "mhlo.frontend_attributes" &&
-        attr.getName() != "mhlo.sharding") {
-      newArgAttrs.push_back(attr);
-    }
-  }
+  llvm::copy_if(currentArgAttrDict.getValue(), std::back_inserter(newArgAttrs),
+                [&](mlir::NamedAttribute attr) {
+                  return attr.getName() !=
+                             gspmd_utils::kFrontendAttributesAttr &&
+                         attr.getName() != gspmd_utils::kXlaShardingAttr;
+                });
 
   std::string meshName = "mesh";
 
@@ -507,11 +509,11 @@ convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
 
   mlir::DictionaryAttr moduleAttrs = rootModule->getAttrDictionary();
   llvm::SmallVector<mlir::NamedAttribute> newModuleAttrs;
-  for (mlir::NamedAttribute attr : moduleAttrs) {
-    if (attr.getName() != "mhlo.frontend_attributes") {
-      newModuleAttrs.push_back(attr);
-    }
-  }
+  llvm::copy_if(moduleAttrs.getValue(), std::back_inserter(newModuleAttrs),
+                [&](mlir::NamedAttribute currentArgAttr) {
+                  return currentArgAttr.getName() !=
+                         gspmd_utils::kFrontendAttributesAttr;
+                });
   rootModule->setAttrs(mlir::DictionaryAttr::get(context, newModuleAttrs));
 
   return mlir::success();
@@ -631,26 +633,8 @@ public:
     // shape. Then we can add it to the module as a sdy.meshOp.
     if (gspmdAnnotationsExist) {
       // Check if we have frontend_attributes with sdy information
-      bool hasFrontendSdyAttrs = false;
-      rootModule.walk([&](func::FuncOp funcOp) {
-        for (BlockArgument arg : funcOp.getArguments()) {
-          if (auto currentArgAttrDict =
-                  funcOp.getArgAttrDict(arg.getArgNumber())) {
-            if (currentArgAttrDict.contains("mhlo.frontend_attributes")) {
-              auto frontendAttrs =
-                  currentArgAttrDict.get("mhlo.frontend_attributes");
-              if (auto dictAttr =
-                      mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs)) {
-                if (dictAttr.contains("xla.sdy.sharding")) {
-                  hasFrontendSdyAttrs = true;
-                  return WalkResult::interrupt();
-                }
-              }
-            }
-          }
-        }
-        return WalkResult::advance();
-      });
+      bool hasFrontendSdyAttrs =
+          gspmd_utils::hasFrontendSdyAttributes(rootModule);
 
       if (hasFrontendSdyAttrs) {
         // Handle frontend_attributes conversion
