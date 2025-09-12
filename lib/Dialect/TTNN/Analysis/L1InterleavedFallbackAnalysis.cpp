@@ -122,6 +122,7 @@ L1InterleavedFallbackAnalysis::getL1InterleavedLayoutConfigs(
     Operation *op) const {
   const auto it = analysisInput.legalL1InterleavedConfigs.find(op);
   assert(it != analysisInput.legalL1InterleavedConfigs.end());
+  assert(!it->second.empty());
   return it->second;
 }
 
