@@ -2,12 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Utils.h"
-
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
+#include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -15,6 +12,10 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRINSERTDSTREGISTERACCESS
@@ -25,7 +26,9 @@ template <typename GenericOrFuncOp>
 struct TTIRInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOrFuncOp> {
 public:
-  using OpRewritePattern<GenericOrFuncOp>::OpRewritePattern;
+  TTIRInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx,
+                                      bool useTileMatmul)
+      : OpRewritePattern<GenericOrFuncOp>(ctx), useTileMatmul(useTileMatmul) {};
 
   template <typename OpT>
   using OpAndIndexOffset = std::pair<OpT, int64_t>;
@@ -83,6 +86,12 @@ public:
 
         bool linalgToAffineFailed = false;
         block.walk([&](linalg::GenericOp linalgGenericOp) {
+          if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
+            linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
+                rewriter, op, region, linalgGenericOp, modified);
+            return;
+          }
+
           rewriter.setInsertionPoint(linalgGenericOp);
           // Apply linalg to affine loops pass
           auto linalgLoops =
@@ -128,7 +137,7 @@ public:
     }
 
     // 1. Collect all loads/stores to dst organized by loop nest.
-    DenseMap<Operation *, CopyInfo> copyInfo = collectDstAccesses(
+    auto [copyInfo, dstRegisterAllocation] = collectDstAccesses(
         region, getNonParticipatingLoopDims, outermostInnerComputeLoop);
     if (copyInfo.empty()) {
       return false;
@@ -142,9 +151,10 @@ public:
     // 3. Generate data copy loops to/from dst and output cb.
     dataCopyGenerate(rewriter, loc, dst, copyInfo);
 
-    // 4. Insert dst access for tile operation chains
-    insertDstAccessForTileOpChain(rewriter, loc, region, dst,
-                                  outermostInnerComputeLoop);
+    // 4. Rewrite stores to use dst register based on allocation
+    insertDstRegisterAllocation(rewriter, loc, region, dst,
+                                dstRegisterAllocation,
+                                outermostInnerComputeLoop);
 
     return true;
   }
@@ -205,13 +215,20 @@ public:
   // register allocation for loads and just assumes that stores get exclusive
   // access. Returns a map of loop nest -> copy info, which contains a list of
   // loads and stores to copy into hoisted loop nests.
-  static DenseMap<Operation *, CopyInfo>
+
+  // Maps each TTIRGenericRegionComputeOpTrait operation result to a dest
+  // register offset.
+  using DstRegisterAllocation = DenseMap<Operation *, int64_t>;
+
+  // Return both the copy nest info and dst allocation info
+  static std::tuple<DenseMap<Operation *, CopyInfo>, DstRegisterAllocation>
   collectDstAccesses(Region &region,
                      llvm::function_ref<SmallVector<int64_t>(int64_t)>
                          getNonParticipatingLoopDims,
                      Operation *outermostInnerComputeLoop) {
     DenseMap<Operation *, CopyInfo> loopNests;
     DstRegisterAllocationState dstRegisterAllocationState;
+    DstRegisterAllocation dstRegisterAllocation;
     region.walk([&](OperandLoadRegisterOpInterface op) {
       // We're generating loads and stores for dst, so we can ignore loads and
       // stores that are already on dst.
@@ -246,9 +263,18 @@ public:
           dstRegisterAllocationState.allocate();
           dstRegisterAllocationState.setStoreToDst();
         }
+        // If the op is a compute op, we need to allocate a dst register for it
+        else {
+          assert(op->hasTrait<TTIRGenericRegionComputeOpTrait>());
+          assert(op->hasOneUse() && "Currently we do not support multiple "
+                                    "users in the same compute dst region");
+          assert(op->getNumResults() == 1);
+          assert(!dstRegisterAllocation.contains(op));
+          dstRegisterAllocation[op] = dstRegisterAllocationState.allocate();
+        }
       }
     });
-    return loopNests;
+    return {loopNests, dstRegisterAllocation};
   }
 
   static BlockArgument lookThroughSubView(Value memref) {
@@ -281,15 +307,72 @@ public:
     SmallVector<int64_t> guardIndices = getNonParticipatingLoopDims(
         lookThroughSubView(loadOrStore.getMemRef()).getArgNumber());
     if (inserted) {
+      // First access in this loop nest - set the guard indices
       copyInfo.guardIndices = guardIndices;
+    } else {
+      // Subsequent access - verify guard indices are the same
+      assert(
+          guardIndices == copyInfo.guardIndices &&
+          "Expected same guard indices across all accesses in this loop nest");
     }
-    assert(guardIndices == copyInfo.guardIndices &&
-           "Expected same guard indices across all accesses in this loop nest");
 
     // This isn't very rigorous but it should work for now.  By just returning
     // the memref shape we're assuming the whole memref is accessed inside of
     // this loop.
     return llvm::to_vector(loadOrStore.getMemRefType().getShape());
+  }
+
+  static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
+    bool hasTileMatmul = false;
+    linalgGenericOp->walk([&](ttir::TileMatmulOp) {
+      hasTileMatmul = true;
+      return WalkResult::interrupt();
+    });
+    return hasTileMatmul;
+  }
+  /*
+    Expand a linalg.generic op that contains a tile_matmul into a
+    tile_matmul_block.
+
+    - Uses the linalg.generic and affine semantics to generate copy/pack loops.
+    - Deletes the compute loop nest since tile_matmul_block includes the loops
+    inside it.
+  */
+  static bool rewriteTileMatmulAsTileMatmulBlock(
+      PatternRewriter &rewriter, GenericOp op, Region &region,
+      linalg::GenericOp linalgGenericOp, bool &modified) {
+    assert(linalgGenericOp.getInputs().size() == 2 &&
+           "Expected exactly 2 input for tile matmul");
+    assert(linalgGenericOp.getOutputs().size() == 1 &&
+           "Expected exactly 1 output for tile matmul");
+
+    Value inputAMemref = linalgGenericOp.getInputs()[0];
+    Value inputBMemref = linalgGenericOp.getInputs()[1];
+    Value outputCMemref = linalgGenericOp.getOutputs()[0];
+
+    rewriter.setInsertionPoint(linalgGenericOp);
+
+    auto linalgLoops = linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
+    if (failed(linalgLoops)) {
+      return false;
+    }
+    rewriter.eraseOp(linalgGenericOp);
+    modified |= insertDstRegisterAccess(
+        rewriter, op.getLoc(), region,
+        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr,
+        [&](int64_t index) { return op.getNonParticipatingLoopDims(index); });
+
+    Operation *outerLoop = linalgLoops.value()[0];
+    Block *parentBlk = outerLoop->getBlock();
+    auto insertPos = std::next(Block::iterator(outerLoop));
+
+    rewriter.setInsertionPoint(parentBlk, insertPos);
+    for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
+      rewriter.eraseOp(loopOp);
+    }
+    rewriter.create<ttir::TileMatmulBlockOp>(op.getLoc(), inputAMemref,
+                                             inputBMemref, outputCMemref);
+    return true;
   }
 
   static void
@@ -341,92 +424,6 @@ public:
             rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
                 op, op.getValue(), dst, dstAccessMap, dstAccessIndices);
           });
-    }
-  }
-
-  static void
-  insertDstAccessForTileOpChain(PatternRewriter &rewriter, Location loc,
-                                Region &region, Value dst,
-                                Operation *outermostInnerComputeLoop) {
-    // Collect all tile operations for processing
-    SmallVector<Operation *> tileOps;
-    region.walk([&](Operation *op) {
-      if (op->getName().getStringRef().starts_with("ttir.tile_")) {
-        tileOps.push_back(op);
-      }
-    });
-
-    // Process each tile operation and add stores/loads
-    for (size_t i = 0; i < tileOps.size(); ++i) {
-      Operation *currentTileOp = tileOps[i];
-      Operation *nextTileOp =
-          (i + 1 < tileOps.size()) ? tileOps[i + 1] : nullptr;
-
-      // Only process if current tile op has exactly one result and it's used by
-      // next tile op
-      if (currentTileOp->getNumResults() == 1 && nextTileOp &&
-          nextTileOp->getNumOperands() > 0) {
-        Value tileResult = currentTileOp->getResult(0);
-
-        // Check if the tile result is used by the next tile operation
-        bool usedByNext = false;
-        for (Value operand : nextTileOp->getOperands()) {
-          if (operand == tileResult) {
-            usedByNext = true;
-            break;
-          }
-        }
-
-        if (usedByNext && tileResult.hasOneUse()) {
-          // Set insertion point before the next tile operation
-          rewriter.setInsertionPoint(nextTileOp);
-
-          // Get the dst memref type
-          auto dstType = dyn_cast<MemRefType>(dst.getType());
-          if (!dstType) {
-            continue;
-          }
-          unsigned dstRank = dstType.getRank();
-
-          // Create indices for the load - need to match dst rank
-          SmallVector<Value> loadIndices;
-          if (outermostInnerComputeLoop) {
-            // Collect loop indices from the outermost compute loop
-            if (auto affineFor =
-                    dyn_cast<affine::AffineForOp>(outermostInnerComputeLoop)) {
-              loadIndices.push_back(affineFor.getInductionVar());
-            }
-          }
-
-          // Add zero constants for remaining dimensions to match dst rank
-          auto zero = rewriter.create<arith::ConstantOp>(
-              loc, rewriter.getIndexType(),
-              rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
-          while (loadIndices.size() < dstRank) {
-            loadIndices.push_back(zero);
-          }
-
-          // Create the load operation with identity map for dst rank
-          auto loadMap =
-              AffineMap::getMultiDimIdentityMap(dstRank, rewriter.getContext());
-          auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-              loc, dst, loadMap, loadIndices);
-
-          // Replace the tile result operand in the next tile operation
-          for (unsigned operandIdx = 0;
-               operandIdx < nextTileOp->getNumOperands(); ++operandIdx) {
-            if (nextTileOp->getOperand(operandIdx) == tileResult) {
-              nextTileOp->setOperand(operandIdx, dstLoad);
-              break;
-            }
-          }
-
-          // Now create a store after the current tile operation to dst
-          rewriter.setInsertionPointAfter(currentTileOp);
-          rewriter.create<affine::AffineStoreOp>(loc, tileResult, dst, loadMap,
-                                                 loadIndices);
-        }
-      }
     }
   }
 
@@ -517,6 +514,97 @@ public:
     }
   }
 
+  // Rewrite stores to use dst register based on allocation map
+  // NOTE: Requires OperandStoreRegisterOpInterface to be implemented
+  // (similar to OperandLoadRegisterOpInterface but for stores)
+  static void insertDstRegisterAllocation(
+      PatternRewriter &rewriter, Location loc, Region &region, Value dst,
+      const DstRegisterAllocation &dstRegisterAllocation,
+      Operation *outermostInnerComputeLoop = nullptr) {
+    // Debug: print dst register allocation info
+    llvm::errs() << "DstRegisterAllocation has " << dstRegisterAllocation.size()
+                 << " entries\n";
+    for (const auto &[op, dstIndex] : dstRegisterAllocation) {
+      llvm::errs() << "  Op: " << op->getName().getStringRef()
+                   << " -> dst index: " << dstIndex << "\n";
+    }
+
+    // Get dst memref type info
+    auto dstType = dyn_cast<MemRefType>(dst.getType());
+    if (!dstType) {
+      llvm::errs() << "    Dst is not a memref type, skipping\n";
+      return;
+    }
+    unsigned dstRank = dstType.getRank();
+
+    // Iterate directly through dst register allocation entries
+    for (const auto &[op, dstIndex] : dstRegisterAllocation) {
+      llvm::errs() << "  Processing " << op->getName().getStringRef()
+                   << " for automatic dst register storage\n";
+
+      // Check if operation has results to store
+      if (op->getNumResults() == 0) {
+        llvm::errs() << "    Operation has no results to store, skipping\n";
+        continue;
+      }
+
+      // Store the result of this operation to dst register
+      Value result = op->getResult(0);
+
+      llvm::errs() << "    Storing result to dst register at index " << dstIndex
+                   << "\n";
+
+      // Set insertion point before creating constants
+      rewriter.setInsertionPoint(op);
+
+      // Create indices for the store - need to match dst rank
+      SmallVector<Value> storeIndices;
+
+      // Add loop indices if available from outermost compute loop
+      if (outermostInnerComputeLoop) {
+        if (auto affineFor =
+                dyn_cast<affine::AffineForOp>(outermostInnerComputeLoop)) {
+          // Use the induction variable for the first dimension
+          Value inductionVar = affineFor.getInductionVar();
+          storeIndices.push_back(inductionVar);
+        }
+      } else {
+        // If no loop, use zero for first dimension
+        storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+      }
+
+      // Add zero constants for remaining dimensions to match dst rank
+      // Note: We don't use dstIndex directly as an array index here
+      while (storeIndices.size() < dstRank) {
+        storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+      }
+
+      // Create the store operation with identity map for dst rank
+      auto storeMap =
+          AffineMap::getMultiDimIdentityMap(dstRank, rewriter.getContext());
+
+      // Create the store operation FIRST using the original result
+      rewriter.setInsertionPointAfter(op);
+      auto storeOp = rewriter.create<affine::AffineStoreOp>(
+          loc, result, dst, storeMap, storeIndices);
+
+      // Create a load to retrieve the result from dst register
+      auto loadedResult = rewriter.create<affine::AffineLoadOp>(
+          loc, dst, storeMap, storeIndices);
+
+      // Replace uses of the original result with the loaded result
+      // but exclude the store operation we just created
+      for (auto &use : result.getUses()) {
+        if (use.getOwner() != storeOp) {
+          use.set(loadedResult.getResult());
+        }
+      }
+
+      llvm::errs()
+          << "    Successfully created store and load to/from dst register\n";
+    }
+  }
+
   // Returns the indices and the map for the load store from L1 and Dst
   //   tuple(l1AccessIndices, l1AccessMap, dstAccessIndices, dstAccessMap)
   static std::tuple<AffineMap, SmallVector<Value>, AffineMap,
@@ -535,6 +623,9 @@ public:
     SmallVector<Value> dstAccessIndices = l1AccessIndices;
     return {l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices};
   }
+
+  bool useTileMatmul;
+  static constexpr bool explain = false;
 };
 } // namespace
 
@@ -550,7 +641,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRInsertDstRegisterAccessRewriter<GenericOp>,
                  TTIRInsertDstRegisterAccessRewriter<func::FuncOp>>(
-        &getContext());
+        &getContext(), useTileMatmul);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }
