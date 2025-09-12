@@ -1303,17 +1303,10 @@ private:
 };
 
 namespace {
+using namespace ttmlir::utils::transformer;
+
 class ConcatenateHeadsUpdatePattern : public mlir::OpRewritePattern<ReshapeOp> {
   using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
-
-  enum InputDimensions {
-    INPUT_BATCH = 0,
-    INPUT_NUM_HEADS = 1,
-    INPUT_SEQ = 2,
-    INPUT_HEAD_SIZE = 3
-  };
-
-  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
 
 public:
   mlir::LogicalResult

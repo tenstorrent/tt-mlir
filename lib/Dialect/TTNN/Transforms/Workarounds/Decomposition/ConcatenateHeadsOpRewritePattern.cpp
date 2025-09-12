@@ -24,12 +24,7 @@ LogicalResult ConcatenateHeadsOpRewritePattern::matchAndRewrite(
   RankedTensorType outputType = srcOp.getResult().getType();
 
   // input: [batch_size, num_heads, sequence_size, head_size]
-  enum InputDimensions {
-    INPUT_BATCH = 0,
-    INPUT_NUM_HEADS = 1,
-    INPUT_SEQ = 2,
-    INPUT_HEAD_SIZE = 3
-  };
+  using namespace ttmlir::utils::transformer;
 
   // Only apply this pattern when head size is not divisible by tile size (32)
   constexpr int64_t TILE_SIZE = ttnn::TILE_WIDTH; // 32
