@@ -22,6 +22,7 @@ def sharding_constraint(
     builder: StableHLOBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
+    builder.set_graph_level_check(True)
     tensor_sharding_attr = builder.tensor_sharding_attr(
         mesh_name="mesh",
         dimension_shardings=[

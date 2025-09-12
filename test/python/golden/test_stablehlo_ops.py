@@ -21,6 +21,9 @@ def add(
     builder: StableHLOBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
+    builder.set_graph_level_check(
+        True
+    )  # do we want this in compile stablehlo to flatbuffer?
     return builder.add(in0, in1, unit_attrs=unit_attrs)
 
 
