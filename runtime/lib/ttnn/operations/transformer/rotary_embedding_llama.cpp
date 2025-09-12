@@ -4,8 +4,8 @@
 
 #include "operations/transformer/rotary_embedding_llama.h"
 
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-#include <operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp>
 
 namespace tt::runtime::ttnn::operations::transformer {
 static void
@@ -22,8 +22,14 @@ runRotaryEmbeddingLlama(const ::tt::target::ttnn::RotaryEmbeddingLlamaOp *op,
   const ::ttnn::Tensor &tran_mat =
       tensorPool.getTTNNTensorAndValidate(op->tran_mat());
   bool is_decode_mode = op->is_decode_mode();
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
   ::ttnn::Tensor out = ::ttnn::experimental::rotary_embedding_llama(
-      in, cos_cache, sin_cache, tran_mat, is_decode_mode, outputMemoryConfig);
+      in, cos_cache, sin_cache, tran_mat, is_decode_mode, outputMemoryConfig,
+      computeConfig);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 

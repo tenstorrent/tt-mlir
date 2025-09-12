@@ -2401,7 +2401,8 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama"> {
                          AnyRankedTensor:$sin_cache,
                          AnyRankedTensor:$trans_mat,
                          DefaultValuedAttr<BoolAttr, "false">:$is_decode_mode,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
 

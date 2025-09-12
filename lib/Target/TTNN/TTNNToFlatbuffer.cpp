@@ -2089,10 +2089,11 @@ createOp(FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op) {
       getOperandThroughDPSOps(op.getTransMat()));
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
   return ::tt::target::ttnn::CreateRotaryEmbeddingLlamaOp(
       *cache.fbb, in, cosCache, sinCache, transMat, op.getIsDecodeMode(), out,
-      memoryConfig);
+      memoryConfig, computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>

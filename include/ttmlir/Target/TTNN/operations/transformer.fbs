@@ -1,5 +1,6 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/operations/configs.fbs";
 
 namespace tt.target.ttnn;
 
@@ -17,4 +18,5 @@ table RotaryEmbeddingLlamaOp {
   is_decode_mode: bool;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
