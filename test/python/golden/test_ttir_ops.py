@@ -19,6 +19,7 @@ from test_utils import (
     shape_str,
     make_shard_shape,
     shard_wrap_factory,
+    id_with_name,
 )
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -3300,9 +3301,13 @@ def test_reduce_scatter(
         (256, 512, 1, 1),
         (1, 256, 512, 1),
     ],
-    ids=shape_str,
+    ids=lambda val: id_with_name(val, "test_shape"),
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
+@pytest.mark.parametrize(
+    "mesh_shape",
+    [(2, 4), (1, 8), (1, 2)],
+    ids=lambda val: id_with_name(val, "mesh_shape"),
+)
 @pytest.mark.parametrize(
     "source_target_pairs",
     [
