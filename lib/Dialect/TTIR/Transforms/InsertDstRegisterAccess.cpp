@@ -528,7 +528,6 @@ public:
     // Iterate directly through dst register allocation entries
     for (const auto &[op, dstIndex] : dstRegisterAllocation) {
       if (op->getNumResults() == 0) {
-        llvm::errs() << "    Operation has no results to store, skipping\n";
         continue;
       }
 
