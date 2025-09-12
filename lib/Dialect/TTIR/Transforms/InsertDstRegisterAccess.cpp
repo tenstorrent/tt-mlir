@@ -263,9 +263,10 @@ public:
           dstRegisterAllocationState.allocate();
           dstRegisterAllocationState.setStoreToDst();
         }
-        // If the op is a compute op, we need to allocate a dst register for it
+        // If the user isn't a store, it must be another compute consumer and we
+        // need to allocate a dest register intermediate for it
         else {
-          assert(op->hasTrait<TTIRGenericRegionComputeOpTrait>());
+          assert(user->hasTrait<TTIRGenericRegionComputeOpTrait>());
           assert(op->hasOneUse() && "Currently we do not support multiple "
                                     "users in the same compute dst region");
           assert(op->getNumResults() == 1);
@@ -523,25 +524,23 @@ public:
 
     // Iterate directly through dst register allocation entries
     for (const auto &[op, dstIndex] : dstRegisterAllocation) {
-      if (op->getNumResults() == 0) {
-        continue;
-      }
 
       // Store the result of this operation to dst register
-      Value result = op->getResult(0);
+      // Value result = op->getResult(0);
       rewriter.setInsertionPoint(op);
 
       SmallVector<Value> storeIndices;
 
-      if (outermostInnerComputeLoop) {
-        if (auto affineFor =
-                dyn_cast<affine::AffineForOp>(outermostInnerComputeLoop)) {
-          Value inductionVar = affineFor.getInductionVar();
-          storeIndices.push_back(inductionVar);
-        }
-      } else {
-        storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
-      }
+      // if (outermostInnerComputeLoop) {
+      //   if (auto affineFor =
+      //           dyn_cast<affine::AffineForOp>(outermostInnerComputeLoop)) {
+      //     Value inductionVar = affineFor.getInductionVar();
+      //     storeIndices.push_back(inductionVar);
+      //   }
+      // } else {
+      storeIndices.push_back(
+          rewriter.create<arith::ConstantIndexOp>(loc, dstIndex));
+      // }
 
       while (storeIndices.size() < dstRank) {
         storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
@@ -551,17 +550,29 @@ public:
           AffineMap::getMultiDimIdentityMap(dstRank, rewriter.getContext());
 
       rewriter.setInsertionPointAfter(op);
-      auto storeOp = rewriter.create<affine::AffineStoreOp>(
-          loc, result, dst, storeMap, storeIndices);
+      // auto storeOp = rewriter.create<affine::AffineStoreOp>(
+      //     loc, result, dst, storeMap, storeIndices);
 
       auto loadedResult = rewriter.create<affine::AffineLoadOp>(
           loc, dst, storeMap, storeIndices);
 
-      for (auto &use : result.getUses()) {
-        if (use.getOwner() != storeOp) {
-          use.set(loadedResult.getResult());
-        }
-      }
+      // for (auto &use : result.getUses()) {
+      // if (use.getOwner() != storeOp) {
+      //   use.set(loadedResult.getResult());
+      // }
+      // }
+      // rewriter.replaceAllUsesWithIf(op->getResult(0),
+      // loadedResult->getResult(0), [] (Operation* op) { return
+      // !mlir::isa<affine::AffineStoreOp>(op); });
+      // op->getResult(0).replaceUsesWithIf(loadedResult->getResult(0),
+      // [](mlir::OpOperand &operand) {
+      //   return !mlir::isa<mlir::affine::AffineStoreOp>(operand.getOwner());
+      // });
+      rewriter.replaceUsesWithIf(
+          op->getResult(0), loadedResult->getResult(0),
+          [](mlir::OpOperand &operand) {
+            return !mlir::isa<mlir::affine::AffineStoreOp>(operand.getOwner());
+          });
     }
   }
 
