@@ -2,6 +2,7 @@ if ((NOT TTMLIR_ENABLE_RUNTIME OR (NOT TT_RUNTIME_ENABLE_TTNN AND NOT TT_RUNTIME
   message(FATAL_ERROR "Runtime tests require at least one backend runtime to be enabled")
 endif()
 
+
 enable_testing()
 include(FetchContent)
 FetchContent_Declare(
@@ -57,7 +58,7 @@ if (TT_RUNTIME_ENABLE_PERF_TRACE)
   target_link_libraries(TTRuntimeGTestLib INTERFACE TRACY_LIBRARY)
 endif()
 
-
+if (TTMLIR_ENABLE_RUNTIME)
 function(add_runtime_gtest test_name)
   if(ARGC EQUAL 1)
     set(source_files ${test_name}.cpp)
@@ -72,7 +73,23 @@ function(add_runtime_gtest test_name)
   add_test(NAME ${test_name} COMMAND ${test_name})
 endfunction()
 
-function(add_cuda_runtime_gtest test_name)
+add_subdirectory(common)
+endif()
+
+
+
+
+if (TT_RUNTIME_ENABLE_TTNN)
+  add_subdirectory(ttnn)
+endif()
+
+if (TT_RUNTIME_ENABLE_TTMETAL)
+  add_subdirectory(ttmetal)
+endif()
+
+if (TTMLIR_ENABLE_CUDA)
+  find_package(CUDAToolkit)
+  function(add_cuda_runtime_gtest test_name)
   if(ARGC EQUAL 1)
     set(source_files ${test_name}.cpp)
   else()
@@ -93,24 +110,13 @@ function(add_cuda_runtime_gtest test_name)
   target_link_libraries(${test_name} PRIVATE
     TTRuntimeCUDA
     TTBinary
+    TTRuntimeTypes
+    TTRuntimeUtils
     TTMLIRRuntime
     GTest::gtest_main
   )
 
   add_test(NAME ${test_name} COMMAND ${test_name})
 endfunction()
-
-add_subdirectory(common)
-
-if (TT_RUNTIME_ENABLE_TTNN)
-  add_subdirectory(ttnn)
-endif()
-
-if (TT_RUNTIME_ENABLE_TTMETAL)
-  add_subdirectory(ttmetal)
-endif()
-
-if (TTMLIR_ENABLE_CUDA)
-  find_package(CUDAToolkit)
   add_subdirectory(cuda)
 endif()

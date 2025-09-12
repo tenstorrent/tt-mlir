@@ -53,7 +53,7 @@ endif()
 
 add_subdirectory(bin)
 
-if(TT_RUNTIME_ENABLE_CUDA)
+if(TTMLIR_ENABLE_CUDA)
   find_package(CUDAToolkit)
   add_subdirectory(test)
 else()
