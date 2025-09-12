@@ -15,6 +15,7 @@ from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
 pytestmark = [pytest.mark.n300, pytest.mark.frontend("ttir")]
 
+
 # utility functions to increase readability
 def get_input_tensors_from_builder(args: List, builder: TTIRBuilder):
     input_tensors = []
@@ -71,6 +72,7 @@ def shard_to_full_replicate(input, builder):
 
 def golden_llama(
     arg0: torch.Tensor,
+    arg1: torch.Tensor,
     arg2: torch.Tensor,
     arg3: torch.Tensor,
     arg4: torch.Tensor,
@@ -79,10 +81,9 @@ def golden_llama(
     arg7: torch.Tensor,
     arg8: torch.Tensor,
     arg9: torch.Tensor,
+    arg10: torch.Tensor,
     arg11: torch.Tensor,
     arg12: torch.Tensor,
-    arg1: torch.Tensor,
-    arg10: torch.Tensor,
     arg13: torch.Tensor,
     arg14: torch.Tensor,
 ):
@@ -156,6 +157,7 @@ def golden_llama(
     [
         [
             (1, 128, 4096),  # arg0
+            (1, 1, 128, 128),  # arg1
             (1, 128),  # arg2
             (1, 64, 1),  # arg3
             (1, 32, 64, 128),  # arg4
@@ -164,10 +166,9 @@ def golden_llama(
             (1, 32, 64, 128),  # arg7
             (1, 1),  # arg8
             (1, 32, 64, 128),  # arg9
+            (1, 1),  # arg10
             (4096, 4096),  # arg11
             (4096, 4096),  # arg12
-            (1, 1, 128, 128),  # arg1
-            (1, 1),  # arg10
             (4096, 4096),  # arg13
             (4096, 4096),  # arg14
         ],
@@ -191,6 +192,7 @@ def test_llama_attention_1x2_tp(
 ):
     def model(
         arg0: Operand,
+        arg1: Operand,
         arg2: Operand,
         arg3: Operand,
         arg4: Operand,
@@ -199,16 +201,16 @@ def test_llama_attention_1x2_tp(
         arg7: Operand,
         arg8: Operand,
         arg9: Operand,
+        arg10: Operand,
         arg11: Operand,
         arg12: Operand,
-        arg1: Operand,
-        arg10: Operand,
         arg13: Operand,
         arg14: Operand,
         builder: TTIRBuilder,
     ):
         operands = [
             arg0,
+            arg1,
             arg2,
             arg3,
             arg4,
@@ -217,32 +219,12 @@ def test_llama_attention_1x2_tp(
             arg7,
             arg8,
             arg9,
+            arg10,
             arg11,
             arg12,
-            arg1,
-            arg10,
             arg13,
             arg14,
         ]
-        input_tensors = get_input_tensors_from_builder(
-            operands,
-            builder,
-        )
-        # for idx, input_tensor in enumerate(input_tensors):
-        #     assert len(input_tensor.shard_map) == 1, f"Input tensor {idx} has {len(input_tensor.shard_map)} shards"
-        input_tensors_torch = []
-        for input_tensor in input_tensors:
-            if isinstance(input_tensor, BuilderGoldenTensor):
-                print("BuilderGoldenTensor")
-                input_tensors_torch.append(input_tensor.shard_map[0])
-            elif isinstance(input_tensor, torch.Tensor):
-                print("torch.Tensor")
-                input_tensors_torch.append(input_tensor)
-            else:
-                print("Unknown")
-        # input_tensors_torch = [input_tensor.shard_map[0] for input_tensor in input_tensors]
-        golden = golden_llama(*input_tensors_torch)
-
         output1 = full_to_shard_device(arg0, builder, 2)  # [1, 128, 2048]
         output1 = builder.squeeze(output1, 0)  # [128, 2048]
         arg11_mesh_shard = full_to_shard_device(arg11, builder, 0)  # [2048, 4096]
@@ -372,7 +354,7 @@ def test_llama_attention_1x2_tp(
         output87 = shard_to_full_device(output87, builder, 3)
         output87 = full_to_shard_device(output87, builder, 2)
         output89 = builder.softmax(
-            output87, -1, numeric_stable=False
+            output87, -1, numeric_stable=True
         )  # [1, 32, 64, 128]
         output89 = shard_to_full_device(output89, builder, 2)
         output89 = full_to_shard_device(output89, builder, 3)
@@ -401,15 +383,31 @@ def test_llama_attention_1x2_tp(
         output115 = builder.unsqueeze(output113, 0)  # [1, 128, 2048]
         output116 = shard_to_full_device(output115, builder, dim=2)  # [1, 128, 4096]
 
+        # Retrieve the input tensors from the builder.
+        input_tensors_torch = [
+            input_tensor.shard_map[0]
+            for input_tensor in get_input_tensors_from_builder(
+                operands,
+                builder,
+            )
+        ]
+
+        # Generate the golden output using a single CPU device
+        golden = golden_llama(*input_tensors_torch)
+
+        # Set the input and output tensors for the program-level golden check.
         builder.set_goldens(
             {
                 operand: input_tensor
                 for operand, input_tensor in zip(operands, input_tensors_torch)
             },
-            # {
-            #     output116: golden,
-            # }
+            {
+                output116: golden,
+            },
         )
+        # Clear the golden check list for the op-level golden check.
+        # This is a bit hacky, but it's the only way to get both the op-level and program-level golden checks.
+        builder.set_goldens_to_check([], override=True)
 
         return output116
 
