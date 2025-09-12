@@ -88,14 +88,14 @@ class Run:
         Run.register_arg(
             name="--rtol",
             type=float,
-            default=1e-05,
+            default=1e-03,
             choices=None,
             help="rtol for the PCC and identity golden tests",
         )
         Run.register_arg(
             name="--atol",
             type=float,
-            default=1e-08,
+            default=1e-03,
             choices=None,
             help="atol for the PCC and identity golden tests",
         )
@@ -1154,6 +1154,7 @@ class Run:
                                 )
                             # check operation level golden comparison result.
                             post_op_callback_runtime_config.check_pcc()
+                            post_op_callback_runtime_config.check_allclose()
 
                         if self["--memory"]:
                             if self["--save-artifacts"]:
