@@ -515,34 +515,18 @@ public:
   }
 
   // Rewrite stores to use dst register based on allocation map
-  // NOTE: Requires OperandStoreRegisterOpInterface to be implemented
-  // (similar to OperandLoadRegisterOpInterface but for stores)
   static void insertDstRegisterAllocation(
       PatternRewriter &rewriter, Location loc, Region &region, Value dst,
       const DstRegisterAllocation &dstRegisterAllocation,
       Operation *outermostInnerComputeLoop = nullptr) {
-    // Debug: print dst register allocation info
-    llvm::errs() << "DstRegisterAllocation has " << dstRegisterAllocation.size()
-                 << " entries\n";
-    for (const auto &[op, dstIndex] : dstRegisterAllocation) {
-      llvm::errs() << "  Op: " << op->getName().getStringRef()
-                   << " -> dst index: " << dstIndex << "\n";
-    }
-
-    // Get dst memref type info
     auto dstType = dyn_cast<MemRefType>(dst.getType());
     if (!dstType) {
-      llvm::errs() << "    Dst is not a memref type, skipping\n";
       return;
     }
     unsigned dstRank = dstType.getRank();
 
     // Iterate directly through dst register allocation entries
     for (const auto &[op, dstIndex] : dstRegisterAllocation) {
-      llvm::errs() << "  Processing " << op->getName().getStringRef()
-                   << " for automatic dst register storage\n";
-
-      // Check if operation has results to store
       if (op->getNumResults() == 0) {
         llvm::errs() << "    Operation has no results to store, skipping\n";
         continue;
@@ -550,58 +534,39 @@ public:
 
       // Store the result of this operation to dst register
       Value result = op->getResult(0);
-
-      llvm::errs() << "    Storing result to dst register at index " << dstIndex
-                   << "\n";
-
-      // Set insertion point before creating constants
       rewriter.setInsertionPoint(op);
 
-      // Create indices for the store - need to match dst rank
       SmallVector<Value> storeIndices;
 
-      // Add loop indices if available from outermost compute loop
       if (outermostInnerComputeLoop) {
         if (auto affineFor =
                 dyn_cast<affine::AffineForOp>(outermostInnerComputeLoop)) {
-          // Use the induction variable for the first dimension
           Value inductionVar = affineFor.getInductionVar();
           storeIndices.push_back(inductionVar);
         }
       } else {
-        // If no loop, use zero for first dimension
         storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
       }
 
-      // Add zero constants for remaining dimensions to match dst rank
-      // Note: We don't use dstIndex directly as an array index here
       while (storeIndices.size() < dstRank) {
         storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
       }
 
-      // Create the store operation with identity map for dst rank
       auto storeMap =
           AffineMap::getMultiDimIdentityMap(dstRank, rewriter.getContext());
 
-      // Create the store operation FIRST using the original result
       rewriter.setInsertionPointAfter(op);
       auto storeOp = rewriter.create<affine::AffineStoreOp>(
           loc, result, dst, storeMap, storeIndices);
 
-      // Create a load to retrieve the result from dst register
       auto loadedResult = rewriter.create<affine::AffineLoadOp>(
           loc, dst, storeMap, storeIndices);
 
-      // Replace uses of the original result with the loaded result
-      // but exclude the store operation we just created
       for (auto &use : result.getUses()) {
         if (use.getOwner() != storeOp) {
           use.set(loadedResult.getResult());
         }
       }
-
-      llvm::errs()
-          << "    Successfully created store and load to/from dst register\n";
     }
   }
 
