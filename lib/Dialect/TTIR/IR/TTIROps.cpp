@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
@@ -2674,68 +2675,57 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   auto inputType = getInput().getType();
   auto outputType = getOutput().getType();
 
-  if (mlir::isa<mlir::RankedTensorType>(inputType)) {
-    auto inputTensor = mlir::cast<mlir::RankedTensorType>(inputType);
-    auto outputTensor = mlir::cast<mlir::RankedTensorType>(outputType);
+  TT_assertv(mlir::isa<mlir::RankedTensorType>(inputType),
+             "ToLayoutOp::compoundComponents() is only supported on tensors.");
 
-    const bool hasInputLayout = inputTensor.getEncoding() != nullptr;
-    const bool hasOutputLayout = outputTensor.getEncoding() != nullptr;
+  auto inputTensor = mlir::cast<mlir::RankedTensorType>(inputType);
+  auto outputTensor = mlir::cast<mlir::RankedTensorType>(outputType);
 
-    // Layout versus no layout special case.
-    if (hasInputLayout != hasOutputLayout) {
-      // Always treat this as purely a host <-> device transition.
-      components.isMemorySpaceChange = true;
-      components.isGridChange = false;
-      components.isFormatChange =
-          inputTensor.getElementType() != outputTensor.getElementType();
-      components.isLayoutChange = false;
-      return components;
-    }
+  const bool hasInputLayout = inputTensor.getEncoding() != nullptr;
+  const bool hasOutputLayout = outputTensor.getEncoding() != nullptr;
 
-    // Both lack layouts special case--purely host-side operation.
-    if (!hasInputLayout && !hasOutputLayout) {
-      components.isMemorySpaceChange = false;
-      components.isGridChange = false;
-      components.isLayoutChange = false;
-      components.isFormatChange =
-          inputTensor.getElementType() != outputTensor.getElementType();
-      return components;
-    }
-
-    // Both have layouts--do a full comparison.
-    ttcore::MetalLayoutAttr inputLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(inputTensor.getEncoding());
-    ttcore::MetalLayoutAttr outputLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(outputTensor.getEncoding());
-
-    components.isMemorySpaceChange =
-        inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
-
-    auto inputGrid = inputLayout.getGridShape(inputTensor);
-    auto outputGrid = outputLayout.getGridShape(outputTensor);
-    components.isGridChange = inputGrid != outputGrid;
-
+  // Layout versus no layout special case.
+  if (hasInputLayout != hasOutputLayout) {
+    // Always treat this as purely a host <-> device transition.
+    components.isMemorySpaceChange = true;
+    components.isGridChange = false;
     components.isFormatChange =
         inputTensor.getElementType() != outputTensor.getElementType();
-
-    // Check layout (collapsed intervals and alignments).
-    components.isLayoutChange =
-        inputLayout.getNormalizedIntervals() !=
-            outputLayout.getNormalizedIntervals() ||
-        inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
-
-  } else {
-    auto inputMemref = mlir::cast<mlir::MemRefType>(inputType);
-    auto outputMemref = mlir::cast<mlir::MemRefType>(outputType);
-
     components.isLayoutChange = false;
-    bool isShapeChange = inputMemref.getShape() != outputMemref.getShape();
-    components.isGridChange = isShapeChange;
-    components.isFormatChange =
-        inputMemref.getElementType() != outputMemref.getElementType();
-    components.isMemorySpaceChange =
-        inputMemref.getMemorySpace() != outputMemref.getMemorySpace();
+    return components;
   }
+
+  // Both lack layouts special case--purely host-side operation.
+  if (!hasInputLayout && !hasOutputLayout) {
+    components.isMemorySpaceChange = false;
+    components.isGridChange = false;
+    components.isLayoutChange = false;
+    components.isFormatChange =
+        inputTensor.getElementType() != outputTensor.getElementType();
+    return components;
+  }
+
+  // Both have layouts--do a full comparison.
+  ttcore::MetalLayoutAttr inputLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(inputTensor.getEncoding());
+  ttcore::MetalLayoutAttr outputLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(outputTensor.getEncoding());
+
+  components.isMemorySpaceChange =
+      inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
+
+  auto inputGrid = inputLayout.getGridShape(inputTensor);
+  auto outputGrid = outputLayout.getGridShape(outputTensor);
+  components.isGridChange = inputGrid != outputGrid;
+
+  components.isFormatChange =
+      inputTensor.getElementType() != outputTensor.getElementType();
+
+  // Check layout (collapsed intervals and alignments).
+  components.isLayoutChange =
+      inputLayout.getNormalizedIntervals() !=
+          outputLayout.getNormalizedIntervals() ||
+      inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
 
   return components;
 }
