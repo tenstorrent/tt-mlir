@@ -1,6 +1,7 @@
 add_subdirectory(TosaToTTIR)
 add_subdirectory(TTIRToTTIRDecomposition)
 add_subdirectory(TTIRToTTIRGeneric)
+add_subdirectory(ArithToD2MTileOps)
 add_subdirectory(TTNNToEmitC)
 add_subdirectory(TTNNToEmitPy)
 add_subdirectory(TTIRToLinalg)

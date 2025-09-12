@@ -124,6 +124,14 @@ def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
   ];
 }
 
+def ArithToD2MTileOps : Pass<"arith-to-d2m-tile-ops", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect"];
+  let constructor = "createConvertArithToD2MTileOpsPass()";
+}
+
 def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to TTNN dialect.";
   let constructor = "createConvertTTIRToTTNNPass()";

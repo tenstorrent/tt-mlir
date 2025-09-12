@@ -5,6 +5,7 @@
 #ifndef TTMLIR_CONVERSION_PASSES_H
 #define TTMLIR_CONVERSION_PASSES_H
 
+#include "ttmlir/Conversion/ArithToD2MTileOps/ArithToD2MTileOps.h"
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "ttmlir/Conversion/ArithToStableHLO/ArithToStableHLO.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardyToTTIR.h"
