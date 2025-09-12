@@ -15,6 +15,7 @@ namespace mlir::tt::sharding_utils {
 // SDY sharding related string definitions.
 inline constexpr llvm::StringRef kXlaSdyShardingAttr = "xla.sdy.sharding";
 inline constexpr llvm::StringRef kXlaSdyMeshesAttr = "xla.sdy.meshes";
+inline constexpr llvm::StringRef kDefaultMeshName = "mesh";
 
 inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
     SupportedMeshes = {

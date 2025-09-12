@@ -649,6 +649,17 @@ bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh) {
   return true;
 }
 
+// Get the mesh name from a function, using the first available mesh or default.
+std::string getMeshName(mlir::func::FuncOp &funcOp) {
+  if (auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>()) {
+    llvm::SmallVector<mlir::sdy::MeshOp> meshOps = getMeshOps(moduleOp);
+    if (!meshOps.empty()) {
+      return meshOps[0].getSymName().str();
+    }
+  }
+  return std::string(sharding_utils::kDefaultMeshName);
+}
+
 // Parse dimension shardings from a string representation.
 llvm::SmallVector<mlir::sdy::DimensionShardingAttr>
 parseDimensionShardings(const std::string &dimsContent,
@@ -738,7 +749,7 @@ mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
                          attr.getName() != gspmd_utils::kXlaShardingAttr;
                 });
 
-  std::string meshName = "mesh";
+  std::string meshName = getMeshName(funcOp);
 
   size_t startPos = shardingValue.find("[");
   size_t endPos = shardingValue.rfind("]");

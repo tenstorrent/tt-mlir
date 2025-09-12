@@ -323,7 +323,7 @@ parseMeshFromFrontendAttributes(mlir::ModuleOp &rootModule,
   std::vector<std::pair<std::string, int64_t>> axes =
       parseAxisDefinitions(axesContent);
 
-  std::string meshName = "mesh";
+  std::string meshName = std::string(sharding_utils::kDefaultMeshName);
   if (axes.size() == 1) {
     shardy_utils::addMeshToModule(rootModule, meshName,
                                   axes[0].first + "_updated", axes[0].first, 1,

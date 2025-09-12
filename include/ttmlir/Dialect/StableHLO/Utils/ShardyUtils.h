@@ -27,6 +27,9 @@ using MeshMap =
 // Get all the meshOps from the module.
 llvm::SmallVector<mlir::sdy::MeshOp> getMeshOps(mlir::ModuleOp &module);
 
+// Get the mesh name from a function, using the first available mesh or default.
+std::string getMeshName(mlir::func::FuncOp &funcOp);
+
 // Remove all meshOps from the module.
 void removeMeshOps(mlir::ModuleOp &module);
 
