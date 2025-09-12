@@ -39,7 +39,7 @@ class Builder:
         mesh_name: Union[List[str], str] = "mesh",
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
-        ] = OrderedDict([("x", 1), ("y", 2)]),
+        ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
         self._ctx = ctx
