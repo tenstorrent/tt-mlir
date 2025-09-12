@@ -1,6 +1,7 @@
 from pykernel.kernel_ast import *
 import functools
 import torch
+import sys
 
 
 matmul_template = {
@@ -18,6 +19,21 @@ matmul_template = {
     ],
 }
 
+
+eltwise_template = {
+    "grid": (1, 1),  # | lambda | "auto" | "automatic"
+    "block_factors": [1, 1],  # | lambda | "auto" | "automatic"
+    "indexing_maps": [
+        lambda m, n: (m, n),
+        lambda m, n: (m, n),
+        lambda m, n: (m, n),
+    ],
+    "iterator_types": [
+        "parallel",
+        "parallel",
+    ],
+}
+
 explicit_template = {
     "grid": (1, 1),  # | lambda | "auto" | "automatic"
     "block_factors": None,
@@ -25,6 +41,40 @@ explicit_template = {
     "iterator_types": None,
 }
 
+
+@pykernel_gen(**eltwise_template)
+def add(lhs, rhs, out):
+    @compute()
+    def add_kernel(
+        lhs_shard: Tensor,
+        rhs_shard: Tensor,
+        out_shard: Tensor,
+    ):
+        out = lhs_shard + rhs_shard
+        yield out
+
+    return Program(add_kernel)(lhs, rhs, out)
+
+
+lhs = torch.zeros(32, 32)
+rhs = torch.zeros(32, 32)
+out = torch.empty(32, 32)
+lhs[0, 0::2] = 5.0
+rhs[0, 0::2] = 3.0
+torch.set_printoptions(threshold=1024, linewidth=1000)
+add(lhs, rhs, out)
+
+golden = lhs + rhs
+atol = 1e-04
+if not torch.allclose(golden, out, atol=atol):
+    print("golden\n", golden)
+    print("output\n", out)
+    print(torch.allclose(golden, lhs, atol=atol))
+    print(torch.allclose(golden, rhs, atol=atol))
+    print(torch.allclose(golden, out, atol=atol))
+    assert False
+
+sys.exit(0)
 
 @pykernel_gen(**matmul_template)
 def matmul(lhs, rhs, out):

@@ -49,7 +49,8 @@ namespace mlir::tt {
 void populateArithToD2MTileOpsPatterns(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter) {
-  patterns.add<ttir::ArithOpRewriter<arith::AddFOp, ttir::TileAddOp>>(
+  patterns.add<ttir::ArithOpRewriter<arith::AddFOp, ttir::TileAddOp>,
+               ttir::ArithOpRewriter<arith::DivFOp, ttir::TileDivOp>>(
       typeConverter, ctx);
 }
 

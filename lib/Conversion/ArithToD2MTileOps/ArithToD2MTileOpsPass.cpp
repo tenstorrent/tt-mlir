@@ -37,13 +37,14 @@ struct ArithToD2MTileOpsPass final
     target.addLegalDialect<ttir::TTIRDialect>();
 
     // Mark arith ops inside of a ttir.generic that operate on tiles as illegal.
-    target.addDynamicallyLegalOp<arith::AddFOp>([&](Operation *op) {
-      if (!op->getParentOfType<ttir::GenericOp>()) {
-        return true;
-      }
-      assert(op->getNumResults() == 1);
-      return !mlir::isa<ttcore::TileType>(op->getResult(0).getType());
-    });
+    target.addDynamicallyLegalOp<arith::AddFOp, arith::DivFOp>(
+        [&](Operation *op) {
+          if (!op->getParentOfType<ttir::GenericOp>()) {
+            return true;
+          }
+          assert(op->getNumResults() == 1);
+          return !mlir::isa<ttcore::TileType>(op->getResult(0).getType());
+        });
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });

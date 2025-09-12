@@ -519,6 +519,9 @@ class TTCompilerBase(PyKernelAstBase):
             case ast.Mult():
                 f = arith.mulf if is_float_type else arith.muli
                 return f(lhs, rhs)
+            case ast.Div(): # only worried about integers right now
+                assert is_float_type
+                return arith.divf(lhs, rhs)
             case ast.MatMult():
                 assert isinstance(lhs.type, RankedTensorType)
                 out_shape = lhs.type.shape
@@ -541,8 +544,6 @@ class TTCompilerBase(PyKernelAstBase):
                 return arith.andi(lhs, rhs)
             case ast.BitXor():
                 return arith.xori(lhs, rhs)
-            # case ast.Div(): # only worried about integers right now
-            # return arith.divf(lhs, rhs)
             case _:
                 raise NotImplementedError(
                     f"Binary operator {type(node.op).__name__} not implemented"
@@ -979,10 +980,6 @@ class D2MGenericCompiler(TTCompilerBase):
             elif arg.annotation.id == "Tensor":
                 shape = self.args[i].shape
                 dtype = F32Type.get(self.ctx)
-                # dtype = VectorType.get((32, 32), F32Type.get(self.ctx))
-                # dtype = ttcore.ir.TileType.get(
-                #     self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
-                # )
                 func_operand_types.append(RankedTensorType.get(shape, dtype))
 
         self.func_entry = func.FuncOp(name=node.name, type=(func_operand_types, []))
@@ -1149,6 +1146,18 @@ class Tensor:
         self.shape = [128, 128]
 
 
+class Program:
+    def __init__(self, *threads):
+        self.threads = threads
+        self.args = None
+        self.kwargs = None
+
+    def __call__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+        return self
+
+
 class _AffineMap:
     def __init__(self, fn):
         self.fn = fn
@@ -1197,14 +1206,15 @@ def _affine_map_from_lambda(fn):
 
 
 def _create_generic_func(
-    ctx, name, grid, block_factors, indexing_maps, iterator_types, compiled_threads
+    ctx, name, grid, block_factors, indexing_maps, iterator_types, compiled_threads, num_outs,
 ):
-    arg_types = compiled_threads[0].func_entry.arguments.types
+    arg_types = compiled_threads[0].func_entry.arguments.types[:-num_outs]
     ret_type = compiled_threads[0].func_entry.arguments.types[-1]
     func_entry = func.FuncOp(name=name, type=(arg_types, [ret_type]))
     func_bb = func_entry.add_entry_block()
     with InsertionPoint(func_bb):
-        inputs, outputs = (func_bb.arguments[:-1], func_bb.arguments[-1:])
+        inputs = func_bb.arguments
+        outputs = [ttir.EmptyOp(ret_type)]
         threads = ArrayAttr.get(
             [
                 ct.func_entry.attributes[ttir.ir.ThreadAttr.name]
@@ -1306,9 +1316,10 @@ def from_data_type(dtype):
 _g_current_system_desc = None
 
 def pykernel_gen(
-    grid=None, block_factors=None, indexing_maps=None, iterator_types=None
+    grid=None, block_factors=None, indexing_maps=None, iterator_types=None, num_outs=1,
 ):
     assert grid is not None
+    assert num_outs == 1
     assert (iterator_types is None) or (
         indexing_maps is not None
     ), "if iterator_types is set, indexing_types must also be set"
@@ -1358,17 +1369,15 @@ def pykernel_gen(
             if block_factors is None:
                 block_factors = [1] * len(grid)
 
-            thread_srcs = f(*args, **kwargs)
-            if type(thread_srcs) is not list:
-                thread_srcs = [thread_srcs]
-            assert len(thread_srcs) > 0
+            program = f(*args, **kwargs)
+            assert isinstance(program, Program)
 
             ctx = Context()
             loc = Location.unknown(ctx)
             with ctx, loc:
                 compiled_threads = []
-                for compile_thread in thread_srcs:
-                    compiled_threads.append(compile_thread(Tensor(), Tensor(), Tensor()))
+                for compile_thread in program.threads:
+                    compiled_threads.append(compile_thread(*program.args, **program.kwargs))
 
                 module = Module.create(loc)
                 with InsertionPoint(module.body):
@@ -1380,6 +1389,7 @@ def pykernel_gen(
                         indexing_maps,
                         iterator_types,
                         compiled_threads,
+                        num_outs,
                     )
 
                 print(module)
@@ -1406,7 +1416,7 @@ def pykernel_gen(
                         #tree_printing_dir_path=print_ir_path,
                         print_after_all=True,
                         #print_before_all=True,
-                        print_after_failure=True,
+                        print_after_failure=False,
                     )
                 pm.run(module.operation)
 
@@ -1430,13 +1440,12 @@ def pykernel_gen(
                     False, # dump_kernels_to_disk
                     False, # load_kernels_from_disk
                     False, # disable_device_address_validation
-                    True, # blocking_cq
+                    False, # blocking_cq
                 )
                 print(f"setting tt runtime debug env={debug_env}")
 
                 inputs = []
-                for tensor in args:
-                    print("input", tensor)
+                for tensor in args[:-num_outs]:
                     inputs.append(runtime.create_borrowed_host_tensor(
                         tensor.data_ptr(),
                         list(tensor.shape),
@@ -1446,15 +1455,9 @@ def pykernel_gen(
                     ))
 
                 outputs = []
-                outputs_torch = []
+                outputs_torch = args[-num_outs:]
                 output_descs = json.loads(fbb.get_program_outputs_as_json(program_index))
-                for output_desc in output_descs:
-                    tensor = torch.zeros(output_desc["desc"]["shape"],
-                        dtype=from_data_type(
-                            output_desc["desc"]["layout"]["memory_desc"]["data_type"]
-                        ))
-                    outputs_torch.append(tensor)
-                    print("output data ptr python", hex(tensor.data_ptr()))
+                for tensor in outputs_torch:
                     outputs.append(runtime.create_borrowed_host_tensor(
                         tensor.data_ptr(),
                         list(tensor.shape),
@@ -1470,8 +1473,8 @@ def pykernel_gen(
                     output_host = runtime.to_host(runtime_output_tensor, untilize=True)[0]
                     runtime.memcpy(outputs[i], output_host)
                     runtime.deallocate_tensor(runtime_output_tensor, force=True)
-                    print(outputs_torch[i])
                 runtime.close_mesh_device(device)
+                return outputs_torch[i]
 
         return _wrapper
 
