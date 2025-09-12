@@ -905,6 +905,7 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::PowOp,        ttir::TilePowOp>,
     TTIRNamedElementwiseRewriter<ttir::ReciprocalOp, ttir::TileRecipOp>,
     TTIRNamedElementwiseRewriter<ttir::RsqrtOp,      ttir::TileRsqrtOp>,
+    TTIRNamedElementwiseRewriter<ttir::GeluOp,       ttir::TileGeluOp>,
     TTIRNamedElementwiseRewriter<ttir::SigmoidOp,    ttir::TileSigmoidOp>,
     TTIRNamedElementwiseRewriter<ttir::SinOp,        ttir::TileSinOp>,
     TTIRNamedElementwiseRewriter<ttir::SqrtOp,       ttir::TileSqrtOp>,

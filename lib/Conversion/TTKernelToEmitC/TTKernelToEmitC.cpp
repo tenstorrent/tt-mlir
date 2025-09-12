@@ -813,6 +813,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SqrtTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SqrtTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SigmoidTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SigmoidTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SinTileInitOp>,

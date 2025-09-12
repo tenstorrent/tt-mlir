@@ -239,6 +239,16 @@ def TTIR_TileSigmoidOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sigmoid"> {
     let results = (outs TTCore_Tile:$result);
 }
 
+def TTIR_TileGeluOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gelu"> {
+    let summary = "TTIR Tile GELU Op";
+    let description = [{
+        The `tile_gelu` operation computes the GELU (Gaussian Error Linear Unit) of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def TTIR_TileCeilOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ceil"> {
     let summary = "TTIR Tile Ceil Op";
     let description = [{
