@@ -12,5 +12,6 @@ table PagedScaledDotProductAttentionDecodeOp {
   is_causal: bool;
   attn_mask: tt.target.ttnn.TensorRef;
   cur_pos_tensor: tt.target.ttnn.TensorRef;
+  attn_sink: tt.target.ttnn.TensorRef;
   scale: float = null;
 }
