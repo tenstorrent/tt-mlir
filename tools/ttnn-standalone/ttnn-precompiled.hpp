@@ -43,6 +43,7 @@
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
+#include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"

@@ -34,6 +34,7 @@
 #include "ttnn/operations/eltwise/ternary/where/where.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
+#include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
 #include "ttnn/operations/generic/generic_op.hpp"
 #include "ttnn/operations/kv_cache/kv_cache.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
