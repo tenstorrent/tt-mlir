@@ -34,6 +34,7 @@ clean() {
 
 # options and defaults:
 build_type="Release"
+build_preset=""
 enable_runtime="OFF"
 enable_runtime_tests="OFF"
 enable_profiler="OFF"
@@ -86,11 +87,11 @@ while true; do
         --release)
             build_type="Release";;
         --opmodel)
-            enable_runtime="ON"; enable_op_model="ON"; enable_profiler="ON";;
+            build_preset="opmodel"; enable_runtime="ON"; enable_op_model="ON"; enable_profiler="ON";;
         --d2m)
-            enable_runtime="ON"; enable_runtime_tests="ON"; enable_stablehlo="ON";;
+            build_preset="d2m"; enable_runtime="ON"; enable_runtime_tests="ON"; enable_stablehlo="ON";;
         --explorer)
-            enable_runtime="ON"; enable_explorer="ON"; enable_runtime_debug="ON";;
+            build_preset="explorer"; enable_runtime="ON"; enable_explorer="ON"; enable_runtime_debug="ON";;
         --speedy)
             enable_runtime="ON"; enable_op_model="ON"; enable_emitc="ON";;
         --tracy)
@@ -125,10 +126,7 @@ fi
 # If build-dir is not specified
 # Use build_type and enable_profiler setting to choose a default path
 if [ -z "$build_dir" ]; then
-    build_dir="build_$build_type"
-    if [ "$enable_profiler" = "ON" ]; then
-        build_dir="${build_dir}_tracy"
-    fi
+    build_dir="build_${build_preset}_${build_type}"
     # Create and link the build directory
     mkdir -p $build_dir
     ln -nsf $build_dir build
