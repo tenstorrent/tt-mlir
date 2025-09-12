@@ -48,6 +48,14 @@ void updateShardStatusForResult(MLIRContext *context, func::FuncOp &funcOp,
                                 uint32_t resultIdx,
                                 mlir::NamedAttribute shardStatusNamedAttr);
 
+// Parse axis definitions from SDY mesh string format.
+std::vector<std::pair<std::string, int64_t>>
+parseAxisDefinitions(const std::string &axesContent);
+
+// Parse mesh information from mhlo.frontend_attributes and create sdy.mesh.
+mlir::LogicalResult parseMeshFromFrontendAttributes(mlir::ModuleOp &rootModule,
+                                                    mlir::MLIRContext *context);
+
 class GSPMDMeshSharding : public sharding_utils::MeshSharding {
 public:
   // Static factory methods.
