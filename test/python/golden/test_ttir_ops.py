@@ -3133,24 +3133,24 @@ def test_mesh_shard_devices(
 @pytest.mark.parametrize(
     "test_shape",
     [
-        pytest.param((1, 1, 32, 32, 32), marks=pytest.mark.run_error),
         (1, 32, 32, 32),
-        (1, 32, 32),
-        (32, 32),
-        (1, 32, 32, 34),
-        (1, 32, 32, 30),
-        (1, 32, 34),
-        (1, 32, 32),
-        (32, 34),
-        (32, 32),
+        (1, 32, 32, 40),
+        (1, 32, 32, 26),
         (1, 32, 32, 1),
         (32, 32, 1, 1),
+        (1, 32, 32),
+        (1, 32, 40),
         (128, 256),
+        (32, 32),
+        (32, 40),
+        (40, 32),
+        pytest.param((1, 1, 32, 32, 32), marks=pytest.mark.run_error),
+        pytest.param((1, 1, 1, 1, 1, 1, 32, 32, 32), marks=pytest.mark.run_error),
     ],
     ids=shape_str,
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
-@pytest.mark.parametrize("all_gather_dim", [0, 1, 2, 3])
+@pytest.mark.parametrize("all_gather_dim", range(4))
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 def test_all_gather(
     test_shape: Shape,
@@ -3187,18 +3187,20 @@ def test_all_gather(
 @pytest.mark.parametrize(
     "test_shape",
     [
+        pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.run_error),
         (1, 1, 256, 256),
-        (1, 256, 256),
-        (256, 256),
         (1, 1, 256, 257),
         (1, 1, 256, 255),
-        (256, 257),
-        (256, 255),
         (1, 256, 256, 1),
         (256, 256, 1, 1),
-        (1024, 256),
-        (256, 1024),
         (1, 1, 32, 64),
+        (1, 64, 64),
+        (64, 64),
+        (64, 65),
+        (32, 64),
+        pytest.param(
+            (33, 65), marks=pytest.mark.run_error
+        ),  # all_gather + local reduce case
     ],
     ids=shape_str,
 )
@@ -3239,14 +3241,16 @@ def test_all_reduce(
     [
         pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.run_error),
         (1, 1, 256, 256),
-        (1, 256, 256),
-        (256, 256),
-        (256, 248),
-        (248, 256),
-        (256, 264),
-        (264, 256),
-        (1, 1, 128, 256),
-        (1, 1, 256, 128),
+        (1, 1, 256, 257),
+        (1, 1, 256, 255),
+        (1, 256, 256, 1),
+        (256, 256, 1, 1),
+        (1, 1, 32, 64),
+        (1, 128, 128),
+        (128, 128),
+        (128, 129),
+        (64, 128),
+        (64, 24),
     ],
     ids=shape_str,
 )
@@ -3292,11 +3296,13 @@ def test_reduce_scatter(
 @pytest.mark.parametrize(
     "test_shape",
     [
-        (1, 1, 256, 512),
-        (1, 256, 512),
-        (256, 512),
-        (256, 512, 1, 1),
-        (1, 256, 512, 1),
+        (1, 1, 32, 64),
+        (1, 32, 64),
+        (32, 64, 1, 1),
+        (1, 32, 64, 1),
+        (32, 64),
+        (30, 60),
+        (5, 11),
     ],
     ids=lambda val: id_with_name(val, "test_shape"),
 )
@@ -3352,7 +3358,7 @@ def test_collective_permute(
 @pytest.mark.parametrize(
     "test_shape",
     [
-        (256, 128),
+        (32, 64),
         (32, 64, 128),
         (8, 8, 64, 64),
     ],
@@ -3411,7 +3417,7 @@ def test_all_to_all(
 @pytest.mark.parametrize(
     "test_shape",
     [
-        (256, 128),
+        (64, 32),
         (32, 128, 64),
         (8, 8, 32, 64),
         (10, 10, 30, 60),
