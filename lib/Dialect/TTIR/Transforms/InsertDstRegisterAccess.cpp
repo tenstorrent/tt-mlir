@@ -307,10 +307,8 @@ public:
     SmallVector<int64_t> guardIndices = getNonParticipatingLoopDims(
         lookThroughSubView(loadOrStore.getMemRef()).getArgNumber());
     if (inserted) {
-      // First access in this loop nest - set the guard indices
       copyInfo.guardIndices = guardIndices;
     } else {
-      // Subsequent access - verify guard indices are the same
       assert(
           guardIndices == copyInfo.guardIndices &&
           "Expected same guard indices across all accesses in this loop nest");
@@ -589,7 +587,6 @@ public:
   }
 
   bool useTileMatmul;
-  static constexpr bool explain = false;
 };
 } // namespace
 
