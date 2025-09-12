@@ -152,9 +152,7 @@ public:
     dataCopyGenerate(rewriter, loc, dst, copyInfo);
 
     // 4. Rewrite stores to use dst register based on allocation
-    insertDstRegisterAllocation(rewriter, loc, region, dst,
-                                dstRegisterAllocation,
-                                outermostInnerComputeLoop);
+    insertDstRegisterAllocation(rewriter, loc, dst, dstRegisterAllocation);
 
     return true;
   }
@@ -513,9 +511,8 @@ public:
 
   // Rewrite stores to use dst register based on allocation map
   static void insertDstRegisterAllocation(
-      PatternRewriter &rewriter, Location loc, Region &region, Value dst,
-      const DstRegisterAllocation &dstRegisterAllocation,
-      Operation *outermostInnerComputeLoop = nullptr) {
+      PatternRewriter &rewriter, Location loc, Value dst,
+      const DstRegisterAllocation &dstRegisterAllocation) {
     auto dstType = dyn_cast<MemRefType>(dst.getType());
     if (!dstType) {
       return;
