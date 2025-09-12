@@ -343,8 +343,7 @@ class ModelRunner:
             )
             emitc_command = [
                 f"{self._build_dir}/bin/ttmlir-opt",
-                "--ttnn-tuplify-tensors",
-                "--convert-ttnn-to-emitc",
+                "--ttnn-backend-to-emitc-pipeline",
                 ttnn_ir_file,
                 "-o",
                 emitc_ir_file,
