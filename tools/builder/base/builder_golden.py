@@ -1958,7 +1958,7 @@ def softmax_golden(input_tensor: BuilderGoldenTensor, **kwargs) -> BuilderGolden
     BuilderGoldenTensor
         Softmax output
     """
-    dimension = kwargs.get("dimension", 1)
+    dimension = kwargs.get("dim", 1)
     return torch.nn.functional.softmax(input_tensor, dim=dimension)
 
 
