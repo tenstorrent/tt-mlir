@@ -13,7 +13,17 @@ void run(const ::tt::target::ttnn::FillCacheOp *op, ProgramContext &context) {
       tensorPool.getTTNNTensorAndValidate(op->cache());
   const ::ttnn::Tensor &input =
       tensorPool.getTTNNTensorAndValidate(op->input());
-
+  if (const char* print_cache = std::getenv("PRINT_CACHE")) {
+    ::ttnn::set_printoptions("full");
+    std::cout <<"Fill cache op before:" <<std::endl;
+    cache.print();
+  }
+  
   ::ttnn::fill_cache(cache, input, op->batch_offset());
+  
+  if (const char* print_cache = std::getenv("PRINT_CACHE")) {
+    std::cout <<"Fill cache op after:" <<std::endl;
+    cache.print();
+  }
 }
 } // namespace tt::runtime::ttnn::operations::kv_cache
