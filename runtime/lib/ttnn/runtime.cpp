@@ -24,6 +24,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttmlir/Version.h"
+#include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types_generated.h"
@@ -1608,4 +1609,24 @@ void updateTensorInPool(CallbackContext programContextHandle,
   tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
 }
 
+void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
+  ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
+  ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);
+}
+
+::tt::runtime::Tensor loadTensor(const std::string &filePath,
+                                 std::optional<Device> device) {
+
+  ::ttnn::MeshDevice *devicePtr = nullptr;
+  if (device.has_value()) {
+    devicePtr = &device->as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  }
+
+  ::ttnn::Tensor metalTensor =
+      ::tt::tt_metal::load_tensor_flatbuffer(filePath, devicePtr);
+
+  auto tensor = utils::createRuntimeTensorFromTTNN(metalTensor);
+
+  return tensor;
+}
 } // namespace tt::runtime::ttnn

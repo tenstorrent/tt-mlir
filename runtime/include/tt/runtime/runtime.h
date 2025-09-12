@@ -229,6 +229,13 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs);
 
+// Dumps tensor data to a file in binary format
+void dumpTensor(Tensor tensor, const std::string &filePath);
+
+// Loads tensor data from a binary file
+Tensor loadTensor(const std::string &filePath,
+                  std::optional<Device> device = std::nullopt);
+
 } // namespace tt::runtime
 
 #endif

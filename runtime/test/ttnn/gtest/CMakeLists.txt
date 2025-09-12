@@ -1,1 +1,2 @@
 add_runtime_gtest(test_runtime_client)
+add_runtime_gtest(test_tensor_serialization)

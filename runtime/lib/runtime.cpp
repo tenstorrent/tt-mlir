@@ -773,6 +773,27 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
       });
 }
 
+void dumpTensor(Tensor tensor, const std::string &filePath) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::dumpTensor(tensor, filePath); },
+      [&]() {
+        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
+      });
+}
+
+Tensor loadTensor(const std::string &filePath, std::optional<Device> device) {
+  using RetType = Tensor;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::loadTensor(filePath, device);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
+      });
+}
+
 #undef IF_TTNN_ENABLED
 #undef IF_TTMETAL_ENABLED
 #undef DISPATCH_TO_CURRENT_RUNTIME
