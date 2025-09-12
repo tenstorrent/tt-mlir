@@ -38,11 +38,16 @@ void run(const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOp *op,
           ? std::make_optional(context.getTensorPool().getTTNNTensorAndValidate(
                 op->cur_pos_tensor()))
           : std::nullopt;
+  const std::optional<::ttnn::Tensor> &attn_sink =
+      op->attn_sink()
+          ? std::make_optional(context.getTensorPool().getTTNNTensorAndValidate(
+                op->attn_sink()))
+          : std::nullopt;
 
   ::ttnn::Tensor output =
       ::ttnn::transformer::paged_scaled_dot_product_attention_decode(
           query, keys, values, page_table, op->is_causal(), attn_mask,
-          cur_pos_tensor, std::nullopt, op->scale());
+          cur_pos_tensor, attn_sink, op->scale());
 
   context.getTensorPool().insertTTNNTensorAndValidate(op->out(), output);
 }
