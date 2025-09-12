@@ -17,10 +17,21 @@ set(TTMLIR_PIPELINES_LIBS
   MLIRTTTransforms
   MLIRPass
   MLIRTransforms
+  TTMLIRTTIRToLinalg
+  MLIRTosaToLinalg
+  MLIRTosaToTensor
+  MLIRTosaToArith
+  TTMLIRTransforms
+  MLIRSCFToGPU
+  MLIRGPUToNVVMTransforms
+  MLIRNVVMToLLVM
+  TTMLIRTTIRToTTIRDecomposition
 )
 
 if(TTMLIR_ENABLE_STABLEHLO)
   list(APPEND TTMLIR_PIPELINES_LIBS
+    TTMLIRStableHLOToTTIR
+    TTMLIRSTABLEHLOUtils
     StablehloLinalgTransforms
     StablehloPasses
   )
@@ -33,6 +44,7 @@ add_mlir_dialect_library(MLIRTTIRPipelines
   ${PROJECT_SOURCE_DIR}/include/ttmlir
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Conversion/ArithToLLVM
 
-  LINK_LIBS PUBLIC
+  LINK_LIBS
+  PRIVATE
   ${TTMLIR_PIPELINES_LIBS}
 )
