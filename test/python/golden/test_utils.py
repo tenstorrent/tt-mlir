@@ -4,7 +4,8 @@
 
 import pytest
 from functools import wraps
-from typing import Callable, List, Sequence
+from typing import Callable, List, Sequence, Any
+import numbers
 
 from dataclasses import dataclass
 
@@ -51,6 +52,10 @@ class Marks:
         return pytest.param(lhs, marks=self.marks)
 
 
+def _seq_str(seq: Sequence, delim: str = ",") -> str:
+    return delim.join(map(str, seq))
+
+
 def shape_str(shape):
     """
     Converts shape tuple to string.
@@ -65,7 +70,36 @@ def shape_str(shape):
     str
         String representation of the shape (e.g., '32x32' for shape (32, 32))
     """
-    return "x".join(map(str, shape))
+    return _seq_str(shape, "x")
+
+
+def id_with_name(val: Any, name: str) -> str:
+    """
+    Converts a value to a string with a given name.
+
+    Parameters
+    ----------
+    val : Any
+        Value to convert to string
+    name : str
+        Name to prepend to the string
+
+    Returns
+    -------
+    str
+        String representation of the value with the given name
+    """
+    name_val_delim = "="
+    if isinstance(val, str):
+        return name + name_val_delim + Value
+    if isinstance(val, numbers.Number):
+        return name + name_val_delim + str(val)
+    if isinstance(val, Sequence):
+        if "shape" in name.lower():
+            return name + name_val_delim + shape_str(val)
+        else:
+            return name + name_val_delim + _seq_str(val)
+    return name + name_val_delim + str(val)
 
 
 def make_shard_shape(
