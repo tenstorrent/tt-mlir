@@ -75,7 +75,7 @@ class Builder:
         for name, mesh in zip(mesh_name, mesh_dict):
             self._meshes[name] = mesh
 
-        self._mesh_shape = mesh_dict[0]
+        self._mesh_shape = tuple(mesh_dict[0].values())
 
     # ----- Public methods -----
 

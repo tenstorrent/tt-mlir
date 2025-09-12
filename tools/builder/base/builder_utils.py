@@ -220,8 +220,7 @@ def build_ttir_module(
     except (OSError, TypeError):
         loc = Location.unknown(ctx)
 
-    mesh_shape = tuple(mesh_dict.values())
-    ttir_builder = TTIRBuilder(ctx, loc, mesh_shape)
+    ttir_builder = TTIRBuilder(ctx, loc, mesh_name, mesh_dict)
 
     # Default to all f32s
     if inputs_types is None:
