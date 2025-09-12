@@ -894,8 +894,8 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
     return error;
   }
 
-  auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
-      l1UsageExp.get();
+  auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
+        outputLayout] = l1UsageExp.get();
 
   if (consumerConfig.outputLayout &&
       outputLayout != consumerConfig.outputLayout) {
