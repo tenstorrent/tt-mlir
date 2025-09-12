@@ -5,10 +5,6 @@ add_mlir_unittest(ValidationTests
 
 target_link_libraries(ValidationTests
     PRIVATE
-    MLIRTTCoreDialect
-    MLIRTTNNDialect
     MLIRTTNNValidation
-    TTMLIRTTNNUtils
-    TTNNOpModelLib
     MLIRTTTransforms
 )

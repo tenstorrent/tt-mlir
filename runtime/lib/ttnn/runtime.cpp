@@ -195,7 +195,12 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
                          const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType) {
-  LOG_ASSERT(data != nullptr, "Cannot create borrowed tensor with null data");
+  LOG_ASSERT(
+      data != nullptr ||
+          (shape.size() == 0 ||
+           std::accumulate(shape.begin(), shape.end(), 1,
+                           std::multiplies<std::uint32_t>()) == 0),
+      "Cannot create borrowed tensor with null data unless the volume is 0.");
   LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
              "Cannot create borrowed tensor with unsupported data type");
   ::ttnn::Shape ttnnShape(shape);
