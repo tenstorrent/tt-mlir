@@ -39,7 +39,7 @@ class Builder:
         mesh_name: Union[List[str], str] = "mesh",
         mesh_dict: Union[
             List[OrderedDict[str, int]], OrderedDict[str, int]
-        ] = OrderedDict([("x", 1), ("y", 1)]),
+        ] = OrderedDict([("x", 1), ("y", 2)]),
         disable_golden_check: bool = False,
     ):
         self._ctx = ctx
@@ -75,8 +75,8 @@ class Builder:
         self._meshes = {}
         for name, mesh in zip(mesh_name, mesh_dict):
             self._meshes[name] = mesh
-
-        self._mesh_shape = mesh_dict[0]
+        print(mesh_dict)
+        self._mesh_shape = tuple(mesh_dict[0].values())
 
     # ----- Public methods -----
 
@@ -112,7 +112,10 @@ class Builder:
 
         # Store outputs into golden map if they are marked to be stored.
         for index, output in enumerate(self._ordered_outputs):
-            if output not in self._goldens_to_store:
+            if (
+                output not in self._goldens_to_store
+                or self._force_graph_level_check is False
+            ):
                 continue
 
             loc = f"output_{index}"

@@ -25,10 +25,9 @@ class TTIRBuilder(Builder):
         self,
         ctx: Context,
         location: Location,
-        mesh_shape=(1, 1),
         disable_golden_check: bool = False,
     ) -> RankedTensorType:
-        super().__init__(ctx, location, mesh_shape, disable_golden_check)
+        super().__init__(ctx, location, disable_golden_check)
 
     # ----- Public methods -----
 

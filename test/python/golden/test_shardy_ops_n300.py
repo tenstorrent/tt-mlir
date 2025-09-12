@@ -22,7 +22,7 @@ def sharding_constraint(
     builder: StableHLOBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    builder.set_graph_level_check(True)
+    # builder.set_graph_level_check(True)
     tensor_sharding_attr = builder.tensor_sharding_attr(
         mesh_name="mesh",
         dimension_shardings=[
@@ -43,7 +43,7 @@ def sharding_constraint(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
     [

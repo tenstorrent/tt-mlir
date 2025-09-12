@@ -220,8 +220,7 @@ def build_ttir_module(
     except (OSError, TypeError):
         loc = Location.unknown(ctx)
 
-    mesh_shape = tuple(mesh_dict.values())
-    ttir_builder = TTIRBuilder(ctx, loc, mesh_shape)
+    ttir_builder = TTIRBuilder(ctx, loc)
 
     # Default to all f32s
     if inputs_types is None:
@@ -553,7 +552,7 @@ def build_stablehlo_module(
             with open(filename, "w") as f:
                 f.write(str(module))
                 print(module)
-
+        print(stablehlo_builder.golden_map)
         return module, stablehlo_builder
 
 
@@ -666,6 +665,14 @@ def compile_stablehlo_to_flatbuffer(
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
+
+    filename = _get_target_path(
+        output_root, "stablehlo-builder", test_base + ".mlir", test_base
+    )
+    if module_dump:
+        with open(filename, "w") as f:
+            f.write(str(module))
+
     stablehlo_to_ttir_pipeline(module, " ".join(shlo_to_ttir_pipeline_options))
     print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
     print(module)
