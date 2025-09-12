@@ -52,6 +52,8 @@ struct Layout;
 struct MemoryConfig;
 struct BufferType;
 
+struct QueueId;
+
 namespace types {
 struct ShardOrientation;
 struct ShardMode;
@@ -297,6 +299,11 @@ template <>
 struct TypeName<::ttnn::operations::reduction::ReduceType> {
   inline static const std::string value =
       "::ttnn::operations::reduction::ReduceType";
+};
+
+template <>
+struct TypeName<::ttnn::QueueId> {
+  inline static const std::string value = "::ttnn::QueueId";
 };
 
 template <>
@@ -797,6 +804,32 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     llvm_unreachable("Unknown ttcore::ReduceType");
   }
 };
+
+template <>
+struct EmitCTypeConverter<::ttnn::QueueId> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto integerAttr = mlir::dyn_cast_if_present<mlir::IntegerAttr>(attr)) {
+      return convert(integerAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::IntegerAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(mlir::APInt attr) {
+    return convert(attr.getZExtValue());
+  }
+
+  template <typename T>
+  static std::enable_if_t<std::is_integral_v<T>, std::string>
+  convert(T &&value) {
+    return TypeNameV<::ttnn::QueueId> + "(" +
+           std::to_string(static_cast<uint8_t>(value)) + ")";
+  }
+};
+
 // Convert container types (std::vector, ttnn::SmallVector, etc.).
 template <typename T>
 struct EmitCContainerTypeConverter {

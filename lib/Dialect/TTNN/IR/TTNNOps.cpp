@@ -1850,9 +1850,6 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
       newBufferType = tensorSpecOp.getMemoryConfigAttr().getBufferType();
     }
 
-    llvm::outs() << "Merging ToLayoutOp into "
-                 << creationOp->getName().getStringRef() << "\n";
-
     TTNNDeviceOperandInterface deviceOperandInterface =
         mlir::cast<TTNNDeviceOperandInterface>(creationOp);
     // If the new buffer type is a device buffer type, we need to insert a
@@ -3056,8 +3053,8 @@ static ::mlir::LogicalResult verifyTraceIdTensor(Operation *op, Value traceId) {
   if (intType.getWidth() != 32) {
     return op->emitError() << "Trace ID must be 32-bit";
   }
-  if (utils::isTensorOnDevice(traceIdTensor)) {
-    return op->emitError() << "Trace ID must be on system memory";
+  if (!mlir::isa_and_present<ttnn::TraceIdAttr>(traceIdTensor.getEncoding())) {
+    return op->emitError() << "Trace ID must have the TraceIdAttr encoding";
   }
   return ::mlir::success();
 }

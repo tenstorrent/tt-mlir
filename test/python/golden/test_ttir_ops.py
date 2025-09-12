@@ -299,7 +299,6 @@ def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request):
     def rsqrt(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        torch.manual_seed(0)
         input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
         golden_output_tensor = torch.rsqrt(input_tensor)
         rsqrt_0 = builder.rsqrt(in0, unit_attrs=unit_attrs)
@@ -2170,10 +2169,6 @@ def test_hoisted_where(shapes, request, target: str):
     "dtype", [torch.float32, torch.int32, torch.uint8], ids=["f32", "i32", "ui8"]
 )
 def test_reshape(shapes, dtype: torch.dtype, request):
-    if dtype == torch.uint8:
-        pytest.skip(
-            "ttrt cannot support uint8 input: https://github.com/tenstorrent/tt-mlir/issues/4813"
-        )
     input_shape, output_shape = shapes
 
     def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
@@ -2306,7 +2301,6 @@ def test_reciprocal(shape: Shape, dtype: torch.dtype, target: str, request):
     def reciprocal(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        torch.manual_seed(0)
         reciprocal_0 = builder.reciprocal(in0, unit_attrs=unit_attrs)
 
         # Constrain values for reciprocal
@@ -2543,6 +2537,82 @@ def test_ternary_eltwise_ops_implicit_broadcast(
         test_fn,
         shapes,
         [dtype1, dtype2, dtype3],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+unaligned_shapes = [
+    (5, 3),
+    (32, 1),
+    (31, 7),
+    (1, 32),
+    (13, 29),
+    (64, 1),
+    (61, 3),
+    (61, 37),
+    (1, 64),
+    (5, 67),
+    (43, 67),
+    (2, 3, 5),
+    (3, 17, 37),
+    (9, 43, 7),
+    (5, 61, 49),
+    (51, 19, 23),
+    (677, 1, 1),
+    (2, 3, 5, 7),
+    (3, 37, 5, 53),
+    (37, 3, 5, 53),
+    (41, 7, 43, 11),
+    (7, 41, 43, 11),
+    (1, 23, 1, 1),
+    (23, 1, 1, 1),
+    (3, 5, 7, 11, 13),
+]
+
+
+@pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_unaligned_shapes_neg(shape: Shape, dtype: torch.dtype, target: str, request):
+    compile_ttir_to_flatbuffer(
+        neg,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_unaligned_shapes_add(shape: Shape, dtype: torch.dtype, target: str, request):
+    def add(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        # Magnitudes of the elements should be in [0.01, 1) to avoid FP accuracy issue.
+        tensor_lhs = torch.rand(shape) * 0.99 + 0.01
+        tensor_rhs = torch.rand(shape) * 0.99 + 0.01
+        signs_lhs = torch.randint(0, 2, shape) * 2 - 1
+        signs_rhs = torch.randint(0, 2, shape) * 2 - 1
+        tensor_lhs *= signs_lhs
+        tensor_rhs *= signs_rhs
+        tensor_out = torch.add(tensor_lhs, tensor_rhs)
+        builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
+        return builder.add(in0, in1, unit_attrs=unit_attrs)
+
+    compile_ttir_to_flatbuffer(
+        add,
+        [shape, shape],
+        [dtype, dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
