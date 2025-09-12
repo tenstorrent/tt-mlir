@@ -447,14 +447,12 @@ TEST_P(BinaryBitwiseOpModelTest, TestOpInterface) {
       backend.getOpConstraints(getInputLayouts(op), OpConfig(outputLayout));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  auto constraints = constraintsExp.get();
-  EXPECT_EQ(constraints.cbL1PeakSize, params.expectedResult.expectedCbSize);
-  EXPECT_EQ(constraints.tensorL1PeakSize,
-            params.expectedResult.expectedL1PeakSize);
-  EXPECT_EQ(constraints.peakMemorySize,
-            params.expectedResult.expectedTotalPeakSize);
-  EXPECT_EQ(constraints.outputL1BufferSize,
-            params.expectedResult.expectedOutputSize);
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize,
+               outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
+  EXPECT_EQ(l1PeakSize, params.expectedResult.expectedL1PeakSize);
+  EXPECT_EQ(totalPeakSize, params.expectedResult.expectedTotalPeakSize);
+  EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
 
   // Test runtime
   auto runtimeExp = getOpRuntime(op);

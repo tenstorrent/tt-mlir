@@ -2428,10 +2428,11 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
-    OpConstraints &opCstr = constraintsExp.get();
-    EXPECT_GT(opCstr.cbL1PeakSize, 0);
-    EXPECT_GT(opCstr.tensorL1PeakSize, 0);
-    EXPECT_GT(opCstr.peakMemorySize, 0);
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
+    EXPECT_GT(totalPeakSize, 0);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
