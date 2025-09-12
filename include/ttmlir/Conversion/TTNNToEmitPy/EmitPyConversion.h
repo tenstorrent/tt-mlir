@@ -1336,7 +1336,7 @@ private:
             op.getLoc(),
             emitpy::OpaqueType::get(rewriter.getContext(),
                                     TypeNameV<std::vector<::ttnn::Tensor>>),
-            kCreateListFunctionName, nullptr, nullptr, operands)
+            kCreateListFunctionName, operands, nullptr, nullptr)
         ->getResult(0);
   }
 
