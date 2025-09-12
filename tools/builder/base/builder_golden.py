@@ -2507,6 +2507,9 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
     if ttir_op_class in GOLDEN_MAPPINGS:
         return GOLDEN_MAPPINGS[ttir_op_class]
 
+    assert False, f"Golden function not found for {ttir_op_class}"
+    return None
+
 
 """
 Dictionary mapping TTIR operation classes to their corresponding golden functions.

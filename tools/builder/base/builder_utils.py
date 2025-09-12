@@ -493,7 +493,7 @@ def build_stablehlo_module(
 
     # Instantiate builder which is passed as the last argument to
     # `fn` so the user can use it to build ops.
-    stablehlo_builder = StableHLOBuilder(ctx, loc, [mesh_name], [mesh_dict])
+    stablehlo_builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
 
     # Default to all f32s
     if inputs_types is None:
@@ -696,7 +696,7 @@ def compile_stablehlo_to_flatbuffer(
 
 def compile_ttir_module_to_flatbuffer(
     module: Module,
-    builder: Union[TTIRBuilder, StableHLOBuilder],
+    builder: Builder,
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
@@ -862,9 +862,7 @@ def experimental_build_stablehlo_module(
 
     # Instantiate builder which is passed as the last argument to
     # `fn` so the user can use it to build ops.
-    stablehlo_builder = StableHLOBuilder(
-        ctx, loc, mesh_name=mesh_name, mesh_dict=mesh_dict
-    )
+    stablehlo_builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
 
     # Default to all f32s
     if inputs_types is None:
