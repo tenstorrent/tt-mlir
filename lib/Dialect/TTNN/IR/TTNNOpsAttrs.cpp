@@ -724,7 +724,7 @@ bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
 }
 
 // Returns empty configuration.
-Conv2dConfigAttr Conv2dConfigAttr::getEmpty(::mlir::MLIRContext *context) {
+Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
   return Conv2dConfigAttr::get(context,
                                /*weightsDtype=*/std::nullopt,
                                /*activation=*/nullptr,
@@ -745,8 +745,8 @@ Conv2dConfigAttr Conv2dConfigAttr::getEmpty(::mlir::MLIRContext *context) {
 }
 
 // Returns default configuration.
-Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
-  Conv2dConfigAttr convConfig = getEmpty(context);
+Conv2dConfigAttr Conv2dConfigAttr::getDefault(::mlir::MLIRContext *context) {
+  Conv2dConfigAttr convConfig = get(context);
   return Conv2dConfigParams(convConfig, /*partial=*/false)
       .buildConv2dConfigAttr(context);
 }

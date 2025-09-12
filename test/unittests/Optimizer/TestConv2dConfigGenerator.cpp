@@ -23,14 +23,14 @@ public:
 };
 
 TEST_F(Conv2dConfigGeneratorTest, ConstructionMinimal) {
-  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
+  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::get(&context);
   Conv2dConfigSearchSpace space;
   Conv2dConfigGenerator gen(/*op=*/nullptr, baseConfig, space, filterOutFn);
   EXPECT_TRUE(gen.searchDone());
 }
 
 TEST_F(Conv2dConfigGeneratorTest, SingleFieldIteration) {
-  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
+  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::get(&context);
   Conv2dConfigSearchSpace space;
   space.weightsDtype = {mlir::tt::ttcore::DataType::BFloat16,
                         mlir::tt::ttcore::DataType::Float32,
@@ -50,7 +50,7 @@ TEST_F(Conv2dConfigGeneratorTest, SingleFieldIteration) {
 }
 
 TEST_F(Conv2dConfigGeneratorTest, MultipleFieldIteration) {
-  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
+  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::get(&context);
   Conv2dConfigSearchSpace space;
   space.weightsDtype = {mlir::tt::ttcore::DataType::BFloat16,
                         mlir::tt::ttcore::DataType::Float32};
@@ -72,7 +72,7 @@ TEST_F(Conv2dConfigGeneratorTest, MultipleFieldIteration) {
 }
 
 TEST_F(Conv2dConfigGeneratorTest, FilterOut) {
-  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
+  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::get(&context);
   Conv2dConfigSearchSpace space;
   space.weightsDtype = {mlir::tt::ttcore::DataType::BFloat16,
                         mlir::tt::ttcore::DataType::UInt32};
@@ -88,7 +88,7 @@ TEST_F(Conv2dConfigGeneratorTest, FilterOut) {
 }
 
 TEST_F(Conv2dConfigGeneratorTest, EdgeCaseEmptySearchSpace) {
-  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
+  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::get(&context);
   Conv2dConfigSearchSpace space;
   Conv2dConfigGenerator gen(nullptr, baseConfig, space, filterOutFn);
   EXPECT_TRUE(gen.searchDone());
@@ -97,7 +97,7 @@ TEST_F(Conv2dConfigGeneratorTest, EdgeCaseEmptySearchSpace) {
 }
 
 TEST_F(Conv2dConfigGeneratorTest, EdgeCaseSingleConfig) {
-  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
+  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::get(&context);
   Conv2dConfigSearchSpace space;
   space.weightsDtype = {mlir::tt::ttcore::DataType::Float32};
   Conv2dConfigGenerator gen(nullptr, baseConfig, space, filterOutFn);
@@ -110,7 +110,7 @@ TEST_F(Conv2dConfigGeneratorTest, EdgeCaseSingleConfig) {
 }
 
 TEST_F(Conv2dConfigGeneratorTest, NonEmptyBaseConfig) {
-  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::getEmpty(&context);
+  Conv2dConfigAttr baseConfig = Conv2dConfigAttr::get(&context);
   baseConfig = baseConfig.withWeightsDtype(mlir::tt::ttcore::DataType::Float32);
 
   Conv2dConfigSearchSpace space;

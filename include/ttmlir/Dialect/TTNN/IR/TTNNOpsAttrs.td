@@ -509,7 +509,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   ];
 
   let extraClassDeclaration = [{
-    static Conv2dConfigAttr getEmpty(::mlir::MLIRContext *context);
+    static Conv2dConfigAttr getDefault(::mlir::MLIRContext *context);
 
     Conv2dConfigAttr withActivation(StringRef activation) const;
     Conv2dConfigAttr withWeightsDtype(ttcore::DataType dtype) const;
