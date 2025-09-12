@@ -5203,16 +5203,9 @@ mlir::tt::ttir::CollectiveBroadcastOp::fold(FoldAdaptor adaptor) {
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
   // Input tensor dimensions [batch_size, num_heads, sequence_size, head_size].
-  enum InputDimensions {
-    INPUT_BATCH = 0,
-    INPUT_NUM_HEADS = 1,
-    INPUT_SEQ = 2,
-    INPUT_HEAD_SIZE = 3
-  };
-
   // Output tensor dimensions [batch_size, sequence_size, num_heads *
   // head_size].
-  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+  using namespace ttmlir::utils::transformer;
 
   // Verify batch_size dimension matches.
   if (inputShape[INPUT_BATCH] != outputShape[OUTPUT_BATCH]) {
