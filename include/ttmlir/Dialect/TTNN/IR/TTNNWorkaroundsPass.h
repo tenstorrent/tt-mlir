@@ -242,6 +242,10 @@ public:
   static TTNNOperandsWorkarounds
   createMeshShardOpOperandsWorkarounds(ttcore::MeshShardType shardType);
 
+  // Create workarounds for scatter op operands.
+  static TTNNOperandsWorkarounds
+  createScatterOpOperandsWorkarounds(mlir::Operation *op);
+
   // Create workarounds for concat op operands.
   static TTNNOperandsWorkarounds
   createConcatOpOperandsWorkarounds(mlir::Operation::operand_range inputs,

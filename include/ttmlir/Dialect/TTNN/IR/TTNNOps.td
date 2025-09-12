@@ -1957,6 +1957,12 @@ def TTNN_ScatterOp : TTNN_Op<"scatter"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(getOperation());
+      }
+    }];
 }
 
 def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
