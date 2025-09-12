@@ -25,9 +25,14 @@ class TTIRBuilder(Builder):
         self,
         ctx: Context,
         location: Location,
+        mesh_name: Union[List[str], str] = "mesh",
+        mesh_dict: Union[
+            List[OrderedDict[str, int]], OrderedDict[str, int]
+        ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
-    ) -> RankedTensorType:
-        super().__init__(ctx, location, disable_golden_check)
+    ):
+        super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
+        self._force_graph_level_check = True
 
     # ----- Public methods -----
 

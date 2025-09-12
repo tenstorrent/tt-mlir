@@ -220,7 +220,7 @@ def build_ttir_module(
     except (OSError, TypeError):
         loc = Location.unknown(ctx)
 
-    ttir_builder = TTIRBuilder(ctx, loc)
+    ttir_builder = TTIRBuilder(ctx, loc, mesh_name, mesh_dict)
 
     # Default to all f32s
     if inputs_types is None:
@@ -391,6 +391,7 @@ def compile_ttir_to_flatbuffer(
         mesh_dict=mesh_dict,
         module_dump=module_dump,
         output_root=output_root,
+        base=test_base,
     )
 
     return compile_ttir_module_to_flatbuffer(
@@ -660,6 +661,7 @@ def compile_stablehlo_to_flatbuffer(
         mesh_dict=mesh_dict,
         module_dump=module_dump,
         output_root=output_root,
+        base=test_base,
     )
 
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
