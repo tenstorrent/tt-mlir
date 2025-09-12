@@ -8,6 +8,9 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+// D2M generic/region ops
+#include "ttmlir/Dialect/D2M/IR/D2M.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -15,6 +18,7 @@
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -283,8 +287,8 @@ private:
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, rank);
 
-    // Create 'ttir.generic' accepting 'op's operands.
-    auto generic = rewriter.create<ttir::GenericOp>(
+    // Create 'd2m.generic' accepting 'op's operands.
+    auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -337,7 +341,7 @@ private:
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
 
-        rewriter.create<ttir::YieldOp>(loc, linalgGeneric->getResults());
+        rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -421,8 +425,8 @@ private:
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, op, rank);
 
-    // Create 'ttir.generic' accepting extended operands.
-    auto generic = rewriter.create<ttir::GenericOp>(
+    // Create 'd2m.generic' accepting extended operands.
+    auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -472,7 +476,7 @@ private:
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
 
-        rewriter.create<ttir::YieldOp>(loc, linalgGeneric->getResults());
+        rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -655,8 +659,8 @@ private:
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, rank);
 
-    // Create 'ttir.generic' accepting 'op's operands.
-    auto generic = rewriter.create<ttir::GenericOp>(
+    // Create 'd2m.generic' accepting 'op's operands.
+    auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -679,7 +683,7 @@ private:
                                   /* resultTypes */ mlir::TypeRange(),
                                   /* operands */ blockArgs);
           // In pure tensor semantics, explicitly yield the output shard.
-          rewriter.create<ttir::YieldOp>(loc, blockArgs.take_back(numOutputs));
+          rewriter.create<d2m::YieldOp>(loc, blockArgs.take_back(numOutputs));
 
         } else if constexpr (std::is_same_v<ttir::TileMatmulOp, TileOp>) {
 
@@ -708,7 +712,7 @@ private:
                 bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
               });
 
-          rewriter.create<ttir::YieldOp>(loc, linalgGeneric->getResults());
+          rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
         }
       }
     }
@@ -834,13 +838,13 @@ public:
 
     // For inner permute, we need as streamLayout to do reblocking.
     auto storage = rewriter.create<ttir::EmptyOp>(loc, viewType);
-    auto stream = rewriter.create<ttir::StreamLayoutOp>(loc, viewType,
-                                                        inputs[0], storage);
+    auto stream =
+        rewriter.create<d2m::StreamLayoutOp>(loc, viewType, inputs[0], storage);
     inputs[0] = stream.getResult();
 
     // For inner permute, we alse need a GenericOp to transpose each individual
     // tile.
-    auto generic = rewriter.create<ttir::GenericOp>(
+    auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs,
         [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
           auto identityMap = builder.getMultiDimIdentityMap(2);
@@ -862,7 +866,7 @@ public:
                 bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
               });
 
-          builder.create<ttir::YieldOp>(bodyLoc, linalgGeneric->getResults());
+          builder.create<d2m::YieldOp>(bodyLoc, linalgGeneric->getResults());
         });
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
