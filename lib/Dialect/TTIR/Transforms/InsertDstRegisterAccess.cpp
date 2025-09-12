@@ -308,11 +308,9 @@ public:
         lookThroughSubView(loadOrStore.getMemRef()).getArgNumber());
     if (inserted) {
       copyInfo.guardIndices = guardIndices;
-    } else {
-      assert(
-          guardIndices == copyInfo.guardIndices &&
-          "Expected same guard indices across all accesses in this loop nest");
     }
+    assert(guardIndices == copyInfo.guardIndices &&
+           "Expected same guard indices across all accesses in this loop nest");
 
     // This isn't very rigorous but it should work for now.  By just returning
     // the memref shape we're assuming the whole memref is accessed inside of
