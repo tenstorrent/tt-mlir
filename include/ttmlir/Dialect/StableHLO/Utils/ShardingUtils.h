@@ -12,6 +12,11 @@ namespace mlir::tt::sharding_utils {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 
+// SDY sharding related string definitions.
+inline constexpr llvm::StringRef kXlaSdyShardingAttr = "xla.sdy.sharding";
+inline constexpr llvm::StringRef kXlaSdyMeshesAttr = "xla.sdy.meshes";
+inline constexpr llvm::StringRef kDefaultMeshName = "mesh";
+
 inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
     SupportedMeshes = {
         {{1, 1}, {1, 2}, {1, 4}, {1, 8}, {2, 4}, {1, 32}, {8, 4}}};
