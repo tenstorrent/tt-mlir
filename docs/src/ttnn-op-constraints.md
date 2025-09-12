@@ -243,9 +243,10 @@ TEST_F(OpModelBase, YourOpInterface) {
   auto constraintsExp = getOpConstraints(yourOp.getOperation());
   if (constraintsExp) {
       auto l1 = constraintsExp.get();
-      const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+      const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] = l1;
       EXPECT_EQ(cbSize, /* some expected value */);
-      EXPECT_EQ(peakSize, /* some expected value */);
+      EXPECT_EQ(l1PeakSize, /* some expected value */);
+      EXPECT_EQ(totalPeakSize, /* some expected value */);
       EXPECT_EQ(outputSize, /* some expected value */);
   } else {
       FAIL() << "Missing L1 constraints; Error="
@@ -287,10 +288,11 @@ protected:
         CreateWorkerGrid(), /* pass the params according to TTNNOpModel.h interface */, outputLayout);
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedResult.expectedLegal);
     if (expectedResult.expectedLegal) {
-      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
           constraintsExp.get();
       EXPECT_EQ(cbSize, expectedResult.expectedCbSize);
-      EXPECT_EQ(peakSize, expectedResult.expectedPeakSize);
+      EXPECT_EQ(l1PeakSize, expectedResult.expectedL1PeakSize);
+      EXPECT_EQ(totalPeakSize, expectedResult.expectedTotalPeakSize);
       EXPECT_EQ(outputSize, expectedResult.expectedOutputSize);
     } else {
       // Must clean up the error
@@ -317,7 +319,7 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(
             detail::TestTensor{{32, 64}, TensorMemoryLayout::INTERLEAVED, BufferType::DRAM},
             detail::TestTensor{{32, 64}, TensorMemoryLayout::INTERLEAVED, BufferType::DRAM},
-            detail::ExpectedResult{true, 8192, 8192, 8192}),
+            detail::ExpectedResult{true, 8192, 8192, 8192, 8192}),
         // Add more test cases...
     ));
 ```
