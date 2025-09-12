@@ -17,6 +17,49 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRLOWERTOLAYOUT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
+// Helper struct to encapsulate tensor info; this allows us to package
+// MetalLayoutAttr as optional gracefully.
+namespace {
+struct TensorInfo {
+  RankedTensorType type;
+  std::optional<ttcore::MetalLayoutAttr> layout;
+
+  static TensorInfo from(Value val) {
+    auto type = mlir::cast<RankedTensorType>(val.getType());
+    auto layout =
+        mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(type.getEncoding());
+    return {type, layout ? std::optional(layout) : std::nullopt};
+  }
+
+  bool hasLayout() const { return layout.has_value(); }
+
+  ttcore::MemorySpace getMemorySpace() const {
+    return layout ? layout->getMemorySpace() : ttcore::MemorySpace::System;
+  }
+
+  bool isL1() const {
+    return hasLayout() &&
+           layout->getMemorySpace() == ttcore::MemorySpace::DeviceL1;
+  }
+
+  bool isDRAM() const {
+    return hasLayout() &&
+           layout->getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
+  }
+
+  bool isSystem() const {
+    return !hasLayout() ||
+           layout->getMemorySpace() == ttcore::MemorySpace::System;
+  }
+
+  ArrayRef<int64_t> getGridShape() const {
+    assert(hasLayout() && "Cannot get grid shape without layout");
+    return layout->getGridShape(type);
+  }
+};
+} // namespace
+
+namespace {
 class TTIRLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 public:
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
@@ -29,22 +72,24 @@ public:
 
   static LogicalResult lowerSystemLayoutChange(PatternRewriter &rewriter,
                                                ToLayoutOp op) {
-    ttcore::MetalLayoutAttr inputLayout = op.getOrCreateInputLayout();
-    ttcore::MetalLayoutAttr outputLayout = op.getOrCreateOutputLayout();
-    bool inputSystem =
-        inputLayout.getMemorySpace() == ttcore::MemorySpace::System;
-    bool outputSystem =
-        outputLayout.getMemorySpace() == ttcore::MemorySpace::System;
-    assert(inputSystem != outputSystem &&
+    auto inputInfo = TensorInfo::from(op.getInput());
+    auto outputInfo = TensorInfo::from(op.getOutput());
+
+    assert(inputInfo.isSystem() != outputInfo.isSystem() &&
            "one of input or output must be system for now");
+
     if (op.getLayout()) {
       // Already lowered.
       return failure();
     }
 
+    // Use the layout of whichever side has a layout (input or output).
+    auto deviceLayout =
+        inputInfo.isSystem() ? outputInfo.layout : inputInfo.layout;
+    assert(deviceLayout.has_value() && "Device side must have a layout");
+
     rewriter.replaceOpWithNewOp<ToLayoutOp>(op, op.getInput(), op.getOutput(),
-                                            inputSystem ? outputLayout
-                                                        : inputLayout);
+                                            *deviceLayout);
     return success();
   }
 
@@ -52,12 +97,13 @@ public:
   // device->device memspace ToLayoutOp.
   static bool producerMustBeLoweredFirst(ToLayoutOp op) {
     if (auto producer = op.getInput().getDefiningOp<ToLayoutOp>()) {
-      auto inputOperandMemspace =
-          producer.getOrCreateInputLayout().getMemorySpace();
-      auto outputOperandMemspace =
-          producer.getOrCreateOutputLayout().getMemorySpace();
-      if (ttcore::isDeviceMemorySpace(inputOperandMemspace) &&
-          ttcore::isDeviceMemorySpace(outputOperandMemspace)) {
+      auto producerInputInfo = TensorInfo::from(producer.getInput());
+      auto producerOutputInfo = TensorInfo::from(producer.getOutput());
+
+      // Check if both producer's input and output are on device
+      // (i.e., both have layouts and neither is system memory)
+      if (producerInputInfo.hasLayout() && producerOutputInfo.hasLayout() &&
+          !producerInputInfo.isSystem() && !producerOutputInfo.isSystem()) {
         return true;
       }
     }
@@ -66,37 +112,24 @@ public:
 
   static LogicalResult lowerDatamovementGeneric(PatternRewriter &rewriter,
                                                 ToLayoutOp op) {
-    ttcore::MetalLayoutAttr inputLayout = op.getOrCreateInputLayout();
-    ttcore::MetalLayoutAttr outputLayout = op.getOrCreateOutputLayout();
-    if (inputLayout.getMemorySpace() == ttcore::MemorySpace::System ||
-        outputLayout.getMemorySpace() == ttcore::MemorySpace::System) {
-      // To/From host mem is a special case that is lowered to
-      // ttmetal.enqueue_write_buffer or ttmetal.enqueue_read_buffer
+    auto inputInfo = TensorInfo::from(op.getInput());
+    auto outputInfo = TensorInfo::from(op.getOutput());
+
+    if (inputInfo.isSystem() || outputInfo.isSystem()) {
       return lowerSystemLayoutChange(rewriter, op);
     }
 
-    // Get the shapes to determine if we need a view.
-    auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
-    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    // Both input and output should have layouts at this point.
+    assert(inputInfo.hasLayout() && outputInfo.hasLayout());
 
     Value viewInput = op.getInput();
 
-    // If grid shapes differ, we need a view to reblock.
-    auto outputGridShape = outputLayout.getGridShape(outputType);
-    auto inputGridShape = inputLayout.getGridShape(inputType);
-
-    bool isSrcDram =
-        inputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
-    bool isDstDram =
-        outputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
-
-    // If src or dst operand is DRAM they must be remote
-    // else, Lower L1->L1 reblocking as READs (view applied to the src, dst is
-    // local).
     bool isSrcDramOrReblock =
-        isSrcDram || (!isDstDram && (inputGridShape != outputGridShape));
+        inputInfo.isDRAM() ||
+        (!outputInfo.isDRAM() &&
+         (inputInfo.getGridShape() != outputInfo.getGridShape()));
 
-    assert(!(isSrcDramOrReblock && isDstDram) &&
+    assert(!(isSrcDramOrReblock && outputInfo.isDRAM()) &&
            "input and output cannot both be remote");
 
     auto buildConcreteView = [&](Value fromVal, RankedTensorType fromTy,
@@ -106,10 +139,12 @@ public:
           fromTy.getShape(), toTy.getShape(), ctx);
       auto baseLayout =
           mlir::cast<ttcore::MetalLayoutAttr>(fromTy.getEncoding());
+
       auto enc = ttcore::MetalLayoutAttr::get(
           ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
           baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
           baseLayout.getMemorySpace(), map);
+
       auto resultTy =
           RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
       return rewriter
@@ -119,16 +154,17 @@ public:
     };
 
     if (isSrcDramOrReblock) {
-      viewInput = buildConcreteView(op.getInput(), inputType, outputType);
+      viewInput =
+          buildConcreteView(op.getInput(), inputInfo.type, outputInfo.type);
     }
 
     Value viewOutput = op.getOutput();
-    if (isDstDram) {
-      auto outTensorTy = mlir::cast<RankedTensorType>(op.getOutput().getType());
-      viewOutput = buildConcreteView(op.getOutput(), outTensorTy, inputType);
+    if (outputInfo.isDRAM()) {
+      viewOutput =
+          buildConcreteView(op.getOutput(), outputInfo.type, inputInfo.type);
     }
 
-    const size_t gridRank = outputGridShape.size();
+    const size_t gridRank = outputInfo.getGridShape().size();
 
     ArrayAttr indexingMaps, iteratorTypes;
     std::tie(indexingMaps, iteratorTypes) =
@@ -210,8 +246,89 @@ public:
     llvm_unreachable("Unknown compound component");
   }
 };
+} // namespace
 
+namespace {
 class TTIRSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
+  // Helper struct to build intermediate bounce types.
+  // This builder will always create a MetalLayoutAttr directly through the
+  // primary constructor--it should never make any decisions w.r.t. to grid
+  // shape, etc. (those decisions were already made in TTIRToTTIRGeneric, here
+  // we simply decompose ToLayoutOps).
+  class BounceTypeBuilder {
+  public:
+    explicit BounceTypeBuilder(MLIRContext *ctx) : ctx(ctx) {}
+
+    // Create a device tensor type from a system tensor type, using reference
+    // layout's characteristics to populate the MetalLayoutAttr appropriately.
+    RankedTensorType createDeviceType(RankedTensorType systemType,
+                                      ttcore::MetalLayoutAttr referenceLayout,
+                                      RankedTensorType referenceType,
+                                      ttcore::MemorySpace memSpace) {
+
+      // Extract the tensor grid from the reference device tensor.
+      auto tensorGridShape = referenceLayout.getGridShape(referenceType);
+
+      // Preserve all layout decisions from the referenceType tensor.
+      auto layout = ttcore::MetalLayoutAttr::get(
+          ctx, referenceLayout.getLogicalShape(),
+          referenceLayout.getDimAlignments(),
+          referenceLayout.getCollapsedIntervals(), referenceLayout.getOobVal(),
+          memSpace, referenceLayout.getIndexAffineMap());
+
+      // Compute the device shape using the referenceType's grid shape.
+      ArrayRef<int64_t> tileShape;
+      if (ttcore::isTiled(systemType)) {
+        tileShape = ttcore::getTensorTileShape(systemType);
+      }
+      auto deviceShape = layout.getDeviceShape(tensorGridShape, tileShape);
+
+      return RankedTensorType::get(deviceShape, systemType.getElementType(),
+                                   layout);
+    }
+
+    // Modify an existing device tensor type while preserving layout
+    // characteristics.
+    RankedTensorType
+    modifyDeviceType(RankedTensorType baseType,
+                     ttcore::MetalLayoutAttr baseLayout,
+                     std::optional<ttcore::MemorySpace> newMemSpace = {},
+                     std::optional<ArrayRef<int64_t>> newTensorGrid = {},
+                     std::optional<Type> newElementType = {},
+                     std::optional<ArrayRef<int64_t>> newTileShape = {}) {
+
+      assert(baseLayout && "modifyDeviceType requires a layout");
+
+      auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
+      auto elementType = newElementType.value_or(baseType.getElementType());
+
+      SmallVector<int64_t> tensorGrid;
+      if (newTensorGrid.has_value()) {
+        tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
+      } else {
+        auto currentGrid = baseLayout.getGridShape(baseType);
+        tensorGrid.assign(currentGrid.begin(), currentGrid.end());
+      }
+
+      auto layout = ttcore::MetalLayoutAttr::get(
+          ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
+          baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(), memSpace,
+          baseLayout.getIndexAffineMap());
+
+      ArrayRef<int64_t> tileShape;
+      if (mlir::isa<ttcore::TileType>(elementType)) {
+        tileShape =
+            newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
+      }
+      auto deviceShape = layout.getDeviceShape(tensorGrid, tileShape);
+
+      return RankedTensorType::get(deviceShape, elementType, layout);
+    }
+
+  private:
+    MLIRContext *ctx;
+  };
+
 public:
   TTIRSplitCompoundLayoutRewriter(MLIRContext *context)
       : OpRewritePattern(context, PatternBenefit(2)) {}
@@ -237,62 +354,6 @@ public:
         ->getResult(0);
   }
 
-  // Helper to create a new tensor type with modified layout
-  RankedTensorType
-  createModifiedType(MLIRContext *ctx, RankedTensorType baseType,
-                     ttcore::MetalLayoutAttr baseLayout,
-                     ArrayRef<int64_t> workerGridShape,
-                     std::optional<ttcore::MemorySpace> newMemSpace = {},
-                     std::optional<ArrayRef<int64_t>> newGrid = {},
-                     std::optional<Type> newElementType = {},
-                     std::optional<ArrayRef<int64_t>> newTileShape = {}) const {
-    // Use existing values if not overridden
-    auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
-    auto maybeBaseTypeLayout =
-        mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(baseType.getEncoding());
-    const bool baseTypeHasLayout = maybeBaseTypeLayout != nullptr;
-
-    // We need to create an owning version of gridShape for the case where we
-    // default 1-fill it, which makes this more complex/ugly.
-    SmallVector<int64_t, 2> gridShape;
-    if (newGrid.has_value()) {
-      gridShape.assign(newGrid->begin(), newGrid->end());
-    } else if (baseTypeHasLayout) {
-      llvm::ArrayRef<int64_t> tempGrid =
-          maybeBaseTypeLayout.getGridShape(baseType);
-      gridShape.assign(tempGrid.begin(), tempGrid.end());
-    }
-
-    Type elementType = newElementType.value_or(baseType.getElementType());
-    llvm::ArrayRef<int64_t> tileShape =
-        newTileShape.has_value() ? *newTileShape
-                                 : ttcore::getTensorTileShapeOrEmpty(baseType);
-
-    // Create new layout
-    SmallVector<int64_t> squareGridShape =
-        ttir::utils::getSquareTargetGrid(workerGridShape);
-    auto newLayout = ttcore::MetalLayoutAttr::get(
-        ctx, baseLayout.getLogicalShape(), squareGridShape,
-        baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals());
-
-    // For physical shape derivation, use tile shape ONLY if element type is
-    // tiled
-    ArrayRef<int64_t> tileShapeForPhysical;
-    if (mlir::isa<ttcore::TileType>(elementType)) {
-      // Element type is tiled: need tile shape to compute tile counts
-      tileShapeForPhysical = tileShape;
-    } else {
-      // Element type is not tiled: empty to compute element counts
-      tileShapeForPhysical = {};
-    }
-
-    // Create new device tensor shape.
-    llvm::SmallVector<int64_t> deviceShape =
-        newLayout.getDeviceShape(gridShape, tileShapeForPhysical);
-
-    return RankedTensorType::get(deviceShape, elementType, newLayout);
-  }
-
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
     auto components = op.compoundComponents();
@@ -301,102 +362,99 @@ public:
       return failure();
     }
 
-    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
-    auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
-    const bool hasInputLayout = inputType.getEncoding() != nullptr;
-    const bool hasOutputLayout = outputType.getEncoding() != nullptr;
-    auto inputLayout = op.getOrCreateInputLayout();
-    auto outputLayout = op.getOrCreateOutputLayout();
+    auto inputInfo = TensorInfo::from(op.getInput());
+    auto outputInfo = TensorInfo::from(op.getOutput());
 
-    bool inputL1 =
-        inputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1;
-    bool outputL1 =
-        outputLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1;
+    BounceTypeBuilder typeBuilder(rewriter.getContext());
 
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-    llvm::ArrayRef<int64_t> workerGridShape =
-        deviceAttr.getWorkerGrid().getShape();
-
-    // First prioritize moving the data into L1 so we can work with it in L1
-    if (!inputL1) {
-      // Read into L1, then do other conversions.
-      // If we're going from no grid -> grid, we need to use the output grid.
-      if (!hasInputLayout && hasOutputLayout) {
-        auto gridShape = outputLayout.getGridShape(outputType);
-        auto bounceType = createModifiedType(
-            rewriter.getContext(), inputType, inputLayout, workerGridShape,
-            ttcore::MemorySpace::DeviceL1, gridShape);
+    // Handle system <-> device transitions specially.
+    if (inputInfo.hasLayout() != outputInfo.hasLayout()) {
+      if (!inputInfo.hasLayout()) {
+        // System -> Device: move to L1 using output's layout characteristics.
+        assert(outputInfo.layout &&
+               "Output must have layout for system->device");
+        auto bounceType = typeBuilder.createDeviceType(
+            inputInfo.type, *outputInfo.layout, outputInfo.type,
+            ttcore::MemorySpace::DeviceL1);
         bounce(rewriter, op, bounceType);
       } else {
-        // For other cases, we want to use input's current grid
-        auto bounceType =
-            createModifiedType(rewriter.getContext(), inputType, inputLayout,
-                               workerGridShape, ttcore::MemorySpace::DeviceL1);
+        // Device -> System: need intermediate in L1 with input's
+        // characteristics.
+        assert(inputInfo.layout && "Input must have layout for device->system");
+        auto bounceType = typeBuilder.modifyDeviceType(
+            inputInfo.type, *inputInfo.layout, ttcore::MemorySpace::DeviceL1,
+            /*newTensorGrid=*/{}, outputInfo.type.getElementType());
         bounce(rewriter, op, bounceType);
       }
-    } else if (!outputL1) {
-      // Convert to L1 first, then do other conversions.
-      assert(inputL1 && "input should guaranteed be in L1 because of the "
-                        "previous case");
-      // Conversely, if we're going from grid -> no grid, we need to use the
-      // input grid.
-      if (!hasOutputLayout && hasInputLayout) {
-        auto gridShape = inputLayout.getGridShape(inputType);
-        auto bounceType = createModifiedType(
-            rewriter.getContext(), outputType, outputLayout, workerGridShape,
-            ttcore::MemorySpace::DeviceL1, gridShape);
-        bounce(rewriter, op, bounceType);
-      } else {
-        // For other cases, we want to use output's current grid
-        auto bounceType =
-            createModifiedType(rewriter.getContext(), outputType, outputLayout,
-                               workerGridShape, ttcore::MemorySpace::DeviceL1);
-        bounce(rewriter, op, bounceType);
-      }
-    } else if (ttcore::isTiled(inputType) != ttcore::isTiled(outputType)) {
-      // Prioritize moving tiled data
-      if (ttcore::isTiled(inputType)) {
-        auto bounceType = createModifiedType(
-            rewriter.getContext(), outputType, outputLayout, workerGridShape,
+      return success();
+    }
+
+    // If neither has a layout, both are in system memory.
+    if (!inputInfo.hasLayout() && !outputInfo.hasLayout()) {
+      // Pure host-side operation - should have been handled by
+      // compoundComponents
+      assert(false && "Host-side only operations should not be compound");
+      return failure();
+    }
+
+    // Otherwise, if both have layouts, we need to handle device-side
+    // transformations.
+    assert(inputInfo.layout && outputInfo.layout);
+
+    // Prioritize L1 operations.
+    if (!inputInfo.isL1()) {
+      // Move input to L1, preserving its grid and layout characteristics.
+      auto bounceType = typeBuilder.modifyDeviceType(
+          inputInfo.type, *inputInfo.layout, ttcore::MemorySpace::DeviceL1);
+      bounce(rewriter, op, bounceType);
+    } else if (!outputInfo.isL1()) {
+      // Move output to L1, preserving its grid and layout characteristics.
+      auto bounceType = typeBuilder.modifyDeviceType(
+          outputInfo.type, *outputInfo.layout, ttcore::MemorySpace::DeviceL1);
+      bounce(rewriter, op, bounceType);
+    } else if (ttcore::isTiled(inputInfo.type) !=
+               ttcore::isTiled(outputInfo.type)) {
+      // Format conversion
+      if (ttcore::isTiled(inputInfo.type)) {
+        // Tilized -> scalar: use output's layout/grid, change element type.
+        auto bounceType = typeBuilder.modifyDeviceType(
+            outputInfo.type, *outputInfo.layout,
             /*memSpace=*/{},
-            /*grid=*/{}, inputType.getElementType(),
-            ttcore::getTensorTileShapeOrEmpty(inputType));
+            /*newTensorGrid=*/{}, inputInfo.type.getElementType(),
+            ttcore::getTensorTileShape(inputInfo.type));
         bounce(rewriter, op, bounceType);
       } else {
-        assert(ttcore::isTiled(outputType));
-        auto bounceType = createModifiedType(
-            rewriter.getContext(), inputType, inputLayout, workerGridShape,
+        // Scalar -> tilized: use input's layout/grid, change element type.
+        auto bounceType = typeBuilder.modifyDeviceType(
+            inputInfo.type, *inputInfo.layout,
             /*memSpace=*/{},
-            /*grid=*/{}, outputType.getElementType(),
-            ttcore::getTensorTileShape(outputType));
+            /*newTensorGrid=*/{}, outputInfo.type.getElementType(),
+            ttcore::getTensorTileShape(outputInfo.type));
         bounce(rewriter, op, bounceType);
       }
-    } else if (components.isLayoutChange && ttcore::isTiled(inputType)) {
-      // For now to flexibly support layout changes, we need to bounce to scalar
-      // first Get scalar element type
-      Type scalarType = inputType.getElementType();
+    } else if (components.isLayoutChange && ttcore::isTiled(inputInfo.type)) {
+      // Layout change with tiled data - bounce through scalar.
+      Type scalarType = inputInfo.type.getElementType();
       if (auto tileType = mlir::dyn_cast<ttcore::TileType>(scalarType)) {
         scalarType = tileType.getElementType();
       }
 
-      // Create untiled version with scalar type
-      auto bounceType = createModifiedType(
-          rewriter.getContext(), inputType, inputLayout, workerGridShape,
-          /*memSpace=*/{}, /*grid=*/{}, scalarType,
-          /*tileShape=*/std::nullopt);
+      auto bounceType =
+          typeBuilder.modifyDeviceType(inputInfo.type, *inputInfo.layout,
+                                       /*memSpace=*/{},
+                                       /*newTensorGrid=*/{}, scalarType,
+                                       /*tileShape=*/std::nullopt);
       bounce(rewriter, op, bounceType);
     } else if (components.isGridChange) {
-      assert(!components.isLayoutChange &&
-             "Changing layout and grid at the same time is currently "
-             "not supported");
-      // Keep output layout but with input's grid
-      auto bounceType = createModifiedType(
-          rewriter.getContext(), outputType, outputLayout, workerGridShape,
-          /*memSpace=*/{}, inputLayout.getGridShape(inputType));
+      // Grid change - create intermediate with input's grid but output's
+      // layout.
+      auto bounceType = typeBuilder.modifyDeviceType(
+          outputInfo.type, *outputInfo.layout,
+          /*memSpace=*/{}, inputInfo.getGridShape());
       bounce(rewriter, op, bounceType);
     } else {
       // Note we should eventually support DRAM <-> DRAM, or System <-> System
-      // w/ format conversion via streaming supported
+      // w/ format conversion via streaming supported.
       assert(false && "Unsupported compound layout change");
       return failure();
     }
@@ -404,7 +462,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class TTIRLowerToLayout
     : public impl::TTIRLowerToLayoutBase<TTIRLowerToLayout> {
 public:
@@ -420,5 +480,6 @@ public:
     }
   }
 };
+} // namespace
 
 } // namespace mlir::tt::ttir
