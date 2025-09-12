@@ -86,6 +86,7 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
   pm.addPass(createConvertElementwiseToLinalgPass());
   pm.addPass(createLinalgGeneralizeNamedOpsPass());
+  pm.addPass(tt::createConvertArithToD2MTileOpsPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttir::createTTIRLowerToLayout());
