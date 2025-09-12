@@ -26,8 +26,9 @@ def get_input_tensors_from_builder(args: List, builder: TTIRBuilder):
 
 def full_to_shard_device(input, builder, dim):
     rank = len(builder._get_golden_tensor(input).shape)
+    num_devices = builder.mesh_shape[1]
     shard_shape = [1] * rank
-    shard_shape[dim] = 2
+    shard_shape[dim] = num_devices
     return builder.mesh_shard(
         input,
         shard_direction="#ttcore.shard_direction<full_to_shard>",
@@ -49,8 +50,9 @@ def full_to_shard_replicate(input, builder):
 
 def shard_to_full_device(input, builder, dim):
     rank = len(builder._get_golden_tensor(input).shape)
+    num_devices = builder.mesh_shape[1]
     shard_shape = [1] * rank
-    shard_shape[dim] = 2
+    shard_shape[dim] = num_devices
     return builder.mesh_shard(
         input,
         shard_direction="#ttcore.shard_direction<shard_to_full>",
@@ -182,7 +184,7 @@ def golden_llama(
         pytest.param("ttmetal", marks=pytest.mark.skip("TTMetal not supported yet")),
     ],
 )
-@pytest.mark.parametrize("mesh_shape", [(1, 2)])
+@pytest.mark.parametrize("mesh_shape", [(1, 2), (1, 8)])
 def test_llama_attention_1x2_tp(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
