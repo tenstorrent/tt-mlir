@@ -5,6 +5,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -136,7 +137,7 @@ public:
     }
 
     // 1. Collect all loads/stores to dst organized by loop nest.
-    DenseMap<Operation *, CopyInfo> copyInfo = collectDstAccesses(
+    auto [copyInfo, dstRegisterAllocation] = collectDstAccesses(
         region, getNonParticipatingLoopDims, outermostInnerComputeLoop);
     if (copyInfo.empty()) {
       return false;
@@ -149,6 +150,12 @@ public:
 
     // 3. Generate data copy loops to/from dst and output cb.
     dataCopyGenerate(rewriter, loc, dst, copyInfo);
+
+    // 4. Rewrite stores to use dst register based on allocation
+    insertDstRegisterAllocation(rewriter, loc, region, dst,
+                                dstRegisterAllocation,
+                                outermostInnerComputeLoop);
+
     return true;
   }
 
@@ -208,13 +215,20 @@ public:
   // register allocation for loads and just assumes that stores get exclusive
   // access. Returns a map of loop nest -> copy info, which contains a list of
   // loads and stores to copy into hoisted loop nests.
-  static DenseMap<Operation *, CopyInfo>
+
+  // Maps each TTIRGenericRegionComputeOpTrait operation result to a dest
+  // register offset.
+  using DstRegisterAllocation = DenseMap<Operation *, int64_t>;
+
+  // Return both the copy nest info and dst allocation info
+  static std::tuple<DenseMap<Operation *, CopyInfo>, DstRegisterAllocation>
   collectDstAccesses(Region &region,
                      llvm::function_ref<SmallVector<int64_t>(int64_t)>
                          getNonParticipatingLoopDims,
                      Operation *outermostInnerComputeLoop) {
     DenseMap<Operation *, CopyInfo> loopNests;
     DstRegisterAllocationState dstRegisterAllocationState;
+    DstRegisterAllocation dstRegisterAllocation;
     region.walk([&](OperandLoadRegisterOpInterface op) {
       // We're generating loads and stores for dst, so we can ignore loads and
       // stores that are already on dst.
@@ -249,9 +263,18 @@ public:
           dstRegisterAllocationState.allocate();
           dstRegisterAllocationState.setStoreToDst();
         }
+        // If the op is a compute op, we need to allocate a dst register for it
+        else {
+          assert(op->hasTrait<TTIRGenericRegionComputeOpTrait>());
+          assert(op->hasOneUse() && "Currently we do not support multiple "
+                                    "users in the same compute dst region");
+          assert(op->getNumResults() == 1);
+          assert(!dstRegisterAllocation.contains(op));
+          dstRegisterAllocation[op] = dstRegisterAllocationState.allocate();
+        }
       }
     });
-    return loopNests;
+    return {loopNests, dstRegisterAllocation};
   }
 
   static BlockArgument lookThroughSubView(Value memref) {
@@ -284,10 +307,14 @@ public:
     SmallVector<int64_t> guardIndices = getNonParticipatingLoopDims(
         lookThroughSubView(loadOrStore.getMemRef()).getArgNumber());
     if (inserted) {
+      // First access in this loop nest - set the guard indices
       copyInfo.guardIndices = guardIndices;
+    } else {
+      // Subsequent access - verify guard indices are the same
+      assert(
+          guardIndices == copyInfo.guardIndices &&
+          "Expected same guard indices across all accesses in this loop nest");
     }
-    assert(guardIndices == copyInfo.guardIndices &&
-           "Expected same guard indices across all accesses in this loop nest");
 
     // This isn't very rigorous but it should work for now.  By just returning
     // the memref shape we're assuming the whole memref is accessed inside of
@@ -487,6 +514,62 @@ public:
     }
   }
 
+  // Rewrite stores to use dst register based on allocation map
+  static void insertDstRegisterAllocation(
+      PatternRewriter &rewriter, Location loc, Region &region, Value dst,
+      const DstRegisterAllocation &dstRegisterAllocation,
+      Operation *outermostInnerComputeLoop = nullptr) {
+    auto dstType = dyn_cast<MemRefType>(dst.getType());
+    if (!dstType) {
+      return;
+    }
+    unsigned dstRank = dstType.getRank();
+
+    // Iterate directly through dst register allocation entries
+    for (const auto &[op, dstIndex] : dstRegisterAllocation) {
+      if (op->getNumResults() == 0) {
+        llvm::errs() << "    Operation has no results to store, skipping\n";
+        continue;
+      }
+
+      // Store the result of this operation to dst register
+      Value result = op->getResult(0);
+      rewriter.setInsertionPoint(op);
+
+      SmallVector<Value> storeIndices;
+
+      if (outermostInnerComputeLoop) {
+        if (auto affineFor =
+                dyn_cast<affine::AffineForOp>(outermostInnerComputeLoop)) {
+          Value inductionVar = affineFor.getInductionVar();
+          storeIndices.push_back(inductionVar);
+        }
+      } else {
+        storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+      }
+
+      while (storeIndices.size() < dstRank) {
+        storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+      }
+
+      auto storeMap =
+          AffineMap::getMultiDimIdentityMap(dstRank, rewriter.getContext());
+
+      rewriter.setInsertionPointAfter(op);
+      auto storeOp = rewriter.create<affine::AffineStoreOp>(
+          loc, result, dst, storeMap, storeIndices);
+
+      auto loadedResult = rewriter.create<affine::AffineLoadOp>(
+          loc, dst, storeMap, storeIndices);
+
+      for (auto &use : result.getUses()) {
+        if (use.getOwner() != storeOp) {
+          use.set(loadedResult.getResult());
+        }
+      }
+    }
+  }
+
   // Returns the indices and the map for the load store from L1 and Dst
   //   tuple(l1AccessIndices, l1AccessMap, dstAccessIndices, dstAccessMap)
   static std::tuple<AffineMap, SmallVector<Value>, AffineMap,
@@ -507,6 +590,7 @@ public:
   }
 
   bool useTileMatmul;
+  static constexpr bool explain = false;
 };
 } // namespace
 
