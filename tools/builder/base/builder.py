@@ -112,10 +112,7 @@ class Builder:
 
         # Store outputs into golden map if they are marked to be stored.
         for index, output in enumerate(self._ordered_outputs):
-            if (
-                output not in self._goldens_to_store
-                or self._force_graph_level_check is False
-            ):
+            if output not in self._goldens_to_store:
                 continue
 
             loc = f"output_{index}"
@@ -126,7 +123,7 @@ class Builder:
         # Store other operands into golden map if they are marked to be stored.
         for operand, builder_golden_tensor in self._goldens.items():
             if (
-                output not in self._goldens_to_store
+                operand not in self._goldens_to_store
                 or self._force_graph_level_check is False
             ):
                 continue
