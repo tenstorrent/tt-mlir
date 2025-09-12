@@ -27,7 +27,6 @@ pytestmark = pytest.mark.frontend("ttir")
 #      input:   [M, K/num_shards]  (each device gets a slice of K)
 #      weight:  [K/num_shards, N]  (each device gets a slice of K)
 #      output:  [M, N/num_shards]  (after reduce_scatter, each device gets a slice of N)
-#    TODO: support N-D tensors and mesh shapes.
 # Set do_unshard=True to have this function return a full tensor;
 # otherwise, the output will remain sharded.
 def _build_matmul_parallel(
