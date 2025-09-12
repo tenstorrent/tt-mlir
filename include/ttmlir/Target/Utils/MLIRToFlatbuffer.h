@@ -11,7 +11,6 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
-#include "ttmlir/Target/TTNN/utils.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
 
@@ -227,18 +226,21 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   return toFlatbuffer(cache, memLayoutAttr.getValue());
 }
 
-inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
-                                              ttnn::BufferType bufferType) {
+inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
+                                             ttnn::BufferType bufferType) {
   switch (bufferType) {
   case ttnn::BufferType::SystemMemory:
-    return ::tt::target::MemorySpace::System;
+    return ::tt::target::BufferType::SystemMemory;
   case ttnn::BufferType::DRAM:
-    return ::tt::target::MemorySpace::DeviceDRAM;
+    return ::tt::target::BufferType::DRAM;
   case ttnn::BufferType::L1:
-    return ::tt::target::MemorySpace::DeviceL1;
-  default:
-    llvm_unreachable("unhandled buffer type");
+    return ::tt::target::BufferType::L1;
+  case ttnn::BufferType::L1Small:
+    return ::tt::target::BufferType::L1Small;
+  case ttnn::BufferType::Trace:
+    return ::tt::target::BufferType::Trace;
   }
+  llvm_unreachable("Unknown ttnn::BufferType");
 }
 
 inline ::tt::target::TensorLayout toFlatbuffer(FlatbufferObjectCache &cache,
@@ -828,8 +830,7 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   }
 
   ::tt::target::BufferType bufferType =
-      ::mlir::tt::ttnn::utils::toTargetBufferType(
-          memoryConfigAttr.getBufferType().getValue());
+      toFlatbuffer(cache, memoryConfigAttr.getBufferType().getValue());
   ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
       memoryConfigAttr.getTensorMemoryLayout();
   assert(tensorMemoryLayoutAttr && "Expected valid TensorMemoryLayoutAttr");
