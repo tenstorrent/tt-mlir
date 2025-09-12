@@ -78,6 +78,11 @@ def pytest_addoption(parser):
         action="store_true",
         help="Require tests to run only if build has opmodel enabled",
     )
+    parser.addoption(
+        "--multidevice-only",
+        action="store_true",
+        help="Only run tests that require multidevice - temporary",
+    )
 
 
 def get_board_id(system_desc) -> str:
@@ -386,6 +391,9 @@ def pytest_collection_modifyitems(config, items):
                 system_desc, params, require_exact_mesh=config.option.require_exact_mesh
             ):
                 # Deselect the test case
+                deselected.append(item)
+                continue
+            if config.option.multidevice_only and not params.get("mesh_shape", False):
                 deselected.append(item)
                 continue
         valid_items.append(item)
