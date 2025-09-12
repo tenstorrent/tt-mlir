@@ -3113,6 +3113,7 @@ def test_mesh_shard_devices(
 @pytest.mark.parametrize(
     "test_shape",
     [
+        pytest.param((1, 1, 32, 32, 32), marks=pytest.mark.run_error),
         (1, 32, 32, 32),
         (1, 32, 32),
         (32, 32),
@@ -3177,9 +3178,7 @@ def test_all_gather(
         (256, 256, 1, 1),
         (1024, 256),
         (256, 1024),
-        pytest.param(
-            (1, 1, 32, 64), marks=pytest.mark.run_error
-        ),  # https://github.com/tenstorrent/tt-metal/issues/21987
+        (1, 1, 32, 64),
     ],
     ids=shape_str,
 )
@@ -3218,18 +3217,16 @@ def test_all_reduce(
 @pytest.mark.parametrize(
     "test_shape",
     [
-        (1, 1, 1, 256, 256),
+        pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.run_error),
         (1, 1, 256, 256),
         (1, 256, 256),
         (256, 256),
-        pytest.param(
-            (256, 248), marks=pytest.mark.run_error
-        ),  # https://github.com/tenstorrent/tt-metal/issues/21987
-        pytest.param((248, 256), marks=pytest.mark.run_error),
-        pytest.param((256, 264), marks=pytest.mark.run_error),
-        pytest.param((264, 256), marks=pytest.mark.run_error),
-        pytest.param((1, 1, 128, 256), marks=pytest.mark.run_error),
-        pytest.param((1, 1, 256, 128), marks=pytest.mark.run_error),
+        (256, 248),
+        (248, 256),
+        (256, 264),
+        (264, 256),
+        (1, 1, 128, 256),
+        (1, 1, 256, 128),
     ],
     ids=shape_str,
 )
