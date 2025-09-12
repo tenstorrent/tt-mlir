@@ -22,20 +22,6 @@ ttmlir_build_dir = os.environ.get(
     "TTMLIR_BINARY_DIR",
     os.path.join(src_dir, "build"),
 )
-src_base = os.path.dirname(os.path.abspath(__file__))
-dst_base = f"{ttmlir_build_dir}/python_packages/ttrt"
-
-# Copy subdirectories
-for subdir in ["binary", "common", "runtime"]:
-    src = os.path.join(src_base, subdir)
-    dst = os.path.join(dst_base, subdir)
-    if os.path.exists(dst):
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst)
-
-# Copy files
-for fname in ["__init__.py", "library_tweaks.py"]:
-    shutil.copy(os.path.join(src_base, fname), dst_base)
 
 metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal/build"
 ttmetalhome = os.environ.get("TT_METAL_HOME", "")
