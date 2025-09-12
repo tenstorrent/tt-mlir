@@ -35,72 +35,6 @@ class TTIRBuilder(Builder):
 
     # ----- Public methods -----
 
-    def get_metal_tensor_layout(
-        self,
-        logical_shape: Shape,
-        tiled=False,
-        oobVal=ttcore.OOBVal.Undef,
-        memorySpace=ttcore.MemorySpace.DeviceL1,
-        grid: Optional[Tuple[int, int]] = None,
-        index_map: Optional[AffineMap] = None,
-    ):
-        ctx = self._ctx
-
-        # Create grid shape by 1s filling logical rank.
-        if grid is None:
-            original_rank = len(logical_shape)
-            grid_shape = [1] * original_rank
-        else:
-            grid_shape = list(grid)
-
-        worker_grid = [8, 8]
-
-        # Create layout with original logical shape.
-        if index_map is None:
-            layout = ttcore.ir.MetalLayoutAttr.get(
-                ctx, logical_shape, worker_grid, oobVal, memorySpace
-            )
-        else:
-            layout = ttcore.ir.MetalLayoutAttr.get(
-                ctx, logical_shape, worker_grid, oobVal, memorySpace, index_map
-            )
-
-        shard_shape = []
-        for l, g in zip(logical_shape, grid_shape):
-            assert l % g == 0, f"Logical shape {l} must be divisible by grid shape {g}"
-            shard_shape.append(l // g)
-
-        # Get sharded shape w/ proper collapse & alignment logic.
-        typed_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
-        if typed_layout is None:
-            raise RuntimeError("Failed to downcast MetalLayoutAttr")
-        device_shape = typed_layout.getDeviceShape(
-            grid_shape, [32, 32] if tiled else [1, 1]
-        )
-
-        elemType = F32Type.get(ctx)
-
-        # For tiled layouts, ensure the device shape accounts for tiles.
-        if tiled:
-            elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
-            if grid is None or grid == (1, 1):
-                # For default 1x1 grid, use exact tile count.
-                tile_count_h = (logical_shape[-2] + 31) // 32
-                tile_count_w = (logical_shape[-1] + 31) // 32
-                device_shape[-2] = tile_count_h
-                device_shape[-1] = tile_count_w
-            else:
-                # For explicit grids, calculate proper sharded tile count.
-                shard_h, shard_w = shard_shape[-2], shard_shape[-1]
-                tiles_per_shard_h = (shard_h + 31) // 32
-                tiles_per_shard_w = (shard_w + 31) // 32
-                device_shape[-2] = tiles_per_shard_h
-                device_shape[-1] = tiles_per_shard_w
-
-        return RankedTensorType.get(
-            device_shape, elemType, layout, Location.unknown(ctx)
-        )
-
     # ----- Private methods ----
 
     def _get_output_shape_and_type(
@@ -126,18 +60,9 @@ class TTIRBuilder(Builder):
 
         return golden_output.shape, golden_output.dtype
 
-    def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
-        dtype = data_type if data_type is not None else F32Type.get(self._ctx)
-        return self._create_empty_from_tensor_type(
-            shape, self._create_ranked_tensor_type(shape, dtype)
-        )
-
-    def _create_empty_from_tensor_type(
-        self, shape: Shape, tensor_type: RankedTensorType
-    ) -> OpView:
-        with self._ctx, self._loc:
-            op = ttir.EmptyOp(tensor_type)
-            return op
+    def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
+        """Get TTIR-specific empty operation."""
+        return ttir.EmptyOp(tensor_type)
 
     def _organize_eltwise_ttir(
         self, inputs: List[Operand], output: OpView, _: Optional[Shape]
@@ -4107,57 +4032,6 @@ class TTIRBuilder(Builder):
             ),
             unit_attrs=unit_attrs,
             **kwargs,
-        )
-
-    def view_layout(
-        self,
-        in0: Operand,
-        output_type: RankedTensorType,
-        reinterpret_layout: bool = False,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.view_layout``.
-
-        *Create a new view of tensor with different layout.*
-
-        Creates a new view of the input tensor with a different layout without copying
-        or moving data. This is useful for reinterpreting the same data with different
-        layout metadata.
-
-        - If reinterpretLayout is true, the layout view change can include a data type cast, but note this does not actually change the format of the data in memory.
-        - All ViewLayout ops can trivially be converted to ToLayout ops.
-
-        .. code-block:: mlir
-
-            #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-            #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
-            %1 = "ttir.view_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to create new view from
-        output_type : RankedTensorType
-            Type of output tensor with desired layout
-        reinterpret_layout : bool, optional
-            If true, allows data type cast in layout view change (default: False)
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A new view of the tensor with the specified layout
-        """
-        return self._op_proxy(
-            ttir.ViewLayoutOp,
-            [in0],
-            ttir_kwargs={"reinterpretLayout": reinterpret_layout},
-            output_type=output_type,
-            output_create_fn=self._create_empty_from_tensor_type,
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
-            unit_attrs=unit_attrs,
         )
 
     def tilize(
