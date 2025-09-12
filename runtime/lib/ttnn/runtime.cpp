@@ -1605,20 +1605,20 @@ void updateTensorInPool(CallbackContext programContextHandle,
 }
 
 void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
-  auto ttnn_tensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
-  ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnn_tensor);
+  ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
+  ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);
 }
 
 ::tt::runtime::Tensor loadTensor(const std::string &filePath,
                                  std::optional<Device> device) {
 
-  ::ttnn::MeshDevice *device_ptr = nullptr;
+  ::ttnn::MeshDevice *devicePtr = nullptr;
   if (device.has_value()) {
-    device_ptr = &device->as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+    devicePtr = &device->as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   }
 
-  ::tt::tt_metal::Tensor metalTensor =
-      ::tt::tt_metal::load_tensor_flatbuffer(filePath, device_ptr);
+  ::ttnn::Tensor metalTensor =
+      ::tt::tt_metal::load_tensor_flatbuffer(filePath, devicePtr);
 
   auto tensor = utils::createRuntimeTensorFromTTNN(metalTensor);
 
