@@ -172,7 +172,8 @@ class TTAdapter(model_explorer.Adapter):
                 module = utils.parse_mlir_str(model_file.read())
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
-            graph, overlays = mlir.build_graph(
+            graph_handler = mlir.GraphHandler()
+            graph, overlays = graph_handler.build_graph(
                 model_path,
                 module,
                 self.model_runner,
@@ -205,7 +206,8 @@ class TTAdapter(model_explorer.Adapter):
                     module = utils.parse_mlir_str(model_file.read())
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
-            graph, _ = mlir.build_graph(model_path, module, self.model_runner)
+            graph_handler = mlir.GraphHandler()
+            graph, _ = graph_handler.build_graph(model_path, module, self.model_runner)
 
         return {"graphs": [graph]}
 

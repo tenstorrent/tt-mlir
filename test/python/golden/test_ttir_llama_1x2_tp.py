@@ -10,6 +10,7 @@ from collections import OrderedDict
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
+from builder.base.builder_golden import BuilderGoldenTensor
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
 pytestmark = [pytest.mark.n300, pytest.mark.frontend("ttir")]
@@ -348,13 +349,6 @@ def test_llama_attention_1x2_tp_part1(
         output83 = builder.unsqueeze(output81, 0)  # [1, 32, 128, 64]
         output83 = shard_to_full_device(output83, builder, 3)
 
-        builder.set_graph_input_output(
-            input_tensors,
-            [
-                golden_part1(*input_tensors),
-            ],
-        )
-
         return output83
 
     compile_ttir_to_flatbuffer(
@@ -409,15 +403,9 @@ def test_llama_attention_1x2_tp_part2(
         output83: Operand,
         builder: TTIRBuilder,
     ):
+        operands = [arg0, arg1, arg10, arg13, arg14, output83]
         input_tensors = get_input_tensors_from_builder(
-            [
-                arg0,
-                arg1,
-                arg10,
-                arg13,
-                arg14,
-                output83,
-            ],
+            operands,
             builder,
         )
         output1 = full_to_shard_device(arg0, builder, 2)  # [1, 128, 2048]
@@ -456,16 +444,13 @@ def test_llama_attention_1x2_tp_part2(
         arg14 = full_to_shard_device(arg14, builder, 1)  # [4096, 2048]
         output113 = builder.matmul(output111, arg14)  # [128, 2048]
         output115 = builder.unsqueeze(output113, 0)  # [1, 128, 2048]
-        output115 = shard_to_full_device(output115, builder, dim=2)  # [1, 128, 4096]
+        output116 = shard_to_full_device(output115, builder, dim=2)  # [1, 128, 4096]
 
-        builder.set_graph_input_output(
-            input_tensors,
-            [
-                golden_part2(*input_tensors),
-            ],
+        builder.set_goldens_from_builder_tensor(
+            {operands[i]: input_tensors[i] for i in range(len(operands))},
+            {output116: golden_part2(*input_tensors)},
         )
-
-        return output115
+        return output116
 
     compile_ttir_to_flatbuffer(
         model_part2,

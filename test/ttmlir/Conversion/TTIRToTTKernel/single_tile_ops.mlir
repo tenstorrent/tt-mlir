@@ -86,7 +86,7 @@ module {
     // CHECK-NOT: ttkernel.copy_tile(%{{.+}}, %{{.+}}, %[[DST_IDX0]]) :
     // CHECK-NEXT: ttkernel.copy_tile(%[[CB1]], %{{.+}}, %{{.+}}) :
     // CHECK: ttkernel.max_tile_init
-    // CHECK: ttkernel.max_tile
+    // CHECK: ttkernel.max_tile(%{{.+}}, %{{.+}})
     %2 = "ttir.tile_maximum"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
     // CHECK: ttkernel.pack_tile
     affine.store %2, %arg2[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
@@ -106,7 +106,7 @@ module {
     // CHECK-NOT: ttkernel.copy_tile(%{{.+}}, %{{.+}}, %[[DST_IDX0]]) :
     // CHECK-NEXT: ttkernel.copy_tile(%[[CB1]], %{{.+}}, %{{.+}}) :
     // CHECK: ttkernel.div_binary_tile_init
-    // CHECK: ttkernel.div_binary_tile
+    // CHECK: ttkernel.div_binary_tile(%{{.+}}, %{{.+}}, %{{.+}})
     %2 = "ttir.tile_div"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
     // CHECK: ttkernel.pack_tile
     affine.store %2, %arg2[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
@@ -142,7 +142,7 @@ module {
     // CHECK-NOT: ttkernel.copy_tile(%{{.+}}, %{{.+}}, %[[DST_IDX0]]) :
     // CHECK-NEXT: ttkernel.copy_tile(%[[CB1]], %{{.+}}, %{{.+}}) :
     // CHECK: ttkernel.power_binary_tile_init
-    // CHECK: ttkernel.power_binary_tile
+    // CHECK: ttkernel.power_binary_tile(%{{.+}}, %{{.+}}, %{{.+}})
     %2 = "ttir.tile_pow"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
     // CHECK: ttkernel.pack_tile
     affine.store %2, %arg2[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>

@@ -24,6 +24,7 @@
     - [Roadmap](./tt-explorer/roadmap.md)
   - [`tt-alchemist`](./tt-alchemist.md)
   - [`ttnn-standalone`](./ttnn-standalone.md)
+  - [`EmitPy`](./emitpy.md)
 - [Optimizer](./optimizer.md)
 - [PyKernel](./pykernel.md)
 - [Creating bug repros for TTNN](./ttnn-bug-repros.md)

@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyAttrs.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyInterfaces.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 
 #include "mlir/IR/BuiltinOps.h"

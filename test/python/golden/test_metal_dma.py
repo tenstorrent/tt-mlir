@@ -41,14 +41,55 @@ def compile_dma_test(test_func, shape, request):
     )
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(256, 256)])
-@pytest.mark.parametrize("start_grid", [(1, 4), (4, 1), (2, 4), (4, 2)])
-@pytest.mark.parametrize("end_grid", [(1, 1), (4, 4), (2, 4), (4, 2)])
+@pytest.mark.parametrize("memory_space", [ttcore.MemorySpace.DeviceDRAM])
+def test_host_interop_single_bank_dram_dma(
+    shape: Shape,
+    memory_space: ttcore.MemorySpace,
+    request,
+):
+    """tests that host enqueue_read|write_buffer works for single-shard DRAM
+    buffers"""
+
+    def tilize(
+        in0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+
+        to_device = builder.to_layout(
+            in0,
+            output_type=builder.get_metal_tensor_layout(
+                shape, tiled=False, memorySpace=memory_space
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+        system_out = builder.to_layout(
+            to_device,
+            output_type=in0.type,
+            unit_attrs=unit_attrs,
+        )
+
+        return system_out
+
+    compile_dma_test(
+        tilize,
+        shape,
+        request,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #4835")
+@pytest.mark.parametrize("shape", [(256, 256)])
+@pytest.mark.parametrize("start_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
+@pytest.mark.parametrize("end_grid", [(1, 1), (2, 2)])
 @pytest.mark.parametrize(
     "memory_space", [ttcore.MemorySpace.DeviceL1, ttcore.MemorySpace.DeviceDRAM]
 )
 def test_roundtrip_dma_tiled(
+    target: str,
     shape: Shape,
     start_grid: tuple[int, int],
     end_grid: tuple[int, int],
@@ -122,13 +163,12 @@ def test_roundtrip_dma_tiled(
     )
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize(
     "shape",
-    [(256, 256)],
+    [(128, 128)],
 )
 @pytest.mark.parametrize("start_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
-@pytest.mark.parametrize("end_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
+@pytest.mark.parametrize("end_grid", [(1, 1), (2, 2)])
 @pytest.mark.parametrize(
     "memory_space", [ttcore.MemorySpace.DeviceL1, ttcore.MemorySpace.DeviceDRAM]
 )

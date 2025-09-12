@@ -314,4 +314,11 @@ bool producesTiledTensorLayout(Operation *op) {
   return ttnnLayout && ttnnLayout->isTiled();
 }
 
+mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
+  return ::mlir::RankedTensorType::get(
+      /*shape=*/{},
+      ::mlir::IntegerType::get(ctx, /*width=*/32, IntegerType::Unsigned),
+      ttnn::TraceIdAttr::get(ctx));
+}
+
 } // namespace mlir::tt::ttnn::utils

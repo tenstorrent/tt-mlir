@@ -105,7 +105,7 @@ SizedBuffer Socket::sizePrefixedRead() {
     return SizedBuffer();
   }
 
-  std::shared_ptr<void> buffer = ::tt::runtime::utils::malloc_shared(msgSize);
+  std::shared_ptr<void> buffer = ::tt::runtime::utils::mallocShared(msgSize);
   readResult = readExact(buffer.get(), msgSize);
   if (readResult < 0) {
     LOG_ERROR("Socket read payload failed: ", std::strerror(errno));

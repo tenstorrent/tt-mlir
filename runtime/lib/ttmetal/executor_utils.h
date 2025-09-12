@@ -514,25 +514,8 @@ createKernelConfig(
     computeConfig.dst_full_sync_en = fbComputeConfig->dst_full_sync_en();
     computeConfig.math_approx_mode = fbComputeConfig->math_approx_mode();
 
-    // Metal asserts that unpack_to_dest_mode.size() == NUM_CIRCULAR_BUFFERS.
-    computeConfig.unpack_to_dest_mode.resize(NUM_CIRCULAR_BUFFERS,
-                                             UnpackToDestMode::Default);
-    uint32_t modeIdx = 0;
-    for (auto mode : *fbComputeConfig->unpack_to_dest_mode()) {
-      LOG_ASSERT(modeIdx < NUM_CIRCULAR_BUFFERS);
-      switch (mode) {
-      case tt::target::UnpackToDestMode::Fp32: {
-        computeConfig.unpack_to_dest_mode[modeIdx] =
-            UnpackToDestMode::UnpackToDestFp32;
-        break;
-      }
-      case tt::target::UnpackToDestMode::Default: {
-        computeConfig.unpack_to_dest_mode[modeIdx] = UnpackToDestMode::Default;
-        break;
-      }
-      }
-      ++modeIdx;
-    }
+    computeConfig.unpack_to_dest_mode =
+        common::toUnpackToDestModes(fbComputeConfig->unpack_to_dest_mode());
 
     return computeConfig;
   }

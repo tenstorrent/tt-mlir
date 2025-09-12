@@ -130,6 +130,24 @@ toUnpackToDestMode(const tt::target::UnpackToDestMode &unpackToDestMode) {
   }
 }
 
+inline std::vector<UnpackToDestMode>
+toUnpackToDestModes(const ::flatbuffers::Vector<tt::target::UnpackToDestMode>
+                        *unpackToDestModesFB) {
+  // Metal asserts that unpack_to_dest_mode.size() == NUM_CIRCULAR_BUFFERS.
+  std::vector<UnpackToDestMode> unpackToDestModes(NUM_CIRCULAR_BUFFERS,
+                                                  UnpackToDestMode::Default);
+  if (unpackToDestModesFB == nullptr) {
+    return unpackToDestModes;
+  }
+  uint32_t modeIdx = 0;
+  for (auto mode : *unpackToDestModesFB) {
+    LOG_ASSERT(modeIdx < NUM_CIRCULAR_BUFFERS);
+    unpackToDestModes[modeIdx] = toUnpackToDestMode(mode);
+    ++modeIdx;
+  }
+  return unpackToDestModes;
+}
+
 inline std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>
 createFullMeshDevice(
     std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType) {

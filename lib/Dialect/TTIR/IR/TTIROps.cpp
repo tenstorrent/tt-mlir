@@ -42,15 +42,27 @@
 
 namespace mlir::tt::ttir {
 
-// Convert TensorType + MetalLayout into a memref including a Shard/ViewAttr.
-MemRefType getBufferType(Type type, bool isView) {
+// Convert TensorType + MetalLayout into a memref including a
+// Shard/View/HostAttr.
+MemRefType getBufferType(Type type, bool isView,
+                         std::optional<ttcore::MetalLayoutAttr> hostInfo) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
+  MLIRContext *ctx = tensorType.getContext();
+
   if (!tensorType.getEncoding()) {
-    return MemRefType::get(tensorType.getShape(), tensorType.getElementType());
+    // Calculate host layout and attach, for I/O with (potentially) unaligned
+    // host memref.
+    ttcore::HostLayoutAttr hostLayout = nullptr;
+    if (hostInfo.has_value()) {
+      hostLayout = ttcore::HostLayoutAttr::get(ctx, tensorType.getShape(),
+                                               hostInfo->getHostStride(),
+                                               hostInfo->getHostVolume());
+    }
+    return MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
+                           hostLayout);
   }
 
   auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-  MLIRContext *ctx = tensorType.getContext();
 
   auto gridShape = layout.getGridShape(tensorType);
   auto shardShape = layout.getShardShape(tensorType);
@@ -2770,6 +2782,26 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::fold(
   return mlir::failure();
 }
 
+bool mlir::tt::ttir::ToLayoutOp::isHostToDevice() {
+  const bool hostInput =
+      mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding() ==
+      nullptr;
+  const bool hostOutput =
+      mlir::cast<mlir::RankedTensorType>(getOutput().getType()).getEncoding() ==
+      nullptr;
+  return hostInput && !hostOutput;
+}
+
+bool mlir::tt::ttir::ToLayoutOp::isDeviceToHost() {
+  const bool hostInput =
+      mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding() ==
+      nullptr;
+  const bool hostOutput =
+      mlir::cast<mlir::RankedTensorType>(getOutput().getType()).getEncoding() ==
+      nullptr;
+  return !hostInput && hostOutput;
+}
+
 void mlir::tt::ttir::ToLayoutOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // Fold into ttir.empty w/ desired layout
@@ -2811,9 +2843,46 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
     return maybeOutput;
   }
 
-  rewriter.create<::mlir::tt::ttir::ToLayoutOp>(getLoc(), TypeRange(),
-                                                *maybeInput, *maybeOutput,
-                                                getLayout().value_or(nullptr));
+  // For unaligned H2D, copy the unaligned host tensor to an aligned & padded
+  // bounce buffer, then write to the device.
+  if (isHostToDevice()) {
+    llvm::SmallVector<mlir::Value> invocationStack;
+    MemRefType alignedHostMemref = mlir::cast<MemRefType>(
+        *getBufferType(getInput(), options, state, invocationStack));
+
+    if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
+            .isPadded()) {
+      auto alignedHostTensor =
+          rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
+      rewriter.create<memref::CopyOp>(getLoc(), *maybeInput, alignedHostTensor);
+      maybeInput = alignedHostTensor.getResult();
+    }
+  }
+
+  auto toLayoutOp = rewriter.create<::mlir::tt::ttir::ToLayoutOp>(
+      getLoc(), TypeRange(), *maybeInput, *maybeOutput,
+      getLayout().value_or(nullptr));
+
+  // For unaligned D2H, read the device tensor to an aligned & padded bounce
+  // buffer, then do strided memcpy to copy the data into the unaligned tensor.
+  if (isDeviceToHost()) {
+    llvm::SmallVector<mlir::Value> invocationStack;
+    MemRefType alignedHostMemref = mlir::cast<MemRefType>(
+        *getBufferType(getOutput(), options, state, invocationStack));
+
+    if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
+            .isPadded()) {
+      rewriter.setInsertionPoint(toLayoutOp);
+      auto alignedHostTensor =
+          rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
+
+      rewriter.setInsertionPointAfter(toLayoutOp);
+      rewriter.create<memref::CopyOp>(getLoc(), alignedHostTensor,
+                                      *maybeOutput);
+      toLayoutOp.getOutputMutable().assign(alignedHostTensor);
+    }
+  }
+
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      *maybeOutput);
   return success();
@@ -2823,7 +2892,8 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ToLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false,
+                                       getLayout());
 }
 
 //===----------------------------------------------------------------------===//
