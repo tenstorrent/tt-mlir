@@ -13,28 +13,59 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 LogicalResult
 TTNNScatterWorkarounds::matchAndRewrite(ttnn::ScatterOp op,
                                         PatternRewriter &rewriter) const {
+
+  /*
+   * ScatterOp in TTNN has a hardware limit on the scatter axis size.
+   * i.e. index_shape[dim] > to_layout_int32_scatter_axis_max_length
+   * This is a requirement from
+   * third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/operations/data_movement/scatter/scatter.cpp
+   *
+   * This function decomposes large scatter operations into sequential smaller
+   * chunks, each respecting the 256-element constraint.
+   *
+   * EXAMPLE:
+   * --------
+   * Original operation that would fail:
+   *   input_tensor: shape [2272]
+   *   index_tensor: shape [284] (>256)
+   *   source_tensor: shape [284]
+   *   scatter_dim: 0
+   *
+   * Chunking transformation:
+   *
+   * CHUNK 0: Elements [0:256]
+   *   slice_index_0 = index_tensor[0:256]     // shape [256]
+   *   slice_source_0 = source_tensor[0:256]   // shape [256]
+   *   result_0 = scatter(input_tensor, slice_index_0, slice_source_0, dim=0)
+   *
+   * CHUNK 1: Elements [256:284]
+   *   slice_index_1 = index_tensor[256:284]   // shape [28]
+   *   slice_source_1 = source_tensor[256:284] // shape [28]
+   *   result_1 = scatter(result_0, slice_index_1, slice_source_1, dim=0)
+   *
+   * Return result_1 as final output.
+   */
   RankedTensorType indexType = op.getIndexTensor().getType();
   int32_t scatterDim = op.getDim();
 
-  // Check if scatter axis size exceeds hardware limit
   constexpr int64_t MAX_SCATTER_SIZE = 256;
   int64_t scatterAxisSize = indexType.getShape()[scatterDim];
 
   if (scatterAxisSize <= MAX_SCATTER_SIZE) {
-    return failure(); // No workaround needed
+    return failure();
   }
 
-  // Calculate chunking parameters
-  int64_t chunkSize = MAX_SCATTER_SIZE;
+  // Calculate number of chunks needed using round-up (ceiling) division.
   int64_t numChunks =
-      (scatterAxisSize + chunkSize - 1) / chunkSize; // ceil division
+      (scatterAxisSize + MAX_SCATTER_SIZE - 1) / MAX_SCATTER_SIZE;
 
   Value currentResult = op.getInputTensor();
 
   // Process each chunk sequentially
   for (int64_t chunkIdx = 0; chunkIdx < numChunks; ++chunkIdx) {
-    int64_t startIdx = chunkIdx * chunkSize;
-    int64_t endIdx = std::min((chunkIdx + 1) * chunkSize, scatterAxisSize);
+    int64_t startIdx = chunkIdx * MAX_SCATTER_SIZE;
+    int64_t endIdx =
+        std::min((chunkIdx + 1) * MAX_SCATTER_SIZE, scatterAxisSize);
 
     // Create slice parameters for this chunk
     SmallVector<int32_t> begins(indexType.getRank(), 0);

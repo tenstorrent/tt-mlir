@@ -1573,14 +1573,45 @@ public:
 
 namespace {
 class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
+  /**
+  * Converts TTIR scatter operations to TTNN scatter operations.
+  *
+  * len(scatter_dims_to_operand_dims) = 1 --> single-dimensional scatter
+  * len(scatter_dims_to_operand_dims) > 1 --> multi-dimensional scatter
+    - Multi-dimensional scatter is more complex and requires flattening tensors
+      to 1D, performing linear indexing, then reshaping back.
+  *
+  * In each case, we ensure tensors are compatible in rank and shape.
+  * As per torch.scatter:
+  * `self, index and src (if it is a Tensor) should all have the same number of
+  dimensions`
+  *
+  */
 public:
   using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
 
 private:
-  // Helper to simplify index extraction without complex broadcasting
-  Value extractSimpleIndices(ttir::ScatterOp op, Value scatterIndices,
-                             int32_t indexVectorDim, int32_t dimIndex,
-                             ConversionPatternRewriter &rewriter) const {
+  Value extractIndices(ttir::ScatterOp op, Value scatterIndices,
+                       int32_t indexVectorDim, int32_t dimIndex,
+                       ConversionPatternRewriter &rewriter) const {
+    /**
+     * Extracts indices for a specific dimension from packed scatter_indices
+     * tensor.
+     *
+     * index_vector_dim: specifies where the coordinate pairs are stored.
+     * dim_index: specifies which dimension's indices to extract.
+     *
+     * Example:
+     * Input: tensor<71x4x2xi64> with index_vector_dim=2, dimIndex=0
+     * Each element at position [batch, operation, :] contains [row_index,
+     * col_index]. We are extracting row_index (dimIndex=0).
+     *
+     * Operations:
+     *   1. ttnn.slice_static: begins=[0,0,0], ends=[71,4,1] ->
+     * tensor<71x4x1xi64>
+     *   2. ttnn.reshape: shape=[71,4] -> tensor<71x4xi64>
+     * Result: Indices for dimension 0 extracted from packed format.
+     */
     auto scatterIndicesType =
         mlir::cast<RankedTensorType>(scatterIndices.getType());
     auto scatterIndicesShape = scatterIndicesType.getShape();
@@ -1634,7 +1665,35 @@ private:
   LogicalResult
   convertMultidimensionalScatter(ttir::ScatterOp op, OpAdaptor adaptor,
                                  ConversionPatternRewriter &rewriter) const {
-    // Keep the existing multi-dimensional implementation unchanged
+
+    /**
+     * Converts multi-dimensional scatter operations using flattening strategy.
+     *
+     * When scatter_dims_to_operand_dims.size() > 1, we cannot use simple rank
+     * expansion. Instead, we flatten all tensors to 1D and use linear indexing.
+     *
+     * Example:
+     * Input: tensor<71x32xbf16>, indices: tensor<71x4x2xi64>, updates:
+     * tensor<71x4xbf16> Attributes: scatter_dims_to_operand_dims = [0, 1]
+     *
+     * Operations:
+     *   1. Extract dimension indices:
+     *      - ttnn.slice_static + ttnn.reshape for dim 0 indices
+     *      - ttnn.slice_static + ttnn.reshape for dim 1 indices
+     *   2. Calculate linear indices:
+     *      - ttnn.full: create stride tensor (value=32)
+     *      - ttnn.multiply: dim0_indices * 32
+     *      - ttnn.add: (dim0_indices * 32) + dim1_indices
+     *   3. Flatten all tensors:
+     *      - ttnn.reshape: input tensor<71x32> -> tensor<2272>
+     *      - ttnn.reshape: indices -> tensor<284>
+     *      - ttnn.reshape: updates -> tensor<284>
+     *   4. Perform 1D scatter:
+     *      - ttnn.scatter: always with dim=0
+     *   5. Reshape back:
+     *      - ttnn.reshape: result tensor<2272> -> tensor<71x32>
+     */
+
     auto scatterDimsToOperandDims = op.getScatterDimsToOperandDims();
     auto indexVectorDim = op.getIndexVectorDim();
 
@@ -1645,8 +1704,13 @@ private:
     auto inputType = mlir::cast<RankedTensorType>(inputTensor.getType());
     auto inputShape = inputType.getShape();
 
-    // Calculate linear indices
+    // Calculate linear indices.
     Value linearIndices = nullptr;
+
+    // Generalized stride calculation for N-dimensional tensors:
+    //
+    // For tensor with shape [D0, D1, D2, ..., Dn-1]:
+    // stride[i] = product of all dimensions after position i.
 
     llvm::SmallVector<int64_t> strides;
     int64_t stride = 1;
@@ -1657,8 +1721,8 @@ private:
 
     for (size_t dimIdx = 0; dimIdx < scatterDimsToOperandDims.size();
          ++dimIdx) {
-      Value dimensionIndices = extractSimpleIndices(
-          op, scatterIndices, indexVectorDim, dimIdx, rewriter);
+      Value dimensionIndices =
+          extractIndices(op, scatterIndices, indexVectorDim, dimIdx, rewriter);
 
       if (strides[dimIdx] != 1) {
         auto indexType =
@@ -1696,7 +1760,7 @@ private:
       }
     }
 
-    // Flatten and scatter (keeping existing logic)
+    // Flatten and scatter using dim = 0.
     int64_t totalElements = 1;
     for (auto dim : inputShape) {
       totalElements *= dim;
@@ -1766,6 +1830,28 @@ public:
   matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    /**
+     * Decides between single-dimensional and multi-dimensional conversion based
+     * on scatter_dims_to_operand_dims size, then ensures rank consistency for
+     * PyTorch-style scatter operation.
+     *
+     * Example:
+     * Input: tensor<2050x768xf32>, indices: tensor<1x5x1xi32>, updates:
+     * tensor<1x5x768xf32> Attributes: scatter_dims_to_operand_dims=[0],
+     * update_window_dims=[2], inserted_window_dims=[0]
+     *
+     * Operations:
+     *   1. Extract indices:
+     *      - ttnn.slice_static: begins=[0,0,0], ends=[1,5,1] ->
+     * tensor<1x5x1xi32>
+     *   2. Expand input tensor (rank 2 -> 3):
+     *      - ttnn.reshape: <205x768xf32> -> tensor<1x2050x768xf32>
+     *   3. Broadcast indices to match updates:
+     *      - ttnn.repeat: repeat_dims=<1x1x768> -> tensor<1x5x768xi32>
+     *   4. Final scatter:
+     *      - ttnn.scatter: dim=0, all tensors rank 3
+     */
+
     auto scatterDimsToOperandDims = op.getScatterDimsToOperandDims();
     auto indexVectorDim = op.getIndexVectorDim();
 
@@ -1773,18 +1859,16 @@ public:
       return convertMultidimensionalScatter(op, adaptor, rewriter);
     }
 
-    // Single dimension scatter - use simplified approach
     int32_t dim = scatterDimsToOperandDims[0];
     if (dim < 0) {
       return rewriter.notifyMatchFailure(
           op, "Negative dimension values not supported");
     }
 
-    // Extract indices without complex broadcasting
-    Value indexTensor = extractSimpleIndices(op, adaptor.getScatterIndices(),
-                                             indexVectorDim, 0, rewriter);
+    Value indexTensor = extractIndices(op, adaptor.getScatterIndices(),
+                                       indexVectorDim, 0, rewriter);
 
-    // Ensure all tensors have the same rank
+    // Ensure all tensors have the same rank.
     auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto updateType =
         mlir::cast<RankedTensorType>(adaptor.getUpdate().getType());
@@ -1794,12 +1878,15 @@ public:
     Value finalSource = adaptor.getUpdate();
     Value finalIndex = indexTensor;
 
-    // Determine target rank (use the highest rank among all tensors)
+    // Determine target rank (use the highest rank among all tensors).
     size_t targetRank =
         std::max({inputType.getShape().size(), updateType.getShape().size(),
                   indexType.getShape().size()});
 
-    // Expand input tensor if needed
+    // Expand input tensor if needed.
+    // Add dims at inserted_window_dims positions
+    // Example: tensor<2050x768> -> tensor<1x2050x768> when
+    // inserted_window_dims=[0]
     if (inputType.getShape().size() < targetRank) {
       auto insertedWindowDims = op.getInsertedWindowDims();
       llvm::SmallVector<int64_t> expandedInputShape;
@@ -1833,15 +1920,15 @@ public:
       finalInput = expandInputOp.getResult();
     }
 
-    // Expand index tensor if needed to match target rank
+    // Expand index tensor if needed to match target rank.
+    // Add dims at update_window_dims positions.
+    // Example: tensor<1x5> -> tensor<1x5x1> when update_window_dims=[2]
     if (indexType.getShape().size() < targetRank) {
       auto updateWindowDims = op.getUpdateWindowDims();
       llvm::SmallVector<int64_t> expandedIndexShape;
 
       size_t originalDim = 0;
       for (size_t i = 0; i < targetRank; ++i) {
-        // Check if this dimension is a window dimension (should be singleton
-        // for index)
         bool isWindowDim =
             std::find(updateWindowDims.begin(), updateWindowDims.end(),
                       static_cast<int32_t>(i)) != updateWindowDims.end();
@@ -1871,7 +1958,8 @@ public:
 
       finalIndex = expandIndexOp.getResult();
 
-      // Repeat index tensor to match update tensor dimensions where needed
+      // Repeat index tensor to match update tensor shape as per PyTorch
+      // semantics.
       llvm::SmallVector<int64_t> repeatDims;
       bool needsRepeat = false;
       auto updateShape = updateType.getShape();
