@@ -60,7 +60,18 @@ void run(const ::tt::target::ttnn::UpdateCacheOp *op, ProgramContext &context) {
     const auto &buf = buffer.view_as<uint32_t>();
     uint32_t upIdx = *buf.begin();
 
+    if (const char* print_cache = std::getenv("PRINT_CACHE")) {
+      ::ttnn::set_printoptions("full");
+      std::cout <<"update_cache op before:" <<std::endl;
+      cache.print();
+    }
+
     ::ttnn::update_cache(cache, input, upIdx, op->batch_offset(), std::nullopt);
+    
+    if (const char* print_cache = std::getenv("PRINT_CACHE")) {
+      std::cout <<"update_cache op after:" <<std::endl;
+      cache.print();
+    }
   } else {
     LOG_FATAL("Currently, the only way to execute ttnn::update_cache is to use "
               "the workaround enabled by the flag "
