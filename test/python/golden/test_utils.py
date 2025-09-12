@@ -91,7 +91,7 @@ def id_with_name(val: Any, name: str) -> str:
     """
     name_val_delim = "="
     if isinstance(val, str):
-        return name + name_val_delim + Value
+        return name + name_val_delim + val
     if isinstance(val, numbers.Number):
         return name + name_val_delim + str(val)
     if isinstance(val, Sequence):
