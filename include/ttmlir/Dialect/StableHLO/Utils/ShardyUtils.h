@@ -53,6 +53,20 @@ createTTMeshAttrFromSdyMeshOp(mlir::sdy::MeshOp meshOp);
 // Check if the module has any sdy tensor sharding annotations.
 bool sdyAnnotationsExist(mlir::ModuleOp &module);
 
+// Parse dimension shardings from a string representation.
+llvm::SmallVector<mlir::sdy::DimensionShardingAttr>
+parseDimensionShardings(const std::string &dimsContent,
+                        mlir::MLIRContext *context);
+
+// Convert function argument from mhlo.frontend_attributes to sdy.sharding.
+mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
+                                            mlir::BlockArgument &arg,
+                                            mlir::MLIRContext *context);
+
+// Convert all function arguments from frontend attributes format to SDY format.
+mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
+                                                   mlir::MLIRContext *context);
+
 // Check if the graph is solved.
 bool isGraphSolved(mlir::ModuleOp &module);
 
