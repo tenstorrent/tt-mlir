@@ -553,7 +553,7 @@ def build_stablehlo_module(
             with open(filename, "w") as f:
                 f.write(str(module))
                 print(module)
-        print(stablehlo_builder.golden_map)
+
         return module, stablehlo_builder
 
 

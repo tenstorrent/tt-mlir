@@ -43,7 +43,6 @@ def sharding_constraint(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -54,7 +53,6 @@ def test_sharding_constraint(
     test_fn: Callable,
     shape: Shape,
     dtype: torch.dtype,
-    target: str,
     request,
 ):
     compile_stablehlo_to_flatbuffer(
@@ -64,5 +62,4 @@ def test_sharding_constraint(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
     )
