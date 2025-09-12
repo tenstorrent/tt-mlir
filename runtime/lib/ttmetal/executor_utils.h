@@ -581,6 +581,8 @@ inline void writeHostTensorToMeshBuffer(
           [&](const TensorDesc &) {
             void *src = input.data.get();
             LOG_ASSERT(src);
+            std::cout << "e input data ptr c++ " << src << " "
+                      << *((float *)src) << " " << std::endl;
             mcq->enqueue_write_mesh_buffer(meshBuffer, src, blockingCQ);
           },
           [&](const HostBuffer &hostBuffer) {
@@ -607,6 +609,8 @@ inline void readHostTensorFromMeshBuffer(
             void *dst = output.data.get();
             LOG_ASSERT(dst);
             mcq->enqueue_read_mesh_buffer(dst, meshBuffer, true);
+            std::cout << "e output data ptr c++ " << dst << " "
+                      << *((float *)dst) << " " << std::endl;
           },
           [&](const HostBuffer &hostBuffer) {
             LOG_FATAL("readTensorFromMeshBuffer to HostBuffer not supported.");

@@ -74,7 +74,6 @@ void createTTIRToTTMetalFrontendPipeline(
   }
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
-  pm.addPass(createConvertElementwiseToLinalgPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;
   {
@@ -85,6 +84,8 @@ void createTTIRToTTMetalFrontendPipeline(
         llvm::to_vector(options.overrideDeviceShape);
   }
   pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
+  pm.addPass(createConvertElementwiseToLinalgPass());
+  pm.addPass(createLinalgGeneralizeNamedOpsPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttir::createTTIRLowerToLayout());

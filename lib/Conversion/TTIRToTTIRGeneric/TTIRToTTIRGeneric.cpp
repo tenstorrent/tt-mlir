@@ -81,14 +81,7 @@ protected:
       constexpr std::array<int64_t, 2> defaultShape =
           ttcore::TileType::getDefaultShape();
       tileShape.assign(defaultShape.begin(), defaultShape.end());
-      if (mlir::isa<ttcore::TileType>(elementType)) {
-        assert(tileShape.size() == 2);
-        assert(logicalShape.size() >= 2);
-        logicalShape[logicalShape.size() - 2] *= tileShape[0];
-        logicalShape[logicalShape.size() - 1] *= tileShape[1];
-      } else {
-        elementType = ttcore::TileType::get(elementType, tileShape);
-      }
+      elementType = ttcore::TileType::get(elementType, tileShape);
     }
 
 
@@ -758,38 +751,83 @@ private:
       return llvm::failure();
     }
 
+    const bool tilize = true;
+
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
 
-    auto [inputs, outputs] =
-        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
-                                   /*tiled*/ true, op.getGrid().getShape());
+    auto [inputs, outputs] = toLayoutOperandsAndResults(
+        rewriter, {origInputs, origOutputs}, tilize, op.getGrid().getShape());
 
     auto generic = rewriter.create<ttir::GenericOp>(
         op.getLoc(), TypeRange(outputs), inputs, outputs, op.getGrid(),
         op.getBlockFactors(), op.getIndexingMaps(), op.getIteratorTypes(),
         op.getThreads(), op.getNumRegions());
-    for (mlir::Region &region : generic.getRegions()) {
-      region.takeBody(op.getRegion(region.getRegionNumber()));
-    }
 
-    // HACK
-    {
-      auto insertPoint = rewriter.saveInsertionPoint();
-      generic.walk([&](arith::AddFOp addf) {
-        rewriter.setInsertionPoint(addf);
-        auto operands = addf.getOperands();
-        assert(operands.size() == 2);
-        rewriter.replaceOpWithNewOp<ttir::TileAddOp>(
-            addf, addf.getResult().getType(), operands[0], operands[1]);
-      });
-      rewriter.restoreInsertionPoint(insertPoint);
+    llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(
+        TypeRange(generic->getOperands()), [&](Type t) -> Type {
+          mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
+          auto layout =
+              mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+          auto shardShape = layout.getShardShape(tensorType);
+          return mlir::RankedTensorType::get(shardShape,
+                                             tensorType.getElementType());
+        });
+
+    for (mlir::Region &region : generic.getRegions()) {
+      llvm::SmallVector<mlir::Location> locs(generic->getNumOperands(),
+                                             op.getLoc());
+
+      OpBuilder::InsertionGuard guard(rewriter);
+      Block *block =
+          rewriter.createBlock(&region, region.end(), blockTypes, locs);
+
+      mlir::Region &origRegion = op.getRegion(region.getRegionNumber());
+      assert(region.getNumArguments() == origRegion.getNumArguments());
+
+      mlir::IRMapping irMapper;
+      for (unsigned argI = 0; argI < origRegion.getNumArguments(); ++argI) {
+        irMapper.map(origRegion.getArgument(argI), region.getArgument(argI));
+      }
+
+      rewriter.setInsertionPointToStart(block);
+      for (auto &op : origRegion.getOps()) {
+        Operation *newOp = rewriter.clone(op, irMapper);
+        if (tilize) {
+          for (auto result : newOp->getResults()) {
+            RankedTensorType tensorType =
+                mlir::dyn_cast<RankedTensorType>(result.getType());
+            if (!tensorType ||
+                mlir::isa<ttcore::TileType>(tensorType.getElementType())) {
+              continue;
+            }
+            result.setType(tilizeTensor(tensorType));
+          }
+        }
+      }
     }
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
 
     return llvm::success();
+  }
+
+  static RankedTensorType tilizeTensor(RankedTensorType tensorType) {
+    assert(tensorType);
+    constexpr std::array<int64_t, 2> defaultShape =
+        ttcore::TileType::getDefaultShape();
+    llvm::SmallVector<int64_t> tileShape;
+    tileShape.assign(defaultShape.begin(), defaultShape.end());
+    ttcore::TileType tileType =
+        ttcore::TileType::get(tensorType.getElementType(), tileShape);
+    llvm::SmallVector<int64_t> tiledTensorShape(tensorType.getShape());
+    assert(tiledTensorShape.size() >= 2);
+    tiledTensorShape[tiledTensorShape.size() - 2] = ttmlir::utils::alignUpDiv(
+        tiledTensorShape[tiledTensorShape.size() - 2], tileShape[0]);
+    tiledTensorShape[tiledTensorShape.size() - 1] = ttmlir::utils::alignUpDiv(
+        tiledTensorShape[tiledTensorShape.size() - 1], tileShape[1]);
+    return mlir::RankedTensorType::get(tiledTensorShape, tileType);
   }
 };
 } // namespace

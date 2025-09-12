@@ -42,7 +42,7 @@ def matmul(lhs, rhs, out):
 
 lhs = torch.randn(128, 128)
 rhs = torch.randn(128, 128)
-out = torch.randn(128, 128)
+out = torch.zeros(128, 128)
 matmul(lhs, rhs, out)
 
 

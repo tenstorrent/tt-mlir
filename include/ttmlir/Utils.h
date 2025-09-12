@@ -42,6 +42,11 @@ T alignUp(T ptr, T alignment) {
 }
 
 template <typename T>
+T alignUpDiv(T n, T d) {
+  return (n + d - 1) / d;
+}
+
+template <typename T>
 inline mlir::SmallVector<T> calculateStrides(mlir::ArrayRef<T> shape,
                                              T elementSize = 1) {
   mlir::SmallVector<T> strides(shape.size());

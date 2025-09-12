@@ -978,11 +978,11 @@ class D2MGenericCompiler(TTCompilerBase):
                     )
             elif arg.annotation.id == "Tensor":
                 shape = self.args[i].shape
-                # dtype = F32Type.get(self.ctx)
+                dtype = F32Type.get(self.ctx)
                 # dtype = VectorType.get((32, 32), F32Type.get(self.ctx))
-                dtype = ttcore.ir.TileType.get(
-                    self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
-                )
+                # dtype = ttcore.ir.TileType.get(
+                #     self.ctx, 32, 32, getattr(ttcore.DataType, self.args[i].dtype)
+                # )
                 func_operand_types.append(RankedTensorType.get(shape, dtype))
 
         self.func_entry = func.FuncOp(name=node.name, type=(func_operand_types, []))
@@ -1146,7 +1146,7 @@ class Tensor:
     def __init__(self):
         self.dtype = "Float32"
         self.tilized_shape = [4, 4]
-        self.shape = [4, 4]
+        self.shape = [128, 128]
 
 
 class _AffineMap:
@@ -1387,7 +1387,7 @@ def pykernel_gen(
                 print_ir = True
                 device_register_options = f"system-desc-path={_g_current_system_desc}"
                 verify = True
-                pipeline = "convert-elementwise-to-linalg,linalg-generalize-named-ops,ttir-to-ttmetal-pipeline"
+                pipeline = "ttir-to-ttmetal-pipeline"
 
                 register_device = "ttcore-register-device"
                 if device_register_options:
@@ -1404,8 +1404,8 @@ def pykernel_gen(
                     ctx.enable_multithreading(False)
                     pm.enable_ir_printing(
                         #tree_printing_dir_path=print_ir_path,
-                        #print_after_all=True,
-                        print_before_all=True,
+                        print_after_all=True,
+                        #print_before_all=True,
                         print_after_failure=True,
                     )
                 pm.run(module.operation)
@@ -1417,6 +1417,10 @@ def pykernel_gen(
                 # Runtime
                 #
                 fbb = binary.load_binary_from_capsule(bin)
+                # HACK
+                #import sys
+                #json.dump(json.loads(fbb.as_json()), sys.stdout, indent=2)
+                #sys.exit(0)
                 program_index = 0
                 device_options = runtime.MeshDeviceOptions()
                 device_options.mesh_shape = fbb.get_program_mesh_shape(program_index)
@@ -1432,6 +1436,7 @@ def pykernel_gen(
 
                 inputs = []
                 for tensor in args:
+                    print("input", tensor)
                     inputs.append(runtime.create_borrowed_host_tensor(
                         tensor.data_ptr(),
                         list(tensor.shape),
@@ -1441,12 +1446,17 @@ def pykernel_gen(
                     ))
 
                 outputs = []
+                outputs_torch = []
                 output_descs = json.loads(fbb.get_program_outputs_as_json(program_index))
                 for output_desc in output_descs:
-                    tensor = torch.zeros(output_desc["desc"]["shape"],
+                    # HACK
+                    expand_tile = lambda x: x * 32
+                    tensor = torch.zeros(list(map(expand_tile, output_desc["desc"]["shape"])),
                         dtype=from_data_type(
                             output_desc["desc"]["layout"]["memory_desc"]["data_type"]
                         ))
+                    outputs_torch.append(tensor)
+                    print("output data ptr python", hex(tensor.data_ptr()))
                     outputs.append(runtime.create_borrowed_host_tensor(
                         tensor.data_ptr(),
                         list(tensor.shape),
@@ -1457,11 +1467,12 @@ def pykernel_gen(
 
                 device = runtime.open_mesh_device(device_options)
                 runtime_outputs = runtime.submit(device, fbb, program_index, inputs)
-                runtime.wait(outputs)
-                for runtime_output_tensor in runtime_outputs:
+                runtime.wait(runtime_outputs)
+                for i, runtime_output_tensor in enumerate(runtime_outputs):
                     output_host = runtime.to_host(runtime_output_tensor, untilize=True)[0]
                     runtime.memcpy(outputs[i], output_host)
                     runtime.deallocate_tensor(runtime_output_tensor, force=True)
+                    print(outputs_torch[i])
                 runtime.close_mesh_device(device)
 
         return _wrapper

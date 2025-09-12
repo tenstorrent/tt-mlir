@@ -535,10 +535,12 @@ void memcpy(void *dst, Tensor src,
   }
   std::visit(utils::overloaded{
                  [&](const TensorDesc &tensorDesc) {
+                   std::cout << "0 output data ptr c++ 0x" << dst << std::endl;
                    std::memcpy(dst, src.data.get(), tensorDesc.sizeBytes());
                  },
                  [&](const HostBuffer &hostBuffer) {
                    auto span = hostBuffer->view_bytes();
+                   std::cout << "1 output data ptr c++ 0x" << dst << std::endl;
                    std::memcpy(dst, span.data(), span.size_bytes());
                  },
                  [&](const DistributedHostBuffer &) {
@@ -567,6 +569,9 @@ void memcpy(Tensor dst, Tensor src) {
                        "Tensor data type mismatch");
             std::int64_t copySize =
                 std::min(hostDst.sizeBytes(), tensorDesc.sizeBytes());
+            std::cout << "2 output data ptr c++ " << dst.data.get() << " "
+                      << src.data.get() << " " << *((float *)src.data.get())
+                      << " " << copySize << std::endl;
             std::memcpy(dst.data.get(), src.data.get(), copySize);
           },
           [&](const HostBuffer &hostBuffer) {
@@ -574,6 +579,8 @@ void memcpy(Tensor dst, Tensor src) {
             std::int64_t copyByteSize =
                 std::min(hostDst.sizeBytes(),
                          static_cast<std::int64_t>(span.size_bytes()));
+            std::cout << "3 output data ptr c++ 0x" << dst.data.get()
+                      << std::endl;
             std::memcpy(dst.data.get(), span.data(), copyByteSize);
           },
           [&](const DistributedHostBuffer &) {
