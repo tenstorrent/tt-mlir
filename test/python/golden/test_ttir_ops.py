@@ -8,6 +8,7 @@ from typing import Callable, List, Optional, Tuple, Union
 from conftest import x86_only
 
 from builder.base.builder import Operand, Shape, TypeInfo
+from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 from test_utils import Marks, shape_str
@@ -48,10 +49,9 @@ def logical_not(
     input_tensor = input_tensor.to(dtype)
     # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype.
     golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
-    builder.set_graph_input_output(
-        [input_tensor], [golden_output_tensor], override=True
-    )
-    return builder.logical_not(in0, unit_attrs=unit_attrs)
+    logical_not_0 = builder.logical_not(in0, unit_attrs=unit_attrs)
+    builder.set_goldens({in0: input_tensor}, {logical_not_0: golden_output_tensor})
+    return logical_not_0
 
 
 # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
@@ -133,8 +133,9 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
             (-math.pi / 2 + 0.02), (math.pi / 2 - 0.02)
         )
         output_golden = torch.tan(input_golden)
-        builder.set_graph_input_output([input_golden], [output_golden], override=True)
-        return builder.tan(in0, unit_attrs=unit_attrs)
+        tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
+        builder.set_goldens({in0: input_golden}, {tan_0: output_golden})
+        return tan_0
 
     compile_ttir_to_flatbuffer(
         tan,
@@ -167,8 +168,9 @@ def test_log(shape: Shape, dtype: torch.dtype, target: str, request):
         error_margin = torch.full(randn_tensor.shape, 0.01)
         input_golden = torch.add(abs_tensor, error_margin)
         output_golden = torch.log(input_golden)
-        builder.set_graph_input_output([input_golden], [output_golden], override=True)
-        return builder.log(in0, unit_attrs=unit_attrs)
+        log_0 = builder.log(in0, unit_attrs=unit_attrs)
+        builder.set_goldens({in0: input_golden}, {log_0: output_golden})
+        return log_0
 
     compile_ttir_to_flatbuffer(
         log,
@@ -193,8 +195,9 @@ def test_log1p(shape: Shape, dtype: torch.dtype, request):
         error_margin = torch.full(randn_tensor.shape, -0.99)
         input_golden = torch.add(abs_tensor, error_margin)
         output_golden = torch.log1p(input_golden)
-        builder.set_graph_input_output([input_golden], [output_golden], override=True)
-        return builder.log1p(in0, unit_attrs=unit_attrs)
+        log1p_0 = builder.log1p(in0, unit_attrs=unit_attrs)
+        builder.set_goldens({in0: input_golden}, {log1p_0: output_golden})
+        return log1p_0
 
     compile_ttir_to_flatbuffer(
         log1p,
@@ -233,17 +236,16 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request):
     )
 
 
-@pytest.mark.parametrize("shapes", [[(32, 64), (32, 64), (32, 64), (32, 64)]])
+@pytest.mark.parametrize("shapes", [[(32, 64), (32, 64), (32, 64)]])
 def test_clamp_tensor(shapes: List[Shape], request):
     def clamp_tensor(
         in0: Operand,
         in1: Operand,
         in2: Operand,
-        in3: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return builder.clamp_tensor(in0, in1, in2, in3, unit_attrs=unit_attrs)
+        return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
         clamp_tensor,
@@ -270,10 +272,9 @@ def test_sqrt(shape: Shape, dtype: torch.dtype, target: str, request):
     ):
         input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
         golden_output_tensor = torch.sqrt(input_tensor)
-        builder.set_graph_input_output(
-            [input_tensor], [golden_output_tensor], override=True
-        )
-        return builder.sqrt(in0, unit_attrs=unit_attrs)
+        sqrt_0 = builder.sqrt(in0, unit_attrs=unit_attrs)
+        builder.set_goldens({in0: input_tensor}, {sqrt_0: golden_output_tensor})
+        return sqrt_0
 
     compile_ttir_to_flatbuffer(
         sqrt,
@@ -300,10 +301,9 @@ def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request):
     ):
         input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
         golden_output_tensor = torch.rsqrt(input_tensor)
-        builder.set_graph_input_output(
-            [input_tensor], [golden_output_tensor], override=True
-        )
-        return builder.rsqrt(in0, unit_attrs=unit_attrs)
+        rsqrt_0 = builder.rsqrt(in0, unit_attrs=unit_attrs)
+        builder.set_goldens({in0: input_tensor}, {rsqrt_0: golden_output_tensor})
+        return rsqrt_0
 
     compile_ttir_to_flatbuffer(
         rsqrt,
@@ -528,16 +528,29 @@ def div(
 ):
     dividend_tensor = builder._get_golden_tensor(in0)
     divisor_tensor = builder._get_golden_tensor(in1)
-    if torch.is_floating_point(dividend_tensor) and torch.is_floating_point(
-        divisor_tensor
-    ):
-        dividend_tensor[torch.abs(dividend_tensor) < 0.01] = 0.03
-        divisor_tensor[torch.abs(divisor_tensor) < 0.01] = -0.03
-    output_golden = torch.div(dividend_tensor, divisor_tensor)
-    builder.set_graph_input_output(
-        [dividend_tensor, divisor_tensor], [output_golden], override=True
+
+    dividend_tensor = dividend_tensor.apply_shardwise(
+        lambda shard: (
+            shard.__setitem__(shard.abs() < 0.01, 0.03) or shard
+            if torch.is_floating_point(shard)
+            else shard
+        )
     )
-    return builder.div(in0, in1, unit_attrs=unit_attrs)
+
+    divisor_tensor = divisor_tensor.apply_shardwise(
+        lambda shard: (
+            shard.__setitem__(shard.abs() < 0.01, -0.03) or shard
+            if torch.is_floating_point(shard)
+            else shard
+        )
+    )
+
+    output_golden = torch.div(dividend_tensor, divisor_tensor)
+    div0 = builder.div(in0, in1, unit_attrs=unit_attrs)
+    builder.set_goldens_from_builder_tensor(
+        {in0: dividend_tensor, in1: divisor_tensor}, {div0: output_golden}
+    )
+    return div0
 
 
 # TODO (wenbinlyuTT): fix f32 accuracy issue for small values
@@ -568,7 +581,13 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request):
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return div(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+        golden_input_tensor = torch.randn(shape, dtype=dtype)
+        div0 = div(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+        builder.set_goldens(
+            {in0: golden_input_tensor, in1: golden_input_tensor},
+            {div0: torch.div(golden_input_tensor, golden_input_tensor)},
+        )
+        return div0
 
     compile_ttir_to_flatbuffer(
         hoisted_div_wrapper,
@@ -636,13 +655,21 @@ def pow(
 ):
     randn_base_tensor = builder._get_golden_tensor(in0)
     randn_exponent_tensor = builder._get_golden_tensor(in1)
+
+    randn_base_tensor = randn_base_tensor.apply_shardwise(
+        lambda shard: shard.abs()
+        if torch.is_floating_point(randn_exponent_tensor)
+        else shard
+    )
+
     if torch.is_floating_point(randn_exponent_tensor):
         randn_base_tensor = torch.abs(randn_base_tensor)
     output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
-    builder.set_graph_input_output(
-        [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
+    pow0 = builder.pow(in0, in1, unit_attrs=unit_attrs)
+    builder.set_goldens_from_builder_tensor(
+        {in0: randn_base_tensor, in1: randn_exponent_tensor}, {pow0: output_golden}
     )
-    return builder.pow(in0, in1, unit_attrs=unit_attrs)
+    return pow0
 
 
 @pytest.mark.fails_golden
@@ -930,14 +957,13 @@ def test_concat(shapes: List[Shape], dim: int, request):
             (1, 32, 32, 64),
             (64, 32, 3, 3),
             (1, 1, 1, 64),
-            (1, 16, 28, 64),
         ]
     ],
 )
 @pytest.mark.parametrize(
     "input_dtypes",
     [
-        [torch.float32, torch.float32, torch.float32, torch.float32],
+        [torch.float32, torch.float32, torch.float32],
         # skip quint8 for now. Issue: https://github.com/tenstorrent/tt-metal/issues/26568
         pytest.param(
             [
@@ -968,7 +994,6 @@ def test_conv2d(
         in0: Operand,
         weight: Operand,
         bias: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
@@ -976,7 +1001,6 @@ def test_conv2d(
             in0,
             weight,
             bias,
-            in1,
             stride=stride,
             padding=padding,
             dilation=dilation,
@@ -1001,7 +1025,6 @@ def test_conv2d(
             (1, 32, 32, 64),
             (64, 32, 3, 3),
             (1, 1, 1, 64),
-            (1, 16, 28, 64),
         ]
     ],
 )
@@ -1021,7 +1044,6 @@ def test_conv2d_consteval(
         in0: Operand,
         weight: Operand,
         bias: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
@@ -1029,7 +1051,6 @@ def test_conv2d_consteval(
             in0,
             weight,
             bias,
-            in1,
             stride=stride,
             padding=padding,
             dilation=dilation,
@@ -1040,7 +1061,7 @@ def test_conv2d_consteval(
     compile_ttir_to_flatbuffer(
         conv2d_consteval,
         shapes,
-        argument_types_string="conv2d_consteval=input,parameter,parameter,parameter",
+        argument_types_string="conv2d_consteval=input,parameter,parameter",
         test_base=request.node.name,
     )
 
@@ -2148,10 +2169,6 @@ def test_hoisted_where(shapes, request, target: str):
     "dtype", [torch.float32, torch.int32, torch.uint8], ids=["f32", "i32", "ui8"]
 )
 def test_reshape(shapes, dtype: torch.dtype, request):
-    if dtype == torch.uint8:
-        pytest.skip(
-            "ttrt cannot support uint8 input: https://github.com/tenstorrent/tt-mlir/issues/4813"
-        )
     input_shape, output_shape = shapes
 
     def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
@@ -2243,7 +2260,6 @@ unary_ops = [
     leaky_relu | Marks(pytest.mark.skip_config(["ttmetal"])),
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
     sigmoid | Marks(pytest.mark.fails_golden),
-    reciprocal,
     is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
     ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
     sum | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -2268,6 +2284,36 @@ def test_unary_ops(
     pipeline_options = []
     compile_ttir_to_flatbuffer(
         test_fn,
+        inputs_shapes=[shape],
+        inputs_types=[dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        pipeline_options=pipeline_options,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone"])
+def test_reciprocal(shape: Shape, dtype: torch.dtype, target: str, request):
+    def reciprocal(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        reciprocal_0 = builder.reciprocal(in0, unit_attrs=unit_attrs)
+
+        # Constrain values for reciprocal
+        input = torch.abs(torch.randn(shape, dtype=dtype))
+        input_safe = torch.clamp(input, min=-1e-6, max=None)
+        input_safe = torch.where(input_safe == 0, torch.tensor(1e-6), input_safe)
+        golden_output = torch.reciprocal(input_safe)
+        builder.set_goldens({in0: input_safe}, {reciprocal_0: golden_output})
+        return reciprocal_0
+
+    pipeline_options = []
+    compile_ttir_to_flatbuffer(
+        reciprocal,
         inputs_shapes=[shape],
         inputs_types=[dtype],
         test_base=request.node.name,
@@ -2491,6 +2537,82 @@ def test_ternary_eltwise_ops_implicit_broadcast(
         test_fn,
         shapes,
         [dtype1, dtype2, dtype3],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+unaligned_shapes = [
+    (5, 3),
+    (32, 1),
+    (31, 7),
+    (1, 32),
+    (13, 29),
+    (64, 1),
+    (61, 3),
+    (61, 37),
+    (1, 64),
+    (5, 67),
+    (43, 67),
+    (2, 3, 5),
+    (3, 17, 37),
+    (9, 43, 7),
+    (5, 61, 49),
+    (51, 19, 23),
+    (677, 1, 1),
+    (2, 3, 5, 7),
+    (3, 37, 5, 53),
+    (37, 3, 5, 53),
+    (41, 7, 43, 11),
+    (7, 41, 43, 11),
+    (1, 23, 1, 1),
+    (23, 1, 1, 1),
+    (3, 5, 7, 11, 13),
+]
+
+
+@pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_unaligned_shapes_neg(shape: Shape, dtype: torch.dtype, target: str, request):
+    compile_ttir_to_flatbuffer(
+        neg,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_unaligned_shapes_add(shape: Shape, dtype: torch.dtype, target: str, request):
+    def add(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        # Magnitudes of the elements should be in [0.01, 1) to avoid FP accuracy issue.
+        tensor_lhs = torch.rand(shape) * 0.99 + 0.01
+        tensor_rhs = torch.rand(shape) * 0.99 + 0.01
+        signs_lhs = torch.randint(0, 2, shape) * 2 - 1
+        signs_rhs = torch.randint(0, 2, shape) * 2 - 1
+        tensor_lhs *= signs_lhs
+        tensor_rhs *= signs_rhs
+        tensor_out = torch.add(tensor_lhs, tensor_rhs)
+        builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
+        return builder.add(in0, in1, unit_attrs=unit_attrs)
+
+    compile_ttir_to_flatbuffer(
+        add,
+        [shape, shape],
+        [dtype, dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

@@ -118,10 +118,6 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
   }
 }
 
-static ::tt::runtime::Tensor createNullTensor() {
-  return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
-}
-
 static ::tt::runtime::Tensor
 toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
                    bool untilize, bool blocking) {
@@ -199,7 +195,12 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
                          const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType) {
-  LOG_ASSERT(data != nullptr, "Cannot create borrowed tensor with null data");
+  LOG_ASSERT(
+      data != nullptr ||
+          (shape.size() == 0 ||
+           std::accumulate(shape.begin(), shape.end(), 1,
+                           std::multiplies<std::uint32_t>()) == 0),
+      "Cannot create borrowed tensor with null data unless the volume is 0.");
   LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
              "Cannot create borrowed tensor with unsupported data type");
   ::ttnn::Shape ttnnShape(shape);
@@ -929,16 +930,48 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
-::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
-                                        CallbackContext programContextHandle) {
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
+  std::unordered_map<std::uint32_t, Tensor> perDeviceOutputTensors;
   std::optional<tt::runtime::TensorRef> tensorRef =
       getOpOutputRef(opContextHandle, programContextHandle);
   if (!tensorRef) {
-    return createNullTensor();
+    return perDeviceOutputTensors;
   }
-  auto tensor = ::tt::runtime::ttnn::retrieveTensorFromPool(
-      programContextHandle, *tensorRef, true);
-  return tensor ? *tensor : createNullTensor();
+
+  const auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+
+  const auto *tensorRefPtr =
+      &tensorRef->as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+
+  if (!tensorRefPtr) {
+    LOG_WARNING("Tensor ref pointer is null when retrieving tensor");
+    return perDeviceOutputTensors;
+  }
+
+  if (!tensorPool.contains(tensorRefPtr)) {
+    LOG_WARNING("Tensor not found in tensor pool when retrieving tensor");
+    return perDeviceOutputTensors;
+  }
+
+  // Assumption: get_device_tensors returns tensors in row major order so each
+  // index of the output list is the logical device id. If you print out the
+  // physical device ids of the TTNN::tensor object, they will be different from
+  // the logical device ids.
+  ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
+      tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
+  std::vector<tt::runtime::Tensor> hostTensors =
+      ::tt::runtime::ttnn::toHost(outTensor, true);
+
+  for (size_t i = 0; i < hostTensors.size(); ++i) {
+    perDeviceOutputTensors[i] = hostTensors[i];
+  }
+
+  return perDeviceOutputTensors;
 }
 
 std::optional<tt::runtime::TensorRef>

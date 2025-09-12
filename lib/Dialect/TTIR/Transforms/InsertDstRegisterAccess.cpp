@@ -2,18 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Utils.h"
-
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
+#include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRINSERTDSTREGISTERACCESS
@@ -24,7 +25,9 @@ template <typename GenericOrFuncOp>
 struct TTIRInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOrFuncOp> {
 public:
-  using OpRewritePattern<GenericOrFuncOp>::OpRewritePattern;
+  TTIRInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx,
+                                      bool useTileMatmul)
+      : OpRewritePattern<GenericOrFuncOp>(ctx), useTileMatmul(useTileMatmul) {};
 
   template <typename OpT>
   using OpAndIndexOffset = std::pair<OpT, int64_t>;
@@ -82,6 +85,12 @@ public:
 
         bool linalgToAffineFailed = false;
         block.walk([&](linalg::GenericOp linalgGenericOp) {
+          if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
+            linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
+                rewriter, op, region, linalgGenericOp, modified);
+            return;
+          }
+
           rewriter.setInsertionPoint(linalgGenericOp);
           // Apply linalg to affine loops pass
           auto linalgLoops =
@@ -286,6 +295,59 @@ public:
     return llvm::to_vector(loadOrStore.getMemRefType().getShape());
   }
 
+  static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
+    bool hasTileMatmul = false;
+    linalgGenericOp->walk([&](ttir::TileMatmulOp) {
+      hasTileMatmul = true;
+      return WalkResult::interrupt();
+    });
+    return hasTileMatmul;
+  }
+  /*
+    Expand a linalg.generic op that contains a tile_matmul into a
+    tile_matmul_block.
+
+    - Uses the linalg.generic and affine semantics to generate copy/pack loops.
+    - Deletes the compute loop nest since tile_matmul_block includes the loops
+    inside it.
+  */
+  static bool rewriteTileMatmulAsTileMatmulBlock(
+      PatternRewriter &rewriter, GenericOp op, Region &region,
+      linalg::GenericOp linalgGenericOp, bool &modified) {
+    assert(linalgGenericOp.getInputs().size() == 2 &&
+           "Expected exactly 2 input for tile matmul");
+    assert(linalgGenericOp.getOutputs().size() == 1 &&
+           "Expected exactly 1 output for tile matmul");
+
+    Value inputAMemref = linalgGenericOp.getInputs()[0];
+    Value inputBMemref = linalgGenericOp.getInputs()[1];
+    Value outputCMemref = linalgGenericOp.getOutputs()[0];
+
+    rewriter.setInsertionPoint(linalgGenericOp);
+
+    auto linalgLoops = linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
+    if (failed(linalgLoops)) {
+      return false;
+    }
+    rewriter.eraseOp(linalgGenericOp);
+    modified |= insertDstRegisterAccess(
+        rewriter, op.getLoc(), region,
+        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr,
+        [&](int64_t index) { return op.getNonParticipatingLoopDims(index); });
+
+    Operation *outerLoop = linalgLoops.value()[0];
+    Block *parentBlk = outerLoop->getBlock();
+    auto insertPos = std::next(Block::iterator(outerLoop));
+
+    rewriter.setInsertionPoint(parentBlk, insertPos);
+    for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
+      rewriter.eraseOp(loopOp);
+    }
+    rewriter.create<ttir::TileMatmulBlockOp>(op.getLoc(), inputAMemref,
+                                             inputBMemref, outputCMemref);
+    return true;
+  }
+
   static void
   dataCopyGenerate(PatternRewriter &rewriter, Location loc, Value dst,
                    const DenseMap<Operation *, CopyInfo> &loopNests) {
@@ -443,6 +505,8 @@ public:
     SmallVector<Value> dstAccessIndices = l1AccessIndices;
     return {l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices};
   }
+
+  bool useTileMatmul;
 };
 } // namespace
 
@@ -458,7 +522,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRInsertDstRegisterAccessRewriter<GenericOp>,
                  TTIRInsertDstRegisterAccessRewriter<func::FuncOp>>(
-        &getContext());
+        &getContext(), useTileMatmul);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }
