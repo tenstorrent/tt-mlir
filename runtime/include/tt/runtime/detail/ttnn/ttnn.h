@@ -245,6 +245,13 @@ std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs);
 
+// Dumps tensor data to a file in binary format
+void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath);
+
+// Loads tensor data from a binary file
+::tt::runtime::Tensor loadTensor(const std::string &filePath,
+                                 std::optional<Device> device = std::nullopt);
+
 } // namespace tt::runtime::ttnn
 
 #endif

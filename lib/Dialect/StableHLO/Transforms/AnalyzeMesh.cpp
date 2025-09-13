@@ -201,6 +201,23 @@ public:
   }
 };
 
+/// Converts a string representation of tensor dimension shardings into MLIR SDY
+/// DimensionShardingAttr objects. Each dimension's sharding is represented by
+/// curly braces containing zero or more axis references.
+///
+/// Input format: sequence of {axis_refs} where:
+///   - {} represents an unsharded (replicated) dimension
+///   - {"axis_name"} represents sharding along one axis
+///   - {"axis1", "axis2"} represents sharding along multiple axes
+///
+/// Example input strings:
+///   - "{}{}{}{}" - 4D tensor, all dimensions replicated
+///   - "{\"batch\"}{}{}{}" - 4D tensor, first dim sharded on "batch", rest
+///   replicated
+///   - "{\"x\"}{\"y\"}" - 2D tensor, first dim on "x", second dim on "y"
+///   - "{\"batch\", \"model\"}{}" - 2D tensor, first dim sharded on both
+///   "batch" and "model"
+
 // Check if tt argument annotations exist in the module.
 static bool ttAnnotationsExist(mlir::ModuleOp &rootModule) {
   mlir::WalkResult result = rootModule.walk([&](func::FuncOp funcOp) {
@@ -311,9 +328,33 @@ public:
       return;
     }
 
+    // Check if we have frontend_attributes with sdy information
+    bool hasFrontendSdyAttrs =
+        gspmd_utils::hasFrontendSdyAttributes(rootModule);
+
+    if (hasFrontendSdyAttrs) {
+      // Handle frontend_attributes conversion
+      // Parse mesh information from module attributes and create sdy.mesh
+      if (mlir::failed(gspmd_utils::parseMeshFromFrontendAttributes(rootModule,
+                                                                    context))) {
+        signalPassFailure();
+        return;
+      }
+
+      // Convert function arguments from frontend_attributes to sdy.sharding
+      if (mlir::failed(shardy_utils::convertFrontendAttributesToSDY(rootModule,
+                                                                    context))) {
+        signalPassFailure();
+        return;
+      }
+
+      return;
+    }
+
     // If gspmd annotations exist, analyze the graph and determine the mesh
     // shape. Then we can add it to the module as a sdy.meshOp.
     if (gspmdAnnotationsExist) {
+
       llvm::Expected<llvm::SmallVector<llvm::SmallVector<int64_t>>>
           parsedMeshes = gspmd_utils::parseMeshesFromGspmdModule(rootModule);
 

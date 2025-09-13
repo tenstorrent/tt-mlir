@@ -298,8 +298,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                                    consumerOp->getName().getStringRef().data());
   }
 
-  auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
-      l1UsageExp.get();
+  auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
+        outputLayout] = l1UsageExp.get();
 
   if (outputLayout != consumerConfig.outputLayout) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,

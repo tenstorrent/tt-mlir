@@ -213,6 +213,42 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @unary_bcast_init
+    func.func @unary_bcast_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
+      // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+      "ttkernel.unary_bcast_init"(%in_cb, %out_cb) <{bcast_type = #ttkernel.bcast_type<bcast_type_row>}> : (!cb0_tiles, !cb1_tiles) -> ()
+      "ttkernel.unary_bcast_init"(%in_cb, %out_cb) <{bcast_type = #ttkernel.bcast_type<bcast_type_col>}> : (!cb0_tiles, !cb1_tiles) -> ()
+      "ttkernel.unary_bcast_init"(%in_cb, %out_cb) <{bcast_type = #ttkernel.bcast_type<bcast_type_scalar>}> : (!cb0_tiles, !cb1_tiles) -> ()
+      "ttkernel.unary_bcast_init"(%in_cb, %out_cb) <{bcast_type = #ttkernel.bcast_type<bcast_type_none>}> : (!cb0_tiles, !cb1_tiles) -> ()
+      // CHECK: call_opaque "unary_bcast_init"(%[[IN_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"BroadcastType::ROW">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+      // CHECK: call_opaque "unary_bcast_init"(%[[IN_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"BroadcastType::COL">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+      // CHECK: call_opaque "unary_bcast_init"(%[[IN_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"BroadcastType::SCALAR">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+      // CHECK: call_opaque "unary_bcast_init"(%[[IN_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"BroadcastType::NONE">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @unary_bcast
+    func.func @unary_bcast() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      %in_tile_index = arith.constant 1 : index
+      %dst_index = arith.constant 3 : index
+      // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      // CHECK: %[[IN_TILE_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      "ttkernel.unary_bcast"(%in_cb, %in_tile_index, %dst_index) <{bcast_type = #ttkernel.bcast_type<bcast_type_row>}> : (!cb0_tiles, index, index) -> ()
+      "ttkernel.unary_bcast"(%in_cb, %in_tile_index, %dst_index) <{bcast_type = #ttkernel.bcast_type<bcast_type_col>}> : (!cb0_tiles, index, index) -> ()
+      "ttkernel.unary_bcast"(%in_cb, %in_tile_index, %dst_index) <{bcast_type = #ttkernel.bcast_type<bcast_type_scalar>}> : (!cb0_tiles, index, index) -> ()
+      "ttkernel.unary_bcast"(%in_cb, %in_tile_index, %dst_index) <{bcast_type = #ttkernel.bcast_type<bcast_type_none>}> : (!cb0_tiles, index, index) -> ()
+      // CHECK: emitc.call_opaque "unary_bcast"(%[[IN_CB]], %[[IN_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"BroadcastType::ROW">]}
+      // CHECK: emitc.call_opaque "unary_bcast"(%[[IN_CB]], %[[IN_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"BroadcastType::COL">]}
+      // CHECK: emitc.call_opaque "unary_bcast"(%[[IN_CB]], %[[IN_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"BroadcastType::SCALAR">]}
+      // CHECK: emitc.call_opaque "unary_bcast"(%[[IN_CB]], %[[IN_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"BroadcastType::NONE">]}
+      return
+    }
+
     // CHECK-LABEL: func @sub_tiles_init
     func.func @sub_tiles_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
