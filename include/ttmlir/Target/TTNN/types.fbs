@@ -54,17 +54,6 @@ table AllGatherTensor {
 
 }
 
-union DistributedTensorConfig {
-  ReplicateTensor,
-  ShardTensor,
-  ShardTensor2D,
-  AllGatherTensor
-}
-
-table DistributionStrategy {
-  strategy: DistributedTensorConfig;
-}
-
 table ShardSpec {
   core_range_set: CoreRangeSet;
   shape: [int32];
@@ -89,7 +78,6 @@ table MemoryDesc {
 table LayoutDesc {
   oob_val: OOBVal;
   memory_desc: MemoryDesc;
-  strategy: DistributionStrategy;
 }
 
 table TensorDesc {
