@@ -205,7 +205,14 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
   }
 
   assert(latestDefOp != nullptr);
-  rewriter.setInsertionPointAfter(latestDefOp);
+
+  // Only move the insertion point if we're pushing it downward in the
+  // topological order.
+  auto currentInsertionPoint = rewriter.getInsertionPoint();
+  if (latestDefOp->getBlock() != currentInsertionPoint->getBlock() ||
+      currentInsertionPoint->isBeforeInBlock(latestDefOp)) {
+    rewriter.setInsertionPointAfter(latestDefOp);
+  }
 }
 
 } // namespace
@@ -471,12 +478,12 @@ public:
       tryEraseDeadCBReinterpret(op.getOutput());
 
     } else if constexpr (arity == 2) {
+      OpBuilder::InsertionGuard guard(rewriter);
       auto dstIdx = getDstIdxFromResult(op.getResult());
+      setInsertionPointAfterOperands(
+          rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx});
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
                               getCB(rewriter, op.getRhs()));
-      //// HACK
-      // setInsertionPointAfterOperands(
-      //     rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx});
       rewriter.create<FPUOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
                              getCB(rewriter, op.getRhs()), adaptor.getLhs(),
                              adaptor.getRhs(), dstIdx);
