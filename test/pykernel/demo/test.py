@@ -11,6 +11,7 @@ from vecadd_multicore_demo import main as vecadd_multicore_demo
 from matmul_singlecore_demo import main as matmul_singlecore_demo
 from matmul_multicore_demo import main as matmul_multicore_demo
 from dprint_demo import main as dprint_demo
+from cosh_jit import main as cosh_jit
 
 
 @pytest.mark.usefixtures("device")
@@ -36,3 +37,7 @@ def test_matmul_multicore(device):
 @pytest.mark.usefixtures("device")
 def test_dprint(device):
     dprint_demo(device)
+
+
+def test_cosh_jit():
+    cosh_jit()
