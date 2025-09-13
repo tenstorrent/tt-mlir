@@ -65,6 +65,7 @@ public:
 
     void setStoreToDst() { storedToDst = true; }
     bool didStoreToDst() { return storedToDst; }
+    int64_t getCurrDstIndex() { return nextDstIndex; }
 
   private:
     int64_t nextDstIndex = 0;
@@ -254,21 +255,21 @@ public:
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
             notDstMemspace(potentialStore)) {
 
-          bool dstRegInPlace = false;
-          if (op->hasAttr("dst_reg_in_place")) {
-            dstRegInPlace =
-                op->getAttrOfType<mlir::BoolAttr>("dst_reg_in_place")
-                    .getValue();
-          }
-
           assert(!dstRegisterAllocationState.didStoreToDst() &&
-                 "Multiple stores to dst not supported");
+                 "Multiple stores from last op to dst not supported");
 
-          auto dstIndex = dstRegisterAllocationState.allocate();
-          if (dstRegInPlace) {
-            dstIndex -= 1;
+          auto dstRegInPlace = false;
+          if (auto attr =
+                  op->getAttrOfType<mlir::BoolAttr>("dst_reg_in_place")) {
+            dstRegInPlace = attr.getValue();
           }
-          dstRegisterAllocationState.setStoreToDst();
+          int64_t dstIndex;
+          if (dstRegInPlace) {
+            dstIndex = dstRegisterAllocationState.getCurrDstIndex();
+          } else {
+            dstIndex = dstRegisterAllocationState.allocate();
+            dstRegisterAllocationState.setStoreToDst();
+          }
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineStoreOp>(
                   potentialStore, loopNests, dstIndex,
