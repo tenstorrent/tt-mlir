@@ -73,6 +73,7 @@ class BuilderGoldenTensor:
         "permute",
         "flatten",
         "squeeze",
+        "unsqueeze",
         "float",
         "clamp",
         "int_repr",
@@ -107,6 +108,54 @@ class BuilderGoldenTensor:
         self._mesh_shape = mesh_shape
 
     # ----- Private static methods -----
+    def __getitem__(self, key: int) -> BuilderGoldenTensor:
+        out_shards = {k: v.__getitem__(key) for k, v in self._shard_map.items()}
+        ref = next(iter(out_shards.values()))
+        if not all(isinstance(t, torch.Tensor) for t in out_shards.values()):
+            return out_shards
+        # Wrap
+        return BuilderGoldenTensor(out_shards, self.mesh_shape)
+
+    def _binary_map(self, other, op):
+        if isinstance(other, BuilderGoldenTensor):
+            keys = sorted(self._shard_map.keys())
+            if set(keys) != set(other._shard_map.keys()):
+                raise RuntimeError("Shard key mismatch between operands.")
+            out_shards = {k: op(self._shard_map[k], other._shard_map[k]) for k in keys}
+        else:
+            out_shards = {k: op(t, other) for k, t in self._shard_map.items()}
+        # Always wrap (even 0-D)
+        return BuilderGoldenTensor(out_shards, self._mesh_shape)
+
+    def __lt__(self, other):
+        return self._binary_map(other, operator.lt)
+
+    def __le__(self, other):
+        return self._binary_map(other, operator.le)
+
+    def __gt__(self, other):
+        return self._binary_map(other, operator.gt)
+
+    def __ge__(self, other):
+        return self._binary_map(other, operator.ge)
+
+    def __eq__(self, other):
+        return self._binary_map(other, operator.eq)
+
+    def __ne__(self, other):
+        return self._binary_map(other, operator.ne)
+
+    def __add__(self, other):
+        return self._binary_map(other, operator.add)
+
+    def __radd__(self, other):
+        return self._binary_map(other, operator.add)
+
+    def __sub__(self, other):
+        return self._binary_map(other, operator.sub)
+
+    def __rsub__(self, other):
+        return self._binary_map(other, lambda a, b: operator.sub(b, a))
 
     @staticmethod
     def _walk_tree(*trees) -> Iterable:
@@ -1359,6 +1408,19 @@ def gather_golden(
         Gathered tensor
     """
 
+    # helpers
+    def _isbuildergoldentensor(x):
+        return isinstance(x, BuilderGoldenTensor)
+
+    def _first_shard(x):
+        return x.shard_at(0) if _isbuildergoldentensor(x) else x
+
+    def _assert_replicated(t):
+        ref = t.shard_at(0)
+        for device_id, shard in t.shard_map.items():
+            if not torch.equal(shard, ref):
+                raise ValueError("gather golden expects replicated tensors")
+
     # ----- unpack attrs -----
     offset_dims = unpack_mlir_attr(kwargs.get("offset_dims", []))
     collapsed_slice_dims = unpack_mlir_attr(kwargs.get("collapsed_slice_dims", []))
@@ -1375,8 +1437,14 @@ def gather_golden(
     idx = start_indices_tensor
     device = x.device if hasattr(x, "device") else None
 
+    # validate/comute using shard-0 (torch), then slice the wrapper
+    if _isbuildergoldentensor(idx):
+        _assert_replicated(idx)
+    x0 = _first_shard(x)
+    idx0 = _first_shard(idx)
+
     # ---- validate attrs ----
-    rank = x.dim()
+    rank = x0.dim()
     assert len(slice_sizes) == rank, "slice_sizes must match operand dimensions"
     assert set(collapsed_slice_dims) == set(
         start_index_map
@@ -1387,34 +1455,37 @@ def gather_golden(
     for d in collapsed_slice_dims:
         assert slice_sizes[d] == 1, "collapsed dims must have slice size 1"
 
-    if idx.dim() == 0:
-        idx = idx.unsqueeze(0)
-    if len(start_index_map) == 1 and index_vector_dim == idx.ndim:
+    if idx0.dim() == 0:
+        idx0 = idx0.unsqueeze(0)
+    if len(start_index_map) == 1 and index_vector_dim == idx0.ndim:
         pass
     else:
         # Expect the conventional "last dim holds the vector"
         assert (
-            index_vector_dim == idx.ndim - 1
+            index_vector_dim == idx0.ndim - 1
         ), "This golden expects index_vector_dim == last dimension for multi-d indices"
 
     # Determine batch shape and flatten indices to [B, K]
-    if idx.ndim == 1:  # simple path, K == 1
-        batch_shape = idx.shape  # [N]
+    if idx0.ndim == 1:  # simple path, K == 1
+        batch_shape = idx0.shape  # [N]
         K = 1
-        idx_flat = idx.reshape(-1, 1).long()
+        idx_flat0 = idx0.reshape(-1, 1).long()
     else:
-        K = idx.shape[-1]
+        K = idx0.shape[-1]
         assert K == len(
             start_index_map
         ), "index vector length must match start_index_map"
-        batch_shape = idx.shape[:-1]
-        idx_flat = idx.reshape(-1, K).long()
+        batch_shape = idx0.shape[:-1]
+        idx_flat0 = idx0.reshape(-1, K).long()
 
     # Bounds check (might help avoid segfaults)
+    for d in range(rank):
+        if d not in start_index_map:
+            assert slice_sizes[d] <= x0.size(d), "slice size too large for operand"
     for k, d in enumerate(start_index_map):
-        if torch.any(idx_flat[:, k] < 0) or torch.any(
-            idx_flat[:, k] + slice_sizes[d] > x.size(d)
-        ):
+        valid_max = x0.size(d) - slice_sizes[d]
+        if torch.any(idx_flat0[:, k] < 0) or torch.any(idx_flat0[:, k] > valid_max):
+            print(d)
             raise IndexError(
                 "gather start indices out of bounds for operand dim {}".format(d)
             )
@@ -1436,7 +1507,7 @@ def gather_golden(
         ends = [0] * rank
         # Fill starts/ends from index vector for mapped dims
         for k, d in enumerate(start_index_map):
-            starts[d] = int(idx_flat[b, k].item())
+            starts[d] = int(idx_flat0[b, k].item())
             ends[d] = starts[d] + slice_sizes[d]
         # For the other dims, start at 0 (or clamp) and take slice_sizes[d]
         for d in range(rank):
