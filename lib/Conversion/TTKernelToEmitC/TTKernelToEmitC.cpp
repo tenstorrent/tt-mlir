@@ -262,6 +262,28 @@ public:
     return name;
   }
 
+  template <typename EltwiseBinaryReuseDestOp>
+  std::pair<StringRef, StringRef>
+  getEltwiseBinaryTypeAndReuseDestType(EltwiseBinaryReuseDestOp op) const {
+    StringRef eltwiseBinaryType = "EltwiseBinaryType::ELWADD";
+    if (op.getEltwiseBinaryTypeAttr().getValue() ==
+        ttkernel::EltwiseBinaryType::Mul)
+      eltwiseBinaryType = "EltwiseBinaryType::ELWMUL";
+    else if (op.getEltwiseBinaryTypeAttr().getValue() ==
+             ttkernel::EltwiseBinaryType::Sub)
+      eltwiseBinaryType = "EltwiseBinaryType::ELWSUB";
+
+    StringRef eltwiseBinaryReuseDestType = "EltwiseBinaryReuseDestType::NONE";
+    if (op.getEltwiseBinaryReuseDestTypeAttr().getValue() ==
+        ttkernel::EltwiseBinaryReuseDestType::DestToSrcA)
+      eltwiseBinaryReuseDestType = "EltwiseBinaryReuseDestType::DEST_TO_SRCA";
+    else if (op.getEltwiseBinaryReuseDestTypeAttr().getValue() ==
+             ttkernel::EltwiseBinaryReuseDestType::DestToSrcB)
+      eltwiseBinaryReuseDestType = "EltwiseBinaryReuseDestType::DEST_TO_SRCB";
+
+    return {eltwiseBinaryType, eltwiseBinaryReuseDestType};
+  }
+
   template <typename ReduceKindOp>
   std::pair<StringRef, StringRef> getReduceTypeAndDim(ReduceKindOp op) const {
     StringRef reduceType =
@@ -345,6 +367,30 @@ public:
           datatypeToDataformatEnumValue(builder, op.getInDtype()));
       template_args.push_back(
           datatypeToDataformatEnumValue(builder, op.getOutDtype()));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::BinaryDestReuseTilesInitOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::BinaryDestReuseTilesOp>) {
+      SmallVector<Attribute, 4> template_args;
+      StringRef binaryType, binaryReuseDestType;
+      if (std::is_same_v<SourceOp, ttkernel::BinaryDestReuseTilesInitOp>) {
+        auto binaryReuseDestInitOp =
+            mlir::cast<ttkernel::BinaryDestReuseTilesInitOp>(op);
+        std::tie(binaryType, binaryReuseDestType) =
+            getEltwiseBinaryTypeAndReuseDestType<
+                ttkernel::BinaryDestReuseTilesInitOp>(binaryReuseDestInitOp);
+      } else {
+        auto binaryReuseDestOp =
+            mlir::cast<ttkernel::BinaryDestReuseTilesOp>(op);
+        std::tie(binaryType, binaryReuseDestType) =
+            getEltwiseBinaryTypeAndReuseDestType<
+                ttkernel::BinaryDestReuseTilesOp>(binaryReuseDestOp);
+      }
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), binaryType));
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), binaryReuseDestType));
       return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
@@ -772,6 +818,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryDestReuseTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryDestReuseTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitShortOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulTilesOp>,

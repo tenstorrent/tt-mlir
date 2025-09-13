@@ -451,6 +451,78 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @binary_dest_reuse_tiles_init_add_none
+    func.func @binary_dest_reuse_tiles_init_add_none() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: emitc.call_opaque "binary_dest_reuse_tiles_init"(%[[IN_CB]]) {template_args = [#emitc.opaque<"EltwiseBinaryType::ELWADD">, #emitc.opaque<"EltwiseBinaryReuseDestType::NONE">]}
+      "ttkernel.binary_dest_reuse_tiles_init"(%in_cb) <{eltwise_binary_type = #ttkernel.eltwise_binary_type<add>, eltwise_binary_reuse_dest_type = #ttkernel.eltwise_binary_reuse_dest_type<none>}> : (!cb0_tiles) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @binary_dest_reuse_tiles_init_mul_dest_to_srca
+    func.func @binary_dest_reuse_tiles_init_mul_dest_to_srca() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: emitc.call_opaque "binary_dest_reuse_tiles_init"(%[[IN_CB]]) {template_args = [#emitc.opaque<"EltwiseBinaryType::ELWMUL">, #emitc.opaque<"EltwiseBinaryReuseDestType::DEST_TO_SRCA">]}
+      "ttkernel.binary_dest_reuse_tiles_init"(%in_cb) <{eltwise_binary_type = #ttkernel.eltwise_binary_type<mul>, eltwise_binary_reuse_dest_type = #ttkernel.eltwise_binary_reuse_dest_type<dest_to_src_a>}> : (!cb0_tiles) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @binary_dest_reuse_tiles_init_sub_dest_to_srcb
+    func.func @binary_dest_reuse_tiles_init_sub_dest_to_srcb() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: emitc.call_opaque "binary_dest_reuse_tiles_init"(%[[IN_CB]]) {template_args = [#emitc.opaque<"EltwiseBinaryType::ELWSUB">, #emitc.opaque<"EltwiseBinaryReuseDestType::DEST_TO_SRCB">]}
+      "ttkernel.binary_dest_reuse_tiles_init"(%in_cb) <{eltwise_binary_type = #ttkernel.eltwise_binary_type<sub>, eltwise_binary_reuse_dest_type = #ttkernel.eltwise_binary_reuse_dest_type<dest_to_src_b>}> : (!cb0_tiles) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @binary_dest_reuse_tiles_add_none
+    func.func @binary_dest_reuse_tiles_add_none() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[IN_TILE_INDEX:.*]] = "emitc.constant"
+      %in_tile_index = arith.constant 1 : i32
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "binary_dest_reuse_tiles"(%[[IN_CB]], %[[IN_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"EltwiseBinaryType::ELWADD">, #emitc.opaque<"EltwiseBinaryReuseDestType::NONE">]}
+      "ttkernel.binary_dest_reuse_tiles"(%in_cb, %in_tile_index, %dst_index) <{
+        eltwise_binary_type = #ttkernel.eltwise_binary_type<add>, eltwise_binary_reuse_dest_type = #ttkernel.eltwise_binary_reuse_dest_type<none>
+        }> : (!cb0_tiles, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @binary_dest_reuse_tiles_mul_dest_to_srca
+    func.func @binary_dest_reuse_tiles_mul_dest_to_srca() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[IN_TILE_INDEX:.*]] = "emitc.constant"
+      %in_tile_index = arith.constant 1 : i32
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "binary_dest_reuse_tiles"(%[[IN_CB]], %[[IN_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"EltwiseBinaryType::ELWMUL">, #emitc.opaque<"EltwiseBinaryReuseDestType::DEST_TO_SRCA">]}
+      "ttkernel.binary_dest_reuse_tiles"(%in_cb, %in_tile_index, %dst_index) <{
+        eltwise_binary_type = #ttkernel.eltwise_binary_type<mul>, eltwise_binary_reuse_dest_type = #ttkernel.eltwise_binary_reuse_dest_type<dest_to_src_a>
+        }> : (!cb0_tiles, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @binary_dest_reuse_tiles_sub_dest_to_srcb
+    func.func @binary_dest_reuse_tiles_sub_dest_to_srcb() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[IN_TILE_INDEX:.*]] = "emitc.constant"
+      %in_tile_index = arith.constant 1 : i32
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "binary_dest_reuse_tiles"(%[[IN_CB]], %[[IN_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"EltwiseBinaryType::ELWSUB">, #emitc.opaque<"EltwiseBinaryReuseDestType::DEST_TO_SRCB">]}
+      "ttkernel.binary_dest_reuse_tiles"(%in_cb, %in_tile_index, %dst_index) <{
+        eltwise_binary_type = #ttkernel.eltwise_binary_type<sub>, eltwise_binary_reuse_dest_type = #ttkernel.eltwise_binary_reuse_dest_type<dest_to_src_b>
+        }> : (!cb0_tiles, i32, i32) -> ()
+      return
+    }
+
   } // module
 
   //===----------------------------------------------------------------------===//
