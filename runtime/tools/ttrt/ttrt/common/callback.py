@@ -16,8 +16,8 @@ class CallbackRuntimeConfig:
         device=None,
         artifact_dir="",
         pcc=0.99,
-        atol=1e-08,
-        rtol=1e-05,
+        atol=1e-03,
+        rtol=1e-03,
         save_golden_tensors=False,
         logging=None,
         enable_golden=False,
@@ -68,6 +68,14 @@ class CallbackRuntimeConfig:
                 if golden_data["actual_pcc"] < golden_data["expected_pcc"]:
                     raise PCCErrorException(
                         f"Failed: golden comparison failed at loc={loc} for device={device_id}, actual_pcc={golden_data['actual_pcc']} < expected_pcc={golden_data['expected_pcc']}"
+                    )
+
+    def check_allclose(self):
+        for loc, device_data in self.golden_report.items():
+            for device_id, golden_data in device_data.items():
+                if not golden_data["allclose"]:
+                    raise AllCloseErrorException(
+                        f"Failed: golden comparison failed at loc={loc} for device={device_id}, tensors are not close within atol={golden_data['atol']} and rtol={golden_data['rtol']}"
                     )
 
     def check_memory_leak(self):
