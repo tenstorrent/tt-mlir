@@ -281,17 +281,6 @@ def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_no
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileSubBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub_binary"> {
-    let summary = "TTIR Tile Subtract Binary Op";
-    let description = [{
-        The `tile_sub_binary` operation subtracts two tiles element-wise.
-    }];
-
-    let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
-    let results = (outs TTCore_Tile:$result);
-}
-
 def TTIR_TileMaximumOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_maximum">{
     let summary = "TTIR Tile Maximum Op";
     let description = [{

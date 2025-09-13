@@ -17,7 +17,6 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
-#include "llvm/Support/raw_ostream.h"
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRINSERTDSTREGISTERACCESS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -66,7 +65,6 @@ public:
 
     void setStoreToDst() { storedToDst = true; }
     bool didStoreToDst() { return storedToDst; }
-    int64_t getNextDstIndex() { return nextDstIndex; }
 
   private:
     int64_t nextDstIndex = 0;
@@ -230,11 +228,7 @@ public:
     DenseMap<Operation *, CopyInfo> loopNests;
     DstRegisterAllocationState dstRegisterAllocationState;
     DstRegisterAllocation dstRegisterAllocation;
-    // int opIndex = 0;
     region.walk([&](OperandLoadRegisterOpInterface op) {
-      // llvm::errs() << "[DST-REG-DEBUG] Processing operation " << opIndex++
-      //              << ": " << op->getName() << " at " << op->getLoc() <<
-      //              "\n";
       // We're generating loads and stores for dst, so we can ignore loads and
       // stores that are already on dst.
       auto notDstMemspace = [](auto op) {
@@ -247,9 +241,6 @@ public:
         if (auto potentialLoad = op->getOperand(operandIdx)
                                      .getDefiningOp<affine::AffineLoadOp>();
             notDstMemspace(potentialLoad)) {
-          // llvm::errs() << "[DST-REG-DEBUG]   Processing LOAD from operand "
-          // << operandIdx
-          //              << " at " << potentialLoad->getLoc() << "\n";
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineLoadOp>(
                   potentialLoad, loopNests,
@@ -262,20 +253,12 @@ public:
       for (auto *user : op->getUsers()) {
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
             notDstMemspace(potentialStore)) {
-          // llvm::errs() << "[DST-REG-DEBUG]   Processing STORE: " <<
-          // potentialStore->getName()
-          //              << " at " << potentialStore->getLoc() << "\n";
-          // Print the dst_reg_in_place attribute value
+
           bool dstRegInPlace = false;
           if (op->hasAttr("dst_reg_in_place")) {
             dstRegInPlace =
                 op->getAttrOfType<mlir::BoolAttr>("dst_reg_in_place")
                     .getValue();
-            // llvm::errs() << "[DST-REG-DEBUG]   dst_reg_in_place: " <<
-            // (dstRegInPlace ? "true" : "false") << "\n";
-          } else {
-            // llvm::errs() << "[DST-REG-DEBUG]   dst_reg_in_place: false
-            // (default)\n";
           }
 
           assert(!dstRegisterAllocationState.didStoreToDst() &&
@@ -295,9 +278,6 @@ public:
         // If the user isn't a store, it must be another compute consumer and we
         // need to allocate a dest register intermediate for it
         else {
-          // llvm::errs() << "[DST-REG-DEBUG]   Allocating intermediate DST
-          // register for compute consumer at "
-          //  << user->getLoc() << "\n";
           assert(user->hasTrait<TTIRGenericRegionComputeOpTrait>());
           assert(op->hasOneUse() && "Currently we do not support multiple "
                                     "users in the same compute dst region");
@@ -307,8 +287,6 @@ public:
         }
       }
     });
-    // llvm::errs() << "[DST-REG-DEBUG] Finished processing " << opIndex << "
-    // operations in region\n";
     return {loopNests, dstRegisterAllocation};
   }
 
@@ -525,16 +503,10 @@ public:
 
       // Generate the data copy loop for the load store.
       {
-        // llvm::errs() << "DEBUG: buildIndices call for data copy generation -
-        // loadStore: " << *loadStore
-        //              << ", dstIndexOffset: " << dstIndexOffset << "\n";
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), irMapper,
                          loadStore.getIndices(), dstIndexOffset,
                          loadStore.getMap());
-        // llvm::errs() << "DEBUG: buildIndices returned - l1AccessMap: " <<
-        // l1AccessMap
-        //              << ", dstAccessMap: " << dstAccessMap << "\n";
         loadStoreDstAccessGenerator(
             rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
             l1AccessIndices, dstAccessMap, dstAccessIndices);
@@ -545,16 +517,10 @@ public:
         // Empty IR mapper because we want to preserve original loop vars
         mlir::IRMapping dummyIRMapper;
         rewriter.setInsertionPoint(loadStore);
-        // llvm::errs() << "DEBUG: buildIndices call for replacement -
-        // loadStore: " << *loadStore
-        //              << ", dstIndexOffset: " << dstIndexOffset << "\n";
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), dummyIRMapper,
                          loadStore.getIndices(), dstIndexOffset,
                          loadStore.getMap());
-        // llvm::errs() << "DEBUG: buildIndices returned - l1AccessMap: " <<
-        // l1AccessMap
-        //              << ", dstAccessMap: " << dstAccessMap << "\n";
         dstAccessReplacement(rewriter, loadStore, dstAccessMap,
                              dstAccessIndices);
       }
