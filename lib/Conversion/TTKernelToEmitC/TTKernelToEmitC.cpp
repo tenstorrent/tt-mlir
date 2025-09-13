@@ -262,18 +262,18 @@ public:
     return name;
   }
 
-  template <typename ReduceKindOp>
-  std::pair<StringRef, StringRef> getReduceTypeAndDim(ReduceKindOp op) const {
+  std::pair<StringRef, StringRef>
+  reduceTypeAndDimToString(ttkernel::ReduceTypeAttr reduceTypeAttr,
+                           ttkernel::ReduceDimAttr reduceDimAttr) const {
     StringRef reduceType =
-        op.getReduceTypeAttr().getValue() == ttkernel::ReduceType::Max
+        reduceTypeAttr.getValue() == ttkernel::ReduceType::Max
             ? "PoolType::MAX"
             : "PoolType::SUM";
-    StringRef reduceDim =
-        op.getReduceDimAttr().getValue() == ttkernel::ReduceDim::Col
-            ? "ReduceDim::REDUCE_COL"
-        : op.getReduceDimAttr().getValue() == ttkernel::ReduceDim::Row
-            ? "ReduceDim::REDUCE_ROW"
-            : "ReduceDim::REDUCE_SCALAR";
+    StringRef reduceDim = reduceDimAttr.getValue() == ttkernel::ReduceDim::Col
+                              ? "ReduceDim::REDUCE_COL"
+                          : reduceDimAttr.getValue() == ttkernel::ReduceDim::Row
+                              ? "ReduceDim::REDUCE_ROW"
+                              : "ReduceDim::REDUCE_SCALAR";
     return {reduceType, reduceDim};
   }
 
@@ -293,23 +293,16 @@ public:
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
                   std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
-      SmallVector<Attribute, 4> template_args;
+      SmallVector<Attribute, 3> template_args;
       StringRef reduceType, reduceDim;
-      if (mlir::isa<ttkernel::ReduceInitOp>(op)) {
-        auto reduceInitOp = mlir::cast<ttkernel::ReduceInitOp>(op);
-        template_args.push_back(emitc::OpaqueAttr::get(
-            op.getContext(), "true")); // "at_start" template argument
-        std::tie(reduceType, reduceDim) =
-            getReduceTypeAndDim<ttkernel::ReduceInitOp>(reduceInitOp);
-      } else {
-        auto reduceOp = mlir::cast<ttkernel::ReduceTileOp>(op);
-        std::tie(reduceType, reduceDim) =
-            getReduceTypeAndDim<ttkernel::ReduceTileOp>(reduceOp);
-      }
+      std::tie(reduceType, reduceDim) = reduceTypeAndDimToString(
+          op.getReduceTypeAttr(), op.getReduceDimAttr());
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reduceType));
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reduceDim));
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), op.getFullFp32() ? "true" : "false"));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::UnaryBcastInitOp> ||
                          std::is_same_v<SourceOp, ttkernel::UnaryBcastTileOp>) {
