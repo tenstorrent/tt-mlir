@@ -20,6 +20,7 @@ def _op_proxy(
     output_create_fn: Optional[Callable] = None,
     golden_kwargs: dict = {},
     ttir_kwargs: dict = {},
+    skip_golden: bool = False,
 )
 ```
 
@@ -31,7 +32,7 @@ All input operands should be passed into a proxy function using the argument `in
 
 ## Golden functions
 
-Golden functions provide the reference implementation for TTIR operations using PyTorch. They are centralized in `tools/builder/base/builder_golden.py` and must be mapped to their corresponding TTIR operations. The `_op_proxy` function automatically retrieves the appropriate golden function based on the TTIR operation class.
+Golden functions provide the reference implementation for TTIR operations using PyTorch. They are centralized in `tools/builder/base/builder_golden.py` and must be mapped to their corresponding TTIR operations. The `_op_proxy` function automatically retrieves the appropriate golden function based on the TTIR operation class. The `skip_golden` argument omits golden tensor creation and addition to the golden map. Since goldens are relied upon to set `output_shape` and `output_type`, setting `skip_golden=True` requires passing in `output_shape` and `output_type` to `_op_proxy`.
 
 ### Writing a golden function
 
@@ -124,8 +125,7 @@ export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys (path dumped in previous comm
 pytest test/python/golden/test_ttir_ops.py
 
 6. Run test cases
-ttrt run ttnn
-ttrt run ttmetal
+ttrt run builder-artifacts
 ```
 
 ## Sphinx documentation
@@ -161,7 +161,7 @@ in0 : Operand
     First input tensor
 in1 : Operand
     Second input tensor
-unit_attrs : Optional[List[str]], optional
+unit_attrs : *Optional[List[str]]*, optional
     Optional list of unit attributes
 
 Returns

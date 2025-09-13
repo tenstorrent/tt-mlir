@@ -10,6 +10,7 @@ from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 import torch
 from enum import Enum, auto
 import re
+from collections import OrderedDict
 
 from ttmlir.ir import *
 from ttmlir.dialects import stablehlo, sdy, mpmd
@@ -25,10 +26,13 @@ class StableHLOBuilder(Builder):
         self,
         ctx: Context,
         location: Location,
-        mesh_shape=(1, 1),
+        mesh_name: Union[List[str], str] = "mesh",
+        mesh_dict: Union[
+            List[OrderedDict[str, int]], OrderedDict[str, int]
+        ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
-        super().__init__(ctx, location, mesh_shape, disable_golden_check)
+        super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
     # ----- Private Methods ----
     def _create_mesh_attr_from_ordered_dict(
@@ -40,6 +44,22 @@ class StableHLOBuilder(Builder):
             for axis_name, size in mesh_dict.items()
         ]
         return self.mesh_attr(axes)
+
+    def _get_mesh_attr(self, mesh_name: str) -> sdy.MeshAttr:
+        if mesh_name not in self._meshes:
+            raise ValueError(
+                f"Mesh '{mesh_name}' not found. Available meshes: {list(self._meshes.keys())}"
+            )
+
+        mesh_dict = self._meshes[mesh_name]
+        axes = [
+            self.mesh_axis_attr(name=axis_name, size=size)
+            for axis_name, size in mesh_dict.items()
+        ]
+        return self.mesh_attr(axes)
+
+    def _get_mesh(self, mesh_name: str = "mesh") -> sdy.Mesh:
+        return self.mesh(mesh_name, self._get_mesh_attr(mesh_name))
 
     def _op_proxy(
         self,
@@ -54,6 +74,7 @@ class StableHLOBuilder(Builder):
         golden_kwargs: dict = {},
         stablehlo_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
+        skip_golden: bool = False,
     ) -> Any:
         if not golden_kwargs:
             golden_kwargs = stablehlo_kwargs
@@ -79,14 +100,15 @@ class StableHLOBuilder(Builder):
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-            # If automatic golden check is enabled, generate golden output.
-            op_golden_function = builder_golden.get_golden_function(
-                op_stablehlo_function, **golden_kwargs
-            )
-            golden_output = op_golden_function(
-                *(organize_golden_args(inputs)), **golden_kwargs
-            )
-            self._set_golden_tensor(op, golden_output)
+            if not skip_golden and not self._disable_golden_check:
+                op_golden_function = builder_golden.get_golden_function(
+                    op_stablehlo_function, **golden_kwargs
+                )
+                if op_golden_function is not None:
+                    golden_output = op_golden_function(
+                        *(organize_golden_args(inputs)), **golden_kwargs
+                    )
+                    self._set_golden_tensor(op, golden_output)
 
             return op
 

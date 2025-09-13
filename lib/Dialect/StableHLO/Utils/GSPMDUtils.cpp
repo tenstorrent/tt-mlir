@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
@@ -212,6 +213,28 @@ bool gspmdAnnotationsExist(mlir::ModuleOp &module) {
   }
 
   return false;
+}
+
+// Check if the module has frontend SDY attributes.
+bool hasFrontendSdyAttributes(mlir::ModuleOp &module) {
+  mlir::WalkResult result = module.walk([&](func::FuncOp funcOp) {
+    for (BlockArgument arg : funcOp.getArguments()) {
+      if (auto currentArgAttrDict = funcOp.getArgAttrDict(arg.getArgNumber())) {
+        if (currentArgAttrDict.contains(kFrontendAttributesAttr)) {
+          auto frontendAttrs = currentArgAttrDict.get(kFrontendAttributesAttr);
+          if (auto dictAttr =
+                  mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs)) {
+            if (dictAttr.contains(sharding_utils::kXlaSdyShardingAttr)) {
+              return WalkResult::interrupt();
+            }
+          }
+        }
+      }
+    }
+    return WalkResult::advance();
+  });
+
+  return result.wasInterrupted();
 }
 
 // Update @Sharding custom call with the shard status for the argument.
@@ -574,6 +597,146 @@ gspmd_utils::GSPMDMeshSharding::generate(
       shardDims,           meshShape,           deviceIds,
       shardStatus,         opShardingStr.str(), operandShardingStr.str(),
       lastTileDimReplicate};
+}
+
+/// Parse axis definitions from SDY mesh string format.
+///
+/// Extracts axis name-size pairs from a mesh axes string that follows the SDY
+/// format. The input string contains axis definitions in the format:
+/// "axis_name"=size Multiple axes are separated by commas and/or spaces.
+///
+/// Example input formats:
+///   - Single axis: ""batch"=4"
+///   - Multiple axes: ""x"=2, "y"=4" or ""batch"=8 "model"=2"
+///   - Whitespace variations: " "data" = 4 , "model" = 2 "
+std::vector<std::pair<std::string, int64_t>>
+parseAxisDefinitions(const std::string &axesContent) {
+  std::vector<std::pair<std::string, int64_t>> axes;
+  size_t pos = 0;
+
+  while (pos < axesContent.length()) {
+    // Skip whitespace and commas
+    while (pos < axesContent.length() &&
+           (axesContent[pos] == ' ' || axesContent[pos] == ',')) {
+      pos++;
+    }
+    if (pos >= axesContent.length()) {
+      break;
+    }
+
+    // Find opening quote for axis name
+    size_t quoteStart = axesContent.find('"', pos);
+    if (quoteStart == std::string::npos) {
+      break;
+    }
+
+    // Find closing quote for axis name
+    size_t quoteEnd = axesContent.find('"', quoteStart + 1);
+    if (quoteEnd == std::string::npos) {
+      break;
+    }
+
+    // Find equals sign after axis name
+    size_t equalPos = axesContent.find('=', quoteEnd + 1);
+    if (equalPos == std::string::npos) {
+      break;
+    }
+
+    // Extract axis name between quotes
+    std::string axisName =
+        axesContent.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+
+    // Find start of size value after equals
+    size_t numStart = equalPos + 1;
+    // Find end of size value
+    size_t numEnd = axesContent.find_first_of(",] ", numStart);
+    if (numEnd == std::string::npos) {
+      numEnd = axesContent.length();
+    }
+
+    // Extract size string
+    std::string sizeStr = axesContent.substr(numStart, numEnd - numStart);
+    // Trim trailing whitespace from size string
+    while (!sizeStr.empty() &&
+           (sizeStr.back() == ' ' || sizeStr.back() == '\t')) {
+      sizeStr.pop_back();
+    }
+
+    if (!sizeStr.empty()) {
+      axes.push_back({axisName, std::stoi(sizeStr)});
+    }
+
+    pos = numEnd;
+  }
+
+  return axes;
+}
+
+/// Parse mesh information from mhlo.frontend_attributes and create sdy.mesh.
+///
+/// Extracts mesh configuration from MHLO frontend attributes and creates
+/// corresponding SDY mesh operations in the MLIR module. The function looks for
+/// "xla.sdy.meshes" attribute in the module's "mhlo.frontend_attributes" and
+/// parses the mesh definition.
+///
+/// Expected input format in mhlo.frontend_attributes:
+///   "xla.sdy.meshes": "mesh_name=<[axis_definitions]>"
+///
+/// Example frontend attribute values:
+///   - 1D mesh: "mesh=<[\"batch\"=4]>"
+///   - 2D mesh: "mesh=<[\"x\"=2, \"y\"=4]>"
+///   - Complex: "mesh=<[\"data_parallel\"=8, \"model_parallel\"=2]>"
+///
+/// The function supports:
+///   - 1D meshes (converted to 1xN format with updated axis name)
+///   - 2D meshes (used directly)
+///   - Skips processing if no frontend attributes found
+mlir::LogicalResult
+parseMeshFromFrontendAttributes(mlir::ModuleOp &rootModule,
+                                mlir::MLIRContext *context) {
+  mlir::DictionaryAttr moduleAttrs = rootModule->getAttrDictionary();
+  mlir::Attribute frontendAttrs =
+      moduleAttrs.get(gspmd_utils::kFrontendAttributesAttr);
+  mlir::DictionaryAttr dictAttr =
+      mlir::dyn_cast_if_present<mlir::DictionaryAttr>(frontendAttrs);
+  mlir::StringAttr meshesStr =
+      dictAttr ? mlir::dyn_cast_if_present<mlir::StringAttr>(
+                     dictAttr.get(sharding_utils::kXlaSdyMeshesAttr))
+               : nullptr;
+
+  if (!moduleAttrs.contains(gspmd_utils::kFrontendAttributesAttr) ||
+      !dictAttr || !dictAttr.contains(sharding_utils::kXlaSdyMeshesAttr) ||
+      !meshesStr) {
+    return mlir::success();
+  }
+
+  std::string meshStr = meshesStr.getValue().str();
+  size_t startPos = meshStr.find("<[");
+  size_t endPos = meshStr.find("]>");
+  if (startPos == std::string::npos || endPos == std::string::npos) {
+    return mlir::success();
+  }
+
+  std::string axesContent = meshStr.substr(startPos + 2, endPos - startPos - 2);
+  std::vector<std::pair<std::string, int64_t>> axes =
+      gspmd_utils::parseAxisDefinitions(axesContent);
+
+  std::string meshName = std::string(sharding_utils::kDefaultMeshName);
+  if (axes.size() == 1) {
+    shardy_utils::addMeshToModule(rootModule, meshName,
+                                  axes[0].first + "_updated", axes[0].first, 1,
+                                  axes[0].second);
+  } else if (axes.size() == 2) {
+    shardy_utils::addMeshToModule(rootModule, meshName, axes[0].first,
+                                  axes[1].first, axes[0].second,
+                                  axes[1].second);
+  } else {
+    rootModule.emitError(
+        "Unsupported mesh configuration: only 1D and 2D meshes are supported");
+    return mlir::failure();
+  }
+
+  return mlir::success();
 }
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO

@@ -1958,7 +1958,7 @@ def softmax_golden(input_tensor: BuilderGoldenTensor, **kwargs) -> BuilderGolden
     BuilderGoldenTensor
         Softmax output
     """
-    dimension = kwargs.get("dimension", 1)
+    dimension = kwargs.get("dim", 1)
     return torch.nn.functional.softmax(input_tensor, dim=dimension)
 
 
@@ -2504,7 +2504,10 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
         else:
             return untilize_golden
 
-    return GOLDEN_MAPPINGS[ttir_op_class]
+    if ttir_op_class in GOLDEN_MAPPINGS:
+        return GOLDEN_MAPPINGS[ttir_op_class]
+
+    return None
 
 
 """
