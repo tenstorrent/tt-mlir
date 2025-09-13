@@ -158,7 +158,6 @@ public:
     assert(device && "Device not found");
     auto systemDesc = ttcore::getCurrentScopeSystemDesc(getOperation());
     auto chipIds = device.getChipIds();
-    assert(chipIds.size() == 1);
     auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
 
     unsigned dstRegisterSizeTiles = chipDesc.getDstRegisterSizeTiles();

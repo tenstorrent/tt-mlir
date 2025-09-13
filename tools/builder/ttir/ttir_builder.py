@@ -4594,6 +4594,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.MeshShardOp,
             [input],
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             ttir_kwargs=ttir_kwargs,
             golden_kwargs=golden_kwargs,
         )

@@ -605,6 +605,34 @@ inline void readHostTensorFromMeshBuffer(
       output.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
+inline void checkHostTensorSizeMatchWithMeshBufferSize(
+    const Tensor &tensor,
+    std::shared_ptr<tt_metal::distributed::MeshBuffer> meshBuffer) {
+  std::visit(
+      utils::overloaded{
+          [&](const TensorDesc &tensorDesc) {
+            LOG_ASSERT(meshBuffer.get()->size() == tensorDesc.sizeBytes());
+          },
+          [&](const HostBuffer &hostBuffer) {
+            LOG_ASSERT(meshBuffer.get()->size() ==
+                       hostBuffer->view_bytes().size_bytes());
+          },
+          [&](const DistributedHostBuffer &distributedHostBuffer) {
+            // SPMD assumes that all buffers have the identical size, so we can
+            // just check the first buffer size.
+            const tt_metal::distributed::MeshCoordinate coord = {0, 0};
+            auto hostBuffer = distributedHostBuffer->get_shard(coord);
+            tt_metal::Buffer *buffer = meshBuffer->get_device_buffer(coord);
+            LOG_ASSERT(buffer->size() == hostBuffer->view_bytes().size_bytes());
+          },
+          [&](const MeshBuffer &meshBuffer) {
+            LOG_FATAL("checkHostTensorSizeMatchWithMeshBufferSize() with "
+                      "MeshBuffer not supported.");
+          },
+      },
+      tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
+}
+
 } // namespace tt::runtime::ttmetal
 
 #endif // RUNTIME_LIB_TTMETAL_EXECUTOR_UTILS_H

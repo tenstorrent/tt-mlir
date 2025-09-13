@@ -179,6 +179,7 @@ shardHostBuffer(const tt_metal::HostBuffer &hostBuffer,
   switch (dataType) {
   case target::DataType::BFP_BFloat4:
   case target::DataType::BFP_BFloat8:
+    LOG_FATAL("Unsupported data type");
   case target::DataType::Float32:
     return shard_impl.template operator()<float>();
   case target::DataType::BFloat16:
@@ -263,6 +264,7 @@ static tt_metal::HostBuffer concatDistributedHostBuffers(
   switch (dataType) {
   case target::DataType::BFP_BFloat4:
   case target::DataType::BFP_BFloat8:
+    LOG_FATAL("Unsupported data type");
   case target::DataType::Float32:
     return concat_impl.template operator()<float>();
   case target::DataType::BFloat16:
