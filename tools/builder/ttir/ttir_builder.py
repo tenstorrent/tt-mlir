@@ -4410,18 +4410,26 @@ class TTIRBuilder(Builder):
         indices_shape = self.get_shape(start_indices)
 
         # Batch dimensions: all dims from start_indices except index_vector_dim
-        batch_dims = []
-        for i in range(len(indices_shape)):
-            if i != index_vector_dim:
-                batch_dims.append(indices_shape[i])
-
-        # Offset dimensions: dimensions from slice_sizes that aren't collapsed
-        offset_sizes = []
-        for i in range(len(slice_sizes)):
-            if i not in collapsed_slice_dims:
-                offset_sizes.append(slice_sizes[i])
-
-        output_shape = batch_dims + offset_sizes
+        batch_dims = [
+            indices_shape[i] for i in range(len(indices_shape)) if i != index_vector_dim
+        ]
+        offset_sizes = [
+            slice_sizes[i]
+            for i in range(len(slice_sizes))
+            if i not in collapsed_slice_dims
+        ]
+        result_rank = len(batch_dims) + len(offset_sizes)
+        assert len(offset_dims) == len(
+            offset_sizes
+        ), "offset_dims length must match offset_sizes length"
+        output_shape = [-1] * result_rank
+        for j, pos in enumerate(offset_dims):
+            output_shape[pos] = offset_sizes[j]
+        b = 0
+        for p in range(result_rank):
+            if output_shape[p] == -1:
+                output_shape[p] = batch_dims[b]
+                b += 1
 
         # Define kwargs for the TTIR operation
         ttir_kwargs = {
