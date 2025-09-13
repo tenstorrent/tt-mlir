@@ -24,6 +24,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttmlir/Version.h"
+#include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types_generated.h"
@@ -195,7 +196,12 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
                          const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType) {
-  LOG_ASSERT(data != nullptr, "Cannot create borrowed tensor with null data");
+  LOG_ASSERT(
+      data != nullptr ||
+          (shape.size() == 0 ||
+           std::accumulate(shape.begin(), shape.end(), 1,
+                           std::multiplies<std::uint32_t>()) == 0),
+      "Cannot create borrowed tensor with null data unless the volume is 0.");
   LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
              "Cannot create borrowed tensor with unsupported data type");
   ::ttnn::Shape ttnnShape(shape);
@@ -1603,4 +1609,24 @@ void updateTensorInPool(CallbackContext programContextHandle,
   tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
 }
 
+void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
+  ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
+  ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);
+}
+
+::tt::runtime::Tensor loadTensor(const std::string &filePath,
+                                 std::optional<Device> device) {
+
+  ::ttnn::MeshDevice *devicePtr = nullptr;
+  if (device.has_value()) {
+    devicePtr = &device->as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  }
+
+  ::ttnn::Tensor metalTensor =
+      ::tt::tt_metal::load_tensor_flatbuffer(filePath, devicePtr);
+
+  auto tensor = utils::createRuntimeTensorFromTTNN(metalTensor);
+
+  return tensor;
+}
 } // namespace tt::runtime::ttnn
