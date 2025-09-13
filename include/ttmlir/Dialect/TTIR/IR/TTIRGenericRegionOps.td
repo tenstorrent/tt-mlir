@@ -330,7 +330,14 @@ def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {
 }
 
 def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
-  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
     let summary = "TTIR Tile Matmul Block Op";
     let description = [{
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.

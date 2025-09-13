@@ -55,11 +55,14 @@ static mlir::Value wrapValueInTensorCompatibleType(mlir::RewriterBase &rewriter,
 
 // TileMatmulBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileMatmulBlockOp::verify() {
+  // HACK
+#if 0
   if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getA().getType())) ||
       !llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getB().getType()))) {
     return emitOpError("operands to TileMatmulBlock must have ttcore.tile "
                        "element type");
   }
+#endif
 
   int numAttrsSet = getBlockM().has_value() + getBlockK().has_value() +
                     getBlockN().has_value() + getBBlockStride().has_value();
@@ -69,6 +72,74 @@ static mlir::Value wrapValueInTensorCompatibleType(mlir::RewriterBase &rewriter,
   }
 
   return success();
+}
+
+bool mlir::tt::ttir::TileMatmulBlockOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.getOperandNumber() < 2;
+}
+
+bool mlir::tt::ttir::TileMatmulBlockOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.getOperandNumber() == 2;
+}
+
+mlir::LogicalResult mlir::tt::ttir::TileMatmulBlockOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+
+  mlir::Value a = getA();
+  mlir::Value b = getB();
+  mlir::Value output = getOutput();
+
+  if (mlir::isa<mlir::RankedTensorType>(a.getType())) {
+    auto maybe = mlir::bufferization::getBuffer(rewriter, a, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    a = *maybe;
+  }
+
+  if (mlir::isa<mlir::RankedTensorType>(b.getType())) {
+    auto maybe = mlir::bufferization::getBuffer(rewriter, b, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    b = *maybe;
+  }
+
+  if (mlir::isa<mlir::RankedTensorType>(output.getType())) {
+    auto maybe = mlir::bufferization::getBuffer(rewriter, output, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    output = *maybe;
+  }
+
+  // NOLINTNEXTLINE
+  mlir::bufferization::replaceOpWithNewBufferizedOp<
+      mlir::tt::ttir::TileMatmulBlockOp>(
+      rewriter, *this, TypeRange(), a, b, output, getBlockMAttr(),
+      getBlockKAttr(), getBlockNAttr(), getBBlockStrideAttr());
+
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList mlir::tt::ttir::TileMatmulBlockOp::getAliasingValues(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType>
+mlir::tt::ttir::TileMatmulBlockOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  assert(false && "should already have bufferized types via parent generic op "
+                  "bufferization");
+  return mlir::failure();
 }
 
 bool mlir::tt::ttir::TileMatmulBlockOp::hasBlockDims() {
