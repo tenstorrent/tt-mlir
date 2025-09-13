@@ -25,10 +25,13 @@ class TTIRBuilder(Builder):
         self,
         ctx: Context,
         location: Location,
-        mesh_shape=(1, 1),
+        mesh_name: Union[List[str], str] = "mesh",
+        mesh_dict: Union[
+            List[OrderedDict[str, int]], OrderedDict[str, int]
+        ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
-    ) -> RankedTensorType:
-        super().__init__(ctx, location, mesh_shape, disable_golden_check)
+    ):
+        super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
     # ----- Public methods -----
 
@@ -110,6 +113,8 @@ class TTIRBuilder(Builder):
         op_golden_function = builder_golden.get_golden_function(
             op_ttir_function, **golden_kwargs
         )
+        if op_golden_function is None:
+            return
 
         # If the op has no input, just call golden function with kwargs (eg ttir.zeros).
         if len(inputs) == 0:
@@ -152,6 +157,7 @@ class TTIRBuilder(Builder):
         golden_kwargs: dict = {},
         ttir_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
+        skip_golden: bool = False,
     ) -> Any:
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
@@ -165,12 +171,21 @@ class TTIRBuilder(Builder):
         with self._ctx, self._loc:
             # If output shape or type is not provided, calculate it using golden function.
             # This is needed because TTIR ops do not have shape or type MLIR inference trait.
-            (
-                calculated_output_shape,
-                calculated_output_type,
-            ) = self._get_output_shape_and_type(
+            output_shape_and_type = self._get_output_shape_and_type(
                 organize_golden_args, inputs, op_ttir_function, golden_kwargs
             )
+            if not output_shape_and_type:
+                assert (
+                    output_shape is not None
+                ), "Output shape must be provided if there is no golden function for this op"
+                assert (
+                    output_type is not None
+                ), "Output type must be provided if there is no golden function for this op"
+            else:
+                (
+                    calculated_output_shape,
+                    calculated_output_type,
+                ) = output_shape_and_type
 
             # Use provided output shape/type if available, otherwise use calculated ones.
             output_shape = calculated_output_shape if not output_shape else output_shape
@@ -212,16 +227,18 @@ class TTIRBuilder(Builder):
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-            op_golden_function = builder_golden.get_golden_function(
-                op_ttir_function, **golden_kwargs
-            )
-            if len(inputs) == 0:
-                golden_output = op_golden_function(**golden_kwargs)
-            else:
-                golden_output = op_golden_function(
-                    *(organize_golden_args(inputs)), **golden_kwargs
+            if not skip_golden and not self._disable_golden_check:
+                op_golden_function = builder_golden.get_golden_function(
+                    op_ttir_function, **golden_kwargs
                 )
-            self._set_golden_tensor(op, golden_output)
+                if op_golden_function is not None:
+                    if len(inputs) == 0:
+                        golden_output = op_golden_function(**golden_kwargs)
+                    else:
+                        golden_output = op_golden_function(
+                            *(organize_golden_args(inputs)), **golden_kwargs
+                        )
+                    self._set_golden_tensor(op, golden_output)
 
             return op
 
