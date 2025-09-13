@@ -80,6 +80,7 @@ struct TTIRToTTIRGenericPass final
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.cpp.inc"
 #undef GET_OP_LIST
           >();
+      target.addIllegalOp<ttir::TileMatmulBlockOp>();
     }
 
     TypeConverter typeConverter;

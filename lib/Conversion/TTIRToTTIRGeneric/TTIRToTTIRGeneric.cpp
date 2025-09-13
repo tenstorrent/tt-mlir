@@ -161,9 +161,10 @@ protected:
   }
 
   // Convert from ttir enum to equivalent linalg enum.
+  template <typename Iterable>
   static SmallVector<mlir::utils::IteratorType>
   iteratorTypeTTIRToLinalg(mlir::OpBuilder &builder,
-                           const SmallVector<mlir::Attribute> &iterators) {
+                           const Iterable &iterators) {
     auto parallel = ttcore::IteratorTypeAttr::get(
         builder.getContext(), ttcore::IteratorType::Parallel);
     auto reduction = ttcore::IteratorTypeAttr::get(
@@ -885,6 +886,90 @@ private:
 } // namespace
 
 namespace {
+class TTIRMatmulBlockToLinalgGeneric final
+    : public mlir::OpConversionPattern<ttir::TileMatmulBlockOp>,
+      TTIRNamedRewriterCommon {
+public:
+  TTIRMatmulBlockToLinalgGeneric(
+      const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+      ttcore::MemorySpace defaultInputMemSpace,
+      ttcore::MemorySpace defaultOutputMemSpace,
+      const llvm::SmallVector<int64_t> &targetGridShape)
+      : OpConversionPattern<ttir::TileMatmulBlockOp>(typeConverter, ctx),
+        TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                                targetGridShape) {}
+
+private:
+  LogicalResult
+  matchAndRewrite(ttir::TileMatmulBlockOp op,
+                  typename ttir::TileMatmulBlockOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    if (llvm::any_of(adaptor.getOperands(), [](Value operand) {
+          RankedTensorType type =
+              mlir::cast<RankedTensorType>(operand.getType());
+          return !mlir::isa<ttcore::TileType>(type.getElementType());
+        })) {
+      return llvm::failure();
+    }
+
+    RankedTensorType tensorA =
+        mlir::cast<RankedTensorType>(adaptor.getA().getType());
+    auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+        op.getLoc(), adaptor.getOutput().getType(),
+        SmallVector<Value>{adaptor.getA(), adaptor.getB()}, adaptor.getOutput(),
+        getAffineMapsArray(rewriter, adaptor.getOperands().size(),
+                           tensorA.getRank()),
+        getIteratorTypesArray(rewriter, tensorA.getRank()),
+        [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+            mlir::ValueRange bbArgs) {
+          mlir::Value mm = bbBuilder.create<ttir::TileMatmulOp>(
+              bbLoc, bbArgs.take_back(1).getTypes(), bbArgs);
+          bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, mm);
+        });
+
+    rewriter.replaceOpWithNewOp<ttir::YieldOp>(op, linalgGeneric.getResult(0));
+
+    // HACK
+    for (auto user : op.getOutput().getUsers()) {
+      if (mlir::isa<ttir::YieldOp>(user)) {
+        rewriter.eraseOp(user);
+      }
+    }
+
+    return llvm::success();
+  }
+
+  static SmallVector<mlir::AffineMap>
+  getAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
+                     std::size_t rank) {
+    assert(arity == 3 && "expected 3 operands");
+    // TODO(#2592) handle higher ranks, if needed in this pass
+    assert(rank == 2 && "expected a rank 2 operation");
+    mlir::MLIRContext *ctx = builder.getContext();
+
+    return SmallVector<mlir::AffineMap>{makeAffineMap(ctx, {0, 2}),
+                                        makeAffineMap(ctx, {2, 1}),
+                                        makeAffineMap(ctx, {0, 1})};
+  }
+
+  static SmallVector<mlir::utils::IteratorType>
+  getIteratorTypesArray(mlir::OpBuilder &builder, std::size_t rank) {
+    assert(rank == 2 && "expected a rank 2 operation");
+    return SmallVector<mlir::utils::IteratorType>{
+        mlir::utils::IteratorType::parallel,
+        mlir::utils::IteratorType::parallel,
+        mlir::utils::IteratorType::reduction,
+    };
+  }
+
+  static mlir::AffineMap makeAffineMap(mlir::MLIRContext *ctx,
+                                       std::array<unsigned, 2> targets) {
+    return mlir::AffineMap::getMultiDimMapWithTargets(3, targets, ctx);
+  }
+};
+} // namespace
+
+namespace {
 class TTIRGenericNonDeviceLayoutRewriter final
     : public mlir::OpConversionPattern<ttir::GenericOp>,
       TTIRNamedRewriterCommon {
@@ -1067,6 +1152,8 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
     TTIRPermuteRewriter,
+
+    TTIRMatmulBlockToLinalgGeneric,
 
     // Non metal_layout Generic rewriter
     TTIRGenericNonDeviceLayoutRewriter
