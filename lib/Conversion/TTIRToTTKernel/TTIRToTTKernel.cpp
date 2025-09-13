@@ -113,13 +113,17 @@ static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
+  if (mlir::isa<BlockArgument>(cb)) {
+    return rewriter.getRemappedValue(cb);
+  }
+
   if (auto collapseOp =
-          mlir::dyn_cast<memref::CollapseShapeOp>(cb.getDefiningOp())) {
+          mlir::dyn_cast_if_present<memref::CollapseShapeOp>(cb.getDefiningOp())) {
     return getCB(rewriter, collapseOp.getSrc());
   }
 
   if (memref::LoadOp loadOp =
-          mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
+          mlir::dyn_cast_if_present<memref::LoadOp>(cb.getDefiningOp());
       loadOp) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
