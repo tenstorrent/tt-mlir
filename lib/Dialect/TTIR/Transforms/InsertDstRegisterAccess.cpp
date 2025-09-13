@@ -11,12 +11,13 @@
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
-
+#include "llvm/Support/raw_ostream.h"
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRINSERTDSTREGISTERACCESS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -65,6 +66,7 @@ public:
 
     void setStoreToDst() { storedToDst = true; }
     bool didStoreToDst() { return storedToDst; }
+    int64_t getNextDstIndex() { return nextDstIndex; }
 
   private:
     int64_t nextDstIndex = 0;
@@ -152,7 +154,8 @@ public:
     dataCopyGenerate(rewriter, loc, dst, copyInfo);
 
     // 4. Rewrite stores to use dst register based on allocation
-    insertDstRegisterAllocation(rewriter, loc, dst, dstRegisterAllocation);
+    insertDstRegisterAllocation(rewriter, loc, dst, dstRegisterAllocation,
+                                outermostInnerComputeLoop);
 
     return true;
   }
@@ -227,7 +230,11 @@ public:
     DenseMap<Operation *, CopyInfo> loopNests;
     DstRegisterAllocationState dstRegisterAllocationState;
     DstRegisterAllocation dstRegisterAllocation;
+    // int opIndex = 0;
     region.walk([&](OperandLoadRegisterOpInterface op) {
+      // llvm::errs() << "[DST-REG-DEBUG] Processing operation " << opIndex++
+      //              << ": " << op->getName() << " at " << op->getLoc() <<
+      //              "\n";
       // We're generating loads and stores for dst, so we can ignore loads and
       // stores that are already on dst.
       auto notDstMemspace = [](auto op) {
@@ -240,6 +247,9 @@ public:
         if (auto potentialLoad = op->getOperand(operandIdx)
                                      .getDefiningOp<affine::AffineLoadOp>();
             notDstMemspace(potentialLoad)) {
+          // llvm::errs() << "[DST-REG-DEBUG]   Processing LOAD from operand "
+          // << operandIdx
+          //              << " at " << potentialLoad->getLoc() << "\n";
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineLoadOp>(
                   potentialLoad, loopNests,
@@ -252,18 +262,42 @@ public:
       for (auto *user : op->getUsers()) {
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
             notDstMemspace(potentialStore)) {
+          // llvm::errs() << "[DST-REG-DEBUG]   Processing STORE: " <<
+          // potentialStore->getName()
+          //              << " at " << potentialStore->getLoc() << "\n";
+          // Print the dst_reg_in_place attribute value
+          bool dstRegInPlace = false;
+          if (op->hasAttr("dst_reg_in_place")) {
+            dstRegInPlace =
+                op->getAttrOfType<mlir::BoolAttr>("dst_reg_in_place")
+                    .getValue();
+            // llvm::errs() << "[DST-REG-DEBUG]   dst_reg_in_place: " <<
+            // (dstRegInPlace ? "true" : "false") << "\n";
+          } else {
+            // llvm::errs() << "[DST-REG-DEBUG]   dst_reg_in_place: false
+            // (default)\n";
+          }
+
           assert(!dstRegisterAllocationState.didStoreToDst() &&
                  "Multiple stores to dst not supported");
+
+          auto dstIndex = dstRegisterAllocationState.allocate();
+          if (dstRegInPlace) {
+            dstIndex -= 1;
+          }
+          dstRegisterAllocationState.setStoreToDst();
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineStoreOp>(
-                  potentialStore, loopNests, 0, getNonParticipatingLoopDims,
-                  outermostInnerComputeLoop);
-          dstRegisterAllocationState.allocate();
-          dstRegisterAllocationState.setStoreToDst();
+                  potentialStore, loopNests, dstIndex,
+                  getNonParticipatingLoopDims, outermostInnerComputeLoop);
+
         }
         // If the user isn't a store, it must be another compute consumer and we
         // need to allocate a dest register intermediate for it
         else {
+          // llvm::errs() << "[DST-REG-DEBUG]   Allocating intermediate DST
+          // register for compute consumer at "
+          //  << user->getLoc() << "\n";
           assert(user->hasTrait<TTIRGenericRegionComputeOpTrait>());
           assert(op->hasOneUse() && "Currently we do not support multiple "
                                     "users in the same compute dst region");
@@ -273,6 +307,8 @@ public:
         }
       }
     });
+    // llvm::errs() << "[DST-REG-DEBUG] Finished processing " << opIndex << "
+    // operations in region\n";
     return {loopNests, dstRegisterAllocation};
   }
 
@@ -306,10 +342,14 @@ public:
     SmallVector<int64_t> guardIndices = getNonParticipatingLoopDims(
         lookThroughSubView(loadOrStore.getMemRef()).getArgNumber());
     if (inserted) {
+      // First access in this loop nest - set the guard indices
       copyInfo.guardIndices = guardIndices;
+    } else {
+      // Subsequent access - verify guard indices are the same
+      assert(
+          guardIndices == copyInfo.guardIndices &&
+          "Expected same guard indices across all accesses in this loop nest");
     }
-    assert(guardIndices == copyInfo.guardIndices &&
-           "Expected same guard indices across all accesses in this loop nest");
 
     // This isn't very rigorous but it should work for now.  By just returning
     // the memref shape we're assuming the whole memref is accessed inside of
@@ -485,10 +525,16 @@ public:
 
       // Generate the data copy loop for the load store.
       {
+        // llvm::errs() << "DEBUG: buildIndices call for data copy generation -
+        // loadStore: " << *loadStore
+        //              << ", dstIndexOffset: " << dstIndexOffset << "\n";
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), irMapper,
                          loadStore.getIndices(), dstIndexOffset,
                          loadStore.getMap());
+        // llvm::errs() << "DEBUG: buildIndices returned - l1AccessMap: " <<
+        // l1AccessMap
+        //              << ", dstAccessMap: " << dstAccessMap << "\n";
         loadStoreDstAccessGenerator(
             rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
             l1AccessIndices, dstAccessMap, dstAccessIndices);
@@ -499,10 +545,16 @@ public:
         // Empty IR mapper because we want to preserve original loop vars
         mlir::IRMapping dummyIRMapper;
         rewriter.setInsertionPoint(loadStore);
+        // llvm::errs() << "DEBUG: buildIndices call for replacement -
+        // loadStore: " << *loadStore
+        //              << ", dstIndexOffset: " << dstIndexOffset << "\n";
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), dummyIRMapper,
                          loadStore.getIndices(), dstIndexOffset,
                          loadStore.getMap());
+        // llvm::errs() << "DEBUG: buildIndices returned - l1AccessMap: " <<
+        // l1AccessMap
+        //              << ", dstAccessMap: " << dstAccessMap << "\n";
         dstAccessReplacement(rewriter, loadStore, dstAccessMap,
                              dstAccessIndices);
       }
@@ -512,7 +564,8 @@ public:
   // Rewrite stores to use dst register based on allocation map
   static void insertDstRegisterAllocation(
       PatternRewriter &rewriter, Location loc, Value dst,
-      const DstRegisterAllocation &dstRegisterAllocation) {
+      const DstRegisterAllocation &dstRegisterAllocation,
+      Operation *outermostInnerComputeLoop) {
     auto dstType = dyn_cast<MemRefType>(dst.getType());
     if (!dstType) {
       return;
@@ -523,22 +576,12 @@ public:
     for (const auto &[op, dstIndex] : dstRegisterAllocation) {
 
       // Store the result of this operation to dst register
-      // Value result = op->getResult(0);
       rewriter.setInsertionPoint(op);
 
       SmallVector<Value> storeIndices;
 
-      // if (outermostInnerComputeLoop) {
-      //   if (auto affineFor =
-      //           dyn_cast<affine::AffineForOp>(outermostInnerComputeLoop)) {
-      //     Value inductionVar = affineFor.getInductionVar();
-      //     storeIndices.push_back(inductionVar);
-      //   }
-      // } else {
       storeIndices.push_back(
           rewriter.create<arith::ConstantIndexOp>(loc, dstIndex));
-      // }
-
       while (storeIndices.size() < dstRank) {
         storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
       }
@@ -547,29 +590,19 @@ public:
           AffineMap::getMultiDimIdentityMap(dstRank, rewriter.getContext());
 
       rewriter.setInsertionPointAfter(op);
-      // auto storeOp = rewriter.create<affine::AffineStoreOp>(
-      //     loc, result, dst, storeMap, storeIndices);
+
+      auto storeOp = rewriter.create<affine::AffineStoreOp>(
+          loc, op->getResult(0), dst, storeMap, storeIndices);
 
       auto loadedResult = rewriter.create<affine::AffineLoadOp>(
           loc, dst, storeMap, storeIndices);
 
-      // for (auto &use : result.getUses()) {
-      // if (use.getOwner() != storeOp) {
-      //   use.set(loadedResult.getResult());
-      // }
-      // }
-      // rewriter.replaceAllUsesWithIf(op->getResult(0),
-      // loadedResult->getResult(0), [] (Operation* op) { return
-      // !mlir::isa<affine::AffineStoreOp>(op); });
-      // op->getResult(0).replaceUsesWithIf(loadedResult->getResult(0),
-      // [](mlir::OpOperand &operand) {
-      //   return !mlir::isa<mlir::affine::AffineStoreOp>(operand.getOwner());
-      // });
-      rewriter.replaceUsesWithIf(
-          op->getResult(0), loadedResult->getResult(0),
-          [](mlir::OpOperand &operand) {
-            return !mlir::isa<mlir::affine::AffineStoreOp>(operand.getOwner());
-          });
+      // Replace all uses of the original result with the loaded result from dst
+      // register, but exclude the store operation we just created
+      rewriter.replaceUsesWithIf(op->getResult(0), loadedResult.getResult(),
+                                 [&](mlir::OpOperand &operand) {
+                                   return operand.getOwner() != storeOp;
+                                 });
     }
   }
 
@@ -593,6 +626,7 @@ public:
   }
 
   bool useTileMatmul;
+  static constexpr bool explain = false;
 };
 } // namespace
 

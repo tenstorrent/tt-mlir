@@ -55,7 +55,9 @@ class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIR_GenericParent] # traits> {}
 
 class TTIR_GenericRegionComputeOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadRegisterOpInterface] # traits> {}
+    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadRegisterOpInterface] # traits> {
+  let arguments = (ins DefaultValuedAttr<BoolAttr, "false">:$dst_reg_in_place);
+}
 
 class TTIR_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = []> :
     TTIR_GenericRegionComputeOp<mnemonic, traits> {
@@ -276,6 +278,17 @@ def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_no
     }];
 
     let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileSubBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub_binary"> {
+    let summary = "TTIR Tile Subtract Binary Op";
+    let description = [{
+        The `tile_sub_binary` operation subtracts two tiles element-wise.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs,
+                         TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
