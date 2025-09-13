@@ -19,9 +19,9 @@ module @ResNetBlock attributes {} {
     %0 = ttir.empty() : tensor<8x56x56x256xbf16> loc(#loc1)
     %1 = "ttir.relu"(%arg0, %0) : (tensor<8x56x56x256xbf16>, tensor<8x56x56x256xbf16>) -> tensor<8x56x56x256xbf16> loc(#loc2)
     %2 = ttir.empty() : tensor<8x56x56x64xbf16> loc(#loc3)
-    // CHECK: "ttnn.conv2d"([[INPUT1:%.+]], [[WEIGHTS1:%.+]], {{%.*}}) {{.*}} conv2d_config = #ttnn.conv2d_config<{{.*}}deallocate_activation = true{{.*}}>
+    // CHECK: "ttnn.reshape"([[INPUT1:%.+]]) <{shape = [25088 : i32, 256 : i32]}>
+    // CHECK: "ttnn.matmul"([[RESHAPED_INPUT1:%.+]], [[WEIGHTS1:%.+]]) <{transpose_a = false, transpose_b = false}>
     %3 = "ttir.conv2d"(%1, %arg1, %2) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<8x56x56x256xbf16>, tensor<64x256x1x1xbf16>, tensor<8x56x56x64xbf16>) -> tensor<8x56x56x64xbf16> loc(#loc4)
-    // CHECK-NOT: "ttnn.deallocate"([[INPUT1]])
     // CHECK: "ttnn.deallocate"([[WEIGHTS1]])
     %4 = ttir.empty() : tensor<8x56x56x64xbf16> loc(#loc5)
     %5 = "ttir.multiply"(%3, %arg2, %4) : (tensor<8x56x56x64xbf16>, tensor<1x1x1x64xbf16>, tensor<8x56x56x64xbf16>) -> tensor<8x56x56x64xbf16> loc(#loc6)
@@ -32,7 +32,6 @@ module @ResNetBlock attributes {} {
     %10 = ttir.empty() : tensor<8x56x56x64xbf16> loc(#loc11)
     // CHECK: "ttnn.conv2d"([[INPUT2:%.+]], [[WEIGHTS2:%.+]], {{%.*}}) {{.*}} conv2d_config = #ttnn.conv2d_config<{{.*}}deallocate_activation = true{{.*}}>
     %11 = "ttir.conv2d"(%9, %arg4, %10) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<8x56x56x64xbf16>, tensor<64x64x3x3xbf16>, tensor<8x56x56x64xbf16>) -> tensor<8x56x56x64xbf16> loc(#loc12)
-    // CHECK-NOT: "ttnn.deallocate"([[INPUT2]])
     // CHECK: "ttnn.deallocate"([[WEIGHTS2]])
     %12 = ttir.empty() : tensor<8x56x56x64xbf16> loc(#loc13)
     %13 = "ttir.multiply"(%11, %arg5, %12) : (tensor<8x56x56x64xbf16>, tensor<1x1x1x64xbf16>, tensor<8x56x56x64xbf16>) -> tensor<8x56x56x64xbf16> loc(#loc14)

@@ -18,7 +18,8 @@ module @ResNetBlock attributes {} {
     %0 = ttir.empty() : tensor<8x56x56x256xbf16> loc(#loc1)
     %1 = "ttir.relu"(%arg0, %0) : (tensor<8x56x56x256xbf16>, tensor<8x56x56x256xbf16>) -> tensor<8x56x56x256xbf16> loc(#loc2)
     %2 = ttir.empty() : tensor<8x56x56x64xbf16> loc(#loc3)
-    // CHECK: %{{.*}} = "ttnn.conv2d"{{.*}} conv2d_config = #ttnn.conv2d_config<{{.*}}shard_layout = height_sharded{{.*}}>
+    // CHECK: "ttnn.reshape"([[INPUT1:%.+]]) <{shape = [25088 : i32, 256 : i32]}>
+    // CHECK: "ttnn.matmul"([[RESHAPED_INPUT1:%.+]], [[WEIGHTS1:%.+]]) <{transpose_a = false, transpose_b = false}>
     %3 = "ttir.conv2d"(%1, %arg1, %2) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<8x56x56x256xbf16>, tensor<64x256x1x1xbf16>, tensor<8x56x56x64xbf16>) -> tensor<8x56x56x64xbf16> loc(#loc4)
     %4 = ttir.empty() : tensor<8x56x56x64xbf16> loc(#loc5)
     %5 = "ttir.multiply"(%3, %arg2, %4) : (tensor<8x56x56x64xbf16>, tensor<1x1x1x64xbf16>, tensor<8x56x56x64xbf16>) -> tensor<8x56x56x64xbf16> loc(#loc6)
