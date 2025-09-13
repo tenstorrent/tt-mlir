@@ -136,7 +136,8 @@ def TTIR_TileRecipOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_recip"> {
         The `tile_recip` operation computes the reciprocal of each element in the input tile.
     }];
 
-    let arguments = (ins TTCore_Tile:$input);
+    let arguments = (ins TTCore_Tile:$input,
+                         DefaultValuedAttr<BoolAttr, "true">:$dst_reg_in_place);
     let results = (outs TTCore_Tile:$result);
 }
 
