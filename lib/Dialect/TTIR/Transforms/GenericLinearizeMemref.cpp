@@ -136,10 +136,11 @@ public:
   }
 
   static int64_t getNumColumns(Value view) {
-    if (auto castOp = mlir::dyn_cast<memref::CastOp>(view.getDefiningOp())) {
+    if (auto castOp =
+            mlir::dyn_cast_if_present<memref::CastOp>(view.getDefiningOp())) {
       view = castOp.getSource();
-    } else if (auto svOp =
-                   mlir::dyn_cast<memref::SubViewOp>(view.getDefiningOp())) {
+    } else if (auto svOp = mlir::dyn_cast_if_present<memref::SubViewOp>(
+                   view.getDefiningOp())) {
       view = svOp.getSource();
     }
     auto srcTy = mlir::cast<MemRefType>(view.getType());
