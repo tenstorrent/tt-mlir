@@ -5,15 +5,23 @@
 #include "ttmlir/Conversion/TTIRToTTNNGeneric/TTIRToTTNNGeneric.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinDialect.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 // ----------------------------------------------------------------------------
@@ -30,7 +38,42 @@ namespace {
 struct ConvertTTIRToTTNNGenericPass final
     : impl::ConvertTTIRToTTNNGenericBase<ConvertTTIRToTTNNGenericPass> {
   void runOnOperation() final {
-    // TODO: populate and apply conversion here
+    mlir::ConversionTarget target(getContext());
+    target.addLegalDialect<BuiltinDialect>();
+    target.addLegalDialect<arith::ArithDialect>();
+    target.addLegalDialect<func::FuncDialect>();
+    target.addLegalDialect<memref::MemRefDialect>();
+    target.addLegalDialect<ttnn::TTNNDialect>();
+    target.addLegalDialect<ttkernel::TTKernelDialect>();
+    target.addLegalDialect<ttcore::TTCoreDialect>();
+    target.addLegalDialect<scf::SCFDialect>();
+    target.addLegalDialect<emitc::EmitCDialect>();
+    target.addIllegalDialect<math::MathDialect>();
+    target.addIllegalDialect<ttir::TTIRDialect>();
+
+    target.addLegalOp<ttir::StreamLayoutOp>();
+    target.addLegalOp<ttir::ViewLayoutOp>();
+
+    target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
+      return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
+          op.getMemref().getType().getMemorySpace());
+    });
+    target.addDynamicallyLegalOp<memref::DeallocOp>([&](memref::DeallocOp op) {
+      return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
+          op.getMemref().getType().getMemorySpace());
+    });
+
+    TypeConverter typeConverter;
+    typeConverter.addConversion([](Type type) { return type; });
+
+    RewritePatternSet patterns(&getContext());
+    populateTTIRToTTNNGenericPatterns(&getContext(), patterns, typeConverter);
+
+    if (failed(
+            applyFullConversion(getOperation(), target, std::move(patterns)))) {
+      signalPassFailure();
+      return;
+    }
   }
 };
 
