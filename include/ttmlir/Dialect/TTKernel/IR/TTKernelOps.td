@@ -475,6 +475,42 @@ def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_BinaryOpTrai
     }];
 }
 
+def TTKernel_BinaryDestReuseTilesInitOp : TTKernel_InitOp<"binary_dest_reuse_tiles_init"> {
+    let summary = "Init function for binary_dest_reuse_tiles operation.";
+    let description = [{
+      Please refer to documentation for any_init.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb,
+                         TTKernel_EltwiseBinaryTypeAttr:$eltwise_binary_type,
+                         TTKernel_EltwiseBinaryReuseDestTypeAttr:$eltwise_binary_reuse_dest_type);
+}
+
+def TTKernel_BinaryDestReuseTilesOp : TTKernel_FPUOp<"binary_dest_reuse_tiles", [TTKernel_BinaryOpTrait]> {
+    let summary = "Performs element-wise binary operations with operand in DST register and "
+                   "another operand in CB at a given index.";
+    let description = [{
+      Performs element-wise binary operations, such as multiply, add, or sub of tiles.
+      If binary_reuse_dest = EltwiseBinaryReuseDestType::DST_TO_SRCA, then the tile specified by idst will be loaded from
+      the DST register buffer into SRCA. The binary operation will operate on SRCA & SRCB inputs, and the result will be
+      written back to the DST register buffer specified by idst. Similar to DST_TO_SRCA, if binary_reuse_dest =
+      EltwiseBinaryReuseDestType::DST_TO_SRCB, then tile specified by idst will be loaded from the DST into SRCB register
+      buffer.
+
+      EltwiseBinaryReuseDestType::DST_TO_SRCA and EltwiseBinaryReuseDestType::DST_TO_SRCB assume that another operation has
+      populated the dest register, otherwise dest will contain zeroes.
+
+      The DST register buffer must be in acquired state via *acquire_dst* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb,
+                         IndexLike:$in_tile_index,
+                         IndexLike:$dst_index,
+                         TTKernel_EltwiseBinaryTypeAttr:$eltwise_binary_type,
+                         TTKernel_EltwiseBinaryReuseDestTypeAttr:$eltwise_binary_reuse_dest_type);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel SFPU operations
 //===----------------------------------------------------------------------===//

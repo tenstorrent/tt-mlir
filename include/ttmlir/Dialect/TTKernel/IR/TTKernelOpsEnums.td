@@ -93,6 +93,34 @@ def TTKernel_CBPort : I32EnumAttr<"CBPort", "TTKernel Circular Buffer Ports",
   let cppNamespace = "::mlir::tt::ttkernel";
 }
 
+def TTKernel_EltwiseBinaryAdd : I32EnumAttrCase<"Add", 0, "add">;
+def TTKernel_EltwiseBinarySub : I32EnumAttrCase<"Sub", 1, "sub">;
+def TTKernel_EltwiseBinaryMul : I32EnumAttrCase<"Mul", 2, "mul">;
+
+def TTKernel_EltwiseBinaryType : I32EnumAttr<"EltwiseBinaryType", "TTKernel Elementwise Binary Types",
+                          [
+                            TTKernel_EltwiseBinaryAdd,
+                            TTKernel_EltwiseBinarySub,
+                            TTKernel_EltwiseBinaryMul
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
+def TTKernel_EltwiseBinaryReuseDestNone : I32EnumAttrCase<"None", 0, "none">;
+def TTKernel_EltwiseBinaryReuseDestToSrcA : I32EnumAttrCase<"DestToSrcA", 1, "dest_to_src_a">;
+def TTKernel_EltwiseBinaryReuseDestToSrcB : I32EnumAttrCase<"DestToSrcB", 2, "dest_to_src_b">;
+
+def TTKernel_EltwiseBinaryReuseDestType : I32EnumAttr<"EltwiseBinaryReuseDestType", "TTKernel Elementwise Binary Reuse Destination Types",
+                          [
+                            TTKernel_EltwiseBinaryReuseDestNone,
+                            TTKernel_EltwiseBinaryReuseDestToSrcA,
+                            TTKernel_EltwiseBinaryReuseDestToSrcB
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
 def TTKernel_ReduceSum : I32EnumAttrCase<"Sum", 0, "reduce_sum">;
 def TTKernel_ReduceMax : I32EnumAttrCase<"Max", 1, "reduce_max">;
 
