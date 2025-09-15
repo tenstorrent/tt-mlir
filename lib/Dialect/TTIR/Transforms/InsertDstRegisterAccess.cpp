@@ -267,7 +267,9 @@ public:
           auto dstRegInPlace = op.getDstRegInPlace();
           int64_t dstIndex;
           if (dstRegInPlace) {
-            assert(op->getNumOperands() == 1 &&
+            bool isUnaryOp = op->getNumOperands() == 1;
+            bool isTileMatmul = mlir::isa<ttir::TileMatmulOp>(op);
+            assert((isUnaryOp || isTileMatmul) &&
                    "Only unary ops supported for destination register in "
                    "place, multi-operand ops would reference wrong tile, but "
                    "those ops should be setting output tile.");
