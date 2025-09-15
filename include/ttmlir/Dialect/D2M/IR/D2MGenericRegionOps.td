@@ -15,6 +15,7 @@ include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
+include "mlir/Interfaces/InferTypeOpInterface.td"
 
 //===----------------------------------------------------------------------===//
 // Generic Region Op Traits and Classes
@@ -799,15 +800,6 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
                          I64Attr:$numElems);
     let results = (outs D2M_MemTx:$result);
 
-    let builders =
-    [
-      // Unicast Read
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems));
-      }]>,
-    ];
-
     let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
@@ -1010,6 +1002,7 @@ class D2M_IndexOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionO
   [ Pure
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   , DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
+  , DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>
   ]> {
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
