@@ -235,6 +235,9 @@ def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayo
   let extraClassDeclaration = [{
       // Compose two view layouts f(g(x)) where f=this and g=other.
       ViewLayoutAttr compose(ViewLayoutAttr g) const;
+
+      bool isView() { return true; }
+      bool isPhysical() { return false; }
   }];
 }
 
@@ -258,6 +261,32 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
     static ShardLayoutAttr get(ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
     static ShardLayoutAttr get(MemRefType memrefType, uint32_t buffers);
+
+    bool isView() { return false; }
+    bool isPhysical() { return true; }
+
+    AffineMap getAffineMap() const;
+  }];
+}
+
+def TTCore_InterleavedLayoutAttr : TTCore_Attr<"InterleavedLayout", "interleaved", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
+  let summary = "Interleaved layout attribute in TT dialect";
+  let description = [{
+    Describes page layout of an interleaved memref buffer.
+    - Stride: Stride of each dim in bytes.
+    - Buffers: Number of back buffers used for double buffering, I/O latency hiding, etc
+  }];
+  let parameters = (ins ArrayRefParameter<"int64_t">:$stride, DefaultValuedParameter<"uint32_t", "1">:$buffers);
+
+  let assemblyFormat = "`<` custom<DimensionList>($stride) (`,` $buffers^)? `>`";
+
+  let extraClassDeclaration = [{
+    static InterleavedLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
+    static InterleavedLayoutAttr get(ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
+    static InterleavedLayoutAttr get(MemRefType memrefType, uint32_t buffers);
+
+    bool isView() { return false; }
+    bool isPhysical() { return true; }
 
     AffineMap getAffineMap() const;
   }];
@@ -295,6 +324,9 @@ def TTCore_HostLayoutAttr : TTCore_Attr<"HostLayout", "host_layout", [TTCore_Dev
                                       int64_t &offset) const;
 
     AffineMap getAffineMap() const;
+
+    bool isView() { return false; }
+    bool isPhysical() { return true; }
 
     bool isPadded() const;
   }];
@@ -414,6 +446,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Returns the explicit index_map if present; otherwise returns an
     // identity map of the provided rank.
     mlir::AffineMap getIndexAffineMapOrIdentity(unsigned rank) const;
+
+    bool isView() { return false; }
+    bool isPhysical() { return true; }
   }];
 }
 

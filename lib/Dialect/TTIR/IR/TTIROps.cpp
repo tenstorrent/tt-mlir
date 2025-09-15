@@ -4557,6 +4557,13 @@ static mlir::LogicalResult verifyAffineBlocking(
       outputGridShape = layout.getGridShape(tensorType);
     } else {
       auto memref = mlir::cast<MemRefType>(operandType);
+
+      if (!mlir::isa<mlir::tt::ttcore::DeviceLayoutInterface>(
+              memref.getLayout())) {
+        return emitOpError("memref layout is either missing or not an instance "
+                           "of DeviceLayoutInterface");
+      }
+
       // If the top level operand is a memref, the front half of its shape
       // is the grid shape, so we cut it off the back to get just the grid
       // shape.

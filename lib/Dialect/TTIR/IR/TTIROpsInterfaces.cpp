@@ -37,7 +37,8 @@ mlir::tt::ttir::applyViews(mlir::Operation *op) {
   auto inputMemref = mlir::cast<mlir::MemRefType>(input.getType());
 
   assert(
-      mlir::isa<ttcore::ShardLayoutAttr>(inputMemref.getLayout()) &&
+      (mlir::isa<ttcore::ShardLayoutAttr>(inputMemref.getLayout()) ||
+       mlir::isa<ttcore::InterleavedLayoutAttr>(inputMemref.getLayout())) &&
       "Expected ShardLayoutAttr, only one level of view nesting is supported");
 
   return std::make_pair(inputMemref, map);
