@@ -55,9 +55,7 @@ class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIR_GenericParent] # traits> {}
 
 class TTIR_GenericRegionComputeOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadRegisterOpInterface] # traits> {
-  let arguments = (ins DefaultValuedAttr<BoolAttr, "false">:$dst_reg_in_place);
-}
+    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadStoreRegisterOpInterface] # traits> {}
 
 class TTIR_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = []> :
     TTIR_GenericRegionComputeOp<mnemonic, traits> {
@@ -66,6 +64,7 @@ class TTIR_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = 
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       return {0};
     }
+     bool getDstRegInPlace() { return true; }
   }];
 }
 
@@ -298,8 +297,7 @@ def TTIR_TileEqzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_eqz"> {
         The `tile_eqz` operation checks if each element in the input tile == 0
     }];
 
-    let arguments = (ins TTCore_Tile:$input,
-                         DefaultValuedAttr<BoolAttr, "true">:$dst_reg_in_place);
+    let arguments = (ins TTCore_Tile:$input);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -309,8 +307,7 @@ def TTIR_TileNezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_nez"> {
         The `tile_nez` operation checks if each element in the input tile != 0
     }];
 
-    let arguments = (ins TTCore_Tile:$input,
-                         DefaultValuedAttr<BoolAttr, "true">:$dst_reg_in_place);
+    let arguments = (ins TTCore_Tile:$input);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -320,8 +317,7 @@ def TTIR_TileGtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gtz"> {
         The `tile_gtz` operation checks if each element in the input tile > 0
     }];
 
-    let arguments = (ins TTCore_Tile:$input,
-                         DefaultValuedAttr<BoolAttr, "true">:$dst_reg_in_place);
+    let arguments = (ins TTCore_Tile:$input);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -331,8 +327,7 @@ def TTIR_TileGezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gez"> {
         The `tile_gez` operation checks if each element in the input tile >= 0
     }];
 
-    let arguments = (ins TTCore_Tile:$input,
-                         DefaultValuedAttr<BoolAttr, "true">:$dst_reg_in_place);
+    let arguments = (ins TTCore_Tile:$input);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -342,8 +337,7 @@ def TTIR_TileLtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ltz"> {
         The `tile_ltz` operation checks if each element in the input tile < 0
     }];
 
-    let arguments = (ins TTCore_Tile:$input,
-                         DefaultValuedAttr<BoolAttr, "true">:$dst_reg_in_place);
+    let arguments = (ins TTCore_Tile:$input);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -353,8 +347,7 @@ def TTIR_TileLezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_lez"> {
         The `tile_lez` operation checks if each element in the input tile <= 0
     }];
 
-    let arguments = (ins TTCore_Tile:$input,
-                         DefaultValuedAttr<BoolAttr, "true">:$dst_reg_in_place);
+    let arguments = (ins TTCore_Tile:$input);
     let results = (outs TTCore_Tile:$result);
 }
 

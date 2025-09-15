@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
@@ -39,9 +40,10 @@ struct ConvertTTIRToTTNNPass
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttnn::TTNNDialect>();
-    target.addLegalOp<ttcore::DeviceOp>();
-    target.addIllegalDialect<ttir::TTIRDialect>();
     target.addLegalDialect<quant::QuantDialect>();
+    target.addIllegalDialect<ttir::TTIRDialect>();
+    target.addLegalOp<ttcore::DeviceOp>();
+    target.addLegalOp<ttcore::OptimizationBarrierOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.

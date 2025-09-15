@@ -17,7 +17,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
-#include "llvm/Support/raw_ostream.h"
+
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRINSERTDSTREGISTERACCESS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -66,7 +66,7 @@ public:
 
     void setStoreToDst() { storedToDst = true; }
     bool didStoreToDst() { return storedToDst; }
-    int64_t getNextDstIndex() { return nextDstIndex; }
+    int64_t getCurrDstIndex() { return nextDstIndex - 1; }
 
   private:
     int64_t nextDstIndex = 0;
@@ -95,7 +95,7 @@ public:
           }
 
           rewriter.setInsertionPoint(linalgGenericOp);
-          // Apply linalg to affine loops pass
+          // Apply linalg to affine loops pass.
           auto linalgLoops =
               linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
           if (failed(linalgLoops)) {
@@ -139,23 +139,22 @@ public:
     }
 
     // 1. Collect all loads/stores to dst organized by loop nest.
-    auto [copyInfo, dstRegisterAllocation] = collectDstAccesses(
+    auto [copyNests, dstAllocation] = collectDstAccesses(
         region, getNonParticipatingLoopDims, outermostInnerComputeLoop);
-    if (copyInfo.empty()) {
+    if (copyNests.empty()) {
       return false;
     }
 
     // 2. Insert acquire dst.
-    AcquireDstOp acquireDst = insertAcquireDst(rewriter, loc, region, copyInfo,
+    AcquireDstOp acquireDst = insertAcquireDst(rewriter, loc, region, copyNests,
                                                outermostInnerComputeLoop);
     Value dst = acquireDst.getResult();
 
     // 3. Generate data copy loops to/from dst and output cb.
-    dataCopyGenerate(rewriter, loc, dst, copyInfo);
+    dataCopyGenerate(rewriter, loc, dst, copyNests);
 
-    // 4. Rewrite stores to use dst register based on allocation
-    insertDstRegisterAllocation(rewriter, loc, dst, dstRegisterAllocation,
-                                outermostInnerComputeLoop);
+    // 4. Rewrite stores to use dst register based on allocation.
+    insertDstRegisterAllocation(rewriter, loc, dst, dstAllocation);
 
     return true;
   }
@@ -221,8 +220,14 @@ public:
   // register offset.
   using DstRegisterAllocation = DenseMap<Operation *, int64_t>;
 
-  // Return both the copy nest info and dst allocation info
-  static std::tuple<DenseMap<Operation *, CopyInfo>, DstRegisterAllocation>
+  // Struct to hold the results of dst access collection
+  struct DstAccessCollection {
+    DenseMap<Operation *, CopyInfo> copyNests;
+    DstRegisterAllocation dstAllocation;
+  };
+
+  // Return both the copy nest info and dst allocation info.
+  static DstAccessCollection
   collectDstAccesses(Region &region,
                      llvm::function_ref<SmallVector<int64_t>(int64_t)>
                          getNonParticipatingLoopDims,
@@ -230,11 +235,7 @@ public:
     DenseMap<Operation *, CopyInfo> loopNests;
     DstRegisterAllocationState dstRegisterAllocationState;
     DstRegisterAllocation dstRegisterAllocation;
-    // int opIndex = 0;
-    region.walk([&](OperandLoadRegisterOpInterface op) {
-      // llvm::errs() << "[DST-REG-DEBUG] Processing operation " << opIndex++
-      //              << ": " << op->getName() << " at " << op->getLoc() <<
-      //              "\n";
+    region.walk([&](OperandLoadStoreRegisterOpInterface op) {
       // We're generating loads and stores for dst, so we can ignore loads and
       // stores that are already on dst.
       auto notDstMemspace = [](auto op) {
@@ -247,9 +248,6 @@ public:
         if (auto potentialLoad = op->getOperand(operandIdx)
                                      .getDefiningOp<affine::AffineLoadOp>();
             notDstMemspace(potentialLoad)) {
-          // llvm::errs() << "[DST-REG-DEBUG]   Processing LOAD from operand "
-          // << operandIdx
-          //              << " at " << potentialLoad->getLoc() << "\n";
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineLoadOp>(
                   potentialLoad, loopNests,
@@ -262,30 +260,22 @@ public:
       for (auto *user : op->getUsers()) {
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
             notDstMemspace(potentialStore)) {
-          // llvm::errs() << "[DST-REG-DEBUG]   Processing STORE: " <<
-          // potentialStore->getName()
-          //              << " at " << potentialStore->getLoc() << "\n";
-          // Print the dst_reg_in_place attribute value
-          bool dstRegInPlace = false;
-          if (op->hasAttr("dst_reg_in_place")) {
-            dstRegInPlace =
-                op->getAttrOfType<mlir::BoolAttr>("dst_reg_in_place")
-                    .getValue();
-            // llvm::errs() << "[DST-REG-DEBUG]   dst_reg_in_place: " <<
-            // (dstRegInPlace ? "true" : "false") << "\n";
-          } else {
-            // llvm::errs() << "[DST-REG-DEBUG]   dst_reg_in_place: false
-            // (default)\n";
-          }
 
           assert(!dstRegisterAllocationState.didStoreToDst() &&
-                 "Multiple stores to dst not supported");
+                 "Multiple stores from last op to dst not supported");
 
-          auto dstIndex = dstRegisterAllocationState.allocate();
+          auto dstRegInPlace = op.getDstRegInPlace();
+          int64_t dstIndex;
           if (dstRegInPlace) {
-            dstIndex -= 1;
+            assert(op->getNumOperands() == 1 &&
+                   "Only unary ops supported for destination register in "
+                   "place, multi-operand ops would reference wrong tile, but "
+                   "those ops should be setting output tile.");
+            dstIndex = dstRegisterAllocationState.getCurrDstIndex();
+          } else {
+            dstIndex = dstRegisterAllocationState.allocate();
+            dstRegisterAllocationState.setStoreToDst();
           }
-          dstRegisterAllocationState.setStoreToDst();
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineStoreOp>(
                   potentialStore, loopNests, dstIndex,
@@ -293,22 +283,17 @@ public:
 
         }
         // If the user isn't a store, it must be another compute consumer and we
-        // need to allocate a dest register intermediate for it
+        // need to allocate a dest register intermediate for it.
         else {
-          // llvm::errs() << "[DST-REG-DEBUG]   Allocating intermediate DST
-          // register for compute consumer at "
-          //  << user->getLoc() << "\n";
           assert(user->hasTrait<TTIRGenericRegionComputeOpTrait>());
           assert(op->hasOneUse() && "Currently we do not support multiple "
-                                    "users in the same compute dst region");
+                                    "users in the same compute dst region.");
           assert(op->getNumResults() == 1);
           assert(!dstRegisterAllocation.contains(op));
           dstRegisterAllocation[op] = dstRegisterAllocationState.allocate();
         }
       }
     });
-    // llvm::errs() << "[DST-REG-DEBUG] Finished processing " << opIndex << "
-    // operations in region\n";
     return {loopNests, dstRegisterAllocation};
   }
 
@@ -342,13 +327,13 @@ public:
     SmallVector<int64_t> guardIndices = getNonParticipatingLoopDims(
         lookThroughSubView(loadOrStore.getMemRef()).getArgNumber());
     if (inserted) {
-      // First access in this loop nest - set the guard indices
+      // First access in this loop nest - set the guard indices.
       copyInfo.guardIndices = guardIndices;
     } else {
-      // Subsequent access - verify guard indices are the same
+      // Subsequent access - verify guard indices are the same.
       assert(
           guardIndices == copyInfo.guardIndices &&
-          "Expected same guard indices across all accesses in this loop nest");
+          "Expected same guard indices across all accesses in this loop nest.");
     }
 
     // This isn't very rigorous but it should work for now.  By just returning
@@ -525,16 +510,10 @@ public:
 
       // Generate the data copy loop for the load store.
       {
-        // llvm::errs() << "DEBUG: buildIndices call for data copy generation -
-        // loadStore: " << *loadStore
-        //              << ", dstIndexOffset: " << dstIndexOffset << "\n";
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), irMapper,
                          loadStore.getIndices(), dstIndexOffset,
                          loadStore.getMap());
-        // llvm::errs() << "DEBUG: buildIndices returned - l1AccessMap: " <<
-        // l1AccessMap
-        //              << ", dstAccessMap: " << dstAccessMap << "\n";
         loadStoreDstAccessGenerator(
             rewriter, loadStore.getLoc(), loadStore.getMemRef(), l1AccessMap,
             l1AccessIndices, dstAccessMap, dstAccessIndices);
@@ -542,44 +521,39 @@ public:
 
       // Replace the original load store with one from dst.
       {
-        // Empty IR mapper because we want to preserve original loop vars
+        // Empty IR mapper because we want to preserve original loop vars.
         mlir::IRMapping dummyIRMapper;
         rewriter.setInsertionPoint(loadStore);
-        // llvm::errs() << "DEBUG: buildIndices call for replacement -
-        // loadStore: " << *loadStore
-        //              << ", dstIndexOffset: " << dstIndexOffset << "\n";
         auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
             buildIndices(rewriter, loadStore.getLoc(), dummyIRMapper,
                          loadStore.getIndices(), dstIndexOffset,
                          loadStore.getMap());
-        // llvm::errs() << "DEBUG: buildIndices returned - l1AccessMap: " <<
-        // l1AccessMap
-        //              << ", dstAccessMap: " << dstAccessMap << "\n";
         dstAccessReplacement(rewriter, loadStore, dstAccessMap,
                              dstAccessIndices);
       }
     }
   }
 
-  // Rewrite stores to use dst register based on allocation map
+  // Rewrite stores to use dst register based on allocation map.
   static void insertDstRegisterAllocation(
       PatternRewriter &rewriter, Location loc, Value dst,
-      const DstRegisterAllocation &dstRegisterAllocation,
-      Operation *outermostInnerComputeLoop) {
+      const DstRegisterAllocation &dstRegisterAllocation) {
     auto dstType = dyn_cast<MemRefType>(dst.getType());
     if (!dstType) {
       return;
     }
-    unsigned dstRank = dstType.getRank();
+    const unsigned dstRank = dstType.getRank();
 
-    // Iterate directly through dst register allocation entries
+    // Iterate directly through dst register allocation entries.
     for (const auto &[op, dstIndex] : dstRegisterAllocation) {
 
-      // Store the result of this operation to dst register
+      // Store the result of this operation to dst register.
       rewriter.setInsertionPoint(op);
 
       SmallVector<Value> storeIndices;
 
+      // Build store indices: [dstIndex, 0, 0, ...] to store at the specified
+      // register index with zero-padding for remaining dimensions.
       storeIndices.push_back(
           rewriter.create<arith::ConstantIndexOp>(loc, dstIndex));
       while (storeIndices.size() < dstRank) {
@@ -598,7 +572,7 @@ public:
           loc, dst, storeMap, storeIndices);
 
       // Replace all uses of the original result with the loaded result from dst
-      // register, but exclude the store operation we just created
+      // register, but exclude the store operation we just created.
       rewriter.replaceUsesWithIf(op->getResult(0), loadedResult.getResult(),
                                  [&](mlir::OpOperand &operand) {
                                    return operand.getOwner() != storeOp;
@@ -606,8 +580,8 @@ public:
     }
   }
 
-  // Returns the indices and the map for the load store from L1 and Dst
-  //   tuple(l1AccessIndices, l1AccessMap, dstAccessIndices, dstAccessMap)
+  // Returns the indices and the map for the load store from L1 and Dst.
+  //   tuple(l1AccessIndices, l1AccessMap, dstAccessIndices, dstAccessMap).
   static std::tuple<AffineMap, SmallVector<Value>, AffineMap,
                     SmallVector<Value>>
   buildIndices(PatternRewriter &rewriter, Location loc,
@@ -626,7 +600,6 @@ public:
   }
 
   bool useTileMatmul;
-  static constexpr bool explain = false;
 };
 } // namespace
 
