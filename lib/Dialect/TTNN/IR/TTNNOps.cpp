@@ -3477,5 +3477,45 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
 
   return mlir::success();
 }
+// CloneOp
+//===----------------------------------------------------------------------===//
 
+// CloneOp verification
+::mlir::LogicalResult mlir::tt::ttnn::CloneOp::verify() {
+  // Check that the attributes of the op match the attributes of the output
+  // tensor type.
+  //
+  RankedTensorType output = getResult().getType();
+
+  TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
+
+  // Shape
+  //
+  if (output.getShape() != getInput().getType().getShape()) {
+    return emitOpError() << "Output tensor shape must be "
+                         << getInput().getType().getShape() << ", but got "
+                         << output.getShape();
+  }
+
+  // DataType
+  //
+  // Dtype is optional. Only check if present.
+  if (getDtype() && getDtype() != layoutAttr.getDataType()) {
+    return emitOpError("Data type mismatch between op and layoutAttr.");
+  }
+
+  // MemoryConfig is optional. Only check if present.
+  if (getMemoryConfig()) {
+    if (getMemoryConfig()->getBufferType().getValue() !=
+        layoutAttr.getBufferType()) {
+      return emitOpError("Buffer type mismatch between op and layoutAttr.");
+    }
+    if (getMemoryConfig()->getTensorMemoryLayout() !=
+        layoutAttr.getMemLayout()) {
+      return emitOpError(
+          "Tensor memory layout mismatch between op and layoutAttr.");
+    }
+  }
+  return mlir::success();
+}
 } // namespace mlir::tt::ttnn
