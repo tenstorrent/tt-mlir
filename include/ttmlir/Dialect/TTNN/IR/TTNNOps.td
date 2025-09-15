@@ -2378,7 +2378,7 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
     let hasVerifier = 1;
 }
 
-def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama"> {
+def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Rotary embedding llama operation.";
     let description = [{
       Applies rotary embedding to the input tensor using precomputed cosine and sine caches along with a transformation matrix.
