@@ -23,7 +23,7 @@
 #include "mlir/Target/Cpp/CppEmitter.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/raw_ostream.h"
-#include <iostream>
+
 namespace mlir::tt::ttkernel {
 
 // Class used to add includes and other boilerplate code to the generated
