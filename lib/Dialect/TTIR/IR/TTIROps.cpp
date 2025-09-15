@@ -2864,6 +2864,30 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ToLayoutOp::getBufferType(
 }
 
 //===----------------------------------------------------------------------===//
+// TTNNToMetalLayoutCastOp
+//===----------------------------------------------------------------------===//
+
+mlir::FailureOr<mlir::BaseMemRefType>
+mlir::tt::ttir::TTNNToMetalLayoutCastOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
+}
+
+mlir::LogicalResult mlir::tt::ttir::TTNNToMetalLayoutCastOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+
+  return success();
+}
+
+mlir::LogicalResult mlir::tt::ttir::TTNNToMetalLayoutCastOp::verify() {
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // StreamLayoutOp
 //===----------------------------------------------------------------------===//
 
