@@ -112,7 +112,7 @@ void createTTIRToTTMetalMiddleendPipeline(
       ttir::createTTIRInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
   OpPassManager &funcPm = pm.nest<func::FuncOp>();
-  funcPm.addPass(affine::createLoopCoalescingPass());
+  funcPm.addPass(affine::createAffineLoopInvariantCodeMotionPass());
 
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(memref::createFoldMemRefAliasOpsPass());
