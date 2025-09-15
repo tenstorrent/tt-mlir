@@ -46,6 +46,7 @@ class Builder:
         self._loc = location
         self._global_id = -1
         self._disable_golden_check = disable_golden_check
+        self._force_graph_level_check = False
 
         # Keep a list of inputs and outputs in order so we know how to store them in golden map.
         self._ordered_inputs: List[Operand] = []
@@ -119,6 +120,9 @@ class Builder:
                 loc, self._get_golden_tensor(output)
             )
 
+        if self._force_graph_level_check:
+            return golden_info
+
         # Store other operands into golden map if they are marked to be stored.
         for operand, builder_golden_tensor in self._goldens.items():
             if operand not in self._goldens_to_store:
@@ -170,6 +174,9 @@ class Builder:
             self._goldens_to_store = operands
         else:
             self._goldens_to_store.extend(operands)
+
+    def set_graph_level_check(self, check: bool):
+        self._force_graph_level_check = check
 
     # ----- Private methods -----
 
