@@ -23,7 +23,7 @@
 #include "mlir/Target/Cpp/CppEmitter.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/raw_ostream.h"
-
+#include <iostream>
 namespace mlir::tt::ttkernel {
 
 // Class used to add includes and other boilerplate code to the generated
@@ -105,6 +105,9 @@ public:
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/trigonometry.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/gelu.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/logical_not_noti.h",
