@@ -265,7 +265,7 @@ public:
                  "Multiple stores from last op to dst not supported");
 
           auto dstRegInPlace = op.getDstRegInPlace();
-          int64_t dstIndex;
+          int64_t dstIndex = -1;
           if (dstRegInPlace) {
             bool isUnaryOp = op->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<ttir::TileMatmulOp>(op);
