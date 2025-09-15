@@ -20,6 +20,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         QuantDequantConversion.cpp
         Transforms.cpp
         TTIRFusing.cpp
+        TTIRLowerTTNNLayouts.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
@@ -28,8 +29,10 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         MLIRTTIROpsIncGen
         MLIRTTIRPassesIncGen
         MLIRTTCoreOpsIncGen
+        MLIRTTNNOpsIncGen
 
         LINK_LIBS PUBLIC
         MLIRTTIREraseInverseOps
         MLIRTTIRAnalysis
+        MLIRTTNNDialect
         )
