@@ -8,6 +8,8 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+
 using namespace mlir;
 using namespace mlir::tt;
 using ttnn_to_emitpy::operator|;
@@ -142,6 +144,44 @@ public:
         emitter.emit(eltwiseBinaryOp.getDtype(), "dtype"),
         emitter.emit(eltwiseBinaryOp.getMemoryConfig() |
                          emitter.getMemoryConfig(eltwiseBinaryOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// Eltwise Ternary op conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (memcfg).
+//
+namespace {
+template <typename SourceOp>
+class EltwiseTernaryOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<SourceOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      SourceOp>::TTNNToEmitPyBaseOpConversionPattern;
+  using Adaptor = typename SourceOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(SourceOp ternaryOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(ternaryOp, adaptor,
+                                                        rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(ternaryOp.getFirst()),
+        emitter.emit(ternaryOp.getSecond()),
+        emitter.emit(ternaryOp.getThird()),
+        emitter.emit(ternaryOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(ternaryOp.getResult()),
                      "memory_config"),
     };
 
@@ -506,6 +546,60 @@ public:
 };
 } // namespace
 
+// FullOp conversion pattern
+//
+namespace {
+class FullOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::FullOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::FullOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::FullOp fullOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (auto fillValueAttr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
+      auto fillValue = fillValueAttr.getValue().convertToDouble();
+      return matchAndRewriteImpl(fullOp, fillValue, adaptor, rewriter);
+    }
+
+    if (auto fillValueAttr =
+            mlir::dyn_cast<IntegerAttr>(fullOp.getFillValue())) {
+      auto fillValue =
+          static_cast<int32_t>(fillValueAttr.getValue().getSExtValue());
+      return matchAndRewriteImpl(fullOp, fillValue, adaptor, rewriter);
+    }
+    return failure();
+  }
+
+private:
+  template <
+      typename FillValueT,
+      typename = std::void_t<llvm::is_one_of<FillValueT, double, int32_t>>>
+  LogicalResult matchAndRewriteImpl(mlir::tt::ttnn::FullOp fullOp,
+                                    FillValueT fillValue, OpAdaptor adaptor,
+                                    ConversionPatternRewriter &rewriter) const {
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::FullOp> emitter(
+        fullOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(fullOp.getShape(), "shape"),
+        emitter.emit(fillValue, "fill_value"),
+        emitter.emit(fullOp.getDtype(), "dtype"),
+        emitter.emit(fullOp.getLayout(), "layout"),
+        emitter.emit(fullOp.getDevice(), "device"),
+        emitter.emit(fullOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(fullOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // NamedFullOp conversion pattern for operations like ttnn::zeros or ttnn::ones
 //
 namespace {
@@ -809,6 +903,73 @@ public:
 };
 } // namespace
 
+// LoadCached Op conversion pattern
+//
+// This op is worked around - it only calls the consteval fn, but there is no
+// caching.
+// TODO (4936): https://github.com/tenstorrent/tt-mlir/issues/4936
+//
+namespace {
+class LoadCachedOpConversionPattern
+    : public OpConversionPattern<mlir::tt::ttcore::LoadCachedOp> {
+
+public:
+  using OpConversionPattern<
+      mlir::tt::ttcore::LoadCachedOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttcore::LoadCachedOp loadCachedOp,
+                  mlir::tt::ttcore::LoadCachedOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create list of tensors.
+    //
+    mlir::Value tensorsInList =
+        rewriter
+            .create<emitpy::CallOpaqueOp>(
+                loadCachedOp.getLoc(),
+                emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]"),
+                ttnn_to_emitpy::kCreateListFunctionName, adaptor.getOperands(),
+                nullptr)
+            ->getResult(0);
+
+    // Call into the callee, no caching mechanism.
+    //
+    emitpy::OpaqueType resultType =
+        emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
+    auto cacheOp =
+        rewriter.create<func::CallOp>(loadCachedOp.getLoc(), resultType,
+                                      loadCachedOp.getCallee(), tensorsInList);
+
+    // Unpack list of tensors.
+    //
+    llvm::SmallVector<Value> results;
+    for (unsigned i = 0; i < loadCachedOp.getNumResults(); ++i) {
+      // Create index value.
+      //
+      auto indexType = rewriter.getIndexType();
+      auto indexOp = rewriter.create<emitpy::LiteralOp>(
+          loadCachedOp.getLoc(), indexType, std::to_string(i));
+      Value indexVal = indexOp.getResult();
+
+      // Get reference to the i-th element in the result.
+      //
+      auto subscriptOp = rewriter.create<emitpy::SubscriptOp>(
+          loadCachedOp.getLoc(),
+          emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor"),
+          cacheOp->getResult(0), indexVal);
+
+      results.push_back(subscriptOp.getResult());
+    }
+
+    // Replace the original op with the extracted results.
+    //
+    rewriter.replaceOp(loadCachedOp, results);
+
+    return success();
+  }
+};
+} // namespace
+
 // ModuleOp conversion pattern
 //
 // This conversion pattern removes attributes from the ModuleOp.
@@ -959,7 +1120,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Tensor ops
   //
   // clang-format off
-  patterns.add<NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>,
+  patterns.add<FullOpConversionPattern,
+               NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>,
                NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosOp>
               >(typeConverter, ctx);
   // clang-format on
@@ -1028,6 +1190,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
               >(typeConverter, ctx);
   // clang-format on
 
+  patterns.add<EltwiseTernaryOpConversionPattern<ttnn::WhereOp>>(typeConverter,
+                                                                 ctx);
+
   // Tensor manipulation ops
   //
   // clang-format off
@@ -1085,6 +1250,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Default (catch-all)
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>>(
       typeConverter, ctx);
+
+  patterns.add<LoadCachedOpConversionPattern>(typeConverter, ctx);
 
   // Module op
   //
