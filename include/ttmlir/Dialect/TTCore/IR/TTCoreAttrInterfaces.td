@@ -52,6 +52,22 @@ def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface"> {
         return std::accumulate(shardShape.begin(), shardShape.end(), 1LL, std::multiplies<int64_t>());
       }]
     >,
+    InterfaceMethod<
+      "Return true if the layout is a view on top of a physical layout",
+      "bool", "isView", (ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return false;
+      }]
+    >,
+    InterfaceMethod<
+      "Return true if the layout is physical rather than a view",
+      "bool", "isPhysical", (ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return !isView();
+      }]
+    >,
   ];
 }
 

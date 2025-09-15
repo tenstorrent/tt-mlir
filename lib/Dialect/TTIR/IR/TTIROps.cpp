@@ -91,7 +91,15 @@ MemRefType getBufferType(Type type, bool isView,
     layoutAttr = ttcore::ViewLayoutAttr::get(ctx, map);
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-    layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Sharded) {
+      layoutAttr =
+          ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    } else if (layout.getMemoryLayout() ==
+               ttcore::TensorMemoryLayout::Interleaved) {
+      layoutAttr = ttcore::InterleavedLayoutAttr::get(ctx, shardStride);
+    } else {
+      llvm_unreachable("Unsupported memory layout");
+    }
   }
 
   return MemRefType::get(
@@ -3075,7 +3083,8 @@ static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
     auto outputEncoding = mlir::tt::ttcore::MetalLayoutAttr::get(
         builder.getContext(), inputEncoding.getLogicalShape(),
         inputEncoding.getDimAlignments(), inputEncoding.getCollapsedIntervals(),
-        inputEncoding.getOobVal(), inputEncoding.getMemorySpace(), map);
+        inputEncoding.getOobVal(), inputEncoding.getMemorySpace(),
+        inputEncoding.getMemoryLayout(), map);
 
     result =
         mlir::RankedTensorType::get(outputShape, elementType, outputEncoding);
@@ -4715,6 +4724,13 @@ static mlir::LogicalResult verifyAffineBlocking(
       outputGridShape = layout.getGridShape(tensorType);
     } else {
       auto memref = mlir::cast<MemRefType>(operandType);
+
+      if (!mlir::isa<mlir::tt::ttcore::DeviceLayoutInterface>(
+              memref.getLayout())) {
+        return emitOpError("memref layout is either missing or not an instance "
+                           "of DeviceLayoutInterface");
+      }
+
       // If the top level operand is a memref, the front half of its shape
       // is the grid shape, so we cut it off the back to get just the grid
       // shape.

@@ -8,7 +8,7 @@
   logical_shape = 64x128,
   dim_alignments = 32x32,
   collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>,
-  undef, l1,
+  undef, l1, sharded,
   index_map = (d0, d1, d2, d3) -> (d1, d0, d2, d3)
 >
 
