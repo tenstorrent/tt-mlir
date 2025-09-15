@@ -1936,7 +1936,7 @@ def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
-def TTNN_ScatterOp : TTNN_Op<"scatter"> {
+def TTNN_ScatterOp : TTNN_Op<"scatter", [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] >{
     let summary = "Scatter op.";
     let description = [{
       Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
