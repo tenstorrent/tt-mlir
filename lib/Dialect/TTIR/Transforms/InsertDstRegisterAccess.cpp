@@ -215,7 +215,19 @@ public:
   // register allocation for loads and just assumes that stores get exclusive
   // access. Returns a map of loop nest -> copy info, which contains a list of
   // loads and stores to copy into hoisted loop nests.
-  static DenseMap<Operation *, CopyInfo>
+
+  // Maps each TTIRGenericRegionComputeOpTrait operation result to a dest
+  // register offset.
+  using DstRegisterAllocation = DenseMap<Operation *, int64_t>;
+
+  // Struct to hold the results of dst access collection.
+  struct DstAccessCollection {
+    DenseMap<Operation *, CopyInfo> copyNests;
+    DstRegisterAllocation dstAllocation;
+  };
+
+  // Return both the copy nest info and dst allocation info.
+  static DstAccessCollection
   collectDstAccesses(Region &region,
                      llvm::function_ref<SmallVector<int64_t>(int64_t)>
                          getNonParticipatingLoopDims,
@@ -250,7 +262,23 @@ public:
             notDstMemspace(potentialStore)) {
 
           assert(!dstRegisterAllocationState.didStoreToDst() &&
-                 "Multiple stores to dst not supported");
+                 "Multiple stores from last op to dst not supported");
+
+          auto dstRegInPlace = op.getDstRegInPlace();
+          int64_t dstIndex = -1;
+          if (dstRegInPlace) {
+            bool isUnaryOp = op->getNumOperands() == 1;
+            bool isTileMatmul = mlir::isa<ttir::TileMatmulOp>(op);
+            assert((isUnaryOp || isTileMatmul) &&
+                   "Only unary ops and tile matmul supported for destination "
+                   "register in "
+                   "place, multi-operand ops would reference wrong tile, but "
+                   "those ops should be setting output tile.");
+            dstIndex = dstRegisterAllocationState.getCurrDstIndex();
+          } else {
+            dstIndex = dstRegisterAllocationState.allocate();
+            dstRegisterAllocationState.setStoreToDst();
+          }
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineStoreOp>(
                   potentialStore, loopNests, dstIndex,
