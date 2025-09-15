@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRTTTransforms
+        OptimizationBarrierFold.cpp
         TTCoreModuleWrap.cpp
         TTCoreRegisterDevice.cpp
 
