@@ -416,7 +416,7 @@ private:
 
         auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
             loc,
-            /* result tensor types */
+            /*result tensor types=*/
             llvm::to_vector(
                 mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
             /*inputs=*/blockArgs.take_front(numInputs),
