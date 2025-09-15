@@ -122,8 +122,7 @@ public:
         ios[i] = castOp->getOperands()[0];
         cbs[i] = castOp->getOperands()[1];
       } else {
-        llvm::errs() << "Unsupported input type: " << operand.getType() << "\n";
-        return failure();
+        llvm_unreachable("Expected TTNNToMetalLayoutCastOp");
       }
       cbPorts[i] = cbPort++;
     }
@@ -137,8 +136,7 @@ public:
 
     llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors(cbPort);
     if (cbs.empty()) {
-      llvm::errs() << "No CB found\n";
-      return failure();
+      llvm_unreachable("Expected circular buffers.");
     }
 
     // Create CBDescriptor
