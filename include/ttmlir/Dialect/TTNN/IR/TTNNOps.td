@@ -2410,9 +2410,9 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Memory
 }
 
 def TTNN_NLPConcatenateHeadsOp : TTNN_Op<"nlp_concatenate_heads", [TTNN_MemoryConfigOpInterface]> {
-  let summary = "Special case of concatenate heads.";
+  let summary = "nlp_concat_heads op in TTNN dialect.";
   let description = [{
-    "This op targets specific case of concatenate heads op where input tensor
+    "This op targets specific case of concatenate heads operation where input tensor
     [B, num_heads, S, head_dim] is permuted and reshaped into [B, 1, S, num_heads * head_dim]."
   }];
 
