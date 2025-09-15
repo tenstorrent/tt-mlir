@@ -98,9 +98,9 @@ struct TTIRToTTMetalPipelineOptions
   // Number of backing buffers to allocate per stream storage.
   Option<unsigned> numStreamBuffers{
       *this, "num-stream-buffers",
-      llvm::cl::desc(
-          "Number of backing buffers to allocate per stream storage (>=1)"),
-      llvm::cl::init(1)};
+      llvm::cl::desc("Number of backing buffers to allocate per stream storage "
+                     "(>=1). Default is 2."),
+      llvm::cl::init(2)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);

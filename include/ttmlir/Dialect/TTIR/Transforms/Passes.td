@@ -446,8 +446,8 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   list<Option> options = [
     Option<"numStreamBuffers",
            "num-stream-buffers",
-           "unsigned", /*default=*/"1",
-           "Number of backing buffers to allocate per stream storage (>=1)">,
+           "unsigned", /*default=*/"2",
+           "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
   ];
 }
 
