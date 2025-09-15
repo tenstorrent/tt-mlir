@@ -11,6 +11,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "stablehlo/dialect/StablehloOps.h"
+#include <llvm/Support/LogicalResult.h>
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_UPDATEGLOBALTOLOCALSHAPESPASS
@@ -131,6 +132,13 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             return mlir::success();
           })
           .Case<mlir::stablehlo::GatherOp>([&](auto gatherOp) {
+            llvm::outs() << "[HET DEBUG][GATHER] original attrDict elements start:\n";
+            for (const auto &attr : attrDict.getValue()) {
+              llvm::outs() << "  " << attr.getName().str() << ": ";
+              attr.getValue().print(llvm::outs());
+              llvm::outs() << "\n";
+            }
+            llvm::outs() << "[HET DEBUG][SCATTER] original attrDict elements end\n";
             // 1. Get the sharding for each operand dimension.
             llvm::ArrayRef<mlir::sdy::DimensionShardingAttr>
                 operandDimShardings =
@@ -190,6 +198,21 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             namedAttrSliceSizesIt->setValue(
                 mlir::DenseI64ArrayAttr::get(context, newSliceSizes));
 
+            llvm::outs() << "[HET DEBUG] newSliceSizes start:\n";
+            for (const auto &size : newSliceSizes) {
+              llvm::outs() << size << " ";
+            }
+            llvm::outs() << "\n";
+            llvm::outs() << "[HET DEBUG] newSliceSizes end\n";
+
+            llvm::outs() << "[HET DEBUG][GATHER] new attrDict elements start:\n";
+            for (const auto &attr : attrDict.getValue()) {
+              llvm::outs() << "  " << attr.getName().str() << ": ";
+              attr.getValue().print(llvm::outs());
+              llvm::outs() << "\n";
+            }
+            llvm::outs() << "[HET DEBUG][GATHER] new attrDict elements end\n";
+
             return mlir::success();
           })
           .Case<mlir::stablehlo::CompareOp>([&](auto compareOp) {
@@ -200,11 +223,40 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             return mlir::failure();
           })
           .Case<mlir::stablehlo::ScatterOp>([&](auto scatterOp) {
-            scatterOp->emitError(
-                "Scatter operation is not supported in stablehlo-pipeline for "
-                "meshes not 1x1: "
-                "https://github.com/tenstorrent/tt-mlir/issues/3496.");
-            return mlir::failure();
+            // 1. Ensure the scatter op with global shapes is valid.
+            LogicalResult is_valid_op = scatterOp.verify();
+            if (failed(is_valid_op)) {
+              scatterOp->emitError("Scatter operation is not valid");
+              return mlir::failure();
+            }
+
+            llvm::outs() << "[HET DEBUG][SCATTER] attrDict elements start:\n";
+            for (const auto &attr : attrDict.getValue()) {
+              llvm::outs() << "  " << attr.getName().str() << ": ";
+              attr.getValue().print(llvm::outs());
+              llvm::outs() << "\n";
+            }
+            llvm::outs() << "[HET DEBUG][SCATTER] attrDict elements end\n";
+
+            // 2. Get the sharding for each operand dimension.
+            llvm::ArrayRef<mlir::sdy::DimensionShardingAttr>
+                operandDimShardings =
+                    shardy_utils::getOperandShardingAttr(
+                        scatterOp.getOperation()->getOpOperand(0), globalMeshOp)
+                        .getDimShardings();
+            
+            llvm::outs() << "[HET DEBUG][SCATTER] Operand dim shardings start:\n";
+            for (const auto &sharding : operandDimShardings) {
+              sharding.dump();
+              llvm::outs() << "\n";
+            }
+            llvm::outs() << "[HET DEBUG][SCATTER] Operand dim shardings end\n";
+            // scatterOp->emitError(
+            //     "Scatter operation is not supported in stablehlo-pipeline for "
+            //     "meshes not 1x1: "
+            //     "https://github.com/tenstorrent/tt-mlir/issues/3496.");
+            // return mlir::failure();
+            return mlir::success();
           })
           .Default([](mlir::Operation *op) { return mlir::success(); });
 

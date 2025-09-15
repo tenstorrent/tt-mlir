@@ -391,6 +391,7 @@ public:
   matchAndRewrite(mlir::sdy::AllSliceOp srcOp,
                   mlir::PatternRewriter &rewriter) const override {
     MLIRContext *context = getContext();
+    llvm::outs() << "[HET DEBUG] AllSliceOp rewrite called\n";
 
     // Mesh axis -> parts mapping.
     mlir::tt::shardy_utils::MeshMap meshMap =
