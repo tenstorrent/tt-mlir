@@ -120,12 +120,12 @@ class Builder:
                 loc, self._get_golden_tensor(output)
             )
 
+        if self._force_graph_level_check:
+            return golden_info
+
         # Store other operands into golden map if they are marked to be stored.
         for operand, builder_golden_tensor in self._goldens.items():
-            if (
-                operand not in self._goldens_to_store
-                or self._force_graph_level_check is False
-            ):
+            if operand not in self._goldens_to_store:
                 continue
 
             if not (isinstance(operand, OpView) or isinstance(operand, Operation)):

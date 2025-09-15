@@ -32,7 +32,6 @@ class TTIRBuilder(Builder):
         disable_golden_check: bool = False,
     ):
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
-        self._force_graph_level_check = True
 
     # ----- Public methods -----
 
