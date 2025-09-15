@@ -2165,6 +2165,105 @@ OpModel<ConcatenateHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===-----------------------------------------------------------------------===//
+// RotaryEmbeddingLlamaOp
+// ===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> cosShape,
+    TTNNLayoutAttr cosLayout, llvm::ArrayRef<int64_t> sinShape,
+    TTNNLayoutAttr sinLayout, llvm::ArrayRef<int64_t> transMatShape,
+    TTNNLayoutAttr transMatLayout, bool isDecodeMode,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  auto cosSpecExp = detail::convertToTensorSpec(device, cosShape, cosLayout);
+  if (!cosSpecExp) {
+    return cosSpecExp.takeError();
+  }
+  auto sinSpecExp = detail::convertToTensorSpec(device, sinShape, sinLayout);
+  if (!sinSpecExp) {
+    return sinSpecExp.takeError();
+  }
+  auto transMatSpecExp =
+      detail::convertToTensorSpec(device, transMatShape, transMatLayout);
+  if (!transMatSpecExp) {
+    return transMatSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ::ttnn::TensorSpec cosSpec = cosSpecExp.get();
+  ::ttnn::TensorSpec sinSpec = sinSpecExp.get();
+  ::ttnn::TensorSpec transMatSpec = transMatSpecExp.get();
+
+  auto rotaryEmbeddingLlamaOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::experimental::rotary_embedding_llama, device, inputSpec,
+        cosSpec, sinSpec, transMatSpec, isDecodeMode,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     rotaryEmbeddingLlamaOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
+    llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
+    llvm::ArrayRef<int64_t> transMatShape, TTNNLayoutAttr transMatLayout,
+    bool isDecodeMode, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  auto cosSpecExp = detail::convertToTensorSpec(device, cosShape, cosLayout);
+  if (!cosSpecExp) {
+    return cosSpecExp.takeError();
+  }
+  auto sinSpecExp = detail::convertToTensorSpec(device, sinShape, sinLayout);
+  if (!sinSpecExp) {
+    return sinSpecExp.takeError();
+  }
+  auto transMatSpecExp =
+      detail::convertToTensorSpec(device, transMatShape, transMatLayout);
+  if (!transMatSpecExp) {
+    return transMatSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ::ttnn::TensorSpec cosSpec = cosSpecExp.get();
+  ::ttnn::TensorSpec sinSpec = sinSpecExp.get();
+  ::ttnn::TensorSpec transMatSpec = transMatSpecExp.get();
+
+  // Create query closure
+  auto rotaryEmbeddingLlamaOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::experimental::rotary_embedding_llama, device, inputSpec,
+        cosSpec, sinSpec, transMatSpec, isDecodeMode,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(rotaryEmbeddingLlamaOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 //===----------------------------------------------------------------------===//
 // RepeatInterleaveOp
 //===----------------------------------------------------------------------===//
