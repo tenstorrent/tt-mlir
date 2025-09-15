@@ -539,6 +539,28 @@ struct OpModel<TypecastOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// CloneOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<CloneOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, std::optional<ttcore::DataType> dtype,
+      std::optional<MemoryConfigAttr> memoryConfig,
+      std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+
+      std::optional<ttcore::DataType> dtype,
+      std::optional<MemoryConfigAttr> memoryConfig,
+      std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 

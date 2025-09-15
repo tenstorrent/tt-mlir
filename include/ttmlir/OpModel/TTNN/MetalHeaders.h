@@ -47,6 +47,7 @@ inline Tensor extract_output_tensor(
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/core/core.hpp"
 #include "ttnn/operations/creation.hpp"
+#include "ttnn/operations/data_movement/clone/clone.hpp"
 #include "ttnn/operations/data_movement/concat/concat.hpp"
 #include "ttnn/operations/data_movement/pad/pad.hpp"
 #include "ttnn/operations/data_movement/permute/permute.hpp"
