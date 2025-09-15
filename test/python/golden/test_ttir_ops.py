@@ -2451,14 +2451,14 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         gt,
     ],
 )
-def test_binary_comparison_ops(
+def test_comparison_ops(
     test_fn: Callable,
     shape: Shape,
     dtype: torch.dtype,
     target: str,
     request,
 ):
-    def binary_comparison_ops(
+    def comparison_ops(
         in0: Operand,
         in1: Operand,
         builder: TTIRBuilder,
@@ -2488,7 +2488,7 @@ def test_binary_comparison_ops(
         return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
-        binary_comparison_ops,
+        comparison_ops,
         [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,

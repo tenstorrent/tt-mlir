@@ -373,7 +373,7 @@ private:
         splitDpsSignature(adaptor, op.getDpsInits().size());
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
-                                   /*tiled*/ true);
+                                   /*tiled=*/true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -419,18 +419,18 @@ private:
             /* result tensor types */
             llvm::to_vector(
                 mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
-            /* inputs */ blockArgs.take_front(numInputs),
-            /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
+            /*inputs=*/blockArgs.take_front(numInputs),
+            /*outputs=*/blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
               mlir::Value subResult = bbBuilder.create<ttir::TileSubBinaryOp>(
-                  loc, /* resultTypes */ bbArgs.take_back(numOutputs),
-                  /* operands */ bbArgs.take_front(numInputs));
+                  loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
+                  /*operands=*/bbArgs.take_front(numInputs));
 
               mlir::Value yield = bbBuilder.create<TileOp>(
-                  loc, /* resultTypes */ bbArgs.take_back(numOutputs),
-                  /* operands */ subResult);
+                  loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
+                  /*operands=*/subResult);
 
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });

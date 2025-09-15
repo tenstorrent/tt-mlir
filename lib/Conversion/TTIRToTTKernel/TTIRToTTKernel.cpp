@@ -520,6 +520,9 @@ public:
     auto inCB = getInCB(rewriter, op);
     auto outCB = getOutCB(rewriter, op);
     setInsertionPointAfterOperands(rewriter, {inCB, outCB});
+    // Don't init_sfpu for tile sub binary op because it's only used in
+    // conjuction with a comparison op that calls init_sfpu and we only need one
+    // per compute kernel.
     if constexpr (!std::is_same_v<ConcreteOp, ttir::TileSubBinaryOp>) {
       rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
     }
