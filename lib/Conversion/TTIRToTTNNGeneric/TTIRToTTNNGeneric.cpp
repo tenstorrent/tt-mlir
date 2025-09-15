@@ -26,7 +26,7 @@ public:
   using OpConversionPattern<ttir::GenericOp>::OpConversionPattern;
 
   static mlir::Attribute convertKernelArg(Builder &builder,
-                                          ttkernel::ArgAttr arg) {
+                                          const ttkernel::ArgAttr &arg) {
     switch (arg.getArgType()) {
     case ttkernel::ArgType::BufferAddress: {
       return builder.getAttr<ttnn::KernelArgAddressOfTensorAttr>(
@@ -43,13 +43,14 @@ public:
     }
   }
 
-  static SmallVector<mlir::Attribute> convertThreadsToKernelConfigs(
-      Builder &builder, mlir::ValueRange operands, ArrayAttr threads,
-      ttnn::CoreRangeSetAttr coreRangeSet, const SymbolTable &symbolTable) {
+  static SmallVector<mlir::Attribute>
+  convertThreadsToKernelConfigs(Builder &builder, const ArrayAttr &threads,
+                                const ttnn::CoreRangeSetAttr &coreRangeSet,
+                                const SymbolTable &symbolTable) {
     SmallVector<mlir::Attribute> kernelConfigs(threads.size());
     bool isReadKernel = true;
     for (const auto [i, thread] : llvm::enumerate(threads)) {
-      ttir::ThreadAttr threadAttr = mlir::cast<ttir::ThreadAttr>(thread);
+      const ttir::ThreadAttr threadAttr = mlir::cast<ttir::ThreadAttr>(thread);
 
       // Get kernel args
       SymbolRefAttr kernelSymbol = threadAttr.getKernelSymbol();
@@ -107,7 +108,7 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
 
     MLIRContext *ctx = rewriter.getContext();
-    auto size = op.getOperands().size();
+    const size_t size = op.getOperands().size();
     llvm::SmallVector<Value> ios(size);
     llvm::SmallVector<Value> cbs(size);
     llvm::SmallVector<int64_t> cbPorts(size);
@@ -117,7 +118,7 @@ public:
               mlir::dyn_cast_if_present<ttir::TTNNToMetalLayoutCastOp>(
                   operand.getDefiningOp());
           castOp) {
-        // Use the TTNN tensor operand ofthe cast as the IO for ttnn.generic,
+        // Use the TTNN tensor operand of the cast as the io for ttnn.generic,
         // Use the memref operand for CB descriptor creation.
         ios[i] = castOp->getOperands()[0];
         cbs[i] = castOp->getOperands()[1];
@@ -152,8 +153,7 @@ public:
           ttcore::elementTypeToDataType(cb_memref.getElementType());
       ttnn::KernelCBFormatAttr cbFormat =
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
-      // Assumption is only one CBFormat per descriptor, so total_size =
-      // page_size
+      // Assumption is one CBFormat per descriptor, so total_size = page_size
       ttnn::KernelCBAttr cbDescriptor =
           ttnn::KernelCBAttr::get(ctx, pageSize, coreRangeSet, {cbFormat});
       cbDescriptors[i] = cbDescriptor;
@@ -162,8 +162,7 @@ public:
     // Create KernelDescriptors
     SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
     llvm::SmallVector<mlir::Attribute> kernelDescriptors =
-        convertThreadsToKernelConfigs(rewriter, adaptor.getOperands(),
-                                      op.getThreads(), coreRangeSet,
+        convertThreadsToKernelConfigs(rewriter, op.getThreads(), coreRangeSet,
                                       opSymTable);
 
     llvm::SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors;
@@ -189,9 +188,9 @@ public:
                   ttir::TTNNToMetalLayoutCastOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
+    // Replace all uses of the cast result with the second input (result of the
+    // cast)
     if (!op->getResults().empty()) {
-      // Replace all uses of the cast result with the second input (result of
-      // the cast)
       Value replacement = op.getOperation()->getOperand(1);
       rewriter.replaceOp(op, replacement);
     } else {
