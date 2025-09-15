@@ -220,7 +220,7 @@ public:
   // register offset.
   using DstRegisterAllocation = DenseMap<Operation *, int64_t>;
 
-  // Struct to hold the results of dst access collection
+  // Struct to hold the results of dst access collection.
   struct DstAccessCollection {
     DenseMap<Operation *, CopyInfo> copyNests;
     DstRegisterAllocation dstAllocation;
@@ -270,7 +270,8 @@ public:
             bool isUnaryOp = op->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<ttir::TileMatmulOp>(op);
             assert((isUnaryOp || isTileMatmul) &&
-                   "Only unary ops supported for destination register in "
+                   "Only unary ops and tile matmul supported for destination "
+                   "register in "
                    "place, multi-operand ops would reference wrong tile, but "
                    "those ops should be setting output tile.");
             dstIndex = dstRegisterAllocationState.getCurrDstIndex();
