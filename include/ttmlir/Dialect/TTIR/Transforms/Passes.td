@@ -636,4 +636,18 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
   ];
 }
 
+def TTIRLowerTTNNLayouts : Pass<"ttir-lower-ttnn-layouts", "::mlir::ModuleOp"> {
+  let summary = "Skeleton: identify TTNN layout encodings for explicit view_layout lowering";
+  let description = [{
+    Skeleton pass that scans RankedTensorType values encoded with ttnn.ttnn_layout and
+    emits remarks indicating where lowering to ttir.view_layout should occur.
+    Option A only: no function signature rewrites and no replacements performed.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::ttir::TTIRDialect",
+    "::mlir::tt::ttcore::TTCoreDialect",
+    "::mlir::tt::ttnn::TTNNDialect"
+  ];
+}
+
 #endif
