@@ -43,13 +43,23 @@ struct TTIRLowerTTNNLayouts
       SmallVector<int64_t> gridShape(
           llvm::to_vector(ttnnLayout.getGrid().getShape()));
 
-      // Derive memory space from the TTNN memref
+      // Get memory space from the TTNN memref
       auto memrefTy = ttnnLayout.getMemref();
       auto msAttr =
           dyn_cast_or_null<ttcore::MemorySpaceAttr>(memrefTy.getMemorySpace());
       assert(msAttr && msAttr.getValue() != ttcore::MemorySpace::System &&
              "Must be a device tensor");
       auto memSpace = msAttr.getValue();
+
+      // With these assumptions we can use the default alignment and dim
+      // collapsing behaviour in the MetalLayoutAttr
+      assert(ttnnLayout.isTiled() &&
+             "Row major TTNN layouts are not supported yet");
+      assert(mlir::cast<ttcore::TileType>(ttnnLayout.getElementType())
+                     .getHeight() == ttcore::TileType::getDefaultShape()[0] &&
+             mlir::cast<ttcore::TileType>(ttnnLayout.getElementType())
+                     .getWidth() == ttcore::TileType::getDefaultShape()[1] &&
+             "Only default tile shape is supported");
 
       // Prefer TTNN linear map if provided; otherwise identity of rank
       AffineMap ttnnIndexMap = ttnnLayout.getLinear();
@@ -64,7 +74,7 @@ struct TTIRLowerTTNNLayouts
       // TODO: Implement this
 
       auto metal = ttcore::MetalLayoutAttr::get(
-          &getContext(), logicalShape, dimAlignments, gridShape, ttcore::OOBVal::Undef,
+          &getContext(), logicalShape, gridShape, ttcore::OOBVal::Undef,
           memSpace, ttnnIndexMap);
       return RankedTensorType::get(logicalShape, tensor.getElementType(),
                                    metal);
