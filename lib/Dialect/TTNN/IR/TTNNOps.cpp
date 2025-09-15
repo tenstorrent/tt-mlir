@@ -3348,6 +3348,45 @@ void CaptureOrExecuteTraceOp::getEffects(
   return success();
 }
 
+//===-----------------------------------------------------------------------===//
+// NLPConcatenateHeadsOp
+// ===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::NLPConcatenateHeadsOp::verify() {
+  ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  ArrayRef<int64_t> outputShape = getResult().getType().getShape();
+
+  if (outputShape.size() != 4) {
+    return emitOpError() << "output tensor must be a 4D tensor.";
+  }
+
+  if (inputShape.size() != 4) {
+    return emitOpError() << "input tensor must be a 4D tensor.";
+  }
+
+  // TODO milant: Use symbolic dimensions when
+  // https://github.com/tenstorrent/tt-mlir/pull/4855 is merged.
+  if (outputShape[1] != 1) {
+    return emitOpError() << "output tensor dim 1 must be 1, got "
+                         << outputShape[1];
+  }
+
+  if (inputShape[1] * inputShape[3] != outputShape[3]) {
+    return emitOpError()
+           << "output tensor dim 3 must be num_heads * head_size, got "
+           << outputShape[3] << ", expected "
+           << (inputShape[1] * inputShape[3]);
+  }
+
+  if (inputShape[1] != outputShape[2]) {
+    return emitOpError()
+           << "output tensor dim 2 must be the same as input tensor dim 1, got "
+           << outputShape[2] << ", expected " << inputShape[1];
+  }
+
+  return mlir::success();
+}
+
 //===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//

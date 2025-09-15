@@ -2409,6 +2409,21 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Memory
     let hasVerifier = 1;
 }
 
+def TTNN_NLPConcatenateHeadsOp : TTNN_Op<"nlp_concatenate_heads", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "Special case of concatenate heads.";
+  let description = [{
+    "This op targets specific case of concatenate heads op where input tensor
+    [B, num_heads, S, head_dim] is permuted and reshaped into [B, 1, S, num_heads * head_dim]."
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                   OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor"> {
   let summary = "Saves a tensor to disk in the TTNN binary format";
   let description = [{

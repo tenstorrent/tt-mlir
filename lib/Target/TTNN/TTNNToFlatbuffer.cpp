@@ -1873,6 +1873,17 @@ createOp(FlatbufferObjectCache &cache, ConcatenateHeadsOp op) {
                                                       memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::NLPConcatenateHeadsOp>
+createOp(FlatbufferObjectCache &cache, NLPConcatenateHeadsOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateNLPConcatenateHeadsOp(*cache.fbb, in, out,
+                                                         memoryConfig);
+}
+
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
 createKernelArgs(FlatbufferObjectCache &cache,
                  llvm::ArrayRef<mlir::Attribute> argsAttrs) {
@@ -2581,6 +2592,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto concatenateHeadsOp = dyn_cast<ConcatenateHeadsOp>(op);
       concatenateHeadsOp) {
     return createOperation(cache, createOp(cache, concatenateHeadsOp),
+                           debugString, locInfo);
+  }
+  if (auto nlpConcatenateHeadsOp = dyn_cast<NLPConcatenateHeadsOp>(op)) {
+    return createOperation(cache, createOp(cache, nlpConcatenateHeadsOp),
                            debugString, locInfo);
   }
   if (auto genericOp = dyn_cast<GenericOp>(op); genericOp) {

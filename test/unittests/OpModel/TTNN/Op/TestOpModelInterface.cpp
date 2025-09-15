@@ -1662,6 +1662,46 @@ TEST_F(OpModelBase, RotaryEmbeddingLlamaOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, NLPConcatenateHeadsOpInterface) {
+  int64_t batch_size = 1;
+  int64_t num_heads = 8;
+  int64_t sequence_size = 512;
+  int64_t head_size = 64;
+
+  llvm::SmallVector<int64_t> inputShape = {batch_size, num_heads, sequence_size,
+                                           head_size};
+  llvm::SmallVector<int64_t> outputShape = {batch_size, 1, sequence_size,
+                                            num_heads * head_size};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  auto nlpConcatenateHeads = builder.create<NLPConcatenateHeadsOp>(
+      builder.getUnknownLoc(), outputType, input);
+
+  auto constraintsExp = getOpConstraints(nlpConcatenateHeads.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 65536);
+    EXPECT_EQ(l1PeakSize, 8192);
+    EXPECT_EQ(outputSize, 8192);
+    EXPECT_TRUE(outputLayout != nullptr);
+  } else {
+    FAIL() << "Missing L1 constraints for NLPConcatenateHeadsOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(nlpConcatenateHeads.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for NLPConcatenateHeadsOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, repeatInterleaveOp) {
   // create RepeatInterleaveOp
   llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
