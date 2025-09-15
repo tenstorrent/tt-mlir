@@ -55,8 +55,7 @@ class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIR_GenericParent] # traits> {}
 
 class TTIR_GenericRegionComputeOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadStoreRegisterOpInterface] # traits> {
-}
+    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadStoreRegisterOpInterface] # traits> {}
 
 class TTIR_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = []> :
     TTIR_GenericRegionComputeOp<mnemonic, traits> {
