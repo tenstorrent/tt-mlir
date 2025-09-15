@@ -54,14 +54,8 @@ struct ConvertTTIRToTTNNGenericPass final
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
 
-    target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
-      return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
-          op.getMemref().getType().getMemorySpace());
-    });
-    target.addDynamicallyLegalOp<memref::DeallocOp>([&](memref::DeallocOp op) {
-      return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
-          op.getMemref().getType().getMemorySpace());
-    });
+    target.addLegalOp<memref::AllocOp>();
+    target.addLegalOp<memref::DeallocOp>();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
