@@ -1,0 +1,110 @@
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttir-to-ttmetal-be-pipeline="lower-to-ttnn-generic=true" -o %t.mlir %s
+// RUN: FileCheck %s --input-file=%t.mlir
+
+#dram = #ttnn.buffer_type<dram>
+#l1 = #ttnn.buffer_type<l1>
+
+#core_range = #ttnn.core_range<(0,0), (0,0)>
+#core_ranges = #ttnn.core_range_set<[#core_range]>
+
+#dram_memory_config = #ttnn.memory_config<#dram, <interleaved>>
+#l1_memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#core_range]>, <32x32>, <row_major>, <physical>>>
+
+#dram_layout = #ttnn.ttnn_layout<
+  (d0, d1) -> (d0, d1),
+  <1x1>,
+  memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>
+  >
+
+// Layout for single tile in L1
+#l1_layout = #ttnn.ttnn_layout<
+  (d0, d1) -> (d0, d1),
+  <1x1, (d0, d1) -> (0, d0, d1)>,
+  memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>
+  >
+
+module {
+  func.func @abs(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> {
+    %device = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+    %ttnn_input_l1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #l1_memory_config}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
+    %ttnn_output_l1 = "ttnn.empty"(%device) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #l1_memory_config, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
+
+    %alloc_0 = memref.alloc() {address = 103872 : i64, alignment = 16 : i64} : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
+    %metal_input_l1 = ttir.ttnn_to_metal_layout_cast %ttnn_input_l1, %alloc_0 : tensor<32x32xf32, #l1_layout> into memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>> -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
+    %alloc_1 = memref.alloc() {address = 99776 : i64, alignment = 16 : i64} : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
+    %metal_output_l1 = ttir.ttnn_to_metal_layout_cast %ttnn_output_l1, %alloc_1 : tensor<32x32xf32, #l1_layout> into memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>> -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
+
+    // CHECK: ttnn.generic
+    ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#ttir.thread<datamovement, @read_kernel>, #ttir.thread<datamovement, @write_kernel>, #ttir.thread<compute, @compute_kernel0>]}
+        ins(%metal_input_l1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>)
+        outs(%metal_output_l1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>)
+
+    %output_l1 = ttir.ttnn_to_metal_layout_cast %metal_output_l1, %ttnn_output_l1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>> into tensor<32x32xf32, #l1_layout> -> tensor<32x32xf32, #l1_layout>
+    memref.dealloc %alloc_0 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
+    memref.dealloc %alloc_1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
+
+    %output_dram = "ttnn.to_memory_config"(%output_l1) <{memory_config = #dram_memory_config}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
+    return %output_dram : tensor<32x32xf32, #dram_layout>
+  }
+  func.func private @read_kernel() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+    %c1_i32 = arith.constant 1 : i32
+    %c4096_i32 = arith.constant 4096 : i32
+
+    %c0_i32 = arith.constant 0 : i32
+    %0 = ttkernel.get_common_arg_val(%c0_i32) : (i32) -> i32
+    %1 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>
+    %2 = ttkernel.my_x() : () -> index
+    %3 = ttkernel.my_y() : () -> index
+
+    // Move single tile from address in L1 to CB
+    ttkernel.cb_reserve_back(%1, %c1_i32) : (!ttkernel.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>, i32) -> ()
+    %4 = ttkernel.get_write_ptr(%1) : (!ttkernel.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>) -> i32
+    %5 = ttkernel.get_noc_addr(%2, %3, %0) : (index, index, i32) -> !ttkernel.noc_addr
+    ttkernel.noc_async_read(%5, %4, %c4096_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
+    ttkernel.noc_async_read_barrier() : () -> ()
+    ttkernel.cb_push_back(%1, %c1_i32) : (!ttkernel.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>, i32) -> ()
+    return
+  }
+  func.func private @write_kernel() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+    %c1_i32 = arith.constant 1 : i32
+    %c4096_i32 = arith.constant 4096 : i32
+
+    %c0_i32 = arith.constant 0 : i32
+    %0 = ttkernel.get_common_arg_val(%c0_i32) : (i32) -> i32
+    %1 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>
+    %2 = ttkernel.my_x() : () -> index
+    %3 = ttkernel.my_y() : () -> index
+
+    // Move single tile from CB to address in L1
+    ttkernel.cb_wait_front(%1, %c1_i32) : (!ttkernel.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>, i32) -> ()
+    %4 = ttkernel.get_read_ptr(%1) : (!ttkernel.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>) -> i32
+    %5 = ttkernel.get_noc_addr(%2, %3, %0) : (index, index, i32) -> !ttkernel.noc_addr
+    ttkernel.noc_async_write(%4, %5, %c4096_i32) : (i32, !ttkernel.noc_addr, i32) -> ()
+    ttkernel.noc_async_write_barrier() : () -> ()
+    ttkernel.cb_pop_front(%1, %c1_i32) : (!ttkernel.cb<memref<32x32xf32, #ttcore.memory_space<l1>>>, i32) -> ()
+    return
+  }
+  func.func private @compute_kernel0() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    %c1_i32 = arith.constant 1 : i32
+    %c0 = arith.constant 0 : index
+    %0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+    %1 = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+    ttkernel.cb_reserve_back(%1, %c1_i32) : (!ttkernel.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, i32) -> ()
+    ttkernel.cb_wait_front(%0, %c1_i32) : (!ttkernel.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, i32) -> ()
+    %2 = ttkernel.cb_reinterpret_shape(%0) : (!ttkernel.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>) -> !ttkernel.cb<memref<1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+    %3 = ttkernel.cb_reinterpret_shape(%1) : (!ttkernel.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>) -> !ttkernel.cb<memref<1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
+    ttkernel.init_sfpu(%2, %3) : (!ttkernel.cb<memref<1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, !ttkernel.cb<memref<1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>) -> ()
+    ttkernel.tile_regs_acquire() : () -> ()
+    ttkernel.copy_tile_init(%2) : (!ttkernel.cb<memref<1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>) -> ()
+    ttkernel.copy_tile(%2, %c0, %c0) : (!ttkernel.cb<memref<1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, index, index) -> ()
+    ttkernel.abs_tile_init() : () -> ()
+    ttkernel.abs_tile(%c0) : (index) -> ()
+    ttkernel.tile_regs_commit() : () -> ()
+    ttkernel.tile_regs_wait() : () -> ()
+    ttkernel.pack_tile(%c0, %3, %c0, true) : (index, !ttkernel.cb<memref<1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, index) -> ()
+    ttkernel.tile_regs_release() : () -> ()
+    ttkernel.cb_push_back(%1, %c1_i32) : (!ttkernel.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, i32) -> ()
+    ttkernel.cb_pop_front(%0, %c1_i32) : (!ttkernel.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>, i32) -> ()
+    return
+  }
+}
