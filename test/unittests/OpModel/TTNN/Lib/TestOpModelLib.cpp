@@ -3380,7 +3380,7 @@ TEST_P(OpModelPrepareConv2dBiasParam, PrepareConv2dBias) {
   //  get_cb_info expects conv_config.weights_dtype to be set otherwise it
   //  issues an error. See conv2d_op_program_factory_common.cpp in tt-metal.
   Conv2dConfigAttr conv2dConfig = Conv2dConfigAttr::get(&context);
-  conv2dConfig.withWeightsDtype(ttcore::DataType::Float32);
+  conv2dConfig = conv2dConfig.withWeightsDtype(ttcore::DataType::Float32);
 
   auto constraintsExp = OpModel<PrepareConv2dBiasOp>::getOpConstraints(
       CreateWorkerGrid(), biasLayout, biasShape, inputMemConfig,
