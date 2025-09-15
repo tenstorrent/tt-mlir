@@ -229,7 +229,7 @@ public:
     DenseMap<Operation *, CopyInfo> loopNests;
     DstRegisterAllocationState dstRegisterAllocationState;
     DstRegisterAllocation dstRegisterAllocation;
-    region.walk([&](OperandLoadRegisterOpInterface op) {
+    region.walk([&](OperandLoadStoreRegisterOpInterface op) {
       // We're generating loads and stores for dst, so we can ignore loads and
       // stores that are already on dst.
       auto notDstMemspace = [](auto op) {
@@ -258,11 +258,7 @@ public:
           assert(!dstRegisterAllocationState.didStoreToDst() &&
                  "Multiple stores from last op to dst not supported");
 
-          auto dstRegInPlace = false;
-          if (auto attr =
-                  op->getAttrOfType<mlir::BoolAttr>("dst_reg_in_place")) {
-            dstRegInPlace = attr.getValue();
-          }
+          auto dstRegInPlace = op.getDstRegInPlace();
           int64_t dstIndex;
           if (dstRegInPlace) {
             dstIndex = dstRegisterAllocationState.getCurrDstIndex();
@@ -593,7 +589,6 @@ public:
   }
 
   bool useTileMatmul;
-  static constexpr bool explain = false;
 };
 } // namespace
 

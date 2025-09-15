@@ -55,8 +55,7 @@ class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIR_GenericParent] # traits> {}
 
 class TTIR_GenericRegionComputeOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadRegisterOpInterface] # traits> {
-  let arguments = (ins DefaultValuedAttr<BoolAttr, "false">:$dst_reg_in_place);
+    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadStoreRegisterOpInterface] # traits> {
 }
 
 class TTIR_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = []> :
@@ -66,6 +65,7 @@ class TTIR_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = 
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       return {0};
     }
+     bool getDstRegInPlace() { return true; }
   }];
 }
 
@@ -136,8 +136,7 @@ def TTIR_TileRecipOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_recip"> {
         The `tile_recip` operation computes the reciprocal of each element in the input tile.
     }];
 
-    let arguments = (ins TTCore_Tile:$input,
-                         DefaultValuedAttr<BoolAttr, "true">:$dst_reg_in_place);
+    let arguments = (ins TTCore_Tile:$input);
     let results = (outs TTCore_Tile:$result);
 }
 
