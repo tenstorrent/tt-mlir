@@ -13,18 +13,22 @@
 
 namespace mlir::tt::ttir {
 
+// Default here is mostly for constructed testing purposes. i.e. Hand written
+// LIT tests that don't have ttir.yield or ttir.await ops.
 enum ThreadCBOrientation {
   Producer,
   Consumer,
   ProducerConsumer,
+  Default,
 };
 struct CBProducerConsumer {
   CBProducerConsumer(Operation *op);
 
   ThreadCBOrientation get(Value cb) const {
     auto match = threadCBOrientationMap.find(cb);
-    assert(match != threadCBOrientationMap.end() &&
-           "CB orientation mapping not found.");
+    if (match == threadCBOrientationMap.end()) {
+      return Default;
+    }
     return match->second;
   }
 

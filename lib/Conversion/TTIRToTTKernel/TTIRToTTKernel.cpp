@@ -841,9 +841,11 @@ public:
         buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
                         op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
     auto dstCBMapping = cbProducerConsumer->get(op.getDst());
-    assert(dstCBMapping == ttir::ThreadCBOrientation::Producer &&
-           "Expected dst cb of a read op to have a producer orientation, "
-           "failing.");
+    assert(dstCBMapping == ttir::ThreadCBOrientation::Producer ||
+           dstCBMapping == ttir::ThreadCBOrientation::Default &&
+               "Expected dst cb of a read op to have a producer or default "
+               "orientation, "
+               "failing.");
     Value dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
         rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
 
@@ -907,9 +909,10 @@ public:
       }
       auto dstCBMapping = cbProducerConsumer->get(op.getDst());
       assert((dstCBMapping == ttir::ThreadCBOrientation::Producer ||
-              dstCBMapping == ttir::ThreadCBOrientation::ProducerConsumer) &&
-             "Expected dst cb of a write op to have a producer or "
-             "producer-consumer orientation, failing.");
+              dstCBMapping == ttir::ThreadCBOrientation::ProducerConsumer ||
+              dstCBMapping == ttir::ThreadCBOrientation::Default) &&
+             "Expected dst cb of a write op to have a producer, "
+             "producer-consumer or default orientation, failing.");
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
 
