@@ -234,3 +234,73 @@ def test_roundtrip_dma_rowmajor(
         return system_out
 
     compile_dma_test(dram_write, shape, request)
+
+
+@pytest.mark.parametrize("shape", [(64, 64), (64, 128), (128, 64), (128, 128)])
+@pytest.mark.parametrize("end_grid", [(1, 1), (2, 2), (1, 2), (2, 1)])
+def test_interleaved_dma(
+    shape: Shape,
+    end_grid: tuple[int, int],
+    request,
+):
+    def interleaved_dma(
+        in0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+        # derive sharded shapes
+        assert (
+            (shape[0] % end_grid[0] == 0) and (shape[1] % end_grid[1] == 0),
+            "shard_shape must be divisible by end_grid",
+        )
+        end_shard_shape = (shape[0] // end_grid[0], shape[1] // end_grid[1])
+
+        # tilize the tensor on a single worker
+        to_device = builder.tilize(
+            in0,
+            output_type=builder.get_metal_tensor_layout(
+                shape,
+                tiled=True,
+                memorySpace=ttcore.MemorySpace.DeviceL1,
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+        # WRITE tensor from L1 to initial shard layout
+        tensor_layoutA = builder.to_layout(
+            to_device,
+            output_type=builder.get_metal_tensor_layout(
+                shape,
+                tiled=True,
+                memorySpace=ttcore.MemorySpace.DeviceDRAM,
+                grid=(1, 1),  # interleaved grid must be 1x1
+                memory_layout=ttcore.TensorMemoryLayout.Interleaved,
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+        # READ sharded layout to final sharded layout
+        tensor_layoutB = builder.to_layout(
+            tensor_layoutA,
+            output_type=builder.get_metal_tensor_layout(
+                shape,
+                tiled=True,
+                memorySpace=ttcore.MemorySpace.DeviceL1,
+                grid=end_grid,
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+        untilize_out = builder.untilize(
+            tensor_layoutB,
+            output_type=in0.type,
+            unit_attrs=unit_attrs,
+        )
+
+        return untilize_out
+
+    compile_dma_test(
+        interleaved_dma,
+        shape,
+        request,
+    )
