@@ -391,6 +391,7 @@ def compile_ttir_to_flatbuffer(
         mesh_dict=mesh_dict,
         module_dump=module_dump,
         output_root=output_root,
+        base=test_base,
     )
 
     return compile_ttir_module_to_flatbuffer(
@@ -660,11 +661,20 @@ def compile_stablehlo_to_flatbuffer(
         mesh_dict=mesh_dict,
         module_dump=module_dump,
         output_root=output_root,
+        base=test_base,
     )
 
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
+
+    filename = _get_target_path(
+        output_root, "stablehlo-builder", test_base + ".mlir", test_base
+    )
+    if module_dump:
+        with open(filename, "w") as f:
+            f.write(str(module))
+
     stablehlo_to_ttir_pipeline(module, " ".join(shlo_to_ttir_pipeline_options))
     print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
     print(module)
