@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/Mesh.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -2867,6 +2868,144 @@ private:
 } // namespace
 
 namespace {
+// This pattern recognizes and converts stablehlo.custom_call @tt.fill_cache
+// to ttir.fill_cache.
+class StableHLOFillCacheConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.fill_cache") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 2 || srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "FillCache op must have exactly two operands and one result. Got " +
+              std::to_string(adaptor.getOperands().size()) +
+              " operands "
+              "and " +
+              std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "FillCache op must have mhlo.frontend_attributes attribute.");
+    }
+
+    // Frontend attributes can only be populated via torch-xla as
+    // string-to-string dicts. Thus, our batch_offset will be presented to
+    // tt-mlir as a string.
+    auto batchOffset =
+        frontendAttributes.getAs<mlir::StringAttr>("batch_offset");
+    if (!batchOffset) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "FillCache op must have batch_offset attribute.");
+    }
+
+    int32_t batchOffsetInt = 0;
+    if (!llvm::to_integer(batchOffset.getValue(), batchOffsetInt)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Failed to convert batch_offset string to integer.");
+    }
+
+    if (batchOffsetInt < 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Batch offset must be non-negative. Received " +
+                     std::to_string(batchOffsetInt) + ".");
+    }
+
+    auto cache = adaptor.getOperands()[0];
+    auto input = adaptor.getOperands()[1];
+
+    rewriter.replaceOpWithNewOp<ttir::FillCacheOp>(
+        srcOp, cache.getType(), cache, input, batchOffsetInt);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// This pattern recognizes and converts stablehlo.custom_call @tt.update_cache
+// to ttir.update_cache.
+class StableHLOUpdateCacheConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.update_cache") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 3 || srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "UpdateCache op must have exactly three operands and one "
+                 "result. Got " +
+                     std::to_string(adaptor.getOperands().size()) +
+                     " operands "
+                     "and " +
+                     std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "UpdateCache op must have mhlo.frontend_attributes attribute.");
+    }
+
+    // Frontend attributes can only be populated via torch-xla as
+    // string-to-string dicts. Thus, our batch_offset will be presented to
+    // tt-mlir as a string.
+    auto batchOffset =
+        frontendAttributes.getAs<mlir::StringAttr>("batch_offset");
+    if (!batchOffset) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "UpdateCache op must have batch_offset attribute.");
+    }
+
+    int32_t batchOffsetInt = 0;
+    if (!llvm::to_integer(batchOffset.getValue(), batchOffsetInt)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Failed to convert batch_offset string to integer.");
+    }
+
+    if (batchOffsetInt < 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Batch offset must be non-negative. Received " +
+                     std::to_string(batchOffsetInt) + ".");
+    }
+
+    auto cache = adaptor.getOperands()[0];
+    auto input = adaptor.getOperands()[1];
+    auto updateIndex = adaptor.getOperands()[2];
+
+    rewriter.replaceOpWithNewOp<ttir::UpdateCacheOp>(
+        srcOp, cache.getType(), cache, input, updateIndex, batchOffsetInt);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOErfOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
@@ -2895,6 +3034,31 @@ public:
         cast<RankedTensorType>(
             getTypeConverter()->convertType(srcOp.getResult(0).getType())),
         adaptor.getOperands()[0]);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIROpOptimizationBarrierOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::OptimizationBarrierOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::OptimizationBarrierOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::OptimizationBarrierOp srcOp,
+                  mlir::stablehlo::OptimizationBarrierOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> convertedResultTypes;
+    for (auto resultType : srcOp->getResultTypes()) {
+      convertedResultTypes.push_back(
+          this->getTypeConverter()->convertType(resultType));
+    }
+
+    rewriter.replaceOpWithNewOp<ttcore::OptimizationBarrierOp>(
+        srcOp, convertedResultTypes, adaptor.getOperands());
 
     return success();
   }
@@ -3178,6 +3342,22 @@ static void addSortOpConversionPattern(MLIRContext *ctx,
                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRSortOpConversionPattern>(typeConverter, ctx);
 }
+
+static void addCacheOpsConversionPattern(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
+  patterns.add<StableHLOFillCacheConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOUpdateCacheConversionPattern>(typeConverter, ctx);
+}
+
+static void
+addOptimizationBarrierOpConversionPattern(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpOptimizationBarrierOpConversionPattern>(
+      typeConverter, ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -3211,6 +3391,8 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addRngOpConversionPattern(ctx, patterns, typeConverter);
   addErfOpConversionPattern(ctx, patterns, typeConverter);
   addSortOpConversionPattern(ctx, patterns, typeConverter);
+  addCacheOpsConversionPattern(ctx, patterns, typeConverter);
+  addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

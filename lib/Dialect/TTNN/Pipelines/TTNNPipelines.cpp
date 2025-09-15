@@ -19,7 +19,7 @@
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
-#include <llvm/Support/raw_ostream.h>
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
@@ -192,6 +192,9 @@ void createTTIRToTTNNBackendPipeline(
   if (options.enableTrace) {
     devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
   }
+  // Fold ttcore.optimization_barrier ops before deallocation
+  devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
+
   createTTNNPipelineDeallocPass(devicePm, options);
 
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.

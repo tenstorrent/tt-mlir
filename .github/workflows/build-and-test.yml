@@ -340,6 +340,8 @@ jobs:
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_float_bfloat_buffer_cast
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_integer_buffer_cast
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/ttnn/gtest/test_runtime_client
+        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/ttnn/gtest/test_tensor_serialization
+
 
     - name: Run TTNN-Standalone test
       shell: bash

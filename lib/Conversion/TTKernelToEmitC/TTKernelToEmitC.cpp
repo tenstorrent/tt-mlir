@@ -277,6 +277,19 @@ public:
     return {reduceType, reduceDim};
   }
 
+  StringRef getBroadcastType(ttkernel::BcastType bcastType) const {
+    switch (bcastType) {
+    case ttkernel::BcastType::Row:
+      return "BroadcastType::ROW";
+    case ttkernel::BcastType::Col:
+      return "BroadcastType::COL";
+    case ttkernel::BcastType::Scalar:
+      return "BroadcastType::SCALAR";
+    default:
+      return "BroadcastType::NONE";
+    }
+  }
+
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
                   std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
@@ -298,7 +311,13 @@ public:
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reduceDim));
       return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp> or
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::UnaryBcastInitOp> ||
+                         std::is_same_v<SourceOp, ttkernel::UnaryBcastTileOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), getBroadcastType(op.getBcastType())));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp> ||
                          std::is_same_v<SourceOp,
                                         ttkernel::GetCommonArgValOp>) {
       SmallVector<Attribute, 1> template_args;
@@ -346,55 +365,6 @@ public:
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, resultTypes, getOpName(op), nullptr, getTemplateArgs(rewriter, op),
         adaptor.getOperands());
-
-    return success();
-  }
-
-private:
-  std::string opName;
-};
-} // namespace
-
-namespace {
-// For binary SFPU operations that need a third argument for destination index
-template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
-class TTKernelBinarySFPUToEmitCRewriter : public OpConversionPattern<SourceOp> {
-public:
-  TTKernelBinarySFPUToEmitCRewriter(TTKernelToEmitCTypeConverter &typeConverter,
-                                    MLIRContext *ctx, std::string opName = "")
-      : OpConversionPattern<SourceOp>(typeConverter, ctx), opName(opName) {}
-
-  StringRef getOpName(SourceOp op) const {
-    auto name =
-        opName.empty() ? op.getOperation()->getName().getStringRef() : opName;
-    if (name.starts_with("ttkernel.")) {
-      return name.drop_front(9);
-    }
-    return name;
-  }
-
-  LogicalResult
-  matchAndRewrite(SourceOp op, Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    SmallVector<Type, 4> resultTypes;
-    for (Type type : op->getResultTypes()) {
-      Type ct = this->getTypeConverter()->convertType(type);
-      if (!ct) {
-        return rewriter.notifyMatchFailure(op, "Failed to convert type ");
-      }
-      resultTypes.push_back(ct);
-    }
-
-    // Get the original operands
-    SmallVector<Value, 4> operands = adaptor.getOperands();
-
-    if (operands.size() >= 2) {
-      operands.push_back(
-          operands[0]); // odst = dst0_index for backward compatibility
-    }
-
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        op, resultTypes, getOpName(op), nullptr, ArrayAttr(), operands);
 
     return success();
   }
@@ -829,9 +799,9 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::CosTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CosTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddBinaryTilesInitOp>,
-        TTKernelBinarySFPUToEmitCRewriter<ttkernel::AddBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AddBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
-        TTKernelBinarySFPUToEmitCRewriter<ttkernel::DivBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileOp>,
@@ -844,15 +814,15 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesInitOp>,
-        TTKernelBinarySFPUToEmitCRewriter<ttkernel::MulBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesInitOp>,
-        TTKernelBinarySFPUToEmitCRewriter<ttkernel::SubBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MaxTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MaxTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NegativeTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NegativeTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PowBinaryTilesInitOp>,
-        TTKernelBinarySFPUToEmitCRewriter<ttkernel::PowBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PowBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RecipTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RecipTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
@@ -870,6 +840,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
 
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,

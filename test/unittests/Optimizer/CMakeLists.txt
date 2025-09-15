@@ -10,7 +10,7 @@ add_mlir_unittest(OptimizerTests
 
 target_link_libraries(OptimizerTests
     PRIVATE
-    MLIRTTCoreDialect
+    MLIRTTNNDialect
+    MLIRTTTransforms
     MLIRTTNNAnalysis
-    MLIRTTNNPipelines
 )

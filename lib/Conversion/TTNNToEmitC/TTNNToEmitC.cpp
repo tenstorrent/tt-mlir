@@ -2830,6 +2830,12 @@ public:
           loc, TypeRange{}, srcOp.getExecuteCallee(), nullptr, nullptr,
           loadGlobalVariable(rewriter, loc, traceId));
 
+      // Load the result to the return variable.
+      assert(returnVariable.size() == 1 && "expected one return variable");
+      rewriter.create<emitc::AssignOp>(
+          loc, returnVariable[0],
+          loadGlobalVariable(rewriter, loc, traceOutputVariable[0]));
+
       rewriter.create<emitc::YieldOp>(loc);
     }
 
