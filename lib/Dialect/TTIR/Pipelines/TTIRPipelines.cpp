@@ -20,6 +20,8 @@
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 #include "mlir/Transforms/Passes.h"
 
+#include "mlir/Conversion/SCFToGPU/SCFToGPUPass.h"
+#include "mlir/Dialect/SCF/Transforms/Passes.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
@@ -108,20 +110,13 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
 
   // This transforms high-level linalg operations into affine loop nests that
   //  explicitly iterate over tensor elements.
-  manager.addPass(mlir::createConvertLinalgToAffineLoopsPass());
-
-  // Performs loop-invariant code motion on affine loops, moving computations
-  //  outside loops when possible to reduce redundant calculations.
-  manager.addPass(affine::createAffineLoopInvariantCodeMotionPass());
-
-  // Wrap single AffineFor loops with outer dummy loops to ensure proper
-  // nesting structure required for GPU kernel generation.
-  manager.addNestedPass<func::FuncOp>(
-      transforms::createWrapSingleAffineLoops());
-
-  // Maps affine loops to GPU execution model, distributing iterations across
-  //   GPU threads and blocks.
-  manager.addNestedPass<func::FuncOp>(mlir::createConvertAffineForToGPUPass());
+  manager.addPass(mlir::createConvertLinalgToParallelLoopsPass());
+  manager.addPass(createParallelLoopFusionPass());
+  manager.addPass(transforms::createCollapseParallelLoops());
+  manager.addPass(createParallelLoopFusionPass());
+  manager.addPass(createParallelLoopTilingPass({32}, true));
+  manager.addPass(createGpuMapParallelLoopsPass());
+  manager.addPass(createConvertParallelLoopToGpuPass());
 
   // Extracts GPU kernel regions into separate GPU functions that can be
   // launched from host code.
@@ -163,6 +158,14 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   // Converts remaining SCF operations to control flow and LLVM dialect.
   manager.addPass(mlir::createSCFToControlFlowPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
+
+  // Embed CUDA target attributes for flatbuffer translation.
+  transforms::EmbedCudaTargetAttributesOptions embedCudaTargetAttributesOptions;
+  embedCudaTargetAttributesOptions.chip = options.chip;
+  embedCudaTargetAttributesOptions.features = options.features;
+  embedCudaTargetAttributesOptions.opt_level = options.optLevel;
+  manager.addPass(transforms::createEmbedCudaTargetAttributes(
+      embedCudaTargetAttributesOptions));
 }
 
 void createLinalgToLLVMPipeline(OpPassManager &manager,

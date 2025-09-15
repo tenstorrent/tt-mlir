@@ -123,17 +123,20 @@ def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
 }
 
 def WrapSingleAffineLoops : Pass<"wrap-single-affine-loops", "::mlir::func::FuncOp"> {
-  let summary = "Wrap single AffineFor operations with outer dummy loops for GPU conversion.";
+  let summary = "Wrap single AffineFor operations with outer loops for GPU conversion.";
   let description = [{
     This pass addresses a limitation in the AffineFor to GPU conversion where single
     (non-nested) AffineFor operations cannot be converted to GPU kernels. The pass
-    wraps such single AffineFor operations with an outer AffineFor loop that iterates
-    from 0 to 1, creating the nested structure required for GPU kernel generation.
+    divides such single AffineFor operations with an outer AffineFor loop that iterates
+    from 0 to block_size, and another loop that iterates from 0 to thread_size creating
+    the nested structure required for GPU kernel generation. The pass is optimizing for
+    gpu usage so block_size and thread_size are powers of 2. A scf.if op is added to
+    prevent for from going out of bounds.
 
     Example transformation:
     ```mlir
     func.func @single_loop() {
-      affine.for %i = 0 to 10 {
+      affine.for %i = 0 to 30000000 {
         // loop body
       }
     }
@@ -142,15 +145,118 @@ def WrapSingleAffineLoops : Pass<"wrap-single-affine-loops", "::mlir::func::Func
     Becomes:
     ```mlir
     func.func @single_loop() {
-      affine.for %outer = 0 to 1 {
-        affine.for %i = 0 to 10 {
-          // loop body
+      affine.for %block = 0 to 1024 {
+        affine.for %thread = 0 to 1024 {
+          affine.for %reminder = 0 to 29 {
+            // calculate proper indexes for loop body
+            scf.if(%block * 1024 * 29 + %thread * 29 + %reminder < 30000000)
+            {
+              // loop body
+            }
+          }
         }
       }
     }
     ```
   }];
-  let dependentDialects = ["mlir::affine::AffineDialect"];
+  let dependentDialects = ["mlir::affine::AffineDialect", "mlir::scf::SCFDialect"];
+}
+
+def ExtractGPUModules: Pass<"extract-gpu-modules", "::mlir::ModuleOp">
+{
+  let summary = "Extract GPU kernel functions from LLVM into a single module";
+  let description = [{
+    This pass removes host code from llvm and extracts all functions of gpu modules into a single module.
+
+    Example:
+    ```
+    module @Example attributes {gpu.container_module} {
+      llvm.func @host_function
+      ...
+      gpu.module @kernel_1
+      {
+        llvm.func @kernel_func
+        ...
+      }
+      ...
+      gpu.module @kernel_n
+      {
+        llvm.func @kernel_func
+        ...
+      }
+    }
+    ```
+    becomes:
+
+    ```
+    module {
+      llvm.func @kernel_1_kernel_func
+      ...
+      llvm.func @kernel_n_kernel_func
+    }
+    ```
+
+  }];
+  let dependentDialects = ["mlir::LLVM::LLVMDialect"];
+}
+
+def EmbedCudaTargetAttributes : Pass<"embed-cuda-target-attributes", "::mlir::ModuleOp"> {
+  let summary = "Embed CUDA target attributes into module for flatbuffer translation.";
+  let description = [{
+    This pass embeds CUDA target information (chip, features, optimization level)
+    as module attributes so they can be read during flatbuffer translation instead
+    of relying on command-line options.
+
+    The pass adds these attributes to the module:
+    - cuda.chip: Target GPU architecture (e.g., "sm_80", "sm_90")
+    - cuda.features: PTX features (e.g., "+ptx70")
+    - cuda.opt_level: Optimization level (0-3)
+
+    Example:
+    ```mlir
+    module attributes {
+      cuda.chip = "sm_50",
+      cuda.features = "+ptx50",
+      cuda.opt_level = 2 : i32
+    } {
+      // module content
+    }
+    ```
+  }];
+
+  let options = [
+    Option<"chip", "chip", "std::string", /*default=*/"\"sm_50\"",
+           "Target GPU chip architecture">,
+    Option<"features", "features", "std::string", /*default=*/"\"+ptx50\"",
+           "PTX features string">,
+    Option<"opt_level", "opt-level", "int32_t", /*default=*/"2",
+           "Optimization level (0-3)">
+  ];
+}
+
+def CollapseParallelLoops: Pass<"collapse-parallel-loops", "::mlir::func::FuncOp"> {
+  let summary = "Collapse and reverse dimensions in 4D SCF parallel loops";
+  let description = [{
+    This pass collapses the last two dimensions of 4-dimensional SCF parallel loops
+    and then reverses the parameter order to improve memory locality.
+
+    Example transformation:
+    ```mlir
+    // Before:
+    scf.parallel (%i, %j, %k, %l) = (0, 0, 0, 0) to (8, 224, 224, 3) step (1, 1, 1, 1) {
+      // loop body using %i, %j, %k, %l
+    }
+
+    // After:
+    scf.parallel (%merged, %j, %i) = (0, 0, 0) to (672, 224, 8) step (1, 1, 1) {
+      %k = arith.divui %merged, %c3 : index
+      %l = arith.remui %merged, %c3 : index
+      // loop body using %i, %j, %k, %l
+    }
+    ```
+  }];
+
+  let dependentDialects = ["::mlir::scf::SCFDialect", "::mlir::arith::ArithDialect"];
 }
 
 #endif
