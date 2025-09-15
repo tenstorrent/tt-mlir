@@ -215,19 +215,7 @@ public:
   // register allocation for loads and just assumes that stores get exclusive
   // access. Returns a map of loop nest -> copy info, which contains a list of
   // loads and stores to copy into hoisted loop nests.
-
-  // Maps each TTIRGenericRegionComputeOpTrait operation result to a dest
-  // register offset.
-  using DstRegisterAllocation = DenseMap<Operation *, int64_t>;
-
-  // Struct to hold the results of dst access collection
-  struct DstAccessCollection {
-    DenseMap<Operation *, CopyInfo> copyNests;
-    DstRegisterAllocation dstAllocation;
-  };
-
-  // Return both the copy nest info and dst allocation info.
-  static DstAccessCollection
+  static DenseMap<Operation *, CopyInfo>
   collectDstAccesses(Region &region,
                      llvm::function_ref<SmallVector<int64_t>(int64_t)>
                          getNonParticipatingLoopDims,
@@ -262,20 +250,7 @@ public:
             notDstMemspace(potentialStore)) {
 
           assert(!dstRegisterAllocationState.didStoreToDst() &&
-                 "Multiple stores from last op to dst not supported");
-
-          auto dstRegInPlace = op.getDstRegInPlace();
-          int64_t dstIndex;
-          if (dstRegInPlace) {
-            assert(op->getNumOperands() == 1 &&
-                   "Only unary ops supported for destination register in "
-                   "place, multi-operand ops would reference wrong tile, but "
-                   "those ops should be setting output tile.");
-            dstIndex = dstRegisterAllocationState.getCurrDstIndex();
-          } else {
-            dstIndex = dstRegisterAllocationState.allocate();
-            dstRegisterAllocationState.setStoreToDst();
-          }
+                 "Multiple stores to dst not supported");
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineStoreOp>(
                   potentialStore, loopNests, dstIndex,

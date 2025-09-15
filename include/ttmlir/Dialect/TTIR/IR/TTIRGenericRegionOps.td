@@ -398,6 +398,9 @@ def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       return {2};
     }
+    bool getDstRegInPlace() {
+      return true;
+    }
   }];
 }
 
