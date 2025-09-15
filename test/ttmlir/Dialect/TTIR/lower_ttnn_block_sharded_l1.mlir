@@ -165,5 +165,3 @@ func.func @test_lower_block_sharded_l1(
     return
   }
 }
-
-
