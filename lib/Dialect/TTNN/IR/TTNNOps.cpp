@@ -3478,4 +3478,26 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
   return mlir::success();
 }
 
+//===----------------------------------------------------------------------===//
+    // LoadTensorOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult LoadTensorOp::verify() {
+  auto resultLayout =
+      mlir::cast<TTNNLayoutAttr>(getResult().getType().getEncoding());
+  auto device = getDevice();
+
+  if (device && !resultLayout.isDeviceBufferType()) {
+    return emitOpError(
+        "device operand must be null for system memory buffer type");
+  }
+
+  if (!device && resultLayout.isDeviceBufferType()) {
+    return emitOpError(
+        "device operand must be specified for device memory buffer type");
+  }
+
+  return mlir::success();
+}
+
 } // namespace mlir::tt::ttnn
