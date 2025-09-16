@@ -54,7 +54,17 @@ class TTIRBuilder(Builder):
         worker_grid = [8, 8]
 
         # Create layout with original logical shape.
-        if memory_layout is not None:
+        if index_map is not None:
+            layout = ttcore.ir.MetalLayoutAttr.get(
+                ctx,
+                logical_shape,
+                worker_grid,
+                oobVal,
+                memorySpace,
+                ttcore.TensorMemoryLayout.BlockSharded,
+                index_map,
+            )
+        elif memory_layout is not None:
             layout = ttcore.ir.MetalLayoutAttr.get(
                 ctx, logical_shape, worker_grid, oobVal, memorySpace, memory_layout
             )
