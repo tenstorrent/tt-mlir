@@ -44,12 +44,11 @@ struct TTIRLowerTTNNLayouts
           llvm::to_vector(ttnnLayout.getGrid().getShape()));
 
       // Get memory space from the TTNN memref
-      auto memrefTy = ttnnLayout.getMemref();
-      auto msAttr =
-          dyn_cast_or_null<ttcore::MemorySpaceAttr>(memrefTy.getMemorySpace());
-      assert(msAttr && msAttr.getValue() != ttcore::MemorySpace::System &&
-             "Must be a device tensor");
-      auto memSpace = msAttr.getValue();
+      assert(ttnnLayout.isDeviceBufferType() && "Must be a device tensor");
+      ttcore::MemorySpace memSpace =
+          ttnnLayout.getBufferType() == ttnn::BufferType::DRAM
+              ? ttcore::MemorySpace::DeviceDRAM
+              : ttcore::MemorySpace::DeviceL1;
 
       // With these assumptions we can use the default alignment and dim
       // collapsing behaviour in the MetalLayoutAttr
@@ -60,24 +59,18 @@ struct TTIRLowerTTNNLayouts
              mlir::cast<ttcore::TileType>(ttnnLayout.getElementType())
                      .getWidth() == ttcore::TileType::getDefaultShape()[1] &&
              "Only default tile shape is supported");
+      assert(ttnnLayout.hasL1BufferType() &&
+             ttnnLayout.getMemLayout().getValue() ==
+                 ttnn::TensorMemoryLayout::BlockSharded &&
+             "Only block sharded L1 tensor memory layout is supported");
 
-      // Prefer TTNN linear map if provided; otherwise identity of rank
-      AffineMap ttnnIndexMap = ttnnLayout.getLinear();
-      if (!ttnnIndexMap) {
-        ttnnIndexMap =
-            AffineMap::getMultiDimIdentityMap(tensor.getRank(), &getContext());
-      }
-
-      // The affine map from TTNNLayoutAttr is a mapping of logical tensor
-      // dimensions to the physical grid. The MetalLayout needs an affine map
-      // that maps (logical grid, grid divided logical dims) to physical grid
-      // TODO: Implement this
-
-      auto metal = ttcore::MetalLayoutAttr::get(
-          &getContext(), logicalShape, gridShape, ttcore::OOBVal::Undef,
-          memSpace, ttnnIndexMap);
+      // The index map in TTNNLayoutAttr is for collapsing an N-D tensor on to
+      // the grid. It has no relevance to the index map in MetalLayoutAttr.
+      auto metalLayout =
+          ttcore::MetalLayoutAttr::get(&getContext(), logicalShape, gridShape,
+                                       ttcore::OOBVal::Undef, memSpace);
       return RankedTensorType::get(logicalShape, tensor.getElementType(),
-                                   metal);
+                                   metalLayout);
     };
 
     // Handle function arguments: insert a view after entry start and rewrite
@@ -104,28 +97,29 @@ struct TTIRLowerTTNNLayouts
       return WalkResult::advance();
     });
 
-    // Handle op results: insert view after the defining op and rewrite uses.
-    module.walk([&](Operation *op) {
-      if (isa<func::FuncOp>(op)) {
-        return WalkResult::advance();
-      }
-      for (OpResult res : op->getResults()) {
-        RankedTensorType tensor =
-            mlir::dyn_cast<RankedTensorType>(res.getType());
-        if (!tensor) {
-          continue;
-        }
-
-        ttnn::TTNNLayoutAttr ttnnLayout = getTTNNLayout(tensor);
-        RankedTensorType metalTensor = buildMetalTensor(tensor, ttnnLayout);
-        rewriter.setInsertionPointAfter(op);
-        auto view =
-            rewriter.create<ttir::ViewLayoutOp>(op->getLoc(), metalTensor, res,
-                                                /*reinterpretLayout=*/false);
-        res.replaceAllUsesExcept(view.getResult(), view.getOperation());
-      }
-      return WalkResult::advance();
-    });
+    // // Handle op results: insert view after the defining op and rewrite uses.
+    // module.walk([&](Operation *op) {
+    //   if (isa<func::FuncOp>(op)) {
+    //     return WalkResult::advance();
+    //   }
+    //   for (OpResult res : op->getResults()) {
+    //     RankedTensorType tensor =
+    //         mlir::dyn_cast<RankedTensorType>(res.getType());
+    //     if (!tensor) {
+    //       continue;
+    //     }
+    //     tensor.dump();
+    //     ttnn::TTNNLayoutAttr ttnnLayout = getTTNNLayout(tensor);
+    //     RankedTensorType metalTensor = buildMetalTensor(tensor, ttnnLayout);
+    //     rewriter.setInsertionPointAfter(op);
+    //     auto view =
+    //         rewriter.create<ttir::ViewLayoutOp>(op->getLoc(), metalTensor,
+    //         res,
+    //                                             /*reinterpretLayout=*/false);
+    //     res.replaceAllUsesExcept(view.getResult(), view.getOperation());
+    //   }
+    //   return WalkResult::advance();
+    // });
   }
 };
 } // namespace
