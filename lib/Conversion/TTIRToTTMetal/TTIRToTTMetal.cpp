@@ -41,6 +41,19 @@ public:
     return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
   }
 
+  static Type getOperandInnerElementType(const mlir::Value operand) {
+    auto elemType = operand.getType();
+    if (mlir::isa<MemRefType>(elemType)) {
+      elemType = mlir::cast<MemRefType>(elemType).getElementType();
+    }
+    // We could have a memref of tiles, so this needs to be the second query
+    if (mlir::isa<ttcore::TileType>(elemType)) {
+      elemType = mlir::cast<ttcore::TileType>(elemType).getElementType();
+    }
+    assert(elemType.isIntOrFloat());
+    return elemType;
+  }
+
   static ArrayAttr
   convertThreadsToKernelConfigs(Builder &builder, mlir::ValueRange operands,
                                 ArrayAttr threads, ttcore::GridAttr opGrid,
@@ -55,8 +68,15 @@ public:
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case ttir::ThreadType::Compute: {
+        bool fp32DestAccum = false;
+        for (size_t i = 0; i < operands.size(); ++i) {
+          auto elemType = getOperandInnerElementType(operands[i]);
+          if (elemType.getIntOrFloatBitWidth() == 32) {
+            fp32DestAccum = true;
+          }
+        }
         // TODO (wenbinlyuTT): enable f32 accum & unpack mode
-        constexpr bool fp32DestAccum = false;
+        // constexpr bool fp32DestAccum = false;
         std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs, fp32DestAccum,
