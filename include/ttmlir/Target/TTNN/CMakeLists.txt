@@ -24,6 +24,7 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/pool.fbs
   operations/rand.fbs
   operations/reduction.fbs
+  operations/tensor_serialization.fbs
   operations/trace.fbs
   operations/transformer.fbs
 )
