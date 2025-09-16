@@ -232,13 +232,13 @@ namespace {
 //
 // Rewrite elementwise ops by emitting a matching tile version of the op
 // into a ttir.generic/linalg.generic nest.
-template <typename ConcreteOp, typename TileOp, bool IsComparison = false>
+template <typename ConcreteOp, typename TileOp>
 class TTIRNamedElementwiseRewriter final
     : public mlir::OpConversionPattern<ConcreteOp>,
       TTIRNamedRewriterCommon {
 
 public:
-  TTIRNamedElementwiseRewriter<ConcreteOp, TileOp, IsComparison>(
+  TTIRNamedElementwiseRewriter<ConcreteOp, TileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       ttcore::MemorySpace defaultInputMemSpace,
       ttcore::MemorySpace defaultOutputMemSpace,
@@ -248,6 +248,15 @@ public:
                                 targetGridShape) {}
 
 private:
+  static bool isComparisonOp() {
+    return std::is_same_v<TileOp, ttir::TileEqzOp> ||
+           std::is_same_v<TileOp, ttir::TileNezOp> ||
+           std::is_same_v<TileOp, ttir::TileGtzOp> ||
+           std::is_same_v<TileOp, ttir::TileGezOp> ||
+           std::is_same_v<TileOp, ttir::TileLtzOp> ||
+           std::is_same_v<TileOp, ttir::TileLezOp>;
+  }
+
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -310,7 +319,7 @@ private:
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
               mlir::Value yield;
-              if constexpr (IsComparison) {
+              if (isComparisonOp()) {
                 // For comparison ops, first subtract then compare with zero
                 mlir::Value subResult = bbBuilder.create<ttir::TileSubBinaryOp>(
                     loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
@@ -924,12 +933,12 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::TanOp,          ttir::TileTanOp>,
 
     // Comparison.
-    TTIRNamedElementwiseRewriter<ttir::EqualOp,        ttir::TileEqzOp, true>,
-    TTIRNamedElementwiseRewriter<ttir::NotEqualOp,     ttir::TileNezOp, true>,
-    TTIRNamedElementwiseRewriter<ttir::GreaterThanOp,  ttir::TileGtzOp, true>,
-    TTIRNamedElementwiseRewriter<ttir::GreaterEqualOp, ttir::TileGezOp, true>,
-    TTIRNamedElementwiseRewriter<ttir::LessThanOp,     ttir::TileLtzOp, true>,
-    TTIRNamedElementwiseRewriter<ttir::LessEqualOp,    ttir::TileLezOp, true>,
+    TTIRNamedElementwiseRewriter<ttir::EqualOp,        ttir::TileEqzOp>,
+    TTIRNamedElementwiseRewriter<ttir::NotEqualOp,     ttir::TileNezOp>,
+    TTIRNamedElementwiseRewriter<ttir::GreaterThanOp,  ttir::TileGtzOp>,
+    TTIRNamedElementwiseRewriter<ttir::GreaterEqualOp, ttir::TileGezOp>,
+    TTIRNamedElementwiseRewriter<ttir::LessThanOp,     ttir::TileLtzOp>,
+    TTIRNamedElementwiseRewriter<ttir::LessEqualOp,    ttir::TileLezOp>,
 
     // Reduction.
     TTIRNamedReductionRewriter<ttir::MaxOp,            ttir::TileReduceMaxOp>,
