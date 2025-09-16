@@ -22,9 +22,6 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 ::ttnn::DataType getDataType(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
-    const ::tt::target::ttnn::DistributionStrategy *strategy);
-
 ::ttnn::operations::unary::UnaryOpType
 toTTNNUnaryOpType(::tt::target::ttnn::EltwiseUnaryOpType unaryOpType);
 
