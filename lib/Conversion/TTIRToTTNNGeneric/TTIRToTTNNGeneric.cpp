@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTNNGeneric/TTIRToTTNNGeneric.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -48,7 +49,7 @@ public:
                                 const ttnn::CoreRangeSetAttr &coreRangeSet,
                                 const SymbolTable &symbolTable) {
     SmallVector<mlir::Attribute> kernelConfigs(threads.size());
-    bool isReadKernel = true;
+    int nocIndex = 0;
     for (const auto [i, thread] : llvm::enumerate(threads)) {
       const ttir::ThreadAttr threadAttr = mlir::cast<ttir::ThreadAttr>(thread);
 
@@ -86,16 +87,17 @@ public:
         break;
       }
       // TODO (vtangTT): fix this assumption that order is read->compute->write
-      // so just flip isReadKernel flag every iteration
+      // so nocIndex == 0 for read, nocIndex == 1 for write
       case ttir::ThreadType::Datamovement: {
-        if (isReadKernel) {
+        TT_assert(nocIndex < 2);
+        if (nocIndex == 0) {
           kernelConfigs[i] = builder.getAttr<ttnn::ReadKernelAttr>(
               kernelSymbol, coreRangeSet, kernelRTArgs, kernelCTArgs);
         } else {
           kernelConfigs[i] = builder.getAttr<ttnn::WriteKernelAttr>(
               kernelSymbol, coreRangeSet, kernelRTArgs, kernelCTArgs);
         }
-        isReadKernel = !isReadKernel;
+        nocIndex++;
         break;
       }
       }
