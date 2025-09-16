@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=false override-conv2d-config=conv2d_1=weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=false override-conv2d-config=conv2d_1=weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false -o %t %s
 // RUN: FileCheck %s --input-file=%t
 module {
   func.func @forward(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x32x32x64xbf16> {
@@ -17,7 +17,6 @@ module {
     // CHECK-SAME: output_layout = row_major
     // CHECK-SAME: enable_act_double_buffer = false
     // CHECK-SAME: enable_weights_double_buffer = false
-    // CHECK-SAME: enable_split_reader = false
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = array<i32: 1, 1>,

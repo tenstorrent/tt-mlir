@@ -48,7 +48,7 @@ bool parseBool(StringRef param, bool &result) {
 } // namespace
 
 // Full Example:
-// conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false
+// conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false
 // Partial Example:
 // conv2d_1=enable_weights_double_buffer#true:activation#none,conv2d_2=dtype#bf16
 bool Conv2dConfigOverrideParser::parse(
@@ -231,17 +231,6 @@ bool Conv2dConfigOverrideParser::parse(
           return true;
         }
         params.enableWeightsDoubleBuffer = enableWeightsDoubleBuffer;
-      } else if (paramName == "enable_split_reader") {
-        bool enableSplitReader;
-        if (parseBool(paramValue, enableSplitReader)) {
-          opt.error("Invalid enable_split_reader: " + paramValue);
-          return true;
-        }
-        if (params.enableSplitReader.has_value()) {
-          opt.error("Duplicate enable_split_reader: " + paramValue);
-          return true;
-        }
-        params.enableSplitReader = enableSplitReader;
       } else {
         opt.error("Invalid override parameter: " + paramName);
         return true;
@@ -310,10 +299,6 @@ std::string Conv2dConfigOverrideParser::toString(
       rso << "enable_weights_double_buffer#"
           << (params.enableWeightsDoubleBuffer.value() ? "true" : "false")
           << ":";
-    }
-    if (params.enableSplitReader.has_value()) {
-      rso << "enable_split_reader#"
-          << (params.enableSplitReader.value() ? "true" : "false") << ":";
     }
     rso.flush();
     // Remove the last ':' if there are parameters

@@ -415,11 +415,6 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
         conv2dConfig->getEnableWeightsDoubleBuffer().getValue();
   }
 
-  if (conv2dConfig->getEnableSplitReader()) {
-    config.enable_split_reader =
-        conv2dConfig->getEnableSplitReader().getValue();
-  }
-
   return config;
 }
 

@@ -176,7 +176,7 @@ void populateTTNNModule(nb::module_ &m) {
              tt::ttnn::CoreRangeSetAttr coreGrid, BoolAttr transposeShards,
              std::optional<tt::ttnn::Layout> outputLayout,
              BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
-             BoolAttr enableSplitReader, BoolAttr inPlace) {
+             BoolAttr inPlace) {
             MLIRContext *context = unwrap(ctx);
 
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
@@ -184,7 +184,7 @@ void populateTTNNModule(nb::module_ &m) {
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
                 coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
-                enableWeightsDoubleBuffer, enableSplitReader, inPlace));
+                enableWeightsDoubleBuffer, inPlace));
           })
       .def_prop_ro("weights_dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self)
@@ -292,14 +292,6 @@ void populateTTNNModule(nb::module_ &m) {
                        return nb::none();
                      }
                      return self.getEnableWeightsDoubleBuffer().getValue();
-                   })
-      .def_prop_ro("enable_split_reader",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, bool> {
-                     if (!self.getEnableSplitReader()) {
-                       return nb::none();
-                     }
-                     return self.getEnableSplitReader().getValue();
                    })
       .def_prop_ro("in_place",
                    [](tt::ttnn::Conv2dConfigAttr self)

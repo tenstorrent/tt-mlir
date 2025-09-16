@@ -48,7 +48,6 @@ Conv2dConfigParams::Conv2dConfigParams(Conv2dConfigAttr attr, bool partial) {
   enableActDoubleBuffer = getOrDefaultBool(attr.getEnableActDoubleBuffer());
   enableWeightsDoubleBuffer =
       getOrDefaultBool(attr.getEnableWeightsDoubleBuffer());
-  enableSplitReader = getOrDefaultBool(attr.getEnableSplitReader());
   inPlace = getOrDefaultBool(attr.getInPlace());
 }
 
@@ -70,7 +69,6 @@ Conv2dConfigParams::buildConv2dConfigAttr(::mlir::MLIRContext *ctx) const {
       toBoolAttr(overrideShardingConfig), shardLayout,
       coreGrid.value_or(CoreRangeSetAttr()), toBoolAttr(transposeShards),
       outputLayout, toBoolAttr(enableActDoubleBuffer),
-      toBoolAttr(enableWeightsDoubleBuffer), toBoolAttr(enableSplitReader),
-      toBoolAttr(inPlace));
+      toBoolAttr(enableWeightsDoubleBuffer), toBoolAttr(inPlace));
 }
 } // namespace mlir::tt::ttnn

@@ -19,7 +19,6 @@ table Conv2dConfig {
   output_layout: TensorLayout = null;
   enable_act_double_buffer: bool = null;
   enable_weights_double_buffer: bool = null;
-  enable_split_reader: bool = null;
   in_place: bool = null;
 }
 

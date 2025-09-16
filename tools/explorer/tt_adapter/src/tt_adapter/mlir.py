@@ -615,18 +615,6 @@ def parse_conv2d_config(attr):
             },
         )
     )
-    result.append(
-        utils.make_editable_kv(
-            graph_builder.KeyValue(
-                key="enable_split_reader",
-                value=str(conv2d_config.enable_split_reader),
-            ),
-            editable={
-                "input_type": "value_list",
-                "options": ["True", "False"],
-            },
-        )
-    )
 
     return result
 

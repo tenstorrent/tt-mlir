@@ -291,10 +291,6 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
         *config->enable_weights_double_buffer();
   }
 
-  if (config->enable_split_reader()) {
-    conv2dConfig.enable_split_reader = *config->enable_split_reader();
-  }
-
   if (config->in_place()) {
     conv2dConfig.in_place = *config->in_place();
   }

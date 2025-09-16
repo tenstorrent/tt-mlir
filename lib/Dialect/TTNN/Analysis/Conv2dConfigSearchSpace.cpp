@@ -156,16 +156,6 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
           return attr.withEnableWeightsDoubleBuffer(info.getCurrentBool());
         });
   }
-  if (searchSpace.isEnableSplitReaderSetForSearch() &&
-      !baseConfig.hasEnableSplitReader()) {
-    activeSearchFields.emplace_back(
-        Conv2dConfigGeneratorSearchFieldInfo(searchSpace.enableSplitReader),
-        [](Conv2dConfigAttr attr,
-           const Conv2dConfigGeneratorSearchFieldInfo &info)
-            -> Conv2dConfigAttr {
-          return attr.withEnableSplitReader(info.getCurrentBool());
-        });
-  }
 
   // Initialize isDone to true if there are no active search fields.
   isDone = activeSearchFields.empty();

@@ -740,7 +740,6 @@ Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
                                /*outputLayout=*/std::nullopt,
                                /*enableActDoubleBuffer=*/nullptr,
                                /*enableWeightsDoubleBuffer=*/nullptr,
-                               /*enableSplitReader=*/nullptr,
                                /*inPlace=*/nullptr);
 }
 
@@ -839,12 +838,6 @@ Conv2dConfigAttr::withEnableWeightsDoubleBuffer(bool value) const {
   return params.buildConv2dConfigAttr(getContext());
 }
 
-Conv2dConfigAttr Conv2dConfigAttr::withEnableSplitReader(bool value) const {
-  Conv2dConfigParams params(*this);
-  params.enableSplitReader = value;
-  return params.buildConv2dConfigAttr(getContext());
-}
-
 Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
   Conv2dConfigParams params(*this);
   params.inPlace = value;
@@ -903,10 +896,6 @@ bool Conv2dConfigAttr::hasEnableActDoubleBuffer() const {
 
 bool Conv2dConfigAttr::hasEnableWeightsDoubleBuffer() const {
   return getEnableWeightsDoubleBuffer() != nullptr;
-}
-
-bool Conv2dConfigAttr::hasEnableSplitReader() const {
-  return getEnableSplitReader() != nullptr;
 }
 
 bool Conv2dConfigAttr::hasInPlace() const { return getInPlace() != nullptr; }
