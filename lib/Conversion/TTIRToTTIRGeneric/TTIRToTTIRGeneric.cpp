@@ -248,14 +248,13 @@ public:
                                 targetGridShape) {}
 
 private:
-  static bool isComparisonOp() {
-    return std::is_same_v<TileOp, ttir::TileEqzOp> ||
-           std::is_same_v<TileOp, ttir::TileNezOp> ||
-           std::is_same_v<TileOp, ttir::TileGtzOp> ||
-           std::is_same_v<TileOp, ttir::TileGezOp> ||
-           std::is_same_v<TileOp, ttir::TileLtzOp> ||
-           std::is_same_v<TileOp, ttir::TileLezOp>;
-  }
+  static constexpr bool isComparisonOp =
+      std::is_same_v<TileOp, ttir::TileEqzOp> ||
+      std::is_same_v<TileOp, ttir::TileNezOp> ||
+      std::is_same_v<TileOp, ttir::TileGtzOp> ||
+      std::is_same_v<TileOp, ttir::TileGezOp> ||
+      std::is_same_v<TileOp, ttir::TileLtzOp> ||
+      std::is_same_v<TileOp, ttir::TileLezOp>;
 
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
@@ -319,20 +318,22 @@ private:
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
               mlir::Value yield;
-              if (isComparisonOp()) {
+
+              if constexpr (isComparisonOp) {
                 // For comparison ops, first subtract then compare with zero
                 mlir::Value subResult = bbBuilder.create<ttir::TileSubBinaryOp>(
                     loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
                     /*operands=*/bbArgs.take_front(numInputs));
                 yield = bbBuilder.create<TileOp>(
-                    loc, /* resultTypes */ bbArgs.take_back(numOutputs),
-                    /* operands */ subResult);
+                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
+                    /*operands=*/subResult);
               } else {
                 // For regular elementwise ops, create TileOp directly
                 yield = bbBuilder.create<TileOp>(
-                    loc, /* resultTypes */ bbArgs.take_back(numOutputs),
-                    /* operands */ bbArgs.take_front(numInputs));
+                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
+                    /*operands=*/bbArgs.take_front(numInputs));
               }
+
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
 
