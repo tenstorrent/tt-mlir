@@ -111,12 +111,19 @@ void ProgramExecutor::runCallback(
     std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
+      std::shared_ptr<void> programContextPtr =
+      ::tt::runtime::utils::unsafe_borrow_shared(programContext);
+      auto cbContext = CallbackContext(programContextPtr, DeviceRuntime::TTNN);
+      std::shared_ptr<void> opContextPtr =
+      ::tt::runtime::utils::unsafe_borrow_shared(
+          const_cast<::tt::target::ttnn::Operation *>(opContext));
+  auto t = tt::runtime::ttnn::getOpOutputTensor(OpContext(opContextPtr, DeviceRuntime::TTNN), cbContext);
+  if (t.handle.get() != nullptr)
+  {
+    auto k = t.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+    std::cerr << "output=" << k.write_to_string() << std::endl;
+  }
   if (callback) {
-    std::shared_ptr<void> programContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(programContext);
-    std::shared_ptr<void> opContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(
-            const_cast<::tt::target::ttnn::Operation *>(opContext));
     (*callback)(executableHandle,
                 CallbackContext(programContextPtr, DeviceRuntime::TTNN),
                 OpContext(opContextPtr, DeviceRuntime::TTNN));
@@ -127,8 +134,8 @@ void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
-    LOG_DEBUG(LogType::LogRuntimeTTNN,
-              "Executing operation: ", op->debug_info()->c_str());
+    std::cerr << 
+              "Executing operation: " << op->debug_info()->c_str() << std::endl;
     perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
