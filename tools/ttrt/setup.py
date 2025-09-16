@@ -30,6 +30,7 @@ os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
 enable_runtime = os.environ.get("TTMLIR_ENABLE_RUNTIME", "OFF") == "ON"
 enable_ttnn = os.environ.get("TT_RUNTIME_ENABLE_TTNN", "OFF") == "ON"
 enable_ttmetal = os.environ.get("TT_RUNTIME_ENABLE_TTMETAL", "OFF") == "ON"
+enable_cuda = os.environ.get("TTMLIR_ENABLE_CUDA", "OFF") == "ON"
 enable_runtime_tests = os.environ.get("TTMLIR_ENABLE_RUNTIME_TESTS", "OFF") == "ON"
 enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
 debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
@@ -49,16 +50,23 @@ if enable_ttnn:
 if enable_ttmetal:
     runlibs += ["libtt_metal.so"]
 
-if enable_ttnn or enable_ttmetal:
+if enable_ttnn or enable_ttmetal or enable_cuda:
     runlibs += ["libdevice.so"]
     runlibs += ["libtt_stl.so"]
     runlibs += ["libtracy.so.0.10.0"]
+
+if enable_cuda:
+    runlibs += ["libcuda.so", "libcudart.so"]
 
 if enable_perf:
     perflibs += ["capture-release"]
     perflibs += ["csvexport-release"]
 
 if enable_runtime:
+    assert (
+        enable_ttmetal or enable_ttnn or enable_cuda
+    ), "At least one runtime must be enabled"
+
     shutil.copy(
         f"{ttmlir_build_dir}/runtime/lib/libTTMLIRRuntime.so",
         f"{ttmlir_build_dir}/python_packages/ttrt/runtime",

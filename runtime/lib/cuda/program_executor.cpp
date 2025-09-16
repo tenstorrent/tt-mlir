@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/cuda/program_executor.h"
-
+#include "tt/runtime/detail/cuda/ttcuda.h"
 #include "tt/runtime/types.h"
 
 #include "llvm/ADT/StringMap.h"
@@ -18,29 +18,32 @@
 namespace tt::runtime::cuda {
 
 ProgramExecutor::ProgramExecutor(
-    ::tt::runtime::Binary &executableHandle,
+    ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
     std::vector<::tt::runtime::Tensor> &programInputs)
-    : executableHandle(executableHandle), programInputs(programInputs) {
-  program = ::cuda::GetSizePrefixedProgram(executableHandle.handle.get());
-  cuInit(0);
-  cuDeviceGet(&device, 0);
-  cuCtxCreate(&context, 0, device);
+    : executableHandle(executableHandle), deviceHandle(deviceHandle),
+      programInputs(programInputs) {
+  program =
+      ::tt::target::cuda::GetSizePrefixedProgram(executableHandle.handle.get());
+  auto cudaHandle =
+      std::static_pointer_cast<CudaDeviceHandle>(deviceHandle.handle);
+  context = cudaHandle->context;
+  device = cudaHandle->device;
 }
 
-static int64_t getDim(::cuda::DataType dataType) {
+static int64_t getDim(::tt::target::cuda::DataType dataType) {
   switch (dataType) {
-  case ::cuda::DataType::Int64:
-  case ::cuda::DataType::UInt64:
-  case ::cuda::DataType::Float64:
+  case ::tt::target::cuda::DataType::Int64:
+  case ::tt::target::cuda::DataType::UInt64:
+  case ::tt::target::cuda::DataType::Float64:
     return 8;
-  case ::cuda::DataType::Int32:
-  case ::cuda::DataType::UInt32:
-  case ::cuda::DataType::Float32:
+  case ::tt::target::cuda::DataType::Int32:
+  case ::tt::target::cuda::DataType::UInt32:
+  case ::tt::target::cuda::DataType::Float32:
     return 4;
-  case ::cuda::DataType::Float16:
-  case ::cuda::DataType::BFloat16:
-  case ::cuda::DataType::UInt16:
-  case ::cuda::DataType::Int16:
+  case ::tt::target::cuda::DataType::Float16:
+  case ::tt::target::cuda::DataType::BFloat16:
+  case ::tt::target::cuda::DataType::UInt16:
+  case ::tt::target::cuda::DataType::Int16:
     return 2;
   }
 }
@@ -51,8 +54,6 @@ void ProgramExecutor::finishing() {
   }
   tensorMap.clear();
   memrefDescMap.clear();
-
-  cuCtxDestroy(context);
 }
 
 ::tt::runtime::Tensor ProgramExecutor::execute() {
@@ -128,12 +129,12 @@ void ProgramExecutor::finishing() {
 
   // Process actions.
   for (size_t i = 0; i < program->actions()->size(); ++i) {
-    ::cuda::Action actionType = program->actions_type()->Get(i);
+    ::tt::target::cuda::Action actionType = program->actions_type()->Get(i);
     const void *actionObj = program->actions()->Get(i);
     switch (actionType) {
-    case ::cuda::Action::Kernel: {
-      const ::cuda::Kernel *kernel =
-          static_cast<const ::cuda::Kernel *>(actionObj);
+    case ::tt::target::cuda::Action::Kernel: {
+      const ::tt::target::cuda::Kernel *kernel =
+          static_cast<const ::tt::target::cuda::Kernel *>(actionObj);
       for (auto name : *kernel->input_names()) {
 
         if (!tensorMap.contains(name->str()) &&
@@ -188,9 +189,9 @@ void ProgramExecutor::finishing() {
 
       break;
     }
-    case ::cuda::Action::CopyFunction: {
-      const ::cuda::CopyFunction *copyFunc =
-          static_cast<const ::cuda::CopyFunction *>(actionObj);
+    case ::tt::target::cuda::Action::CopyFunction: {
+      const ::tt::target::cuda::CopyFunction *copyFunc =
+          static_cast<const ::tt::target::cuda::CopyFunction *>(actionObj);
       if (!tensorMap.contains(copyFunc->src()->str()) &&
           !constantMap.contains(copyFunc->src()->str())) {
 
@@ -291,7 +292,7 @@ void ProgramExecutor::finishing() {
       }
       break;
     }
-    case ::cuda::Action::NONE:
+    case ::tt::target::cuda::Action::NONE:
       break;
     }
   }
@@ -317,7 +318,8 @@ void ProgramExecutor::finishing() {
   return returnTensor;
 }
 
-void ProgramExecutor::runCopyFunction(const ::cuda::CopyFunction *copyFunc) {
+void ProgramExecutor::runCopyFunction(
+    const ::tt::target::cuda::CopyFunction *copyFunc) {
   auto source = copyFunc->src();
   auto dest = copyFunc->dst();
   assert(memrefDescMap.contains(source->str()) &&
@@ -374,7 +376,7 @@ void ProgramExecutor::runCopyFunction(const ::cuda::CopyFunction *copyFunc) {
     llvm::errs() << "cuMemcpy2D failed with error: " << result << "\n";
   }
 }
-void ProgramExecutor::runKernel(const ::cuda::Kernel *kernel) {
+void ProgramExecutor::runKernel(const ::tt::target::cuda::Kernel *kernel) {
 
   auto kernelArgs = std::make_unique<void *[]>(kernel->input_names()->size());
   size_t i = 0;

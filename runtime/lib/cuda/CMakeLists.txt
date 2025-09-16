@@ -8,6 +8,7 @@ find_package(CUDAToolkit REQUIRED)
 add_library(TTRuntimeCUDA
   STATIC
   program_executor.cpp
+  runtime.cpp
 )
 
 
