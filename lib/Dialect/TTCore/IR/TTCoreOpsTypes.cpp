@@ -1042,7 +1042,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
       computeAlignments(logicalShape, deviceGridShape, flattenedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, mlir::AffineMap::get(context), memoryLayout);
+             oobVal, memorySpace, memoryLayout, mlir::AffineMap::get(context));
 }
 
 // Getter with explicit collapsedIntervals, we calculate the alignments.
@@ -1050,15 +1050,15 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
-                                     DenseIntElementsAttr collapsedIntervals,
-                                     TensorMemoryLayout memoryLayout) {
+                                     TensorMemoryLayout memoryLayout,
+                                     DenseIntElementsAttr collapsedIntervals) {
   llvm::SmallVector<int64_t> normalizedIntervals =
       normalizeAndFlattenIntervals(collapsedIntervals, logicalShape.size());
   llvm::SmallVector<int64_t> dimAlignmentsVec =
       computeAlignments(logicalShape, deviceGridShape, normalizedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, mlir::AffineMap::get(context), memoryLayout);
+             oobVal, memorySpace, memoryLayout, mlir::AffineMap::get(context));
 }
 
 // Getter with explicit collapsedIntervals and dimAlignments.
@@ -1066,11 +1066,11 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
+                                     TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapsedIntervals,
-                                     ArrayRef<int64_t> dimAlignments,
-                                     TensorMemoryLayout memoryLayout) {
+                                     ArrayRef<int64_t> dimAlignments) {
   return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
-             memorySpace, mlir::AffineMap::get(context), memoryLayout);
+             memorySpace, memoryLayout, mlir::AffineMap::get(context));
 }
 
 mlir::MemRefType
@@ -1094,15 +1094,15 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
-                                     mlir::AffineMap indexAffineMap,
-                                     TensorMemoryLayout memoryLayout) {
+                                     TensorMemoryLayout memoryLayout,
+                                     mlir::AffineMap indexAffineMap) {
   // Reuse the existing path that computes intervals/alignments, then attach
   // map.
   MetalLayoutAttr base = get(context, logicalShape, deviceGridShape, oobVal,
                              memorySpace, memoryLayout);
   return get(context, base.getLogicalShape(), base.getDimAlignments(),
              base.getCollapsedIntervals(), base.getOobVal(),
-             base.getMemorySpace(), indexAffineMap, base.getMemoryLayout());
+             base.getMemorySpace(), base.getMemoryLayout(), indexAffineMap);
 }
 
 // Get effective stride (use provided or calculate from shape)

@@ -388,11 +388,11 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Memory space for the tensor.
     DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space,
 
+    DefaultValuedParameter<"TensorMemoryLayout", "TensorMemoryLayout::BlockSharded">:$memory_layout,
+
     // Optional index remapping (e.g., view remap or virtual→physical grid mapping).
     // Defaults to empty, which is treated as identity.
-    DefaultValuedParameter<"AffineMap", "$_builder.getEmptyAffineMap()">:$indexAffineMap,
-
-    DefaultValuedParameter<"TensorMemoryLayout", "TensorMemoryLayout::BlockSharded">:$memory_layout
+    DefaultValuedParameter<"AffineMap", "$_builder.getEmptyAffineMap()">:$indexAffineMap
 
   );
 
@@ -409,16 +409,15 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
-                                     DenseIntElementsAttr collapseIntervals,
-                                     TensorMemoryLayout memoryLayout);
-
+                                     TensorMemoryLayout memoryLayout,
+                                     DenseIntElementsAttr collapseIntervals);
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
+                                     TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals,
-                                     ArrayRef<int64_t> dimAlignments,
-                                     TensorMemoryLayout memoryLayout
+                                     ArrayRef<int64_t> dimAlignments
                                      );
 
     // Convenience getter: same as the 5-arg variant but attaches an explicit
@@ -427,8 +426,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
-                                     mlir::AffineMap indexAffineMap,
-                                     TensorMemoryLayout memoryLayout
+                                     TensorMemoryLayout memoryLayout,
+                                     mlir::AffineMap indexAffineMap
                                      );
 
     // Derive the physical tensor shape from logical shape and grid.
@@ -563,10 +562,6 @@ def TTCore_MeshShardDirectionAttr : EnumAttr<TTCore_Dialect, TTCore_MeshShardDir
 def TTCore_ShardStatusAttr : EnumAttr<TTCore_Dialect, TTCore_ShardStatus, "shard_status"> {
   let assemblyFormat = "`<` $value `>`";
 }
-
-//def TTCore_TensorMemoryLayoutAttr : EnumAttr<TTCore_Dialect, TTCore_TensorMemoryLayout, "tensor_memory_layout"> {
-//  let assemblyFormat = "`<` $value `>`";
-//}
 
 def TTCore_MeshShardTypeAttr : EnumAttr<TTCore_Dialect, TTCore_MeshShardType, "shard_type"> {
   let summary = "MeshShard shard_type attribute in TT dialect";

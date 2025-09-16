@@ -808,8 +808,8 @@ public:
     auto resultLayout = ttcore::MetalLayoutAttr::get(
         ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
         inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
-        inputLayout.getMemorySpace(), composedMap,
-        inputLayout.getMemoryLayout());
+        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+        composedMap);
 
     auto viewType = mlir::RankedTensorType::get(
         resultShape, inputTensorType.getElementType(), resultLayout);

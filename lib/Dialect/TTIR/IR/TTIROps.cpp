@@ -3094,8 +3094,8 @@ static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
     auto outputEncoding = mlir::tt::ttcore::MetalLayoutAttr::get(
         builder.getContext(), inputEncoding.getLogicalShape(),
         inputEncoding.getDimAlignments(), inputEncoding.getCollapsedIntervals(),
-        inputEncoding.getOobVal(), inputEncoding.getMemorySpace(), map,
-        inputEncoding.getMemoryLayout());
+        inputEncoding.getOobVal(), inputEncoding.getMemorySpace(),
+        inputEncoding.getMemoryLayout(), map);
 
     result =
         mlir::RankedTensorType::get(outputShape, elementType, outputEncoding);
