@@ -143,13 +143,11 @@ public:
     }
 
     // Create CBDescriptor
+    constexpr int64_t TILE_SIZE = 32 * 32;
     for (auto [i, cb] : llvm::enumerate(cbs)) {
       auto cb_memref = dyn_cast<MemRefType>(cb.getType());
-      auto shape = cb_memref.getShape();
       auto elementSize = cb_memref.getElementType().getIntOrFloatBitWidth() / 8;
-      auto pageSize = std::accumulate(shape.begin(), shape.end(), 1,
-                                      std::multiplies<int64_t>()) *
-                      elementSize;
+      auto pageSize = TILE_SIZE * elementSize;
 
       ttcore::DataType dtype =
           ttcore::elementTypeToDataType(cb_memref.getElementType());
