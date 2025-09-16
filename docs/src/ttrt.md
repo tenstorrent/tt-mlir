@@ -7,7 +7,7 @@ This tool is intended to be a swiss army knife for working with flatbuffers gene
 2. Build `ttrt`:
 ```bash
 source env/activate
-cmake --build build -- ttrt
+cmake --build build
 ttrt --help
 ```
 
@@ -42,7 +42,7 @@ export TT_METAL_LOGGER_LEVEL=DEBUG
 ```
 
 ## Installing `ttrt` as python whls
-Every time `ttrt` is built, it creates a whls file in `build/runtime/tools/ttrt/build`. Ex filename: `ttrt-0.0.235-cp310-cp310-linux_x86_64.whl`. You can take this whls file and install it in any docker container and in any venv outside of ttmlir. After which, you can use all the following functionality as the same.
+Every time `ttrt` is built, it creates a whls file in `build/tools/ttrt/build`. Ex filename: `ttrt-0.0.235-cp311-cp311-linux_x86_64.whl`. You can take this whls file and install it in any docker container and in any venv outside of ttmlir. After which, you can use all the following functionality as the same.
 1. Download whls
 2. Create a python venv
 ```bash
@@ -51,7 +51,7 @@ source ttrt_env/bin/activate
 ```
 3. Install whls (replace with your version of the whls)
 ```bash
-pip install build/runtime/tools/ttrt/build/ttrt-0.0.235-cp311-cp311-linux_x86_64.whl
+pip install build/tools/ttrt/build/ttrt-0.0.235-cp311-cp311-linux_x86_64.whl
 ```
 
 ## Generating a flatbuffer
@@ -64,22 +64,21 @@ tt-mlir exposes a few ways to generate flatbuffers.
 The compiler supports a pass to load a system descriptor to compile against. You can feed this pass into `ttmlir-opt`.
 
 1. Build [ttmlir](./getting-started.md)
-2. Build `ttrt` (see building section on this page)
-3. Generate ttsys file from the system you want to compile for using `ttrt`. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
+2. Generate ttsys file from the system you want to compile for using `ttrt`. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
 ```bash
 ttrt query --save-artifacts
 ```
-4. Use `ttmlir-opt` tool in compiler to feed system descriptor. See the [`ttmlir-opt`](./ttmlir-opt.md) documentation for more information on how to generate .mlir files.
+3. Use `ttmlir-opt` tool in compiler to feed system descriptor. See the [`ttmlir-opt`](./ttmlir-opt.md) documentation for more information on how to generate .mlir files.
 ```bash
 ./build/bin/ttmlir-opt --ttcore-register-device="system-desc-path=/path/to/system_desc.ttsys" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/simple_subtract.mlir -o ttnn.mlir
 or (pipe path directly into ttir-to-ttnn-backend-pipeline)
 ./build/bin/ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=/path/to/system_desc.ttsys" test/ttmlir/Dialect/TTNN/simple_subtract_to_add.mlir -o ttnn.mlir
 ```
-5. Use `ttmlir-translate` tool in compiler to generate the flatbuffer executable. See the [`ttmlir-translate`](./ttmlir-translate.md) documentation for more information on how to generate flatbuffer files.
+4. Use `ttmlir-translate` tool in compiler to generate the flatbuffer executable. See the [`ttmlir-translate`](./ttmlir-translate.md) documentation for more information on how to generate flatbuffer files.
 ```bash
 ./build/bin/ttmlir-translate --ttnn-to-flatbuffer ttnn.mlir -o out.ttnn
 ```
-6. Run your test cases using `ttrt`
+5. Run your test cases using `ttrt`
 ```bash
 ttrt run /path/to/out.ttnn
 ```
@@ -88,23 +87,22 @@ ttrt run /path/to/out.ttnn
 There are already existing .mlir test cases under `test/ttmlir/Silicon`. You can use `llvm-lit` tool to generate the corresponding ttnn and ttm files.
 
 1. Build [ttmlir](./getting-started.md)
-2. Build `ttrt` (see building section on this page)
-3. Generate ttsys file from the system you want to compile for using `ttrt`. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
+2. Generate ttsys file from the system you want to compile for using `ttrt`. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
 ```bash
 ttrt query --save-artifacts
 ```
-4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. When `llvm-lit` is run, it will query this variable and generate the ttnn and ttm files using this system. Optionally, you can also provide this manually when running `llvm-lit`.
-5. Generate your test cases. This will generate all your ttnn and ttm files under `build/test/ttmlir/Silicon`. ttnn files have a `.ttnn` file extension and ttmetal files have a `.ttm` extension.
+3. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. When `llvm-lit` is run, it will query this variable and generate the ttnn and ttm files using this system. Optionally, you can also provide this manually when running `llvm-lit`.
+4. Generate your test cases. This will generate all your ttnn and ttm files under `build/test/ttmlir/Silicon`. ttnn files have a `.ttnn` file extension and ttmetal files have a `.ttm` extension.
 ```bash
 cmake --build build -- check-ttmlir
 ```
-6. (Optional) If you have a single .mlir file (or a directory of custom .mlir files) that you created using the compiler, and you want to generate the corresponding ttnn and ttm files for it, you can run `llvm-lit` standalone to the path of your .mlir file or directory of .mlir files to generate the flatbuffer executables. You will have to make sure you add in the correct `llvm-lit` configs into your .mlir file. See section on adding `llvm-lit` config options inside a .mlir file to create flatbuffer binaries for more info. You must also make sure your .mlir test is found within test/ttmlir/Silicon folder (and point lit to the build folder)!
+5. (Optional) If you have a single .mlir file (or a directory of custom .mlir files) that you created using the compiler, and you want to generate the corresponding ttnn and ttm files for it, you can run `llvm-lit` standalone to the path of your .mlir file or directory of .mlir files to generate the flatbuffer executables. You will have to make sure you add in the correct `llvm-lit` configs into your .mlir file. See section on adding `llvm-lit` config options inside a .mlir file to create flatbuffer binaries for more info. You must also make sure your .mlir test is found within test/ttmlir/Silicon folder (and point lit to the build folder)!
 ```bash
 llvm-lit -v ./build/test/ttmlir/Silicon
 or
 SYSTEM_DESC_PATH=/path/to/system_desc.ttsys llvm-lit -v ./build/test/ttmlir/Silicon
 ```
-7. Run your test cases using `ttrt`
+6. Run your test cases using `ttrt`
 ```bash
 ttrt run /path/to/test.ttnn
 ttrt run /path/to/dir/of/flatbuffers
@@ -517,7 +515,7 @@ tt::runtime::debug::Hooks
 tt::runtime::debug::Hooks::get
 ```
 
-2. Register callback functions in your python script. The following is registering the two callback functions written in `runtime/tools/ttrt/ttrt/common/callback.py`. The Debug Hooks get function has been pybinded to `ttrt.runtime.DebugHooks.get`
+2. Register callback functions in your python script. The following is registering the two callback functions written in `tools/ttrt/common/callback.py`. The Debug Hooks get function has been pybinded to `ttrt.runtime.DebugHooks.get`
 ```bash
 import ttrt.runtime
 
@@ -560,33 +558,27 @@ source env/activate
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTTMLIR_ENABLE_RUNTIME=ON -DTT_RUNTIME_ENABLE_PERF_TRACE=ON
 cmake --build build
 ```
-
-2. Build `ttrt` (sample instructions - subject to change)
-```bash
-cmake --build build -- ttrt
-```
-
-3. Query system
+2. Query system
 ```bash
 ttrt query --save-artifacts
 ```
 
-4. Export system desc file
+3. Export system desc file
 ```bash
 export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys (path dumped in previous command)
 ```
 
-5. Generate test cases
+4. Generate test cases
 ```bash
 cmake --build build -- check-ttmlir
 ```
 
-6. Run test cases
+5. Run test cases
 ```bash
 ttrt run build/test/ttmlir/Silicon
 ```
 
-7. (Optional) Run perf test cases
+6. (Optional) Run perf test cases
 ```bash
 ttrt perf build/test/ttmlir/Silicon
 ```
@@ -604,7 +596,6 @@ To resolve issues stemming from these synchronization problems, follow this work
 # make some changes
 # commit
 cmake --build build
-cmake --build build -- ttrt
 # note you need to generate system_desc and flatbuffer again once you do this
 ```
 
