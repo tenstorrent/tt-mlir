@@ -722,9 +722,10 @@ createOp(FlatbufferObjectCache &cache, ScatterOp op) {
       getOperandThroughDPSOps(op.getSourceTensor()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  uint32_t cqId = op.getCqId();
   return ::tt::target::ttnn::CreateScatterOp(*cache.fbb, input, output,
                                              indexTensor, sourceTensor,
-                                             op.getDim(), memoryConfig);
+                                             op.getDim(), memoryConfig, cqId);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::CollectivePermuteOp>

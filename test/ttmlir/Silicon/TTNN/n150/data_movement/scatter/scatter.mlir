@@ -15,7 +15,7 @@ module {
     // CHECK-SAME: (tensor<1x1xsi32, {{.*}}>) -> tensor<1x1x1x1xsi32, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x3x32x32>}>
     // CHECK-SAME: (tensor<1x1x1x1xsi32, {{.*}}>) -> tensor<1x3x32x32xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x3x320x320xf32, {{.*}}>, tensor<1x3x32x32xsi32, {{.*}}>, tensor<1x3x32x32xf32, {{.*}}>) -> tensor<1x3x320x320xf32, {{.*}}>
     return %2 : tensor<1x3x320x320xf32>
   }
@@ -49,14 +49,14 @@ module {
     // CHECK-SAME: (tensor<284xsi32, {{.*}}>) -> tensor<256xsi32, {{.*}}>
     // CHECK: "ttnn.slice_static"({{.*}}) <{begins = [0 : i32], ends = [256 : i32], step = [1 : i32]}>
     // CHECK-SAME: (tensor<284xbf16, {{.*}}>) -> tensor<256xbf16, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<2272xbf16, {{.*}}>, tensor<256xsi32, {{.*}}>, tensor<256xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
     // Second scatter batch (remaining 28 elements)
     // CHECK: "ttnn.slice_static"({{.*}}) <{begins = [256 : i32], ends = [284 : i32], step = [1 : i32]}>
     // CHECK-SAME: (tensor<284xsi32, {{.*}}>) -> tensor<28xsi32, {{.*}}>
     // CHECK: "ttnn.slice_static"({{.*}}) <{begins = [256 : i32], ends = [284 : i32], step = [1 : i32]}>
     // CHECK-SAME: (tensor<284xbf16, {{.*}}>) -> tensor<28xbf16, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<2272xbf16, {{.*}}>, tensor<28xsi32, {{.*}}>, tensor<28xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
     // CHECK: "ttnn.reshape"({{.*}}) <{shape = [71 : i32, 32 : i32]}>
     // CHECK-SAME: (tensor<2272xbf16, {{.*}}>) -> tensor<71x32xbf16, {{.*}}>
@@ -72,7 +72,7 @@ module {
     // CHECK-SAME: (tensor<10x1xsi32, {{.*}}>) -> tensor<10x1xsi32, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x32>}>
     // CHECK-SAME: (tensor<10x1xsi32, {{.*}}>) -> tensor<10x32xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1000x32xf32, {{.*}}>, tensor<10x32xsi32, {{.*}}>, tensor<10x32xf32, {{.*}}>) -> tensor<1000x32xf32, {{.*}}>
     return %1 : tensor<1000x32xf32>
   }
@@ -88,7 +88,7 @@ module {
     // CHECK-SAME: (tensor<2050x768xf32, {{.*}}>) -> tensor<1x2050x768xf32, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x1x768>}>
     // CHECK-SAME: (tensor<1x5x1xsi32, {{.*}}>) -> tensor<1x5x768xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x2050x768xf32, {{.*}}>, tensor<1x5x768xsi32, {{.*}}>, tensor<1x5x768xf32, {{.*}}>) -> tensor<2050x768xf32, {{.*}}>
     return %1 : tensor<2050x768xf32>
   }
@@ -104,7 +104,7 @@ module {
     // CHECK-SAME: (tensor<50272x768xf32, {{.*}}>) -> tensor<1x50272x768xf32, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x1x768>}>
     // CHECK-SAME: (tensor<1x5x1xsi32, {{.*}}>) -> tensor<1x5x768xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x50272x768xf32, {{.*}}>, tensor<1x5x768xsi32, {{.*}}>, tensor<1x5x768xf32, {{.*}}>) -> tensor<50272x768xf32, {{.*}}>
     return %1 : tensor<50272x768xf32>
   }
@@ -120,7 +120,7 @@ module {
     // CHECK-SAME: (tensor<256008x1024xbf16, {{.*}}>) -> tensor<1x256008x1024xbf16, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x1x1024>}>
     // CHECK-SAME: (tensor<1x8x1xsi32, {{.*}}>) -> tensor<1x8x1024xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x256008x1024xbf16, {{.*}}>, tensor<1x8x1024xsi32, {{.*}}>, tensor<1x8x1024xbf16, {{.*}}>) -> tensor<256008x1024xbf16, {{.*}}>
 
     return %1 : tensor<256008x1024xbf16>
@@ -137,7 +137,7 @@ module {
     // CHECK-SAME: (tensor<1026x768xbf16, {{.*}}>) -> tensor<1x1026x768xbf16, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x1x768>}>
     // CHECK-SAME: (tensor<1x13x1xsi32, {{.*}}>) -> tensor<1x13x768xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x1026x768xbf16, {{.*}}>, tensor<1x13x768xsi32, {{.*}}>, tensor<1x13x768xbf16, {{.*}}>) -> tensor<1026x768xbf16, {{.*}}>
 
     return %1 : tensor<1026x768xbf16>
@@ -154,7 +154,7 @@ module {
     // CHECK-SAME: (tensor<50265x768xbf16, {{.*}}>) -> tensor<1x50265x768xbf16, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x1x768>}>
     // CHECK-SAME: (tensor<1x13x1xsi32, {{.*}}>) -> tensor<1x13x768xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x50265x768xbf16, {{.*}}>, tensor<1x13x768xsi32, {{.*}}>, tensor<1x13x768xbf16, {{.*}}>) -> tensor<50265x768xbf16, {{.*}}>
 
     return %1 : tensor<50265x768xbf16>
@@ -171,7 +171,7 @@ module {
     // CHECK-SAME: (tensor<250880x1024xf32, {{.*}}>) -> tensor<1x250880x1024xf32, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x1x1024>}>
     // CHECK-SAME: (tensor<1x4x1xsi32, {{.*}}>) -> tensor<1x4x1024xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x250880x1024xf32, {{.*}}>, tensor<1x4x1024xsi32, {{.*}}>, tensor<1x4x1024xf32, {{.*}}>) -> tensor<250880x1024xf32, {{.*}}>
 
     return %1 : tensor<250880x1024xf32>
@@ -187,7 +187,7 @@ module {
     // CHECK-SAME: (tensor<512x768xf32, {{.*}}>) -> tensor<1x512x768xf32, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x1x768>}>
     // CHECK-SAME: (tensor<1x5x1xsi32, {{.*}}>) -> tensor<1x5x768xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x512x768xf32, {{.*}}>, tensor<1x5x768xsi32, {{.*}}>, tensor<1x5x768xf32, {{.*}}>) -> tensor<512x768xf32, {{.*}}>
     return %1 : tensor<512x768xf32>
   }
@@ -203,7 +203,7 @@ module {
     // CHECK-SAME: (tensor<30522x768xf32, {{.*}}>) -> tensor<1x30522x768xf32, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x1x768>}>
     // CHECK-SAME: (tensor<1x5x1xsi32, {{.*}}>) -> tensor<1x5x768xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x30522x768xf32, {{.*}}>, tensor<1x5x768xsi32, {{.*}}>, tensor<1x5x768xf32, {{.*}}>) -> tensor<30522x768xf32, {{.*}}>
     return %1 : tensor<30522x768xf32>
   }
@@ -219,7 +219,7 @@ module {
     // CHECK-SAME: (tensor<512x128xf32, {{.*}}>) -> tensor<1x512x128xf32, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x1x128>}>
     // CHECK-SAME: (tensor<1x10x1xsi32, {{.*}}>) -> tensor<1x10x128xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x512x128xf32, {{.*}}>, tensor<1x10x128xsi32, {{.*}}>, tensor<1x10x128xf32, {{.*}}>) -> tensor<512x128xf32, {{.*}}>
     return %1 : tensor<512x128xf32>
   }
@@ -235,7 +235,7 @@ module {
     // CHECK-SAME: (tensor<2x128xf32, {{.*}}>) -> tensor<1x2x128xf32, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x1x128>}>
     // CHECK-SAME: (tensor<1x10x1xsi32, {{.*}}>) -> tensor<1x10x128xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x2x128xf32, {{.*}}>, tensor<1x10x128xsi32, {{.*}}>, tensor<1x10x128xf32, {{.*}}>) -> tensor<2x128xf32, {{.*}}>
     return %1 : tensor<2x128xf32>
   }
@@ -251,7 +251,7 @@ module {
     // CHECK-SAME: (tensor<30000x128xf32, {{.*}}>) -> tensor<1x30000x128xf32, {{.*}}>
     // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x1x128>}>
     // CHECK-SAME: (tensor<1x10x1xsi32, {{.*}}>) -> tensor<1x10x128xsi32, {{.*}}>
-    // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+    // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x30000x128xf32, {{.*}}>, tensor<1x10x128xsi32, {{.*}}>, tensor<1x10x128xf32, {{.*}}>) -> tensor<30000x128xf32, {{.*}}>
     return %1 : tensor<30000x128xf32>
   }

@@ -1946,13 +1946,15 @@ def TTNN_ScatterOp : TTNN_Op<"scatter", [DeclareOpInterfaceMethods<TTNN_OpModelI
         - `index_tensor` (ttnn.Tensor): Indices where values will be written to.
         - `source_tensor` (ttnn.Tensor): The values to scatter into the input tensor.
         - `dim` (int32_t): The dimension along which to scatter.
+        - `cq_id` i32: The command queue to copy the tensor with. Must be 0 or 1.
     }];
 
     let arguments = (ins AnyRankedTensor:$input_tensor,
                          AnyRankedTensor:$index_tensor,
                          AnyRankedTensor:$source_tensor,
                          I32Attr:$dim,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         DefaultValuedAttr<UI32Attr, "0">:$cq_id);
 
     let results = (outs AnyRankedTensor:$result);
 

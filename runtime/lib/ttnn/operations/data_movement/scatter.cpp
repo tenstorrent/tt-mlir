@@ -23,12 +23,12 @@ void run(const ::tt::target::ttnn::ScatterOp *op, ProgramContext &context) {
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
+  ::ttnn::QueueId ttnnCqId = ::ttnn::QueueId(op->cq_id());
   //   LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
   //                  outputMemoryConfig.has_value(),
   //              "Memory config must exist for device tensors");
-  ::ttnn::Tensor out =
-      ::ttnn::scatter(::ttnn::DefaultQueueId, input, dim, index, source,
-                      outputMemoryConfig, std::nullopt);
+  ::ttnn::Tensor out = ::ttnn::scatter(ttnnCqId, input, dim, index, source,
+                                       outputMemoryConfig, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

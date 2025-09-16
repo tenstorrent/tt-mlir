@@ -2182,7 +2182,7 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ScatterOp> emitter(
         srcOp, adaptor, rewriter);
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(std::nullopt), // queue_id
+        emitter.emit<::ttnn::QueueId>(srcOp.getCqId()), // queue_id
         emitter.emit(srcOp.getInputTensor()),
         emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getIndexTensor()),
