@@ -421,6 +421,13 @@ def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
     }];
 }
 
+def TTNN_Relu6Op : TTNN_ElementwiseUnaryOp<"relu6"> {
+    let summary = "Eltwise ReLU6.";
+    let description = [{
+      Eltwise ReLU6 operation.
+    }];
+}
+
 def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin"> {
     let summary = "Eltwise sine.";
     let description = [{

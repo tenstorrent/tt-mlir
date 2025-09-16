@@ -146,7 +146,8 @@ enum EltwiseUnaryOpType: uint32 {
   Log,
   Expm1,
   LeakyRelu,
-  BitwiseNot
+  BitwiseNot,
+  Relu6
 }
 
 union EltwiseUnaryOpParams {

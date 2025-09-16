@@ -154,6 +154,10 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu);
     break;
   }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Relu6: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu6);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sqrt: {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::sqrt);
     break;
