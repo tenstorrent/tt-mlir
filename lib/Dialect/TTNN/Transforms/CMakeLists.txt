@@ -37,8 +37,14 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         MLIRTTNNPassesIncGen
         MLIRTTCoreOpsIncGen
 
-        LINK_LIBS PUBLIC
+        LINK_LIBS
+        PUBLIC
         MLIRTTNNDialect
         MLIRTTNNAnalysis
         MLIRTTCoreDialect
+        PRIVATE
+        TTMLIRTTIRToTTNN
+        MLIRTTNNValidation
+        TTMLIRTTNNToEmitC
+        TTMLIRTTNNToEmitPy
         )

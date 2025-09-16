@@ -34,7 +34,7 @@ applyConv2dConfigOverrides(ttnn::Conv2dOp op,
   if (!conv2dConfigAttr) {
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                  "Conv2d config not set, using default");
-    conv2dConfigAttr = Conv2dConfigAttr::getEmpty(op.getContext());
+    conv2dConfigAttr = Conv2dConfigAttr::get(op.getContext());
   }
   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                "Conv2d config before overrides: {}", conv2dConfigAttr);
@@ -175,7 +175,7 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
         analysisResult.begin()->isAttrUninitialized()
             ? (conv2dOp.getConv2dConfigAttr()
                    ? conv2dOp.getConv2dConfigAttr()
-                   : Conv2dConfigAttr::getEmpty(op->getContext()))
+                   : Conv2dConfigAttr::get(op->getContext()))
             : std::get<Conv2dAttrs>(analysisResult.begin()->opSpecificAttrs)
                   .conv2dConfig.value();
 
