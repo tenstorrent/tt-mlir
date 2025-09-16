@@ -150,6 +150,32 @@ void populatePassesModule(nb::module_ &m) {
       },
       nb::arg("module"), nb::arg("options") = "");
 
+  m.def(
+      "ttir_to_emitpy_pipeline",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(
+            moduleOp->getName(),
+            mlir::PassManager::Nesting::Implicit); //***************************
+
+        const auto *pipeline =
+            mlir::PassPipelineInfo::lookup("ttir-to-emitpy-pipeline");
+
+        std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+            [](const llvm::Twine &) { return mlir::failure(); };
+
+        if (mlir::failed(pipeline->addToPipeline(
+                pm, mlir::tt::ttnn::TTIRToEmitPyPipelineOptions(),
+                err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      nb::arg("module"), nb::arg("options") = "");
+
   // This binds the vector into an interfaceable object in python and also an
   // opaquely passed one into other functions.
   nb::bind_vector<std::vector<std::pair<std::string, std::string>>>(

@@ -23,6 +23,7 @@ from ttmlir.passes import (
     MLIRModuleLogger,
     stablehlo_pipeline,
     stablehlo_to_ttir_pipeline,
+    ttir_to_emitpy_pipeline,
 )
 
 from builder.base.builder import *
@@ -811,6 +812,15 @@ def compile_ttir_module_to_flatbuffer(
         to_target = _emitc_to_executable
         mlir_suffix = "_ttnn.mlir"
         target_extension = "cpp"
+    elif target == "emitpy":
+        # ttir_to_ttnn_emitpy_pipeline = _create_custom_ttir_pipeline_fn(
+        #    "ttir-to-emitpy-pipeline", print_ir=print_ir
+        # )
+        pipeline_fn = custom_pipeline if custom_pipeline else ttir_to_emitpy_pipeline
+        to_target = _emitc_to_executable  # ***************
+        mlir_suffix = "_ttnn.mlir"
+        target_extension = "py"
+    # pipeline_options = ["ttmlir-translate", "--mlir-to-python", ] #******************* "\"
     else:
         raise ValueError("Unsupported target: " + target)
 

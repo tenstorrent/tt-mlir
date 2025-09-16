@@ -67,6 +67,7 @@ def test_all_gather(shape: Shape, mesh_shape: Tuple[int, int], request):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target="emitpy",
     )
 
 
