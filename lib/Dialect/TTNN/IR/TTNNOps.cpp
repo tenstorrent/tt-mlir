@@ -3358,11 +3358,11 @@ void CaptureOrExecuteTraceOp::getEffects(
   ::mlir::RankedTensorType outputType = getResult().getType();
 
   if (inputType.getRank() != 4) {
-    return emitOpError() << "Input tensor must be a 4D tensor";
+    return emitOpError() << "input tensor must be a 4D tensor";
   }
 
   if (outputType.getRank() != 4) {
-    return emitOpError() << "Output tensor must be a 4D tensor";
+    return emitOpError() << "output tensor must be a 4D tensor";
   }
 
   llvm::ArrayRef<int64_t> inputShape = inputType.getShape();

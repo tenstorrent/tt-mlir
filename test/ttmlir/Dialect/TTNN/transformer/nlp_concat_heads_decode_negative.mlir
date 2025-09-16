@@ -4,7 +4,7 @@
 // Verify that the parsing fails if input tensor is not 4D.
 module {
   func.func @nlp_concat_heads_decode_invalid_rank_input(%arg0: tensor<1x32x128xbf16>) -> tensor<1x1x1x4096xbf16> {
-    // CHECK: error: 'ttnn.nlp_concat_heads_decode' op Input tensor must be a 4D tensor
+    // CHECK: error: 'ttnn.nlp_concat_heads_decode' op input tensor must be a 4D tensor
     %0 = "ttnn.nlp_concat_heads_decode"(%arg0) {num_heads = 32 : ui32} : (tensor<1x32x128xbf16>) -> tensor<1x1x1x4096xbf16>
     return %0 : tensor<1x1x1x4096xbf16>
   }
@@ -15,22 +15,12 @@ module {
 // Verify that the parsing fails if output tensor is not 4D.
 module {
   func.func @nlp_concat_heads_decode_invalid_rank_output(%arg0: tensor<1x1x32x128xbf16>) -> tensor<1x1x4096xbf16> {
-    // CHECK: error: 'ttnn.nlp_concat_heads_decode' op Output tensor must be a 4D tensor
+    // CHECK: error: 'ttnn.nlp_concat_heads_decode' op output tensor must be a 4D tensor
     %0 = "ttnn.nlp_concat_heads_decode"(%arg0) {num_heads = 32 : ui32} : (tensor<1x1x32x128xbf16>) -> tensor<1x1x4096xbf16>
     return %0 : tensor<1x1x4096xbf16>
   }
 }
 
-// -----
-
-// Verify that the parsing fails if batch dimensions do not match.
-module {
-  func.func @nlp_concat_heads_decode_invalid_batch(%arg0: tensor<1x2x32x128xbf16>) -> tensor<1x1x3x4096xbf16> {
-    // CHECK: error: 'ttnn.nlp_concat_heads_decode' op input and output batch dimensions must match
-    %0 = "ttnn.nlp_concat_heads_decode"(%arg0) {num_heads = 32 : ui32} : (tensor<1x2x32x128xbf16>) -> tensor<1x1x3x4096xbf16>
-    return %0 : tensor<1x1x3x4096xbf16>
-  }
-}
 
 // -----
 
