@@ -14,7 +14,7 @@ table RotaryEmbeddingLlamaOp {
   input: tt.target.ttnn.TensorRef;
   cos_cache: tt.target.ttnn.TensorRef;
   sin_cache: tt.target.ttnn.TensorRef;
-  tran_mat: tt.target.ttnn.TensorRef;
+  trans_mat: tt.target.ttnn.TensorRef;
   is_decode_mode: bool;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;

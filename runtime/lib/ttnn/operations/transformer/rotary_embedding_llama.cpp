@@ -15,20 +15,20 @@ runRotaryEmbeddingLlama(const ::tt::target::ttnn::RotaryEmbeddingLlamaOp *op,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->input());
-  const ::ttnn::Tensor &cos_cache =
+  const ::ttnn::Tensor &cosCache =
       tensorPool.getTTNNTensorAndValidate(op->cos_cache());
-  const ::ttnn::Tensor &sin_cache =
+  const ::ttnn::Tensor &sinCache =
       tensorPool.getTTNNTensorAndValidate(op->sin_cache());
-  const ::ttnn::Tensor &tran_mat =
-      tensorPool.getTTNNTensorAndValidate(op->tran_mat());
-  bool is_decode_mode = op->is_decode_mode();
+  const ::ttnn::Tensor &transMat =
+      tensorPool.getTTNNTensorAndValidate(op->trans_mat());
+  bool isDecodeMode = op->is_decode_mode();
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
   if (op->compute_config()) {
     computeConfig =
         utils::createDeviceComputeKernelConfig(op->compute_config());
   }
   ::ttnn::Tensor out = ::ttnn::experimental::rotary_embedding_llama(
-      in, cos_cache, sin_cache, tran_mat, is_decode_mode, outputMemoryConfig,
+      in, cosCache, sinCache, transMat, isDecodeMode, outputMemoryConfig,
       computeConfig);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

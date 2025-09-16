@@ -1522,7 +1522,7 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_RotaryEmbeddingLlamaOp()->input(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->sin_cache(),
-                  opContext.type_as_RotaryEmbeddingLlamaOp()->tran_mat()};
+                  opContext.type_as_RotaryEmbeddingLlamaOp()->trans_mat()};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
