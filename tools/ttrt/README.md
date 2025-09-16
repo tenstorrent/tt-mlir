@@ -10,7 +10,7 @@ ttrt --help
 ```
 
 ## Installing ttrt as python whls
-Every time `ttrt` is built, it creates a whls file in `build/runtime/tools/ttrt/build`. Ex filename: `ttrt-0.0.235-cp310-cp310-linux_x86_64.whl`. You can take this whls file and install it in any docker container and in any venv outside of ttmlir. After which, you can use all the following functionality as the same.
+Every time `ttrt` is built, it creates a whls file in `build/tools/ttrt/build`. Ex filename: `ttrt-0.0.235-cp311-cp311-linux_x86_64.whl`. You can take this whls file and install it in any docker container and in any venv outside of ttmlir. After which, you can use all the following functionality as the same.
 1. Download whls
 2. Create a python venv
 ```bash
@@ -19,7 +19,7 @@ source ttrt_env/bin/activate
 ```
 3. Install whls (replace with your version of the whls)
 ```bash
-pip install ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
+pip install ttrt-0.0.235-cp311-cp311-linux_x86_64.whl
 ```
 
 ## Usage
