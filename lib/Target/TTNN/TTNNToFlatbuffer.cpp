@@ -2048,6 +2048,26 @@ createOp(FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op) {
       memoryConfig, computeConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::CloneOp>
+createOp(FlatbufferObjectCache &cache, CloneOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  return ::tt::target::ttnn::CreateCloneOp(*cache.fbb, input, output, dtype,
+                                           memoryConfig,
+                                           computeConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -2573,6 +2593,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       rotaryEmbeddingLlamaOp) {
     return createOperation(cache, createOp(cache, rotaryEmbeddingLlamaOp),
                            debugString, locInfo);
+  }
+  if (auto cloneOp = dyn_cast<CloneOp>(op); cloneOp) {
+    return createOperation(cache, createOp(cache, cloneOp), debugString,
+                           locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
