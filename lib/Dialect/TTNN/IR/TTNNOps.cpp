@@ -3354,8 +3354,8 @@ void CaptureOrExecuteTraceOp::getEffects(
 
 // NLPConcatHeadsDecodeOp verification
 ::mlir::LogicalResult NLPConcatHeadsDecodeOp::verify() {
-  const ::mlir::RankedTensorType inputType = this->getInput().getType();
-  const ::mlir::RankedTensorType outputType = this->getResult().getType();
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   if (inputType.getRank() != 4) {
     return emitOpError() << "Input tensor must be a 4D tensor";
@@ -3377,17 +3377,10 @@ void CaptureOrExecuteTraceOp::getEffects(
     INPUT_NUM_HEADS = 2,
     INPUT_HEAD_SIZE = 3
   };
+
   enum OutputDimensions { OUTPUT_SEQ = 0, OUTPUT_BATCH = 2, OUTPUT_HIDDEN = 3 };
 
   uint32_t numHeads = getNumHeads();
-
-  // if (inputShape[INPUT_BATCH] != outputShape[OUTPUT_BATCH]) {
-  //   return emitOpError() << "input and output batch dimensions must match,"
-  //                           "got input batch size = "
-  //                        << inputShape[INPUT_BATCH] << ", output batch size =
-  //                        "
-  //                        << outputShape[OUTPUT_BATCH];
-  // }
 
   if (inputShape[INPUT_SEQ] != outputShape[OUTPUT_SEQ]) {
     return emitOpError()
