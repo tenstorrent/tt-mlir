@@ -2582,6 +2582,16 @@ const auto pool2DTestValues = ::testing::Values(
                     1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
                     llvm::SmallVector<int32_t>{4, 2},
                     llvm::SmallVector<int32_t>{0, 0},
+                    llvm::SmallVector<int32_t>{1, 1}, false, false, false),
+    std::make_tuple(detail::TestTensor{{1, 1, 17 * 21, 22},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    detail::TestTensor{{1, 1, 5 * 11, 22},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
+                    llvm::SmallVector<int32_t>{4, 2},
+                    llvm::SmallVector<int32_t>{0, 0, 1, 1},
                     llvm::SmallVector<int32_t>{1, 1}, false, false, false));
 
 // MaxPool2D tests
