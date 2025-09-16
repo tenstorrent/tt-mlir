@@ -149,7 +149,7 @@ runs:
     - name: Archive Build Directory
       shell: bash
       working-directory: ${{ inputs.build-output-dir }}
-      run: tar cf artifact.tar test runtime bin python
+      run: tar cf artifact.tar test runtime bin python_packages python
 
     - name: Upload Build Folder
       uses: actions/upload-artifact@v4
