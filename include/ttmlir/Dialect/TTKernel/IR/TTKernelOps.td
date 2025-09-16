@@ -392,6 +392,44 @@ def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles", [TTKernel_BinaryOpTrait]> 
     }];
 }
 
+def TTKernel_UnaryBcastInitOp : TTKernel_InitOp<"unary_bcast_init"> {
+    let summary = "Init function";
+    let description = [{
+      Must be run before bcast_tile.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb,
+                         TTKernel_CB:$out_cb,
+                         TTKernel_BcastTypeAttr:$bcast_type
+                        );
+
+    let assemblyFormat = [{
+      `(` $in_cb `,` $out_cb `,` $bcast_type `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_UnaryBcastTileOp : TTKernel_FPUOp<"unary_bcast", [TTKernel_UnaryOpTrait]> {
+    let summary = "Broadcast operation";
+    let description = [{
+      Performs a broadcast operation *B = broadcast(A)* using bcast_dim for
+      dimension expansion on a tile in the CB at a given index and writes the
+      result to the DST register at index *dst_tile_index*. The supported
+      broadcast dimensions are `row`, `col`, `scalar` (both row and column). The
+      DST register buffer must be in acquired state via *tile_regs_acquire*
+      call. This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb,
+                         IndexLike:$in_tile_index,
+                         IndexLike:$dst_tile_index,
+                         TTKernel_BcastTypeAttr:$bcast_type
+    );
+
+    let assemblyFormat = [{
+      `(` $in_cb `,` $in_tile_index `,` $dst_tile_index `,` $bcast_type `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
     let summary = "Init function";
     let description = [{
@@ -402,7 +440,8 @@ def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
                          TTKernel_CB:$scaling_cb,
                          TTKernel_CB:$out_cb,
                          TTKernel_ReduceTypeAttr:$reduce_type,
-                         TTKernel_ReduceDimAttr:$reduce_dim);
+                         TTKernel_ReduceDimAttr:$reduce_dim,
+                         UnitAttr:$full_fp32);
 
     let assemblyFormat = [{
       `(` $in_cb `,` $scaling_cb `,` $out_cb `,` $reduce_type `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)
@@ -430,7 +469,8 @@ def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_BinaryOpTrai
                          IndexLike:$scaling_tile_index,
                          IndexLike:$dst_index,
                          TTKernel_ReduceTypeAttr:$reduce_type,
-                         TTKernel_ReduceDimAttr:$reduce_dim);
+                         TTKernel_ReduceDimAttr:$reduce_dim,
+                         UnitAttr:$full_fp32);
 
     let assemblyFormat = [{
       `(` $in_cb `,` $scaling_cb `,` $in_tile_index `,` $scaling_tile_index `,` $dst_index `,` $reduce_type `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)

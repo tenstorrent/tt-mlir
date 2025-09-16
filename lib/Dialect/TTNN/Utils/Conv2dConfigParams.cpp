@@ -39,8 +39,7 @@ Conv2dConfigParams::Conv2dConfigParams(Conv2dConfigAttr attr, bool partial) {
   actBlockWDiv = getOrDefaultOpt(attr.getActBlockWDiv(), 1);
   reshardIfNotOptimal = getOrDefaultBool(attr.getReshardIfNotOptimal());
   overrideShardingConfig = getOrDefaultBool(attr.getOverrideShardingConfig());
-  shardLayout =
-      getOrDefaultOpt(attr.getShardLayout(), TensorMemoryLayout::HeightSharded);
+  shardLayout = attr.getShardLayout();
   coreGrid = attr.getCoreGrid()
                  ? std::optional<CoreRangeSetAttr>(attr.getCoreGrid())
                  : std::nullopt;

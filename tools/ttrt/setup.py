@@ -15,14 +15,14 @@ __version__ = f"{TTMLIR_VERSION_MAJOR}.{TTMLIR_VERSION_MINOR}.{TTMLIR_VERSION_PA
 
 src_dir = os.environ.get(
     "SOURCE_ROOT",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."),
 )
 # Use 'src_dir/build' as default location if TTMLIR_BINARY_DIR env variable is not available.
 ttmlir_build_dir = os.environ.get(
     "TTMLIR_BINARY_DIR",
     os.path.join(src_dir, "build"),
 )
-toolchain = os.environ.get("TTMLIR_TOOLCHAIN_DIR", "/opt/ttmlir-toolchain")
+
 metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal/build"
 ttmetalhome = os.environ.get("TT_METAL_HOME", "")
 
@@ -59,28 +59,26 @@ if enable_perf:
     perflibs += ["csvexport-release"]
 
 if enable_runtime:
-    assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
-
     shutil.copy(
         f"{ttmlir_build_dir}/runtime/lib/libTTMLIRRuntime.so",
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
     )
 
     shutil.copy(
         f"{ttmlir_build_dir}/runtime/python/{runtime_module}",
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
     )
 
     for runlib in runlibs:
         shutil.copy(
             f"{metaldir}/lib/{runlib}",
-            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+            f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
         )
 
     for dylib in perflibs:
         shutil.copy(
             f"{metaldir}/tools/profiler/bin/{dylib}",
-            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+            f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
         )
         shutil.copy(
             f"{metaldir}/tools/profiler/bin/{dylib}",
@@ -145,7 +143,7 @@ if enable_runtime:
     # copy metal dir folder
     shutil.copytree(
         f"{ttmetalhome}/tt_metal",
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/tt_metal",
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tt_metal",
         dirs_exist_ok=True,
         ignore=tt_metal_ignore_folders,
     )
@@ -153,14 +151,14 @@ if enable_runtime:
     # copy runtime dir folder
     shutil.copytree(
         f"{ttmetalhome}/runtime",
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/runtime",
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/runtime",
         dirs_exist_ok=True,
     )
 
     # copy kernels
     shutil.copytree(
         f"{ttmetalhome}/ttnn",
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/ttnn",
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/ttnn",
         dirs_exist_ok=True,
     )
 
@@ -174,16 +172,16 @@ if enable_runtime:
         return paths
 
     extra_files_tt_metal = package_files(
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/tt_metal/"
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tt_metal/"
     )
     extra_files_runtime = package_files(
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/runtime/"
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/runtime/"
     )
     extra_files_ttnn = package_files(
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/ttnn/"
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/ttnn/"
     )
     extra_files_tests = package_files(
-        f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime/tests/"
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tests/"
     )
 
     metallibs += extra_files_tt_metal
@@ -197,7 +195,12 @@ dylibs += perflibs
 dylibs += metallibs
 
 packages = ["ttrt", "ttrt.common", "ttrt.binary", "ttrt.runtime"]
-package_dir = {}
+package_dir = {
+    "ttrt": f"{ttmlir_build_dir}/python_packages/ttrt",
+    "ttrt.common": f"{ttmlir_build_dir}/python_packages/ttrt/common",
+    "ttrt.binary": f"{ttmlir_build_dir}/python_packages/ttrt/binary",
+    "ttrt.runtime": f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
+}
 if enable_perf:
     install_requires += ["loguru"]
     install_requires += ["pandas"]

@@ -55,7 +55,7 @@ class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIR_GenericParent] # traits> {}
 
 class TTIR_GenericRegionComputeOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadRegisterOpInterface] # traits> {}
+    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadStoreRegisterOpInterface] # traits> {}
 
 class TTIR_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = []> :
     TTIR_GenericRegionComputeOp<mnemonic, traits> {
@@ -64,6 +64,7 @@ class TTIR_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = 
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       return {0};
     }
+     bool getDstRegInPlace() { return true; }
   }];
 }
 
@@ -335,6 +336,9 @@ def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {
   let extraClassDeclaration = [{
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       return {2};
+    }
+    bool getDstRegInPlace() {
+      return true;
     }
   }];
 }

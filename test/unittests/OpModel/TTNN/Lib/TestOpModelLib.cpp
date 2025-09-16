@@ -2582,6 +2582,16 @@ const auto pool2DTestValues = ::testing::Values(
                     1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
                     llvm::SmallVector<int32_t>{4, 2},
                     llvm::SmallVector<int32_t>{0, 0},
+                    llvm::SmallVector<int32_t>{1, 1}, false, false, false),
+    std::make_tuple(detail::TestTensor{{1, 1, 17 * 21, 22},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    detail::TestTensor{{1, 1, 5 * 11, 22},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
+                    llvm::SmallVector<int32_t>{4, 2},
+                    llvm::SmallVector<int32_t>{0, 0, 1, 1},
                     llvm::SmallVector<int32_t>{1, 1}, false, false, false));
 
 // MaxPool2D tests
@@ -3380,7 +3390,7 @@ TEST_P(OpModelPrepareConv2dBiasParam, PrepareConv2dBias) {
   //  get_cb_info expects conv_config.weights_dtype to be set otherwise it
   //  issues an error. See conv2d_op_program_factory_common.cpp in tt-metal.
   Conv2dConfigAttr conv2dConfig = Conv2dConfigAttr::get(&context);
-  conv2dConfig.withWeightsDtype(ttcore::DataType::Float32);
+  conv2dConfig = conv2dConfig.withWeightsDtype(ttcore::DataType::Float32);
 
   auto constraintsExp = OpModel<PrepareConv2dBiasOp>::getOpConstraints(
       CreateWorkerGrid(), biasLayout, biasShape, inputMemConfig,

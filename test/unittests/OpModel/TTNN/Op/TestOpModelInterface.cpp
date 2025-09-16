@@ -1983,7 +1983,8 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
   Conv2dConfigAttr conv2dConfig = conv2d.getConv2dConfig()
                                       ? *conv2d.getConv2dConfig()
                                       : Conv2dConfigAttr::get(&context);
-  conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(elementType));
+  conv2dConfig =
+      conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(elementType));
 
   auto preparedWeightOutput =
       op_model::getPreparedConv2dWeightsOutputTensor(&conv2d, conv2dConfig);
@@ -2309,7 +2310,8 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
   Conv2dConfigAttr conv2dConfig = conv2d.getConv2dConfig()
                                       ? *conv2d.getConv2dConfig()
                                       : Conv2dConfigAttr::get(&context);
-  conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(elementType));
+  conv2dConfig =
+      conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(elementType));
 
   // Now create PrepareConv2dWeightsOp using Conv2d op parameters
   auto inputMemConfigAttr = MemoryConfigAttr::get(
@@ -2406,7 +2408,7 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
       MeshShapeAttr::get(builder.getContext(), 1, 1),
       MeshOffsetAttr::get(builder.getContext(), 0, 0));
   Conv2dConfigAttr configAttr = Conv2dConfigAttr::get(&context);
-  configAttr.withWeightsDtype(ttcore::DataType::Float32);
+  configAttr = configAttr.withWeightsDtype(ttcore::DataType::Float32);
 
   //  get_cb_info expects conv_config.weights_dtype to be set otherwise it
   //  issues an error.  See conv2d_op_program_factory_common.cpp in tt-metal.

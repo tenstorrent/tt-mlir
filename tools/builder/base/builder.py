@@ -9,6 +9,7 @@ from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 import torch
 from enum import Enum, auto
 import re
+from collections import OrderedDict
 
 from ttmlir.ir import *
 from ttmlir.dialects import tensor, quant
@@ -35,14 +36,17 @@ class Builder:
         self,
         ctx: Context,
         location: Location,
-        mesh_shape: Tuple[int, int] = (1, 1),
+        mesh_name: Union[List[str], str] = "mesh",
+        mesh_dict: Union[
+            List[OrderedDict[str, int]], OrderedDict[str, int]
+        ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
         self._ctx = ctx
         self._loc = location
         self._global_id = -1
-        self._mesh_shape = mesh_shape
         self._disable_golden_check = disable_golden_check
+        self._force_graph_level_check = False
 
         # Keep a list of inputs and outputs in order so we know how to store them in golden map.
         self._ordered_inputs: List[Operand] = []
@@ -59,6 +63,20 @@ class Builder:
 
         # Set torch seed for reproducibility.
         torch.manual_seed(0)
+
+        if not isinstance(mesh_name, List):
+            mesh_name = [mesh_name]
+        if not isinstance(mesh_dict, List):
+            mesh_dict = [mesh_dict]
+        if len(mesh_name) != len(mesh_dict):
+            raise ValueError(
+                f"mesh_name length {len(mesh_name)} must match mesh_dict length {len(mesh_dict)}"
+            )
+        self._meshes = {}
+        for name, mesh in zip(mesh_name, mesh_dict):
+            self._meshes[name] = mesh
+
+        self._mesh_shape = tuple(mesh_dict[0].values())
 
     # ----- Public methods -----
 
@@ -101,6 +119,9 @@ class Builder:
             golden_info[loc] = self._generate_golden_device_tensor(
                 loc, self._get_golden_tensor(output)
             )
+
+        if self._force_graph_level_check:
+            return golden_info
 
         # Store other operands into golden map if they are marked to be stored.
         for operand, builder_golden_tensor in self._goldens.items():
@@ -153,6 +174,9 @@ class Builder:
             self._goldens_to_store = operands
         else:
             self._goldens_to_store.extend(operands)
+
+    def set_graph_level_check(self, check: bool):
+        self._force_graph_level_check = check
 
     # ----- Private methods -----
 

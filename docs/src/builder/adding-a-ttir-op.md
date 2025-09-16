@@ -20,6 +20,7 @@ def _op_proxy(
     output_create_fn: Optional[Callable] = None,
     golden_kwargs: dict = {},
     ttir_kwargs: dict = {},
+    skip_golden: bool = False,
 )
 ```
 
@@ -31,7 +32,7 @@ All input operands should be passed into a proxy function using the argument `in
 
 ## Golden functions
 
-Golden functions provide the reference implementation for TTIR operations using PyTorch. They are centralized in `tools/builder/base/builder_golden.py` and must be mapped to their corresponding TTIR operations. The `_op_proxy` function automatically retrieves the appropriate golden function based on the TTIR operation class.
+Golden functions provide the reference implementation for TTIR operations using PyTorch. They are centralized in `tools/builder/base/builder_golden.py` and must be mapped to their corresponding TTIR operations. The `_op_proxy` function automatically retrieves the appropriate golden function based on the TTIR operation class. The `skip_golden` argument omits golden tensor creation and addition to the golden map. Since goldens are relied upon to set `output_shape` and `output_type`, setting `skip_golden=True` requires passing in `output_shape` and `output_type` to `_op_proxy`.
 
 ### Writing a golden function
 
@@ -111,21 +112,17 @@ source env/activate
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTTMLIR_ENABLE_RUNTIME=ON -DTT_RUNTIME_ENABLE_PERF_TRACE=ON
 cmake --build build
 
-2. Build ttrt (sample instructions - subject to change)
-cmake --build build -- ttrt
-
-3. Query system
+2. Query system
 ttrt query --save-artifacts
 
-4. Export system desc file
+3. Export system desc file
 export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys (path dumped in previous command)
 
-5. Generate test cases
+4. Generate test cases
 pytest test/python/golden/test_ttir_ops.py
 
-6. Run test cases
-ttrt run ttnn
-ttrt run ttmetal
+5. Run test cases
+ttrt run builder-artifacts
 ```
 
 ## Sphinx documentation
@@ -161,7 +158,7 @@ in0 : Operand
     First input tensor
 in1 : Operand
     Second input tensor
-unit_attrs : Optional[List[str]], optional
+unit_attrs : *Optional[List[str]]*, optional
     Optional list of unit attributes
 
 Returns
