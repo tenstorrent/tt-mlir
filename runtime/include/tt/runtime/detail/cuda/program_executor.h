@@ -28,7 +28,8 @@ namespace tt::runtime::cuda {
 class ProgramExecutor {
 public:
   // Constructor for executing a program
-  ProgramExecutor(::tt::runtime::Binary &executableHandle,
+  ProgramExecutor(::tt::runtime::Device deviceHandle,
+                  ::tt::runtime::Binary &executableHandle,
                   std::vector<::tt::runtime::Tensor> &programInputs);
 
   /**
@@ -37,17 +38,18 @@ public:
   ::tt::runtime::Tensor execute();
 
 private:
-  const ::cuda::Program *program;
+  const ::tt::target::cuda::Program *program;
   ::tt::runtime::Binary executableHandle;
+  ::tt::runtime::Device deviceHandle;
   std::vector<::tt::runtime::Tensor> programInputs;
   llvm::StringMap<CUdeviceptr> tensorMap;
-  llvm::StringMap<const ::cuda::MemRefDesc *> memrefDescMap;
-  llvm::StringMap<const ::cuda::Constant *> constantMap;
+  llvm::StringMap<const ::tt::target::cuda::MemRefDesc *> memrefDescMap;
+  llvm::StringMap<const ::tt::target::cuda::Constant *> constantMap;
   CUdevice device;
   CUcontext context;
 
-  void runKernel(const ::cuda::Kernel *kernel);
-  void runCopyFunction(const ::cuda::CopyFunction *copyFunc);
+  void runKernel(const ::tt::target::cuda::Kernel *kernel);
+  void runCopyFunction(const ::tt::target::cuda::CopyFunction *copyFunc);
   void finishing();
 };
 
