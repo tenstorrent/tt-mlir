@@ -2913,6 +2913,73 @@ public:
 } // namespace
 
 namespace {
+class SplitQueryKeyValueAndSplitHeadsOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.split_query_key_value_and_split_heads";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::split_query_key_value_and_split_heads";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+
+      mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<
+        mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getKvInputTensor()),
+        emitter.emit(srcOp.getNumHeads()),
+        emitter.emit(srcOp.getNumKvHeads()),
+        emitter.emit(srcOp.getTransposeKey()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult(0)),
+    };
+
+    using OpReturnType =
+        std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor>;
+
+    auto splitQueryKeyValueAndSplitHeadsOp =
+        rewriter.create<emitc::CallOpaqueOp>(
+            srcOp.getLoc(),
+            rewriter.getType<emitc::OpaqueType>(
+                ttnn_to_emitc::TypeNameV<OpReturnType>),
+            convertOpName(srcOp), rewriter.getArrayAttr(args),
+            /*template_args=*/nullptr, adaptor.getOperands());
+
+    llvm::SmallVector<mlir::Value, 3> results;
+    for (std::size_t i = 0; i < srcOp.getNumResults(); ++i) {
+      auto tupleGetResult = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(
+              ttnn_to_emitc::TypeNameV<::ttnn::Tensor>),
+          "::std::get", /*args=*/nullptr,
+          /*template_args=*/
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(i)}),
+          splitQueryKeyValueAndSplitHeadsOp.getResult(0));
+      results.push_back(tupleGetResult.getResult(0));
+    }
+
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class WriteTensorOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::WriteTensorOp> {
 private:
@@ -3624,6 +3691,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Transformers ops
   //
   patterns.add<ConcatenateHeadsOpConversionPattern>(typeConverter, ctx);
+  patterns.add<SplitQueryKeyValueAndSplitHeadsOpConversionPattern>(
+      typeConverter, ctx);
   patterns.add<RotaryEmbeddingLlamaOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
