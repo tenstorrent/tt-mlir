@@ -316,7 +316,7 @@ void populatePassesModule(nb::module_ &m) {
       nb::arg("module"));
 
   m.def(
-      "translate_to_py",
+      "translate_to_python",
       [](MlirModule module) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         // Translate to Python

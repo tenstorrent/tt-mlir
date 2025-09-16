@@ -20,7 +20,7 @@ from ttmlir.passes import (
     ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,
     translate_to_cpp,
-    translate_to_py,
+    translate_to_python,
     MLIRModuleLogger,
     stablehlo_pipeline,
     stablehlo_to_ttir_pipeline,
@@ -75,7 +75,7 @@ def _emitc_to_executable(module, filepath: str, golden_map, module_cache):
 
 
 def _emitpy_to_executable(module, filepath: str, golden_map, module_cache):
-    cpp = translate_to_py(module)
+    cpp = translate_to_python(module)
     with open(filepath, "w") as f:
         f.write(cpp)
 
