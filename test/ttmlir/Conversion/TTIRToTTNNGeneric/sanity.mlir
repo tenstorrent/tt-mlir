@@ -30,16 +30,33 @@ module {
     %ttnn_input_l1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #l1_memory_config}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
     %ttnn_output_l1 = "ttnn.empty"(%device) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #l1_memory_config, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
 
+    // CHECK-NOT: memref.alloc()
+    // CHECK-NOT: ttir.ttnn_to_metal_layout_cast
+    // CHECK-NOT: memref.alloc()
+    // CHECK-NOT: ttir.ttnn_to_metal_layout_cast
     %alloc_0 = memref.alloc() {address = 103872 : i64, alignment = 16 : i64} : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
     %metal_input_l1 = ttir.ttnn_to_metal_layout_cast %ttnn_input_l1, %alloc_0 : tensor<32x32xf32, #l1_layout> into memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>> -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
     %alloc_1 = memref.alloc() {address = 99776 : i64, alignment = 16 : i64} : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
     %metal_output_l1 = ttir.ttnn_to_metal_layout_cast %ttnn_output_l1, %alloc_1 : tensor<32x32xf32, #l1_layout> into memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>> -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
 
-    // CHECK: ttnn.generic
+    // CHECK: "ttnn.generic"
+    // CHECK-SAME: #ttnn.read_kernel<symbol_ref = @read_kernel
+    // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>]
+    // CHECK-SAME: common_rt_args = [#ttnn.kernel_arg_address_of_tensor<0>]
+    // CHECK-SAME: #ttnn.write_kernel<symbol_ref = @write_kernel
+    // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<1>]
+    // CHECK-SAME: common_rt_args = [#ttnn.kernel_arg_address_of_tensor<1>]
+    // CHECK-SAME: #ttnn.compute_kernel<symbol_ref = @compute_kernel0
+    // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>]
+    // CHECK-SAME: common_rt_args = []
+    // CHECK-SAME: page_size = 4096
     ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#ttir.thread<datamovement, @read_kernel>, #ttir.thread<datamovement, @write_kernel>, #ttir.thread<compute, @compute_kernel0>]}
         ins(%metal_input_l1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>)
         outs(%metal_output_l1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>)
 
+    // CHECK-NOT: ttir.ttnn_to_metal_layout_cast
+    // CHECK-NOT: memref.dealloc
+    // CHECK-NOT: memref.dealloc
     %output_l1 = ttir.ttnn_to_metal_layout_cast %metal_output_l1, %ttnn_output_l1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>> into tensor<32x32xf32, #l1_layout> -> tensor<32x32xf32, #l1_layout>
     memref.dealloc %alloc_0 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
     memref.dealloc %alloc_1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
