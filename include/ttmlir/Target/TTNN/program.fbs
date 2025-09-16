@@ -34,6 +34,7 @@ union OpType {
   BatchNormOp,
   BeginTraceCaptureOp,
   CaptureOrExecuteTraceOp,
+  CloneOp,
   CollectivePermuteOp,
   ConcatOp,
   ConcatenateHeadsOp,

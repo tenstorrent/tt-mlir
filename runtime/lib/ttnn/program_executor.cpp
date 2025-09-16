@@ -21,6 +21,7 @@
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/full_with.h"
+#include "operations/data_movement/clone.h"
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
@@ -368,6 +369,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::GenericOp: {
     return operations::generic_op::run(op->type_as_GenericOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::CloneOp: {
+    return operations::data_movement::run(op->type_as_CloneOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",
