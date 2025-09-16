@@ -2382,7 +2382,7 @@ def test_unary_ops_int32(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -2395,10 +2395,19 @@ def test_unary_ops_int32(
         lt | Marks(pytest.mark.skip_config(["ttmetal"])),
         ge | Marks(pytest.mark.skip_config(["ttmetal"])),
         gt | Marks(pytest.mark.skip_config(["ttmetal"])),
-        remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
+        remainder
+        | Marks(
+            pytest.mark.skip_config(["ttmetal"]), pytest.mark.skip_config(["emitpy"])
+        ),
         maximum
-        | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4084")),
-        minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
+        | Marks(
+            pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4084"),
+            pytest.mark.skip_config(["emitpy"]),
+        ),
+        minimum
+        | Marks(
+            pytest.mark.skip_config(["ttmetal"]), pytest.mark.skip_config(["emitpy"])
+        ),
         matmul | Marks(pytest.mark.skip_config(["ttmetal"])),
         logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
         logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),

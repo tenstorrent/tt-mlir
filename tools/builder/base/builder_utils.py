@@ -20,6 +20,7 @@ from ttmlir.passes import (
     ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,
     translate_to_cpp,
+    translate_to_py,
     MLIRModuleLogger,
     stablehlo_pipeline,
     stablehlo_to_ttir_pipeline,
@@ -69,6 +70,12 @@ def _get_target_path(output_path, builder_dir, filename, target):
 
 def _emitc_to_executable(module, filepath: str, golden_map, module_cache):
     cpp = translate_to_cpp(module)
+    with open(filepath, "w") as f:
+        f.write(cpp)
+
+
+def _emitpy_to_executable(module, filepath: str, golden_map, module_cache):
+    cpp = translate_to_py(module)
     with open(filepath, "w") as f:
         f.write(cpp)
 
@@ -813,14 +820,10 @@ def compile_ttir_module_to_flatbuffer(
         mlir_suffix = "_ttnn.mlir"
         target_extension = "cpp"
     elif target == "emitpy":
-        # ttir_to_ttnn_emitpy_pipeline = _create_custom_ttir_pipeline_fn(
-        #    "ttir-to-emitpy-pipeline", print_ir=print_ir
-        # )
         pipeline_fn = custom_pipeline if custom_pipeline else ttir_to_emitpy_pipeline
-        to_target = _emitc_to_executable  # ***************
+        to_target = _emitpy_to_executable
         mlir_suffix = "_ttnn.mlir"
         target_extension = "py"
-    # pipeline_options = ["ttmlir-translate", "--mlir-to-python", ] #******************* "\"
     else:
         raise ValueError("Unsupported target: " + target)
 
