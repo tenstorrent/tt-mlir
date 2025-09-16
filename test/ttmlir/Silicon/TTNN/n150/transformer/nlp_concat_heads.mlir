@@ -6,8 +6,8 @@
 #output_encoding = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 4 + d1 * 4 + d2,d3), <1x1>, memref<1x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 
 module {
-  func.func @nlp_concatenate_heads(%input: tensor<2x4x4x32xf32, #input_encoding>) -> tensor<2x1x4x128xf32, #output_encoding> {
-    %0 = "ttnn.nlp_concatenate_heads"(%input) : (tensor<2x4x4x32xf32, #input_encoding>) -> tensor<2x1x4x128xf32, #output_encoding>
+  func.func @nlp_concat_heads(%input: tensor<2x4x4x32xf32, #input_encoding>) -> tensor<2x1x4x128xf32, #output_encoding> {
+    %0 = "ttnn.nlp_concat_heads"(%input) : (tensor<2x4x4x32xf32, #input_encoding>) -> tensor<2x1x4x128xf32, #output_encoding>
     return %0 : tensor<2x1x4x128xf32, #output_encoding>
   }
 }

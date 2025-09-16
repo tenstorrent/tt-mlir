@@ -2409,7 +2409,7 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Memory
     let hasVerifier = 1;
 }
 
-def TTNN_NLPConcatenateHeadsOp : TTNN_Op<"nlp_concatenate_heads", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_NLPConcatHeadsOp : TTNN_Op<"nlp_concat_heads", [TTNN_MemoryConfigOpInterface]> {
   let summary = "nlp_concat_heads op in TTNN dialect.";
   let description = [{
     "This op targets specific case of concatenate heads operation where input tensor

@@ -2591,9 +2591,9 @@ public:
 } // namespace
 
 namespace {
-class NLPConcatenateHeadsOpConversionPattern
+class NLPConcatHeadsOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
-          mlir::tt::ttnn::NLPConcatenateHeadsOp> {
+          mlir::tt::ttnn::NLPConcatHeadsOp> {
 private:
   std::string getPrefixSearchPattern() const override {
     return "ttnn.nlp_concat_heads";
@@ -2604,16 +2604,14 @@ private:
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::NLPConcatenateHeadsOp>::
-      TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::NLPConcatHeadsOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::NLPConcatenateHeadsOp srcOp,
-                  OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::NLPConcatHeadsOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::NLPConcatenateHeadsOp>
-        emitter(srcOp, adaptor, rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::NLPConcatHeadsOp> emitter(
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
