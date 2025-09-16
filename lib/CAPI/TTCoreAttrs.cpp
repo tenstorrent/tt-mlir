@@ -135,9 +135,10 @@ MlirAttribute ttmlirTTMetalLayoutAttrGet(MlirContext ctx, intptr_t logicalRank,
   llvm::ArrayRef<int64_t> logicalShapeRef(logicalShape, logicalRank);
   llvm::ArrayRef<int64_t> gridShapeRef(gridShape, gridRank);
 
-  return wrap(MetalLayoutAttr::get(unwrap(ctx), logicalShapeRef, gridShapeRef,
-                                   static_cast<OOBVal>(oobVal),
-                                   static_cast<MemorySpace>(memorySpace)));
+  // XXX: Handle passing memory layout properly
+  return wrap(MetalLayoutAttr::get(
+      unwrap(ctx), logicalShapeRef, gridShapeRef, static_cast<OOBVal>(oobVal),
+      static_cast<MemorySpace>(memorySpace), TensorMemoryLayout::BlockSharded));
 }
 
 MlirAttribute ttmlirTTMemorySpaceAttrGet(MlirContext ctx,

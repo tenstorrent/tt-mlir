@@ -1013,7 +1013,8 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
-                                     OOBVal oobVal, MemorySpace memorySpace) {
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     TensorMemoryLayout memoryLayout) {
   // Create collapse intervals.
   int64_t numDimsToCollapse = logicalShape.size() - deviceGridShape.size() + 1;
   llvm::SmallVector<int64_t> flattenedIntervals;
@@ -1041,7 +1042,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
       computeAlignments(logicalShape, deviceGridShape, flattenedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, mlir::AffineMap::get(context));
+             oobVal, memorySpace, mlir::AffineMap::get(context), memoryLayout);
 }
 
 // Getter with explicit collapsedIntervals, we calculate the alignments.
@@ -1049,14 +1050,15 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
-                                     DenseIntElementsAttr collapsedIntervals) {
+                                     DenseIntElementsAttr collapsedIntervals,
+                                     TensorMemoryLayout memoryLayout) {
   llvm::SmallVector<int64_t> normalizedIntervals =
       normalizeAndFlattenIntervals(collapsedIntervals, logicalShape.size());
   llvm::SmallVector<int64_t> dimAlignmentsVec =
       computeAlignments(logicalShape, deviceGridShape, normalizedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace, mlir::AffineMap::get(context));
+             oobVal, memorySpace, mlir::AffineMap::get(context), memoryLayout);
 }
 
 // Getter with explicit collapsedIntervals and dimAlignments.
@@ -1065,9 +1067,10 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      DenseIntElementsAttr collapsedIntervals,
-                                     ArrayRef<int64_t> dimAlignments) {
+                                     ArrayRef<int64_t> dimAlignments,
+                                     TensorMemoryLayout memoryLayout) {
   return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
-             memorySpace, mlir::AffineMap::get(context));
+             memorySpace, mlir::AffineMap::get(context), memoryLayout);
 }
 
 mlir::MemRefType
@@ -1091,14 +1094,15 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
-                                     mlir::AffineMap indexAffineMap) {
+                                     mlir::AffineMap indexAffineMap,
+                                     TensorMemoryLayout memoryLayout) {
   // Reuse the existing path that computes intervals/alignments, then attach
   // map.
-  MetalLayoutAttr base =
-      get(context, logicalShape, deviceGridShape, oobVal, memorySpace);
+  MetalLayoutAttr base = get(context, logicalShape, deviceGridShape, oobVal,
+                             memorySpace, memoryLayout);
   return get(context, base.getLogicalShape(), base.getDimAlignments(),
              base.getCollapsedIntervals(), base.getOobVal(),
-             base.getMemorySpace(), indexAffineMap);
+             base.getMemorySpace(), indexAffineMap, base.getMemoryLayout());
 }
 
 // Get effective stride (use provided or calculate from shape)
@@ -1501,20 +1505,31 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
     }
   }
 
-  ShardLayoutAttr layout =
-      mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout());
-  assert(
-      (layout || !mlir::isa<DeviceLayoutInterface>(memrefType.getLayout())) &&
-      "expected shard layout");
-  bool isLocalMemref = (layout == nullptr);
+  DeviceLayoutInterface layout =
+      mlir::dyn_cast<DeviceLayoutInterface>(memrefType.getLayout());
+  // assert(
+  //     (layout || !mlir::isa<DeviceLayoutInterface>(memrefType.getLayout()))
+  //     && "expected shard layout");
+  bool isLocalMemref =
+      !(mlir::isa<ShardLayoutAttr>(memrefType.getLayout()) ||
+        mlir::isa<InterleavedLayoutAttr>(memrefType.getLayout()));
   auto shardShape =
       isLocalMemref ? memrefType.getShape() : layout.getShardShape(memrefType);
+
+  // XXX: clean this up
+  int64_t numBuffers = 1;
+  if (auto shard_layout =
+          mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout())) {
+    numBuffers = shard_layout.getBuffers();
+  } else if (auto interleaved_layout = mlir::dyn_cast<InterleavedLayoutAttr>(
+                 memrefType.getLayout())) {
+    numBuffers = interleaved_layout.getBuffers();
+  }
 
   return ttmlir::utils::alignUp(
       static_cast<size_t>(ttmlir::utils::volume(
           shardShape,
-          elementSizeBytes *
-              ((includeBuffers && layout) ? layout.getBuffers() : 1))),
+          elementSizeBytes * ((includeBuffers && layout) ? numBuffers : 1))),
       alignSize);
 }
 

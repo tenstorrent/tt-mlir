@@ -196,6 +196,22 @@ def TTCore_ArgumentType : I32EnumAttr<"ArgumentType", "Argument Type",
   let symbolToStringFnName = "ArgumentTypeEnumToString";
 }
 
+def TTCore_TensorMemoryLayout_Interleaved : I32EnumAttrCase<"Interleaved", 0, "interleaved">;
+def TTCore_TensorMemoryLayout_HeightSharded : I32EnumAttrCase<"HeightSharded", 1, "height_sharded">;
+def TTCore_TensorMemoryLayout_WidthSharded : I32EnumAttrCase<"WidthSharded", 2, "width_sharded">;
+def TTCore_TensorMemoryLayout_BlockSharded : I32EnumAttrCase<"BlockSharded", 3, "block_sharded">;
+
+def TTCore_TensorMemoryLayout : I32EnumAttr<"TensorMemoryLayout", "TTCore Tensor Memory Layout",
+                           [
+                            TTCore_TensorMemoryLayout_Interleaved,
+                            TTCore_TensorMemoryLayout_HeightSharded,
+                            TTCore_TensorMemoryLayout_WidthSharded,
+                            TTCore_TensorMemoryLayout_BlockSharded,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttcore";
+}
+
 def TTCore_ShardStatus_Presharded: I32EnumAttrCase<"Presharded", 0, "presharded">;
 def TTCore_ShardStatus_Unsharded: I32EnumAttrCase<"Unsharded", 1, "unsharded">;
 

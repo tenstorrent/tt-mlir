@@ -79,7 +79,16 @@ MemRefType getBufferType(Type type, bool isView,
     layoutAttr = ttcore::ViewLayoutAttr::get(ctx, map);
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-    layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::BlockSharded) {
+      layoutAttr =
+          ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    } else if (layout.getMemoryLayout() ==
+               ttcore::TensorMemoryLayout::Interleaved) {
+      layoutAttr =
+          ttcore::InterleavedLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    } else {
+      llvm_unreachable("Unsupported memory layout");
+    }
   }
 
   return MemRefType::get(
@@ -2736,7 +2745,8 @@ createDefaultLayout(mlir::MLIRContext *ctx,
 
   return mlir::tt::ttcore::MetalLayoutAttr::get(
       ctx, logicalShape, squareGridShape, mlir::tt::ttcore::OOBVal::Undef,
-      mlir::tt::ttcore::MemorySpace::System);
+      mlir::tt::ttcore::MemorySpace::System,
+      mlir::tt::ttcore::TensorMemoryLayout::BlockSharded);
 }
 
 mlir::tt::ttcore::MetalLayoutAttr
@@ -3084,7 +3094,8 @@ static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
     auto outputEncoding = mlir::tt::ttcore::MetalLayoutAttr::get(
         builder.getContext(), inputEncoding.getLogicalShape(),
         inputEncoding.getDimAlignments(), inputEncoding.getCollapsedIntervals(),
-        inputEncoding.getOobVal(), inputEncoding.getMemorySpace(), map);
+        inputEncoding.getOobVal(), inputEncoding.getMemorySpace(), map,
+        inputEncoding.getMemoryLayout());
 
     result =
         mlir::RankedTensorType::get(outputShape, elementType, outputEncoding);

@@ -275,10 +275,7 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                               MemRefType memref,
                                               ttcore::DeviceAttr device,
                                               target::Dim2d elementShape) {
-  auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
-      memref.getLayout());
-  assert(!deviceLayout &&
-         "Sharded buffers cannot have interleaved config objects");
+  assert(mlir::isa<ttcore::InterleavedLayoutAttr>(memref.getLayout()));
 
   auto tile =
       mlir::dyn_cast_if_present<ttcore::TileType>(memref.getElementType());

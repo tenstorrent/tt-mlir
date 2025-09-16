@@ -134,7 +134,8 @@ public:
     assert(op.getMemref().getType().getMemorySpace() &&
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
-    assert(mlir::isa<ttcore::ShardLayoutAttr>(memrefType.getLayout()));
+    assert(mlir::isa<ttcore::ShardLayoutAttr>(memrefType.getLayout()) ||
+           mlir::isa<ttcore::InterleavedLayoutAttr>(memrefType.getLayout()));
     rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(op, memrefType,
                                                          address);
 

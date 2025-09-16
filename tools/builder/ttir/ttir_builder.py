@@ -40,6 +40,7 @@ class TTIRBuilder(Builder):
         memorySpace=ttcore.MemorySpace.DeviceL1,
         grid: Optional[Tuple[int, int]] = None,
         index_map: Optional[AffineMap] = None,
+        memory_layout: Optional[ttcore.TensorMemoryLayout] = None,
     ):
         ctx = self._ctx
 
@@ -53,13 +54,13 @@ class TTIRBuilder(Builder):
         worker_grid = [8, 8]
 
         # Create layout with original logical shape.
-        if index_map is None:
+        if memory_layout is not None:
             layout = ttcore.ir.MetalLayoutAttr.get(
-                ctx, logical_shape, worker_grid, oobVal, memorySpace
+                ctx, logical_shape, worker_grid, oobVal, memorySpace, memory_layout
             )
         else:
             layout = ttcore.ir.MetalLayoutAttr.get(
-                ctx, logical_shape, worker_grid, oobVal, memorySpace, index_map
+                ctx, logical_shape, worker_grid, oobVal, memorySpace
             )
 
         shard_shape = []

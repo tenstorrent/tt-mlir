@@ -17,28 +17,29 @@ namespace mlir::ttmlir::python {
 void populateTTModule(nb::module_ &m) {
   tt_attribute_class<tt::ttcore::MetalLayoutAttr>(m, "MetalLayoutAttr")
       // 5-arg overload (no index_map provided)
-      .def_static(
-          "get",
-          [](MlirContext ctx, std::vector<int64_t> logicalShape,
-             std::vector<int64_t> gridShape, uint32_t oobValValue,
-             uint32_t memorySpaceValue) {
-            return wrap(tt::ttcore::MetalLayoutAttr::get(
-                unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                ArrayRef<int64_t>(gridShape),
-                static_cast<tt::ttcore::OOBVal>(oobValValue),
-                static_cast<tt::ttcore::MemorySpace>(memorySpaceValue)));
-          })
-      // 6-arg overload (explicit index_map)
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> logicalShape,
                      std::vector<int64_t> gridShape, uint32_t oobValValue,
-                     uint32_t memorySpaceValue, MlirAffineMap indexMap) {
+                     uint32_t memorySpaceValue) {
                     return wrap(tt::ttcore::MetalLayoutAttr::get(
                         unwrap(ctx), ArrayRef<int64_t>(logicalShape),
                         ArrayRef<int64_t>(gridShape),
                         static_cast<tt::ttcore::OOBVal>(oobValValue),
                         static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
-                        unwrap(indexMap)));
+                        tt::ttcore::TensorMemoryLayout::BlockSharded));
+                  })
+      // 7-arg overload (override memory layout)
+      .def_static("get",
+                  [](MlirContext ctx, std::vector<int64_t> logicalShape,
+                     std::vector<int64_t> gridShape, uint32_t oobValValue,
+                     uint32_t memorySpaceValue, uint32_t memoryLayoutValue) {
+                    return wrap(tt::ttcore::MetalLayoutAttr::get(
+                        unwrap(ctx), ArrayRef<int64_t>(logicalShape),
+                        ArrayRef<int64_t>(gridShape),
+                        static_cast<tt::ttcore::OOBVal>(oobValValue),
+                        static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
+                        static_cast<tt::ttcore::TensorMemoryLayout>(
+                            memoryLayoutValue)));
                   })
       .def("getLayout",
            [](MlirType &type)
@@ -85,8 +86,14 @@ void populateTTModule(nb::module_ &m) {
                      return static_cast<uint32_t>(la.getOobVal());
                    })
       .def_prop_ro("memory_space", &tt::ttcore::MetalLayoutAttr::getMemorySpace)
-      .def_prop_ro("memory_space_as_int", [](tt::ttcore::MetalLayoutAttr la) {
-        return static_cast<uint32_t>(la.getMemorySpace());
+      .def_prop_ro("memory_space_as_int",
+                   [](tt::ttcore::MetalLayoutAttr la) {
+                     return static_cast<uint32_t>(la.getMemorySpace());
+                   })
+      .def_prop_ro("memory_layout",
+                   &tt::ttcore::MetalLayoutAttr::getMemoryLayout)
+      .def_prop_ro("memory_layout_as_int", [](tt::ttcore::MetalLayoutAttr la) {
+        return static_cast<uint32_t>(la.getMemoryLayout());
       });
 
   tt_attribute_class<tt::ttcore::GridAttr>(m, "GridAttr")

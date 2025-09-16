@@ -82,9 +82,12 @@ protected:
       elementType = ttcore::TileType::get(elementType, tileShape);
     }
 
+    // DO NOT MERGE: does assuming block sharded here make sense for TTNN
+    // integration?
     auto layout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), logicalShape, targetSquareGridShape,
-        ttcore::OOBVal::Undef, memSpace);
+        ttcore::OOBVal::Undef, memSpace,
+        ttcore::TensorMemoryLayout::BlockSharded);
 
     // Get raw, unsharded physical shape.
     llvm::SmallVector<int64_t> unshardedShape =
@@ -805,7 +808,8 @@ public:
     auto resultLayout = ttcore::MetalLayoutAttr::get(
         ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
         inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
-        inputLayout.getMemorySpace(), composedMap);
+        inputLayout.getMemorySpace(), composedMap,
+        inputLayout.getMemoryLayout());
 
     auto viewType = mlir::RankedTensorType::get(
         resultShape, inputTensorType.getElementType(), resultLayout);

@@ -109,7 +109,7 @@ public:
       auto enc = ttcore::MetalLayoutAttr::get(
           ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
           baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
-          baseLayout.getMemorySpace(), map);
+          baseLayout.getMemorySpace(), map, baseLayout.getMemoryLayout());
       auto resultTy =
           RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
       return rewriter
@@ -273,7 +273,8 @@ public:
         ttir::utils::getSquareTargetGrid(workerGridShape);
     auto newLayout = ttcore::MetalLayoutAttr::get(
         ctx, baseLayout.getLogicalShape(), squareGridShape,
-        baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals());
+        baseLayout.getOobVal(), memSpace, baseLayout.getCollapsedIntervals(),
+        baseLayout.getMemoryLayout());
 
     // For physical shape derivation, use tile shape ONLY if element type is
     // tiled
