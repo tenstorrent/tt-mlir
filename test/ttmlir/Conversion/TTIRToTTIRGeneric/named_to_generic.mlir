@@ -106,7 +106,12 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_logical_not
     %18 = "ttir.logical_not"(%17, %out) : (!ttype, !ttype) -> !ttype
-    return %18: !ttype
+    // named elementwise op, unary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_gelu
+    %19 = "ttir.gelu"(%18, %out) : (!ttype, !ttype) -> !ttype
+    return %19: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R

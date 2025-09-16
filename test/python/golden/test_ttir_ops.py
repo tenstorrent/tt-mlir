@@ -2256,7 +2256,7 @@ unary_ops = [
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
     relu | Marks(pytest.mark.skip_config(["ttmetal"])),
-    gelu | Marks(pytest.mark.skip_config(["ttmetal"])),
+    gelu | Marks(pytest.mark.fails_golden),
     leaky_relu | Marks(pytest.mark.skip_config(["ttmetal"])),
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
     sigmoid | Marks(pytest.mark.fails_golden),
