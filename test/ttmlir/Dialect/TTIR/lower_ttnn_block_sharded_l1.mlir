@@ -2,11 +2,11 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // Single-case test: block-sharded L1 tiled TTNN layout is lowered to an
-// explicit ttir.view_layout with a ttcore.metal_layout encoding.
+// explicit ttir.ttnn_to_metal_layout_cast with a ttcore.metal_layout encoding.
 
 #l1 = #ttnn.buffer_type<l1>
-#dram = #ttnn.buffer_type<dram>
 
+// CHECK: #layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals =
 #ttnn_layout = #ttnn.ttnn_layout<
   (d0, d1) -> (d0, d1),
   <1x1, (d0, d1) -> (0, d0, d1)>,
@@ -85,7 +85,7 @@ func.func @test_lower_block_sharded_l1(
   %arg0: tensor<32x32xf32, #ttnn_layout>
 ) {
   // Expect the pass to insert a single cast op converting the TTNN layout to a TTCore metal layout.
-  // (Aliases are emitted above; assert the cast uses them.)
+  // (Alias asserted above; ensure the cast uses it.)
   // CHECK: %[[CAST:.*]] = ttir.ttnn_to_metal_layout_cast %arg0
   // CHECK-SAME: : tensor<32x32xf32, #ttnn_layout> -> tensor<32x32xf32, #layout>
 
