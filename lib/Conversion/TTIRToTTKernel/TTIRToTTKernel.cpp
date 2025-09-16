@@ -583,22 +583,22 @@ public:
                   mlir::cast<IntegerType>(elemType).getWidth() == 32;
       }
       if (isCBI32) {
-        if (std::is_same_v<SFPUOp, ttkernel::EqzTileOp>) {
+        if constexpr (std::is_same_v<SFPUOp, ttkernel::EqzTileOp>) {
           rewriter.create<ttkernel::EqzTileI32Op>(op->getLoc(),
                                                   adaptor.getInput());
-        } else if (std::is_same_v<SFPUOp, ttkernel::NezTileOp>) {
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::NezTileOp>) {
           rewriter.create<ttkernel::NezTileI32Op>(op->getLoc(),
                                                   adaptor.getInput());
-        } else if (std::is_same_v<SFPUOp, ttkernel::GtzTileOp>) {
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::GtzTileOp>) {
           rewriter.create<ttkernel::GtzTileI32Op>(op->getLoc(),
                                                   adaptor.getInput());
-        } else if (std::is_same_v<SFPUOp, ttkernel::GezTileOp>) {
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::GezTileOp>) {
           rewriter.create<ttkernel::GezTileI32Op>(op->getLoc(),
                                                   adaptor.getInput());
-        } else if (std::is_same_v<SFPUOp, ttkernel::LtzTileOp>) {
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::LtzTileOp>) {
           rewriter.create<ttkernel::LtzTileI32Op>(op->getLoc(),
                                                   adaptor.getInput());
-        } else if (std::is_same_v<SFPUOp, ttkernel::LezTileOp>) {
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::LezTileOp>) {
           rewriter.create<ttkernel::LezTileI32Op>(op->getLoc(),
                                                   adaptor.getInput());
         }

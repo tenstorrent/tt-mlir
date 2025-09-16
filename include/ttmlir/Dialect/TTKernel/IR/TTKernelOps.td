@@ -1399,8 +1399,6 @@ def TTKernel_LezTileI32Op : TTKernel_SFPUOp<"lez_tile_int32", [TTKernel_UnaryOpT
     }];
 }
 
-
-
 def TTKernel_FillTileInitOp : TTKernel_InitOp<"fill_tile_init"> {
     let summary = "Init function for fill_tile operation. Refer to documentation for any init function.";
     let description = [{

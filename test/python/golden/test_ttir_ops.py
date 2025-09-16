@@ -2464,27 +2464,22 @@ def test_comparison_ops(
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        # Generate randn tensors and convert to float for input tensors
         randn_tensor1 = torch.randn(shape, dtype=torch.float32)
         randn_tensor2 = torch.randn(shape, dtype=torch.float32)
 
         # Set some indices in randn_tensor2 to be the same as randn_tensor1
         # This ensures we have both equal and unequal values for comprehensive testing
         num_elements = torch.numel(randn_tensor1)
-        num_equal_indices = num_elements // 2  # Make half the indices equal
+        num_equal_indices = num_elements // 2
 
-        # Randomly select indices to make equal
         equal_indices = torch.randperm(num_elements)[:num_equal_indices]
         randn_tensor2.view(-1)[equal_indices] = randn_tensor1.view(-1)[equal_indices]
 
-        # Convert to the target dtype
         input_tensor1 = randn_tensor1.to(dtype)
         input_tensor2 = randn_tensor2.to(dtype)
 
-        # Set input goldens using the new API - output goldens will be computed automatically
         builder.set_goldens(inputs={in0: input_tensor1, in1: input_tensor2})
 
-        # The builder will automatically compute output goldens
         return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(

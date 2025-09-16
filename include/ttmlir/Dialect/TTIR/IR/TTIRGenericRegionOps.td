@@ -280,11 +280,10 @@ def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_no
     let results = (outs TTCore_Tile:$result);
 }
 
-// This is the sfpu subtraction op and is used for d2m path for comparison ops.
 def TTIR_TileSubBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub_binary"> {
     let summary = "TTIR Tile Subtract Binary Op";
     let description = [{
-        The `tile_sub_binary` operation subtracts two tiles element-wise.
+        The `tile_sub_binary` operation subtracts two tiles element-wise using the SFPU.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
