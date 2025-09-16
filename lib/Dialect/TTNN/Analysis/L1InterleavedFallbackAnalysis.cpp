@@ -432,45 +432,6 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
     return true;
   }
 
-  // // Check if padded shapes would be identical (TTNN early return case)
-  // auto computePaddedDim = [](int64_t dim) -> int64_t {
-  //   return ((dim + 31) / 32) * 32; // Round up to next tile boundary
-  // };
-
-  // bool paddedShapesWouldBeIdentical = true;
-  // if (inputShape.size() >= 2 && outputShape.size() >= 2) {
-  //   // Check if last 2 dimensions would have same padding
-  //   int64_t inputPaddedH = computePaddedDim(inputShape[inputShape.size() -
-  //   2]); int64_t inputPaddedW = computePaddedDim(inputShape[inputShape.size()
-  //   - 1]); int64_t outputPaddedH =
-  //       computePaddedDim(outputShape[outputShape.size() - 2]);
-  //   int64_t outputPaddedW =
-  //       computePaddedDim(outputShape[outputShape.size() - 1]);
-
-  //   paddedShapesWouldBeIdentical =
-  //       (inputPaddedH == outputPaddedH) && (inputPaddedW == outputPaddedW);
-  // }
-
-  // if (paddedShapesWouldBeIdentical) {
-  //   if (isUserOp) {
-  //     ++skippedUserReshapeNoOp;
-  //     llvm::outs() << "[L1IFA] Skipped op (user reshape padded no-op): "
-  //                  << contextOp->getName() << "\n";
-  //     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-  //                  "L1InterleavedFallbackAnalysis: Skipping {} - user reshape
-  //                  " "padded no-op.", contextOp->getName());
-  //   } else {
-  //     ++skippedReshapeNoOp;
-  //     llvm::outs() << "[L1IFA] Skipped op (reshape padded no-op): "
-  //                  << contextOp->getName() << "\n";
-  //     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-  //                  "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
-  //                  "padded no-op.",
-  //                  contextOp->getName());
-  //   }
-  //   return true;
-  // }
-
   // Check if this reshape can be optimized to a view (TTNN-style check)
   bool canBeView = false;
   if (inputShape.size() >= 1 && outputShape.size() >= 1) {
@@ -490,11 +451,39 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
     const int64_t tileHeight = 32; // tt::constants::TILE_HEIGHT
     const int64_t tileWidth = 32;  // tt::constants::TILE_WIDTH
 
+    bool otherTensorSharded = false;
+    if (isUserOp) {
+      if (auto ttnnLayout =
+              mlir::dyn_cast<TTNNLayoutAttr>(outputType.getEncoding())) {
+        otherTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
+      }
+    } else {
+      if (auto ttnnLayout =
+              mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding())) {
+        otherTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
+      }
+    }
+
+    bool inputTensorTiled = false;
+    if (auto ttnnLayout =
+            mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding())) {
+      inputTensorTiled = ttnnLayout.isTiled();
+    }
+    llvm::outs() << "  otherTensorSharded: " << otherTensorSharded << "\n";
+    llvm::outs() << "  inputTensorTiled: " << inputTensorTiled << "\n";
+
     canBeView =
-        (inputLastDim == outputLastDim) &&
-        ((inputSecondLastDim == outputSecondLastDim) || // Second last dim same
+        // 1. Sharded/Interleaved must match for output and input for metal
+        // optimization (always false for tensor checked for upgrade since in
+        // DRAM -> never sharded) so there is no point to keep the tensor in
+        // DRAM if the other is L1 sharded.
+        // 2. Since sharding is the only way any of these can already be in
+        // L1, and the other must be in DRAM to be considered for upgrade,
+        // checking sharding covers the input.isL1() == output.isL1() as well.
+        !otherTensorSharded && (inputLastDim == outputLastDim) &&
+        (!inputTensorTiled || (inputSecondLastDim == outputSecondLastDim) ||
          (outputSecondLastDim % tileHeight == 0 &&
-          inputSecondLastDim % tileWidth == 0)); // No tile padding
+          inputSecondLastDim % tileWidth == 0));
   }
 
   if (canBeView) {
