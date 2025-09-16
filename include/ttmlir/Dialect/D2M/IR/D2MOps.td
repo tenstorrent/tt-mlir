@@ -10,8 +10,8 @@ include "ttmlir/Dialect/D2M/IR/D2MBase.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.td"
-include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
+include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/IR/OpAsmInterface.td"
 
 // Generate op declarations/definitions
@@ -22,7 +22,7 @@ include "mlir/IR/OpAsmInterface.td"
 
 // Minimal scaffolding op: ViewLayout
 
-def D2M_ViewLayoutOp : D2M_Op<"view_layout", [Pure]> {
+def D2M_ViewLayoutOp : D2M_Op<"view_layout", [Pure, D2M_ViewOpInterface]> {
   let summary = "View Layout op (D2M subset)";
   let description = [{
     Create a representational view of a tensor/memref with a different layout.
@@ -41,7 +41,15 @@ def D2M_ViewLayoutOp : D2M_Op<"view_layout", [Pure]> {
 // Layout transition and streaming ops (D2M variants)
 //===----------------------------------------------------------------------===//
 
-def D2M_ToLayoutOp : D2M_Op<"to_layout"> {
+def D2M_ToLayoutOp : D2M_Op<"to_layout", [
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
   let summary = "Layout transition (D2M)";
   let description = [{
     Transition tensors from one layout to another (memory space, format,
@@ -54,9 +62,43 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout"> {
   let results = (outs Variadic<AnyRankedTensor>:$results);
 
   let assemblyFormat = [{ $input `,` $output `:` type($input) `into` type($output) (`hostInfo` `=` $layout^)? attr-dict (`->` type($results)^)? }];
+
+  let builders = [
+    OpBuilder<(ins "Value": $input, "Value": $output, CArg<"ttcore::MetalLayoutAttr", "nullptr">: $layout),
+    [{
+      build($_builder, $_state, {output.getType()}, input, output, layout);
+    }]>,
+  ];
+
+  let extraClassDeclaration = [{
+    struct CompoundComponents {
+      bool isLayoutChange = false;
+      bool isGridChange = false;
+      bool isFormatChange = false;
+      bool isMemorySpaceChange = false;
+
+      bool isCompound() const {
+        return isLayoutChange + isFormatChange + (isGridChange || isMemorySpaceChange) > 1;
+      }
+    };
+
+    CompoundComponents compoundComponents();
+    ttcore::MetalLayoutAttr getOrCreateInputLayout();
+    ttcore::MetalLayoutAttr getOrCreateOutputLayout();
+  }];
 }
 
-def D2M_StreamLayoutOp : D2M_Op<"stream_layout", [Pure]> {
+def D2M_StreamLayoutOp : D2M_Op<"stream_layout", [
+    Pure,
+    D2M_ViewOpInterface,
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
   let summary = "Stream layout (D2M)";
   let description = [{
     Represent a streaming relationship between a source tensor/memref and a
@@ -71,10 +113,21 @@ def D2M_StreamLayoutOp : D2M_Op<"stream_layout", [Pure]> {
 }
 
 // D2M generic op (mirrors TTIR_GenericOp signature)
+
 def D2M_GenericOp : D2M_Op<"generic",
   [ AttrSizedOperandSegments
   , NoTerminator
+  , DestinationStyleOpInterface
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames", "getAsmBlockNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "isWritable"
+    ]>
+  , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
     let summary = "Generically dispatch work to a grid of cores (D2M).";
     let description = [{
@@ -163,6 +216,11 @@ def D2M_GenericOp : D2M_Op<"generic",
     ];
 
     let extraClassDeclaration = [{
+      // Required by DestinationStyleOpInterface
+      MutableOperandRange getDpsInitsMutable() {
+        return getOutputsMutable();
+      }
+
       static std::pair<ArrayAttr, ArrayAttr> buildParallelAffineMapsAndIteratorTypes(mlir::OpBuilder &builder, size_t arity, size_t rank) {
         auto map = builder.getMultiDimIdentityMap(rank);
         Attribute parallel = builder.getAttr<ttcore::IteratorTypeAttr>(ttcore::IteratorType::Parallel);
@@ -173,7 +231,54 @@ def D2M_GenericOp : D2M_Op<"generic",
         auto arr = getThreadsAttr().getValue();
         return mlir::cast<ThreadAttr>(arr[regionIndex]).getThreadType();
       }
+      SmallVector<ttcore::IteratorType> getIteratorTypesValue();
+      bool isComputeOnlyForm() {
+        auto threads = getThreads();
+        return threads.size() == 1 && mlir::cast<ThreadAttr>(threads[0]).getThreadType() == ThreadType::Compute;
+      }
+      bool isAffineMapForm() { return !getIndexingMaps().empty(); }
+      bool isLoweredLoopForm() { return !isAffineMapForm(); }
+      bool isExternalSymbolForm() { return getRegions().empty(); }
+      SmallVector<SmallVector<int64_t>> getOperandGridShapes();
+      SmallVector<int64_t> getLoopBounds();
+      SmallVector<AffineMap> getIndexingMapsValue();
+      SmallVector<int64_t> getBlockFactorsValue();
+      ttcore::DeviceAttr getDevice();
+      SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
+      SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);
     }];
+}
+
+// Simple creation op needed by LowerToLayout splitting
+
+def D2M_EmptyOp : D2M_Op<"empty", [
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+  let summary = "Empty tensor allocation operation (D2M).";
+  let description = [{
+    Create an uninitialized tensor with the specified shape, element type and encoding.
+  }];
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let builders = [
+    OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType, "Attribute": $encoding),
+    [{
+      build($_builder, $_state, RankedTensorType::get(shape, elementType, encoding));
+    }]>,
+    OpBuilder<(ins "ArrayRef<int64_t>": $shape, "Type": $elementType),
+    [{
+      build($_builder, $_state, shape, elementType, nullptr);
+    }]>
+  ];
+
+  let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MOPS_TD

@@ -6,6 +6,7 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
@@ -82,41 +83,45 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;
+  // Configure D2M generic options to match the original TTIR options
+  tt::TTIRToD2MGenericOptions toD2MGenericOptions;
   {
-    toTTIRGenericOptions.defaultInputMemSpace = options.defaultInputMemSpace;
-    toTTIRGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
-    toTTIRGenericOptions.overrideDeviceShape =
+    toD2MGenericOptions.defaultInputMemSpace = options.defaultInputMemSpace;
+    toD2MGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
+    toD2MGenericOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
   }
-  pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
+  pm.addPass(tt::createTTIRToD2MGenericPass(toD2MGenericOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  pm.addPass(ttir::createTTIRLowerToLayout());
+  pm.addPass(d2m::createD2MLowerToLayout());
 }
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   createTTIRBufferizationPipeline(pm, options);
   ttir::TTIRAllocateOptions allocateOptions;
-  { allocateOptions.numStreamBuffers = options.numStreamBuffers; }
+  {
+    allocateOptions.numStreamBuffers = options.numStreamBuffers;
+  }
   pm.addPass(ttir::createTTIRAllocate(allocateOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  ttir::TTIRGenericApplyInterchangeOptions applyInterchangeOptions;
+  d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
     applyInterchangeOptions.matmulInterchange =
         llvm::to_vector(options.matmulInterchange);
   }
-  pm.addPass(ttir::createTTIRGenericApplyInterchange(applyInterchangeOptions));
-  ttir::TTIRGenericTileComputeLoopsOptions tileComputeLoopsOptions;
+  pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
+  d2m::D2MGenericTileComputeLoopsOptions tileComputeLoopsOptions;
   {
     tileComputeLoopsOptions.maxDstRegisterSizeTiles =
         options.maxDstRegisterSizeTiles;
   }
-  pm.addPass(ttir::createTTIRGenericTileComputeLoops(tileComputeLoopsOptions));
-  ttir::TTIRInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
-  { insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul; }
-  pm.addPass(
-      ttir::createTTIRInsertDstRegisterAccess(insertDstRegisterAccessOptions));
+  pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
+  d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
+  {
+    insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
+  }
+  pm.addPass(d2m::createD2MInsertDstRegisterAccess());
 
   OpPassManager &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(affine::createAffineLoopInvariantCodeMotionPass());
@@ -124,13 +129,13 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(memref::createFoldMemRefAliasOpsPass());
   pm.addPass(mlir::createLowerAffinePass());
-  pm.addPass(ttir::createTTIRGenericLinearizeMemref());
-  pm.addPass(ttir::createTTIRGenericGenerateDatamovement());
-  pm.addPass(ttir::createTTIRGenericHWThreadSelection());
-  pm.addPass(ttir::createTTIRGenericLowerDMAs());
-  pm.addPass(ttir::createTTIRGenericGenerateLoops());
+  pm.addPass(d2m::createD2MGenericLinearizeMemref());
+  pm.addPass(d2m::createD2MGenericGenerateDatamovement());
+  pm.addPass(d2m::createD2MGenericLowerDMAs());
+  pm.addPass(d2m::createD2MGenericHWThreadSelection());
+  pm.addPass(d2m::createD2MGenericGenerateLoops());
   createOptimizationPasses(pm, options);
-  pm.addPass(ttir::createTTIRGenericRegionsToFuncs());
+  pm.addPass(d2m::createD2MGenericRegionsToFuncs());
 }
 
 void createTTIRToTTMetalBackendPipeline(

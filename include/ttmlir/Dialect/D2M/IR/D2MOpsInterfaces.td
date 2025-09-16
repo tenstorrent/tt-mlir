@@ -8,7 +8,35 @@
 include "mlir/IR/OpBase.td"
 include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 
+// Mirror TTIR ViewOpInterface into d2m namespace
+// so D2M passes can use a local interface.
+
+def D2M_ViewOpInterface : OpInterface<"ViewOpInterface"> {
+  let cppNamespace = "::mlir::tt::d2m";
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{Get the input of the view op.}],
+      /*retTy=*/"mlir::Value",
+      /*methodName=*/"getInput"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{Get the result of the view op.}],
+      /*retTy=*/"mlir::Value",
+      /*methodName=*/"getResult"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{Recursively apply view ops until a shard layout is reached, returning underlying memref and view map.}],
+      /*retTy=*/"std::pair<mlir::MemRefType, mlir::AffineMap>",
+      /*methodName=*/"applyViews",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return ::mlir::tt::d2m::applyViews($_op);"
+    >,
+  ];
+}
+
 // Mirror TTIR DMA interface into d2m namespace for d2m ops
+
 def D2M_DMAOpInterface : OpInterface<"DMAOpInterface"> {
   let cppNamespace = "::mlir::tt::d2m";
   let methods = [
@@ -22,6 +50,7 @@ def D2M_DMAOpInterface : OpInterface<"DMAOpInterface"> {
 }
 
 // Parent interface used to verify D2M region ops are nested in d2m.generic or func.func
+
 def D2M_GenericParent : OpInterface<"GenericParent"> {
   let cppNamespace = "::mlir::tt::d2m";
 
@@ -31,15 +60,14 @@ def D2M_GenericParent : OpInterface<"GenericParent"> {
 }
 
 // Interface denoting which operands of an op must be sourced from dst register
+
 def D2M_OperandLoadRegisterOpInterface : OpInterface<"OperandLoadRegisterOpInterface"> {
   let cppNamespace = "::mlir::tt::d2m";
   let methods = [
     InterfaceMethod<
-      /*desc=*/[{
-        This interface denotes which op operand indices require their operands to be
+      /*desc=*/[{This interface denotes which op operand indices require their operands to be
         sourced from the destination register. It is used by the insert-dst-register-access
-        pass to autogenerate copynests to and from dst.
-      }],
+        pass to autogenerate copynests to and from dst.}],
       /*retTy=*/"::mlir::SmallVector<int64_t>",
       /*methodName=*/"getOperandsLoadFromDstRegister",
       /*args=*/(ins),

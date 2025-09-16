@@ -16,6 +16,18 @@ include "mlir/IR/OpAsmInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 
+include "mlir/IR/AttrTypeBase.td"
+include "mlir/IR/EnumAttr.td"
+include "mlir/IR/OpBase.td"
+include "mlir/IR/PatternBase.td"
+include "mlir/IR/RegionKindInterface.td"
+
+include "ttmlir/Dialect/D2M/IR/D2MBase.td"
+include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.td"
+include "ttmlir/Dialect/D2M/IR/D2MOpsEnums.td"
+include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOpsEnums.td"
+
 //===----------------------------------------------------------------------===//
 // Generic Region Op Traits and Classes
 //===----------------------------------------------------------------------===//
@@ -342,7 +354,19 @@ def D2M_TileMatmulBlockOp : D2M_GenericRegionComputeOp<"tile_matmul_block",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      // Compatibility with TTIR passes expecting these properties.
+      bool hasBlockDims() { return false; }
     }];
+
+    // Compatibility builder that accepts TTIR's extra dims but ignores them.
+    let builders = [
+      OpBuilder<(ins "Value":$a, "Value":$b, "Value":$output,
+                      "IntegerAttr":$rt, "IntegerAttr":$kt, "IntegerAttr":$ct, "IntegerAttr":$nt),
+      [{
+        (void)rt; (void)kt; (void)ct; (void)nt;
+        build($_builder, $_state, a, b, output);
+      }]>
+    ];
 
     let hasVerifier = 1;
 }

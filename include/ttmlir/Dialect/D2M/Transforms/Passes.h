@@ -10,22 +10,11 @@
 
 namespace mlir::tt::d2m {
 
-// Wrapper factories (initially delegate to TTIR implementations).
-struct TTIRGenericApplyInterchangeOptions;
-std::unique_ptr<mlir::Pass>
-createD2MGenericApplyInterchange(const TTIRGenericApplyInterchangeOptions &);
+#define GEN_PASS_DECL
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-struct TTIRGenericTileComputeLoopsOptions;
-std::unique_ptr<mlir::Pass>
-createD2MGenericTileComputeLoops(const TTIRGenericTileComputeLoopsOptions &);
-
-std::unique_ptr<mlir::Pass> createD2MInsertDstRegisterAccess();
-std::unique_ptr<mlir::Pass> createD2MGenericLinearizeMemref();
-std::unique_ptr<mlir::Pass> createD2MGenericGenerateDatamovement();
-std::unique_ptr<mlir::Pass> createD2MGenericLowerDMAs();
-std::unique_ptr<mlir::Pass> createD2MGenericHWThreadSelection();
-std::unique_ptr<mlir::Pass> createD2MGenericGenerateLoops();
-std::unique_ptr<mlir::Pass> createD2MGenericRegionsToFuncs();
+#define GEN_PASS_REGISTRATION
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 } // namespace mlir::tt::d2m
 

@@ -16,6 +16,9 @@ namespace detail {
 mlir::LogicalResult verifyGenericParent(mlir::Operation *op);
 }
 
+// Expose applyViews for default interface implementations
+std::pair<mlir::MemRefType, mlir::AffineMap> applyViews(mlir::Operation *op);
+
 } // namespace mlir::tt::d2m
 
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h.inc"
