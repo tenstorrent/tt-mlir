@@ -121,41 +121,42 @@ llvm::Expected<std::string> translateToPTX(Operation *op,
   return std::string(ptxBuffer.begin(), ptxBuffer.end());
 }
 
-static ::cuda::DataType mapMLIRTypeToCudaDataType(Type elementType) {
+static ::tt::target::cuda::DataType
+mapMLIRTypeToCudaDataType(Type elementType) {
   if (elementType.isF64()) {
-    return ::cuda::DataType::Float64;
+    return ::tt::target::cuda::DataType::Float64;
   }
   if (elementType.isF32()) {
-    return ::cuda::DataType::Float32;
+    return ::tt::target::cuda::DataType::Float32;
   }
   if (elementType.isF16()) {
-    return ::cuda::DataType::Float16;
+    return ::tt::target::cuda::DataType::Float16;
   }
   if (elementType.isBF16()) {
-    return ::cuda::DataType::BFloat16;
+    return ::tt::target::cuda::DataType::BFloat16;
   }
   if (elementType.isInteger(64)) {
     if (elementType.isUnsignedInteger()) {
-      return ::cuda::DataType::UInt64;
+      return ::tt::target::cuda::DataType::UInt64;
     }
-    return ::cuda::DataType::Int64;
+    return ::tt::target::cuda::DataType::Int64;
   }
   if (elementType.isInteger(32)) {
     if (elementType.isUnsignedInteger()) {
-      return ::cuda::DataType::UInt32;
+      return ::tt::target::cuda::DataType::UInt32;
     }
-    return ::cuda::DataType::Int32;
+    return ::tt::target::cuda::DataType::Int32;
   }
   if (elementType.isInteger(16)) {
     if (elementType.isUnsignedInteger()) {
-      return ::cuda::DataType::UInt16;
+      return ::tt::target::cuda::DataType::UInt16;
     }
-    return ::cuda::DataType::Int16;
+    return ::tt::target::cuda::DataType::Int16;
   }
   if (elementType.isIndex()) {
-    return ::cuda::DataType::Int64;
+    return ::tt::target::cuda::DataType::Int64;
   }
-  return ::cuda::DataType::Float32;
+  return ::tt::target::cuda::DataType::Float32;
 }
 
 static std::vector<uint8_t> serializeTypedAttrToBytes(TypedAttr attr) {
@@ -271,10 +272,10 @@ static llvm::Expected<std::string> getReturnVariableName(ModuleOp rootModule) {
   return llvm::createStringError("No return variable found");
 }
 
-static std::pair<std::vector<uint64_t>, ::cuda::DataType>
+static std::pair<std::vector<uint64_t>, ::tt::target::cuda::DataType>
 extractShapeAndDataType(Type mlirType) {
   std::vector<uint64_t> shape;
-  ::cuda::DataType dataType = ::cuda::DataType::Float32;
+  ::tt::target::cuda::DataType dataType = ::tt::target::cuda::DataType::Float32;
 
   if (auto memrefType = llvm::dyn_cast<MemRefType>(mlirType)) {
     auto shapeRef = memrefType.getShape();
@@ -318,8 +319,10 @@ extractKernels(ModuleOp rootModule, std::string chip) {
 static void processMemRefDescMap(
     const llvm::StringMap<MemRefDesc> &memRefDescMap,
     ::flatbuffers::FlatBufferBuilder &fbb, bool isConst,
-    std::vector<::flatbuffers::Offset<::cuda::MemRefDesc>> &memRefDescs,
-    std::vector<::flatbuffers::Offset<::cuda::Constant>> &constants) {
+    std::vector<::flatbuffers::Offset<::tt::target::cuda::MemRefDesc>>
+        &memRefDescs,
+    std::vector<::flatbuffers::Offset<::tt::target::cuda::Constant>>
+        &constants) {
 
   for (const auto &pair : memRefDescMap) {
     const std::string name = pair.first().str();
@@ -329,25 +332,26 @@ static void processMemRefDescMap(
     auto [shape, dataType] = extractShapeAndDataType(memRefDesc.type);
 
     auto shapeVector = fbb.CreateVector(shape);
-    auto typeOffset = ::cuda::CreateType(fbb, shapeVector, dataType);
+    auto typeOffset =
+        ::tt::target::cuda::CreateType(fbb, shapeVector, dataType);
     auto first = memRefDesc.first;
     auto last = memRefDesc.last;
 
     if (isConst) {
       auto valueBytes = serializeTypedAttrToBytes(memRefDesc.value);
       auto valueVector = fbb.CreateVector(valueBytes);
-      auto constantOffset = ::cuda::CreateConstant(fbb, nameOffset, typeOffset,
-                                                   valueVector, first, last);
+      auto constantOffset = ::tt::target::cuda::CreateConstant(
+          fbb, nameOffset, typeOffset, valueVector, first, last);
       constants.push_back(constantOffset);
     } else {
-      auto memrefOffset =
-          ::cuda::CreateMemRefDesc(fbb, nameOffset, typeOffset, first, last);
+      auto memrefOffset = ::tt::target::cuda::CreateMemRefDesc(
+          fbb, nameOffset, typeOffset, first, last);
       memRefDescs.push_back(memrefOffset);
     }
   }
 }
 
-flatbuffers::Offset<::cuda::CopyFunction>
+flatbuffers::Offset<::tt::target::cuda::CopyFunction>
 processCopyOp(mlir::memref::CopyOp copyOp, flatbuffers::FlatBufferBuilder &fbb,
               mlir::ModuleOp rootModule,
               llvm::StringMap<MemRefDesc> &memRefDescMap, uint64_t opIndex) {
@@ -397,13 +401,13 @@ processCopyOp(mlir::memref::CopyOp copyOp, flatbuffers::FlatBufferBuilder &fbb,
   auto sourceNameOffset = fbb.CreateString(sourceName);
   auto targetNameOffset = fbb.CreateString(targetName);
 
-  auto copyFunctionOffset = ::cuda::CreateCopyFunction(
+  auto copyFunctionOffset = ::tt::target::cuda::CreateCopyFunction(
       fbb, sourceNameOffset, targetNameOffset, offset);
 
   return copyFunctionOffset;
 }
 
-flatbuffers::Offset<::cuda::Kernel>
+flatbuffers::Offset<::tt::target::cuda::Kernel>
 processLaunchFuncOp(mlir::gpu::LaunchFuncOp launchFuncOp,
                     const llvm::StringMap<cuda::Kernel> &kernelMap,
                     flatbuffers::FlatBufferBuilder &fbb,
@@ -511,10 +515,10 @@ processLaunchFuncOp(mlir::gpu::LaunchFuncOp launchFuncOp,
   }
   auto inputNamesOffset = fbb.CreateVector(inputNameOffsets);
 
-  return ::cuda::CreateKernel(fbb, nameOffset, ptxOffset, kernel.gridSizeX,
-                              kernel.gridSizeY, kernel.gridSizeZ,
-                              kernel.blockSizeX, kernel.blockSizeY,
-                              kernel.blockSizeZ, inputNamesOffset);
+  return ::tt::target::cuda::CreateKernel(
+      fbb, nameOffset, ptxOffset, kernel.gridSizeX, kernel.gridSizeY,
+      kernel.gridSizeZ, kernel.blockSizeX, kernel.blockSizeY, kernel.blockSizeZ,
+      inputNamesOffset);
 }
 std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
   ModuleOp rootModule = dyn_cast<ModuleOp>(op);
@@ -538,7 +542,7 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
   auto kernelMap = kernelMapResult.get();
   llvm::StringMap<MemRefDesc> memRefDescMap;
   llvm::StringMap<MemRefDesc> constantMemRefDescMap;
-  std::vector<::cuda::Action> actionTypes;
+  std::vector<::tt::target::cuda::Action> actionTypes;
   std::vector<::flatbuffers::Offset<void>> actionObjects;
 
   uint64_t opIndex = 0;
@@ -548,20 +552,21 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
       auto kernelOffset =
           processLaunchFuncOp(launchFuncOp, kernelMap, fbb, memRefDescMap,
                               constantMemRefDescMap, opIndex);
-      actionTypes.push_back(::cuda::Action::Kernel);
+      actionTypes.push_back(::tt::target::cuda::Action::Kernel);
       actionObjects.push_back(kernelOffset.Union());
       opIndex++;
     } else if (auto copyOp = dyn_cast<mlir::memref::CopyOp>(op)) {
       auto copyFunction =
           processCopyOp(copyOp, fbb, rootModule, memRefDescMap, opIndex);
-      actionTypes.push_back(::cuda::Action::CopyFunction);
+      actionTypes.push_back(::tt::target::cuda::Action::CopyFunction);
       actionObjects.push_back(copyFunction.Union());
       opIndex++;
     }
   });
 
-  std::vector<::flatbuffers::Offset<::cuda::MemRefDesc>> memRefDescs;
-  std::vector<::flatbuffers::Offset<::cuda::Constant>> constants;
+  std::vector<::flatbuffers::Offset<::tt::target::cuda::MemRefDesc>>
+      memRefDescs;
+  std::vector<::flatbuffers::Offset<::tt::target::cuda::Constant>> constants;
 
   processMemRefDescMap(memRefDescMap, fbb, false, memRefDescs, constants);
   processMemRefDescMap(constantMemRefDescMap, fbb, true, memRefDescs,
@@ -573,7 +578,7 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
   auto constantsVector = fbb.CreateVector(constants);
   auto returnVariableOffset = fbb.CreateString(returnVariableName);
 
-  auto finalProgram = ::cuda::CreateProgram(
+  auto finalProgram = ::tt::target::cuda::CreateProgram(
       fbb, actionTypesVector, actionObjectsVector, memrefsVector,
       constantsVector, returnVariableOffset);
   fbb.FinishSizePrefixed(finalProgram);

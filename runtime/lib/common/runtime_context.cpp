@@ -15,7 +15,9 @@ RuntimeContext &RuntimeContext::instance() {
 
 RuntimeContext::RuntimeContext() {
 #if (!defined(TT_RUNTIME_ENABLE_TTNN) || (TT_RUNTIME_ENABLE_TTNN == 0)) &&     \
-    (!defined(TT_RUNTIME_ENABLE_TTMETAL) || (TT_RUNTIME_ENABLE_TTMETAL == 0))
+    (!defined(TT_RUNTIME_ENABLE_TTMETAL) ||                                    \
+     (TT_RUNTIME_ENABLE_TTMETAL == 0)) &&                                      \
+    (!defined(TTMLIR_ENABLE_CUDA) || (TTMLIR_ENABLE_CUDA == 0))
   LOG_FATAL(
       "Runtime context cannot be initialized when no runtimes are enabled");
 #endif
@@ -24,6 +26,8 @@ RuntimeContext::RuntimeContext() {
   currentRuntime = DeviceRuntime::TTNN;
 #elif defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1)
   currentRuntime = DeviceRuntime::TTMetal;
+#elif defined(TTMLIR_ENABLE_CUDA) && (TTMLIR_ENABLE_CUDA == 1)
+  currentRuntime = DeviceRuntime::CUDA;
 #endif
 }
 
@@ -38,6 +42,10 @@ DeviceRuntime RuntimeContext::getCurrentDeviceRuntime() const {
   LOG_ASSERT(runtime != DeviceRuntime::TTMetal);
 #endif
 
+#if !defined(TTMLIR_ENABLE_CUDA) || (TTMLIR_ENABLE_CUDA == 0)
+  LOG_ASSERT(runtime != DeviceRuntime::CUDA);
+#endif
+
   return runtime;
 }
 
@@ -48,6 +56,10 @@ void RuntimeContext::setCurrentDeviceRuntime(const DeviceRuntime &runtime) {
 #if !defined(TT_RUNTIME_ENABLE_TTMETAL) || (TT_RUNTIME_ENABLE_TTMETAL == 0)
   LOG_ASSERT(runtime != DeviceRuntime::TTMetal);
 #endif
+#if !defined(TTMLIR_ENABLE_CUDA) || (TTMLIR_ENABLE_CUDA == 0)
+  LOG_ASSERT(runtime != DeviceRuntime::CUDA);
+#endif
+
   currentRuntime.store(runtime, std::memory_order_relaxed);
 }
 

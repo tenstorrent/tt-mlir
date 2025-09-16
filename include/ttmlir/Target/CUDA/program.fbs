@@ -1,6 +1,6 @@
 include "ttmlir/Target/Common/types.fbs";
 
-namespace cuda;
+namespace tt.target.cuda;
 
 table Kernel {
   name: string;
@@ -66,3 +66,5 @@ table Program {
 }
 
 root_type Program;
+file_identifier "TTCU";
+file_extension "ttc";
