@@ -387,7 +387,6 @@ def compile_ttir_to_flatbuffer(
         fn,
         inputs_shapes,
         inputs_types,
-        base=test_base,
         mesh_name=mesh_name,
         mesh_dict=mesh_dict,
         module_dump=module_dump,

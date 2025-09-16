@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
 
 namespace tt::tt_metal::distributed {
@@ -304,20 +305,49 @@ struct TTIRToTTNNBackendPipelineOptions
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 };
 
-// TTIR to EmitC pipeline options.
-// Inherit from TTIRToTTNNBackendPipelineOptions to reuse the options.
+// TTNN Backend to EmitC PipelineOptions.
 //
-struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions {};
+struct TTNNBackendToEmitCPipelineOptions
+    : public PassPipelineOptions<TTNNBackendToEmitCPipelineOptions> {
+  Option<bool> targetDylib{*this, "target-dylib",
+                           llvm::cl::desc("Tailor passes for dylib target."),
+                           llvm::cl::init(false)};
 
-// TTIR to EmitC SO pipeline options.
-// Inherit from TTIRToEmitCPipelineOptions to reuse the options.
+  Option<bool> tuplifyInputIfEmpty{
+      *this, "tuplify-input-if-empty",
+      llvm::cl::desc("Whether to create an empty tuple if no inputs to forward "
+                     "function. This should only be used if the `target-dylib` "
+                     "option is set to `true`"),
+      llvm::cl::init(false)};
+};
+
+// TTNN Backend to EmitPy PipelineOptions.
 //
-struct TTIRToEmitCSOPipelineOptions : public TTIRToEmitCPipelineOptions {};
+struct TTNNBackendToEmitPyPipelineOptions
+    : public PassPipelineOptions<TTNNBackendToEmitPyPipelineOptions> {
+  // TTNNToEmitC pipeline options contain "target-dylib" and
+  // "tuplify-input-if-empty" options. There's no dylib (or equivalent) path in
+  // EmitPy yet, so these options are removed.
+};
+
+// TTIR to EmitC pipeline options.
+// Inherit from TTIRToTTNNBackendPipelineOptions and
+// TTNNBackendToEmitCPipelineOptions to reuse the options.
+//
+struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
+                                    public TTNNBackendToEmitCPipelineOptions {};
 
 // TTIR to EmitPy pipeline options.
-// Inherit from TTIRToTTNNBackendPipelineOptions to reuse the options.
+// Inherit from TTIRToTTNNBackendPipelineOptions and
+// TTNNBackendToEmitPyPipelineOptions to reuse the options.
 //
-struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions {};
+struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
+                                     public TTNNBackendToEmitPyPipelineOptions {
+};
+
+//===----------------------------------------------------------------------===//
+// Passes and pipelines
+//===----------------------------------------------------------------------===//
 
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
@@ -337,11 +367,14 @@ void createTTNNPipelineDeallocPass(
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
+void createTTNNBackendToEmitCPipeline(
+    OpPassManager &pm, const TTNNBackendToEmitCPipelineOptions &options);
+
+void createTTNNBackendToEmitPyPipeline(
+    OpPassManager &pm, const TTNNBackendToEmitPyPipelineOptions &options);
+
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options);
-
-void createTTIRToEmitCSOPipeline(OpPassManager &pm,
-                                 const TTIRToEmitCSOPipelineOptions &options);
 
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options);

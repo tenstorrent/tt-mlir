@@ -110,7 +110,7 @@ def TTIR_ViewOpInterface : OpInterface<"ViewOpInterface"> {
   ];
 }
 
-def TTIR_OperandLoadRegisterOpInterface : OpInterface<"OperandLoadRegisterOpInterface"> {
+def TTIR_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegisterOpInterface"> {
   let cppNamespace = "::mlir::tt::ttir";
   let methods = [
     InterfaceMethod<
@@ -124,6 +124,17 @@ def TTIR_OperandLoadRegisterOpInterface : OpInterface<"OperandLoadRegisterOpInte
       /*args=*/(ins),
       /*methodBody=*/"",
       /*defaultImplementation=*/"return ::mlir::SmallVector<int64_t>{};"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns whether this operation should use the destination register in place.
+        When true, the operation can read from and write to the same register location.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"getDstRegInPlace",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
     >,
   ];
 }

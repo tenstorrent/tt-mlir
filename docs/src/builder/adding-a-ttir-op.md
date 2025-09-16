@@ -112,19 +112,16 @@ source env/activate
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTTMLIR_ENABLE_RUNTIME=ON -DTT_RUNTIME_ENABLE_PERF_TRACE=ON
 cmake --build build
 
-2. Build ttrt (sample instructions - subject to change)
-cmake --build build -- ttrt
-
-3. Query system
+2. Query system
 ttrt query --save-artifacts
 
-4. Export system desc file
+3. Export system desc file
 export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys (path dumped in previous command)
 
-5. Generate test cases
+4. Generate test cases
 pytest test/python/golden/test_ttir_ops.py
 
-6. Run test cases
+5. Run test cases
 ttrt run builder-artifacts
 ```
 
