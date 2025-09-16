@@ -13,6 +13,7 @@
 #include "mlir/IR/Value.h"
 #include "llvm/Support/Casting.h"
 
+#include <mlir/IR/Operation.h>
 #include <optional>
 
 namespace mlir::tt::ttnn::utils {
@@ -252,6 +253,10 @@ std::optional<ShardSpecAttr> createShardSpecIfNeeded(
 
 bool isTTNNTraceFunc(func::FuncOp funcOp) {
   return funcOp->hasAttr(g_TTNNTraceAttrName);
+}
+
+bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op) {
+  return op->hasAttr(g_TTNNHoistGenericViaD2MAttrName);
 }
 
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
