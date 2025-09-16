@@ -73,8 +73,8 @@ struct TTIRLowerTTNNLayouts
                                    metalLayout);
     };
 
-    // Handle function arguments: insert a view after entry start and rewrite
-    // uses.
+    // Handle function arguments: insert a representational cast to metal
+    // layout after entry start and rewrite uses.
     module.walk([&](func::FuncOp func) {
       if (func.isDeclaration()) {
         return WalkResult::advance();
@@ -89,10 +89,9 @@ struct TTIRLowerTTNNLayouts
         }
         ttnn::TTNNLayoutAttr ttnnLayout = getTTNNLayout(tensor);
         RankedTensorType metalTensor = buildMetalTensor(tensor, ttnnLayout);
-        auto view =
-            rewriter.create<ttir::ViewLayoutOp>(func.getLoc(), metalTensor, arg,
-                                                /*reinterpretLayout=*/false);
-        arg.replaceAllUsesExcept(view.getResult(), view.getOperation());
+        auto castOp = rewriter.create<ttir::TTNNToMetalLayoutCastOp>(
+            func.getLoc(), metalTensor, arg);
+        arg.replaceAllUsesExcept(castOp.getResult(), castOp.getOperation());
       }
       return WalkResult::advance();
     });
