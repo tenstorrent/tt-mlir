@@ -701,10 +701,33 @@ public:
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(srcOp.getInPlaceHalo()),
-    };
+        /*return_indices=*/emitter.emit(false)};
 
-    emitter.replaceOp(*this, args);
+    // MaxPool2d now returns std::variant<Tensor, MaxPoolWithIndicesResult>
+    // Since we always call with return_indices=false, it will always return the
+    // Tensor variant We can use std::get<0> to extract the tensor directly
+    Location loc = srcOp.getLoc();
+    auto variantType = emitc::OpaqueType::get(
+        rewriter.getContext(),
+        "std::variant<::ttnn::Tensor, "
+        "::ttnn::operations::pool::MaxPoolWithIndicesResult>");
 
+    auto maxPoolCall = rewriter.create<emitc::CallOpaqueOp>(
+        loc, variantType, "ttnn::max_pool2d", rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    // Extract the tensor using std::get<0> since return_indices=false
+    // guarantees Tensor variant
+    auto tensorType = cast<emitc::OpaqueType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    auto extractCall = rewriter.create<emitc::CallOpaqueOp>(
+        loc, tensorType, "std::get", /*args=*/nullptr,
+        /*template_args=*/
+        rewriter.getArrayAttr({rewriter.getI32IntegerAttr(0)}),
+        maxPoolCall.getResult(0));
+
+    rewriter.replaceOp(srcOp, extractCall.getResults());
     return success();
   }
 };

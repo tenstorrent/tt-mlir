@@ -46,9 +46,7 @@ target_link_libraries(TTRuntimeGTestLib INTERFACE
     GTest::gtest_main
 )
 
-if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  target_link_libraries(TTRuntimeGTestLib INTERFACE TRACY_LIBRARY)
-endif()
+target_link_libraries(TTRuntimeGTestLib INTERFACE TRACY_LIBRARY)
 
 function(add_runtime_gtest test_name)
   if(ARGC EQUAL 1)

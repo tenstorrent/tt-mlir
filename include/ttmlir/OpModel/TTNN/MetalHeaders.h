@@ -19,6 +19,24 @@ using IDevice = ::tt::tt_metal::IDevice;
 // allocator header include required by
 // "ttnn/graph/graph_query_op_constraints.hpp"
 #include "tt-metalium/allocator.hpp"
+#include "ttnn/operations/pool/generic/generic_pools.hpp"
+
+// Add missing extract_output_tensor overload for MaxPoolWithIndicesResult
+// This should be in the metal repo but is missing from commit 5965834630
+namespace ttnn::graph::detail {
+inline Tensor extract_output_tensor(
+    const std::variant<Tensor, ttnn::operations::pool::MaxPoolWithIndicesResult>
+        &result) {
+  return std::visit<Tensor>(
+      ttsl::overloaded{
+          [](const Tensor &tensor) { return tensor; },
+          [](const ttnn::operations::pool::MaxPoolWithIndicesResult &result) {
+            return result.output;
+          }},
+      result);
+}
+} // namespace ttnn::graph::detail
+
 #include "ttnn/graph/graph_query_op_constraints.hpp"
 #include "ttnn/graph/graph_query_op_runtime.hpp"
 #include "ttnn/graph/graph_trace_utils.hpp"
@@ -51,7 +69,6 @@ using IDevice = ::tt::tt_metal::IDevice;
 #include "ttnn/operations/normalization/batch_norm/batch_norm.hpp"
 #include "ttnn/operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
-#include "ttnn/operations/pool/generic/generic_pools.hpp"
 #include "ttnn/operations/pool/upsample/upsample.hpp"
 #include "ttnn/operations/rand/rand.hpp"
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
@@ -59,6 +76,5 @@ using IDevice = ::tt::tt_metal::IDevice;
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/tensor_spec.hpp"
 #include "ttnn/tensor/types.hpp"
-#include <ttnn/tensor/enum_types.hpp>
 
 #endif // TTMLIR_OPMODEL_TTNN_METALHEADERS_H
