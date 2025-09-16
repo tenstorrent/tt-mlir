@@ -49,6 +49,7 @@
 #include "ttnn/operations/reduction/prod/prod.hpp"
 #include "ttnn/operations/trace.hpp"
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
+#include "ttnn/operations/transformer/split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.hpp"
 #include "ttnn/tensor/host_buffer/functions.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor.hpp"
