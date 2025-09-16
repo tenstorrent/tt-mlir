@@ -7,7 +7,7 @@
 #l1 = #ttnn.buffer_type<l1>
 #dram = #ttnn.buffer_type<dram>
 
-#l1_layout = #ttnn.ttnn_layout<
+#ttnn_layout = #ttnn.ttnn_layout<
   (d0, d1) -> (d0, d1),
   <1x1, (d0, d1) -> (0, d0, d1)>,
   memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>
@@ -82,17 +82,18 @@
 module {
 // CHECK-LABEL: func.func @test_lower_block_sharded_l1
 func.func @test_lower_block_sharded_l1(
-  %arg0: tensor<32x32xf32, #l1_layout>
+  %arg0: tensor<32x32xf32, #ttnn_layout>
 ) {
-  // Expect the pass to insert a single view_layout converting the TTNN layout to a TTCore metal layout.
-  // CHECK: %[[VIEW:.*]] = ttir.view_layout %arg0
-  // CHECK-SAME: : tensor<32x32xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>>> -> tensor<{{.*}}#ttcore.metal_layout<{{.*}}#ttcore.memory_space<l1>{{.*}}>>
+  // Expect the pass to insert a single cast op converting the TTNN layout to a TTCore metal layout.
+  // (Aliases are emitted above; assert the cast uses them.)
+  // CHECK: %[[CAST:.*]] = ttir.ttnn_to_metal_layout_cast %arg0
+  // CHECK-SAME: : tensor<32x32xf32, #ttnn_layout> -> tensor<32x32xf32, #layout>
 
-  // And the ttnn.generic should consume that view value for both operands.
-  // CHECK: "ttnn.generic"(%[[VIEW]], %[[VIEW]]) <{program = #program}>
-  // CHECK-SAME: : (tensor<{{.*}}#ttcore.metal_layout<{{.*}}>>, tensor<{{.*}}#ttcore.metal_layout<{{.*}}>>) -> ()
+  // And the ttnn.generic should consume that cast value for both operands with metal_layout-typed tensors.
+  // CHECK: "ttnn.generic"(%[[CAST]], %[[CAST]]) <{program = {{.*}}}>
+  // CHECK-SAME: : (tensor<32x32xf32, #layout>, tensor<32x32xf32, #layout>) -> ()
 
-  "ttnn.generic"(%arg0, %arg0) <{program = #program}> : (tensor<32x32xf32, #l1_layout>, tensor<32x32xf32, #l1_layout>) -> ()
+  "ttnn.generic"(%arg0, %arg0) <{program = #program}> : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> ()
 
     return
   }
