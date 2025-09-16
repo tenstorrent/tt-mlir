@@ -34,6 +34,44 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Conversion/Passes.h.inc"
 
 namespace {
+
+  static bool isZeroSizedTensor(Type ty) {
+  if (auto rt = llvm::dyn_cast<RankedTensorType>(ty)) {
+    for (int64_t d : rt.getShape())
+      if (d == 0) return true;
+  }
+  return false;
+}
+
+static bool hasNonReadMemoryEffects(Operation *op) {
+  if (op->hasTrait<OpTrait::HasRecursiveMemoryEffects>()) {
+    if (auto mei = dyn_cast<MemoryEffectOpInterface>(op)) {
+      SmallVector<MemoryEffects::EffectInstance, 4> effs;
+      mei.getEffects(effs);
+      for (auto &e : effs)
+        if (!isa<MemoryEffects::Read>(e.getEffect()))
+          return true;
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+static bool resultIsZeroElementTensor(Value v) {
+  auto st = llvm::dyn_cast<ShapedType>(v.getType());
+  if (!st || !st.hasRank()) return false;
+  for (int64_t d : st.getShape())
+    if (d == 0) return true;
+  return false;
+}
+
+static Value makeZeroElementConst(OpBuilder &b, Location loc, Type ty) {
+  auto st = llvm::cast<ShapedType>(ty);
+  DenseElementsAttr emptyAttr = DenseElementsAttr::get(st, ArrayRef<Attribute>{});
+  return b.create<stablehlo::ConstantOp>(loc, ty, emptyAttr).getResult();
+}
+
 struct ConvertStableHLOToTTIRPass
     : public ttir::impl::ConvertStableHLOToTTIRBase<
           ConvertStableHLOToTTIRPass> {
@@ -43,6 +81,50 @@ struct ConvertStableHLOToTTIRPass
       : Base(options) {}
 
   void runOnOperation() final {
+
+      mlir::ModuleOp mod = getOperation();
+
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    SmallVector<Operation*> toErase;
+
+    mod.walk([&](Operation *op) {
+      if (isa<ModuleOp, func::FuncOp, func::ReturnOp, func::CallOp>(op)) return;
+      bool hasZeroInput = llvm::any_of(op->getOperands(), [&](Value v) {
+        return isZeroSizedTensor(v.getType());
+      });
+      if (!hasZeroInput) return;
+      if (hasNonReadMemoryEffects(op)) return;
+
+      if (op->getNumResults() == 0 ||
+          llvm::all_of(op->getResults(), [](Value r){ return r.use_empty(); })) {
+        toErase.push_back(op);
+        changed = true;
+        return;
+      }
+
+      SmallVector<Value> repls;
+      repls.reserve(op->getNumResults());
+      for (Value r : op->getResults()) {
+        if (!resultIsZeroElementTensor(r)) {
+          repls.clear();
+          return;
+        }
+      }
+      OpBuilder b(op);
+      for (Value r : op->getResults())
+        repls.push_back(makeZeroElementConst(b, op->getLoc(), r.getType()));
+
+      op->replaceAllUsesWith(repls);
+      toErase.push_back(op);
+      changed = true;
+    });
+
+    for (Operation *op : toErase)
+      op->erase();
+  }
+
     mlir::ConversionTarget target(getContext());
 
     // Common legal/illegal ops/dialects for both partial and full conversion.

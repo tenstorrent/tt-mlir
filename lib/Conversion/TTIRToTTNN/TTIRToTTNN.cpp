@@ -1851,15 +1851,35 @@ public:
      *   4. Final scatter:
      *      - ttnn.scatter: dim=0, all tensors rank 3
      */
-
+    llvm::errs() << "Converting ttir.scatter to ttnn.scatter\n";
+    llvm::errs() << "  " << op << "\n";
     auto scatterDimsToOperandDims = op.getScatterDimsToOperandDims();
     auto indexVectorDim = op.getIndexVectorDim();
+
+
+ {
+        auto hasZeroDim = [](ArrayRef<int64_t> shape) {
+    return llvm::any_of(shape, [](int64_t d) { return d == 0; });
+  };
+  auto updateType = mlir::dyn_cast<RankedTensorType>(adaptor.getUpdate().getType());
+  auto idx0Type   = mlir::dyn_cast<RankedTensorType>(adaptor.getScatterIndices().getType());
+
+  if (updateType && hasZeroDim(updateType.getShape())) {
+    rewriter.replaceOp(op, adaptor.getInput());
+    return success();
+  }
+  if (idx0Type && hasZeroDim(idx0Type.getShape())) {
+    rewriter.replaceOp(op, adaptor.getInput());
+    return success();
+  }
+}
 
     if (scatterDimsToOperandDims.size() > 1) {
       return convertMultidimensionalScatter(op, adaptor, rewriter);
     }
 
     int32_t dim = scatterDimsToOperandDims[0];
+    llvm::errs() << "  Scatter dim: " << dim << "\n";
     if (dim < 0) {
       return rewriter.notifyMatchFailure(
           op, "Negative dimension values not supported");
@@ -1867,6 +1887,9 @@ public:
 
     Value indexTensor = extractIndices(op, adaptor.getScatterIndices(),
                                        indexVectorDim, 0, rewriter);
+
+                                       llvm::errs() << "  Extracted indices: "
+                                        << indexTensor.getType() << "\n";
 
     // Ensure all tensors have the same rank.
     auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
@@ -1965,6 +1988,9 @@ public:
       auto updateShape = updateType.getShape();
 
       for (size_t i = 0; i < targetRank; ++i) {
+        llvm::errs() << "    Update dim " << i << " size: "
+                     << updateShape[i] << " / expanded index size: "
+                     << expandedIndexShape[i] << "\n";
         int64_t repeatCount = updateShape[i] / expandedIndexShape[i];
         repeatDims.push_back(repeatCount);
         if (repeatCount > 1) {
@@ -2001,6 +2027,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(op, convertedResultType,
                                                  finalInput, finalIndex,
                                                  finalSource, dimAttr, nullptr);
+
+    llvm::errs() << "  Replaced with ttnn.scatter\n";
 
     return success();
   }
