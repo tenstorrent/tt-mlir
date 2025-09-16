@@ -1196,6 +1196,12 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ConcatenateHeadsOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp: {
+    auto outputs =
+        opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp()->outputs();
+    tensorRef = outputs && outputs->size() > 0 ? outputs->Get(0) : nullptr;
+    break;
+  }
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1506,6 +1512,13 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
     tensorRefs = {opContext.type_as_ConcatenateHeadsOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp: {
+    tensorRefs.push_back(
+        opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp()->in());
+    tensorRefs.push_back(
+        opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp()->kv_input());
     break;
   }
   case ::tt::target::ttnn::OpType::GenericOp: {

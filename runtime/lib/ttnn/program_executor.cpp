@@ -66,6 +66,7 @@
 #include "operations/trace/end_trace_capture.h"
 #include "operations/trace/execute_trace.h"
 #include "operations/transformer/concatenate_heads.h"
+#include "operations/transformer/split_query_key_value_and_split_heads.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/perf.h"
@@ -254,6 +255,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
     return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
                                         getContext());
+  }
+  case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp: {
+    return operations::transformer::run(
+        op->type_as_SplitQueryKeyValueAndSplitHeadsOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::WriteTensorOp: {
     return operations::data_movement::run(op->type_as_WriteTensorOp(),
