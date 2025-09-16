@@ -3165,6 +3165,93 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// TTNNToMetalLayoutCastOp
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult mlir::tt::ttir::TTNNToMetalLayoutCastOp::verify() {
+  return success();
+}
+
+void mlir::tt::ttir::TTNNToMetalLayoutCastOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  setNameFn(getResult(), "cast");
+}
+
+mlir::LogicalResult mlir::tt::ttir::TTNNToMetalLayoutCastOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  // if (getNumResults() == 0) {
+  //   return failure();
+  // }
+
+  // TT_assertv(getNumResults() == 1, "TTNNToMetalLayoutCastOp should have
+  // exactly one result");
+
+  if (!mlir::isa<::mlir::RankedTensorType>(getResult().getType()) ||
+      !mlir::isa<::mlir::RankedTensorType>(getInput().getType())) {
+    return failure();
+  }
+
+  auto inputType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
+  auto outputType = mlir::cast<mlir::RankedTensorType>(getResult().getType());
+
+  auto inputEncoding = inputType.getEncoding();
+  auto outputEncoding = outputType.getEncoding();
+
+  if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(outputEncoding) &&
+      mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(inputEncoding)) {
+    return emitOpError("Both input and output use metal_layout");
+  }
+
+  FailureOr<mlir::Value> bufferizedValue = failure();
+  if (auto inputMetalAttr =
+          mlir::dyn_cast_or_null<mlir::tt::ttcore::MetalLayoutAttr>(
+              inputEncoding)) {
+    bufferizedValue =
+        mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
+  } else if (auto outputMetalAttr =
+                 mlir::dyn_cast_or_null<mlir::tt::ttcore::MetalLayoutAttr>(
+                     outputEncoding)) {
+    bufferizedValue =
+        mlir::bufferization::getBuffer(rewriter, getResult(), options, state);
+  } else {
+    return emitOpError("neither input nor output uses metal_layout");
+  }
+
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     *bufferizedValue);
+  return success();
+}
+
+mlir::bufferization::AliasingValueList
+mlir::tt::ttir::TTNNToMetalLayoutCastOp::getAliasingValues(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType>
+mlir::tt::ttir::TTNNToMetalLayoutCastOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
+}
+
+bool mlir::tt::ttir::TTNNToMetalLayoutCastOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // no-op
+  return false;
+}
+
+bool mlir::tt::ttir::TTNNToMetalLayoutCastOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // no-op
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 
