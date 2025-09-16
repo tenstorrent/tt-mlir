@@ -2409,4 +2409,36 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Memory
     let hasVerifier = 1;
 }
 
+def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor"> {
+  let summary = "Saves a tensor to disk in the TT-NN binary format";
+  let description = [{
+    Saves a tensor to disk in the TT-NN binary format. Files must use the `.tensorbin` extension.
+
+    Inputs:
+      TODO (azecevic)
+  }];
+
+  let arguments = (ins StrAttr:$file_path,
+                       AnyRankedTensor:$input);
+}
+
+def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
+  let summary = "Loads a tensor from disk";
+  let description = [{
+    Loads a tensor from disk, optionally placing it directly on a device.
+
+    Inputs:
+      TODO (azecevic)
+    Outputs:
+      TODO (azecevic)
+  }];
+
+  let arguments = (ins StrAttr:$file_path,
+                       Optional<TTNN_Device>:$device);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 #endif
