@@ -1764,6 +1764,39 @@ public:
     return success();
   }
 };
+
+class SplitQueryKeyValueAndSplitHeadsOpConversionPattern
+    : public OpConversionPattern<ttir::SplitQueryKeyValueAndSplitHeadsOp> {
+public:
+  using OpConversionPattern<
+      ttir::SplitQueryKeyValueAndSplitHeadsOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SplitQueryKeyValueAndSplitHeadsOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Convert result types
+    auto queryType =
+        this->getTypeConverter()->convertType(op.getQuery().getType());
+    auto keyType = this->getTypeConverter()->convertType(op.getKey().getType());
+    auto valueType =
+        this->getTypeConverter()->convertType(op.getValue().getType());
+
+    // Create the TTNN op with 3 results
+    auto ttnnOp = rewriter.create<ttnn::SplitQueryKeyValueAndSplitHeadsOp>(
+        op.getLoc(), TypeRange{queryType, keyType, valueType},
+        adaptor.getInputTensor(),
+        adaptor.getKvInputTensor(), // This is optional, will be nullptr if not
+                                    // present
+        adaptor.getNumHeadsAttr(),
+        adaptor.getNumKvHeadsAttr(), // This is optional
+        adaptor.getTransposeKeyAttr(),
+        /*memory_config=*/nullptr);
+
+    // Replace the original op with the three results
+    rewriter.replaceOp(op, ttnnOp.getResults());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -2017,7 +2050,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            CollectiveBroadcastOpConversionPattern,
            ConcatenateHeadsOpConversionPattern,
            ScaledDotProductAttentionOpConversionPattern,
-           ScaledDotProductAttentionDecodeOpConversionPattern
+           ScaledDotProductAttentionDecodeOpConversionPattern,
+           SplitQueryKeyValueAndSplitHeadsOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

@@ -1638,6 +1638,410 @@ private:
 };
 
 namespace {
+class SplitQueryKeyValueAndSplitHeadsUpdatePattern
+    : public mlir::OpRewritePattern<ReshapeOp> {
+  using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
+
+  // Reshape input is [batch_size, sequence_length, hidden_dimensions].
+  // Query is [batch_size, number of kv heads, sequence_length, head_size].
+  // Key is [batch_size, number of kv heads, head_size, sequence_length].
+  // Value is [batch_size, number of kv heads, sequence_length, head_size].
+
+  enum InputDimensions {
+    BATCH_SIZE = 0,
+    SEQUENCE_LENGTH = 1,
+    HIDDEN_DIMENSIONS = 2,
+  };
+  enum QueryDimensions {
+    Q_BATCH_SIZE = 0,
+    Q_NUM_KV_HEADS = 1,
+    Q_SEQUENCE_LENGTH = 2,
+    Q_HEAD_SIZE = 3,
+  };
+  enum KeyDimensions {
+    K_BATCH_SIZE = 0,
+    K_NUM_KV_HEADS = 1,
+    K_HEAD_SIZE = 2,
+    K_SEQUENCE_LENGTH = 3,
+  };
+  enum ValueDimensions {
+    V_BATCH_SIZE = 0,
+    V_NUM_KV_HEADS = 1,
+    V_SEQUENCE_LENGTH = 2,
+    V_HEAD_SIZE = 3,
+  };
+
+  mutable std::vector<Operation *> fusableMultOps;
+  mutable std::vector<Operation *> permuteOpsToFuse;
+  mutable Value inputTensor;
+  mutable Value queryWeightMatrix;
+  mutable Value keyWeightMatrix;
+  mutable Value valueWeightMatrix;
+  mutable Value queryBias;
+  mutable Value keyBias;
+  mutable Value valueBias;
+  mutable int32_t numHeads = -1;
+  mutable int32_t headSize = -1;
+  mutable int32_t hiddenSize = -1;
+  mutable int32_t sequenceLength = -1;
+  mutable int32_t batchSize = -1;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ReshapeOp reshapeOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    bool useLinearOp = true;
+
+    if (!isFusable(reshapeOp, useLinearOp)) {
+      if (!isFusable(reshapeOp, !useLinearOp)) {
+        return mlir::failure();
+      }
+      useLinearOp = false; // we are using DotGeneralOp
+    }
+
+    if (useLinearOp) {
+
+      populateConstants(reshapeOp);
+
+      auto queryOp = mlir::dyn_cast<LinearOp>(fusableMultOps[0]);
+      auto queryOpType =
+          mlir::cast<RankedTensorType>(queryOp.getResult().getType());
+      auto queryBiasType = mlir::cast<RankedTensorType>(queryBias.getType());
+
+      // Concatenate weights along dimension 1: [hidden_size, hidden_size] ->
+      // [hidden_size, 3*hidden_size]
+      auto concatWeightsType = mlir::RankedTensorType::get(
+          {hiddenSize, 3 * hiddenSize}, queryOpType.getElementType());
+      Value concatWeightsOutput =
+          rewriter.create<EmptyOp>(reshapeOp.getLoc(), concatWeightsType);
+
+      ConcatOp concatWeightsOp = rewriter.create<ConcatOp>(
+          reshapeOp.getLoc(), concatWeightsType,
+          ArrayRef<Value>{queryWeightMatrix, keyWeightMatrix,
+                          valueWeightMatrix},
+          concatWeightsOutput,           // output parameter
+          rewriter.getSI32IntegerAttr(1) // dim parameter
+      );
+
+      // Concatenate biases along dimension 0: [hidden_size] -> [3*hidden_size]
+      auto concatBiasType = mlir::RankedTensorType::get(
+          {3 * hiddenSize}, queryBiasType.getElementType(),
+          queryBiasType.getEncoding());
+      Value concatBiasOutput =
+          rewriter.create<EmptyOp>(reshapeOp.getLoc(), concatBiasType);
+
+      ConcatOp concatBiasOp = rewriter.create<ConcatOp>(
+          reshapeOp.getLoc(), concatBiasType,
+          ArrayRef<Value>{queryBias, keyBias, valueBias},
+          concatBiasOutput,              // output parameter
+          rewriter.getSI32IntegerAttr(0) // dim parameter
+      );
+
+      // Broadcast bias: [3*hidden_size] -> [batch_size, sequence_length,
+      // 3*hidden_size]
+      auto broadcastBiasType = mlir::RankedTensorType::get(
+          {batchSize, sequenceLength, 3 * hiddenSize},
+          queryBiasType.getElementType(), queryBiasType.getEncoding());
+
+      auto reshapedBiasType = mlir::RankedTensorType::get(
+          {1, 1, 3 * hiddenSize}, queryBiasType.getElementType(),
+          queryBiasType.getEncoding());
+
+      Value reshapedBiasOutput =
+          rewriter.create<EmptyOp>(reshapeOp.getLoc(), reshapedBiasType);
+
+      ReshapeOp reshapedBias = rewriter.create<ReshapeOp>(
+          reshapeOp.getLoc(), reshapedBiasType, concatBiasOp.getResult(),
+          reshapedBiasOutput,
+          rewriter.getI32ArrayAttr({1, 1, 3 * hiddenSize}) // shape parameter
+      );
+
+      // Then broadcast [1, 1, 3072] -> [2, 34, 3072]
+      Value broadcastOutput =
+          rewriter.create<EmptyOp>(reshapeOp.getLoc(), broadcastBiasType);
+
+      BroadcastOp broadcastBiasOp = rewriter.create<BroadcastOp>(
+          reshapeOp.getLoc(), broadcastBiasType, reshapedBias.getResult(),
+          broadcastOutput,
+          rewriter.getDenseI64ArrayAttr(
+              {batchSize, sequenceLength, 1}) // broadcast dimensions: repeat 2x
+                                              // along dim 0, 34x along dim 1
+      );
+
+      // Linear operation
+      auto linearOpType = mlir::RankedTensorType::get(
+          {batchSize, sequenceLength, 3 * hiddenSize},
+          queryOpType.getElementType(), queryOpType.getEncoding());
+      Value linearOutput =
+          rewriter.create<EmptyOp>(reshapeOp.getLoc(), linearOpType);
+
+      LinearOp linearOp = rewriter.create<LinearOp>(
+          reshapeOp.getLoc(), linearOpType, inputTensor,
+          concatWeightsOp.getResult(), broadcastBiasOp.getResult(),
+          linearOutput, false, false);
+
+      // Create proper output types for split operation
+      auto queryType = mlir::RankedTensorType::get(
+          {batchSize, numHeads, sequenceLength, headSize},
+          queryOpType.getElementType());
+      auto keyType = mlir::RankedTensorType::get(
+          {batchSize, numHeads, headSize, sequenceLength},
+          queryOpType.getElementType()); // transposed
+      auto valueType = mlir::RankedTensorType::get(
+          {batchSize, numHeads, sequenceLength, headSize},
+          queryOpType.getElementType());
+
+      Value queryOutput =
+          rewriter.create<EmptyOp>(reshapeOp.getLoc(), queryType);
+      Value keyOutput = rewriter.create<EmptyOp>(reshapeOp.getLoc(), keyType);
+      Value valueOutput =
+          rewriter.create<EmptyOp>(reshapeOp.getLoc(), valueType);
+
+      auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
+          reshapeOp.getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
+          linearOp.getResult(), Value(), queryOutput, keyOutput, valueOutput,
+          rewriter.getUI32IntegerAttr(numHeads), IntegerAttr(),
+          rewriter.getBoolAttr(false));
+
+      Value query = splitOp.getResult(0);
+      Value key = splitOp.getResult(1);
+      Value value = splitOp.getResult(2);
+
+      llvm::outs() << "Query shape: " << query.getType() << "\n";
+      llvm::outs() << "Key shape: " << key.getType() << "\n";
+      llvm::outs() << "Value shape: " << value.getType() << "\n";
+      llvm::outs() << "Concat weights op : " << concatWeightsOp << "\n";
+      llvm::outs() << "Concat bias op : " << concatBiasOp << "\n";
+      llvm::outs() << "Broadcast bias op : " << broadcastBiasOp << "\n";
+      llvm::outs() << "Linear op : " << linearOp << "\n";
+      llvm::outs() << "Split op : " << splitOp << "\n";
+      llvm::outs() << "Permute ops to fuse: \n";
+      for (auto permuteOp : permuteOpsToFuse) {
+        llvm::outs() << *permuteOp << "\n";
+      }
+      rewriter.replaceOp(permuteOpsToFuse[0], query);
+      rewriter.replaceOp(permuteOpsToFuse[1], key);
+      rewriter.replaceOp(permuteOpsToFuse[2], value);
+    }
+
+    return mlir::success();
+  }
+
+private:
+  PermuteOp getPermuteOp(mlir::Operation *op) const {
+    auto users = op->getResult(0).getUsers();
+    if (llvm::range_size(users) != 1) {
+      return nullptr;
+    }
+    ReshapeOp reshapeOp = mlir::dyn_cast<ReshapeOp>(*users.begin());
+    if (!reshapeOp) {
+      return nullptr;
+    }
+    auto reshapeUsers = reshapeOp.getResult().getUsers();
+    if (llvm::range_size(reshapeUsers) != 1) {
+      return nullptr;
+    }
+    PermuteOp permuteOp = mlir::dyn_cast<PermuteOp>(*reshapeUsers.begin());
+    if (!permuteOp) {
+      return nullptr;
+    }
+    return permuteOp;
+  }
+
+  Value returnBias(LinearOp linearOp) const {
+    // Get the bias operand (3rd operand) of the linear operation
+    Value bias = linearOp.getBias();
+    // Check if bias comes from a reshape operation - edge case
+    ReshapeOp outerReshapeOp = bias.getDefiningOp<ReshapeOp>();
+    if (outerReshapeOp) {
+      bias = outerReshapeOp.getInput();
+    }
+
+    // Check if bias comes from a broadcast operation
+    BroadcastOp broadcastOp = bias.getDefiningOp<BroadcastOp>();
+    if (!broadcastOp) {
+      return nullptr; // or handle error case
+    }
+
+    // Get the input to the broadcast operation
+    Value broadcastInput = broadcastOp.getInput();
+
+    // Check if broadcast input comes from a reshape operation
+    ReshapeOp innerReshapeOp = broadcastInput.getDefiningOp<ReshapeOp>();
+    if (!innerReshapeOp) {
+      return nullptr; // or handle error case
+    }
+
+    // Return the input to the reshape operation
+    return innerReshapeOp.getInput();
+  }
+
+  void populateConstants(ReshapeOp reshapeOp) const {
+    std::sort(fusableMultOps.begin(), fusableMultOps.end(),
+              [](mlir::Operation *a, mlir::Operation *b) {
+                return a->isBeforeInBlock(b);
+              });
+    std::sort(permuteOpsToFuse.begin(), permuteOpsToFuse.end(),
+              [](mlir::Operation *a, mlir::Operation *b) {
+                return a->isBeforeInBlock(b);
+              });
+
+    Value reshapeInput = reshapeOp.getInput();
+    ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
+
+    batchSize = inputShape[BATCH_SIZE];
+    sequenceLength = inputShape[SEQUENCE_LENGTH];
+    hiddenSize = inputShape[HIDDEN_DIMENSIONS];
+
+    inputTensor = reshapeInput;
+
+    auto linearOp0 = mlir::dyn_cast<LinearOp>(fusableMultOps[0]);
+    auto linearOp1 = mlir::dyn_cast<LinearOp>(fusableMultOps[1]);
+    auto linearOp2 = mlir::dyn_cast<LinearOp>(fusableMultOps[2]);
+
+    queryWeightMatrix = linearOp0.getB();
+    keyWeightMatrix = linearOp1.getB();
+    valueWeightMatrix = linearOp2.getB();
+
+    queryBias = returnBias(linearOp0);
+    keyBias = returnBias(linearOp1);
+    valueBias = returnBias(linearOp2);
+
+    auto resultType = mlir::dyn_cast<mlir::RankedTensorType>(
+        permuteOpsToFuse[0]->getResult(0).getType());
+    numHeads = resultType.getShape()[Q_NUM_KV_HEADS];
+    headSize = resultType.getShape()[Q_HEAD_SIZE];
+  }
+
+  bool isValidMultOp(mlir::Operation *multOp, Value reshapeResult,
+                     int64_t hiddenSize) const {
+    auto dotOp = mlir::dyn_cast<DotGeneralOp>(multOp);
+    auto linearOp = mlir::dyn_cast<LinearOp>(multOp);
+    if (linearOp) {
+      if (linearOp.getA() != reshapeResult) {
+        return false;
+      }
+      auto bShape = linearOp.getB().getType().getShape();
+
+      if (bShape.size() != 2 || bShape[0] != hiddenSize ||
+          bShape[1] != hiddenSize) {
+        return false;
+      }
+    }
+    if (dotOp) {
+      if (dotOp.getLhs() != reshapeResult) {
+        return false;
+      }
+      auto rhsShape = dotOp.getRhs().getType().getShape();
+
+      if (rhsShape.size() != 2 || rhsShape[0] != hiddenSize ||
+          rhsShape[1] != hiddenSize) {
+        return false;
+      }
+    }
+    if (!linearOp && !dotOp) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool isFusable(ReshapeOp reshapeOp, bool useLinearOp) const {
+    // reshape input is [batch_size, sequence_length, hidden_size]
+    // then reshape feeds into 3 different dot general ops as lhs
+    // the rhs argument of dot general is always [hidden_size, hidden_size]
+    fusableMultOps.clear();
+    ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
+    if (inputShape.size() != 3) {
+      return false;
+    }
+    Value reshapeResult = reshapeOp.getResult();
+    auto users = reshapeResult.getUsers();
+
+    if (llvm::range_size(users) < 3) { // at least 3 users - Q, K, V
+      return false;
+    }
+
+    int32_t tempHiddenSize = inputShape[HIDDEN_DIMENSIONS];
+
+    for (mlir::Operation *user : users) {
+      mlir::Operation *multOp = nullptr;
+      if (useLinearOp) {
+        if (auto linearOp = mlir::dyn_cast<LinearOp>(user)) {
+          multOp = linearOp.getOperation();
+        }
+      } else {
+        if (auto dotOp = mlir::dyn_cast<DotGeneralOp>(user)) {
+          multOp = dotOp.getOperation();
+        }
+      }
+      if (multOp && isValidMultOp(multOp, reshapeResult, tempHiddenSize)) {
+        fusableMultOps.push_back(multOp);
+      }
+    }
+    llvm::outs() << "Fusable mult ops size: " << fusableMultOps.size() << "\n";
+    for (auto op : fusableMultOps) {
+      llvm::outs() << "Fusable mult op: " << *op << "\n";
+    }
+    if (fusableMultOps.size() != 3) {
+      fusableMultOps.clear();
+      return false;
+    }
+
+    for (auto multOp : fusableMultOps) {
+      auto permuteOp = getPermuteOp(multOp);
+      if (!permuteOp) {
+        fusableMultOps.clear();
+        permuteOpsToFuse.clear();
+        return false;
+      }
+      permuteOpsToFuse.push_back(permuteOp);
+    }
+
+    if (permuteOpsToFuse.size() != 3) {
+      fusableMultOps.clear();
+      permuteOpsToFuse.clear();
+      return false;
+    }
+
+    Value Query = permuteOpsToFuse[0]->getResult(0);
+    Value Key = permuteOpsToFuse[1]->getResult(0);
+    Value Value = permuteOpsToFuse[2]->getResult(0);
+    ArrayRef<int64_t> queryShape =
+        mlir::dyn_cast<mlir::RankedTensorType>(Query.getType()).getShape();
+    ArrayRef<int64_t> keyShape =
+        mlir::dyn_cast<mlir::RankedTensorType>(Key.getType()).getShape();
+    ArrayRef<int64_t> valueShape =
+        mlir::dyn_cast<mlir::RankedTensorType>(Value.getType()).getShape();
+
+    if (queryShape.size() != 4 || keyShape.size() != 4 ||
+        valueShape.size() != 4) {
+      fusableMultOps.clear();
+      permuteOpsToFuse.clear();
+      return false;
+    }
+
+    if (queryShape[Q_BATCH_SIZE] != keyShape[K_BATCH_SIZE] ||
+        queryShape[Q_BATCH_SIZE] != valueShape[V_BATCH_SIZE] ||
+        queryShape[Q_NUM_KV_HEADS] != keyShape[K_NUM_KV_HEADS] ||
+        queryShape[Q_NUM_KV_HEADS] != valueShape[V_NUM_KV_HEADS] ||
+        queryShape[Q_SEQUENCE_LENGTH] != keyShape[K_SEQUENCE_LENGTH] ||
+        queryShape[Q_SEQUENCE_LENGTH] != valueShape[V_SEQUENCE_LENGTH] ||
+        queryShape[Q_HEAD_SIZE] != keyShape[K_HEAD_SIZE] ||
+        queryShape[Q_HEAD_SIZE] != valueShape[V_HEAD_SIZE] ||
+        queryShape[Q_NUM_KV_HEADS] * queryShape[Q_HEAD_SIZE] !=
+            tempHiddenSize) {
+      fusableMultOps.clear();
+      permuteOpsToFuse.clear();
+      return false;
+    }
+
+    return true;
+  }
+};
+} // namespace
+
+namespace {
 using namespace ttmlir::utils::transformer;
 
 class ConcatenateHeadsUpdatePattern : public mlir::OpRewritePattern<ReshapeOp> {
@@ -2201,6 +2605,7 @@ public:
       }
       patterns.add<CacheFillUpdatePattern>(&getContext());
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
+      patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern>(&getContext());
 
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
