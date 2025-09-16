@@ -1,0 +1,15 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table DumpTensorOp {
+  file_path: string;
+  input: tt.target.ttnn.TensorRef;
+}
+
+table LoadTensorOp {
+  file_path: string;
+  device: tt.target.DeviceRef;
+  output: tt.target.ttnn.TensorRef;
+}
