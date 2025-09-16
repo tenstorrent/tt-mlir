@@ -53,6 +53,7 @@
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "ttnn/operations/transformer/sdpa/sdpa.hpp"
 #include "ttnn/operations/transformer/sdpa_decode/sdpa_decode.hpp"
+#include "ttnn/operations/transformer/split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.hpp"
 #include "ttnn/tensor/host_buffer/functions.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/shape/shape.hpp"

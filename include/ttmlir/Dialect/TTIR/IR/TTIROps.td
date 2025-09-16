@@ -5424,7 +5424,7 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
   let summary = "Scaled dot product attention operation.";
   let description = [{
     Scaled dot product attention.
-    The implementation is FlashAttention-2."
+    The implementation is FlashAttention-2.
 
     Args:
         query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]
@@ -5450,6 +5450,37 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+}
+
+def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_values_and_split_heads"> {
+    let summary = "Split query, key, values and split heads op used in attention layer.";
+    let description = [{
+      Splits input_tensor of shape [batch_size, sequence_size, 3 * hidden_size] into 3 tensors (Query, Key, Value) of shape [batch_size, sequence_size, hidden_size]. Then, reshapes and permutes the output tensors, to make them ready for computing attention scores.
+      If kv_input_tensor is passed in, then input_tensor of shape [batch_size, sequence_size, hidden_size] is only used for Query, and kv_input_tensor of shape [batch_size, sequence_size, 2 * hidden_size] is used for Key and Value.
+      For the sharded implementation, the input query, key and value are expected to be concatenated such that the heads are interleaved (q1 k1 v1…qn kn vn).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         Optional<AnyRankedTensor>:$kv_input_tensor,
+                         AnyRankedTensor:$query_output,
+                         AnyRankedTensor:$key_output,
+                         AnyRankedTensor:$value_output,
+                         UI32Attr:$num_heads,
+                         OptionalAttr<UI32Attr>:$num_kv_heads,
+                         BoolAttr:$transpose_key);
+
+    let results = (outs AnyRankedTensor:$query,
+                        AnyRankedTensor:$key,
+                        AnyRankedTensor:$value);
+
+    let extraClassDeclaration = [{
+        MutableOperandRange getDpsInitsMutable() {
+            // query_output is at index 2 (after input_tensor and kv_input_tensor)
+            // But kv_input_tensor is optional, so we need to account for that
+            unsigned startIdx = getKvInputTensor() ? 2 : 1;
+            return MutableOperandRange(*this, startIdx, 3);
+        }
+    }];
 }
 
 #endif

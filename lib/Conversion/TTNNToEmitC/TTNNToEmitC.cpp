@@ -2833,6 +2833,49 @@ public:
 } // namespace
 
 namespace {
+class SplitQueryKeyValueAndSplitHeadsOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.split_query_key_value_and_split_heads";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::split_query_key_value_and_split_heads";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<
+        mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class WriteTensorOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::WriteTensorOp> {
 private:
