@@ -3349,10 +3349,10 @@ void CaptureOrExecuteTraceOp::getEffects(
 }
 
 //===-----------------------------------------------------------------------===//
-// NLPConcatenateHeadsOp
+// NLPConcatHeadsOp
 // ===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttnn::NLPConcatenateHeadsOp::verify() {
+::mlir::LogicalResult mlir::tt::ttnn::NLPConcatHeadsOp::verify() {
   ArrayRef<int64_t> inputShape = getInput().getType().getShape();
   ArrayRef<int64_t> outputShape = getResult().getType().getShape();
 

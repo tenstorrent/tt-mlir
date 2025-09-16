@@ -666,11 +666,11 @@ struct OpModel<RotaryEmbeddingLlamaOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// NLPConcatenateHeadsOp
+// NLPConcatHeadsOp
 //===----------------------------------------------------------------------===//
 
 template <>
-struct OpModel<NLPConcatenateHeadsOp> {
+struct OpModel<NLPConcatHeadsOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(ttcore::GridAttr deviceGrid,
                    llvm::ArrayRef<int64_t> inputShape,

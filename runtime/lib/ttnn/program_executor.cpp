@@ -69,7 +69,7 @@
 #include "operations/trace/execute_trace.h"
 #include "operations/transformer/concatenate_heads.h"
 #include "operations/transformer/rotary_embedding_llama.h"
-#include "operations/transformer/nlp_concatenate_heads.h"
+#include "operations/transformer/nlp_concat_heads.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/perf.h"
@@ -261,9 +261,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
     return operations::transformer::run(op->type_as_RotaryEmbeddingLlamaOp(),
+                                        getContext());
   }
-  case ::tt::target::ttnn::OpType::NLPConcatenateHeadsOp: {
-    return operations::transformer::run(op->type_as_NLPConcatenateHeadsOp(),
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
+    return operations::transformer::run(op->type_as_NLPConcatHeadsOp(),
                                         getContext());
   }
   case ::tt::target::ttnn::OpType::WriteTensorOp: {

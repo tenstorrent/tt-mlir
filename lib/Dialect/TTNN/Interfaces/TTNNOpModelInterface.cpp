@@ -1804,11 +1804,12 @@ RotaryEmbeddingLlamaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// NLPConcatenateHeadsOp - TTNN Op Model Interface
+// NLPConcatHeadsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints> NLPConcatenateHeadsOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+llvm::Expected<op_model::OpConstraints>
+NLPConcatHeadsOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
@@ -1821,19 +1822,19 @@ llvm::Expected<op_model::OpConstraints> NLPConcatenateHeadsOp::getOpConstraints(
   auto inputShape = getInput().getType().getShape();
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<NLPConcatenateHeadsOp>::getOpConstraints, *this,
-      deviceGrid, inputShape, inputs[0], opConfig.outputLayout);
+      op_model::OpModel<NLPConcatHeadsOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
-NLPConcatenateHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                                    const OpConfig &opConfig) {
+NLPConcatHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
   auto inputShape = getInput().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
-      op_model::OpModel<NLPConcatenateHeadsOp>::getOpRuntime, *this, inputShape,
+      op_model::OpModel<NLPConcatHeadsOp>::getOpRuntime, *this, inputShape,
       inputs[0], opConfig.outputLayout);
 }
 

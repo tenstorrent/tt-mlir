@@ -1186,8 +1186,8 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RotaryEmbeddingLlamaOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::NLPConcatenateHeadsOp: {
-    tensorRef = opContext.type_as_NLPConcatenateHeadsOp()->out();
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
+    tensorRef = opContext.type_as_NLPConcatHeadsOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::LoadTensorOp: {
@@ -1507,8 +1507,8 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_ConcatenateHeadsOp()->in()};
     break;
   }
-  case ::tt::target::ttnn::OpType::NLPConcatenateHeadsOp: {
-    tensorRefs = {opContext.type_as_NLPConcatenateHeadsOp()->in()};
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
+    tensorRefs = {opContext.type_as_NLPConcatHeadsOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::GenericOp: {
