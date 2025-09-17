@@ -330,8 +330,15 @@ using ComputeOpMap = OpMap<
   std::pair<ttir::TileSigmoidOp,     std::pair<ttkernel::SigmoidTileInitOp,         ttkernel::SigmoidTileOp>>,
   std::pair<ttir::TileSinOp,         std::pair<ttkernel::SinTileInitOp,             ttkernel::SinTileOp>>,
   std::pair<ttir::TileTanOp,         std::pair<ttkernel::TanTileInitOp,             ttkernel::TanTileOp>>,
+  std::pair<ttir::TileEqzOp,         std::pair<ttkernel::EqzTileInitOp,             ttkernel::EqzTileOp>>,
+  std::pair<ttir::TileNezOp,         std::pair<ttkernel::NezTileInitOp,             ttkernel::NezTileOp>>,
+  std::pair<ttir::TileGtzOp,         std::pair<ttkernel::GtzTileInitOp,             ttkernel::GtzTileOp>>,
+  std::pair<ttir::TileGezOp,         std::pair<ttkernel::GezTileInitOp,             ttkernel::GezTileOp>>,
+  std::pair<ttir::TileLtzOp,         std::pair<ttkernel::LtzTileInitOp,             ttkernel::LtzTileOp>>,
+  std::pair<ttir::TileLezOp,         std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>,
 
   // Elementwise SFPU Binary.
+  std::pair<ttir::TileSubBinaryOp,   std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
   std::pair<ttir::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
   std::pair<ttir::TileMaximumOp,     std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
   std::pair<ttir::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>
@@ -514,7 +521,12 @@ public:
     auto inCB = getInCB(rewriter, op);
     auto outCB = getOutCB(rewriter, op);
     setInsertionPointAfterOperands(rewriter, {inCB, outCB});
-    rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
+    // Don't init_sfpu for tile sub binary op because it's only used in
+    // conjuction with a comparison op that calls init_sfpu and we only need one
+    // per compute kernel.
+    if constexpr (!std::is_same_v<ConcreteOp, ttir::TileSubBinaryOp>) {
+      rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
+    }
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     rewriter.create<InitOp>(op->getLoc());
@@ -553,6 +565,43 @@ public:
         } else {
           rewriter.create<ttkernel::LogicalNotUnaryTileI32Op>(
               op->getLoc(), adaptor.getInput());
+        }
+      } else {
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
+      }
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::EqzTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::NezTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::GtzTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::GezTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::LtzTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::LezTileOp>) {
+      const auto elemType =
+          mlir::cast<ttcore::TileType>(op.getInput().getType())
+              .getElementType();
+      bool isCBI32 = false;
+      if (llvm::isa<IntegerType>(elemType)) {
+        isCBI32 = mlir::cast<IntegerType>(elemType).isSigned() &&
+                  mlir::cast<IntegerType>(elemType).getWidth() == 32;
+      }
+      if (isCBI32) {
+        if constexpr (std::is_same_v<SFPUOp, ttkernel::EqzTileOp>) {
+          rewriter.create<ttkernel::EqzTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::NezTileOp>) {
+          rewriter.create<ttkernel::NezTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::GtzTileOp>) {
+          rewriter.create<ttkernel::GtzTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::GezTileOp>) {
+          rewriter.create<ttkernel::GezTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::LtzTileOp>) {
+          rewriter.create<ttkernel::LtzTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::LezTileOp>) {
+          rewriter.create<ttkernel::LezTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
         }
       } else {
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
@@ -1318,8 +1367,15 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSigmoidOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileTanOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileEqzOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileNezOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileGtzOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileGezOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileLtzOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileLezOp>,
 
                // Elementwise SFPU Binary.
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileSubBinaryOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TilePowOp>,

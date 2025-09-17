@@ -290,6 +290,77 @@ def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_no
     let results = (outs TTCore_Tile:$result);
 }
 
+def TTIR_TileSubBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub_binary"> {
+    let summary = "TTIR Tile Subtract Binary Op";
+    let description = [{
+        The `tile_sub_binary` operation uses the SFPU to subtract two tiles element-wise.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs,
+                         TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileEqzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_eqz"> {
+    let summary = "TTIR Tile Eqz Op";
+    let description = [{
+        The `tile_eqz` operation checks if each element in the input tile == 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileNezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_nez"> {
+    let summary = "TTIR Tile Nez Op";
+    let description = [{
+        The `tile_nez` operation checks if each element in the input tile != 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileGtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gtz"> {
+    let summary = "TTIR Tile Gtz Op";
+    let description = [{
+        The `tile_gtz` operation checks if each element in the input tile > 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileGezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gez"> {
+    let summary = "TTIR Tile Gez Op";
+    let description = [{
+        The `tile_gez` operation checks if each element in the input tile >= 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileLtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ltz"> {
+    let summary = "TTIR Tile Ltz Op";
+    let description = [{
+        The `tile_ltz` operation checks if each element in the input tile < 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileLezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_lez"> {
+    let summary = "TTIR Tile Lez Op";
+    let description = [{
+        The `tile_lez` operation checks if each element in the input tile <= 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def TTIR_TileMaximumOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_maximum">{
     let summary = "TTIR Tile Maximum Op";
     let description = [{
