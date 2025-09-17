@@ -1182,6 +1182,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ConcatenateHeadsOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
+    tensorRef = opContext.type_as_RotaryEmbeddingLlamaOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1498,6 +1502,13 @@ getOpInputRefs(OpContext opContextHandle,
     for (const auto *input : *opContext.type_as_GenericOp()->io_tensors()) {
       tensorRefs.push_back(input);
     }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
+    tensorRefs = {opContext.type_as_RotaryEmbeddingLlamaOp()->input(),
+                  opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
+                  opContext.type_as_RotaryEmbeddingLlamaOp()->sin_cache(),
+                  opContext.type_as_RotaryEmbeddingLlamaOp()->trans_mat()};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
