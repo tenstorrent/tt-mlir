@@ -95,7 +95,9 @@ union OpType {
   TypecastOp,
   UpdateCacheOp,
   UpsampleOp,
-  WriteTensorOp
+  WriteTensorOp,
+  DumpTensorOp,
+  LoadTensorOp,
 }
 
 table Operation {
