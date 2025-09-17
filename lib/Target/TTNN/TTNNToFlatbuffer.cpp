@@ -1873,6 +1873,31 @@ createOp(FlatbufferObjectCache &cache, ConcatenateHeadsOp op) {
                                                       memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ScaledDotProductAttentionDecodeOp>
+createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto value = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getValue()));
+  auto attentionMask = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getAttentionMask()));
+  auto curPosTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getCurPosTensor()));
+  auto attentionSink = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getAttentionSink()));
+  auto scale = op.getScale();
+  auto isCausal = op.getIsCausal();
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
+      *cache.fbb, query, key, value, isCausal, attentionMask, curPosTensor,
+      attentionSink, scale.convertToFloat(), out, memoryConfig);
+}
+
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
 createKernelArgs(FlatbufferObjectCache &cache,
                  llvm::ArrayRef<mlir::Attribute> argsAttrs) {
@@ -2599,6 +2624,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto loadTensorOp = dyn_cast<LoadTensorOp>(op); loadTensorOp) {
     return createOperation(cache, createOp(cache, loadTensorOp), debugString,
                            locInfo);
+  }
+  if (auto scaledDotProductAttentionDecodeOp =
+          dyn_cast<ScaledDotProductAttentionDecodeOp>(op);
+      scaledDotProductAttentionDecodeOp) {
+    return createOperation(cache,
+                           createOp(cache, scaledDotProductAttentionDecodeOp),
+                           debugString, locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
