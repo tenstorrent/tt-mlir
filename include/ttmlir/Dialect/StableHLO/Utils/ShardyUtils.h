@@ -66,6 +66,11 @@ mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
                                             mlir::BlockArgument &arg,
                                             mlir::MLIRContext *context);
 
+// Convert dictionary with frontend attributes to dictionary with sdy.sharding.
+mlir::DictionaryAttr
+convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
+                             mlir::DictionaryAttr currentArgAttrDict);
+
 // Convert all function arguments from frontend attributes format to SDY format.
 mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
                                                    mlir::MLIRContext *context);

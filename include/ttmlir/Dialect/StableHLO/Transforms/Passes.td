@@ -45,6 +45,41 @@ def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::
   ];
 }
 
+def ConvertXlaSdyToSdyPass : Pass<"convert-xla-sdy-to-sdy", "::mlir::ModuleOp">
+{
+  let summary = "Convert xla sdy annotations into sdy annotations.";
+  let description = [{
+    This pass will convert any xla.sdy annotations into sdy annotations. This is required due to some lingering code from torch-xla that does not do this for us (whereas xla does).
+
+    Example, this pass will convert the following code:
+      ```mlir
+      module @SyncTensorsGraph.5 attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+          func.func @main(%arg0: tensor<32x128xf32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, \[{}, {_axis_0}\]>"}, mhlo.sharding = {devices=\[1,2\]<=\[2\]}"}, %arg1: tensor<32x32xf32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, \[{}, {}\]>"}, mhlo.sharding = {replicated}"}) -> tensor<32x128xf32> {
+            %0 = stablehlo.dot_general %arg1, %arg0, contracting_dims = \[1\] x \[0\] : (tensor<32x32xf32>, tensor<32x128xf32>) -> tensor<32x128xf32>
+          return %0 : tensor<32x128xf32>
+        }
+      }
+      ```
+
+      Into:
+      ```mlir
+      module @SyncTensorsGraph.5 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+        sdy.mesh @mesh = <["_axis_0_updated"=1, _axis_0=2]>
+        func.func @main(%arg0: tensor<32x128xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{?}, {_axis_0, ?}\]>}, %arg1: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, \[{?}, {?}\]>}) -> tensor<32x128xf32> {
+          %0 = stablehlo.dot_general %arg1, %arg0, contracting_dims = [1] x [0] : (tensor<32x32xf32>, tensor<32x128xf32>) -> tensor<32x128xf32>
+          return %0 : tensor<32x128xf32>
+        }
+      }
+      ```
+    }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect",
+    "::mlir::tt::ttir::TTIRDialect"
+  ];
+}
+
+
 def AnalyzeMeshPass : Pass<"analyze-mesh", "::mlir::ModuleOp">
 {
   let summary = "Analyze the mesh compilation target.";

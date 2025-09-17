@@ -715,15 +715,16 @@ parseDimensionShardings(const std::string &dimsContent,
   return dimShardings;
 }
 
-// Convert function argument from mhlo.frontend_attributes to sdy.sharding.
-mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
-                                            mlir::BlockArgument &arg,
-                                            mlir::MLIRContext *context) {
-  mlir::DictionaryAttr currentArgAttrDict =
-      funcOp.getArgAttrDict(arg.getArgNumber());
-  if (!currentArgAttrDict ||
-      !currentArgAttrDict.contains(gspmd_utils::kFrontendAttributesAttr)) {
-    return mlir::success();
+// Convert dictionary with frontend attributes to dictionary with sdy.sharding.
+mlir::DictionaryAttr
+convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
+                             mlir::DictionaryAttr currentArgAttrDict) {
+  if (!currentArgAttrDict) {
+    return mlir::DictionaryAttr::get(context, {});
+  }
+
+  if (!currentArgAttrDict.contains(gspmd_utils::kFrontendAttributesAttr)) {
+    return currentArgAttrDict;
   }
 
   mlir::Attribute frontendAttrs =
@@ -731,17 +732,16 @@ mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
   mlir::DictionaryAttr dictAttr =
       mlir::dyn_cast<mlir::DictionaryAttr>(frontendAttrs);
   if (!dictAttr || !dictAttr.contains(sharding_utils::kXlaSdyShardingAttr)) {
-    return mlir::success();
+    return currentArgAttrDict;
   }
 
   mlir::StringAttr shardingStr = mlir::dyn_cast<mlir::StringAttr>(
       dictAttr.get(sharding_utils::kXlaSdyShardingAttr));
   if (!shardingStr) {
-    return mlir::success();
+    return currentArgAttrDict;
   }
 
   std::string shardingValue = shardingStr.getValue().str();
-
   llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
   llvm::copy_if(currentArgAttrDict.getValue(), std::back_inserter(newArgAttrs),
                 [&](mlir::NamedAttribute attr) {
@@ -750,10 +750,11 @@ mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
                          attr.getName() != gspmd_utils::kXlaShardingAttr;
                 });
 
-  llvm::SmallVector<std::string> meshNames = getMeshNames(funcOp);
-  std::string meshName = meshNames.empty()
-                             ? std::string(sharding_utils::kDefaultMeshName)
-                             : meshNames[0];
+  // Find mesh name from the sharding string.
+  // Example sharding string: "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}]>"
+  size_t atPos = shardingValue.find("@");
+  size_t commaPos = shardingValue.find(",", atPos);
+  std::string meshName = shardingValue.substr(atPos + 1, commaPos - atPos - 1);
 
   size_t startPos = shardingValue.find("[");
   size_t endPos = shardingValue.rfind("]");
@@ -774,26 +775,20 @@ mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
     }
   }
 
-  funcOp.setArgAttrs(arg.getArgNumber(),
-                     mlir::DictionaryAttr::get(context, newArgAttrs));
-  return mlir::success();
+  return mlir::DictionaryAttr::get(context, newArgAttrs);
 }
 
 // Convert all function arguments from frontend attributes format to SDY format.
 mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
                                                    mlir::MLIRContext *context) {
-  mlir::WalkResult result = rootModule.walk([&](func::FuncOp funcOp) {
+  rootModule.walk([&](func::FuncOp funcOp) {
     for (BlockArgument arg : funcOp.getArguments()) {
-      if (mlir::failed(convertArgumentSharding(funcOp, arg, context))) {
-        return WalkResult::interrupt();
-      }
+      funcOp.setArgAttrs(
+          arg.getArgNumber(),
+          shardy_utils::convertXlaSdyToSdyDictionary(
+              context, funcOp.getArgAttrDict(arg.getArgNumber())));
     }
-    return WalkResult::advance();
   });
-
-  if (result.wasInterrupted()) {
-    return mlir::failure();
-  }
 
   mlir::DictionaryAttr moduleAttrs = rootModule->getAttrDictionary();
   llvm::SmallVector<mlir::NamedAttribute> newModuleAttrs;

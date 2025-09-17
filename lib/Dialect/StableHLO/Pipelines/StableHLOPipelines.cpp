@@ -24,6 +24,9 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Annotate arguments with whether they are already pre-sharded or not.
   pm.addPass(createApplyArgumentShardStatusPass());
 
+  // Convert any xla.sdy ops to sdy ops.
+  pm.addPass(createConvertXlaSdyToSdyPass());
+
   // Analyze the mesh of the graph and update shardings or annotations to match
   // the target device.
   AnalyzeMeshPassOptions analyzeMeshOptions;
