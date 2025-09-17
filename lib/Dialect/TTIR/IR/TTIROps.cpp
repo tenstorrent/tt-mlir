@@ -3165,19 +3165,19 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
-// TTNNToMetalLayoutCastOp
+// TTNNMetalLayoutCastOp
 //===----------------------------------------------------------------------===//
 
-mlir::LogicalResult mlir::tt::ttir::TTNNToMetalLayoutCastOp::verify() {
+mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::verify() {
   return success();
 }
 
-void mlir::tt::ttir::TTNNToMetalLayoutCastOp::getAsmResultNames(
+void mlir::tt::ttir::TTNNMetalLayoutCastOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "cast");
 }
 
-mlir::LogicalResult mlir::tt::ttir::TTNNToMetalLayoutCastOp::bufferize(
+mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
@@ -3185,7 +3185,7 @@ mlir::LogicalResult mlir::tt::ttir::TTNNToMetalLayoutCastOp::bufferize(
   //   return failure();
   // }
 
-  // TT_assertv(getNumResults() == 1, "TTNNToMetalLayoutCastOp should have
+  // TT_assertv(getNumResults() == 1, "TTNNMetalLayoutCastOp should have
   // exactly one result");
 
   if (!mlir::isa<::mlir::RankedTensorType>(getResult().getType()) ||
@@ -3225,27 +3225,27 @@ mlir::LogicalResult mlir::tt::ttir::TTNNToMetalLayoutCastOp::bufferize(
 }
 
 mlir::bufferization::AliasingValueList
-mlir::tt::ttir::TTNNToMetalLayoutCastOp::getAliasingValues(
+mlir::tt::ttir::TTNNMetalLayoutCastOp::getAliasingValues(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
   return result;
 }
 
 mlir::FailureOr<mlir::BaseMemRefType>
-mlir::tt::ttir::TTNNToMetalLayoutCastOp::getBufferType(
+mlir::tt::ttir::TTNNMetalLayoutCastOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
   return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
 }
 
-bool mlir::tt::ttir::TTNNToMetalLayoutCastOp::bufferizesToMemoryRead(
+bool mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // no-op
   return false;
 }
 
-bool mlir::tt::ttir::TTNNToMetalLayoutCastOp::bufferizesToMemoryWrite(
+bool mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // no-op
   return false;
