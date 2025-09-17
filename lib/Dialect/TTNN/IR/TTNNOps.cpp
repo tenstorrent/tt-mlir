@@ -3479,10 +3479,28 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-    // LoadTensorOp
+// DumpTensorOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult DumpTensorOp::verify() {
+  if (!getFilePath().ends_with(".tensorbin")) {
+    return emitOpError() << "file " << getFilePath()
+                         << " must end with .tensorbin extension";
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// LoadTensorOp
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult LoadTensorOp::verify() {
+  if (!getFilePath().ends_with(".tensorbin")) {
+    return emitOpError() << "file " << getFilePath()
+                         << " must end with .tensorbin extension";
+  }
+
   auto resultLayout =
       mlir::cast<TTNNLayoutAttr>(getResult().getType().getEncoding());
   auto device = getDevice();

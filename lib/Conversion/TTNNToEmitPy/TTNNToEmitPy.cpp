@@ -875,8 +875,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Tensor serialization ops
   //
   // clang-format off
-  patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::LoadTensorOp>,
-               DefaultOpConversionPattern<mlir::tt::ttnn::DumpTensorOp>>(typeConverter, ctx);
+  patterns.add<DumpTensorOpConversionPattern,
+               LoadTensorOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // Module op
