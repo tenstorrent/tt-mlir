@@ -3224,6 +3224,7 @@ public:
 namespace {
 class DumpTensorOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::DumpTensorOp> {
+<<<<<<< HEAD
 private:
   std::string getPrefixSearchPattern() const override {
     return mlir::tt::ttnn::DumpTensorOp::getOperationName().str();
@@ -3233,6 +3234,8 @@ private:
     return "::tt::tt_metal::dump_tensor_flatbuffer";
   }
 
+=======
+>>>>>>> 1d3b1a971 (emitc support)
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::DumpTensorOp>::TTNNToEmitCBaseOpConversionPattern;
@@ -3262,7 +3265,6 @@ private:
   std::string getPrefixSearchPattern() const override {
     return mlir::tt::ttnn::LoadTensorOp::getOperationName().str();
   }
-
   std::string getPrefixSwapPattern() const override {
     return "::tt::tt_metal::load_tensor_flatbuffer";
   }
@@ -3270,8 +3272,6 @@ private:
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::LoadTensorOp>::TTNNToEmitCBaseOpConversionPattern;
-
-  LogicalResult
   matchAndRewrite(mlir::tt::ttnn::LoadTensorOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
