@@ -402,8 +402,8 @@ def TTIR_TTNNMetalLayoutCastOp : TTIR_Op<"ttnn_metal_layout_cast",
     ```
   }];
 
-  let arguments = (ins AnyRankedTensor:$input);
-  let results   = (outs AnyRankedTensor:$result);
+  let arguments = (ins AnyRankedTensorOrMemRef:$input);
+  let results   = (outs AnyRankedTensorOrMemRef:$result);
 
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($result)
