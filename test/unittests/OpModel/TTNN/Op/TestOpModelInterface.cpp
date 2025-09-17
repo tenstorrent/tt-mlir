@@ -1631,6 +1631,52 @@ TEST_F(OpModelBase, ConcatenateHeadsOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, RotaryEmbeddingLlamaOpInterface) {
+  int64_t batch_size = 1;
+  int64_t num_heads = 1;
+  int64_t sequence_size = 1;
+  int64_t head_size = 32;
+
+  llvm::SmallVector<int64_t> shape{batch_size, num_heads, sequence_size,
+                                   head_size};
+
+  llvm::SmallVector<int64_t> transMatShape{batch_size, num_heads, TILE_HEIGHT,
+                                           TILE_WIDTH};
+
+  auto input = createEmptyTensor(shape);
+  auto cos = createEmptyTensor(shape);
+  auto sin = createEmptyTensor(shape);
+  auto transMat = createEmptyTensor(transMatShape);
+  auto outputType = createRankedTensorType(shape);
+  bool isDecodeMode = false;
+
+  auto rotaryEmbeddingLlama = builder.create<RotaryEmbeddingLlamaOp>(
+      builder.getUnknownLoc(), outputType, input, cos, sin, transMat,
+      isDecodeMode, /*memory_config=*/nullptr, /*compute_config=*/nullptr);
+
+  auto constraintsExp = getOpConstraints(rotaryEmbeddingLlama.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 24576);
+    EXPECT_EQ(l1PeakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+    EXPECT_TRUE(outputLayout != nullptr);
+  } else {
+    FAIL() << "Missing L1 constraints for RotaryEmbeddingLlamaOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(rotaryEmbeddingLlama.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for RotaryEmbeddingLlamaOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, repeatInterleaveOp) {
   // create RepeatInterleaveOp
   llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
