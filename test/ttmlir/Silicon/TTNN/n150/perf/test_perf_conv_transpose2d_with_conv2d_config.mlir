@@ -11,7 +11,6 @@
 
 #conv2d_config = #ttnn.conv2d_config<
   weights_dtype = bf16,
-  activation = "",
   deallocate_activation = false,
   reallocate_halo_output = true,
   act_block_h_override = 0,
