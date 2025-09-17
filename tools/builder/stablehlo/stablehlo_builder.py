@@ -167,6 +167,15 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def reshape(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        return self._eltwise_proxy(
+            stablehlo.ReshapeOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(
@@ -216,7 +225,7 @@ class StableHLOBuilder(Builder):
     def axis_ref_attr(
         self,
         name: str,
-        sub_axis_info_attr: Optional[sdy.AxisRefAttr] = None,
+        sub_axis_info_attr: Optional[sdy.SubAxisInfoAttr] = None,
     ) -> sdy.AxisRefAttr:
         """
         Creates an axis reference attribute.
@@ -299,6 +308,69 @@ class StableHLOBuilder(Builder):
             unreduced_axes,
         )
 
+    def tensor_sharding_per_value_attr(
+        self,
+        shardings: List[sdy.TensorShardingAttr],
+    ) -> sdy.TensorShardingPerValueAttr:
+        return sdy.TensorShardingPerValueAttr.get(
+            shardings,
+        )
+
+    def dim_mapping_attr(
+        self,
+        factor_indices: List[int],
+    ) -> sdy.DimMappingAttr:
+        return sdy.DimMappingAttr.get(factor_indices)
+
+    def tensor_mapping_attr(
+        self,
+        dim_mappings: List[sdy.DimMappingAttr],
+    ) -> sdy.TensorMappingAttr:
+        return sdy.TensorMappingAttr.get(dim_mappings)
+
+    def op_sharding_rule_attr(
+        self,
+        factor_sizes: List[int],
+        operand_mappings: List[sdy.TensorMappingAttr],
+        result_mappings: List[sdy.TensorMappingAttr],
+    ) -> sdy.OpShardingRuleAttr:
+        return sdy.OpShardingRuleAttr.get(
+            factor_sizes, operand_mappings, result_mappings
+        )
+
+    # ?????? enum, maybe not needed
+    def edge_node_type(
+        self,
+        type: sdy.EdgeNodeType,
+        index: int,
+    ) -> sdy.EdgeValueRefAttr:
+        return sdy.EdgeNodeType.get(type, index)
+
+    def edge_value_ref_attr(
+        self,
+        type: sdy.EdgeNodeType,
+        index: int,
+    ) -> sdy.EdgeValueRefAttr:
+        return sdy.EdgeValueRefAttr.get(type, index)
+
+    def axis_to_propagation_details_attr(
+        self,
+        axis_name: sdy.AxisRefAttr,
+        source: sdy.EdgeValueRefAttr,
+        targets: List[sdy.EdgeValueRefAttr],
+    ) -> sdy.AxisToPropagationDetailsAttr:
+        return sdy.AxisToPropagationDetailsAttr.get(axis_name, source, targets)
+
+    def sub_axis_info_attr(
+        self,
+        pre_size: int,
+        size: int,
+    ) -> sdy.SubAxisInfoAttr:
+        return sdy.SubAxisInfoAttr.get(
+            pre_size,
+            size,
+        )
+
     # ----- Public Shardy Op Generators ----
 
     def mesh(self, mesh_name: str, mesh_attr: sdy.MeshAttr) -> sdy.MeshOp:
@@ -375,3 +447,10 @@ class StableHLOBuilder(Builder):
         origin_label: str,
     ) -> mpmd.OriginAttr:
         return mpmd.OriginAttr.get(origin_label=origin_label)
+
+    def reshard(
+        self,
+        in0: Operand,
+        sharding: sdy.TensorShardingAttr,
+    ) -> sdy.ReshardOp:
+        return sdy.ReshardOp(in0, sharding)
