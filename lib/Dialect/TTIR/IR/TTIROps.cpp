@@ -466,6 +466,7 @@ mlir::LogicalResult mlir::tt::ttir::EmptyOp::bufferize(
     return success();
   }
 
+  // Don't bufferize if tensor has a ttnn_layout; lowering to ttnn generic.
   if (options.allowUnknownOps &&
       mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())) {
     return success();
