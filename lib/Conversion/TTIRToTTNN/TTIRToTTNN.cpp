@@ -1581,6 +1581,11 @@ class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
     - Multi-dimensional scatter is more complex and requires flattening tensors
       to 1D, performing linear indexing, then reshaping back.
   *
+  * Window updates (when update_window_dims contains the scatter dimension)
+  require
+  * special handling to generate sequential indices rather than repeated
+  indices.
+  *
   * In each case, we ensure tensors are compatible in rank and shape.
   * As per torch.scatter:
   * `self, index and src (if it is a Tensor) should all have the same number of
@@ -1660,6 +1665,233 @@ private:
         rewriter.getI32ArrayAttr(squeezedShapeI32), nullptr);
 
     return reshapeOp.getResult();
+  }
+
+  LogicalResult convertWindowUpdateScatter(ttir::ScatterOp op,
+                                           OpAdaptor adaptor,
+                                           ConversionPatternRewriter &rewriter,
+                                           int32_t dim, Value baseIndex) const {
+    /**
+     * Handles window update scatter operations where update_window_dims
+     * contains the scatter dimension. This requires generating sequential
+     * indices.
+     *
+     * Window updates place a contiguous block of values from the updates tensor
+     * starting at the scatter index position. This is different from
+     * element-wise scatter where each element can go to an arbitrary location.
+     *
+     * Example:
+     * Input: tensor<1x128xf32>, indices: tensor<1xi32> with value [5]
+     * Updates: tensor<1x127xf32>, scatter_dims_to_operand_dims=[1]
+     * Result: input[0, 5:132] = updates[0, :]
+     *
+     * To achieve this with PyTorch scatter, we generate sequential indices:
+     * [5, 6, 7, ..., 131] instead of repeating [5, 5, 5, ...]
+     */
+
+    auto updateType =
+        mlir::cast<RankedTensorType>(adaptor.getUpdate().getType());
+    auto updateShape = updateType.getShape();
+    auto indexType = mlir::cast<RankedTensorType>(baseIndex.getType());
+
+    // Get the window size along the scatter dimension
+    int64_t windowSize = updateShape[dim];
+
+    // Step 1: Create a range tensor [0, 1, 2, ..., windowSize-1]
+    // We'll do this by creating individual constant tensors and concatenating
+    const int64_t maxBatchSize =
+        128; // Process in batches to avoid too many ops
+    llvm::SmallVector<Value> rangeParts;
+
+    auto ttnnLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(indexType.getEncoding());
+    bool isOnDevice =
+        ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
+    ttnn::GetDeviceOp deviceOp;
+    if (isOnDevice) {
+      deviceOp = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    }
+
+    // Create the range in batches and concatenate
+    for (int64_t i = 0; i < windowSize; i += maxBatchSize) {
+      int64_t batchEnd = std::min(i + maxBatchSize, windowSize);
+
+      // Create a tensor for this batch of sequential values
+      llvm::SmallVector<Value> batchValues;
+      for (int64_t j = i; j < batchEnd; ++j) {
+        auto singleValueType = RankedTensorType::get(
+            {1}, indexType.getElementType(), indexType.getEncoding());
+
+        Value offsetVal = rewriter.create<ttnn::FullOp>(
+            op.getLoc(), singleValueType,
+            rewriter.getI32IntegerAttr(static_cast<int32_t>(j)), deviceOp);
+        batchValues.push_back(offsetVal);
+      }
+
+      // Concatenate values within this batch
+      Value batchTensor = batchValues[0];
+      for (size_t k = 1; k < batchValues.size(); ++k) {
+        auto concatType = RankedTensorType::get({static_cast<int64_t>(k + 1)},
+                                                indexType.getElementType(),
+                                                indexType.getEncoding());
+
+        batchTensor = rewriter.create<ttnn::ConcatOp>(
+            op.getLoc(), concatType, ValueRange{batchTensor, batchValues[k]},
+            rewriter.getSI32IntegerAttr(0), nullptr);
+      }
+
+      rangeParts.push_back(batchTensor);
+    }
+
+    // Concatenate all batch parts to get the full range
+    Value rangeTensor = rangeParts[0];
+    for (size_t i = 1; i < rangeParts.size(); ++i) {
+      auto prevType = mlir::cast<RankedTensorType>(rangeTensor.getType());
+      auto partType = mlir::cast<RankedTensorType>(rangeParts[i].getType());
+      int64_t newSize = prevType.getShape()[0] + partType.getShape()[0];
+
+      auto concatType = RankedTensorType::get(
+          {newSize}, indexType.getElementType(), indexType.getEncoding());
+
+      rangeTensor = rewriter.create<ttnn::ConcatOp>(
+          op.getLoc(), concatType, ValueRange{rangeTensor, rangeParts[i]},
+          rewriter.getSI32IntegerAttr(0), nullptr);
+    }
+
+    // Step 2: Reshape the range tensor to match the update tensor shape
+    // Create shape with 1s everywhere except windowSize at dim position
+    llvm::SmallVector<int64_t> rangeShape(updateShape.size(), 1);
+    rangeShape[dim] = windowSize;
+
+    auto reshapedRangeType = RankedTensorType::get(
+        rangeShape, indexType.getElementType(), indexType.getEncoding());
+
+    llvm::SmallVector<int32_t> rangeShapeI32;
+    for (int64_t d : rangeShape) {
+      rangeShapeI32.push_back(static_cast<int32_t>(d));
+    }
+
+    Value reshapedRange = rewriter.create<ttnn::ReshapeOp>(
+        op.getLoc(), reshapedRangeType, rangeTensor,
+        rewriter.getI32ArrayAttr(rangeShapeI32), nullptr);
+
+    // Step 3: Broadcast range to match full update shape if needed
+    if (rangeShape != updateShape) {
+      llvm::SmallVector<int64_t> repeatDims;
+      for (size_t i = 0; i < updateShape.size(); ++i) {
+        repeatDims.push_back(updateShape[i] / rangeShape[i]);
+      }
+
+      auto repeatDimsAttr =
+          mlir::tt::ttnn::ShapeAttr::get(rewriter.getContext(), repeatDims);
+
+      auto broadcastType = RankedTensorType::get(
+          updateShape, indexType.getElementType(), indexType.getEncoding());
+
+      reshapedRange = rewriter.create<ttnn::RepeatOp>(
+          op.getLoc(), broadcastType, reshapedRange, repeatDimsAttr);
+    }
+
+    // Step 4: Add the base index to get final indices
+    // First broadcast base index to match update shape
+    llvm::SmallVector<int64_t> baseIndexExpandedShape(updateShape.size(), 1);
+    auto baseIndexType = mlir::cast<RankedTensorType>(baseIndex.getType());
+
+    // Copy non-singleton dimensions from base index
+    size_t baseIndexDim = 0;
+    for (size_t i = 0; i < updateShape.size(); ++i) {
+      if (i != static_cast<size_t>(dim) &&
+          baseIndexDim < baseIndexType.getShape().size()) {
+        baseIndexExpandedShape[i] = baseIndexType.getShape()[baseIndexDim++];
+      }
+    }
+
+    auto expandedBaseType = RankedTensorType::get(baseIndexExpandedShape,
+                                                  indexType.getElementType(),
+                                                  indexType.getEncoding());
+
+    llvm::SmallVector<int32_t> baseIndexExpandedShapeI32;
+    for (int64_t d : baseIndexExpandedShape) {
+      baseIndexExpandedShapeI32.push_back(static_cast<int32_t>(d));
+    }
+
+    Value expandedBase = rewriter.create<ttnn::ReshapeOp>(
+        op.getLoc(), expandedBaseType, baseIndex,
+        rewriter.getI32ArrayAttr(baseIndexExpandedShapeI32), nullptr);
+
+    // Broadcast to full shape if needed
+    if (baseIndexExpandedShape != updateShape) {
+      llvm::SmallVector<int64_t> repeatDims;
+      for (size_t i = 0; i < updateShape.size(); ++i) {
+        repeatDims.push_back(updateShape[i] / baseIndexExpandedShape[i]);
+      }
+
+      auto repeatDimsAttr =
+          mlir::tt::ttnn::ShapeAttr::get(rewriter.getContext(), repeatDims);
+
+      auto broadcastType = RankedTensorType::get(
+          updateShape, indexType.getElementType(), indexType.getEncoding());
+
+      expandedBase = rewriter.create<ttnn::RepeatOp>(
+          op.getLoc(), broadcastType, expandedBase, repeatDimsAttr);
+    }
+
+    // Add base index to range to get final sequential indices
+    auto finalIndexType = RankedTensorType::get(
+        updateShape, indexType.getElementType(), indexType.getEncoding());
+
+    auto dtypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
+        rewriter.getContext(), mlir::tt::ttcore::DataType::Int32);
+
+    Value finalIndices = rewriter.create<ttnn::AddOp>(
+        op.getLoc(), finalIndexType, expandedBase, reshapedRange, dtypeAttr,
+        mlir::tt::ttnn::MemoryConfigAttr());
+
+    // Step 5: Perform the scatter with sequential indices
+    Value inputTensor = adaptor.getInput();
+    auto inputType = mlir::cast<RankedTensorType>(inputTensor.getType());
+
+    // Expand input tensor if needed to match update rank
+    Value finalInput = inputTensor;
+    if (inputType.getShape().size() < updateShape.size()) {
+      auto insertedWindowDims = op.getInsertedWindowDims();
+      llvm::SmallVector<int64_t> expandedInputShape;
+
+      size_t originalDim = 0;
+      for (size_t i = 0; i < updateShape.size(); ++i) {
+        if (std::find(insertedWindowDims.begin(), insertedWindowDims.end(),
+                      i) != insertedWindowDims.end()) {
+          expandedInputShape.push_back(1);
+        } else {
+          if (originalDim < inputType.getShape().size()) {
+            expandedInputShape.push_back(inputType.getShape()[originalDim++]);
+          }
+        }
+      }
+
+      auto expandedInputType =
+          RankedTensorType::get(expandedInputShape, inputType.getElementType(),
+                                inputType.getEncoding());
+
+      llvm::SmallVector<int32_t> expandedInputShapeI32;
+      for (int64_t d : expandedInputShape) {
+        expandedInputShapeI32.push_back(static_cast<int32_t>(d));
+      }
+
+      finalInput = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), expandedInputType, finalInput,
+          rewriter.getI32ArrayAttr(expandedInputShapeI32), nullptr);
+    }
+
+    Type convertedResultType =
+        this->getTypeConverter()->convertType(op.getType());
+    auto dimAttr = rewriter.getI32IntegerAttr(dim);
+
+    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
+        op, convertedResultType, finalInput, finalIndices, adaptor.getUpdate(),
+        dimAttr, nullptr);
+
+    return success();
   }
 
   LogicalResult
@@ -1835,6 +2067,9 @@ public:
      * on scatter_dims_to_operand_dims size, then ensures rank consistency for
      * PyTorch-style scatter operation.
      *
+     * Additionally checks for window updates which require special handling
+     * to generate sequential indices.
+     *
      * Example:
      * Input: tensor<2050x768xf32>, indices: tensor<1x5x1xi32>, updates:
      * tensor<1x5x768xf32> Attributes: scatter_dims_to_operand_dims=[0],
@@ -1845,15 +2080,16 @@ public:
      *      - ttnn.slice_static: begins=[0,0,0], ends=[1,5,1] ->
      * tensor<1x5x1xi32>
      *   2. Expand input tensor (rank 2 -> 3):
-     *      - ttnn.reshape: <205x768xf32> -> tensor<1x2050x768xf32>
-     *   3. Broadcast indices to match updates:
-     *      - ttnn.repeat: repeat_dims=<1x1x768> -> tensor<1x5x768xi32>
+     *      - ttnn.reshape: <2050x768xf32> -> tensor<1x2050x768xf32>
+     *   3. Generate sequential indices for window update or broadcast for
+     *      element-wise scatter
      *   4. Final scatter:
      *      - ttnn.scatter: dim=0, all tensors rank 3
      */
 
     auto scatterDimsToOperandDims = op.getScatterDimsToOperandDims();
     auto indexVectorDim = op.getIndexVectorDim();
+    auto updateWindowDims = op.getUpdateWindowDims();
 
     if (scatterDimsToOperandDims.size() > 1) {
       return convertMultidimensionalScatter(op, adaptor, rewriter);
@@ -1868,10 +2104,25 @@ public:
     Value indexTensor = extractIndices(op, adaptor.getScatterIndices(),
                                        indexVectorDim, 0, rewriter);
 
-    // Ensure all tensors have the same rank.
-    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    // Check if this is a window update
+    // A window update occurs when update_window_dims contains the scatter
+    // dimension
+    bool isWindowUpdate = false;
     auto updateType =
         mlir::cast<RankedTensorType>(adaptor.getUpdate().getType());
+    if (updateWindowDims.size() == updateType.getShape().size()) {
+      // All dimensions of updates are window dimensions
+      isWindowUpdate = true;
+    }
+
+    if (isWindowUpdate) {
+      return convertWindowUpdateScatter(op, adaptor, rewriter, dim,
+                                        indexTensor);
+    }
+
+    // Original code path for non-window updates
+    // Ensure all tensors have the same rank.
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
 
     Value finalInput = adaptor.getInput();
@@ -1924,7 +2175,6 @@ public:
     // Add dims at update_window_dims positions.
     // Example: tensor<1x5> -> tensor<1x5x1> when update_window_dims=[2]
     if (indexType.getShape().size() < targetRank) {
-      auto updateWindowDims = op.getUpdateWindowDims();
       llvm::SmallVector<int64_t> expandedIndexShape;
 
       size_t originalDim = 0;
