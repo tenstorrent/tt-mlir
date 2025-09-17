@@ -21,7 +21,7 @@ namespace ttnn {
 
 struct Conv2dConfigSearchSpace {
   llvm::SmallVector<ttcore::DataType> weightsDtype;
-  llvm::SmallVector<std::string> activation;
+  llvm::SmallVector<UnaryOpType> activation;
   llvm::SmallVector<bool> deallocateActivation;
   llvm::SmallVector<bool> reallocateHaloOutput;
   llvm::SmallVector<uint32_t> actBlockHOverride;
@@ -91,7 +91,7 @@ struct Conv2dConfigSearchSpace {
 struct Conv2dConfigGeneratorSearchFieldInfo {
   using SearchValueVariant =
       std::variant<llvm::SmallVector<ttcore::DataType>,
-                   llvm::SmallVector<std::string>, llvm::SmallVector<uint32_t>,
+                   llvm::SmallVector<UnaryOpType>, llvm::SmallVector<uint32_t>,
                    llvm::SmallVector<bool>,
                    llvm::SmallVector<::mlir::tt::ttnn::TensorMemoryLayout>,
                    llvm::SmallVector<::mlir::tt::ttnn::Layout>,
@@ -125,8 +125,8 @@ struct Conv2dConfigGeneratorSearchFieldInfo {
   ttcore::DataType getCurrentDataType() const {
     return std::get<llvm::SmallVector<ttcore::DataType>>(values)[currentIndex];
   }
-  std::string getCurrentString() const {
-    return std::get<llvm::SmallVector<std::string>>(values)[currentIndex];
+  UnaryOpType getCurrentUnaryOpType() const {
+    return std::get<llvm::SmallVector<UnaryOpType>>(values)[currentIndex];
   }
   uint32_t getCurrentUint32() const {
     return std::get<llvm::SmallVector<uint32_t>>(values)[currentIndex];

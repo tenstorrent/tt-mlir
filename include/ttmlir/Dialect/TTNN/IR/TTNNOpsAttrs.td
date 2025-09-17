@@ -508,7 +508,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   let extraClassDeclaration = [{
     static Conv2dConfigAttr getDefault(::mlir::MLIRContext *context);
 
-    Conv2dConfigAttr withActivation(StringRef activation) const;
+    Conv2dConfigAttr withActivation(UnaryOpType activation) const;
     Conv2dConfigAttr withWeightsDtype(ttcore::DataType dtype) const;
     Conv2dConfigAttr withDeallocateActivation(bool value) const;
     Conv2dConfigAttr withReallocateHaloOutput(bool value) const;

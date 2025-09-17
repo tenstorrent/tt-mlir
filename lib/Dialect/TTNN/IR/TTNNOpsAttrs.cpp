@@ -750,9 +750,10 @@ Conv2dConfigAttr Conv2dConfigAttr::getDefault(::mlir::MLIRContext *context) {
       .buildConv2dConfigAttr(context);
 }
 
-Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
+Conv2dConfigAttr
+Conv2dConfigAttr::withActivation(UnaryOpType unaryOpType) const {
   Conv2dConfigParams params(*this);
-  params.activation = activation.str();
+  params.activation = unaryOpType;
   return params.buildConv2dConfigAttr(getContext());
 }
 

@@ -103,8 +103,14 @@ bool Conv2dConfigOverrideParser::parse(
           opt.error("Duplicate activation: " + paramValue);
           return true;
         }
-        params.activation =
-            activation.equals_insensitive("none") ? "" : activation.str();
+        if (activation.equals_insensitive("")) {
+          params.activation = std::nullopt;
+        } else if (auto unaryOp = symbolizeUnaryOpType(activation)) {
+          params.activation = unaryOp;
+        } else {
+          opt.error("Invalid activation: " + paramValue);
+          return true;
+        }
       } else if (paramName == "deallocate_activation") {
         bool deallocateActivation;
         if (parseBool(paramValue, deallocateActivation)) {

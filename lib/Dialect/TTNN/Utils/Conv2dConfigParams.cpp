@@ -26,10 +26,15 @@ Conv2dConfigParams::Conv2dConfigParams(Conv2dConfigAttr attr, bool partial) {
 
   weightsDtype = getOrDefaultOpt(attr.getWeightsDtype(),
                                  mlir::tt::ttcore::DataType::BFloat16);
-  activation = attr.getActivation()
-                   ? std::optional<std::string>(
-                         stringifyUnaryOpType(attr.getActivation().getOpType()))
-                   : std::nullopt;
+
+  if (attr.getActivation()) {
+    activation = attr.getActivation().getOpType();
+    activationParams = attr.getActivation().getParams();
+  } else {
+    activation = std::nullopt;
+    activationParams = std::nullopt;
+  }
+
   deallocateActivation = getOrDefaultBool(attr.getDeallocateActivation());
   reallocateHaloOutput = getOrDefaultBool(attr.getReallocateHaloOutput());
   actBlockHOverride = getOrDefaultOpt(attr.getActBlockHOverride(), 0);
@@ -55,18 +60,19 @@ Conv2dConfigParams::buildConv2dConfigAttr(::mlir::MLIRContext *ctx) const {
   };
 
   auto toUnaryAttr =
-      [ctx](const std::optional<std::string> &act) -> UnaryWithParamAttr {
-    if (act.has_value() && act.value() != "") {
-      std::optional<UnaryOpType> opType = symbolizeUnaryOpType(act.value());
-      assert(opType.has_value() && "Invalid activation type");
-      return UnaryWithParamAttr::get(ctx, opType.value(), {});
+      [ctx](const std::optional<UnaryOpType> &act,
+            const std::optional<std::vector<FloatAttr>> &actParams)
+      -> UnaryWithParamAttr {
+    if (act) {
+      return UnaryWithParamAttr::get(
+          ctx, *act, actParams.value_or(llvm::ArrayRef<FloatAttr>{}));
     }
 
-    return {};
+    return nullptr;
   };
 
   return Conv2dConfigAttr::get(
-      ctx, weightsDtype, toUnaryAttr(activation),
+      ctx, weightsDtype, toUnaryAttr(activation, activationParams),
       toBoolAttr(deallocateActivation), toBoolAttr(reallocateHaloOutput),
       actBlockHOverride, actBlockWDiv, toBoolAttr(reshardIfNotOptimal),
       toBoolAttr(overrideShardingConfig), shardLayout,

@@ -267,7 +267,12 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
              if (value != "none" && value != "relu") {
                throw std::invalid_argument("Invalid activation: " + value);
              }
-             obj.activation = value;
+             if (auto activation =
+                     mlir::tt::ttnn::symbolizeUnaryOpType(value)) {
+               obj.activation = activation;
+             } else {
+               throw std::invalid_argument("Invalid activation: " + value);
+             }
            })
       .def("set_deallocate_activation_from_str",
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,

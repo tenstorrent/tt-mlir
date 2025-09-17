@@ -21,7 +21,8 @@ namespace mlir::tt::ttnn {
 /// overrides.
 struct Conv2dConfigParams {
   std::optional<ttcore::DataType> weightsDtype = std::nullopt;
-  std::optional<std::string> activation = std::nullopt;
+  std::optional<UnaryOpType> activation = std::nullopt;
+  std::optional<std::vector<FloatAttr>> activationParams = std::nullopt;
   std::optional<bool> deallocateActivation = std::nullopt;
   std::optional<bool> reallocateHaloOutput = std::nullopt;
   std::optional<uint32_t> actBlockHOverride = std::nullopt;

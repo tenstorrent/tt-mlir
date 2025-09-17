@@ -33,7 +33,7 @@ Conv2dConfigGenerator::Conv2dConfigGenerator(
         [](Conv2dConfigAttr attr,
            const Conv2dConfigGeneratorSearchFieldInfo &info)
             -> Conv2dConfigAttr {
-          return attr.withActivation(info.getCurrentString());
+          return attr.withActivation(info.getCurrentUnaryOpType());
         });
   }
   if (searchSpace.isDeallocateActivationSetForSearch() &&
