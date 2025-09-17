@@ -258,9 +258,6 @@ public:
     bool gspmdAnnotationsExist = gspmd_utils::gspmdAnnotationsExist(rootModule);
     bool sdyAnnotationsExist = shardy_utils::sdyAnnotationsExist(rootModule);
 
-    // std::cout << "[JAMES] module before AnalyzeMeshPass:\n";
-    // rootModule.dump(); 
-
     // If shardy annotations exist, check for validity of the mesh. Shardy will
     // already populate a sdy.meshOp.
     if (sdyAnnotationsExist) {

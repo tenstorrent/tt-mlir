@@ -69,9 +69,6 @@ void createStableHLOPipeline(OpPassManager &pm,
   // from stablehlo into ttir.
   pm.addPass(createWrapUnderManualComputationPass());
 
-  // Strip GSPMD-related custom calls that are no longer needed after wrapping.
-  pm.addPass(createStripGSPMDCustomCallsPass());
-
   // Convert reshards to collectives
   pm.nest<mlir::func::FuncOp>().addPass(
       mlir::sdy::createReshardToCollectivesPass());

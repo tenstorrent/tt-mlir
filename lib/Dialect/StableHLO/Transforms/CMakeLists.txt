@@ -2,7 +2,6 @@ add_mlir_dialect_library(MLIRSTABLEHLOTransforms
   AnalyzeMesh.cpp
   ApplyArgumentShardStatus.cpp
   ShardyCCLToStableHLOCCLPatterns.cpp
-  StripGSPMDCustomCalls.cpp
   UpdateGlobalToLocalShapes.cpp
   WrapUnderManualComputation.cpp
 
