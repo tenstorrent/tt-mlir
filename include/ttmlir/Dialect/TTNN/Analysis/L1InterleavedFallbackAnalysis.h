@@ -88,8 +88,9 @@ private:
   // (1x1 kernel, stride=1, padding=0, dilation=1)
   bool isConv2DConvertibleToMatMul(Operation *op);
 
-  // Check if a reshape operation should be skipped based on TTNN optimization
+  // Check if a reshape operation should be skipped based on tt-metal TTNN optimization
   // rules. Returns true if the operation should be skipped, false otherwise.
+  // reference: ttnn::operations::data_movement::ReshapeViewOperation::invoke
   // Parameters:
   // - reshapeOp: The reshape operation to analyze
   // - contextOp: The operation context for logging (producer op for user

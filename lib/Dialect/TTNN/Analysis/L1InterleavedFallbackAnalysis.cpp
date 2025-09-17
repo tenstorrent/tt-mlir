@@ -249,16 +249,23 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
     const int64_t tileHeight = 32; // tt::constants::TILE_HEIGHT
     const int64_t tileWidth = 32;  // tt::constants::TILE_WIDTH
 
-    bool inputTensorSharded = false;
-    if (auto ttnnLayout =
-            mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding())) {
-      inputTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
+    // Checking if the other tensor is sharded/interleaved:
+    // Input if we are checking the output of the op (this reshape is contextOp)
+    // Output if we are checking the input of the op (this reshape is user of
+    // contextOp)
+    bool otherTensorSharded = false;
+    if (isUserOp) {
+      if (auto ttnnLayout =
+              mlir::dyn_cast<TTNNLayoutAttr>(outputType.getEncoding())) {
+        otherTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
+      }
+    } else {
+      if (auto ttnnLayout =
+              mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding())) {
+        otherTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
+      }
     }
-    bool outputTensorSharded = false;
-    if (auto ttnnLayout =
-            mlir::dyn_cast<TTNNLayoutAttr>(outputType.getEncoding())) {
-      outputTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
-    }
+
     bool inputTensorTiled = false;
     if (auto ttnnLayout =
             mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding())) {
@@ -270,10 +277,10 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
         // optimization (always false for tensor checked for upgrade since in
         // DRAM -> never sharded) so there is no point to keep the tensor in
         // DRAM if the other is L1 sharded.
-        // 2. Since sharding is the only way any of these can already be in L1,
-        // and the other must be in DRAM to be considered for upgrade,
+        // 2. Since sharding is the only way any of these can already be in
+        // L1, and the other must be in DRAM to be considered for upgrade,
         // checking sharding covers the input.isL1() == output.isL1() as well.
-        (inputTensorSharded == outputTensorSharded) &&
+        !otherTensorSharded &&
         (inputLastDim == outputLastDim) &&
         (!inputTensorTiled || (inputSecondLastDim == outputSecondLastDim) ||
          (outputSecondLastDim % tileHeight == 0 &&
@@ -371,8 +378,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
 
     if (operand.getDefiningOp()) {
       if (operand.getDefiningOp() == upgradedProducerOp) {
-        // If it's a nested check of update candidate's (producer in this scope)
-        // consumer's storage.
+        // If it's a nested check of update candidate's (producer in this
+        // scope) consumer's storage.
         inputLayouts.push_back(upgradedProducerLayout);
         continue;
       }
@@ -451,15 +458,15 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   // - Recursive call: upgradedProducerOp=consumerOp, checks if consumer can
   // handle the upgrade.
   if (upgradedProducerOp) {
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::Optimizer,
-        "OpModel constraints valid for input of consumer {0}:\n"
-        "OutputLayout: {1}\n"
-        "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
-        "producerL1OutputUsage: {5}, totalL1Usage: {6}",
-        consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
-        outputTensorUsage, producersL1OutputUsage,
-        cBUsagePeak + tensorUsage + producersL1OutputUsage);
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "OpModel constraints valid for input of consumer {0}:\n"
+                 "OutputLayout: {1}\n"
+                 "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, "
+                 "outputTensorUsage: {4}, "
+                 "producerL1OutputUsage: {5}, totalL1Usage: {6}",
+                 consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
+                 outputTensorUsage, producersL1OutputUsage,
+                 cBUsagePeak + tensorUsage + producersL1OutputUsage);
 
     return outputLayout;
   }
