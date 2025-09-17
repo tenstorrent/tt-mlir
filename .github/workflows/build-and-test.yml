@@ -420,9 +420,11 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        pytest test/pykernel/demo/test.py -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
-        # cmake --build build
-        # cmake --build build -- pykernel-demo
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export PYTHONPATH="${{ steps.strings.outputs.build-output-dir }}/python_packages/ttmlir:${PYTHONPATH}"
+        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        cd ${{ steps.strings.outputs.build-output-dir }}
+        pytest ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo/test.py -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
 
     # pytest runner
     - name: Run pytest ttrt tests
