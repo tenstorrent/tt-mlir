@@ -845,7 +845,7 @@ Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
 }
 
 bool Conv2dConfigAttr::hasActivation() const {
-  return getActivation() != nullptr && getActivation().getValue() != "";
+  return getActivation() != nullptr;
 }
 
 bool Conv2dConfigAttr::hasWeightsDtype() const {

@@ -167,8 +167,8 @@ void populateTTNNModule(nb::module_ &m) {
           "get",
           [](MlirContext ctx, std::optional<tt::ttcore::DataType> dtype,
              std::optional<tt::ttcore::DataType> weightsDtype,
-             StringAttr activation, BoolAttr deallocateActivation,
-             BoolAttr reallocateHaloOutput,
+             tt::ttnn::UnaryWithParamAttr activation,
+             BoolAttr deallocateActivation, BoolAttr reallocateHaloOutput,
              std::optional<uint32_t> actBlockHOverride,
              std::optional<uint32_t> actBlockWDiv, BoolAttr reshardIfNotOptimal,
              BoolAttr overrideShardingConfig,
@@ -194,14 +194,15 @@ void populateTTNNModule(nb::module_ &m) {
                      }
                      return static_cast<uint32_t>(*self.getWeightsDtype());
                    })
-      .def_prop_ro("activation",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, std::string> {
-                     if (!self.getActivation()) {
-                       return nb::none();
-                     }
-                     return self.getActivation().getValue().str();
-                   })
+      .def_prop_ro(
+          "activation",
+          [](tt::ttnn::Conv2dConfigAttr self)
+              -> std::variant<nb::object, tt::ttnn::UnaryWithParamAttr> {
+            if (!self.getActivation()) {
+              return nb::none();
+            }
+            return self.getActivation();
+          })
       .def_prop_ro("deallocate_activation",
                    [](tt::ttnn::Conv2dConfigAttr self)
                        -> std::variant<nb::object, bool> {

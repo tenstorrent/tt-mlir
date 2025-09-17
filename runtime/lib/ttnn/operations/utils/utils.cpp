@@ -235,7 +235,9 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   }
 
   if (config->activation()) {
-    conv2dConfig.activation = config->activation()->str();
+    conv2dConfig.activation =
+        std::optional<::ttnn::operations::unary::UnaryWithParam>(
+            toTTNNUnaryWithParam(*config->activation()));
   }
 
   if (config->deallocate_activation()) {

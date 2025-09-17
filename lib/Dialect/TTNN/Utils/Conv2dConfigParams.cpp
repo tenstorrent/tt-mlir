@@ -24,15 +24,12 @@ Conv2dConfigParams::Conv2dConfigParams(Conv2dConfigAttr attr, bool partial) {
                 : (partial ? std::nullopt : std::optional<bool>(false));
   };
 
-  auto getOrDefaultString =
-      [partial](mlir::StringAttr attr) -> std::optional<std::string> {
-    return attr ? std::optional<std::string>(attr.getValue().str())
-                : (partial ? std::nullopt : std::optional<std::string>(""));
-  };
-
   weightsDtype = getOrDefaultOpt(attr.getWeightsDtype(),
                                  mlir::tt::ttcore::DataType::BFloat16);
-  activation = getOrDefaultString(attr.getActivation());
+  activation = attr.getActivation()
+                   ? std::optional<std::string>(
+                         stringifyUnaryOpType(attr.getActivation().getOpType()))
+                   : std::nullopt;
   deallocateActivation = getOrDefaultBool(attr.getDeallocateActivation());
   reallocateHaloOutput = getOrDefaultBool(attr.getReallocateHaloOutput());
   actBlockHOverride = getOrDefaultOpt(attr.getActBlockHOverride(), 0);
@@ -53,17 +50,23 @@ Conv2dConfigParams::Conv2dConfigParams(Conv2dConfigAttr attr, bool partial) {
 
 Conv2dConfigAttr
 Conv2dConfigParams::buildConv2dConfigAttr(::mlir::MLIRContext *ctx) const {
-  auto toStringAttr =
-      [ctx](const std::optional<std::string> &str) -> mlir::StringAttr {
-    return str.has_value() ? mlir::StringAttr::get(ctx, str.value()) : nullptr;
-  };
-
   auto toBoolAttr = [ctx](const std::optional<bool> &b) -> mlir::BoolAttr {
     return b.has_value() ? mlir::BoolAttr::get(ctx, b.value()) : nullptr;
   };
 
+  auto toUnaryAttr =
+      [ctx](const std::optional<std::string> &act) -> UnaryWithParamAttr {
+    if (act.has_value() && act.value() != "") {
+      std::optional<UnaryOpType> opType = symbolizeUnaryOpType(act.value());
+      assert(opType.has_value() && "Invalid activation type");
+      return UnaryWithParamAttr::get(ctx, opType.value(), {});
+    }
+
+    return {};
+  };
+
   return Conv2dConfigAttr::get(
-      ctx, weightsDtype, toStringAttr(activation),
+      ctx, weightsDtype, toUnaryAttr(activation),
       toBoolAttr(deallocateActivation), toBoolAttr(reallocateHaloOutput),
       actBlockHOverride, actBlockWDiv, toBoolAttr(reshardIfNotOptimal),
       toBoolAttr(overrideShardingConfig), shardLayout,
