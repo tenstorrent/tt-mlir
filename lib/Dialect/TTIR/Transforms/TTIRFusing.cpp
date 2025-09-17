@@ -487,6 +487,39 @@ private:
   }
 };
 
+class SiluFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
+  using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MultiplyOp multiplyOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Get the operands of the multiply operation.
+    mlir::Value lhs = multiplyOp.getLhs();
+    mlir::Value rhs = multiplyOp.getRhs();
+
+    // Check if one of the operands is a sigmoid operation.
+    auto sigmoidOp = lhs.getDefiningOp<SigmoidOp>();
+    mlir::Value otherOperand = rhs;
+    if (!sigmoidOp) {
+      sigmoidOp = rhs.getDefiningOp<SigmoidOp>();
+      otherOperand = lhs;
+    }
+    if (!sigmoidOp) {
+      return mlir::failure();
+    }
+
+    // Verify that the other operand is the same as the input to the sigmoid.
+    if (sigmoidOp.getInput() != otherOperand) {
+      return mlir::failure();
+    }
+    // Replace multiply op with new silu op.
+    utils::replaceOpWithNewDPSOp<SiluOp>(
+        rewriter, multiplyOp, multiplyOp.getResult().getType(), otherOperand);
+    return mlir::success();
+  }
+};
+
 template <typename ConvOpType>
 class ConvWithMultiplyTemplate : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
@@ -2141,6 +2174,7 @@ public:
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());
+      patterns.add<SiluFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
