@@ -4732,8 +4732,6 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
-
-  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//

@@ -7,7 +7,7 @@ module {
   // default
   func.func @scatter(%arg0: tensor<1x3x320x320xf32>, %arg1: tensor<1x1xi32>, %arg2: tensor<1x3x32x32xf32>) -> tensor<1x3x320x320xf32> {
     %0 = ttir.empty() : tensor<1x3x320x320xf32>
-    %2 = "ttir.scatter"(%arg0, %arg1, %arg2, %0) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0>, scatter_dims_to_operand_dims = array<i32: 0>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 1, 2, 3>}> : (tensor<1x3x320x320xf32>, tensor<1x1xi32>, tensor<1x3x32x32xf32>, tensor<1x3x320x320xf32>) -> tensor<1x3x320x320xf32>
+    %1 = "ttir.scatter"(%arg0, %arg1, %arg2, %0) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0>, scatter_dims_to_operand_dims = array<i32: 0>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 1, 2, 3>}> : (tensor<1x3x320x320xf32>, tensor<1x1xi32>, tensor<1x3x32x32xf32>, tensor<1x3x320x320xf32>) -> tensor<1x3x320x320xf32>
     // CHECK-LABEL: func.func @scatter
     // CHECK: "ttnn.slice_static"({{.*}}) <{begins = [0 : i32, 0 : i32], ends = [1 : i32, 1 : i32], step = [1 : i32, 1 : i32]}>
     // CHECK-SAME: (tensor<1x1xsi32, {{.*}}>) -> tensor<1x1xsi32, {{.*}}>
@@ -17,7 +17,7 @@ module {
     // CHECK-SAME: (tensor<1x1x1x1xsi32, {{.*}}>) -> tensor<1x3x32x32xsi32, {{.*}}>
     // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
     // CHECK-SAME: (tensor<1x3x320x320xf32, {{.*}}>, tensor<1x3x32x32xsi32, {{.*}}>, tensor<1x3x32x32xf32, {{.*}}>) -> tensor<1x3x320x320xf32, {{.*}}>
-    return %2 : tensor<1x3x320x320xf32>
+    return %1 : tensor<1x3x320x320xf32>
   }
 
   // gpt-oss - multi-dimensional scatter with scatter operation broken into multiple scatter operations each handling index_shape[dim] < 256
