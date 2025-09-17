@@ -3364,10 +3364,11 @@ void CaptureOrExecuteTraceOp::getEffects(
     return emitOpError() << "input tensor must be a 4D tensor";
   }
 
-  // TODO milant: Use symbolic dimensions when
-  // https://github.com/tenstorrent/tt-mlir/pull/4855 is merged.
+  using namespace ttmlir::utils::transformer;
+
   llvm::SmallVector<int64_t> expectedOutputShape = {
-      inputShape[0], 1, inputShape[2], inputShape[1] * inputShape[3]};
+      inputShape[INPUT_BATCH], 1, inputShape[INPUT_SEQ],
+      inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE]};
 
   if (!llvm::equal(expectedOutputShape, outputShape)) {
     return emitOpError() << "expected output shape ("
