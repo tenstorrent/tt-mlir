@@ -456,7 +456,7 @@ def parse_conv2d_config(attr):
             },
         )
     )
-    activation = str(conv2d_config.activation)
+    activation = str(conv2d_config.activation.op_type)
     if len(activation) == 0:
         activation = OVERRIDE_PARAMETER_DISABLED_STR
     result.append(

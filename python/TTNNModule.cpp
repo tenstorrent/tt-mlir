@@ -340,6 +340,10 @@ void populateTTNNModule(nb::module_ &m) {
                    [](tt::ttnn::UnaryWithParamAttr self) {
                      return static_cast<uint32_t>(self.getOpType());
                    })
+      .def_prop_ro("op_type",
+                   [](tt::ttnn::UnaryWithParamAttr self) {
+                     return stringifyUnaryOpType(self.getOpType());
+                   })
       .def_prop_ro("params", [](tt::ttnn::UnaryWithParamAttr self) {
         return self.getParams().vec();
       });
