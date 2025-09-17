@@ -146,7 +146,7 @@ module {
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_gelu
-    %25= "ttir.gelu"(%24 %out) : (!ttype, !ttype) -> !ttype
+    %25= "ttir.gelu"(%24, %out) : (!ttype, !ttype) -> !ttype
     return %25 !ttype
   }
 
