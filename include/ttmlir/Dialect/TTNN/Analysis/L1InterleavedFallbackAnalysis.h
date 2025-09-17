@@ -11,8 +11,10 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Operation.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.h"
 #include "llvm/ADT/DenseMap.h"
 
+#include <cstddef>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -99,10 +101,27 @@ private:
   //   the hypothetical upgraded producer we need to validate against.
   // - This allows checking if the consumer can handle the upgraded layout
   //   before committing to the upgrade.
-  llvm::Expected<TTNNLayoutAttr> checkUpgradeToL1Interleaved(
+  // Returns: {upgraded layout, runtime improvement (0 if error)}
+  llvm::Expected<std::tuple<TTNNLayoutAttr, size_t>>
+  checkUpgradeToL1Interleaved(
       Operation *consumerOp, const OpConfig &consumerConfig,
       const Operation *upgradedProducerOp,
       const TTNNLayoutAttr upgradedProducerLayout) const;
+
+  // Check if upgrading operation to L1 interleaved is beneficial by comparing
+  // runtimes before and after the upgrade of input.
+  // Returns: {hasErrors, beforeRuntime, afterRuntime}
+  std::tuple<bool, size_t, size_t> checkOpRuntimesInputChange(
+      OpModel &backend, std::vector<TTNNLayoutAttr> &inputLayouts,
+      const OpConfig &consumerConfig, size_t changedInputLayoutIndex,
+      const TTNNLayoutAttr &oldProducerLayout) const;
+
+  // Check if upgrading operation to L1 interleaved is beneficial by comparing
+  // runtimes before and after the upgrade of output.
+  // Returns: {hasErrors, beforeRuntime, afterRuntime}
+  std::tuple<bool, size_t, size_t> checkOpRuntimesOutputChange(
+      OpModel &backend, const std::vector<TTNNLayoutAttr> &inputLayouts,
+      const OpConfig &consumerConfig, const OpConfig &oldConsumerConfig) const;
 
 public:
   L1InterleavedFallbackAnalysis(Operation *op) : TTNNAnalysis(op) {}

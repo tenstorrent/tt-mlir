@@ -13,9 +13,11 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/Support/Error.h"
 
 #include <algorithm>
 #include <cassert>
+#include <cstddef>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -203,28 +205,33 @@ void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "=== Start of debug dump for op {} ===",
                  op->getName().getStringRef().data());
-    llvm::Expected<TTNNLayoutAttr> possibleL1Layout =
+    llvm::Expected<std::tuple<TTNNLayoutAttr, size_t>> checkUpgradeResult =
         checkUpgradeToL1Interleaved(op, opL1InterleavedConfig,
                                     /*upgradedProducerOp=*/nullptr,
                                     /*upgradedProducerLayout=*/nullptr);
 
-    if (!possibleL1Layout) {
-      llvm::Error error = possibleL1Layout.takeError();
+    if (!checkUpgradeResult) {
+      llvm::Error error = checkUpgradeResult.takeError();
       std::string errorStr = llvm::toString(std::move(error));
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "L1InterleavedFallbackAnalysis: Invalid upgrade, error: {}",
                    errorStr);
       continue;
     }
-    TTNNLayoutAttr l1InterleavedLayout = possibleL1Layout.get();
+    auto [l1InterleavedLayout, runtimeGain] = checkUpgradeResult.get();
     assert(l1InterleavedLayout == opL1InterleavedConfig.outputLayout &&
            "Expected output layout to match the one in OpConfig");
     analysisResult.upgradedConfigs[op] = opL1InterleavedConfig;
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "L1InterleavedFallbackAnalysis: Upgraded op {} to L1 "
+                 "interleaved layout {}, runtime gain {}",
+                 op->getName().getStringRef().data(), l1InterleavedLayout,
+                 runtimeGain);
     break;
   }
 }
 
-llvm::Expected<TTNNLayoutAttr>
+llvm::Expected<std::tuple<TTNNLayoutAttr, size_t>>
 L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     Operation *consumerOp, const OpConfig &consumerConfig,
     const Operation *upgradedProducerOp,
@@ -246,6 +253,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   std::vector<TTNNLayoutAttr> inputLayouts;
   inputLayouts.reserve(numOperands);
   uint64_t producersL1OutputUsage = 0;
+  uint64_t changedInputLayoutIndex = -1;
+  TTNNLayoutAttr oldChangedInputLayout = nullptr;
 
   for (uint32_t i = 0; i < numOperands; i++) {
     auto operand = consumerOp->getOperand(i);
@@ -259,6 +268,10 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       if (operand.getDefiningOp() == upgradedProducerOp) {
         // If it's a nested check of update candidate's (producer in this scope)
         // consumer's storage.
+        changedInputLayoutIndex = inputLayouts.size();
+        RankedTensorType input =
+            mlir::cast<RankedTensorType>(operand.getType());
+        oldChangedInputLayout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
         inputLayouts.push_back(upgradedProducerLayout);
         continue;
       }
@@ -347,9 +360,22 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
         outputTensorUsage, producersL1OutputUsage,
         cBUsagePeak + tensorUsage + producersL1OutputUsage);
 
-    return outputLayout;
+    auto [hasErrors, beforeRuntime, afterRuntime] = checkOpRuntimesInputChange(
+        backend, inputLayouts, consumerConfig, changedInputLayoutIndex,
+        oldChangedInputLayout);
+    size_t consumerRuntimeGain = 0;
+    if (hasErrors) {
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::Optimizer,
+          "Error getting before-after upgrade runtimes for consumer op {}",
+          consumerOp->getName().getStringRef().data());
+    } else {
+      consumerRuntimeGain = beforeRuntime - afterRuntime;
+    }
+    return std::make_tuple(outputLayout, consumerRuntimeGain);
   }
 
+  size_t nextConsumerRuntimeGain = 0;
   assert(consumerOp->hasOneUse() && "Consumer must have exactly one user");
   Operation *nextConsumerOp = *consumerOp->getUsers().begin();
   assert(nextConsumerOp && "Operation must have a consumer");
@@ -360,12 +386,11 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     const OpConfig &nextConsumerOpConfig =
         analysisInput.currentConfigs.at(nextConsumerOp);
 
-    llvm::Expected<TTNNLayoutAttr> nextConsumerOpL1Layout =
-        checkUpgradeToL1Interleaved(nextConsumerOp, nextConsumerOpConfig,
-                                    consumerOp, outputLayout);
+    auto nextConsumerCheckUpgradeResult = checkUpgradeToL1Interleaved(
+        nextConsumerOp, nextConsumerOpConfig, consumerOp, outputLayout);
 
-    if (!nextConsumerOpL1Layout) {
-      llvm::Error error = nextConsumerOpL1Layout.takeError();
+    if (!nextConsumerCheckUpgradeResult) {
+      llvm::Error error = nextConsumerCheckUpgradeResult.takeError();
       std::string errorStr = llvm::toString(std::move(error));
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                    "L1 upgrade blocked for {} - for consumer {}: {}",
@@ -376,7 +401,9 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
           "L1 upgrade blocked: can't be input of consumer %s.",
           nextConsumerOp->getName().getStringRef().data());
     }
-    TTNNLayoutAttr nextConsumerOpLayout = nextConsumerOpL1Layout.get();
+    TTNNLayoutAttr nextConsumerOpLayout =
+        std::get<0>(nextConsumerCheckUpgradeResult.get());
+    nextConsumerRuntimeGain = std::get<1>(nextConsumerCheckUpgradeResult.get());
     assert(nextConsumerOpLayout == nextConsumerOpConfig.outputLayout &&
            "Expected consumer of updated op layout to match the one in "
            "OpConfig");
@@ -392,7 +419,82 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       outputTensorUsage, producersL1OutputUsage,
       cBUsagePeak + tensorUsage + producersL1OutputUsage);
 
-  return outputLayout;
+  const OpConfig &oldConsumerOpConfig =
+      analysisInput.currentConfigs.at(consumerOp);
+  auto [hasErrors, beforeRuntime, afterRuntime] = checkOpRuntimesOutputChange(
+      backend, inputLayouts, consumerConfig, oldConsumerOpConfig);
+  size_t totalRuntimeGain = nextConsumerRuntimeGain;
+  if (hasErrors) {
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::Optimizer,
+        "Error getting before-after upgrade runtimes for producer op {}",
+        consumerOp->getName().getStringRef().data());
+  } else {
+    totalRuntimeGain += beforeRuntime - afterRuntime;
+  }
+  if (totalRuntimeGain <= 0) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "L1 upgrade blocked for {} - no runtime gain: before {}, "
+                 "after {}, next consumer gain {}, in total gain {}",
+                 consumerOp->getName().getStringRef().data(), beforeRuntime,
+                 afterRuntime, nextConsumerRuntimeGain, totalRuntimeGain);
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "L1 upgrade blocked: no runtime gain for op %s with consumer %s.",
+        consumerOp->getName().getStringRef().data(),
+        nextConsumerOp->getName().getStringRef().data());
+  }
+
+  return std::make_tuple(outputLayout, totalRuntimeGain);
+}
+
+std::tuple<bool, size_t, size_t>
+L1InterleavedFallbackAnalysis::checkOpRuntimesInputChange(
+    OpModel &backend, std::vector<TTNNLayoutAttr> &inputLayouts,
+    const OpConfig &consumerConfig, size_t changedInputLayoutIndex,
+    const TTNNLayoutAttr &oldChangedInputLayout) const {
+
+  // Get runtime with upgraded layout
+  llvm::Expected<size_t> afterBackendOpRuntime =
+      backend.getOpRuntime(inputLayouts, consumerConfig);
+
+  // Temporarily restore old layout and get runtime
+  TTNNLayoutAttr upgradedLayout = inputLayouts[changedInputLayoutIndex];
+  inputLayouts[changedInputLayoutIndex] = oldChangedInputLayout;
+  llvm::Expected<size_t> beforeBackendOpRuntime =
+      backend.getOpRuntime(inputLayouts, consumerConfig);
+  // Restore upgraded layout for consistency
+  inputLayouts[changedInputLayoutIndex] = upgradedLayout;
+
+  // Check for errors
+  if (!afterBackendOpRuntime || !beforeBackendOpRuntime) {
+    return std::make_tuple(true, 0, 0);
+  }
+
+  return std::make_tuple(false, beforeBackendOpRuntime.get(),
+                         afterBackendOpRuntime.get());
+}
+
+std::tuple<bool, size_t, size_t>
+L1InterleavedFallbackAnalysis::checkOpRuntimesOutputChange(
+    OpModel &backend, const std::vector<TTNNLayoutAttr> &inputLayouts,
+    const OpConfig &consumerConfig, const OpConfig &oldConsumerConfig) const {
+
+  // Get runtime with upgraded layout
+  llvm::Expected<size_t> afterBackendOpRuntime =
+      backend.getOpRuntime(inputLayouts, consumerConfig);
+
+  // Get runtime with old layout
+  llvm::Expected<size_t> beforeBackendOpRuntime =
+      backend.getOpRuntime(inputLayouts, oldConsumerConfig);
+
+  // Check for errors
+  if (!afterBackendOpRuntime || !beforeBackendOpRuntime) {
+    return std::make_tuple(true, 0, 0);
+  }
+
+  return std::make_tuple(false, beforeBackendOpRuntime.get(),
+                         afterBackendOpRuntime.get());
 }
 
 } // namespace mlir::tt::ttnn
