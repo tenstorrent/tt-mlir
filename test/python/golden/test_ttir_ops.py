@@ -2395,7 +2395,7 @@ def test_unary_ops_int32(
         ),
         maximum
         | Marks(
-            pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4084"),
+            pytest.mark.skip_config(["ttmetal"], reason="Issue #4084"),
             pytest.mark.skip_config(["emitpy"]),
         ),
         minimum
