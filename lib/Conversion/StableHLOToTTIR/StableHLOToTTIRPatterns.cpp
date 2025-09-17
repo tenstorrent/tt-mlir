@@ -3069,9 +3069,9 @@ public:
     bool isCausal = true;
     if (isCausalSringAttr) {
 
-      if (isCausalSringAttr.getValue() == "true") {
+      if (isCausalSringAttr.getValue().lower() == "true") {
         isCausal = true;
-      } else if (isCausalSringAttr.getValue() == "false") {
+      } else if (isCausalSringAttr.getValue().lower() == "false") {
         isCausal = false;
       } else {
         return rewriter.notifyMatchFailure(
@@ -3172,8 +3172,10 @@ public:
     } else if (hasAttentionSink) {
       attentionSink = adaptor.getOperands()[4];
     } else {
-      llvm_unreachable("All combinations of attention mask, cur pos tensor, "
-                       "and attention sink should have been handled");
+      if (hasAttentionMask || hasCurPosTensor || hasAttentionSink) {
+        llvm_unreachable("All combinations of attention mask, cur pos tensor, "
+                         "and attention sink should have been handled");
+      }
     }
 
     ttir::utils::replaceOpWithNewDPSOp<
@@ -3181,7 +3183,7 @@ public:
         rewriter, srcOp,
         cast<RankedTensorType>(
             getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-        query, key, value, attentionMask, curPosTensor, attentionSink,
+        query, key, value, nullptr, nullptr, nullptr,
         rewriter.getBoolAttr(isCausal), rewriter.getF32FloatAttr(scale));
 
     return success();
