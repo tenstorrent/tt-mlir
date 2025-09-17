@@ -117,6 +117,17 @@ void ProgramExecutor::runCallback(
       std::shared_ptr<void> opContextPtr =
       ::tt::runtime::utils::unsafe_borrow_shared(
           const_cast<::tt::target::ttnn::Operation *>(opContext));
+
+  // Print input tensors
+  auto inputRefs = tt::runtime::ttnn::getOpInputRefs(OpContext(opContextPtr, DeviceRuntime::TTNN), cbContext);
+  for (size_t i = 0; i < inputRefs.size(); ++i) {
+    auto inputTensor = tt::runtime::ttnn::retrieveTensorFromPool(cbContext, inputRefs[i], false);
+    if (inputTensor.has_value() && inputTensor->handle.get() != nullptr) {
+      auto k = inputTensor->as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+      std::cerr << "input[" << i << "]=" << k.write_to_string() << std::endl;
+    }
+  }
+
   auto t = tt::runtime::ttnn::getOpOutputTensor(OpContext(opContextPtr, DeviceRuntime::TTNN), cbContext);
   if (t.handle.get() != nullptr)
   {
