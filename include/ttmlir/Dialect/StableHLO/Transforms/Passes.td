@@ -166,4 +166,30 @@ def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mli
   ];
 }
 
+def StripGSPMDCustomCallsPass : Pass<"strip-gspmd-custom-calls", "::mlir::ModuleOp">
+{
+  let summary = "Strip GSPMD-related custom calls from the graph.";
+  let description = [{
+    This pass removes GSPMD-related custom calls (Sharding, SPMDFullToShardShape,
+    SPMDShardToFullShape) from the graph. Since these are unary operations, their
+    users are redirected to use the original input operand, effectively bypassing
+    the custom call node.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    %0 = stablehlo.custom_call @Sharding(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = stablehlo.add %0, %arg1 : tensor<32x32xf32>
+    ```
+
+    Into:
+    ```mlir
+    %1 = stablehlo.add %arg0, %arg1 : tensor<32x32xf32>
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
 #endif

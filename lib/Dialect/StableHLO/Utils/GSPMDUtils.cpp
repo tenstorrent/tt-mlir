@@ -59,7 +59,7 @@ parseMeshesFromGspmdModule(mlir::ModuleOp &module) {
         }
       }
     }
-
+    
     mlir::WalkResult funcOpResult = funcOp.walk([&](Operation *op) {
       if (!mlir::isa<mlir::stablehlo::CustomCallOp>(op)) {
         return WalkResult::advance();
@@ -162,6 +162,9 @@ parseMeshesFromGspmdModule(mlir::ModuleOp &module) {
 
 // Check if the module has any gspmd annotations.
 bool gspmdAnnotationsExist(mlir::ModuleOp &module) {
+
+  llvm::errs() << "DEBUG: Checking for GSPMD annotations in module\n";
+  module.dump();
   for (auto &op : module.getBody()->getOperations()) {
     if (!mlir::isa<func::FuncOp>(op)) {
       continue;
@@ -189,10 +192,15 @@ bool gspmdAnnotationsExist(mlir::ModuleOp &module) {
       }
     }
 
+    llvm::errs() << "[James] Bypass customcall check to assess if gspmd and return gspmdAnnotationsExist=false\n";
+    return false;
+
     mlir::WalkResult result = funcOp.getBody().walk([&](mlir::Operation *op) {
       if (mlir::isa<mlir::stablehlo::CustomCallOp>(op)) {
         auto customCall = mlir::cast<mlir::stablehlo::CustomCallOp>(op);
         auto callTarget = customCall.getCallTargetName();
+
+        llvm::errs() << "DEBUG: Found CustomCallOp with target: " << callTarget << "\n";
 
         if (callTarget ==
                 mlir::tt::gspmd_utils::kShardingCustomCallTargetName ||
@@ -200,6 +208,7 @@ bool gspmdAnnotationsExist(mlir::ModuleOp &module) {
                 mlir::tt::gspmd_utils::kSPMDFullToShardShapeCallTargetName ||
             callTarget ==
                 mlir::tt::gspmd_utils::kSPMDShardToFullShapeCallTargetName) {
+          llvm::errs() << "DEBUG: Interrupting walk due to matching custom call: " << callTarget << "\n";
           return WalkResult::interrupt();
         }
       }
