@@ -2390,8 +2390,7 @@ def test_unary_ops_int32(
         multiply,
         subtract,
         remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
-        maximum
-        | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4084")),
+        maximum | Marks(pytest.mark.skip_config(["ttmetal"], reason="Issue #4084")),
         minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
         matmul | Marks(pytest.mark.skip_config(["ttmetal"])),
         logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
