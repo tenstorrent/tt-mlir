@@ -5562,4 +5562,26 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
   let hasVerifier = 1;
 }
 
+def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
+  let summary = "Scaled dot product attention decode operation.";
+  let description = [{
+    The scaled_dot_product_attention_decode operation applies scaled dot product attention to the input tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       AnyRankedTensor:$value,
+                       AnyRankedTensor:$output,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       Optional<AnyRankedTensor>:$cur_pos_tensor,
+                       Optional<AnyRankedTensor>:$attention_sink,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       DefaultValuedAttr<F32Attr, "1.0">:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 0;
+}
+
+
 #endif
