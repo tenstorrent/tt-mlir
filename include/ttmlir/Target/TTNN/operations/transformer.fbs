@@ -21,6 +21,17 @@ table RotaryEmbeddingLlamaOp {
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
+table ScaledDotProductAttentionOp {
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  value: tt.target.ttnn.TensorRef;
+  is_causal: bool;
+  attention_mask: tt.target.ttnn.TensorRef;
+  scale: float = null;
+  out: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
 table ScaledDotProductAttentionDecodeOp {
   query: tt.target.ttnn.TensorRef;
   key: tt.target.ttnn.TensorRef;

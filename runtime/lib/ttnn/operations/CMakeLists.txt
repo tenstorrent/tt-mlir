@@ -73,6 +73,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/concatenate_heads.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/rotary_embedding_llama.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/scaled_dot_product_attention_decode.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/scaled_dot_product_attention.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )
 

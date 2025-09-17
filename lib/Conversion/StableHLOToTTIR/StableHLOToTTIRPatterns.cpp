@@ -3184,6 +3184,93 @@ public:
 } // namespace
 
 namespace {
+class StableHLOToTTIRScaledDotProductAttentionOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.scaled_dot_product_attention") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "FillCache op must have mhlo.frontend_attributes attribute.");
+    }
+
+    auto isCausalSringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_causal");
+    bool isCausal = true;
+    if (isCausalSringAttr) {
+      if (isCausalSringAttr.getValue().lower() == "true") {
+        isCausal = true;
+      } else if (isCausalSringAttr.getValue().lower() == "false") {
+        isCausal = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "is_causal attribute must be true or false. Recived \"" +
+                       isCausalSringAttr.getValue() + "\".");
+      }
+    }
+
+    BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
+
+    auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
+    std::optional<float> scale = std::nullopt;
+    if (scaleStringAttr) {
+      float _scale;
+      if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "scale attribute string must be convertible to float. Recived \"" +
+                scaleStringAttr.getValue() + "\".");
+      }
+      scale = _scale;
+    }
+
+    FloatAttr scaleAttr =
+        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
+
+    Value query = adaptor.getOperands()[0];
+    Value key = adaptor.getOperands()[1];
+    Value value = adaptor.getOperands()[2];
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    if (adaptor.getOperands().size() == 4) {
+      Value attentionMask = adaptor.getOperands()[3];
+      rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, attentionMask, outputTensor, isCausalAttr,
+          scaleAttr);
+    } else {
+      rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, nullptr, outputTensor, isCausalAttr, scaleAttr);
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIROpOptimizationBarrierOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::OptimizationBarrierOp> {
   using OpConversionPattern<
@@ -3505,7 +3592,8 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
     MLIRContext *ctx, RewritePatternSet &patterns,
     TypeConverter &typeConverter) {
   patterns
-      .add<StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern>(
+      .add<StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern,
+           StableHLOToTTIRScaledDotProductAttentionOpConversionPattern>(
           typeConverter, ctx);
 }
 
