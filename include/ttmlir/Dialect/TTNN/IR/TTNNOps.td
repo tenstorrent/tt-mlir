@@ -2420,6 +2420,8 @@ def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor"> {
 
   let arguments = (ins StrAttr:$file_path,
                        AnyRankedTensor:$input);
+
+  let hasVerifier = 1;
 }
 
 def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
