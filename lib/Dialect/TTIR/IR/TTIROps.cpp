@@ -3186,91 +3186,44 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
-  // if (getNumResults() == 0) {
-  //   return failure();
-  // }
 
-  // TT_assertv(getNumResults() == 1, "TTNNMetalLayoutCastOp should have
-  // exactly one result");
-
-  llvm::outs() << "input type: " << getInput().getType() << "\n";
-  llvm::outs() << "result type: " << getResult().getType() << "\n";
-  llvm::outs() << "\n";
-
-  if (!mlir::isa<::mlir::RankedTensorType>(getResult().getType())) {
-    llvm::outs() << "Result is not a ranked tensor " << getResult().getType()
-                 << "\n";
-    llvm::outs() << "\n";
-
-    return success();
-  }
-  if (!mlir::isa<::mlir::RankedTensorType>(getInput().getType())) {
-    llvm::outs() << "Input is not a ranked tensor " << getInput().getType()
-                 << "\n";
-    llvm::outs() << "\n";
+  Type inputType = getInput().getType();
+  Type resultType = getResult().getType();
+  if (mlir::isa<mlir::MemRefType>(resultType) ||
+      mlir::isa<mlir::MemRefType>(inputType)) {
     return success();
   }
 
-  auto inputType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
-  auto outputType = mlir::cast<mlir::RankedTensorType>(getResult().getType());
+  auto inputTensor = mlir::cast<mlir::RankedTensorType>(inputType);
+  auto outputTensor = mlir::cast<mlir::RankedTensorType>(resultType);
 
-  auto inputEncoding = inputType.getEncoding();
-  auto outputEncoding = outputType.getEncoding();
+  auto inputEncoding = inputTensor.getEncoding();
+  auto outputEncoding = outputTensor.getEncoding();
 
-  // if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(outputEncoding) &&
-  //     mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(inputEncoding)) {
-  //   return emitOpError("Both input and output use metal_layout");
-  // }
-
-  // FailureOr<mlir::Value> bufferizedValue = failure();
   ::llvm::SmallVector<mlir::Value> dummy;
-  if (auto inputMetalAttr =
-          mlir::dyn_cast_or_null<mlir::tt::ttcore::MetalLayoutAttr>(
-              inputEncoding)) {
-    auto maybeBuf =
+  if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(inputEncoding)) {
+    // metal_layout -> ttnn_layout becomes memref -> ttnn_layout
+    auto maybeInputBuf =
         mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
-    if (failed(maybeBuf)) {
-      llvm::errs() << "Failed to get buffer\n";
-      return maybeBuf;
+    if (failed(maybeInputBuf)) {
+      return maybeInputBuf;
     }
-    // Recreate the cast op as memref -> tensor(TTNN)
-    auto newCast =
-        rewriter.create<TTNNMetalLayoutCastOp>(getLoc(), outputType, *maybeBuf);
+    auto newCast = rewriter.create<TTNNMetalLayoutCastOp>(
+        getLoc(), outputTensor, *maybeInputBuf);
     rewriter.replaceOp(*this, newCast.getResult());
-    // auto bufferType = getBufferType(getInput(), options, state, dummy);
-    // if (failed(bufferType)) {
-    //   llvm::errs() << "Failed to get buffer type\n";
-    //   return failure();
-    // }
-    // auto inputMemrefType = mlir::cast<mlir::MemRefType>(*bufferType);
-    // llvm::outs() << "input memref type: " << inputMemrefType << "\n";
-    // llvm::outs() << "buffer type: " << bufferType << "\n\n";
-    // TTNNMetalLayoutCastOp newCast =
-    // rewriter.create<TTNNMetalLayoutCastOp>(getLoc(), inputMemrefType,
-    // getInput()); llvm::outs() << "creating new cast op\n" << newCast <<
-    // "\n\n";
-    // // rewriter.replaceOp(*this, newCast);
-    // mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
-    //                                                    newCast.getResult());
-    return success();
-  } else if (auto outputMetalAttr =
-                 mlir::dyn_cast_or_null<mlir::tt::ttcore::MetalLayoutAttr>(
-                     outputEncoding)) {
+  } else if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(outputEncoding)) {
+    // ttnn_layout -> metal_layout becomes ttnn_layout -> memref
     auto bufferType = getBufferType(getResult(), options, state, dummy);
     if (failed(bufferType)) {
-      // llvm::errs() << "Failed to get buffer type\n";
       return bufferType;
     }
     auto outputMemrefType = mlir::cast<mlir::MemRefType>(*bufferType);
-    // llvm::outs() << "creating new cast op\n";
     TTNNMetalLayoutCastOp newCast = rewriter.create<TTNNMetalLayoutCastOp>(
         getLoc(), outputMemrefType, getInput());
-    // rewriter.replaceOp(*this, newCast);
-    // llvm::outs() << "Replacing op with new cast\n";
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                        newCast.getResult());
   } else {
-    return emitOpError("neither input nor output uses metal_layout");
+    return emitOpError("Neither input or output uses metal_layout");
   }
   return success();
 }
