@@ -166,4 +166,34 @@ def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mli
   ];
 }
 
+def ConvertGSPMDToSDYPass : Pass<"convert-gspmd-to-sdy", "::mlir::ModuleOp">
+{
+  let summary = "Convert GSPMD custom calls to SDY sharding constraints.";
+  let description = [{
+    This pass converts GSPMD sharding custom calls to equivalent SDY sharding
+    constraint operations. It identifies custom calls with "Sharding" target
+    names and replaces them with sdy.sharding_constraint ops, preserving the
+    sharding information while converting to the SDY dialect format.
+
+    Example, this pass will convert the following code:
+    ```mlir
+    %0 = stablehlo.custom_call @Sharding(%arg0) {sdy.sharding = #sdy.sharding<...>}
+        : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    %1 = stablehlo.add %0, %arg1 : tensor<32x32xf32>
+    ```
+
+    Into:
+    ```mlir
+    %0 = sdy.sharding_constraint %arg0 <#sdy.sharding<...>>
+        : tensor<32x32xf32>
+    %1 = stablehlo.add %0, %arg1 : tensor<32x32xf32>
+    ```
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect",
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 #endif
