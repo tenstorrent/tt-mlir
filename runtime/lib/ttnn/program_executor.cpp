@@ -119,6 +119,7 @@ void ProgramExecutor::runCallback(
           const_cast<::tt::target::ttnn::Operation *>(opContext));
 
   // Print input tensors
+  ::ttnn::set_printoptions("Full");
   auto inputRefs = tt::runtime::ttnn::getOpInputRefs(OpContext(opContextPtr, DeviceRuntime::TTNN), cbContext);
   for (size_t i = 0; i < inputRefs.size(); ++i) {
     auto inputTensor = tt::runtime::ttnn::retrieveTensorFromPool(cbContext, inputRefs[i], false);
