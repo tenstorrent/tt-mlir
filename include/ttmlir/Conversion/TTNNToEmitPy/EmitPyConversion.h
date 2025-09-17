@@ -50,6 +50,19 @@ struct ShardMode;
 struct Tensor;
 
 namespace operations {
+namespace unary {
+
+// Mock definition of VecMode enum from tt-metal
+enum class VecMode {
+  None = 0,
+  R = 1,
+  C = 2,
+  RC = 4,
+  RC_custom = 6,
+  Invalid = 0xFF,
+};
+} // namespace unary
+
 namespace conv::conv2d {
 struct Conv2dConfig;
 } // namespace conv::conv2d
@@ -861,6 +874,82 @@ private:
 };
 
 template <>
+struct EmitPyTypeConverter<float> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto floatAttr = mlir::dyn_cast_if_present<mlir::FloatAttr>(attr)) {
+      return convert(floatAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::FloatAttr attr) {
+    return convert(attr.getValueAsDouble());
+  }
+
+  static std::string convert(float value) { return std::to_string(value); }
+
+  static std::string convert(mlir::APFloat attr) {
+    return convert(static_cast<float>(attr.convertToDouble()));
+  }
+};
+
+template <>
+struct EmitPyTypeConverter<mlir::ElementsAttr> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (!attr) {
+      return {};
+    }
+
+    return llvm::TypeSwitch<mlir::Attribute, std::optional<std::string>>(attr)
+        .Case<mlir::DenseIntElementsAttr>(
+            [](mlir::DenseIntElementsAttr denseIntAttr)
+                -> std::optional<std::string> {
+              // Determine the element type and delegate to appropriate
+              // converter
+              auto elementType = denseIntAttr.getElementType();
+              if (elementType.isInteger(1)) {
+                return EmitPyTypeConverter<std::vector<bool>>::convert(
+                    denseIntAttr);
+              }
+              if (elementType.isInteger(8)) {
+                return EmitPyTypeConverter<std::vector<int8_t>>::convert(
+                    denseIntAttr);
+              }
+              if (elementType.isInteger(16)) {
+                return EmitPyTypeConverter<std::vector<int16_t>>::convert(
+                    denseIntAttr);
+              }
+              if (elementType.isInteger(32)) {
+                return EmitPyTypeConverter<std::vector<int32_t>>::convert(
+                    denseIntAttr);
+              }
+              if (elementType.isInteger(64)) {
+                return EmitPyTypeConverter<std::vector<int64_t>>::convert(
+                    denseIntAttr);
+              }
+              return {};
+            })
+        .Case<mlir::DenseFPElementsAttr>(
+            [](mlir::DenseFPElementsAttr denseFPAttr)
+                -> std::optional<std::string> {
+              // Determine the element type and delegate to appropriate
+              // converter
+              auto elementType = denseFPAttr.getElementType();
+              if (elementType.isF32()) {
+                return EmitPyTypeConverter<std::vector<float>>::convert(
+                    denseFPAttr);
+              }
+              if (elementType.isF64()) {
+                return EmitPyTypeConverter<std::vector<double>>::convert(
+                    denseFPAttr);
+              }
+              return {};
+            })
+        .Default([](auto) { return std::optional<std::string>{}; });
+  }
+};
+
+template <>
 struct EmitPyTypeConverter<::ttnn::CoreRangeSet> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto coreRangeSetAttr =
@@ -960,7 +1049,8 @@ struct EmitPyTypeConverter<::ttnn::MemoryConfig> {
   }
 
   static std::string convert(ttnn::MemoryConfigAttr attr) {
-    if (!attr) {
+    if (!attr ||
+        attr.getBufferType().getValue() == ttnn::BufferType::SystemMemory) {
       return TypeNameV<std::nullopt_t>;
     }
 
@@ -1215,6 +1305,7 @@ public:
           adaptor.getOperands().begin() + index,
           adaptor.getOperands().begin() + index + operands.size());
       this->operands.push_back(createList(values));
+      addKeywordArgument(attrName);
       return rewriter.getIndexAttr(index);
     }
     llvm_unreachable("Invalid operand range");
@@ -1314,8 +1405,8 @@ public:
     }
 
     auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        op, resultTypes, opName, operands, rewriter.getArrayAttr(args),
-        rewriter.getArrayAttr(keywordArgs));
+        op, resultTypes, opConversionPattern.convertOpName(op), operands,
+        rewriter.getArrayAttr(args), rewriter.getArrayAttr(keywordArgs));
 
     assert(callOpaqueOp.getNumResults() <= 1 && "expected at most one result");
     if (callOpaqueOp.getNumResults() == 0) {
