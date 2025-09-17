@@ -9,7 +9,9 @@
 
 #include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/SmallSet.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -1107,7 +1109,7 @@ public:
     // Denominator pooling op must have all inputs be either a FullOp or a
     // ConstantOp.
     if (!llvm::all_of(denominator.getInputs(), [](Value v) {
-          return isa<FullOp, ConstantOp>(v.getDefiningOp());
+          return llvm::isa_and_present<FullOp, ConstantOp>(v.getDefiningOp());
         })) {
       return mlir::failure();
     }
@@ -1139,7 +1141,6 @@ public:
     if (denominator.getPadding().empty()) {
       return mlir::failure();
     }
-
     for (int64_t paddingValue : denominator.getPadding()) {
       if (paddingValue != 0) {
         return mlir::failure();
@@ -1299,6 +1300,209 @@ private:
       }
     }
     return true;
+  }
+};
+
+// Global average pooling pattern matcher that transforms:
+//   multiply(sum<dim=[2,3]>(act), 1/(h*w))
+// into:
+//   avg_pool(act, window=[h,w], stride=1, padding=0)
+//
+// Supports 4D input tensors with reduction over spatial dimensions (height and
+// width).
+//
+// Input tensor layout is NCHW, while AvgPool2dOp expects NHWC layout, so
+// PermuteOps are added before and after the AvgPool2dOp to convert between the
+// two layouts, and a ReshapeOp is added after the permutes if the
+// keepDim attribute of the original SumOp is false.
+
+class GlobalAveragePoolingPattern : public mlir::OpRewritePattern<MultiplyOp> {
+  using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
+
+private:
+  static constexpr float FLOAT_TOLERANCE = 1e-4f;
+  static constexpr int64_t EXPECTED_INPUT_RANK = 4;
+  static constexpr int64_t SPATIAL_HEIGHT_DIM = 2;
+  static constexpr int64_t SPATIAL_WIDTH_DIM = 3;
+  static constexpr int64_t CHANNEL_DIM = 1;
+
+  struct PoolingConfig {
+    DenseI32ArrayAttr windowDimensions;
+    DenseI32ArrayAttr windowStrides;
+    DenseI32ArrayAttr windowDilations;
+    DenseI32ArrayAttr padding;
+    BoolAttr ceilMode;
+  };
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MultiplyOp multiplyOp,
+                  mlir::PatternRewriter &rewriter) const final {
+
+    SumOp sumOp = multiplyOp.getLhs().getDefiningOp<SumOp>();
+    if (!validateSumOp(sumOp)) {
+      return mlir::failure();
+    }
+
+    FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
+    auto inputShape = sumOp.getInput().getType().getShape();
+    if (!validateFullOp(fullOp, inputShape)) {
+      return mlir::failure();
+    }
+    // Create AvgPoolOp wrapped with two PermuteOps needed for NCHW<->NHWC
+    // layout changes.
+    auto insertedOp = createWrappedAvgPool(rewriter, sumOp);
+
+    // If keepDim is false, we need to reshape the output of the pooling op
+    // to keep output dimension same as input.
+    if (!sumOp.getKeepDim()) {
+      auto outputType = multiplyOp.getOutput().getType();
+      auto reshapePoolOp =
+          createReshapePoolOutOp(rewriter, insertedOp, outputType);
+      rewriter.replaceOp(multiplyOp, reshapePoolOp.getResult());
+    } else {
+      rewriter.replaceOp(multiplyOp, insertedOp.getResult());
+    }
+
+    return mlir::success();
+  };
+
+private:
+  bool validateFullOp(FullOp fullOp, ArrayRef<int64_t> inputShape) const {
+    if (!fullOp) {
+      return false;
+    }
+    Attribute fillValueAttr = fullOp.getFillValue();
+    auto floatAttr = mlir::dyn_cast_or_null<FloatAttr>(fillValueAttr);
+    if (!floatAttr) {
+      return false;
+    }
+    float fillValue = floatAttr.getValue().convertToFloat();
+    int64_t inputHeight = inputShape[SPATIAL_HEIGHT_DIM];
+    int64_t inputWidth = inputShape[SPATIAL_WIDTH_DIM];
+    float expectedValue = 1.0f / static_cast<float>(inputHeight * inputWidth);
+    float tolerance =
+        std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
+    return std::abs(fillValue - expectedValue) <= tolerance;
+  }
+
+  bool validateSumOp(SumOp sumOp) const {
+    if (!sumOp || !sumOp.getDimArg() || !sumOp->hasOneUse()) {
+      return false;
+    }
+
+    auto inputShape = sumOp.getInput().getType().getShape();
+    if (inputShape.size() != EXPECTED_INPUT_RANK) {
+      return false;
+    }
+
+    // Check that dimensions 2 and 3 are being reduced (height and width)
+    auto reduceDims = *sumOp.getDimArg();
+    if (reduceDims.size() != 2) {
+      return false;
+    }
+
+    llvm::SmallSet<int64_t, 2> dimSet;
+    for (mlir::Attribute attr : reduceDims) {
+      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
+      if (!intAttr) {
+        return false;
+      }
+      dimSet.insert(intAttr.getInt());
+    }
+    return dimSet.contains(SPATIAL_HEIGHT_DIM) &&
+           dimSet.contains(SPATIAL_WIDTH_DIM);
+  }
+
+  PermuteOp createPermuteOp(mlir::PatternRewriter &rewriter,
+                            std::vector<int64_t> currentLayout,
+                            std::vector<int64_t> desiredLayout,
+                            Value input) const {
+
+    auto permutation = ttmlir::utils::generatePermutation(
+        llvm::ArrayRef(currentLayout), llvm::ArrayRef(desiredLayout));
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto outputShape =
+        ::ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
+    auto outputType = RankedTensorType::get(
+        outputShape, inputType.getElementType(), inputType.getEncoding());
+
+    auto permuteOp = ttir::utils::createDPSOp<ttir::PermuteOp>(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(input.getLoc(), "_permute"),
+        outputType, input, permutation);
+
+    return permuteOp;
+  }
+
+  PermuteOp createWrappedAvgPool(mlir::PatternRewriter &rewriter,
+                                 SumOp sumOp) const {
+
+    // Input must be permuted from NCHW to NHWC for AvgPool2dOp, and then back
+    // to NCHW after pooling.
+    std::vector<int64_t> currentLayout{0, CHANNEL_DIM, SPATIAL_HEIGHT_DIM,
+                                       SPATIAL_WIDTH_DIM};
+    std::vector<int64_t> desiredLayout{0, SPATIAL_HEIGHT_DIM, SPATIAL_WIDTH_DIM,
+                                       CHANNEL_DIM};
+
+    // Permute input from NCHW to NHWC
+    auto permuteOp = createPermuteOp(rewriter, currentLayout, desiredLayout,
+                                     sumOp.getInput());
+
+    auto poolingConfig =
+        createPoolingConfig(rewriter, sumOp.getInput().getType().getShape());
+
+    auto outputType = createPoolingOutputType(permuteOp.getOutput().getType());
+
+    auto loc = sumOp.getLoc();
+    auto poolingOp = ttir::utils::createDPSOp<ttir::AvgPool2dOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_pool"), outputType,
+        permuteOp.getResult(), poolingConfig.windowDimensions,
+        poolingConfig.windowStrides, poolingConfig.windowDilations,
+        poolingConfig.padding, poolingConfig.ceilMode);
+
+    // Permute output from NHWC back to NCHW
+    auto inversePermuteOp = createPermuteOp(
+        rewriter, desiredLayout, currentLayout, poolingOp.getResult());
+
+    return inversePermuteOp;
+  }
+
+  PoolingConfig createPoolingConfig(mlir::PatternRewriter &rewriter,
+                                    ArrayRef<int64_t> inputShape) const {
+    PoolingConfig config;
+    int32_t inputHeight = static_cast<int32_t>(inputShape[SPATIAL_HEIGHT_DIM]);
+    int32_t inputWidth = static_cast<int32_t>(inputShape[SPATIAL_WIDTH_DIM]);
+
+    config.windowDimensions =
+        rewriter.getDenseI32ArrayAttr({inputHeight, inputWidth});
+    config.windowStrides = rewriter.getDenseI32ArrayAttr({1, 1});
+    config.windowDilations = rewriter.getDenseI32ArrayAttr({1, 1});
+    config.padding = rewriter.getDenseI32ArrayAttr({0, 0, 0, 0});
+    config.ceilMode = rewriter.getBoolAttr(false);
+
+    return config;
+  }
+
+  RankedTensorType createPoolingOutputType(RankedTensorType inputType) const {
+    SmallVector<int64_t> poolOutputShape(inputType.getShape());
+    poolOutputShape[SPATIAL_HEIGHT_DIM - 1] = 1;
+    poolOutputShape[SPATIAL_WIDTH_DIM - 1] = 1;
+
+    return RankedTensorType::get(poolOutputShape, inputType.getElementType(),
+                                 inputType.getEncoding());
+  }
+
+  ReshapeOp createReshapePoolOutOp(mlir::PatternRewriter &rewriter,
+                                   Operation *op,
+                                   RankedTensorType outputType) const {
+    auto loc = op->getLoc();
+    llvm::SmallVector<int64_t> outputShape(outputType.getShape());
+    SmallVector<int32_t> outputShapeI32(outputShape.begin(), outputShape.end());
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
+        outputType, op->getResult(0), rewriter.getI32ArrayAttr(outputShapeI32));
   }
 };
 
@@ -1868,6 +2072,7 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
+      patterns.add<GlobalAveragePoolingPattern>(&getContext());
 
       if (conv2dWithMultiplyEnabled) {
         patterns.add<BatchNormDecomposition>(&getContext());
