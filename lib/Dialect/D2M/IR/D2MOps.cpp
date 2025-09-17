@@ -358,6 +358,54 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::d2m::ToLayoutOp::getBufferType(
   return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
 }
 
+mlir::LogicalResult mlir::tt::d2m::ToLayoutOp::fold(
+    FoldAdaptor, llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
+  mlir::RankedTensorType inputType =
+      dyn_cast<mlir::RankedTensorType>(getInput().getType());
+  mlir::RankedTensorType outputType =
+      dyn_cast<mlir::RankedTensorType>(getOutput().getType());
+  if (inputType && outputType && inputType == outputType) {
+    results.push_back(getInput());
+    return mlir::success();
+  }
+  return mlir::failure();
+}
+
+struct D2MToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
+  using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
+
+  D2MToLayoutFoldRedundantPattern(MLIRContext *context)
+      : OpRewritePattern<ToLayoutOp>(context) {
+    setDebugName("d2m.ToLayoutFoldRedundantPattern");
+  }
+
+  LogicalResult matchAndRewrite(ToLayoutOp op,
+                                PatternRewriter &rewriter) const final {
+    ToLayoutOp producerLayoutOp = op.getInput().getDefiningOp<ToLayoutOp>();
+    if (!producerLayoutOp) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
+                                            op.getOutput());
+    return success();
+  }
+};
+
+void mlir::tt::d2m::ToLayoutOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Fold into d2m.empty w/ desired layout
+  patterns.add(+[](ToLayoutOp op, mlir::PatternRewriter &rewriter) {
+    EmptyOp emptyOp = op.getInput().getDefiningOp<EmptyOp>();
+    if (!emptyOp) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType());
+    return success();
+  });
+
+  patterns.add(std::make_unique<D2MToLayoutFoldRedundantPattern>(context));
+}
+
 //===----------------------------------------------------------------------===//
 // GenericOp Bufferization Interface Implementation
 //===----------------------------------------------------------------------===//

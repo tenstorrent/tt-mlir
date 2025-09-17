@@ -50,6 +50,8 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
       "getBufferType"
     ]>
   ]> {
+  let hasCanonicalizer = 1;
+  let hasFolder = 1;
   let summary = "Layout transition (D2M)";
   let description = [{
     Transition tensors from one layout to another (memory space, format,
@@ -220,7 +222,6 @@ def D2M_GenericOp : D2M_Op<"generic",
       MutableOperandRange getDpsInitsMutable() {
         return getOutputsMutable();
       }
-
       static std::pair<ArrayAttr, ArrayAttr> buildParallelAffineMapsAndIteratorTypes(mlir::OpBuilder &builder, size_t arity, size_t rank) {
         auto map = builder.getMultiDimIdentityMap(rank);
         Attribute parallel = builder.getAttr<ttcore::IteratorTypeAttr>(ttcore::IteratorType::Parallel);
@@ -252,6 +253,7 @@ def D2M_GenericOp : D2M_Op<"generic",
 // Simple creation op needed by LowerToLayout splitting
 
 def D2M_EmptyOp : D2M_Op<"empty", [
+    Pure,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
