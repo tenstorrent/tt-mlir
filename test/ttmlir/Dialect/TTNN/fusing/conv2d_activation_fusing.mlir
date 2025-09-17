@@ -31,7 +31,7 @@ module {
   func.func @conv2d_with_multiple_uses(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
     // CHECK: %{{.*}} = "ttnn.conv2d"
-    // CHECK-NOT: activation = #ttnn.unary_with_param<op_type = relu
+    // CHECK-NOT: activation = <op_type = relu
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -57,7 +57,7 @@ module {
   func.func @conv2d_with_sigmoid(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
     // CHECK: %{{.*}} = "ttnn.conv2d"
-    // CHECK-NOT: activation = #ttnn.unary_with_param<op_type = sigmoid
+    // CHECK-NOT: activation = <op_type = sigmoid
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
