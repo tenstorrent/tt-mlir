@@ -355,7 +355,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   assert(nextConsumerOp && "Operation must have a consumer");
   // If next consumer has TTNN layout output encoding, verify both operations
   // can coexist in L1.
-  if (utils::producesTTNNLayoutEncoding(nextConsumerOp)) {
+  if (utils::producesTTNNLayoutEncoding(nextConsumerOp) && !isa<ttnn::ToLayoutOp>(nextConsumerOp)) {
     const OpConfig &nextConsumerOpConfig =
         analysisInput.currentConfigs.at(nextConsumerOp);
 
