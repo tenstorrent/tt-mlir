@@ -423,7 +423,7 @@ jobs:
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export PYTHONPATH="${{ steps.strings.outputs.build-output-dir }}/python_packages/ttmlir:${PYTHONPATH}"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        ln -sf ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo ${{ steps.strings.outputs.build-output-dir }}/test/pykernel/demo
+        cp -r ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo ${{ steps.strings.outputs.build-output-dir }}/test/pykernel/
         cd ${{ steps.strings.outputs.build-output-dir }}
         pytest test/pykernel/demo/test.py -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
 
