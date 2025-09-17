@@ -2029,6 +2029,25 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
   return ::tt::target::ttnn::CreateGenericOpDirect(*cache.fbb, &ios, program);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingLlamaOp>
+createOp(FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto cosCache = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getCosCache()));
+  auto sinCache = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSinCache()));
+  auto transMat = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTransMat()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  return ::tt::target::ttnn::CreateRotaryEmbeddingLlamaOp(
+      *cache.fbb, in, cosCache, sinCache, transMat, op.getIsDecodeMode(), out,
+      memoryConfig, computeConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -2549,6 +2568,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto genericOp = dyn_cast<GenericOp>(op); genericOp) {
     return createOperation(cache, createOp(cache, genericOp), debugString,
                            locInfo);
+  }
+  if (auto rotaryEmbeddingLlamaOp = dyn_cast<RotaryEmbeddingLlamaOp>(op);
+      rotaryEmbeddingLlamaOp) {
+    return createOperation(cache, createOp(cache, rotaryEmbeddingLlamaOp),
+                           debugString, locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
