@@ -74,7 +74,9 @@ bool Conv2dConfigOverrideParser::parse(
 
     SmallVector<StringRef> conv2dConfigParams;
     opOverrideParts[iConv2dConfigOverrideParams].split(conv2dConfigParams,
-                                                       paramSeparator);
+                                                       paramSeparator,
+                                                       /*MaxSplit=*/-1,
+                                                       /*KeepEmpty=*/false);
 
     Conv2dConfigOverrideParams params;
 
