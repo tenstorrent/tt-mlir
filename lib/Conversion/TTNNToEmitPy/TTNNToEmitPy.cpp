@@ -702,6 +702,55 @@ public:
 };
 } // namespace
 
+namespace {
+class DumpTensorOpConversionPattern
+    : public OpConversionPattern<mlir::tt::ttnn::DumpTensorOp> {
+public:
+  using OpConversionPattern<mlir::tt::ttnn::DumpTensorOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DumpTensorOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DumpTensorOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getFilePath()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class LoadTensorOpConversionPattern
+    : public OpConversionPattern<mlir::tt::ttnn::LoadTensorOp> {
+public:
+  using OpConversionPattern<mlir::tt::ttnn::LoadTensorOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LoadTensorOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LoadTensorOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getFilePath()),
+        emitter.emit(srcOp.getDevice(), "device"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -821,6 +870,13 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   //
   // clang-format off
   patterns.add<SoftmaxOpConversionPattern>(typeConverter, ctx);
+  // clang-format on
+
+  // Tensor serialization ops
+  //
+  // clang-format off
+  patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::LoadTensorOp>,
+               DefaultOpConversionPattern<mlir::tt::ttnn::DumpTensorOp>>(typeConverter, ctx);
   // clang-format on
 
   // Module op
