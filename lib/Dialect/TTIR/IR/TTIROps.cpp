@@ -3175,6 +3175,67 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::verify() {
+  auto inputType = mlir::dyn_cast<mlir::ShapedType>(getInput().getType());
+  auto outputType = mlir::dyn_cast<mlir::ShapedType>(getResult().getType());
+
+  if (!inputType || !outputType) {
+    return emitOpError("Input/output must be shaped types (tensor or memref)");
+  }
+  if (inputType.getElementType() != outputType.getElementType()) {
+    return emitOpError("Input/output element types must match");
+  }
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("Input/output shapes must match");
+  }
+
+  const bool inputIsMemref = mlir::isa<mlir::MemRefType>(inputType);
+  const bool outputIsMemref = mlir::isa<mlir::MemRefType>(outputType);
+
+  auto maybeInputTensor = mlir::dyn_cast<mlir::RankedTensorType>(inputType);
+  auto maybeOutputTensor = mlir::dyn_cast<mlir::RankedTensorType>(outputType);
+
+  auto maybeInputAttr =
+      maybeInputTensor ? maybeInputTensor.getEncoding() : nullptr;
+  auto maybeOutputAttr =
+      maybeOutputTensor ? maybeOutputTensor.getEncoding() : nullptr;
+
+  const bool inputIsTTNNTensor =
+      maybeInputTensor &&
+      mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(maybeInputAttr);
+  const bool outputIsTTNNTensor =
+      maybeOutputTensor &&
+      mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(maybeOutputAttr);
+
+  const bool inputIsMetalTensor =
+      maybeInputTensor &&
+      mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(maybeInputAttr);
+  const bool outputIsMetalTensor =
+      maybeOutputTensor &&
+      mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(maybeOutputAttr);
+
+  if (inputIsMemref && outputIsMemref) {
+    return emitOpError("Input and output cannot both be memrefs");
+  }
+
+  if ((inputIsMetalTensor && outputIsMetalTensor) ||
+      (inputIsTTNNTensor && outputIsTTNNTensor)) {
+    return emitOpError("Input and output tensor cannot share the same layout");
+  }
+
+  if (inputIsTTNNTensor) {
+    if (!outputIsMetalTensor && !outputIsMemref) {
+      return emitOpError(
+          "Input is ttnn tensor, output must be metal tensor or memref");
+    }
+  }
+
+  if (inputIsMetalTensor || inputIsMemref) {
+    if (!outputIsTTNNTensor) {
+      return emitOpError(
+          "Input is metal tensor or memref, output must be ttnn tensor");
+    }
+  }
+
   return success();
 }
 
