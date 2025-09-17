@@ -2415,7 +2415,8 @@ def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor"> {
     Saves a tensor to disk in the TT-NN binary format. Files must use the `.tensorbin` extension.
 
     Inputs:
-      TODO (azecevic)
+      - `file_path` StrAttr: Path of the file where tensor should be dumped. Must end with `.tensorbin` extension.
+      - `input` AnyRankedTensor: Tensor to serialize.
   }];
 
   let arguments = (ins StrAttr:$file_path,
@@ -2430,9 +2431,10 @@ def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
     Loads a tensor from disk, optionally placing it directly on a device.
 
     Inputs:
-      TODO (azecevic)
+      - `file_path` StrAttr: Path of the file of the serialized tensor. Must end with `.tensorbin` extension.
+      - `device` Optional<TTNN_Device>: Device where tensor should be desirialized. It has to be provided iff the serialized tensor is a deivce tensor.
     Outputs:
-      TODO (azecevic)
+      - `result` AnyRankedTensor: Desirialized tensor from the `file_path`.
   }];
 
   let arguments = (ins StrAttr:$file_path,
