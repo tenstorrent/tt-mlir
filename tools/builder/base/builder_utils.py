@@ -821,7 +821,7 @@ def compile_ttir_module_to_flatbuffer(
     elif target == "emitpy":
         pipeline_fn = custom_pipeline if custom_pipeline else ttir_to_emitpy_pipeline
         to_target = _emitpy_to_executable
-        mlir_suffix = "_ttnn.mlir"
+        filename = "ttnn.mlir"
         target_extension = "py"
     else:
         raise ValueError("Unsupported target: " + target)
