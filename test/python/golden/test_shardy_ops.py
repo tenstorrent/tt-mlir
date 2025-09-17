@@ -10,7 +10,10 @@ from collections import OrderedDict
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
-from builder.base.builder_utils import compile_stablehlo_to_flatbuffer
+from builder.base.builder_utils import (
+    compile_stablehlo_to_flatbuffer,
+    compile_parameterized_stablehlo_to_flatbuffer,
+)
 from test_utils import Marks, shape_str
 
 pytestmark = pytest.mark.frontend("shlo")
@@ -18,13 +21,11 @@ pytestmark = pytest.mark.frontend("shlo")
 
 @pytest.mark.parametrize("x_constraint", [True])
 @pytest.mark.parametrize("y_constraint", [False])
-@pytest.mark.parametrize("shape", [(8, 8)], ids=shape_str)
-@pytest.mark.parametrize("shape2", [(8, 4, 2)])
+@pytest.mark.parametrize("shape", [(64, 16, 8, 2)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sharding_constraint(
     shape: Shape,
-    shape2: Shape,
     dtype: torch.dtype,
     x_constraint: bool,
     y_constraint: bool,
@@ -34,53 +35,40 @@ def test_sharding_constraint(
     def sharding_constraint(
         in0: Operand,
         in1: Operand,
-        in2: Operand,
         builder: StableHLOBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         y0 = builder.sub_axis_info_attr(pre_size=1, size=2)
         y1 = builder.sub_axis_info_attr(pre_size=2, size=2)
         builder.set_graph_level_check(True)
+
+        ds_none = builder.dimension_sharding_attr(axes=[], is_closed=True)
+        ds_x = builder.dimension_sharding_attr(
+            axes=[builder.axis_ref_attr(name="x")], is_closed=True
+        )
+        ds_y = builder.dimension_sharding_attr(
+            axes=[builder.axis_ref_attr(name="y")], is_closed=False
+        )
+
         tensor_sharding_attr = builder.tensor_sharding_attr(
             mesh_name="mesh",
-            dimension_shardings=[
-                builder.dimension_sharding_attr(
-                    axes=[builder.axis_ref_attr(name="x")],
-                    is_closed=x_constraint,
-                ),
-                builder.dimension_sharding_attr(
-                    axes=[builder.axis_ref_attr(name="y")],
-                    is_closed=y_constraint,
-                ),
-            ],
+            dimension_shardings=[ds_none, ds_x, ds_y, ds_none],
         )
-        tensor_sharding_attr2 = builder.tensor_sharding_attr(
-            mesh_name="mesh",
-            dimension_shardings=[
-                builder.dimension_sharding_attr(
-                    axes=[builder.axis_ref_attr(name="x")],
-                    is_closed=x_constraint,
-                ),
-                builder.dimension_sharding_attr(
-                    axes=[builder.axis_ref_attr(name="y", sub_axis_info_attr=y0)],
-                    is_closed=True,
-                ),
-                builder.dimension_sharding_attr(
-                    axes=[builder.axis_ref_attr(name="y", sub_axis_info_attr=y1)],
-                    is_closed=True,
-                ),
-            ],
-        )
-        builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
+
         add0 = builder.add(in0, in1, unit_attrs=unit_attrs)
-        # builder.sharding_constraint(in2, tensor_sharding_attr=tensor_sharding_attr2)
-        # reshape0 = builder.reshape(add0, in2, unit_attrs=unit_attrs)
+        add1 = builder.add(add0, in1, unit_attrs=unit_attrs)
+        builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
+        print(builder)
+        print(add1)
+        print(builder.ordered_inputs)
+        print(builder.ordered_outputs)
+
         return add0
 
-    compile_stablehlo_to_flatbuffer(
+    compile_parameterized_stablehlo_to_flatbuffer(
         sharding_constraint,
-        [shape, shape, shape2],
-        [dtype, dtype, dtype],
+        [shape, shape],
+        [dtype, dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

@@ -7,6 +7,7 @@ import inspect
 import subprocess
 import torch
 import pytest
+import copy
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
@@ -522,6 +523,29 @@ def build_stablehlo_module(
 
         with InsertionPoint(module.body):
             # Wrap everything in a mlir function.
+            @func.func(*fn_input_types, name=fn.__name__ + "2")
+            def decorated_func(*inputs):
+                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
+                    input_goldens[operand] = stablehlo_builder._generate_golden_tensor(
+                        operand, dtype
+                    )
+                stablehlo_builder._set_goldens(input_goldens)
+                stablehlo_builder._set_input_ordering(inputs)
+
+                result = fn(*inputs, stablehlo_builder)
+
+                outputs = result if hasattr(result, "__iter__") else (result,)
+                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = stablehlo_builder._get_golden_tensor(op)
+                stablehlo_builder._set_goldens(output_goldens)
+                stablehlo_builder._set_output_ordering(outputs)
+
+                return result
+
+        with InsertionPoint(module.body):
+            # Wrap everything in a mlir function.
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
                 input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
@@ -946,3 +970,335 @@ def experimental_build_stablehlo_module(
                 print(module)
 
         return module, stablehlo_builder
+
+
+def get_params(
+    # builder: StableHLOBuilder,
+    operands: List[Operand] = None,
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+) -> List[List[Tuple[Operand, sdy.TensorShardingAttr]]]:
+    # For now, construct this with the assumption that ...
+    # if operands is None: add builder ordered inputs and outputs (which you'll have to adjust op proxy to fill)
+    ctx = Context()
+
+    # Grab the location of the test function in python for later debugging
+    try:
+        fname = inspect.getfile(fn)
+        line_no = inspect.getsourcelines(fn)[1]
+        loc = Location.file(fname, line_no, 0, ctx)
+    except (OSError, TypeError):
+        loc = Location.unknown(ctx)
+
+    # Instantiate builder which is passed as the last argument to
+    # `fn` so the user can use it to build ops.
+    builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
+
+    params = []
+    operands = (
+        operands
+        if operands is not None
+        else builder.ordered_inputs + builder.ordered_outputs
+    )
+    print("Operands", operands)
+    ds_none = builder.dimension_sharding_attr(axes=[], is_closed=True)
+    ds_x = builder.dimension_sharding_attr(
+        axes=[builder.axis_ref_attr(name="x")], is_closed=True
+    )
+    ds_y = builder.dimension_sharding_attr(
+        axes=[builder.axis_ref_attr(name="y")], is_closed=False
+    )
+    tensor_sharding_attr = builder.tensor_sharding_attr(
+        mesh_name="mesh",
+        dimension_shardings=[ds_none, ds_x, ds_y, ds_none],
+    )
+    tensor_sharding_attr2 = builder.tensor_sharding_attr(
+        mesh_name="mesh",
+        dimension_shardings=[ds_none, ds_none, ds_x, ds_y],
+    )
+    params.append([(operands[0], tensor_sharding_attr)])
+    params.append([(operands[0], tensor_sharding_attr2)])
+    print("Params", params)
+    return params
+
+
+def build_parameterized_stablehlo_module(
+    fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    module_dump: bool = False,
+    base: Optional[str] = None,
+    output_root: str = ".",
+    operands: List[Operand] = None,
+    shard_dims: Optional[Tuple[int]] = None,
+) -> Tuple[Module, StableHLOBuilder]:
+    ctx = Context()
+
+    # Grab the location of the test function in python for later debugging
+    try:
+        fname = inspect.getfile(fn)
+        line_no = inspect.getsourcelines(fn)[1]
+        loc = Location.file(fname, line_no, 0, ctx)
+    except (OSError, TypeError):
+        loc = Location.unknown(ctx)
+
+    # Instantiate builder which is passed as the last argument to
+    # `fn` so the user can use it to build ops.
+    stablehlo_builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
+
+    # Default to all f32s
+    if inputs_types is None:
+        inputs_types = [torch.float32] * len(inputs_shapes)
+
+    if len(inputs_shapes) != len(inputs_types):
+        raise ValueError(
+            f"inputs_shapes and inputs_types must have the same length: "
+            f"{len(inputs_shapes)} != {len(inputs_types)}"
+        )
+
+    with ctx, loc:
+        fn_input_types = [
+            stablehlo_builder._create_ranked_tensor_type(
+                shape,
+                stablehlo_builder._get_type_from_torch_dtype(
+                    dtype if isinstance(dtype, torch.dtype) else dtype
+                ),
+            )
+            for (shape, dtype) in zip(inputs_shapes, inputs_types)
+        ]
+
+        # Wrap everything in a mlir module.
+        module = Module.create()
+        module.body.append(stablehlo_builder._get_mesh(mesh_name))
+
+        with InsertionPoint(module.body):
+
+            i = 0
+            params = get_params(stablehlo_builder, fn_input_types, mesh_name, mesh_dict)
+            for param in params:
+                builder_copy = copy.deepcopy(stablehlo_builder)
+
+                # Wrap everything in a mlir function.
+                @func.func(*fn_input_types, name=fn.__name__ + "_" + str(i))
+                def decorated_func(*inputs):
+                    input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                    for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
+                        input_goldens[operand] = builder_copy._generate_golden_tensor(
+                            operand, dtype
+                        )
+                    builder_copy._set_goldens(input_goldens)
+                    builder_copy._set_input_ordering(inputs)
+
+                    result = fn(*inputs, builder_copy)
+
+                    # Apply parameterized constraints to the builder copy
+                    for operand, attr in param:
+                        builder_copy.sharding_constraint(operand, attr)
+
+                    outputs = result if hasattr(result, "__iter__") else (result,)
+                    output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                    for op in outputs:
+                        output_goldens[op] = builder_copy._get_golden_tensor(op)
+                    builder_copy._set_goldens(output_goldens)
+                    builder_copy._set_output_ordering(outputs)
+
+                    return result
+
+                i += 1
+
+        print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
+        base = fn.__name__ if base is None else base
+        filename = _get_target_path(
+            output_root, "stablehlo-builder", base + "_shlo.mlir", base
+        )
+
+        if module_dump:
+            with open(filename, "w") as f:
+                f.write(str(module))
+                print(module)
+
+        return module, stablehlo_builder
+
+
+"""
+
+#Options, brain dump
+def apply_parameterized_constraints_to_stablehlo_module(): #pre-stablehlo pipeline
+    pass
+    #Not sure this is feasible. Might need to read module into builder object first
+
+
+def apply_parameterized_sharding_constraints_to_stablehlo_builder(
+    builder: StableHLOBuilder,
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    operands: List[Operand] = None, #how to get shape?
+    shard_dims: Optional[Tuple[int]] = None
+):
+    pass
+    #takes in single builder object, returns list?
+    #do we want to be able to apply this multiple times for the same test? if so, take in list of builders
+        #alternatively we could take a dictionary of operand to shard dims
+
+    #if operands is None:
+
+    params = []
+    modules = [] #is there a way to combine modules or do I need a whole seperate build_stablehlo_module function
+
+    for param in params:
+        #copy builder
+        #call build_mlir_module with module_dump false
+
+"""
+
+
+def compile_parameterized_stablehlo_to_flatbuffer(
+    fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    test_base: str = "test",
+    output_root: str = ".",
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    module_dump: bool = True,
+    argument_types_string: Optional[str] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    ttir_pipeline_options: Optional[List[str]] = None,
+    shlo_pipeline_options: Optional[List[str]] = None,
+    shlo_to_ttir_pipeline_options: Optional[List[str]] = None,
+    print_ir: Union[bool, str] = False,
+    operands: List[Operand] = None,
+    shard_dims: Optional[Tuple[int]] = None,
+) -> str:
+    """
+    Compiles a StableHLO function to flatbuffer format.
+
+    This function compiles a StableHLO function through the complete pipeline:
+    StableHLO -> TTIR -> TT{Metal,NN} -> Flatbuffer. It first builds a StableHLO
+    module, runs the stablehlo pipeline and conversion to TTIR, then compiles
+    the TTIR module to the target flatbuffer format.
+
+    Parameters
+    ----------
+    fn : Callable
+        The StableHLO function to compile
+
+    inputs_shapes : *List[Shape]*
+        Shapes of the respective ranked tensor inputs of the test function
+
+    inputs_types : *Optional[List[Union[torch.dtype, TypeInfo]]]*, optional
+        The dtypes to use for the inputs to `fn`
+
+    system_desc_path : str, optional
+        Path to the system descriptor file
+
+    test_base : str, optional
+        The string to be used as the test_base name for dumped files
+
+    output_root : str, optional
+        The path to dump all generated files under
+
+    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
+        The target backend to use. Default is "ttnn"
+
+    mesh_name : str, optional
+        Name of the mesh to be used in the module
+
+    mesh_dict : *OrderedDict[str, int]*, optional
+        Dictionary that defines the mesh shape
+
+    module_dump : bool, optional
+        Set to True to print out generated MLIR modules
+        Default is True.
+
+    argument_types_string : *Optional[str]*
+        String defining argument types for constant evaluation
+
+    custom_pipeline : *Optional[Union[Callable, str]]*
+        Custom pipeline function or string to run instead of default pipeline
+
+    ttir_pipeline_options : *List[str]*
+        Additional pipeline options to pass to the TTIR pipeline
+
+    shlo_pipeline_options : *List[str]*
+        Additional pipeline options to pass to the StableHLO pipeline
+
+    print_ir :*Union[bool, str]*, optional
+        Set to True to print IR to stdout or to a directory path
+        Default is False.
+
+    Returns
+    -------
+    str
+        The path to the generated TT{Metal,NN} MLIR file.
+
+    Raises
+    ------
+    ValueError
+        If inputs_shapes and inputs_types have different lengths
+    """
+    if shlo_pipeline_options is None:
+        shlo_pipeline_options = []
+
+    if shlo_to_ttir_pipeline_options is None:
+        shlo_to_ttir_pipeline_options = []
+
+    if inputs_types is not None:
+        if len(inputs_shapes) != len(inputs_types):
+            raise ValueError("inputs_shapes and inputs_types must have the same length")
+
+    # Compile model to StableHLO and run stablehlo pipeline to TTIR MLIR
+    module, builder = build_parameterized_stablehlo_module(
+        fn,
+        inputs_shapes,
+        inputs_types,
+        mesh_name=mesh_name,
+        mesh_dict=mesh_dict,
+        module_dump=module_dump,
+        output_root=output_root,
+        base=test_base,
+        operands=operands,
+        shard_dims=shard_dims,
+    )
+
+    stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
+    print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
+    print(module)
+
+    filename = _get_target_path(
+        output_root, "stablehlo-builder", test_base + ".mlir", test_base
+    )
+    if module_dump:
+        with open(filename, "w") as f:
+            f.write(str(module))
+
+    stablehlo_to_ttir_pipeline(module, " ".join(shlo_to_ttir_pipeline_options))
+    print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
+    print(module)
+
+    filename = _get_target_path(
+        output_root, "stablehlo-builder", test_base + "_ttir.mlir", test_base
+    )
+    if module_dump:
+        with open(filename, "w") as f:
+            f.write(str(module))
+
+    return compile_ttir_module_to_flatbuffer(
+        module,
+        builder,
+        system_desc_path=system_desc_path,
+        test_base=test_base,
+        output_root=output_root,
+        builder_dir="stablehlo-builder",
+        target=target,
+        mesh_dict=mesh_dict,
+        module_dump=module_dump,
+        argument_types_string=argument_types_string,
+        custom_pipeline=custom_pipeline,
+        pipeline_options=ttir_pipeline_options,
+        print_ir=print_ir,
+    )
