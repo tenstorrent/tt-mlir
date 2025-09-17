@@ -57,7 +57,7 @@ TEST_F(Conv2dConfigOverrideTest, ParseFullConv2dConfigOverride) {
   ASSERT_TRUE(params.weightsDtype.has_value());
   ASSERT_EQ(params.weightsDtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params.activation.has_value());
-  ASSERT_EQ(params.activation.value(), "relu");
+  ASSERT_EQ(params.activation.value(), UnaryOpType::Relu);
   ASSERT_TRUE(params.deallocateActivation.has_value());
   ASSERT_FALSE(params.deallocateActivation.value());
   ASSERT_TRUE(params.reallocateHaloOutput.has_value());
@@ -94,7 +94,7 @@ TEST_F(Conv2dConfigOverrideTest, ParsePartialConv2dConfigOverride) {
 
   const auto &params = parsedOverride["op0"];
   ASSERT_TRUE(params.activation.has_value());
-  ASSERT_EQ(params.activation.value(), "");
+  ASSERT_EQ(params.activation, std::nullopt);
   ASSERT_FALSE(params.weightsDtype.has_value());
   ASSERT_FALSE(params.deallocateActivation.has_value());
   ASSERT_FALSE(params.reallocateHaloOutput.has_value());
@@ -125,13 +125,13 @@ TEST_F(Conv2dConfigOverrideTest, ParseMultipleOps) {
 
   const auto &params0 = parsedOverride["op0"];
   ASSERT_TRUE(params0.activation.has_value());
-  ASSERT_EQ(params0.activation.value(), "");
+  ASSERT_EQ(params0.activation, std::nullopt);
 
   const auto &params1 = parsedOverride["op1"];
   ASSERT_TRUE(params1.weightsDtype.has_value());
   ASSERT_EQ(params1.weightsDtype.value(), mlir::tt::ttcore::DataType::BFloat16);
   ASSERT_TRUE(params1.activation.has_value());
-  ASSERT_EQ(params1.activation.value(), "relu");
+  ASSERT_EQ(params1.activation.value(), UnaryOpType::Relu);
 }
 
 TEST_F(Conv2dConfigOverrideTest, ParseInvalidActivation) {
