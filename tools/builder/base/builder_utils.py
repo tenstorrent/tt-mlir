@@ -19,9 +19,11 @@ from ttmlir.passes import (
     ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,
     translate_to_cpp,
+    translate_to_python,
     MLIRModuleLogger,
     stablehlo_pipeline,
     stablehlo_to_ttir_pipeline,
+    ttir_to_emitpy_pipeline,
 )
 
 from builder.base.builder import *
@@ -66,7 +68,13 @@ def _get_target_path(output_path, builder_dir, filename, target):
 
 
 def _emitc_to_executable(module, filepath: str, golden_map, module_cache):
-    cpp = translate_to_cpp(module)
+    py = translate_to_cpp(module)
+    with open(filepath, "w") as f:
+        f.write(py)
+
+
+def _emitpy_to_executable(module, filepath: str, golden_map, module_cache):
+    cpp = translate_to_python(module)
     with open(filepath, "w") as f:
         f.write(cpp)
 
@@ -810,6 +818,11 @@ def compile_ttir_module_to_flatbuffer(
         to_target = _emitc_to_executable
         filename = "ttnn.mlir"
         target_extension = "cpp"
+    elif target == "emitpy":
+        pipeline_fn = custom_pipeline if custom_pipeline else ttir_to_emitpy_pipeline
+        to_target = _emitpy_to_executable
+        filename = "ttnn.mlir"
+        target_extension = "py"
     else:
         raise ValueError("Unsupported target: " + target)
 

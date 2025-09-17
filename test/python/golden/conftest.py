@@ -11,7 +11,7 @@ import torch
 import subprocess
 from typing import Any, Dict, List, Optional
 
-ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone"])
+ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
 
 
