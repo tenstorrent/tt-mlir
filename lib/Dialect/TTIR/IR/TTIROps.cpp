@@ -3959,6 +3959,77 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   return success();
 }
 
+// ScatterOp folder for out-of-bounds window updates.
+// This optimization applies when the indices are constant and all resulting
+// window updates are out-of-bounds, making the operation a no-op.
+::mlir::OpFoldResult mlir::tt::ttir::ScatterOp::fold(FoldAdaptor adaptor) {
+  // This fold can only be applied if the scatter_indices are constant.
+  auto indicesAttr = adaptor.getScatterIndices();
+  if (!indicesAttr) {
+    return nullptr;
+  }
+
+  auto inputType = mlir::cast<RankedTensorType>(getInput().getType());
+  auto updatesType = mlir::cast<RankedTensorType>(getUpdate().getType());
+  auto indicesType =
+      mlir::cast<RankedTensorType>(getScatterIndices().getType());
+
+  // This fold specifically handles the "all-or-nothing" window update case
+  // where the entire update is skipped if the window falls out of bounds.
+  if (getUpdateWindowDims().size() + getInsertedWindowDims().size() !=
+      (size_t)inputType.getRank()) {
+    return nullptr;
+  }
+
+  auto inputShape = inputType.getShape();
+  auto updatesShape = updatesType.getShape();
+  auto scatterDims = getScatterDimsToOperandDims();
+  int64_t inputRank = inputType.getRank();
+
+  // This simplified logic assumes a direct mapping between update dimensions
+  // and input dimensions, which holds for this case.
+  if (inputRank != updatesType.getRank()) {
+    return nullptr;
+  }
+
+  auto indicesIt =
+      mlir::cast<DenseElementsAttr>(indicesAttr).value_begin<APInt>();
+  int64_t numIndexVectors =
+      scatterDims.empty() ? (indicesType.getNumElements() > 0 ? 1 : 0)
+                          : (indicesType.getNumElements() / scatterDims.size());
+
+  for (int64_t i = 0; i < numIndexVectors; ++i) {
+    bool isCurrentWindowOutOfBounds = false;
+
+    // 1. Construct the full start coordinate for the slice in the input tensor.
+    llvm::SmallVector<int64_t> startCoordinate(inputRank, 0);
+    for (size_t j = 0; j < scatterDims.size(); ++j) {
+      int64_t operandDim = scatterDims[j];
+      startCoordinate[operandDim] = (*(indicesIt++)).getSExtValue();
+    }
+
+    // 2. Check if the window exceeds input bounds.
+    for (int64_t d = 0; d < inputRank; ++d) {
+      // The window slice size is determined by the updates tensor's shape.
+      int64_t windowSizeD = updatesShape[d];
+
+      if (startCoordinate[d] + windowSizeD > inputShape[d]) {
+        isCurrentWindowOutOfBounds = true;
+        break;
+      }
+    }
+
+    // If we find even one window that is IN-bounds, the operation is not
+    // a no-op, and we cannot fold it.
+    if (!isCurrentWindowOutOfBounds) {
+      return nullptr;
+    }
+  }
+
+  // If the loop completes, all indices were out-of-bounds. The op is a no-op.
+  return getInput();
+}
+
 //===----------------------------------------------------------------------===//
 // UpdateCacheOp
 //===----------------------------------------------------------------------===//
