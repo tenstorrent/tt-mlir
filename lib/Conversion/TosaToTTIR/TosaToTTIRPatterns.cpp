@@ -154,7 +154,7 @@ public:
     llvm::SmallVector<int32_t> newShape(outputType.getShape());
     ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(newShape);
     ttir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
-        rewriter, srcOp, outputType, adaptor.getInput(), newShapeAttr);
+        rewriter, srcOp, outputType, adaptor.getInput1(), newShapeAttr);
     return success();
   }
 };
