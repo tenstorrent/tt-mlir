@@ -280,8 +280,7 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
         // 2. Since sharding is the only way any of these can already be in
         // L1, and the other must be in DRAM to be considered for upgrade,
         // checking sharding covers the input.isL1() == output.isL1() as well.
-        !otherTensorSharded &&
-        (inputLastDim == outputLastDim) &&
+        !otherTensorSharded && (inputLastDim == outputLastDim) &&
         (!inputTensorTiled || (inputSecondLastDim == outputSecondLastDim) ||
          (outputSecondLastDim % tileHeight == 0 &&
           inputSecondLastDim % tileWidth == 0));
