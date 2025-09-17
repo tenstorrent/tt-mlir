@@ -68,9 +68,9 @@ def _get_target_path(output_path, builder_dir, filename, target):
 
 
 def _emitc_to_executable(module, filepath: str, golden_map, module_cache):
-    cpp = translate_to_cpp(module)
+    py = translate_to_cpp(module)
     with open(filepath, "w") as f:
-        f.write(cpp)
+        f.write(py)
 
 
 def _emitpy_to_executable(module, filepath: str, golden_map, module_cache):
