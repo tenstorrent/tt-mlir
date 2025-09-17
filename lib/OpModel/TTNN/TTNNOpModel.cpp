@@ -4,6 +4,7 @@
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
+#include <operations/transformer/sdpa_decode/sdpa_decode.hpp>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -2219,9 +2220,55 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
     llvm::APFloat scale, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto querySpecExp =
+      detail::convertToTensorSpec(device, queryShape, queryLayout);
+  if (!querySpecExp) {
+    return querySpecExp.takeError();
+  }
+  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
+  if (!keySpecExp) {
+    return keySpecExp.takeError();
+  }
+  auto valueSpecExp =
+      detail::convertToTensorSpec(device, valueShape, valueLayout);
+  if (!valueSpecExp) {
+    return valueSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec querySpec = querySpecExp.get();
+  ::ttnn::TensorSpec keySpec = keySpecExp.get();
+  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+  std::optional<::ttnn::TensorSpec> curPosTensorSpec =
+      detail::convertToOptionalTensorSpec(device, curPosTensorShape,
+                                          curPosTensorLayout);
+  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+      detail::convertToOptionalTensorSpec(device, attentionSinkShape,
+                                          attentionSinkLayout);
+
+  constexpr std::vector<uint32_t> curPosEmpty = {};
+  auto scaledDotProductAttentionDecodeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::transformer::scaled_dot_product_attention_decode, device,
+        querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
+        curPosTensorSpec, attentionSinkSpec,
+        std::make_optional(scale.convertToFloat()),
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpConstraints(queryLayout.getContext(), deviceGrid,
+                                     scaledDotProductAttentionDecodeOpQuery);
 #else
   return OpConstraints{};
-#endif
+#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
@@ -2235,7 +2282,57 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
     llvm::APFloat scale, TTNNLayoutAttr outputLayout) {
-  return 0;
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto querySpecExp =
+      detail::convertToTensorSpec(device, queryShape, queryLayout);
+  if (!querySpecExp) {
+    return querySpecExp.takeError();
+  }
+  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
+  if (!keySpecExp) {
+    return keySpecExp.takeError();
+  }
+  auto valueSpecExp =
+      detail::convertToTensorSpec(device, valueShape, valueLayout);
+  if (!valueSpecExp) {
+    return valueSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec querySpec = querySpecExp.get();
+  ::ttnn::TensorSpec keySpec = keySpecExp.get();
+  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+  std::optional<::ttnn::TensorSpec> curPosTensorSpec =
+      detail::convertToOptionalTensorSpec(device, curPosTensorShape,
+                                          curPosTensorLayout);
+  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+      detail::convertToOptionalTensorSpec(device, attentionSinkShape,
+                                          attentionSinkLayout);
+
+  constexpr std::vector<uint32_t> curPosEmpty = {};
+  auto scaledDotProductAttentionDecodeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::transformer::scaled_dot_product_attention_decode, device,
+        querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
+        curPosTensorSpec, attentionSinkSpec,
+        std::make_optional(scale.convertToFloat()),
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpRuntime(scaledDotProductAttentionDecodeOpQuery);
+
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 //===-----------------------------------------------------------------------===//
