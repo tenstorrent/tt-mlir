@@ -101,9 +101,15 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Number of backing buffers to allocate per stream storage "
                      "(>=1). Default is 2."),
       llvm::cl::init(2)};
+  // Option to lower through D2m to TTNN GenericOp.
+  Option<bool> lowerToTTNNGeneric{
+      *this, "lower-to-ttnn-generic",
+      llvm::cl::desc("Lower through D2m to TTNN GenericOp"),
+      llvm::cl::init(false)};
 };
 
-void createTTIRBufferizationPipeline(OpPassManager &pm);
+void createTTIRBufferizationPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
