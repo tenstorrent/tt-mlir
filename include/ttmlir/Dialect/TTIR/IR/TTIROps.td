@@ -387,18 +387,30 @@ def TTIR_TTNNMetalLayoutCastOp : TTIR_Op<"ttnn_metal_layout_cast",
   ]> {
   let summary = "Cast TTNN layout-encoded tensor to/from TTCore metal layout-encoded tensor";
   let description = [{
-    This op reinterprets a tensor's layout encoding from `#ttnn.ttnn_layout<...>`
+    Purely representational op that reinterprets a tensor's layout encoding from `#ttnn.ttnn_layout<...>`
     to/from `#ttcore.metal_layout<...>` without modifying the underlying data.
 
     Pre-bufferization, the input and output must be a RankedTensorType where one holds a
     `ttnn::TTNNLayoutAttr` and the other, a `ttcore::MetalLayoutAttr`. Post bufferization,
     the tensor encoded with a `ttcore::MetalLayoutAttr` is bufferized to a memref.
 
-    Example:
+    Examples:
     ```
-    %cast = ttir.ttnn_metal_layout_cast %arg0
-            : tensor<32x32xf32, #ttnn.ttnn_layout<...>>
-           -> tensor<32x32xf32, #ttcore.metal_layout<...>>
+    %cast_to_metal = ttir.ttnn_metal_layout_cast %arg0
+                      : tensor<32x32xf32, #ttnn.ttnn_layout<...>>
+                    -> tensor<32x32xf32, #ttcore.metal_layout<...>>
+
+    %cast_to_metal_bufferized = ttir.ttnn_metal_layout_cast %arg0
+                            : tensor<32x32xf32, #ttnn.ttnn_layout<...>>
+                          -> memref<32x32xf32, ...>
+
+    %cast_to_ttnn = ttir.ttnn_metal_layout_cast %arg0
+                    : tensor<32x32xf32, #ttcore.metal_layout<...>>
+                  -> tensor<32x32xf32, #ttnn.ttnn_layout<...>>
+
+    %cast_to_ttnn_bufferized = ttir.ttnn_metal_layout_cast %arg0
+                            : memref<32x32xf32, ...>
+                          -> tensor<32x32xf32, #ttnn.ttnn_layout<...>>
     ```
   }];
 
