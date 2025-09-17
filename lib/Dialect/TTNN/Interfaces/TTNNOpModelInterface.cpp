@@ -1759,6 +1759,163 @@ ConcatenateHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionDecodeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct ScaledDotProductAttentionDecodeOptionalArgs {
+  std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> curPosTensorLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
+};
+
+static ScaledDotProductAttentionDecodeOptionalArgs
+unpackScaledDotProductAttentionDecodeOptionalArgs(
+    const std::vector<TTNNLayoutAttr> &inputs,
+    ScaledDotProductAttentionDecodeOp op) {
+  ScaledDotProductAttentionDecodeOptionalArgs ret;
+
+  TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
+  TypedValue<RankedTensorType> curPosTensor = op.getCurPosTensor();
+  TypedValue<RankedTensorType> attentionSink = op.getAttentionSink();
+
+  if (inputs.size() == 6) {
+    assert(attentionMask && curPosTensor && attentionSink &&
+           "Expected all three of attention mask, cur pos tensor, and "
+           "attention sink to be present");
+    ret.attentionMaskShape = op.getAttentionMask().getType().getShape();
+    ret.curPosTensorShape = op.getCurPosTensor().getType().getShape();
+    ret.attentionSinkShape = op.getAttentionSink().getType().getShape();
+    ret.attentionMaskLayout = inputs[3];
+    ret.curPosTensorLayout = inputs[4];
+    ret.attentionSinkLayout = inputs[5];
+  } else if (inputs.size() == 5) {
+    // If there are five inputs, then we have either included:
+    // attention mask and cur pos tensor OR
+    // attention mask and attention sink OR
+    // cur pos tensor and attention sink
+    if (attentionMask && curPosTensor) {
+      assert(!attentionSink && "Expected at exactly two of attention mask, cur "
+                               "pos tensor, and attention sink to be present");
+      ret.attentionMaskShape = attentionMask.getType().getShape();
+      ret.curPosTensorShape = curPosTensor.getType().getShape();
+      ret.attentionMaskLayout = inputs[3];
+      ret.curPosTensorLayout = inputs[4];
+    } else if (attentionMask && attentionSink) {
+      assert(!curPosTensor && "Expected at exactly two of attention mask, cur "
+                              "pos tensor, and attention sink to be present");
+      ret.attentionMaskShape = attentionMask.getType().getShape();
+      ret.attentionSinkShape = attentionSink.getType().getShape();
+      ret.attentionMaskLayout = inputs[3];
+      ret.attentionSinkLayout = inputs[4];
+    } else if (curPosTensor && attentionSink) {
+      assert(!attentionMask && "Expected at exactly two of attention mask, cur "
+                               "pos tensor, and attention sink to be present");
+      ret.curPosTensorShape = curPosTensor.getType().getShape();
+      ret.attentionSinkShape = attentionSink.getType().getShape();
+      ret.curPosTensorLayout = inputs[3];
+      ret.attentionSinkLayout = inputs[4];
+    } else {
+      llvm_unreachable("All combinations of attention mask, cur pos tensor, "
+                       "and attention sink should have been handled");
+    }
+  } else if (inputs.size() == 4) {
+    if (attentionMask) {
+      assert(!curPosTensor && !attentionSink &&
+             "Expected at exactly one of attention mask, cur pos tensor, and "
+             "attention sink to be present");
+      ret.attentionMaskShape = attentionMask.getType().getShape();
+      ret.attentionMaskLayout = inputs[3];
+    } else if (curPosTensor) {
+      assert(!attentionMask && !attentionSink &&
+             "Expected at exactly one of attention mask, cur pos tensor, and "
+             "attention sink to be present");
+      ret.curPosTensorShape = curPosTensor.getType().getShape();
+      ret.curPosTensorLayout = inputs[3];
+    } else if (attentionSink) {
+      assert(!attentionMask && !curPosTensor &&
+             "Expected at exactly one of attention mask, cur pos tensor, and "
+             "attention sink to be present");
+      ret.attentionSinkShape = attentionSink.getType().getShape();
+      ret.attentionSinkLayout = inputs[3];
+    } else {
+      llvm_unreachable("All combinations of attention mask, cur pos tensor, "
+                       "and attention sink should have been handled");
+    }
+  } else {
+    assert(inputs.size() == 3 &&
+           "If none of the optional tensors are present, then there should be "
+           "exactly three inputs (query, key, and value)");
+  }
+
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+ScaledDotProductAttentionDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() >= 3 && inputs.size() <= 6 &&
+         "ttnn::scaled_dot_product_attention_decode can have 3, 4, 5, or 6 "
+         "input tensors");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto queryShape = getQuery().getType().getShape();
+  const auto keyShape = getKey().getType().getShape();
+  const auto valueShape = getValue().getType().getShape();
+
+  ScaledDotProductAttentionDecodeOptionalArgs optionalArgs =
+      unpackScaledDotProductAttentionDecodeOptionalArgs(inputs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints,
+      *this, deviceGrid, queryShape, inputs[0], keyShape, inputs[1], valueShape,
+      inputs[2], optionalArgs.attentionMaskShape,
+      optionalArgs.attentionMaskLayout, optionalArgs.curPosTensorShape,
+      optionalArgs.curPosTensorLayout, optionalArgs.attentionSinkShape,
+      optionalArgs.attentionSinkLayout, getIsCausal(), getScale(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() >= 3 && inputs.size() <= 6 &&
+         "ttnn::scaled_dot_product_attention_decode can have 3, 4, 5, or 6 "
+         "input tensors");
+
+  assert(inputs.size() >= 3 && inputs.size() <= 6 &&
+         "ttnn::scaled_dot_product_attention_decode can have 3, 4, 5, or 6 "
+         "input tensors");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  const auto queryShape = getQuery().getType().getShape();
+  const auto keyShape = getKey().getType().getShape();
+  const auto valueShape = getValue().getType().getShape();
+
+  ScaledDotProductAttentionDecodeOptionalArgs optionalArgs =
+      unpackScaledDotProductAttentionDecodeOptionalArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime, *this,
+      queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
+      optionalArgs.attentionMaskShape, optionalArgs.attentionMaskLayout,
+      optionalArgs.curPosTensorShape, optionalArgs.curPosTensorLayout,
+      optionalArgs.attentionSinkShape, optionalArgs.attentionSinkLayout,
+      getIsCausal(), getScale(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 
