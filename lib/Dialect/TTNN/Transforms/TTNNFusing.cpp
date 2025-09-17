@@ -72,6 +72,8 @@ private:
       return rewriter.getStringAttr("relu");
     } else if constexpr (std::is_same_v<ActivationOp, Relu6Op>) {
       return rewriter.getStringAttr("relu6");
+    } else if constexpr (std::is_same_v<ActivationOp, SiluOp>) {
+      return rewriter.getStringAttr("silu");
     }
     llvm_unreachable("Unsupported activation type");
   }
@@ -114,7 +116,8 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<TTNNConv2dWithActivation<ReluOp>,
-                 TTNNConv2dWithActivation<Relu6Op>>(&getContext());
+                 TTNNConv2dWithActivation<Relu6Op>,
+                 TTNNConv2dWithActivation<SiluOp>>(&getContext());
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));

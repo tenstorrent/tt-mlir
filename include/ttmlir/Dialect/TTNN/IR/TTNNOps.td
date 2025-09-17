@@ -456,6 +456,13 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
     }];
 }
 
+def TTNN_SiluOp : TTNN_ElementwiseUnaryOp<"silu"> {
+  let summary = "Eltwise SiLU.";
+  let description = [{
+    Eltwise SiLU (Swish) operation.
+  }];
+}
+
 def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log"> {
     let summary = "Eltwise logarithm.";
     let description = [{
