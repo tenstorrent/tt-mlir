@@ -2982,6 +2982,15 @@ public:
 namespace {
 class DumpTensorOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::DumpTensorOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return mlir::tt::ttnn::DumpTensorOp::getOperationName().str();
+  }
+
+  std::string getPrefixSwapPattern() const override {
+    return "::tt::tt_metal::dump_tensor_flatbuffer";
+  }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::DumpTensorOp>::TTNNToEmitCBaseOpConversionPattern;
@@ -2994,8 +3003,8 @@ public:
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getFilePath()),
+        emitter.emit(srcOp.getInput()),
     };
 
     emitter.replaceOp(*this, args);
@@ -3007,6 +3016,15 @@ public:
 namespace {
 class LoadTensorOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::LoadTensorOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return mlir::tt::ttnn::LoadTensorOp::getOperationName().str();
+  }
+
+  std::string getPrefixSwapPattern() const override {
+    return "::tt::tt_metal::load_tensor_flatbuffer";
+  }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::LoadTensorOp>::TTNNToEmitCBaseOpConversionPattern;
@@ -3208,10 +3226,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Tensor serialization ops
   //
-  patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::LoadTensorOp>>(
-      typeConverter, ctx);
-  patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::DumpTensorOp>>(
-      typeConverter, ctx);
+  patterns.add<DumpTensorOpConversionPattern>(typeConverter, ctx);
+  patterns.add<LoadTensorOpConversionPattern>(typeConverter, ctx);
 
   // Trace ops
   //
