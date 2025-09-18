@@ -2488,8 +2488,8 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
     let arguments = (ins AnyRankedTensor:$query,
                          AnyRankedTensor:$key,
                          AnyRankedTensor:$value,
+                         AnyRankedTensor:$cur_pos_tensor,
                          Optional<AnyRankedTensor>:$attention_mask,
-                         Optional<AnyRankedTensor>:$cur_pos_tensor,
                          Optional<AnyRankedTensor>:$attention_sink,
                          DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                          DefaultValuedAttr<F32Attr, "1.0">:$scale,
@@ -2497,7 +2497,7 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
 
     let results = (outs AnyRankedTensor:$result);
 
-    let hasVerifier = 0;
+    let hasVerifier = 1;
 }
 
 #endif

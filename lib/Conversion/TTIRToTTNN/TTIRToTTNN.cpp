@@ -1778,7 +1778,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionDecodeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        adaptor.getAttentionMask(), adaptor.getCurPosTensor(),
+        adaptor.getCurPosTensor(), adaptor.getAttentionMask(),
         adaptor.getAttentionSink(), op.getIsCausal(), op.getScale(),
         /*memory_config=*/nullptr);
     return success();
