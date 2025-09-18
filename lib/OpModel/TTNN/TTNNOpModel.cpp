@@ -2216,7 +2216,7 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> attentionMaskLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
-    llvm::APFloat scale, TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2254,6 +2254,9 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
@@ -2262,8 +2265,7 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::transformer::scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
-        curPosTensorSpec, attentionSinkSpec,
-        std::make_optional(scale.convertToFloat()),
+        curPosTensorSpec, attentionSinkSpec, scaleFloat,
         detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt);
@@ -2286,7 +2288,7 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> attentionMaskLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
-    llvm::APFloat scale, TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2325,6 +2327,8 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
@@ -2333,8 +2337,7 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::transformer::scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
-        curPosTensorSpec, attentionSinkSpec,
-        std::make_optional(scale.convertToFloat()),
+        curPosTensorSpec, attentionSinkSpec, scaleFloat,
         detail::getNullableMemoryConfig(outputLayout),
         /*program_config=*/std::nullopt,
         /*compute_kernel_config=*/std::nullopt);

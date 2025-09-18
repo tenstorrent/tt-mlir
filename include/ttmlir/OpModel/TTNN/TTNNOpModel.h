@@ -658,7 +658,7 @@ struct OpModel<ScaledDotProductAttentionDecodeOp> {
       std::optional<TTNNLayoutAttr> attentionMaskLayout,
       std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
       std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
-      llvm::APFloat scale, TTNNLayoutAttr outputLayout);
+      std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -670,7 +670,7 @@ struct OpModel<ScaledDotProductAttentionDecodeOp> {
                std::optional<TTNNLayoutAttr> attentionMaskLayout,
                std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
                std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
-               llvm::APFloat scale, TTNNLayoutAttr outputLayout);
+               std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
 };
 
 //===-----------------------------------------------------------------------===//

@@ -1910,15 +1910,20 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
                            ? cache.at<::tt::target::ttnn::TensorRef>(
                                  getOperandThroughDPSOps(op.getAttentionSink()))
                            : 0;
-  auto scale = op.getScale();
+
   auto isCausal = op.getIsCausal();
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
 
+  ::flatbuffers::Optional<float> scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, curPosTensor, isCausal, attentionMask,
-      attentionSink, scale.convertToFloat(), out, memoryConfig);
+      attentionSink, scale, out, memoryConfig);
 }
 
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
