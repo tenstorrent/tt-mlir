@@ -592,6 +592,10 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     } else {
       consumerRuntimeGain = beforeRuntime - afterRuntime;
     }
+    llvm::outs() << "[L1IFA]    Runtime change for consumer - "
+                 << consumerOp->getName() << "\n"
+                 << "    runtime consumer before: " << beforeRuntime << ",\n"
+                 << "    runtime consumer after: " << afterRuntime << ",\n";
     return std::make_tuple(outputLayout, consumerRuntimeGain);
   }
 
