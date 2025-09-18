@@ -3181,12 +3181,6 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::verify() {
   if (!inputType || !outputType) {
     return emitOpError("Input/output must be shaped types (tensor or memref)");
   }
-  if (inputType.getElementType() != outputType.getElementType()) {
-    return emitOpError("Input/output element types must match");
-  }
-  if (inputType.getShape() != outputType.getShape()) {
-    return emitOpError("Input/output shapes must match");
-  }
 
   const bool inputIsMemref = mlir::isa<mlir::MemRefType>(inputType);
   const bool outputIsMemref = mlir::isa<mlir::MemRefType>(outputType);
@@ -3212,15 +3206,6 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::verify() {
   const bool outputIsMetalTensor =
       maybeOutputTensor &&
       mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(maybeOutputAttr);
-
-  if (inputIsMemref && outputIsMemref) {
-    return emitOpError("Input and output cannot both be memrefs");
-  }
-
-  if ((inputIsMetalTensor && outputIsMetalTensor) ||
-      (inputIsTTNNTensor && outputIsTTNNTensor)) {
-    return emitOpError("Input and output tensor cannot share the same layout");
-  }
 
   if (inputIsTTNNTensor) {
     if (!outputIsMetalTensor && !outputIsMemref) {
@@ -3264,6 +3249,8 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
 
   if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(inputEncoding)) {
     // metal_layout -> ttnn_layout becomes memref -> ttnn_layout
+    TT_assertv(mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(outputEncoding),
+               "Output tensor must have a ttnn_layout");
     auto maybeInputBuf =
         mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
     if (failed(maybeInputBuf)) {
@@ -3273,6 +3260,8 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
                                                        *maybeInputBuf);
   } else if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(outputEncoding)) {
     // ttnn_layout -> metal_layout becomes ttnn_layout -> memref
+    TT_assertv(mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(inputEncoding),
+               "Input tensor must have a ttnn_layout");
     ::llvm::SmallVector<mlir::Value> dummy;
     auto bufferType = getBufferType(getResult(), options, state, dummy);
     if (failed(bufferType)) {
