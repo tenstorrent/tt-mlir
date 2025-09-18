@@ -5,8 +5,10 @@
 import os
 import shutil
 import inspect
-import subprocess
+import time
 import torch
+from functools import reduce
+import operator
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
@@ -31,6 +33,26 @@ from builder.base.builder import *
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.d2m.d2m_builder import D2MBuilder
+
+# Imports for runtime execution
+import ttrt.runtime
+from ttrt.common.util import (
+    Logger,
+    FileManager,
+    Binary,
+    golden_tensor_to_torch,
+    ttrt_datatype_to_torch_dtype,
+    get_atol_rtol_pcc,
+    parse_fabric_config,
+    Artifacts,
+)
+from ttrt.common.callback import (
+    pre_op_get_callback_fn,
+    post_op_get_callback_fn,
+    CallbackRuntimeConfig,
+)
+from ttrt.common.query import Query
+
 
 # ----- Exception Classes -----
 
@@ -1279,8 +1301,379 @@ def compile_ttir_module_to_flatbuffer(
         raise TTBuilderCompileException(e)
 
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
-
+    execute_fb(output_file_fbb)
     return output_file_mlir
+
+
+# TODO: convert these printf shotguns into a better logging scheme
+def execute_fb(
+    fb_path: str,
+    pcc: float = 0.99,
+    atol: float = 1e-08,
+    rtol: float = 1e-05,
+    disable_golden: bool = False,
+    debugger: bool = False,
+    memory: bool = False,
+    disable_eth_dispatch: bool = False,  # Needed for blackhole
+) -> None:
+    """
+    Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
+    """
+
+    # Create 'owned tensor' in case of empty tensor;
+    # otherwise create 'borrowed tensor'.
+    def create_tensor(tensor):
+        # Empty tensor if any of the dim is zero.
+        isEmptyTensor = not all(tensor.shape)
+
+        if isEmptyTensor:
+            return ttrt.runtime.create_owned_host_tensor(
+                tensor.data_ptr(),
+                list(tensor.shape),
+                list(tensor.stride()),
+                tensor.element_size(),
+                Binary.Program.to_data_type(tensor.dtype),
+            )
+
+        return ttrt.runtime.create_borrowed_host_tensor(
+            tensor.data_ptr(),
+            list(tensor.shape),
+            list(tensor.stride()),
+            tensor.element_size(),
+            Binary.Program.to_data_type(tensor.dtype),
+        )
+
+    def convert_input_layouts(device, inputs, fbb, program_index):
+        import ttrt.runtime
+
+        inputs_converted = []
+        for input_index in range(len(inputs)):
+            input_layout = ttrt.runtime.get_layout(fbb, program_index, input_index)
+            inputs_converted.append(
+                ttrt.runtime.to_layout(inputs[input_index], device, input_layout, True)
+            )
+        return inputs_converted
+
+    logger = Logger()
+    logging = logger.get_logger()
+    file_manager = FileManager(logger)
+    artifacts = Artifacts(
+        logger, file_manager, artifacts_folder_path=f"{os.getcwd()}/ttrt-artifacts"
+    )
+
+    print(f"Begining flatbuffer execution on {fb_path}")
+
+    bin = Binary(logger, FileManager(logger), fb_path)
+
+    mesh_options = ttrt.runtime.MeshDeviceOptions()
+    mesh_options.dispatch_core_type = (
+        ttrt.runtime.DispatchCoreType.WORKER
+        if disable_eth_dispatch
+        else ttrt.runtime.DispatchCoreType.ETH
+    )
+
+    fb_mesh_shape = bin.get_program(0).mesh_shape
+    num_mesh_devices = reduce(operator.mul, fb_mesh_shape, 1)
+    mesh_options.mesh_shape = fb_mesh_shape
+
+    # TODO: move this to a session wide fixture
+    # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
+    print("Opening device...")
+    device = ttrt.runtime.open_mesh_device(
+        mesh_options
+    )  # TODO: fails when attempting to open a second time
+    print("Device opened.")
+
+    # Figure out the number of devices we physically have
+    # TODO: make this a fixture that's run at the beginning of testing using `Query` or some other discovery mechanism; don't hardcode
+    num_devices = 2
+
+    # Verify that the expected number of devices in the fb mesh shape is valid on this system
+    if num_mesh_devices > num_devices:
+        raise Exception(
+            f"Not enough devices ({num_devices}) to run program with mesh shape {fb_mesh_shape}"
+        )
+
+    # TODO: figure out if this is needed for this purpose
+    if num_mesh_devices > 1:
+        ttrt.runtime.set_fabric_config(parse_fabric_config("fabric_1d"))
+
+    logging.info(f"evaluating binary={bin.file_path}")
+
+    pre_op_callback_runtime_config = CallbackRuntimeConfig(
+        device,
+        "",
+        pcc,
+        atol,
+        rtol,
+        False,  # save golden tensors
+        logging,
+        not disable_golden,
+        memory,
+        debugger,
+    )
+    post_op_callback_runtime_config = CallbackRuntimeConfig(
+        device,
+        "",
+        pcc,
+        atol,
+        rtol,
+        False,  # save golden tensors
+        logging,
+        not disable_golden,
+        memory,
+        debugger,
+    )
+
+    print("Created callback configs")
+
+    callback_env = ttrt.runtime.DebugHooks.get(
+        pre_op_get_callback_fn(pre_op_callback_runtime_config),
+        post_op_get_callback_fn(post_op_callback_runtime_config),
+    )
+
+    program_indices = []
+    program_indices.extend(range(bin.get_num_programs()))
+
+    for program_index in program_indices:
+        print(f"evaluating program={program_index} for binary={bin.file_path}")
+
+        # TODO: uncomment if broken
+        # pre_op_callback_runtime_config.start_new_callback(
+        #    f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
+        # )
+        # post_op_callback_runtime_config.start_new_callback(
+        #    f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
+        # )
+
+        # Implement optional pre_op_callback functionality here
+
+        program = bin.get_program(program_index)
+
+        # Skip private programs (e.g. subgraphs created by const-eval)
+        if program.is_private():
+            continue
+
+        # Fetch the golden inputs embedded in the flatbuffer
+        golden_inputs = []
+        for i in range(program.num_inputs()):
+            golden_tensor = {}
+
+            if not disable_golden:
+                golden_tensor = bin.fbb.get_debug_info_golden(f"input_{i}")
+
+            if len(golden_tensor) != 0:
+                golden_tensor = golden_tensor[0]
+                golden_tensor_torch = golden_tensor_to_torch(golden_tensor)
+                golden_inputs.append(golden_tensor_torch)
+
+        # TODO: uncomment if broken
+        program.populate_inputs(
+            torch.randn,
+            golden_inputs,
+        )
+        program.populate_outputs(torch.zeros)
+
+        inputs = []
+        outputs = []
+        for i in program.input_tensors:
+            new_input = create_tensor(i)
+            inputs.append(new_input)
+
+        for i in program.output_tensors:
+            new_output = create_tensor(i)
+            outputs.append(new_output)
+
+        # load output golden tensors from flatbuffer
+        if not disable_golden:
+            golden_outputs_torch = []
+            for idx in range(0, len(program.output_tensors)):
+                golden_tensor = {}
+                golden_tensor = bin.fbb.get_debug_info_golden(f"output_{idx}")
+
+                if len(golden_tensor) != 0:
+                    golden_tensor = golden_tensor[0]
+                    golden_tensor_torch = golden_tensor_to_torch(golden_tensor)
+                    golden_outputs_torch.append(golden_tensor_torch)
+
+        ## Parse the dirty tensor schedule
+        # update_tensor_schedule = {}
+        # if self["--dirty-tensor-schedule"]:
+        #    dirty_configs = self["--dirty-tensor-schedule"].split(",")
+
+        #    if not dirty_configs:
+        #        raise Exception(
+        #            "Invalid --dirty-tensor-schedule format. Expected 'index:iterations,...'"
+        #        )
+        #    for config in dirty_configs:
+        #        if ":" not in config:
+        #            raise Exception(
+        #                f"Invalid dirty tensor configuration: '{config}'. Missing colon separator. Expected format 'index:iterations'"
+        #            )
+        #        parts = config.split(":")
+        #        if len(parts) != 2:
+        #            raise Exception(
+        #                f"Invalid dirty tensor configuration: '{config}'. Too many colons. Expected format 'index:iterations'"
+        #            )
+        #        try:
+        #            input_idx = int(parts[0])
+        #            iterations = int(parts[1])
+        #        except ValueError:
+        #            raise Exception(
+        #                f"Invalid dirty tensor configuration: '{config}'. Both index and iterations must be integers. Got '{parts[0]}' and '{parts[1]}'"
+        #            )
+
+        #        if input_idx < 0:
+        #            raise Exception(
+        #                f"Invalid dirty tensor configuration: '{config}'. Tensor index must be non-negative. Got {input_idx}"
+        #            )
+
+        #        if iterations < 0:
+        #            raise Exception(
+        #                f"Invalid dirty tensor configuration: '{config}'. Iterations must be non-negative. Got {iterations}"
+        #            )
+
+        #        if iterations not in update_tensor_schedule:
+        #            update_tensor_schedule[iterations] = []
+        #        update_tensor_schedule[iterations].append(input_idx)
+
+        # pre-upload inputs
+        inputs = convert_input_layouts(device, inputs, bin.fbb, program_index)
+
+        logging.debug(f"starting exectution of binary={bin.file_path}")
+
+        ## Check if we need to dirty any input tensors in this iteration
+        # if loop in update_tensor_schedule:
+        #    for input_idx in update_tensor_schedule[loop]:
+        #        if input_idx < len(inputs):
+        #            # Get the tensor to dirty
+        #            tensor_to_dirty = inputs[input_idx]
+        #            # Call the dirtyTensor function to increment the version counter
+        #            expected_layout = ttrt.runtime.get_layout(
+        #                bin.fbb, program_index, input_idx
+        #            )
+        #            perf_env.tracy_log_op_location(
+        #                f"loc(arg_{input_idx})"
+        #            )
+        #            result_tensor = ttrt.runtime.to_layout(
+        #                tensor_to_dirty,
+        #                device,
+        #                expected_layout,
+        #                True,
+        #            )
+        #            inputs[input_idx] = result_tensor
+        #            logging.info(
+        #                f"Marked input tensor {input_idx} as dirty after {loop} iterations"
+        #            )
+        #        else:
+        #            logging.warning(
+        #                f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
+        #            )
+
+        start_submit = time.perf_counter_ns()
+
+        # Actually execute the flatbuffer
+        runtime_outputs = ttrt.runtime.submit(
+            device,
+            bin.fbb,
+            program_index,
+            inputs,
+        )
+        ttrt.runtime.wait(runtime_outputs)
+
+        end_submit = time.perf_counter_ns()
+        e2e_duration_nanoseconds_submit = end_submit - start_submit
+
+        e2e_duration_nanoseconds_output = 0
+
+        pcc_fail = False
+        # Copy output tensors from device & check goldens
+        for i, runtime_output_tensor in enumerate(runtime_outputs):
+            start_get_output = time.perf_counter_ns()
+            output_host = ttrt.runtime.to_host(runtime_output_tensor, untilize=True)[0]
+            end_get_output = time.perf_counter_ns()
+            e2e_duration_nanoseconds_output += end_get_output - start_get_output
+
+            ttrt.runtime.memcpy(
+                outputs[i],
+                output_host,
+            )
+            ttrt.runtime.deallocate_tensor(runtime_output_tensor, force=True)
+
+            output_tensor_torch = None
+
+            if not disable_golden:
+                isEmptyTensor = not all(outputs[i].get_shape())
+                data_buffer = bytearray(outputs[i].get_data_buffer())
+                if isEmptyTensor and len(data_buffer) == 0:
+                    # Create empty tensor.
+                    output_tensor_torch = torch.empty(
+                        outputs[i].get_shape(),
+                        dtype=ttrt_datatype_to_torch_dtype(outputs[i].get_dtype()),
+                    )
+                elif not isEmptyTensor and len(data_buffer) > 0:
+                    # Create regular tensor.
+                    output_tensor_torch = torch.frombuffer(
+                        data_buffer,
+                        dtype=ttrt_datatype_to_torch_dtype(outputs[i].get_dtype()),
+                    ).reshape(outputs[i].get_shape())
+                else:
+                    raise Exception(
+                        f"Failed: Tensor shape=({outputs[i].get_shape()}) and data buffer size={len(data_buffer)} do not match."
+                    )
+
+            # Compare program level golden.
+            golden_tensor_torch = None
+            if (not disable_golden) and (i < len(golden_outputs_torch)):
+                print(f"executing program level golden comparison for output_{i}")
+                golden_tensor_torch = golden_outputs_torch[i]
+                if golden_tensor_torch.shape != output_tensor_torch.shape:
+                    raise TTIRGoldenException(
+                        f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
+                    )
+
+            # PCC check.
+            _, _, cal_pcc, _ = get_atol_rtol_pcc(
+                golden_tensor_torch,
+                output_tensor_torch,
+                logging,
+            )
+            pcc_fail = cal_pcc < post_op_callback_runtime_config.pcc
+            if pcc_fail:
+                raise TTIRGoldenException(
+                    f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
+                )
+            else:
+                print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
+
+        print("Adding program results...")
+        bin.add_program_results(
+            program_index,
+            1,
+            e2e_duration_nanoseconds_submit,
+            e2e_duration_nanoseconds_output,
+        )
+
+        print(f"input tensors for program={program_index}")
+        for tensor in program.input_tensors:
+            logging.debug(f"{tensor}\n")
+
+        print(f"output tensors for program={program_index}")
+        for tensor in program.output_tensors:
+            logging.debug(f"{tensor}\n")
+
+        # Read the perf data before deallocating buffers
+        device.read_device_profiler_results()
+
+        # if golden comparison is enabled, check golden results json file to see if test passed
+        # TODO: catch the exception coming out of `check_pcc` and re-raise it as a golden failure for pytest
+        if not disable_golden:
+
+            print("Checking op level goldens")
+            # check operation level golden comparison result.
+            post_op_callback_runtime_config.check_pcc()
+
+        ttrt.runtime.close_mesh_device(device)
 
 
 # ----- Experimental Public APIs -----
