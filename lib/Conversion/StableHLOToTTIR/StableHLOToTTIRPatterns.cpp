@@ -2867,6 +2867,46 @@ private:
 };
 } // namespace
 
+
+namespace {
+  class StableHLOToTTIRRngBitGeneratorOpConversionPattern
+      : public OpConversionPattern<mlir::stablehlo::RngBitGeneratorOp> {
+    using OpConversionPattern<mlir::stablehlo::RngBitGeneratorOp>::OpConversionPattern;
+  
+  public:
+    LogicalResult
+    matchAndRewrite(mlir::stablehlo::RngBitGeneratorOp srcOp,
+                    mlir::stablehlo::RngBitGeneratorOp::Adaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const override {
+      
+      auto outputType = mlir::cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getOutput().getType()));
+      
+      llvm::SmallVector<int32_t> size(outputType.getShape());
+      
+      auto floatElementType = rewriter.getF32Type();
+      auto floatOutputType = mlir::RankedTensorType::get(
+          outputType.getShape(), floatElementType, outputType.getEncoding());
+      
+      auto fromFloat = rewriter.getF32FloatAttr(static_cast<float>(std::numeric_limits<unsigned int>::min()));
+      auto toFloat = rewriter.getF32FloatAttr(static_cast<float>(std::numeric_limits<unsigned int>::max()));
+
+      auto seed = rewriter.getUI32IntegerAttr(0);
+
+      auto randOp = rewriter.create<mlir::tt::ttir::RandOp>(
+          srcOp.getLoc(), floatOutputType, rewriter.getI32ArrayAttr(size),
+          mlir::TypeAttr::get(floatElementType), fromFloat, toFloat, seed);
+      
+      auto typecastOp = mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::TypecastOp>(
+          rewriter, srcOp.getLoc(), outputType, randOp.getResult());
+      
+      rewriter.replaceOp(srcOp, {adaptor.getInitialState(), typecastOp.getResult()});
+      
+      return success();
+    }
+  };
+} // namespace
+
 namespace {
 // This pattern recognizes and converts stablehlo.custom_call @tt.fill_cache
 // to ttir.fill_cache.
