@@ -28,7 +28,7 @@ public:
     ActivationOp activationOp = getActivationOp(srcOp);
     Value activationInput = activationOp.getInput();
 
-    mlir::StringAttr activation = getActivationName(rewriter);
+    auto activation = getActivationOpType(rewriter);
     ttcore::DataType weightDtype = ttcore::elementTypeToDataType(
         srcOp.getWeight().getType().getElementType());
     Conv2dConfigAttr conv2dConfigAttr =
@@ -67,13 +67,13 @@ private:
     return mlir::cast<ActivationOp>(*reshapeOp.getResult().getUsers().begin());
   }
 
-  mlir::StringAttr getActivationName(mlir::PatternRewriter &rewriter) const {
+  ttnn::UnaryOpType getActivationOpType(mlir::PatternRewriter &rewriter) const {
     if constexpr (std::is_same_v<ActivationOp, ReluOp>) {
-      return rewriter.getStringAttr("relu");
+      return ttnn::UnaryOpType::Relu;
     } else if constexpr (std::is_same_v<ActivationOp, Relu6Op>) {
-      return rewriter.getStringAttr("relu6");
+      return ttnn::UnaryOpType::Relu6;
     } else if constexpr (std::is_same_v<ActivationOp, SiluOp>) {
-      return rewriter.getStringAttr("silu");
+      return ttnn::UnaryOpType::Silu;
     }
     llvm_unreachable("Unsupported activation type");
   }
