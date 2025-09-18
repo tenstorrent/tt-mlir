@@ -62,6 +62,7 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   uint16_t desiredBF16;
   int32_t desiredI32;
   int64_t desiredI64;
+  int8_t desiredI8;
   bool desiredI1;
   if (desired == TypicalInitReductionValue::NEG_INF) {
     desiredF32 = -std::numeric_limits<float>::infinity();
@@ -69,6 +70,7 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
     desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
     desiredI32 = std::numeric_limits<int32_t>::min();
     desiredI64 = std::numeric_limits<int64_t>::min();
+    desiredI8 = std::numeric_limits<int8_t>::min();
     desiredI1 = false;
   } else if (desired == TypicalInitReductionValue::ZERO) {
     desiredF32 = 0.0;
@@ -76,6 +78,7 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
     desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
     desiredI32 = 0;
     desiredI64 = 0;
+    desiredI8 = 0;
     desiredI1 = false;
   } else {
     return false;
@@ -107,6 +110,9 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   }
   if (initValueOp.getResult().getType().getElementType().isInteger(64)) {
     return *initValueOp.getValue().value_begin<int64_t>() == desiredI64;
+  }
+  if (initValueOp.getResult().getType().getElementType().isInteger(8)) {
+    return *initValueOp.getValue().value_begin<uint8_t>() == desiredI8;
   }
   if (initValueOp.getResult().getType().getElementType().isInteger(1)) {
     return *initValueOp.getValue().value_begin<bool>() == desiredI1;
