@@ -138,7 +138,6 @@ install(
   DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
   COMPONENT SharedLib
   EXCLUDE_FROM_ALL
-  REGEX "ttnn/ttnn" EXCLUDE
 )
 install(
   DIRECTORY
