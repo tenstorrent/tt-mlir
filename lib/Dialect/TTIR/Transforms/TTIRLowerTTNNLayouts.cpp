@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
@@ -64,13 +65,21 @@ struct TTIRLowerTTNNLayouts
                  ttnn::TensorMemoryLayout::BlockSharded &&
              "Only block sharded L1 tensor memory layout is supported");
 
+      ttnnLayout.dump();
       // The index map in TTNNLayoutAttr is for collapsing an N-D tensor on to
       // the grid. It has no relevance to the index map in MetalLayoutAttr.
-      auto metalLayout =
-          ttcore::MetalLayoutAttr::get(&getContext(), logicalShape, gridShape,
-                                       ttcore::OOBVal::Undef, memSpace);
-      return RankedTensorType::get(logicalShape, tensor.getElementType(),
-                                   metalLayout);
+      // Hardcode collapse intervals to [[0, -1]].
+      auto i64Ty = IntegerType::get(&getContext(), 64);
+      auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
+      DenseIntElementsAttr collapsedIntervals = DenseIntElementsAttr::get(
+          intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
+      auto metalLayout = ttcore::MetalLayoutAttr::get(
+          &getContext(), logicalShape, gridShape, ttcore::OOBVal::Undef,
+          memSpace, collapsedIntervals);
+      auto metalTensor = RankedTensorType::get(
+          logicalShape, tensor.getElementType(), metalLayout);
+      metalLayout.getMemRefType(metalTensor).dump();
+      return metalTensor;
     };
 
     // Handle function arguments: insert a representational cast to metal
