@@ -24,10 +24,6 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/deprecated
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/ttnn
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/ttnn/operations
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/ttnn/experimental_loader
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/ttnn/distributed
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/include
@@ -146,7 +142,6 @@ install(
   DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
   COMPONENT SharedLib
   EXCLUDE_FROM_ALL
-  REGEX "ttnn/ttnn" EXCLUDE
 )
 install(
   DIRECTORY
