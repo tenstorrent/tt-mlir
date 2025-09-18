@@ -75,8 +75,6 @@ public:
             fp32DestAccum = true;
           }
         }
-        // TODO (wenbinlyuTT): enable f32 accum & unpack mode
-        // constexpr bool fp32DestAccum = false;
         std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs, fp32DestAccum,
