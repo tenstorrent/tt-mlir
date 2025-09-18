@@ -93,9 +93,9 @@ while true; do
         --explorer)
             build_preset="explorer"; enable_runtime="ON"; enable_explorer="ON"; enable_runtime_debug="ON";;
         --speedy)
-            enable_runtime="ON"; enable_op_model="ON"; enable_emitc="ON";;
+            build_preset="speedy"; enable_runtime="ON"; enable_op_model="ON"; enable_emitc="ON"; enable_stablehlo="ON";;
         --tracy)
-            enable_runtime="ON"; enable_profiler="ON"; enable_emitc="ON"; enable_runtime_debug="ON"; enable_explorer="ON"; enable_pykernel="ON";;
+            build_preset="tracy"; enable_runtime="ON"; enable_profiler="ON"; enable_emitc="ON"; enable_runtime_debug="ON"; enable_explorer="ON"; enable_pykernel="ON"; enable_stablehlo="ON";;
         --skip-tests)
             skip_tests="ON";;
         --skip-ttrt)
