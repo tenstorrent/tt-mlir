@@ -112,6 +112,12 @@ public:
           loc, "compute_kernel_api/eltwise_unary/logical_not_noti.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/comp.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/rsqrt.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/typecast.h",
           /*isStandard=*/false);
       // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
