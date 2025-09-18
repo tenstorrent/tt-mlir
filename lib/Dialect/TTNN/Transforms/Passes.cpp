@@ -31,6 +31,7 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
+#define GEN_PASS_DEF_TTNNEMPYWORKAROUNDS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNDeallocate : public impl::TTNNDeallocateBase<TTNNDeallocate> {

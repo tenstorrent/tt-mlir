@@ -1926,7 +1926,7 @@ def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait]> {
     let hasVerifier = 1;
 }
 
-def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
+def TTNN_DeallocateOp : TTNN_MemFreeOp<"deallocate"> {
     let summary = "Deallocate op.";
     let description = [{
       Tensor Deallocate operation
