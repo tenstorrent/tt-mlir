@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ast
+import inspect
 
 from ttmlir.ir import *
 from ttmlir.dialects import (
@@ -11,11 +12,10 @@ from ttmlir.dialects import (
     tensor,
 )
 
-from .base_ast import PyKernelAstBase
 from .utils import _discover_dialect_ops
 
 
-class TTIRCompiler(PyKernelAstBase):
+class TTIRCompiler(ast.NodeVisitor):
     _unsupported_ops = [
         "maximum",
         "minimum",
@@ -56,8 +56,6 @@ class TTIRCompiler(PyKernelAstBase):
         self.func_entry = None
         self.symbol_tables = []
         self.tensor_args = kwargs.get("_tensor_args", {})
-        self.verbose = False
-        self.source_code = ""
 
     def _mlir_dtype_from_ttnn_dtype(self, dtype):
         match int(dtype):
@@ -75,6 +73,32 @@ class TTIRCompiler(PyKernelAstBase):
                 return I32Type.get(self.ctx)
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
+
+    def _var_exists(self, var_name):
+        for sym_table in reversed(self.symbol_tables):
+            if var_name in sym_table:
+                return sym_table
+        return {}
+
+    def visit_Module(self, node):
+        # Set default basic block
+        with InsertionPoint(self.insert_point), Location.unknown():
+            for stmt in node.body:
+                self.visit(stmt)
+
+    def visit_Return(self, node):
+        # TODO: handle more than one return, i.e. tuples, expressions etc.
+        if node.value:
+            # Visit the return value and return it
+            return_value = self.visit(node.value)
+            func.ReturnOp([return_value])
+        else:
+            # Empty return
+            func.ReturnOp([])
+
+    def visit_Expr(self, node):
+        # NOTE: will catch function calls and expressions where return values not used.
+        return self.visit(node.value)
 
     def visit_FunctionDef(self, node):
         # no longer passing CBs, just tensors.
@@ -249,3 +273,20 @@ class TTIRCompiler(PyKernelAstBase):
         tensor_type = RankedTensorType.get(tensor_shape, attr.type)
         dense_attr = DenseElementsAttr.get_splat(tensor_type, attr)
         return ttir.ConstantOp(tensor_type, dense_attr)
+
+    def visit(self, node: ast.AST, **kwargs):
+        if any(
+            isinstance(node, supported_node) for supported_node in self.supported_nodes
+        ):
+            # Figure out which node to visit. Not using super().visit() in order to pass kwargs.
+            method_name = "visit_" + node.__class__.__name__
+            visitor = getattr(self, method_name, self.generic_visit)
+
+            params = inspect.signature(visitor).parameters
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k in params}
+            if filtered_kwargs:
+                return visitor(node, **filtered_kwargs)
+            else:
+                return visitor(node)
+        else:
+            raise NotImplementedError(f"visit {type(node).__name__} not supported")

@@ -7,7 +7,6 @@ from importlib import import_module
 from pykernel._src.kernel_types import CircularBuffer, Kernel, CompileTimeValue
 
 from pykernel.api import (
-    jit,
     ttkernel_compile,
     compute_thread,
     reader_thread,
@@ -31,7 +30,6 @@ def __getattr__(name):
 
 
 __all__ = [
-    "jit",
     "ttkernel_compile",
     "compute_thread",
     "reader_thread",

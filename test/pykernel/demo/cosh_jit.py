@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-import pykernel
+import ttnn_jit
 import ttnn
 
 
@@ -20,8 +20,8 @@ def main():
         layout=ttnn.TILE_LAYOUT,
     )
 
-    cosh_ttnn = pykernel.jit(backend="ttnn", debug=True, dump_flatbuffer=True)(_cosh)
-    cosh_metal = pykernel.jit(backend="metal", debug=True, dump_flatbuffer=True)(_cosh)
+    cosh_ttnn = ttnn_jit.jit(backend="ttnn", debug=True, dump_flatbuffer=True)(_cosh)
+    cosh_metal = ttnn_jit.jit(backend="metal", debug=True, dump_flatbuffer=True)(_cosh)
 
     cosh_ttnn(input_tensor)
     cosh_metal(input_tensor)
