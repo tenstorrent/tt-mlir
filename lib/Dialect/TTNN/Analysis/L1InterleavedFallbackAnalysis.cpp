@@ -674,6 +674,14 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
         consumerOp->getName().getStringRef().data(),
         nextConsumerOp->getName().getStringRef().data());
   }
+  llvm::outs() << "[L1IFA]    SUCCESS: Runtime improvement check passed - "
+               << consumerOp->getName() << "->" << nextConsumerOp->getName()
+               << "\n"
+               << "    runtime producer before: " << beforeRuntime << ",\n"
+               << "    runtime producer after: " << afterRuntime << ",\n"
+               << "    runtime gain consumer: " << nextConsumerRuntimeGain
+               << ",\n"
+               << "    runtime gain total: " << totalRuntimeGain << "\n";
 
   return std::make_tuple(outputLayout, totalRuntimeGain);
 }
