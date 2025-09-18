@@ -104,6 +104,13 @@ struct TTIRToTTMetalPipelineOptions
           clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi3, "HiFi3", "HiFi3"),
           clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi4, "HiFi4", "HiFi4")),
       llvm::cl::init(mlir::tt::ttmetal::MathFidelity::HiFi4)};
+
+  // Number of backing buffers to allocate per stream storage.
+  Option<unsigned> numStreamBuffers{
+      *this, "num-stream-buffers",
+      llvm::cl::desc("Number of backing buffers to allocate per stream storage "
+                     "(>=1). Default is 2."),
+      llvm::cl::init(2)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);

@@ -90,7 +90,9 @@ void createTTIRToTTMetalFrontendPipeline(
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   createTTIRBufferizationPipeline(pm);
-  pm.addPass(ttir::createTTIRAllocate());
+  ttir::TTIRAllocateOptions allocateOptions;
+  { allocateOptions.numStreamBuffers = options.numStreamBuffers; }
+  pm.addPass(ttir::createTTIRAllocate(allocateOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   ttir::TTIRGenericApplyInterchangeOptions applyInterchangeOptions;
   {
@@ -110,7 +112,7 @@ void createTTIRToTTMetalMiddleendPipeline(
       ttir::createTTIRInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
   OpPassManager &funcPm = pm.nest<func::FuncOp>();
-  funcPm.addPass(affine::createLoopCoalescingPass());
+  funcPm.addPass(affine::createAffineLoopInvariantCodeMotionPass());
 
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(memref::createFoldMemRefAliasOpsPass());

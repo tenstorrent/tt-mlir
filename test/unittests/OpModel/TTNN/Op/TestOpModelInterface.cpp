@@ -1631,6 +1631,52 @@ TEST_F(OpModelBase, ConcatenateHeadsOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, RotaryEmbeddingLlamaOpInterface) {
+  int64_t batch_size = 1;
+  int64_t num_heads = 1;
+  int64_t sequence_size = 1;
+  int64_t head_size = 32;
+
+  llvm::SmallVector<int64_t> shape{batch_size, num_heads, sequence_size,
+                                   head_size};
+
+  llvm::SmallVector<int64_t> transMatShape{batch_size, num_heads, TILE_HEIGHT,
+                                           TILE_WIDTH};
+
+  auto input = createEmptyTensor(shape);
+  auto cos = createEmptyTensor(shape);
+  auto sin = createEmptyTensor(shape);
+  auto transMat = createEmptyTensor(transMatShape);
+  auto outputType = createRankedTensorType(shape);
+  bool isDecodeMode = false;
+
+  auto rotaryEmbeddingLlama = builder.create<RotaryEmbeddingLlamaOp>(
+      builder.getUnknownLoc(), outputType, input, cos, sin, transMat,
+      isDecodeMode, /*memory_config=*/nullptr, /*compute_config=*/nullptr);
+
+  auto constraintsExp = getOpConstraints(rotaryEmbeddingLlama.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 24576);
+    EXPECT_EQ(l1PeakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+    EXPECT_TRUE(outputLayout != nullptr);
+  } else {
+    FAIL() << "Missing L1 constraints for RotaryEmbeddingLlamaOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(rotaryEmbeddingLlama.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for RotaryEmbeddingLlamaOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, repeatInterleaveOp) {
   // create RepeatInterleaveOp
   llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
@@ -3608,6 +3654,45 @@ TEST_F(OpModelBase, ConstantOpInterface) {
     EXPECT_EQ(cbSize, 0);
     EXPECT_EQ(l1PeakSize, 4096);
     EXPECT_EQ(outputSize, 4096);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
+TEST_F(OpModelBase, ConstantOpInterfaceBF16) {
+  llvm::SmallVector<int64_t> tensorShape = {2, 2};
+  mlir::Type elementType = builder.getBF16Type();
+  auto outputType = createRankedTensorType(tensorShape, elementType);
+  auto outputLayout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                        TensorMemoryLayout::Interleaved);
+  mlir::RankedTensorType tensorType =
+      mlir::RankedTensorType::get(tensorShape, elementType);
+
+  std::vector<llvm::APFloat> bfloats;
+  const llvm::fltSemantics &bfloatSemantics = llvm::APFloatBase::BFloat();
+  bfloats.emplace_back(bfloatSemantics, "1.0");
+  bfloats.emplace_back(bfloatSemantics, "2.0");
+  bfloats.emplace_back(bfloatSemantics, "3.0");
+  bfloats.emplace_back(bfloatSemantics, "4.0");
+
+  mlir::DenseElementsAttr attr = mlir::DenseElementsAttr::get(
+      tensorType, llvm::ArrayRef<llvm::APFloat>(bfloats));
+
+  auto constant = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
+
+  auto backend = dyn_cast<OpModel>(constant.getOperation());
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(constant),
+                                                 OpConfig(outputLayout));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(l1PeakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;

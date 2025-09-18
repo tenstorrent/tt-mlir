@@ -2378,4 +2378,35 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
     let hasVerifier = 1;
 }
 
+def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Rotary embedding llama operation.";
+    let description = [{
+      Applies rotary embedding to the input tensor using precomputed cosine and sine caches along with a transformation matrix.
+
+      The operation supports both prefill and decode modes:
+      - Prefill mode: Uses interleaved memory layout
+      - Decode mode: Uses height-sharded memory layout
+
+      Example:
+      ```mlir
+      %result = ttnn.rotary_embedding_llama(%input, %cos_cache, %sin_cache, %trans_mat)
+        {is_decode_mode = false, memory_config = #ttnn.memory_config<interleaved>}
+        : tensor<1x32x128xbf16>, tensor<1x32x128xbf16>, tensor<1x32x128xbf16>,
+        tensor<1x1x32x32xbf16> -> tensor<1x32x128xbf16>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$cos_cache,
+                         AnyRankedTensor:$sin_cache,
+                         AnyRankedTensor:$trans_mat,
+                         DefaultValuedAttr<BoolAttr, "false">:$is_decode_mode,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 #endif

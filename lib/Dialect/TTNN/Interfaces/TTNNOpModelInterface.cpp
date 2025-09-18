@@ -1759,6 +1759,49 @@ ConcatenateHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// RotaryEmbeddingLlamaOp - TTNN Op Model Interface
+// ===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+RotaryEmbeddingLlamaOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == 4);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+  auto inputShape = getInput().getType().getShape();
+  auto cosShape = getCosCache().getType().getShape();
+  auto sinShape = getSinCache().getType().getShape();
+  auto transMatShape = getTransMat().getType().getShape();
+  bool isDecodeMode = getIsDecodeMode();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], cosShape, inputs[1], sinShape,
+      inputs[2], transMatShape, inputs[3], isDecodeMode, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+RotaryEmbeddingLlamaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  assert(inputs.size() == 4);
+
+  auto inputShape = getInput().getType().getShape();
+  auto cosShape = getCosCache().getType().getShape();
+  auto sinShape = getSinCache().getType().getShape();
+  auto transMatShape = getTransMat().getType().getShape();
+  bool isDecodeMode = getIsDecodeMode();
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime, *this,
+      inputShape, inputs[0], cosShape, inputs[1], sinShape, inputs[2],
+      transMatShape, inputs[3], isDecodeMode, opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RepeatInterleaveOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
