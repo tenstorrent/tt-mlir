@@ -3531,7 +3531,7 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
   RankedTensorType curPosTensorType = getCurPosTensor().getType();
   RankedTensorType resultType = getResult().getType();
 
-  if (isa<IntegerType>(curPosTensorType.getElementType())) {
+  if (!curPosTensorType.getElementType().isInteger()) {
     return emitOpError("Cur pos tensor must be a tensor of integers");
   }
 
@@ -3558,7 +3558,7 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
 
   int64_t batchSize = queryType.getShape()[1];
   int64_t nQueryHeads = queryType.getShape()[2];
-  int64_t nKVHeads = keyType.getShape()[2];
+  int64_t nKVHeads = keyType.getShape()[1];
   int64_t headSize = queryType.getShape()[3];
   int64_t maxSeqLen = keyType.getShape()[2];
 
