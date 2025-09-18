@@ -424,7 +424,7 @@ jobs:
 
         # Set up PYTHONPATH to include the built packages
         python --version
-        export PYTHONPATH="${{ steps.strings.outputs.build-output-dir }}/python_packages/ttmlir:$PYTHONPATH"
+        export PYTHONPATH="${{ steps.strings.outputs.build-output-dir }}/python_packages:${{ steps.strings.outputs.build-output-dir }}/tools/ttrt/build/lib/ttrt/runtime:$PYTHONPATH"
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         echo "PYTHONPATH: $PYTHONPATH"
@@ -447,7 +447,7 @@ jobs:
         echo "Running PyKernel tests..."
         cd ${{ steps.strings.outputs.build-output-dir }}/test/pykernel/demo
         pytest -v ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo/test.py
-
+    # PYTHONPATH=/__w/tt-mlir/tt-mlir/build/python_packages:/__w/tt-mlir/tt-mlir/.local/toolchain/python_packages/mlir_core:/__w/tt-mlir/tt-mlir/third_party/tt-metal/src/tt-metal/tt_eager:/__w/tt-mlir/tt-mlir/third_party/tt-metal/src/tt-metal/build/tools/profiler/bin:/__w/tt-mlir/tt-mlir/third_party/tt-metal/src/tt-metal/ttnn:/__w/tt-mlir/tt-mlir/third_party/tt-metal/src/tt-metal/ttnn:/__w/tt-mlir/tt-mlir/third_party/tt-metal/src/tt-metal
     # # PyKernel Test Runner
     # - name: Prepare and run PyKernel Test
     #   if: matrix.build.type == 'pykernel'
