@@ -67,6 +67,7 @@ struct TTIRToTTIRGenericPass final
       target.addLegalOp<ttir::StreamLayoutOp>();
       target.addLegalOp<ttir::ViewLayoutOp>();
       target.addLegalOp<ttir::EmptyOp>();
+      target.addLegalOp<ttir::TTNNToMetalLayoutCastOp>();
       target.addLegalOp<ttir::ConstantOp>();
       target.addLegalOp<ttir::FullOp>();
 
