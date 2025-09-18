@@ -26,32 +26,6 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
       tensorRef->desc()->layout()->memory_desc()->data_type());
 }
 
-::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
-    const ::tt::target::ttnn::DistributionStrategy *strategy) {
-  switch (strategy->strategy_type()) {
-  case ::tt::target::ttnn::DistributedTensorConfig::ReplicateTensor: {
-    return ::tt::tt_metal::ReplicateTensor(
-        strategy->strategy_as_ReplicateTensor()->replication_factor());
-  }
-  case ::tt::target::ttnn::DistributedTensorConfig::ShardTensor: {
-    return ::tt::tt_metal::ShardTensor(
-        strategy->strategy_as_ShardTensor()->shard_dim());
-  }
-  case ::tt::target::ttnn::DistributedTensorConfig::ShardTensor2D: {
-    uint32_t y = strategy->strategy_as_ShardTensor2D()->shard_mesh()->y();
-    uint32_t x = strategy->strategy_as_ShardTensor2D()->shard_mesh()->x();
-    ::tt::tt_metal::ShardMesh mesh(y, x);
-    return ::tt::tt_metal::ShardTensor2D(mesh);
-  }
-  case ::tt::target::ttnn::DistributedTensorConfig::AllGatherTensor: {
-    return ::tt::tt_metal::AllGatherTensor();
-  }
-  case ::tt::target::ttnn::DistributedTensorConfig::NONE: {
-    LOG_FATAL("Unsupported distributed tensor config");
-  }
-  }
-}
-
 ::ttnn::operations::unary::UnaryOpType
 toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
   using FbUnaryOpType = ::tt::target::ttnn::UnaryOpType;
@@ -261,7 +235,9 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   }
 
   if (config->activation()) {
-    conv2dConfig.activation = config->activation()->str();
+    conv2dConfig.activation =
+        std::optional<::ttnn::operations::unary::UnaryWithParam>(
+            toTTNNUnaryWithParam(*config->activation()));
   }
 
   if (config->deallocate_activation()) {
@@ -315,10 +291,6 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   if (config->enable_weights_double_buffer()) {
     conv2dConfig.enable_weights_double_buffer =
         *config->enable_weights_double_buffer();
-  }
-
-  if (config->enable_split_reader()) {
-    conv2dConfig.enable_split_reader = *config->enable_split_reader();
   }
 
   if (config->in_place()) {

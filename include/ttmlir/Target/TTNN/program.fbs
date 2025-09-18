@@ -37,6 +37,7 @@ union OpType {
   CollectivePermuteOp,
   ConcatOp,
   ConcatenateHeadsOp,
+  RotaryEmbeddingLlamaOp,
   ConstantOp,
   Conv2dOp,
   ConvTranspose2dOp,

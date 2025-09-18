@@ -32,10 +32,8 @@ tracy_*.tracy
 test/lit.site.cfg.py
 
 # Builder Test Default Artifact Paths
-/ttir/
-/ttnn/
-/ttmetal/
-/ttnn-standalone/
+/ttir-builder-artifacts/
+/stablehlo-builder-artifacts/
 
 # TTNN and TTMetal flatbuffers
 *.ttnn
