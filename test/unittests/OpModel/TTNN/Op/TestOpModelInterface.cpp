@@ -3657,6 +3657,45 @@ TEST_F(OpModelBase, ConstantOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, ConstantOpInterfaceBF16) {
+  llvm::SmallVector<int64_t> tensorShape = {2, 2};
+  mlir::Type elementType = builder.getBF16Type();
+  auto outputType = createRankedTensorType(tensorShape, elementType);
+  auto outputLayout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                        TensorMemoryLayout::Interleaved);
+  mlir::RankedTensorType tensorType =
+      mlir::RankedTensorType::get(tensorShape, elementType);
+
+  std::vector<llvm::APFloat> bfloats;
+  const llvm::fltSemantics &bfloatSemantics = llvm::APFloatBase::BFloat();
+  bfloats.emplace_back(bfloatSemantics, "1.0");
+  bfloats.emplace_back(bfloatSemantics, "2.0");
+  bfloats.emplace_back(bfloatSemantics, "3.0");
+  bfloats.emplace_back(bfloatSemantics, "4.0");
+
+  mlir::DenseElementsAttr attr = mlir::DenseElementsAttr::get(
+      tensorType, llvm::ArrayRef<llvm::APFloat>(bfloats));
+
+  auto constant = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
+
+  auto backend = dyn_cast<OpModel>(constant.getOperation());
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(constant),
+                                                 OpConfig(outputLayout));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(l1PeakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
 TEST_F(OpModelBase, ConstantOpInterfaceNullOutputLayout) {
   llvm::SmallVector<int64_t> tensorShape = {2, 3, 4};
   mlir::Type elementType =
