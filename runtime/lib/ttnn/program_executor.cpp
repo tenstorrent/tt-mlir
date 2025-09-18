@@ -61,6 +61,8 @@
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
+#include "operations/tensor_serialization/dump_tensor.h"
+#include "operations/tensor_serialization/load_tensor.h"
 #include "operations/trace/begin_trace_capture.h"
 #include "operations/trace/capture_or_execute_trace.h"
 #include "operations/trace/end_trace_capture.h"
@@ -347,6 +349,14 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::BatchNormOp: {
     return operations::batch_norm::run(op->type_as_BatchNormOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::DumpTensorOp: {
+    return operations::tensor_serialization::run(op->type_as_DumpTensorOp(),
+                                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::LoadTensorOp: {
+    return operations::tensor_serialization::run(op->type_as_LoadTensorOp(),
+                                                 getContext());
   }
   case ::tt::target::ttnn::OpType::BeginTraceCaptureOp: {
     return operations::trace::run(op->type_as_BeginTraceCaptureOp(),
