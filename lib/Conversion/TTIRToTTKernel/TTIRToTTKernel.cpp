@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTIR/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
@@ -841,11 +842,10 @@ public:
         buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
                         op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
     auto dstCBMapping = cbProducerConsumer->get(op.getDst());
-    assert(dstCBMapping == ttir::ThreadCBOrientation::Producer ||
-           dstCBMapping == ttir::ThreadCBOrientation::Default &&
+    TT_assertv((dstCBMapping == ttir::ThreadCBOrientation::Producer ||
+                dstCBMapping == ttir::ThreadCBOrientation::Default),
                "Expected dst cb of a read op to have a producer or default "
-               "orientation, "
-               "failing.");
+               "orientation, failing.");
     Value dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
         rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
 
@@ -908,11 +908,11 @@ public:
                                                              adaptor.getSrc());
       }
       auto dstCBMapping = cbProducerConsumer->get(op.getDst());
-      assert((dstCBMapping == ttir::ThreadCBOrientation::Producer ||
-              dstCBMapping == ttir::ThreadCBOrientation::ProducerConsumer ||
-              dstCBMapping == ttir::ThreadCBOrientation::Default) &&
-             "Expected dst cb of a write op to have a producer, "
-             "producer-consumer or default orientation, failing.");
+      TT_assertv((dstCBMapping == ttir::ThreadCBOrientation::Producer ||
+                  dstCBMapping == ttir::ThreadCBOrientation::ProducerConsumer ||
+                  dstCBMapping == ttir::ThreadCBOrientation::Default),
+                 "Expected dst cb of a write op to have a producer, "
+                 "producer-consumer or default orientation, failing.");
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
 
