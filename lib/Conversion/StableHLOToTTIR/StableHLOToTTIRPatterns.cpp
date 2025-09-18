@@ -3152,6 +3152,12 @@ public:
     Value key = adaptor.getOperands()[1];
     Value value = adaptor.getOperands()[2];
     SmallVector<Value> operands = {query, key, value};
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
     Value attentionMask, curPosTensor, attentionSink;
     if (hasAttentionMask && hasCurPosTensor && hasAttentionSink) {
       // attentionMask = adaptor.getOperands()[3];
@@ -3160,27 +3166,27 @@ public:
       // operands.push_back(attentionMask);
       // operands.push_back(curPosTensor);
       // operands.push_back(attentionSink);
-      ttir::utils::replaceOpWithNewDPSOp<
+      rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
-          rewriter, srcOp,
+          srcOp,
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, adaptor.getOperands()[3], adaptor.getOperands()[4],
-          adaptor.getOperands()[5], rewriter.getBoolAttr(isCausal),
-          rewriter.getF32FloatAttr(scale));
+          outputTensor, adaptor.getOperands()[5],
+          rewriter.getBoolAttr(isCausal), rewriter.getF32FloatAttr(scale));
     } else if (hasAttentionMask && hasCurPosTensor) {
       // attentionMask = adaptor.getOperands()[3];
       // curPosTensor = adaptor.getOperands()[4];
       // operands.push_back(attentionMask);
       // operands.push_back(curPosTensor);
       // operands.push_back(nullptr);
-      ttir::utils::replaceOpWithNewDPSOp<
+      rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
-          rewriter, srcOp,
+          srcOp,
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, adaptor.getOperands()[3], adaptor.getOperands()[4],
-          nullptr, rewriter.getBoolAttr(isCausal),
+          nullptr, outputTensor, rewriter.getBoolAttr(isCausal),
           rewriter.getF32FloatAttr(scale));
     } else if (hasAttentionMask && hasAttentionSink) {
       // attentionMask = adaptor.getOperands()[3];
@@ -3188,64 +3194,67 @@ public:
       // operands.push_back(attentionMask);
       // operands.push_back(nullptr);
       // operands.push_back(attentionSink);
-      ttir::utils::replaceOpWithNewDPSOp<
+      rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
-          rewriter, srcOp,
+          srcOp,
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, adaptor.getOperands()[3], nullptr,
-          adaptor.getOperands()[4], rewriter.getBoolAttr(isCausal),
-          rewriter.getF32FloatAttr(scale));
+          adaptor.getOperands()[4], outputTensor,
+          rewriter.getBoolAttr(isCausal), rewriter.getF32FloatAttr(scale));
     } else if (hasCurPosTensor && hasAttentionSink) {
       // curPosTensor = adaptor.getOperands()[3];
       // attentionSink = adaptor.getOperands()[4];
       // operands.push_back(nullptr);
       // operands.push_back(curPosTensor);
       // operands.push_back(attentionSink);
-      ttir::utils::replaceOpWithNewDPSOp<
+      rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
-          rewriter, srcOp,
+          srcOp,
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, nullptr, adaptor.getOperands()[3],
-          adaptor.getOperands()[4], rewriter.getBoolAttr(isCausal),
-          rewriter.getF32FloatAttr(scale));
+          adaptor.getOperands()[4], outputTensor,
+          rewriter.getBoolAttr(isCausal), rewriter.getF32FloatAttr(scale));
     } else if (hasAttentionMask) {
       attentionMask = adaptor.getOperands()[3];
       // operands.push_back(attentionMask);
       // operands.push_back(nullptr);
       // operands.push_back(nullptr);
-      ttir::utils::replaceOpWithNewDPSOp<
+      rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
-          rewriter, srcOp,
+          srcOp,
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, adaptor.getOperands()[3], nullptr, nullptr,
-          rewriter.getBoolAttr(isCausal), rewriter.getF32FloatAttr(scale));
+          outputTensor, rewriter.getBoolAttr(isCausal),
+          rewriter.getF32FloatAttr(scale));
     } else if (hasCurPosTensor) {
       curPosTensor = adaptor.getOperands()[3];
       // operands.push_back(nullptr);
       // operands.push_back(curPosTensor);
       // operands.push_back(nullptr);
-      ttir::utils::replaceOpWithNewDPSOp<
+      rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
-          rewriter, srcOp,
+          srcOp,
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, nullptr, adaptor.getOperands()[3], nullptr,
-          rewriter.getBoolAttr(isCausal), rewriter.getF32FloatAttr(scale));
+          outputTensor, rewriter.getBoolAttr(isCausal),
+          rewriter.getF32FloatAttr(scale));
     } else if (hasAttentionSink) {
       attentionSink = adaptor.getOperands()[3];
       // operands.push_back(nullptr);
       // operands.push_back(nullptr);
       // operands.push_back(attentionSink);
-      ttir::utils::replaceOpWithNewDPSOp<
+      rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
-          rewriter, srcOp,
+          srcOp,
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, nullptr, nullptr, adaptor.getOperands()[3],
-          rewriter.getBoolAttr(isCausal), rewriter.getF32FloatAttr(scale));
+          outputTensor, rewriter.getBoolAttr(isCausal),
+          rewriter.getF32FloatAttr(scale));
     } else {
       if (hasAttentionMask || hasCurPosTensor || hasAttentionSink) {
         llvm_unreachable("All combinations of attention mask, cur pos tensor, "
