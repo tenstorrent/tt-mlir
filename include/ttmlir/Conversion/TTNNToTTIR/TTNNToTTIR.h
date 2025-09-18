@@ -10,12 +10,12 @@
 
 namespace mlir::tt {
 
-namespace ttir {
+namespace ttnn {
 
 #define GEN_PASS_DECL_CONVERTTTNNTOTTIR
 #include "ttmlir/Conversion/Passes.h.inc"
 
-} // namespace ttir
+} // namespace ttnn
 
 void populateTTNNToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                 TypeConverter &typeConverter);

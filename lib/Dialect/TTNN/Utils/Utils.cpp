@@ -10,10 +10,10 @@
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
 #include "llvm/Support/Casting.h"
 
-#include <mlir/IR/Operation.h>
 #include <optional>
 
 namespace mlir::tt::ttnn::utils {

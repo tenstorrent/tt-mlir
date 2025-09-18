@@ -22,17 +22,14 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-using namespace mlir;
-using namespace mlir::tt;
-
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttnn {
 
 #define GEN_PASS_DEF_CONVERTTTNNTOTTIR
 #include "ttmlir/Conversion/Passes.h.inc"
 
 namespace {
 struct ConvertTTNNToTTIRPass
-    : public ttir::impl::ConvertTTNNToTTIRBase<ConvertTTNNToTTIRPass> {
+    : public ttnn::impl::ConvertTTNNToTTIRBase<ConvertTTNNToTTIRPass> {
 
   ConvertTTNNToTTIRPass() = default;
 
@@ -42,7 +39,6 @@ struct ConvertTTNNToTTIRPass
     // Common legal/illegal ops/dialects for both partial and full conversion.
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalDialect<ttcore::TTCoreDialect>();
-    target.addLegalOp<mlir::tt::ttir::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();
 
     TypeConverter typeConverter;
@@ -77,12 +73,12 @@ struct ConvertTTNNToTTIRPass
   }
 };
 } // namespace
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttnn
 
 namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTNNToTTIRPass() {
-  return std::make_unique<ttir::ConvertTTNNToTTIRPass>();
+  return std::make_unique<ttnn::ConvertTTNNToTTIRPass>();
 }
 
 } // namespace mlir::tt

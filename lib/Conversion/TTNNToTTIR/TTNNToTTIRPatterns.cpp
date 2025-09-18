@@ -24,137 +24,109 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-using namespace mlir;
-using namespace mlir::tt;
-
 namespace {
-template <typename SrcOp, typename DestOp,
-          typename Adaptor = typename SrcOp::Adaptor>
-class TTNNToTTIROpDefaultConversionPattern : public OpConversionPattern<SrcOp> {
+template <typename SrcOp, typename DestOp>
+class TTNNToTTIRElementwiseConversionPattern
+    : public mlir::OpConversionPattern<SrcOp> {
 
-  using OpConversionPattern<SrcOp>::OpConversionPattern;
+  using mlir::OpConversionPattern<SrcOp>::OpConversionPattern;
+  using Adaptor = typename SrcOp::Adaptor;
 
 public:
-  LogicalResult
+  mlir::LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    if (ttnn::utils::isTTNNHoistGenericViaD2MOp(srcOp)) {
-      auto outputType = mlir::cast<RankedTensorType>(
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    if (mlir::tt::ttnn::utils::isTTNNHoistGenericViaD2MOp(srcOp)) {
+      auto outputType = mlir::cast<mlir::RankedTensorType>(
           this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-      ttir::utils::replaceOpWithNewDPSOp<DestOp>(rewriter, srcOp, outputType,
-                                                 adaptor.getOperands());
+      mlir::tt::ttir::utils::replaceOpWithNewDPSOp<DestOp>(
+          rewriter, srcOp, outputType, adaptor.getOperands());
     }
-    return success();
+    return mlir::success();
   }
 };
 } // namespace
 
 static void
-addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
-                                         RewritePatternSet &patterns,
-                                         TypeConverter &typeConverter) {
+addElementwiseUnaryOpsConversionPatterns(mlir::MLIRContext *ctx,
+                                         mlir::RewritePatternSet &patterns,
+                                         mlir::TypeConverter &typeConverter) {
 
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::AbsOp,
-                                                    mlir::tt::ttir::AbsOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::CbrtOp,
-                                                    mlir::tt::ttir::CbrtOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<
-      mlir::tt::ttnn::TypecastOp, mlir::tt::ttir::TypecastOp>>(typeConverter,
-                                                               ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::CeilOp,
-                                                    mlir::tt::ttir::CeilOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::CosOp,
-                                                    mlir::tt::ttir::CosOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::ExpOp,
-                                                    mlir::tt::ttir::ExpOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::FloorOp,
-                                                    mlir::tt::ttir::FloorOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<
-      mlir::tt::ttnn::IsFiniteOp, mlir::tt::ttir::IsFiniteOp>>(typeConverter,
-                                                               ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::NegOp,
-                                                    mlir::tt::ttir::NegOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::RsqrtOp,
-                                                    mlir::tt::ttir::RsqrtOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::SinOp,
-                                                    mlir::tt::ttir::SinOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::SqrtOp,
-                                                    mlir::tt::ttir::SqrtOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::Log1pOp,
-                                                    mlir::tt::ttir::Log1pOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::Expm1Op,
-                                                    mlir::tt::ttir::Expm1Op>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::SignOp,
-                                                    mlir::tt::ttir::SignOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::SigmoidOp,
-                                                    mlir::tt::ttir::SigmoidOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::TanOp,
-                                                    mlir::tt::ttir::TanOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::TanhOp,
-                                                    mlir::tt::ttir::TanhOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::LogOp,
-                                                    mlir::tt::ttir::LogOp>>(
-      typeConverter, ctx);
+  patterns
+      .add<TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::AbsOp,
+                                                  mlir::tt::ttir::AbsOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::CbrtOp,
+                                                  mlir::tt::ttir::CbrtOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::TypecastOp,
+                                                  mlir::tt::ttir::TypecastOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::CeilOp,
+                                                  mlir::tt::ttir::CeilOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::CosOp,
+                                                  mlir::tt::ttir::CosOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::ExpOp,
+                                                  mlir::tt::ttir::ExpOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::FloorOp,
+                                                  mlir::tt::ttir::FloorOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::IsFiniteOp,
+                                                  mlir::tt::ttir::IsFiniteOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::NegOp,
+                                                  mlir::tt::ttir::NegOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::RsqrtOp,
+                                                  mlir::tt::ttir::RsqrtOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::SinOp,
+                                                  mlir::tt::ttir::SinOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::SqrtOp,
+                                                  mlir::tt::ttir::SqrtOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::Log1pOp,
+                                                  mlir::tt::ttir::Log1pOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::Expm1Op,
+                                                  mlir::tt::ttir::Expm1Op>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::SignOp,
+                                                  mlir::tt::ttir::SignOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::SigmoidOp,
+                                                  mlir::tt::ttir::SigmoidOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::TanOp,
+                                                  mlir::tt::ttir::TanOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::TanhOp,
+                                                  mlir::tt::ttir::TanhOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::LogOp,
+                                                  mlir::tt::ttir::LogOp>>(
+          typeConverter, ctx);
 }
 
 static void
-addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
-                                          RewritePatternSet &patterns,
-                                          TypeConverter &typeConverter) {
+addElementwiseBinaryOpsConversionPatterns(mlir::MLIRContext *ctx,
+                                          mlir::RewritePatternSet &patterns,
+                                          mlir::TypeConverter &typeConverter) {
 
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::AddOp,
-                                                    mlir::tt::ttir::AddOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::DivideOp,
-                                                    mlir::tt::ttir::DivOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::MaxOp,
-                                                    mlir::tt::ttir::MaximumOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::MinOp,
-                                                    mlir::tt::ttir::MinimumOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<
-      mlir::tt::ttnn::MultiplyOp, mlir::tt::ttir::MultiplyOp>>(typeConverter,
-                                                               ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<
-      mlir::tt::ttnn::SubtractOp, mlir::tt::ttir::SubtractOp>>(typeConverter,
-                                                               ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<
-      mlir::tt::ttnn::RemainderOp, mlir::tt::ttir::RemainderOp>>(typeConverter,
-                                                                 ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::WhereOp,
-                                                    mlir::tt::ttir::WhereOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::PowOp,
-                                                    mlir::tt::ttir::PowOp>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<mlir::tt::ttnn::Atan2Op,
-                                                    mlir::tt::ttir::Atan2Op>>(
-      typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<
-      mlir::tt::ttnn::LogicalRightShiftOp,
-      mlir::tt::ttir::LogicalRightShiftOp>>(typeConverter, ctx);
-  patterns.add<TTNNToTTIROpDefaultConversionPattern<
-      mlir::tt::ttnn::LogicalLeftShiftOp, mlir::tt::ttir::LogicalLeftShiftOp>>(
-      typeConverter, ctx);
+  patterns
+      .add<TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::AddOp,
+                                                  mlir::tt::ttir::AddOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::DivideOp,
+                                                  mlir::tt::ttir::DivOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::MaxOp,
+                                                  mlir::tt::ttir::MaximumOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::MinOp,
+                                                  mlir::tt::ttir::MinimumOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::MultiplyOp,
+                                                  mlir::tt::ttir::MultiplyOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::SubtractOp,
+                                                  mlir::tt::ttir::SubtractOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::RemainderOp,
+                                                  mlir::tt::ttir::RemainderOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::WhereOp,
+                                                  mlir::tt::ttir::WhereOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::PowOp,
+                                                  mlir::tt::ttir::PowOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::Atan2Op,
+                                                  mlir::tt::ttir::Atan2Op>,
+           TTNNToTTIRElementwiseConversionPattern<
+               mlir::tt::ttnn::LogicalRightShiftOp,
+               mlir::tt::ttir::LogicalRightShiftOp>,
+           TTNNToTTIRElementwiseConversionPattern<
+               mlir::tt::ttnn::LogicalLeftShiftOp,
+               mlir::tt::ttir::LogicalLeftShiftOp>>(typeConverter, ctx);
 }
 
 namespace mlir::tt {
