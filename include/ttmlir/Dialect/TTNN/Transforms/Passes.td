@@ -226,4 +226,15 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
   }];
 }
 
+def TTNNEmitPyWorkarounds: Pass<"ttnn-emitpy-workarounds", "::mlir::ModuleOp"> {
+  let summary = "Apply TTNN workarounds specific to EmitPy pipeline.";
+  let description = [{
+    This pass applies TTNN workarounds that are specific to the EmitPy pipeline.
+    Currently handles:
+    - ConstantOp 4D shape workaround: Rewrites non-4D ConstantOps to 4D with
+      added reshape operations to fix the shape for ttnn.Tensor constructor
+      compatibility.
+  }];
+}
+
 #endif

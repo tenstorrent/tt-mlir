@@ -5,11 +5,14 @@
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/ADT/SmallVector.h"
 #include <optional>
+#include <string>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -141,7 +144,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseUnaryOp.getInput()),
-        /*parameter=*/emitter.emit(false),
+        /*parameter=*/emitter.emit(false, "fast_and_approximate_mode"),
         emitter.emit(eltwiseUnaryOp.getMemoryConfig() |
                          emitter.getMemoryConfig(eltwiseUnaryOp.getResult()),
                      "memory_config"),
@@ -173,8 +176,9 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseUnaryOp.getInput()),
-        emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC)),
-        /*parameter=*/emitter.emit(false),
+        emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC),
+                     "vector_mode"),
+        /*parameter=*/emitter.emit(false, "fast_and_approximate_mode"),
         emitter.emit(eltwiseUnaryOp.getMemoryConfig() |
                          emitter.getMemoryConfig(eltwiseUnaryOp.getResult()),
                      "memory_config"),
@@ -551,7 +555,7 @@ private:
     return "ttnn.get_device";
   }
   std::string getPrefixSwapPattern() const override {
-    return "DeviceGetter.get_device";
+    return "my_get_device.DeviceGetter.get_device";
   }
 
 public:
@@ -1107,7 +1111,7 @@ private:
     return "ttnn.concatenate_heads";
   }
   std::string getPrefixSwapPattern() const override {
-    return "ttnn.concatenate_heads";
+    return "ttnn.transformer.concatenate_heads";
   }
 
 public:

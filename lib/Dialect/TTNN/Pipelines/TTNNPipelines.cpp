@@ -228,6 +228,9 @@ void createTTNNBackendToEmitPyPipeline(
 
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
+  // Apply EmitPy-specific workarounds before conversion
+  pm.addPass(createTTNNEmitPyWorkarounds());
+
   pm.addPass(createTTNNTuplifyTensors());
   pm.addPass(createTTNNCreateInputGenerators());
 
