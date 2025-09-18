@@ -82,8 +82,6 @@ protected:
       elementType = ttcore::TileType::get(elementType, tileShape);
     }
 
-    // DO NOT MERGE: does assuming block sharded here make sense for TTNN
-    // integration?
     auto layout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), logicalShape, targetSquareGridShape,
         ttcore::OOBVal::Undef, memSpace,
