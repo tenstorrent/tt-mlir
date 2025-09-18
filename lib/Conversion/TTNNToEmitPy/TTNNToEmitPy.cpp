@@ -751,6 +751,37 @@ public:
   }
 };
 } // namespace
+
+// NLPConcatHeadsOp conversion pattern
+//
+namespace {
+class NLPConcatHeadsOpConversionPattern
+    : public OpConversionPattern<mlir::tt::ttnn::NLPConcatHeadsOp> {
+public:
+  using OpConversionPattern<
+      mlir::tt::ttnn::NLPConcatHeadsOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::NLPConcatHeadsOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::NLPConcatHeadsOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -884,6 +915,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format off
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
   // clang-format on
+
+  patterns.add<NLPConcatHeadsOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
