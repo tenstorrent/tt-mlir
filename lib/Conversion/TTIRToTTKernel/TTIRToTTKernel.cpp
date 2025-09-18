@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
+
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/TTIR/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
@@ -866,9 +869,11 @@ static Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
 class TTIRDMAReadRewriter : public OpConversionPattern<ttir::DMAReadOp> {
 public:
   TTIRDMAReadRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                      const ttir::AssociatedDMAWaits *associatedDMAWaits)
+                      const ttir::AssociatedDMAWaits *associatedDMAWaits,
+                      const ttir::CBProducerConsumer *cbProducerConsumer)
       : OpConversionPattern<ttir::DMAReadOp>(typeConverter, context),
-        associatedDMAWaits(associatedDMAWaits) {}
+        associatedDMAWaits(associatedDMAWaits),
+        cbProducerConsumer(cbProducerConsumer) {}
 
   LogicalResult
   matchAndRewrite(ttir::DMAReadOp op, ttir::DMAReadOpAdaptor adaptor,
@@ -886,8 +891,14 @@ public:
     auto srcNocAddr =
         buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
                         op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
-    auto dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
+    auto dstCBMapping = cbProducerConsumer->get(op.getDst());
+    TT_assertv((dstCBMapping == ttir::ThreadCBOrientation::Producer ||
+                dstCBMapping == ttir::ThreadCBOrientation::Default),
+               "Expected dst cb of a read op to have a producer or default "
+               "orientation, failing.");
+    Value dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
         rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
+
     auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
     rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
                                               dstL1Addr, size);
@@ -910,14 +921,17 @@ public:
 
 private:
   const ttir::AssociatedDMAWaits *associatedDMAWaits;
+  const ttir::CBProducerConsumer *cbProducerConsumer;
 };
 
 class TTIRDMAWriteRewriter : public OpConversionPattern<ttir::DMAWriteOp> {
 public:
   TTIRDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                       const ttir::AssociatedDMAWaits *associatedDMAWaits)
+                       const ttir::AssociatedDMAWaits *associatedDMAWaits,
+                       const ttir::CBProducerConsumer *cbProducerConsumer)
       : OpConversionPattern<ttir::DMAWriteOp>(typeConverter, context),
-        associatedDMAWaits(associatedDMAWaits) {}
+        associatedDMAWaits(associatedDMAWaits),
+        cbProducerConsumer(cbProducerConsumer) {}
 
   LogicalResult
   matchAndRewrite(ttir::DMAWriteOp op, ttir::DMAWriteOpAdaptor adaptor,
@@ -934,8 +948,21 @@ public:
 
       // Both src and dst are local, use the metal cb pointers to determine
       // addressing
-      Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
-          op.getLoc(), adaptor.getSrc());
+      Value srcL1Start;
+      auto srcCBMapping = cbProducerConsumer->get(op.getSrc());
+      if (srcCBMapping == ttir::ThreadCBOrientation::Producer) {
+        srcL1Start = rewriter.create<ttkernel::GetWritePtrOp>(op.getLoc(),
+                                                              adaptor.getSrc());
+      } else {
+        srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(op.getLoc(),
+                                                             adaptor.getSrc());
+      }
+      auto dstCBMapping = cbProducerConsumer->get(op.getDst());
+      TT_assertv((dstCBMapping == ttir::ThreadCBOrientation::Producer ||
+                  dstCBMapping == ttir::ThreadCBOrientation::ProducerConsumer ||
+                  dstCBMapping == ttir::ThreadCBOrientation::Default),
+                 "Expected dst cb of a write op to have a producer, "
+                 "producer-consumer or default orientation, failing.");
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
 
@@ -1014,6 +1041,7 @@ public:
 
 private:
   const ttir::AssociatedDMAWaits *associatedDMAWaits;
+  const ttir::CBProducerConsumer *cbProducerConsumer;
 };
 } // namespace
 
@@ -1340,7 +1368,8 @@ namespace mlir::tt {
 
 void populateTTIRToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const ttir::AssociatedDMAWaits &associatedDMAWaits) {
+    const ttir::AssociatedDMAWaits &associatedDMAWaits,
+    const ttir::CBProducerConsumer &cbProducerConsumer) {
   // clang-format off
   patterns.add<ttkernel::TTIRKernelFunctionArgsRewriter,
 
@@ -1397,8 +1426,8 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreIncOp>,
                ttkernel::TTIRSemaphoreWaitRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::TTIRDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits);
-  patterns.add<ttkernel::TTIRDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits);
+  patterns.add<ttkernel::TTIRDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
+  patterns.add<ttkernel::TTIRDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   // clang-format on
 }
 
