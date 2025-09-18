@@ -5571,8 +5571,8 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
   let arguments = (ins AnyRankedTensor:$query,
                        AnyRankedTensor:$key,
                        AnyRankedTensor:$value,
+                       AnyRankedTensor:$cur_pos_tensor,
                        Optional<AnyRankedTensor>:$attention_mask,
-                       Optional<AnyRankedTensor>:$cur_pos_tensor,
                        Optional<AnyRankedTensor>:$attention_sink,
                        AnyRankedTensor:$output,
                        DefaultValuedAttr<BoolAttr, "true">:$is_causal,
@@ -5580,7 +5580,7 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
 
   let results = (outs AnyRankedTensor:$result);
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 
