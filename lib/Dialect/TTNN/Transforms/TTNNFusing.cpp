@@ -71,9 +71,9 @@ private:
     if constexpr (std::is_same_v<ActivationOp, ReluOp>) {
       return ttnn::UnaryOpType::Relu;
     } else if constexpr (std::is_same_v<ActivationOp, Relu6Op>) {
-      return rewriter.getStringAttr("relu6");
+      return ttnn::UnaryOpType::Relu6;
     } else if constexpr (std::is_same_v<ActivationOp, SiluOp>) {
-      return rewriter.getStringAttr("silu");
+      return ttnn::UnaryOpType::Silu;
     }
   }
 
