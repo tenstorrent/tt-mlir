@@ -22,7 +22,6 @@ def sharding_constraint(
     builder: StableHLOBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    builder.set_graph_level_check(True)
     tensor_sharding_attr = builder.tensor_sharding_attr(
         mesh_name="mesh",
         dimension_shardings=[
@@ -34,14 +33,53 @@ def sharding_constraint(
                 axes=[builder.axis_ref_attr(name="y")],
                 is_closed=False,
             ),
+            builder.dimension_sharding_attr(
+                axes=[],
+                is_closed=False,
+            ),
         ],
     )
+    tensor_sharding_attr2 = builder.tensor_sharding_attr(
+        mesh_name="mesh",
+        dimension_shardings=[
+            builder.dimension_sharding_attr(
+                axes=[],
+                is_closed=True,
+            ),
+            builder.dimension_sharding_attr(
+                axes=[builder.axis_ref_attr(name="y")],
+                is_closed=False,
+            ),
+            builder.dimension_sharding_attr(
+                axes=[builder.axis_ref_attr(name="x")],
+                is_closed=False,
+            ),
+        ],
+    )
+    dim_mapping_attr = builder.dim_mapping_attr([0])
+    dim_mapping_attr1 = builder.dim_mapping_attr([1])
+    dim_mapping_attr2 = builder.dim_mapping_attr([2])
+    tensor_mapping_attr = builder.tensor_mapping_attr(
+        [dim_mapping_attr, dim_mapping_attr2]
+    )
+    tensor_mapping_attr1 = builder.tensor_mapping_attr(
+        [dim_mapping_attr2, dim_mapping_attr1]
+    )
+    tensor_mapping_attr2 = builder.tensor_mapping_attr(
+        [dim_mapping_attr, dim_mapping_attr1]
+    )
+    # builder.op_sharding_rule_attr([8,16,8], [tensor_mapping_attr, tensor_mapping_attr1], [tensor_mapping_attr2])
+    # print(op_sharding_rule_attr)
+    # builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
+    add_0 = builder.add(
+        in0, in1, unit_attrs=["sdy.sharding"]
+    )  # [tensor_sharding_attr])
+    # builder.reshard(in1, sharding=tensor_sharding_attr2)
+    # builder.tensor_sharding_per_value_attr([tensor_sharding_attr, tensor_sharding_attr2])#, [in0, in1])
+    return add_0  # builder.add(add_0, in1, unit_attrs=unit_attrs)
 
-    builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
-    return builder.add(in0, in1, unit_attrs=unit_attrs)
 
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("shape", [(8, 8, 8)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("mesh_shape", [(1, 2)])
 @pytest.mark.parametrize(

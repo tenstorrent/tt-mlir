@@ -76,6 +76,27 @@ class StableHLOBuilder(Builder):
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
+
+        tensor_sharding_attr = self.tensor_sharding_attr(
+            mesh_name="mesh",
+            dimension_shardings=[
+                self.dimension_sharding_attr(
+                    axes=[self.axis_ref_attr(name="x")],
+                    is_closed=True,
+                ),
+                self.dimension_sharding_attr(
+                    axes=[self.axis_ref_attr(name="y")],
+                    is_closed=False,
+                ),
+                self.dimension_sharding_attr(
+                    axes=[],
+                    is_closed=False,
+                ),
+            ],
+        )
+        tensor_sharding_per_value_attr = self.tensor_sharding_per_value_attr(
+            [tensor_sharding_attr]
+        )
         if not golden_kwargs:
             golden_kwargs = stablehlo_kwargs
 
@@ -98,7 +119,9 @@ class StableHLOBuilder(Builder):
 
             if unit_attrs is not None:
                 for attr_name in unit_attrs:
-                    op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+                    op.operation.attributes[
+                        attr_name
+                    ] = tensor_sharding_per_value_attr  # UnitAttr.get(self._ctx)
 
             if not skip_golden and not self._disable_golden_check:
                 op_golden_function = builder_golden.get_golden_function(
@@ -299,6 +322,36 @@ class StableHLOBuilder(Builder):
             unreduced_axes,
         )
 
+    def tensor_sharding_per_value_attr(
+        self,
+        shardings: List[sdy.TensorShardingAttr],
+    ) -> sdy.TensorShardingPerValueAttr:
+        return sdy.TensorShardingPerValueAttr.get(
+            shardings,
+        )
+
+    def dim_mapping_attr(
+        self,
+        factor_indices: List[int],
+    ) -> sdy.DimMappingAttr:
+        return sdy.DimMappingAttr.get(factor_indices)
+
+    def tensor_mapping_attr(
+        self,
+        dim_mappings: List[sdy.DimMappingAttr],
+    ) -> sdy.TensorMappingAttr:
+        return sdy.TensorMappingAttr.get(dim_mappings)
+
+    def op_sharding_rule_attr(
+        self,
+        factor_sizes: List[int],
+        operand_mappings: List[sdy.TensorMappingAttr],
+        result_mappings: List[sdy.TensorMappingAttr],
+    ) -> sdy.OpShardingRuleAttr:
+        return sdy.OpShardingRuleAttr.get(
+            factor_sizes, operand_mappings, result_mappings
+        )
+
     # ----- Public Shardy Op Generators ----
 
     def mesh(self, mesh_name: str, mesh_attr: sdy.MeshAttr) -> sdy.MeshOp:
@@ -345,6 +398,13 @@ class StableHLOBuilder(Builder):
             A sharding constraint operation that applies the specified sharding to the input tensor
         """
         return sdy.ShardingConstraintOp(in0, tensor_sharding_attr)
+
+    def reshard(
+        self,
+        in0: Operand,
+        sharding: sdy.TensorShardingAttr,
+    ) -> sdy.ReshardOp:
+        return sdy.ReshardOp(in0, sharding)
 
     # ----- Experimental Mpmd Attribute Generators ----
 
