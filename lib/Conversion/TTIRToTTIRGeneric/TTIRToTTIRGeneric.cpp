@@ -128,7 +128,7 @@ protected:
     auto resultType =
         mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
     // resultType.dump();
-    auto castOp = rewriter.create<ttir::TTNNToMetalLayoutCastOp>(
+    auto castOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
         value.getLoc(), resultType, value);
     // castOp.dump();
     return castOp.getResult();
@@ -206,7 +206,7 @@ protected:
                                    Value fromValue, Type toResultType) {
     RankedTensorType resultTensorType = mlir::cast<RankedTensorType>(toResultType);
     if (mlir::isa<ttnn::TTNNLayoutAttr>(resultTensorType.getEncoding())) {
-      return rewriter.create<ttir::TTNNToMetalLayoutCastOp>(fromValue.getLoc(), resultTensorType, fromValue);
+      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(fromValue.getLoc(), resultTensorType, fromValue);
     }
     auto output =
         rewriter.create<tt::ttir::EmptyOp>(fromValue.getLoc(), toResultType);

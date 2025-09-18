@@ -98,7 +98,7 @@ struct TTIRLowerTTNNLayouts
         }
         ttnn::TTNNLayoutAttr ttnnLayout = getTTNNLayout(tensor);
         RankedTensorType metalTensor = buildMetalTensor(tensor, ttnnLayout);
-        auto castOp = rewriter.create<ttir::TTNNToMetalLayoutCastOp>(
+        auto castOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
             func.getLoc(), metalTensor, arg);
         arg.replaceAllUsesExcept(castOp.getResult(), castOp.getOperation());
       }
