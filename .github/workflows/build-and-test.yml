@@ -209,9 +209,9 @@ jobs:
           # {runs-on: n150,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/device_agnostic"},
           # {runs-on: n150,         sh-run: false, name: "perf", suite: "explorer",       image: "tracy",  type: "pytest",          path: "tools/explorer/test/run_tests.py"},
           # {runs-on: n150,         sh-run: false, name: "run",  suite: "op_by_op",       image: "tracy",  type: "pytest",          path: "test/python/op_by_op"},
-          # {runs-on: n300,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/multi_device"},
+          {runs-on: n300,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/multi_device"},
           # {runs-on: n150,         sh-run: false, name: "run",  suite: "chisel",         image: "tracy",  type: "pytest",          path: "runtime/tools/chisel/test"},
-          {runs-on: n150,         sh-run: false,  name: "run",  suite: "run",            image: "tracy",  type: "pykernel"},
+          # {runs-on: n150,         sh-run: false,  name: "run",  suite: "run",            image: "tracy",  type: "pykernel"},
           # {runs-on: n300,         sh-run: false, name: "run",  suite: "runtime_debug",  image: "tracy",  type: "unit"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
@@ -447,26 +447,6 @@ jobs:
         echo "Running PyKernel tests..."
         cd ${{ steps.strings.outputs.build-output-dir }}/test/pykernel/demo
         pytest -v ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo/test.py
-    # PYTHONPATH=/__w/tt-mlir/tt-mlir/build/python_packages:/__w/tt-mlir/tt-mlir/.local/toolchain/python_packages/mlir_core:/__w/tt-mlir/tt-mlir/third_party/tt-metal/src/tt-metal/tt_eager:/__w/tt-mlir/tt-mlir/third_party/tt-metal/src/tt-metal/build/tools/profiler/bin:/__w/tt-mlir/tt-mlir/third_party/tt-metal/src/tt-metal/ttnn:/__w/tt-mlir/tt-mlir/third_party/tt-metal/src/tt-metal/ttnn:/__w/tt-mlir/tt-mlir/third_party/tt-metal/src/tt-metal
-    # # PyKernel Test Runner
-    # - name: Prepare and run PyKernel Test
-    #   if: matrix.build.type == 'pykernel'
-    #   shell: bash
-    #   run: |
-    #     source env/activate
-    #     export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-    #     export PYTHONPATH="$PWD/build/python_packages:$PYTHONPATH"
-    #     ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-    #     cd ${{ steps.strings.outputs.build-output-dir }}
-
-    #     # Install PyKernel dependencies (mimicking what CMake pykernel target does)
-    #     echo "Installing PyKernel dependencies..."
-    #     grep -vE '^(git\+|^-r|^#)' ${{ steps.strings.outputs.install-output-dir }}/tt-metal/tt_metal/python_env/requirements-dev.txt > pykernel_requirements.txt
-    #     PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install -r pykernel_requirements.txt
-    #     PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install graphviz
-
-    #     # Now run the test
-    #     pytest ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo/test.py -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
 
     # pytest runner
     - name: Run pytest ttrt tests
