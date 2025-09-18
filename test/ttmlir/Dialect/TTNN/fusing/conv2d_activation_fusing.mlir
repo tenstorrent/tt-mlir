@@ -7,7 +7,7 @@ module {
   func.func @conv2d_with_relu(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
     // CHECK: %[[CONV:.*]] = "ttnn.conv2d"
-    // CHECK-SAME: activation = "relu"
+    // CHECK-SAME: activation ={{.*}}relu
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -32,7 +32,7 @@ module {
   func.func @conv2d_with_relu6(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
     // CHECK: %[[CONV:.*]] = "ttnn.conv2d"
-    // CHECK-SAME: activation = "relu6"
+    // CHECK-SAME: activation ={{.*}}relu6
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -58,7 +58,7 @@ module {
   func.func @conv2d_with_silu(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
     // CHECK: %[[CONV:.*]] = "ttnn.conv2d"
-    // CHECK-SAME: activation = "silu"
+    // CHECK-SAME: activation ={{.*}}silu
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -83,7 +83,7 @@ module {
   func.func @conv2d_with_multiple_uses(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
     // CHECK: %{{.*}} = "ttnn.conv2d"
-    // CHECK-NOT: activation = <op_type = relu
+    // CHECK-NOT: activation ={{.*}}}relu
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
@@ -109,7 +109,7 @@ module {
   func.func @conv2d_with_sigmoid(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
     // CHECK: %{{.*}} = "ttnn.conv2d"
-    // CHECK-NOT: activation = <op_type = sigmoid
+    // CHECK-NOT: activation ={{.*}}sigmoid
     %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
             <{
               stride = 1: i32,
