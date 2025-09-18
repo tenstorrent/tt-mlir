@@ -922,7 +922,7 @@ struct DotGeneralToMatmulConversionPattern
                   ConversionPatternRewriter &rewriter) const override {
 
     // Check if the original op should be hoisted
-    bool shouldHoist = op->hasAttr("tt.hoist");
+    bool shouldHoist = op->hasAttr("ttir.should_hoist");
 
     Value lhs = adaptor.getLhs();
     auto lhsType = mlir::cast<RankedTensorType>(lhs.getType());
@@ -1004,7 +1004,7 @@ struct DotGeneralToMatmulConversionPattern
 
     // Propagate the hoist attribute to the matmul op.
     if (shouldHoist) {
-      matmulOp->setAttr("tt.hoist", rewriter.getUnitAttr());
+      matmulOp->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
     }
 
     // Reshape the result by unrolling the prod(lhsResultDims) to original
@@ -1033,7 +1033,7 @@ struct DotGeneralToMatmulConversionPattern
 
     // Propagate the hoist attribute to the final reshape op.
     if (shouldHoist) {
-      reshapeOutput->setAttr("tt.hoist", rewriter.getUnitAttr());
+      reshapeOutput->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
     }
 
     return success();
@@ -1097,7 +1097,7 @@ private:
 
     // propagate the hoist attribute if needed
     if (shouldHoist) {
-      permuteOp->setAttr("tt.hoist", rewriter.getUnitAttr());
+      permuteOp->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
     }
     return permuteOp;
   }
@@ -1138,7 +1138,7 @@ private:
         input, rewriter.getI32ArrayAttr(finalShapeI32));
     // propagate the hoist attribute if needed
     if (shouldHoist) {
-      reshapeOp->setAttr("tt.hoist", rewriter.getUnitAttr());
+      reshapeOp->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
     }
 
     return reshapeOp;
