@@ -11,8 +11,6 @@ apt-get update
 apt-get install -y \
     software-properties-common \
     build-essential \
-    python3.11-dev \
-    python3.11-venv \
     python3-pip \
     git \
     libhwloc-dev \
@@ -36,6 +34,11 @@ apt-get install -y \
     gh \
     lcov \
     unzip
+
+# Install Python 3.11
+RUN add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y python3.11 python3.11-dev python3.11-venv python3.11-distutils
 
 # Setup / install metal dependencies
 wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/{install_dependencies.sh,tt_metal/sfpi-version.sh}
