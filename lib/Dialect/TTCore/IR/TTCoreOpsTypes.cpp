@@ -617,7 +617,6 @@ mlir::AffineMap InterleavedLayoutAttr::getAffineMap() const {
   }
 
   auto map = mlir::AffineMap::get(getStride().size() * 2, 0, mapExprs, context);
-  llvm::dbgs() << "InterleavedLayoutAttr::getAffineMap: " << map << "\n";
   return map;
 }
 
@@ -1382,16 +1381,12 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
 mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
                                          std::optional<AffineMap> view,
                                          size_t baseOffset) const {
-  auto context = memrefType.getContext();
   MemorySpace memorySpace =
       mlir::cast<MemorySpaceAttr>(memrefType.getMemorySpace()).getValue();
   AffineMap affineMap = memrefType.getLayout().getAffineMap();
-  llvm::dbgs() << "shard layout affine map: " << affineMap << "\n";
   if (view) {
     affineMap = affineMap.compose(*view);
-    llvm::dbgs() << "    (optional) view affine map: " << *view << "\n";
   }
-  llvm::dbgs() << "\npost-view shard layout affine map: " << affineMap << "\n";
 
   if (mlir::isa<ShardLayoutAttr>(memrefType.getLayout())) {
 
@@ -1418,59 +1413,33 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     }
     }
   } else if (mlir::isa<ttcore::InterleavedLayoutAttr>(memrefType.getLayout())) {
+
+    assert(memorySpace == MemorySpace::DeviceDRAM &&
+           "interleavedLayoutAttr only supported for deviceDRAM memory space");
+
     auto interleavedLayout =
         mlir::cast<ttcore::InterleavedLayoutAttr>(memrefType.getLayout());
-    if (mlir::isa<ttcore::TileType>(memrefType.getElementType())) {
-      pageSize = getElementSizeBytes(memrefType.getElementType());
-    } else {
-      pageSize = interleavedLayout.getStride().front();
-      llvm::dbgs() << "\nrow-major interleaved pageSize: " << pageSize << "\n";
-    }
 
-    // check that the grid shape is 1x1x...x1
-    auto gridShape =
-        mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(interleavedLayout)
-            .getGridShape(memrefType);
-    assert(std::all_of(gridShape.begin(), gridShape.end(),
-                       [](int64_t dim) { return dim == 1; }) &&
+    // interleaved layout is either single tile or stride of outermost dim
+    int64_t elementSizeBytes = getElementSizeBytes(memrefType.getElementType());
+    pageSize = mlir::isa<ttcore::TileType>(memrefType.getElementType())
+                   ? elementSizeBytes
+                   : interleavedLayout.getStride().front();
+
+    // interleaved layout for DRAM is constrained to have unit grid dims,
+    // similar to TTNNLayoutAttr convention
+    assert(ttmlir::utils::volume(interleavedLayout.getGridShape(memrefType)) ==
+               1 &&
            "All dims in grid shape for DRAM interleaved memref must be 1 (i.e. "
            "1x1x...x1) ");
 
-    // zero all grid dims; these don't participate determining interleaved
-    // layout
-    SmallVector<mlir::AffineExpr> mapExprs(affineMap.getNumResults());
-    for (size_t i = 0; i < affineMap.getNumResults(); ++i) {
-      if (i < gridShape.size()) {
-        mapExprs[i] = getAffineConstantExpr(0, context);
-      } else {
-        mapExprs[i] = affineMap.getResult(i);
-      }
-    }
-    auto maskedAffineMap =
-        mlir::AffineMap::get(affineMap.getNumDims(), 0, mapExprs, context);
-
     SmallVector<int64_t> symbols(memrefType.getShape());
-    symbols.push_back(static_cast<int64_t>(pageSize)); // add page size symbol
-    symbols.push_back(
-        static_cast<int64_t>(baseOffset)); // add base address symbol
-    symbols.push_back(static_cast<int64_t>(getElementSizeBytes(
-        memrefType.getElementType()))); // add element size symbol
-    llvm::dbgs() << "interleaved dramMap symbols: [";
-    for (size_t i = 0; i < symbols.size(); ++i) {
-      llvm::dbgs() << symbols[i];
-      if (i + 1 < symbols.size()) {
-        llvm::dbgs() << ", ";
-      }
-    }
-    llvm::dbgs() << "]\n";
+    symbols.push_back(static_cast<int64_t>(pageSize));
+    symbols.push_back(static_cast<int64_t>(baseOffset));
+    symbols.push_back(elementSizeBytes);
 
-    auto finalAffineMap =
-        ttmlir::utils::replaceAffineMapSymbols(getDramMap(), symbols)
-            .compose(maskedAffineMap);
-    llvm::dbgs() << "device interleaved dramMap: " << getDramMap() << "\n\n";
-    llvm::dbgs() << "final interleaved dramMap:  " << finalAffineMap << "\n\n";
-    llvm::dbgs() << "----------------------------------------\n\n";
-    return finalAffineMap;
+    return ttmlir::utils::replaceAffineMapSymbols(getDramMap(), symbols)
+        .compose(affineMap);
   } else {
     assert(false && "Unsupported layout type on memref");
   }
