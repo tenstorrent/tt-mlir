@@ -92,6 +92,7 @@ createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
                         mlir::tt::ttcore::GridAttr deviceGrid);
 
 bool isTTNNTraceFunc(func::FuncOp funcOp);
+bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op);
 
 // Returns all TTNN dialect registered operations.
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context);
