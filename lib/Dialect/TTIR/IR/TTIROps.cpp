@@ -44,20 +44,6 @@
 
 namespace mlir::tt::ttir {
 
-//===----------------------------------------------------------------------===//
-// TTNNToMetalLayoutCastOp
-//===----------------------------------------------------------------------===//
-
-::mlir::LogicalResult mlir::tt::ttir::TTNNToMetalLayoutCastOp::verify() {
-
-  return mlir::success();
-}
-
-void mlir::tt::ttir::TTNNToMetalLayoutCastOp::getAsmResultNames(
-    function_ref<void(Value, StringRef)> setNameFn) {
-  setNameFn(getResult(), "cast");
-}
-
 // Convert TensorType + MetalLayout into a memref including a
 // Shard/View/HostAttr.
 MemRefType getBufferType(Type type, bool isView,
