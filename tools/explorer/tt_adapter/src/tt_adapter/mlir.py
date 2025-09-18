@@ -456,11 +456,9 @@ def parse_conv2d_config(attr):
             },
         )
     )
-    activation = (
-        str(conv2d_config.activation.op_type)
-        if conv2d_config.activation is not None
-        else OVERRIDE_PARAMETER_DISABLED_STR
-    )
+    activation = str(conv2d_config.activation)
+    if len(activation) == 0:
+        activation = OVERRIDE_PARAMETER_DISABLED_STR
     result.append(
         utils.make_editable_kv(
             graph_builder.KeyValue(
@@ -610,6 +608,18 @@ def parse_conv2d_config(attr):
             graph_builder.KeyValue(
                 key="enable_weights_double_buffer",
                 value=str(conv2d_config.enable_weights_double_buffer),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="enable_split_reader",
+                value=str(conv2d_config.enable_split_reader),
             ),
             editable={
                 "input_type": "value_list",

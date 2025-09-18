@@ -12,6 +12,7 @@
 
 #conv2d_config = #ttnn.conv2d_config<
   weights_dtype = bf16,
+  activation = "",
   deallocate_activation = false,
   reallocate_halo_output = true,
   act_block_h_override = 0,
@@ -24,6 +25,7 @@
   output_layout = tile,
   enable_act_double_buffer = false,
   enable_weights_double_buffer = false,
+  enable_split_reader = false,
   in_place = false
 >
 

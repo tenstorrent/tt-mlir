@@ -153,7 +153,7 @@ static std::string toString(SupportedTypes &v) {
       ::tt::runtime::utils::overloaded{
           [](uint8_t v) { return std::to_string(static_cast<int>(v)); },
           [](uint16_t v) { return std::to_string(static_cast<int>(v)); },
-          [](bfloat16 v) { return std::to_string(static_cast<float>(v)); },
+          [](bfloat16 v) { return std::to_string(v.to_float()); },
           [](auto &&v) { return std::to_string(v); },
       },
       v);
