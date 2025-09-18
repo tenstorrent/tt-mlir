@@ -4,7 +4,6 @@
 - **Environment**: `source env/activate` (activate virtual environment first)
 - **Configure**: `cmake -G Ninja -B build -DCMAKE_CXX_COMPILER_LAUNCHER=ccache`
 - **Build**: `cmake --build build`
-- **Build ttrt**: `cmake --build build --target ttrt`
 - **Lint**: `pre-commit run --all-files` (includes clang-format, black, copyright checks)
 - **Compiler tests**: `cmake --build build --target check-ttmlir`
 - **Single MLIR test**: `llvm-lit test/ttmlir/path/to/test.mlir`

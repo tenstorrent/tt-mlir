@@ -5,7 +5,7 @@ try:
     import ttrt
 except (ImportError, ModuleNotFoundError):
     raise ImportError(
-        "Error: runtime python tests require ttrt to built and installed. Please run `cmake --build build -- ttrt`"
+        "Error: runtime python tests require ttrt to built and installed. Please run `cmake --build build`"
     )
 import ttrt.runtime
 from ttrt.common.api import API
