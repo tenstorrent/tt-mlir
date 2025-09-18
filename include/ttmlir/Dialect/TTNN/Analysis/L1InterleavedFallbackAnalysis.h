@@ -14,7 +14,7 @@
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.h"
 #include "llvm/ADT/DenseMap.h"
 
-#include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -102,7 +102,7 @@ private:
   // - This allows checking if the consumer can handle the upgraded layout
   //   before committing to the upgrade.
   // Returns: {upgraded layout, runtime improvement (0 if error)}
-  llvm::Expected<std::tuple<TTNNLayoutAttr, size_t>>
+  llvm::Expected<std::tuple<TTNNLayoutAttr, int64_t>>
   checkUpgradeToL1Interleaved(
       Operation *consumerOp, const OpConfig &consumerConfig,
       const Operation *upgradedProducerOp,

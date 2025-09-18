@@ -17,7 +17,7 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -205,7 +205,7 @@ void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "=== Start of debug dump for op {} ===",
                  op->getName().getStringRef().data());
-    llvm::Expected<std::tuple<TTNNLayoutAttr, size_t>> checkUpgradeResult =
+    llvm::Expected<std::tuple<TTNNLayoutAttr, int64_t>> checkUpgradeResult =
         checkUpgradeToL1Interleaved(op, opL1InterleavedConfig,
                                     /*upgradedProducerOp=*/nullptr,
                                     /*upgradedProducerLayout=*/nullptr);
@@ -231,7 +231,7 @@ void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {
   }
 }
 
-llvm::Expected<std::tuple<TTNNLayoutAttr, size_t>>
+llvm::Expected<std::tuple<TTNNLayoutAttr, int64_t>>
 L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     Operation *consumerOp, const OpConfig &consumerConfig,
     const Operation *upgradedProducerOp,
@@ -363,7 +363,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     auto [hasErrors, beforeRuntime, afterRuntime] = checkOpRuntimesInputChange(
         backend, inputLayouts, consumerConfig, changedInputLayoutIndex,
         oldChangedInputLayout);
-    size_t consumerRuntimeGain = 0;
+    int64_t consumerRuntimeGain = 0;
     if (hasErrors) {
       TTMLIR_DEBUG(
           ttmlir::LogComponent::Optimizer,
@@ -375,7 +375,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
     return std::make_tuple(outputLayout, consumerRuntimeGain);
   }
 
-  size_t nextConsumerRuntimeGain = 0;
+  int64_t nextConsumerRuntimeGain = 0;
   assert(consumerOp->hasOneUse() && "Consumer must have exactly one user");
   Operation *nextConsumerOp = *consumerOp->getUsers().begin();
   assert(nextConsumerOp && "Operation must have a consumer");
@@ -423,7 +423,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       analysisInput.currentConfigs.at(consumerOp);
   auto [hasErrors, beforeRuntime, afterRuntime] = checkOpRuntimesOutputChange(
       backend, inputLayouts, consumerConfig, oldConsumerOpConfig);
-  size_t totalRuntimeGain = nextConsumerRuntimeGain;
+  int64_t totalRuntimeGain = nextConsumerRuntimeGain;
   if (hasErrors) {
     TTMLIR_DEBUG(
         ttmlir::LogComponent::Optimizer,
