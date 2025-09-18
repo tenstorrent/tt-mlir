@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTIR/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -114,11 +115,14 @@ struct ConvertTTIRToTTKernel
     ttir::AssociatedDMAWaits associatedDMAWaits =
         getAnalysis<ttir::AssociatedDMAWaits>();
 
+    ttir::CBProducerConsumer cbProducerConsumer =
+        getAnalysis<ttir::CBProducerConsumer>();
+
     RewritePatternSet patterns(&getContext());
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateTTIRToTTKernelPatterns(&getContext(), patterns, typeConverter,
-                                   associatedDMAWaits);
+                                   associatedDMAWaits, cbProducerConsumer);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 

@@ -1460,6 +1460,35 @@ def TTKernel_SigmoidTileOp : TTKernel_SFPUOp<"sigmoid_tile", [TTKernel_UnaryOpTr
     }];
 }
 
+def TTKernel_GeluTileInitOp : TTKernel_InitOp<"gelu_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of gelu_tile.";
+    let description = [{
+      Must be run before gelu_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GeluTileOp : TTKernel_SFPUOp<"gelu_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "GELU operation";
+    let description = [{
+      Performs element-wise computation of GELU on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_InvokeSFPIOp : TTKernel_SFPUOp<"invoke_sfpi", [NoTerminator]> {
     let summary = "";
     let description = [{}];

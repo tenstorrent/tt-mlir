@@ -125,9 +125,10 @@ struct ModuleAnalysisData {
 //===----------------------------------------------------------------------===//
 namespace {
 class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
-  using Base = OpRewritePattern<ttir::GenericOp>;
-
-  using Base::Base;
+public:
+  TTIRAllocateStreams(MLIRContext *context, unsigned numStreamBuffers)
+      : OpRewritePattern<ttir::GenericOp>(context),
+        numStreamBuffers(numStreamBuffers) {}
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
@@ -202,15 +203,16 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
     return operandNeedsDataMovement;
   }
 
-  static void insertStream(PatternRewriter &rewriter, OpOperand &operand,
-                           ttir::GenericOp op) {
+  void insertStream(PatternRewriter &rewriter, OpOperand &operand,
+                    ttir::GenericOp op) const {
     auto memref = mlir::cast<MemRefType>(operand.get().getType());
     auto streamAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
         rewriter.getMultiDimIdentityMap(memref.getRank()));
     auto streamMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), streamAttr,
                         memref.getMemorySpace());
-    auto storageAttr = ttcore::ShardLayoutAttr::get(memref, /*buffers=*/1);
+    auto storageAttr =
+        ttcore::ShardLayoutAttr::get(memref, /*buffers=*/numStreamBuffers);
     auto storageMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), storageAttr,
                         memref.getMemorySpace());
@@ -220,6 +222,8 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
     rewriter.modifyOpInPlace(
         op, [&]() { operand.assign(streamLayout.getResult()); });
   }
+
+  unsigned numStreamBuffers;
 };
 } // namespace
 
@@ -255,7 +259,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   // Create/allocate streams within a module.
   LogicalResult runAllocateStreams(ModuleOp moduleOp) {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRAllocateStreams>(&getContext());
+    patterns.add<TTIRAllocateStreams>(&getContext(), numStreamBuffers);
     return mlir::applyPatternsGreedily(getOperation(), std::move(patterns));
   }
 
@@ -373,7 +377,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
         const AllocSizeT alignment =
             memSpaces[llvm::to_underlying(memorySpace)].alignment;
-        const AllocSizeT sizeBytes = device.getMemrefSizeBytes(memrefTy);
+        const AllocSizeT sizeBytes =
+            device.getMemrefSizeBytes(memrefTy, 0, true);
         const AllocSizeT alignedSize =
             ttmlir::utils::alignUp(sizeBytes, alignment);
 

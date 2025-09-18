@@ -294,6 +294,41 @@ getRawDataFromElementsAttr(mlir::ElementsAttr attr) {
   return result;
 }
 
+// Template specialization for bfloat16 - MLIR doesn't have built-in support
+// for bfloat16 in DenseElementsAttr::getValues<T>(), so we extract as uint16_t
+// and convert to bfloat16
+template <>
+llvm::Expected<std::vector<bfloat16>>
+getRawDataFromElementsAttr<bfloat16>(mlir::ElementsAttr attr) {
+  std::vector<bfloat16> result;
+  if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(attr)) {
+    if (!denseAttr.getType().getElementType().isBF16()) {
+      return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                     "Element type mismatch - expected BF16");
+    }
+    // Extract raw bytes as uint16_t and convert to bfloat16
+    for (auto value : denseAttr.getValues<llvm::APFloat>()) {
+      uint16_t rawBits =
+          static_cast<uint16_t>(value.bitcastToAPInt().getZExtValue());
+      result.emplace_back(rawBits);
+    }
+  } else if (auto splatAttr = llvm::dyn_cast<mlir::SplatElementsAttr>(attr)) {
+    if (!splatAttr.getType().getElementType().isBF16()) {
+      return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                     "Element type mismatch - expected BF16");
+    }
+    auto splatValue = splatAttr.getSplatValue<llvm::APFloat>();
+    uint16_t rawBits =
+        static_cast<uint16_t>(splatValue.bitcastToAPInt().getZExtValue());
+    auto numElements = splatAttr.getType().getNumElements();
+    result.resize(numElements, bfloat16(rawBits));
+  } else {
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "Unsupported ElementsAttr type");
+  }
+  return result;
+}
+
 template <typename OpTy>
 auto getOpSymbol() {
   if constexpr (std::is_same_v<OpTy, ReluOp>) {
@@ -4924,12 +4959,14 @@ auto dispatchGetRawData(mlir::ElementsAttr value, Func &&func)
     -> decltype(func(std::declval<std::vector<int32_t>>())) {
   // from_span<T> has template instantiations for the following types:
   // int32_t, uint8_t, uint16_t, uint32_t, bfloat16.
-  // The last one is not supported in tt-mlir, so we support the first four:
+  // We support all of these types:
   ::mlir::Type elType = getElementType(value);
   DISPATCH_TYPE(isInteger(32), int32_t)
   DISPATCH_TYPE(isUnsignedInteger(8), uint8_t)
   DISPATCH_TYPE(isUnsignedInteger(16), uint16_t)
   DISPATCH_TYPE(isUnsignedInteger(32), uint32_t)
+  DISPATCH_TYPE(isF32(), float)
+  DISPATCH_TYPE(isBF16(), bfloat16)
 
   return llvm::createStringError(std::errc::invalid_argument,
                                  "Unsupported element type for ConstantOp");

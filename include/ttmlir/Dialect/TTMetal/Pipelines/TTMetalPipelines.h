@@ -94,6 +94,13 @@ struct TTIRToTTMetalPipelineOptions
       *this, "insert-profiler-traces",
       llvm::cl::desc("Insert DeviceZone scopes around selected TTKernel ops"),
       llvm::cl::init(false)};
+
+  // Number of backing buffers to allocate per stream storage.
+  Option<unsigned> numStreamBuffers{
+      *this, "num-stream-buffers",
+      llvm::cl::desc("Number of backing buffers to allocate per stream storage "
+                     "(>=1). Default is 2."),
+      llvm::cl::init(2)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm);
