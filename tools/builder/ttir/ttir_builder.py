@@ -798,7 +798,7 @@ class TTIRBuilder(Builder):
             Tensor with ReLU activation values
         """
         return self._op_proxy(ttir.ReluOp, [in0], unit_attrs)
-    
+
     def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
         Creates ``ttir.relu6``.
