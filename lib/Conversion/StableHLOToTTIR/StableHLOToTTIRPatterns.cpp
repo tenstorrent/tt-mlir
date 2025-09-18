@@ -3080,16 +3080,23 @@ public:
       }
     }
 
+    BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
+
     auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
-    float scale = 1.0;
+    std::optional<float> scale = std::nullopt;
     if (scaleStringAttr) {
-      if (!llvm::to_float(scaleStringAttr.getValue(), scale)) {
+      float _scale;
+      if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
         return rewriter.notifyMatchFailure(
             srcOp,
             "scale attribute string must be convertible to float. Recived \"" +
                 scaleStringAttr.getValue() + "\".");
       }
+      scale = _scale;
     }
+
+    FloatAttr scaleAttr =
+        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
 
     auto hasAttentionMaskStringAttr =
         frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
@@ -3147,8 +3154,7 @@ public:
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, curPosTensor, adaptor.getOperands()[4],
-          adaptor.getOperands()[5], outputTensor,
-          rewriter.getBoolAttr(isCausal), rewriter.getF32FloatAttr(scale));
+          adaptor.getOperands()[5], outputTensor, isCausalAttr, scaleAttr);
     } else if (hasAttentionMask) {
       rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
@@ -3156,8 +3162,7 @@ public:
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, curPosTensor, adaptor.getOperands()[4], nullptr,
-          outputTensor, rewriter.getBoolAttr(isCausal),
-          rewriter.getF32FloatAttr(scale));
+          outputTensor, isCausalAttr, scaleAttr);
     } else if (hasAttentionSink) {
       rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
@@ -3165,8 +3170,7 @@ public:
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, curPosTensor, nullptr, adaptor.getOperands()[4],
-          outputTensor, rewriter.getBoolAttr(isCausal),
-          rewriter.getF32FloatAttr(scale));
+          outputTensor, isCausalAttr, scaleAttr);
     } else {
       if (hasAttentionMask || hasAttentionSink) {
         llvm_unreachable("All combinations of attention mask "
