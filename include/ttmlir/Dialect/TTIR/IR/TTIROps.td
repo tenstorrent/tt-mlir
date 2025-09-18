@@ -5571,10 +5571,10 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
   let arguments = (ins AnyRankedTensor:$query,
                        AnyRankedTensor:$key,
                        AnyRankedTensor:$value,
-                       AnyRankedTensor:$output,
                        Optional<AnyRankedTensor>:$attention_mask,
                        Optional<AnyRankedTensor>:$cur_pos_tensor,
                        Optional<AnyRankedTensor>:$attention_sink,
+                       AnyRankedTensor:$output,
                        DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                        DefaultValuedAttr<F32Attr, "1.0">:$scale);
 
