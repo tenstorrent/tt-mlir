@@ -911,6 +911,7 @@ void populateTTIRToTTIRGenericPatterns(
     const llvm::SmallVector<int64_t> &targetGridShape) {
   // clang-format off
   patterns.add<
+
     // Elementwise.
     TTIRNamedElementwiseRewriter<ttir::AbsOp,          ttir::TileAbsOp>,
     TTIRNamedElementwiseRewriter<ttir::AddOp,          ttir::TileAddOp>,
@@ -919,6 +920,7 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::DivOp,          ttir::TileDivOp>,
     TTIRNamedElementwiseRewriter<ttir::ExpOp,          ttir::TileExpOp>,
     TTIRNamedElementwiseRewriter<ttir::FloorOp,        ttir::TileFloorOp>,
+    TTIRNamedElementwiseRewriter<ttir::GeluOp,         ttir::TileGeluOp>,
     TTIRNamedElementwiseRewriter<ttir::LogOp,          ttir::TileLogOp>,
     TTIRNamedElementwiseRewriter<ttir::LogicalNotOp,   ttir::TileLogicalNotOp>,
     TTIRNamedElementwiseRewriter<ttir::MultiplyOp,     ttir::TileMulOp>,
