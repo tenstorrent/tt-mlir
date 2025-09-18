@@ -127,10 +127,10 @@ protected:
 
     auto resultType =
         mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
-    resultType.dump();
+    // resultType.dump();
     auto castOp = rewriter.create<ttir::TTNNToMetalLayoutCastOp>(
         value.getLoc(), resultType, value);
-    castOp.dump();
+    // castOp.dump();
     return castOp.getResult();
   }
 
@@ -141,7 +141,8 @@ protected:
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
     if (tensorType.getEncoding() &&
         mlir::isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding())) {
-      return createTTNNTensorLayoutOp(value, rewriter);
+      auto a = createTTNNTensorLayoutOp(value, rewriter);
+      return a;
     }
 
     ArrayRef<int64_t> logicalShape = tensorType.getShape();
@@ -203,6 +204,10 @@ protected:
 
   static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
                                    Value fromValue, Type toResultType) {
+    RankedTensorType resultTensorType = mlir::cast<RankedTensorType>(toResultType);
+    if (mlir::isa<ttnn::TTNNLayoutAttr>(resultTensorType.getEncoding())) {
+      return rewriter.create<ttir::TTNNToMetalLayoutCastOp>(fromValue.getLoc(), resultTensorType, fromValue);
+    }
     auto output =
         rewriter.create<tt::ttir::EmptyOp>(fromValue.getLoc(), toResultType);
     return rewriter.create<tt::ttir::ToLayoutOp>(fromValue.getLoc(), fromValue,
@@ -340,7 +345,17 @@ private:
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
-
+   // dump all IR here
+    // std::cout<<"inputs: "<<std::endl;
+    // for(auto input : inputs) {
+    //   input.dump();
+    // }
+    // std::cout<<"outputs: "<<std::endl;
+    // for(auto output : outputs) {
+    //   output.dump();
+    // }
+    // std::cout<<"full IR: "<<std::endl;
+    // op->template getParentOfType<mlir::ModuleOp>().dump();
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
@@ -360,7 +375,8 @@ private:
     auto generic = rewriter.create<ttir::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
-
+    std::cout << "generic: " << std::endl;
+    // generic.dump();
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic);
@@ -415,9 +431,13 @@ private:
     }
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
-
+    std::cout << "generic: " << std::endl;
+    // generic.dump();
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
+    // rewriter.replaceOp(op, generic->getResults());
+    // generic->template getParentOfType<mlir::ModuleOp>().dump();
+    std::cout<<"replaced op"<<std::endl;
     return llvm::success();
   }
 
