@@ -49,28 +49,6 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttir::TTNNToMetalLayoutCastOp::verify() {
-  auto inputType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
-  auto resultType = mlir::cast<mlir::RankedTensorType>(getResult().getType());
-
-  // Require TTNN encoding on input and Metal encoding on result.
-  auto inputEncoding = inputType.getEncoding();
-  auto resultEncoding = resultType.getEncoding();
-  if (!inputEncoding ||
-      !mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(inputEncoding)) {
-    return emitOpError("input must have ttnn.ttnn_layout encoding");
-  }
-  if (!resultEncoding ||
-      !mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(resultEncoding)) {
-    return emitOpError("result must have ttcore.metal_layout encoding");
-  }
-
-  // Purely representational: element type and shape must match.
-  if (inputType.getElementType() != resultType.getElementType()) {
-    return emitOpError("input and result element types must match");
-  }
-  if (inputType.getShape() != resultType.getShape()) {
-    return emitOpError("input and result shapes must match");
-  }
 
   return mlir::success();
 }
