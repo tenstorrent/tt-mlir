@@ -415,17 +415,56 @@ jobs:
         python -m pip install -e runtime/tools/chisel/
 
     # PyKernel Test Runner
-    - name: Prepare and run PyKernel Test
+    - name: PyKernel test runner
       if: matrix.build.type == 'pykernel'
       shell: bash
       run: |
-        source env/activate
+        echo "Setting up Python environment for PyKernel tests..."
+
+        # Set up PYTHONPATH to include the built packages
+        export PYTHONPATH="$PWD/build/python_packages:$PYTHONPATH"
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        # Add the built Python packages to Python path - include both ttmlir package and dialects directly
-        export PYTHONPATH="${{ steps.strings.outputs.build-output-dir }}/python_packages:${{ steps.strings.outputs.build-output-dir }}/python_packages/ttmlir/dialects:${PYTHONPATH}"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        cd ${{ steps.strings.outputs.build-output-dir }}
-        pytest ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo/test.py -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
+        echo "PYTHONPATH: $PYTHONPATH"
+
+        # Filter and install requirements from tt-metal (same as CMake does)
+        echo "Installing filtered requirements..."
+        grep -vE '^(git\+|^-r|^#)' ${{ steps.strings.outputs.install-output-dir }}/tt-metal/tt_metal/python_env/requirements-dev.txt > filtered_requirements.txt
+        echo "Filtered requirements:"
+        cat filtered_requirements.txt
+        PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install -r filtered_requirements.txt
+
+        # Install extra packages
+        echo "Installing extra packages..."
+        PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install graphviz
+
+        # Check if ttnn is available
+        echo "Checking for ttnn availability..."
+        python3 -c "import ttnn; print('ttnn successfully imported')" || echo "ttnn import failed"
+
+        echo "Running PyKernel tests..."
+        cd test/pykernel/demo
+        python3 -m pytest test.py -v
+
+    # # PyKernel Test Runner
+    # - name: Prepare and run PyKernel Test
+    #   if: matrix.build.type == 'pykernel'
+    #   shell: bash
+    #   run: |
+    #     source env/activate
+    #     export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+    #     export PYTHONPATH="$PWD/build/python_packages:$PYTHONPATH"
+    #     ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+    #     cd ${{ steps.strings.outputs.build-output-dir }}
+
+    #     # Install PyKernel dependencies (mimicking what CMake pykernel target does)
+    #     echo "Installing PyKernel dependencies..."
+    #     grep -vE '^(git\+|^-r|^#)' ${{ steps.strings.outputs.install-output-dir }}/tt-metal/tt_metal/python_env/requirements-dev.txt > pykernel_requirements.txt
+    #     PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install -r pykernel_requirements.txt
+    #     PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install graphviz
+
+    #     # Now run the test
+    #     pytest ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo/test.py -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
 
     # pytest runner
     - name: Run pytest ttrt tests
