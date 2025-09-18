@@ -100,18 +100,18 @@ protected:
     auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
     DenseIntElementsAttr collapsedIntervals =
         DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
-    
+
     // The index map in TTNNLayoutAttr is for collapsing an N-D tensor on to
     // the grid. It has no relevance to the index map in MetalLayoutAttr.
     // Hardcode collapse intervals to [[0, -1]].
-    // MetalLayoutAttr takes the grid shape of the device, not the grid on which the tensor is sharded
+    // MetalLayoutAttr takes the grid shape of the device, not the grid on which
+    // the tensor is sharded
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), targetSquareGridShape,
         ttcore::OOBVal::Undef, memSpace, collapsedIntervals);
-        // Get raw, unsharded physical shape.
-        llvm::SmallVector<int64_t>
-            unshardedShape = metalLayout.getPhysicalShape(
-                ttcore::TileType::getDefaultShape());
+    // Get raw, unsharded physical shape.
+    llvm::SmallVector<int64_t> unshardedShape =
+        metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
 
     std::cout << "unshardedShape: " << unshardedShape[0] << " "
               << unshardedShape[1] << std::endl;
@@ -204,9 +204,11 @@ protected:
 
   static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
                                    Value fromValue, Type toResultType) {
-    RankedTensorType resultTensorType = mlir::cast<RankedTensorType>(toResultType);
+    RankedTensorType resultTensorType =
+        mlir::cast<RankedTensorType>(toResultType);
     if (mlir::isa<ttnn::TTNNLayoutAttr>(resultTensorType.getEncoding())) {
-      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(fromValue.getLoc(), resultTensorType, fromValue);
+      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+          fromValue.getLoc(), resultTensorType, fromValue);
     }
     auto output =
         rewriter.create<tt::ttir::EmptyOp>(fromValue.getLoc(), toResultType);
@@ -345,7 +347,7 @@ private:
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
-   // dump all IR here
+    // dump all IR here
     // std::cout<<"inputs: "<<std::endl;
     // for(auto input : inputs) {
     //   input.dump();
@@ -437,7 +439,7 @@ private:
                                           op->getResult(0).getType()));
     // rewriter.replaceOp(op, generic->getResults());
     // generic->template getParentOfType<mlir::ModuleOp>().dump();
-    std::cout<<"replaced op"<<std::endl;
+    std::cout << "replaced op" << std::endl;
     return llvm::success();
   }
 

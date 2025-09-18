@@ -32,7 +32,7 @@ func.func @test_lower_block_sharded_l1(
   // CHECK-SAME: : tensor<32x32xf32, #ttnn_layout> -> tensor<32x32xf32, #layout>
 
   // And the ttir.abs should consume that cast value for both operands with metal_layout-typed tensors.
-  // CHECK: "ttir.abs"(%[[CAST]], %[[CAST]]) 
+  // CHECK: "ttir.abs"(%[[CAST]], %[[CAST]])
   // CHECK-SAME: : (tensor<32x32xf32, #layout>, tensor<32x32xf32, #layout>) -> ()
   %0 = ttir.empty() : tensor<32x32xf32, #ttnn_layout1>
   %1 = "ttir.abs"(%arg0, %0)  : (tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>) -> (tensor<32x32xf32, #ttnn_layout1>)
@@ -49,7 +49,7 @@ func.func @test_lower_block_sharded_l1_2(
   // CHECK-SAME: : tensor<256x256xf32, #ttnn_layout1> -> tensor<256x256xf32, #layout1>
 
   // And the ttir.abs should consume that cast value for both operands with metal_layout-typed tensors.
-  // CHECK: "ttir.abs"(%[[CAST]], %[[CAST]]) 
+  // CHECK: "ttir.abs"(%[[CAST]], %[[CAST]])
   // CHECK-SAME: : (tensor<256x256xf32, #layout1>, tensor<256x256xf32, #layout1>) -> ()
   %0 = ttir.empty() : tensor<256x256xf32, #ttnn_layout2>
   %1 = "ttir.abs"(%arg0, %0)  : (tensor<256x256xf32, #ttnn_layout2>, tensor<256x256xf32, #ttnn_layout2>) -> (tensor<256x256xf32, #ttnn_layout2>)
@@ -68,7 +68,7 @@ func.func @test_lower_block_sharded_l1_3(
   // CHECK-SAME: : tensor<256x256xf32, #ttnn_layout2> -> tensor<256x256xf32, #layout2>
 
   // And the ttir.abs should consume that cast value for both operands with metal_layout-typed tensors.
-  // CHECK: "ttir.abs"(%[[CAST]], %[[CAST]]) 
+  // CHECK: "ttir.abs"(%[[CAST]], %[[CAST]])
   // CHECK-SAME: : (tensor<256x256xf32, #layout2>, tensor<256x256xf32, #layout2>) -> ()
   %0 = ttir.empty() : tensor<256x256xf32, #ttnn_layout3>
   %1 = "ttir.abs"(%arg0, %0)  : (tensor<256x256xf32, #ttnn_layout3>, tensor<256x256xf32, #ttnn_layout3>) -> (tensor<256x256xf32, #ttnn_layout3>)
@@ -85,7 +85,7 @@ func.func @test_lower_block_sharded_l1_4(
   // CHECK-SAME: : tensor<256x256xf32, #ttnn_layout3> -> tensor<256x256xf32, #layout3>
 
   // And the ttir.abs should consume that cast value for both operands with metal_layout-typed tensors.
-  // CHECK: "ttir.abs"(%[[CAST]], %[[CAST]]) 
+  // CHECK: "ttir.abs"(%[[CAST]], %[[CAST]])
   // CHECK-SAME: : (tensor<256x256xf32, #layout3>, tensor<256x256xf32, #layout3>) -> ()
 
   %0 = ttir.empty() : tensor<256x256xf32, #ttnn_layout4>
@@ -103,7 +103,7 @@ func.func @test_lower_block_sharded_l1_5(
   // CHECK-SAME: : tensor<256x256xf32, #ttnn_layout4> -> tensor<256x256xf32, #layout4>
 
   // And the ttir.abs should consume that cast value for both operands with metal_layout-typed tensors.
-  // CHECK: "ttir.abs"(%[[CAST]], %[[CAST]]) 
+  // CHECK: "ttir.abs"(%[[CAST]], %[[CAST]])
   // CHECK-SAME: : (tensor<256x256xf32, #layout4>, tensor<256x256xf32, #layout4>) -> ()
 
   %0 = ttir.empty() : tensor<256x256xf32, #ttnn_layout5>
