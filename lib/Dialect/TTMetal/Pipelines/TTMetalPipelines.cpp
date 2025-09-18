@@ -42,7 +42,7 @@ std::unique_ptr<Pass> createCanonicalizerPassWithOptions(
 void createTTIRBufferizationPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   bufferization::OneShotBufferizePassOptions bufferizePassOptions;
-  if (options.lowerToTTNNGeneric) {
+  if (options.ttnnMode) {
     bufferizePassOptions.allowUnknownOps = true;
     bufferizePassOptions.bufferizeFunctionBoundaries = false;
   } else {
