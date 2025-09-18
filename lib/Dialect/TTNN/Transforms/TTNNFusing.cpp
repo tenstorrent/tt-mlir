@@ -74,8 +74,10 @@ private:
       return rewriter.getStringAttr("relu6");
     } else if constexpr (std::is_same_v<ActivationOp, SiluOp>) {
       return rewriter.getStringAttr("silu");
+    } else {
+      static_assert(ttmlir::utils::always_false<ActivationOp>(),
+                    "Unsupported activation op");
     }
-    llvm_unreachable("Unsupported activation type");
   }
 
   bool isFusable(Conv2dOp srcOp) const {
