@@ -2410,9 +2410,9 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Memory
 }
 
 def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor"> {
-  let summary = "Saves a tensor to disk in the TT-NN binary format";
+  let summary = "Saves a tensor to disk in the TTNN binary format";
   let description = [{
-    Saves a tensor to disk in the TT-NN binary format. Files must use the `.tensorbin` extension.
+    Saves a tensor to disk in the TTNN binary format. Files must use the `.tensorbin` extension.
 
     Inputs:
       - `file_path` StrAttr: Path of the file where tensor should be dumped. Must end with `.tensorbin` extension.
@@ -2432,9 +2432,9 @@ def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
 
     Inputs:
       - `file_path` StrAttr: Path of the file of the serialized tensor. Must end with `.tensorbin` extension.
-      - `device` Optional<TTNN_Device>: Device where tensor should be desirialized. It has to be provided iff the serialized tensor is a deivce tensor.
+      - `device` Optional<TTNN_Device>: Device where tensor should be deserialized. It has to be provided iff the serialized tensor is a device tensor.
     Outputs:
-      - `result` AnyRankedTensor: Desirialized tensor from the `file_path`.
+      - `result` AnyRankedTensor: Deserialized tensor from the `file_path`.
   }];
 
   let arguments = (ins StrAttr:$file_path,
