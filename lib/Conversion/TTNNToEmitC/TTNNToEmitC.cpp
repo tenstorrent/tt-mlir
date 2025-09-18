@@ -2431,15 +2431,21 @@ public:
         mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>
         emitter(srcOp, adaptor, rewriter);
 
+    std::optional<float> scale =
+        srcOp.getScale()
+            ? std::make_optional(srcOp.getScale().value().convertToFloat())
+            : std::nullopt;
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
         emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getIsCausal()),
         emitter.emit(srcOp.getAttentionMask()),
+        // TODO(LPanosTT): We must pass an empty vector in this location in
+        // actual C code to this op. emitter.emit(std::vector<uint32_t>()),
         emitter.emit(srcOp.getCurPosTensor()),
         emitter.emit(srcOp.getAttentionSink()),
-        emitter.emit(srcOp.getIsCausal()),
-        emitter.emit(srcOp.getScale()),
+        emitter.emit(scale),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 

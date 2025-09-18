@@ -36,7 +36,7 @@ static void runScaledDotProductAttentionDecodeOp(
           ? std::make_optional(
                 tensorPool.getTTNNTensorAndValidate(op->attention_sink()))
           : std::nullopt;
-  float scale = op->scale();
+  std::optional<float> scale = op->scale();
 
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a

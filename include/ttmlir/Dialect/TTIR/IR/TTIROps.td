@@ -5576,7 +5576,7 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
                        Optional<AnyRankedTensor>:$attention_sink,
                        AnyRankedTensor:$output,
                        DefaultValuedAttr<BoolAttr, "true">:$is_causal,
-                       DefaultValuedAttr<F32Attr, "1.0">:$scale);
+                       OptionalAttr<F32Attr>:$scale);
 
   let results = (outs AnyRankedTensor:$result);
 

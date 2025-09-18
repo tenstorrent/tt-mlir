@@ -5505,6 +5505,10 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
   RankedTensorType curPosTensorType = getCurPosTensor().getType();
   RankedTensorType resultType = getResult().getType();
 
+  if (queryType != resultType) {
+    return emitOpError("Query and result must have the same type");
+  }
+
   if (!curPosTensorType.getElementType().isInteger()) {
     return emitOpError("Cur pos tensor must be a tensor of integers");
   }

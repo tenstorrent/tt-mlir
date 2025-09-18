@@ -29,7 +29,7 @@ table ScaledDotProductAttentionDecodeOp {
   is_causal: bool;
   attention_mask: tt.target.ttnn.TensorRef;
   attention_sink: tt.target.ttnn.TensorRef;
-  scale: float;
+  scale: float = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
 }
