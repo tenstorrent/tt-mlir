@@ -21,7 +21,8 @@ namespace mlir::tt::ttnn {
 /// overrides.
 struct Conv2dConfigParams {
   std::optional<ttcore::DataType> weightsDtype = std::nullopt;
-  std::optional<std::string> activation = std::nullopt;
+  std::optional<UnaryOpType> activation = std::nullopt;
+  std::optional<std::vector<FloatAttr>> activationParams = std::nullopt;
   std::optional<bool> deallocateActivation = std::nullopt;
   std::optional<bool> reallocateHaloOutput = std::nullopt;
   std::optional<uint32_t> actBlockHOverride = std::nullopt;
@@ -34,7 +35,6 @@ struct Conv2dConfigParams {
   std::optional<Layout> outputLayout = std::nullopt;
   std::optional<bool> enableActDoubleBuffer = std::nullopt;
   std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
-  std::optional<bool> enableSplitReader = std::nullopt;
   std::optional<bool> inPlace = std::nullopt;
 
   // Default constructor - all fields nullopt
@@ -72,7 +72,6 @@ struct Conv2dConfigParams {
   bool hasEnableWeightsDoubleBuffer() const {
     return enableWeightsDoubleBuffer.has_value();
   }
-  bool hasEnableSplitReader() const { return enableSplitReader.has_value(); }
   bool hasInPlace() const { return inPlace.has_value(); }
 
   /// Check if all fields are unset (empty configuration)
@@ -83,8 +82,7 @@ struct Conv2dConfigParams {
            !hasReshardIfNotOptimal() && !hasOverrideShardingConfig() &&
            !hasShardLayout() && !hasCoreGrid() && !hasTransposeShards() &&
            !hasOutputLayout() && !hasEnableActDoubleBuffer() &&
-           !hasEnableWeightsDoubleBuffer() && !hasEnableSplitReader() &&
-           !hasInPlace();
+           !hasEnableWeightsDoubleBuffer() && !hasInPlace();
   }
 
   /// Check if all fields are set (complete configuration)
@@ -95,7 +93,7 @@ struct Conv2dConfigParams {
            hasOverrideShardingConfig() && hasShardLayout() && hasCoreGrid() &&
            hasTransposeShards() && hasOutputLayout() &&
            hasEnableActDoubleBuffer() && hasEnableWeightsDoubleBuffer() &&
-           hasEnableSplitReader() && hasInPlace();
+           hasInPlace();
   }
 
   friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
@@ -112,7 +110,6 @@ struct Conv2dConfigParams {
        << ":output_layout#" << params.outputLayout
        << ":enable_act_double_buffer#" << params.enableActDoubleBuffer
        << ":enable_weights_double_buffer#" << params.enableWeightsDoubleBuffer
-       << ":enable_split_reader#" << params.enableSplitReader << ":in_place#"
        << params.inPlace;
     return os;
   }

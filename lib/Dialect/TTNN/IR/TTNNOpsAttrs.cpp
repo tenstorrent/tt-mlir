@@ -717,7 +717,6 @@ Conv2dConfigAttr Conv2dConfigAttr::getEmpty(::mlir::MLIRContext *context) {
                                /*outputLayout=*/std::nullopt,
                                /*enableActDoubleBuffer=*/nullptr,
                                /*enableWeightsDoubleBuffer=*/nullptr,
-                               /*enableSplitReader=*/nullptr,
                                /*inPlace=*/nullptr);
 }
 
@@ -728,9 +727,10 @@ Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
       .buildConv2dConfigAttr(context);
 }
 
-Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
+Conv2dConfigAttr
+Conv2dConfigAttr::withActivation(UnaryOpType unaryOpType) const {
   Conv2dConfigParams params(*this);
-  params.activation = activation.str();
+  params.activation = unaryOpType;
   return params.buildConv2dConfigAttr(getContext());
 }
 
@@ -816,12 +816,6 @@ Conv2dConfigAttr::withEnableWeightsDoubleBuffer(bool value) const {
   return params.buildConv2dConfigAttr(getContext());
 }
 
-Conv2dConfigAttr Conv2dConfigAttr::withEnableSplitReader(bool value) const {
-  Conv2dConfigParams params(*this);
-  params.enableSplitReader = value;
-  return params.buildConv2dConfigAttr(getContext());
-}
-
 Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
   Conv2dConfigParams params(*this);
   params.inPlace = value;
@@ -829,7 +823,7 @@ Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
 }
 
 bool Conv2dConfigAttr::hasActivation() const {
-  return getActivation() != nullptr && getActivation().getValue() != "";
+  return getActivation() != nullptr;
 }
 
 bool Conv2dConfigAttr::hasWeightsDtype() const {
@@ -880,10 +874,6 @@ bool Conv2dConfigAttr::hasEnableActDoubleBuffer() const {
 
 bool Conv2dConfigAttr::hasEnableWeightsDoubleBuffer() const {
   return getEnableWeightsDoubleBuffer() != nullptr;
-}
-
-bool Conv2dConfigAttr::hasEnableSplitReader() const {
-  return getEnableSplitReader() != nullptr;
 }
 
 bool Conv2dConfigAttr::hasInPlace() const { return getInPlace() != nullptr; }

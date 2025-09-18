@@ -1265,11 +1265,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
                  attr.getEnableWeightsDoubleBuffer());
       firstElement = false;
     }
-    if (attr.getEnableSplitReader()) {
-      rso << (firstElement ? "" : ", ") << ".enable_split_reader = "
-          << EmitCTypeConverter<bool>::convert(attr.getEnableSplitReader());
-      firstElement = false;
-    }
     if (attr.getInPlace()) {
       rso << (firstElement ? "" : ", ") << ".in_place = "
           << EmitCTypeConverter<bool>::convert(attr.getInPlace());

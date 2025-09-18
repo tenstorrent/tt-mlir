@@ -93,7 +93,7 @@ struct TTIRToTTNNBackendPipelineOptions
   // optimizerPassEnabled (enable-optimizer) is true.
   //
   // Full Example:
-  // override-conv2d-config=conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false
+  // override-conv2d-config=conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false
   // Partial Example:
   // "conv2d_1=enable_weights_double_buffer#true:activation#none,conv2d_2=dtype#bf16"
   //
@@ -115,7 +115,6 @@ struct TTIRToTTNNBackendPipelineOptions
   // * output_layout: [row_major, tile]
   // * enable_act_double_buffer: [true, false]
   // * enable_weights_double_buffer: [true, false]
-  // * enable_split_reader: [true, false]
   //
   // For more details on parameter values see conv2d_op.hpp in tt-metal.
   //
