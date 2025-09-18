@@ -28,6 +28,7 @@
 #include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttnn {
+#define GEN_PASS_DEF_LOCTEST
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
@@ -525,6 +526,57 @@ public:
               returnOp.getOperandsMutable().assign(tupleOp);
             });
           });
+    }
+  }
+};
+
+class LocTest : public impl::LocTestBase<LocTest> {
+
+public:
+  using impl::LocTestBase<LocTest>::LocTestBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    llvm::outs() << "this is a test\n";
+
+    ttnn::AddOp addOp;
+
+    moduleOp.walk([&](Operation *op) {
+      if (auto target = mlir::dyn_cast<ttnn::AddOp>(op)) {
+        addOp = target;
+        // llvm::outs() << "Found add op: " << target << "\n";
+      }
+    });
+
+    llvm::outs() << "finished search\n";
+
+    mlir::OpPrintingFlags flags;
+    flags.enableDebugInfo(
+        /*prettyForm=*/true); // show locations, expand callsite locs
+    llvm::outs() << "\n\n\n\n\n";
+    addOp->print(llvm::outs(), flags);
+    llvm::outs() << "\n\n\n\n\n";
+    // addOp.dump();
+
+    // Print loc on last add op
+    printExpandedLoc(addOp->getLoc());
+    llvm::outs() << "\n\n\n\n\n";
+  }
+
+  void printExpandedLoc(mlir::Location loc) {
+    if (auto callLoc = mlir::dyn_cast<mlir::CallSiteLoc>(loc)) {
+      llvm::outs() << "Call @ "
+                   << mlir::dyn_cast<FileLineColLoc>(callLoc.getCaller())
+                   << "\n";
+      printExpandedLoc(callLoc.getCallee());
+    } else if (auto fileLoc = mlir::dyn_cast<mlir::FileLineColLoc>(loc)) {
+      fileLoc.print(llvm::outs());
+      llvm::outs() << "\n";
+    } else {
+      loc.print(llvm::outs());
+      llvm::outs() << "\n";
     }
   }
 };

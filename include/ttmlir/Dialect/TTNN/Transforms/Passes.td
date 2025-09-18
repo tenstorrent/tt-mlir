@@ -226,4 +226,9 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
   }];
 }
 
+def LocTest: Pass<"loc-test", "::mlir::ModuleOp"> {
+  let summary = "Test for location work";
+  let description = [{ todo }];
+}
+
 #endif
