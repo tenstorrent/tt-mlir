@@ -69,6 +69,9 @@ template <>
 struct OpModel<ReluOp> : UnaryEltwiseOpModel<ReluOp> {};
 
 template <>
+struct OpModel<Relu6Op> : UnaryEltwiseOpModel<Relu6Op> {};
+
+template <>
 struct OpModel<SqrtOp> : UnaryEltwiseOpModel<SqrtOp> {};
 
 template <>
@@ -124,6 +127,9 @@ struct OpModel<CbrtOp> : UnaryEltwiseOpModel<CbrtOp> {};
 
 template <>
 struct OpModel<BitwiseNotOp> : UnaryEltwiseOpModel<BitwiseNotOp> {};
+
+template <>
+struct OpModel<SiluOp> : UnaryEltwiseOpModel<SiluOp> {};
 
 template <>
 struct OpModel<RsqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp> {};

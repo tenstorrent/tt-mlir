@@ -932,6 +932,30 @@ def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu", [TTIR_Idempotence]> {
       Mathematical definition: relu(x) = max(0, x)
     }];
 }
+def TTIR_Relu6Op : TTIR_ElementwiseUnaryOp<"relu6", [TTIR_Idempotence]> {
+  let summary = "Eltwise ReLU6.";
+  let description = [{
+    The `relu6` operation computes the ReLU6 activation function of each element in the input tensor.
+
+    For each element, it returns the minimum of 6 and the maximum of 0 and the value. The operation preserves
+    the data type of the input.
+
+    This operation has the idempotence property, meaning that applying it multiple times
+    produces the same result as applying it once: relu6(relu6(x)) = relu6(x).
+
+    Example:
+    ```mlir
+    // Compute ReLU6 of all elements in %input
+    %result = ttir.relu6(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [[1.7, 2.0, -0.3, 7.0], ... ]
+    // Output tensor:
+    // [[1.7, 2.0, 0.0, 6.0], ... ]
+    ```
+
+    Mathematical definition: relu6(x) = min(6, max(0, x))
+  }];
+}
 
 def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
     let summary = "Eltwise reciprocal square root.";
@@ -973,6 +997,28 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
 
       Mathematical definition: sigmoid(x) = 1 / (1 + exp(-x))
     }];
+}
+def TTIR_SiluOp: TTIR_ElementwiseUnaryOp<"silu"> {
+  let summary = "Elementwise SiLU (Sigmoid Linear Unit) operation.";
+  let description = [{
+    The `silu` operation computes the SiLU (Sigmoid Linear Unit) activation function of each element in the input tensor.
+
+    SiLU, also known as Swish, is defined as x * sigmoid(x). It combines the properties of both
+    linear and sigmoid functions, providing smooth, non-monotonic activation that has shown good
+    performance in deep learning applications.
+
+    Example:
+    ```mlir
+    // Compute SiLU of all elements in %input
+    %result = ttir.silu(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [[-2.0, -1.0, 0.0, 1.0], ... ]
+    // Output tensor:
+    // [[-0.238, -0.269, 0.0, 0.731], ... ]
+    ```
+
+    Mathematical definition: silu(x) = x * sigmoid(x) = x * (1 / (1 + exp(-x)))
+  }];
 }
 
 def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign", [TTIR_Idempotence]> {
