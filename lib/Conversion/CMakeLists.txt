@@ -9,6 +9,8 @@ add_subdirectory(TTIRToTTNN)
 add_subdirectory(TTIRToTTMetal)
 add_subdirectory(TTKernelToEmitC)
 add_subdirectory(TTIRToTTKernel)
+add_subdirectory(D2MToTTKernel)
+add_subdirectory(D2MToTTMetal)
 add_subdirectory(SFPIToEmitC)
 add_subdirectory(TTNNToTTIR)
 

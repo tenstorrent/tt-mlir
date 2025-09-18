@@ -2,13 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TTIR_DIALECT_D2M_IR_D2MOPSINTERFACES_TD
-#define TTMLIR_TTIR_DIALECT_D2M_IR_D2MOPSINTERFACES_TD
+#ifndef TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSINTERFACES_TD
+#define TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSINTERFACES_TD
 
 include "mlir/IR/OpBase.td"
 include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
 
-// Mirror TTIR ViewOpInterface into d2m namespace
+// Mirror D2M ViewOpInterface into d2m namespace
 // so D2M passes can use a local interface.
 
 def D2M_ViewOpInterface : OpInterface<"ViewOpInterface"> {
@@ -35,7 +35,7 @@ def D2M_ViewOpInterface : OpInterface<"ViewOpInterface"> {
   ];
 }
 
-// Mirror TTIR DMA interface into d2m namespace for d2m ops
+// Mirror D2M DMA interface into d2m namespace for d2m ops
 
 def D2M_DMAOpInterface : OpInterface<"DMAOpInterface"> {
   let cppNamespace = "::mlir::tt::d2m";
@@ -77,4 +77,33 @@ def D2M_OperandLoadRegisterOpInterface : OpInterface<"OperandLoadRegisterOpInter
   ];
 }
 
-#endif // TTMLIR_TTIR_DIALECT_D2M_IR_D2MOPSINTERFACES_TD
+def D2M_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegisterOpInterface"> {
+  let cppNamespace = "::mlir::tt::d2m";
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        This interface denotes which op operand indices require their operands to be
+        sourced from the destination register.  It is primarily used by the
+        insert-dst-register-access pass to autogenerate copynests to and from dst.
+      }],
+      /*retTy=*/"::mlir::SmallVector<int64_t>",
+      /*methodName=*/"getOperandsLoadFromDstRegister",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return ::mlir::SmallVector<int64_t>{};"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns whether this operation should use the destination register in place.
+        When true, the operation can read from and write to the same register location.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"getDstRegInPlace",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
+    >,
+  ];
+}
+
+#endif // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSINTERFACES_TD

@@ -9,7 +9,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERICHWTHREADSELECTION
@@ -50,47 +50,36 @@ public:
     unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
     unsigned outputOperandsLength = op.getOutputs().size();
     assert(outputOperandsLength == 1);
-
-    ArrayAttr threadsAttr = op.getThreads();
-    SmallVector<Attribute> threadAttrs(threadsAttr.getValue().begin(),
-                                       threadsAttr.getValue().end());
-    bool modified = false;
-    for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
-         regionIndex++) {
-      auto threadAttr = mlir::cast<ThreadAttr>(threadAttrs[regionIndex]);
-      if (threadAttr.getThreadType() != ThreadType::Datamovement) {
-        continue;
-      }
-
-      Region &region = op.getRegion(regionIndex);
-      Block *trivialBlock = getIfTrivialBlock(region, outputOperandsIndex);
-      if (!trivialBlock) {
-        continue;
-      }
-
-      // Move the trivial datamovement thread to compute thread.
-      threadAttrs[regionIndex] =
-          rewriter.getAttr<ThreadAttr>(ThreadType::Compute);
-      modified = true;
+    if (outputOperandsIndex >= op.getNumRegions()) {
+      return failure();
     }
-
-    if (!modified) {
+    Region &outputRegion = op.getRegion(outputOperandsIndex);
+    Block *outputBlock = getIfTrivialBlock(outputRegion, outputOperandsIndex);
+    if (!outputBlock) {
       return failure();
     }
 
-    // Use the low-level build method that matches the D2M GenericOp signature
-    auto newOp = rewriter.create<GenericOp>(
-        op.getLoc(), TypeRange(op.getResults()), op.getInputs(),
+    SmallVector<Attribute> threads(op.getThreads().getValue());
+    // Skip the output operands block
+    threads.erase(threads.begin() + outputOperandsIndex);
+    auto newGeneric = rewriter.create<GenericOp>(
+        op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         op.getOutputs(), op.getGrid(), op.getBlockFactors(),
         op.getIndexingMaps(), op.getIteratorTypes(),
-        rewriter.getArrayAttr(threadAttrs), op.getNumRegions());
+        rewriter.getArrayAttr(threads), op.getNumRegions() - 1);
 
-    // Transfer regions
-    for (unsigned i = 0; i < op.getNumRegions(); ++i) {
-      newOp.getRegion(i).takeBody(op.getRegion(i));
+    unsigned regionIndex = 0;
+    for (mlir::Region &region : op.getRegions()) {
+      if (region.getRegionNumber() == outputOperandsIndex) {
+        continue;
+      }
+      rewriter.modifyOpInPlace(
+          op, [&] { newGeneric.getRegion(regionIndex++).takeBody(region); });
     }
 
-    rewriter.replaceOp(op, newOp.getResults());
+    Block *newBlock = &newGeneric.getRegions().back().front();
+    rewriter.mergeBlocks(outputBlock, newBlock, newBlock->getArguments());
+    rewriter.replaceOp(op, newGeneric.getResults());
 
     return success();
   }
@@ -109,9 +98,24 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MGenericMoveTrivialOutputThreadToComputeRewritePattern>(
         &getContext());
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
-    }
+    walkAndApplyPatterns(getOperation(), std::move(patterns));
+
+    ModuleOp moduleOp = getOperation();
+    auto systemDesc = moduleOp->getAttrOfType<mlir::tt::ttcore::SystemDescAttr>(
+        mlir::tt::ttcore::SystemDescAttr::name);
+    auto chipDesc = systemDesc.getChipDescs().front();
+    moduleOp.walk([&](GenericOp op) {
+      // assert that the op has a valid HW thread selection
+      if (op.getNumRegions() > (chipDesc.getNumComputeThreads() +
+                                chipDesc.getNumDatamovementThreads())) {
+        op.emitError("invalid number of regions (")
+            << op.getNumRegions() << "), expected at most ("
+            << (chipDesc.getNumComputeThreads() +
+                chipDesc.getNumDatamovementThreads())
+            << ")";
+        signalPassFailure();
+      }
+    });
   }
 };
 } // namespace

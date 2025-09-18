@@ -43,6 +43,10 @@ inline void getDpsEffects(
   }
 }
 
+MemRefType
+getBufferType(Type type, bool isView,
+              std::optional<ttcore::MetalLayoutAttr> hostInfo = std::nullopt);
+
 } // namespace mlir::tt::d2m
 
 #include "ttmlir/Dialect/D2M/IR/D2MOpsEnums.h.inc"

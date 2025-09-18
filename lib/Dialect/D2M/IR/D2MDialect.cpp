@@ -8,6 +8,7 @@
 
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/Interfaces/FoldInterfaces.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 // Ensure enum helpers (FieldParser, etc.) are visible before attrs
@@ -23,12 +24,33 @@ using namespace mlir::tt::d2m;
 
 #include "ttmlir/Dialect/D2M/IR/D2MOpsDialect.cpp.inc"
 
-void D2MDialect::registerTypes() {
-  addTypes<
-#define GET_TYPEDEF_LIST
-#include "ttmlir/Dialect/D2M/IR/D2MOpsTypeDefs.h.inc"
-      >();
-}
+struct D2MDialectFoldInterface : public DialectFoldInterface {
+  using DialectFoldInterface::DialectFoldInterface;
+
+  /// Registered hook to check if the given region, which is attached to an
+  /// operation that is *not* isolated from above, should be used when
+  /// materializing constants.
+  bool shouldMaterializeInto(Region *region) const final {
+    //
+    // If this is a GenericOp, protect it from hoisting constants outside of
+    // its region body. e.g. do not hoist %const0 outside of the following op:
+    //
+    // %1 = "d2m.generic"(...) <{...}> ({
+    // ^bb0(...):
+    //   %const0 = arith.constant 0 : index
+    // }) : (...) -> ...
+    //
+    // As opposed to the default canonicalization behavior, which would hoist it
+    // it like this:
+    //
+    // %const0 = arith.constant 0 : index
+    // %1 = "d2m.generic"(...) <{...}> ({
+    // ^bb0(...):
+    // }) : (...) -> ...
+    //
+    return isa<GenericOp>(region->getParentOp());
+  }
+};
 
 void D2MDialect::initialize() {
   addOperations<
@@ -39,6 +61,7 @@ void D2MDialect::initialize() {
 #define GET_OP_LIST
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.cpp.inc"
       >();
+  addInterfaces<D2MDialectFoldInterface>();
   addAttributes<
 #define GET_ATTRDEF_LIST
 #include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.cpp.inc"

@@ -11,6 +11,8 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #endif
+#include "ttmlir/Conversion/D2MToTTKernel/D2MToTTKernel.h"
+#include "ttmlir/Conversion/D2MToTTMetal/D2MToTTMetal.h"
 #include "ttmlir/Conversion/SFPIToEmitC/SFPIToEmitC.h"
 #include "ttmlir/Conversion/TTIRToD2MGeneric/TTIRToD2MGeneric.h"
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"

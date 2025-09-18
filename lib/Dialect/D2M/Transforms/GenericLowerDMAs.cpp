@@ -4,9 +4,9 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -258,7 +258,7 @@ public:
   static std::pair<SmallVector<Value>, size_t>
   analyzeStream(PatternRewriter &rewriter, Location loc,
                 AffineMap dmaIndexingMap, MemRefType memref,
-                ttir::ViewOpInterface viewInterface, GenericOp genericParent) {
+                ViewOpInterface viewInterface, GenericOp genericParent) {
     size_t elemSizeBytes = getElementSizeBytes(memref);
     ttcore::DeviceLayoutInterface layout =
         mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout());
@@ -300,7 +300,7 @@ public:
         dma.isSrcRemote() ? dma.getSrcAffineMap() : dma.getDstAffineMap();
     auto memref =
         dma.isSrcRemote() ? dma.getSrcMemRefType() : dma.getDstMemRefType();
-    auto defining_op = mlir::cast<ttir::ViewOpInterface>(
+    auto defining_op = mlir::cast<d2m::ViewOpInterface>(
         dma.isSrcRemote() ? dma.getSrc().getDefiningOp()
                           : dma.getDst().getDefiningOp());
 
@@ -403,7 +403,7 @@ public:
                                 bool isRemote) {
     if (isRemote) {
       std::pair<MemRefType, AffineMap> srcUnderlyingMemrefAndView =
-          mlir::tt::ttir::applyViews(input.getDefiningOp());
+          mlir::tt::d2m::applyViews(input.getDefiningOp());
       return device.getMemoryMap(srcUnderlyingMemrefAndView,
                                  0 /* use default page size*/);
     }

@@ -36,6 +36,7 @@ def D2MGenericLinearizeMemref : Pass<"d2m-generic-linearize-memref", "::mlir::Mo
 
 def D2MGenericGenerateDatamovement : Pass<"d2m-generic-generate-datamovement", "::mlir::ModuleOp"> {
   let summary = "Generate D2M datamovement regions for generic ops.";
+  let dependentDialects = ["mlir::tt::d2m::D2MDialect"];
 }
 
 def D2MGenericLowerDMAs : Pass<"d2m-generic-lower-dmas", "::mlir::ModuleOp"> {

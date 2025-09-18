@@ -6,8 +6,8 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/Utils.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
+
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -17,10 +17,53 @@
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOps.cpp.inc"
 
-using namespace mlir;
-using namespace mlir::tt::d2m;
+namespace mlir::tt::d2m {
+// Convert TensorType + MetalLayout into a memref including a
+// Shard/View/HostAttr.
+MemRefType getBufferType(Type type, bool isView,
+                         std::optional<ttcore::MetalLayoutAttr> hostInfo) {
+  auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
+  MLIRContext *ctx = tensorType.getContext();
 
-void mlir::tt::d2m::GenericOp::getAsmBlockArgumentNames(
+  if (!tensorType.getEncoding()) {
+    // Calculate host layout and attach, for I/O with (potentially) unaligned
+    // host memref.
+    ttcore::HostLayoutAttr hostLayout = nullptr;
+    if (hostInfo.has_value()) {
+      hostLayout = ttcore::HostLayoutAttr::get(ctx, tensorType.getShape(),
+                                               hostInfo->getHostStride(),
+                                               hostInfo->getHostVolume());
+    }
+    return MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
+                           hostLayout);
+  }
+
+  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+
+  auto gridShape = layout.getGridShape(tensorType);
+  auto shardShape = layout.getShardShape(tensorType);
+  SmallVector<int64_t> fullMemrefShape;
+  fullMemrefShape.append(gridShape.begin(), gridShape.end());
+  fullMemrefShape.append(shardShape.begin(), shardShape.end());
+
+  MemRefLayoutAttrInterface layoutAttr;
+  if (isView) {
+    const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
+    mlir::AffineMap map = layout.getIndexAffineMap();
+    assert(map && map.getNumResults() == rank && map.getNumDims() == rank &&
+           "expected tensor encoding to provide a concrete index_map for view");
+    layoutAttr = ttcore::ViewLayoutAttr::get(ctx, map);
+  } else {
+    SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
+    layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+  }
+
+  return MemRefType::get(
+      fullMemrefShape, tensorType.getElementType(), layoutAttr,
+      ttcore::MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
+}
+
+void d2m::GenericOp::getAsmBlockArgumentNames(
     Region &region, function_ref<void(Value, StringRef)> setNameFn) {
   int cbIndex = 0;
   int semIndex = 0;
@@ -37,7 +80,7 @@ void mlir::tt::d2m::GenericOp::getAsmBlockArgumentNames(
   }
 }
 
-void mlir::tt::d2m::GenericOp::getAsmBlockNames(
+void d2m::GenericOp::getAsmBlockNames(
     function_ref<void(Block *, StringRef)> setNameFn) {
   std::array<int, getMaxEnumValForThreadType() + 1> threadTypeCounts{};
   for (Region &region : getRegions()) {
@@ -48,37 +91,37 @@ void mlir::tt::d2m::GenericOp::getAsmBlockNames(
   }
 }
 
-void mlir::tt::d2m::GenericOp::getEffects(
+void d2m::GenericOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
   d2m::getDpsEffects(*this, effects);
 }
 
-SmallVector<AffineMap> mlir::tt::d2m::GenericOp::getIndexingMapsValue() {
+SmallVector<AffineMap> d2m::GenericOp::getIndexingMapsValue() {
   return llvm::to_vector(llvm::map_range(getIndexingMaps(), [](Attribute a) {
     return mlir::cast<AffineMapAttr>(a).getValue();
   }));
 }
 
-SmallVector<int64_t> mlir::tt::d2m::GenericOp::getBlockFactorsValue() {
+SmallVector<int64_t> d2m::GenericOp::getBlockFactorsValue() {
   return llvm::map_to_vector(getBlockFactors(), [](Attribute a) {
     return mlir::cast<IntegerAttr>(a).getInt();
   });
 }
 
 SmallVector<mlir::tt::ttcore::IteratorType>
-mlir::tt::d2m::GenericOp::getIteratorTypesValue() {
+d2m::GenericOp::getIteratorTypesValue() {
   return llvm::to_vector(llvm::map_range(getIteratorTypes(), [](Attribute a) {
     return mlir::cast<mlir::tt::ttcore::IteratorTypeAttr>(a).getValue();
   }));
 }
 
-mlir::tt::ttcore::DeviceAttr mlir::tt::d2m::GenericOp::getDevice() {
+mlir::tt::ttcore::DeviceAttr d2m::GenericOp::getDevice() {
   return ttcore::lookupDevice(*this);
 }
 
 SmallVector<SmallVector<int64_t>>
-mlir::tt::d2m::GenericOp::getOperandGridShapes() {
+d2m::GenericOp::getOperandGridShapes() {
   SmallVector<SmallVector<int64_t>> gridShapes;
   gridShapes.reserve(getOperands().size());
 
@@ -102,7 +145,7 @@ mlir::tt::d2m::GenericOp::getOperandGridShapes() {
 }
 
 SmallVector<int64_t>
-mlir::tt::d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
+d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
   AffineMap indexingMap =
       mlir::cast<AffineMapAttr>(getIndexingMaps()[operandIndex]).getValue();
   auto dimExprs =
@@ -115,7 +158,7 @@ mlir::tt::d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
 }
 
 SmallVector<int64_t>
-mlir::tt::d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
+d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
   AffineMap indexingMap =
       mlir::cast<AffineMapAttr>(getIndexingMaps()[operandIndex]).getValue();
   SmallVector<int64_t> participatingDims =
@@ -127,7 +170,7 @@ mlir::tt::d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
   return llvm::SmallVector<int64_t>(nonParticipatingDims.set_bits());
 }
 
-SmallVector<int64_t> mlir::tt::d2m::GenericOp::getLoopBounds() {
+SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
   assert(!getIndexingMaps().empty() && "GenericOp must be pre-loop generated "
                                        "with indexing maps to use this method");
   assert(getOutputs().size() == 1);
@@ -161,7 +204,7 @@ createDefaultLayout(mlir::MLIRContext *ctx,
 
   // TODO (#4820): Remove this during cleanup.
   SmallVector<int64_t> squareGridShape =
-      mlir::tt::ttir::utils::getSquareTargetGrid(workerGridShape);
+      d2m::utils::getSquareTargetGrid(workerGridShape);
 
   return mlir::tt::ttcore::MetalLayoutAttr::get(
       ctx, logicalShape, squareGridShape, mlir::tt::ttcore::OOBVal::Undef,
@@ -170,7 +213,7 @@ createDefaultLayout(mlir::MLIRContext *ctx,
 } // namespace
 
 mlir::tt::ttcore::MetalLayoutAttr
-mlir::tt::d2m::ToLayoutOp::getOrCreateInputLayout() {
+d2m::ToLayoutOp::getOrCreateInputLayout() {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
   auto inputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
       tensorType.getEncoding());
@@ -185,7 +228,7 @@ mlir::tt::d2m::ToLayoutOp::getOrCreateInputLayout() {
 }
 
 mlir::tt::ttcore::MetalLayoutAttr
-mlir::tt::d2m::ToLayoutOp::getOrCreateOutputLayout() {
+d2m::ToLayoutOp::getOrCreateOutputLayout() {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(getOutput().getType());
   auto outputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
       tensorType.getEncoding());
@@ -199,8 +242,8 @@ mlir::tt::d2m::ToLayoutOp::getOrCreateOutputLayout() {
   return createDefaultLayout(getContext(), workerGridShape, tensorType);
 }
 
-mlir::tt::d2m::ToLayoutOp::CompoundComponents
-mlir::tt::d2m::ToLayoutOp::compoundComponents() {
+d2m::ToLayoutOp::CompoundComponents
+d2m::ToLayoutOp::compoundComponents() {
   CompoundComponents components;
   if (mlir::isa<mlir::RankedTensorType>(getInput().getType())) {
     auto inputTensor = mlir::cast<mlir::RankedTensorType>(getInput().getType());
@@ -255,22 +298,17 @@ mlir::tt::d2m::ToLayoutOp::compoundComponents() {
 // EmptyOp Bufferization Interface Implementation
 //===----------------------------------------------------------------------===//
 
-// Forward declaration from TTIR
-namespace mlir::tt::ttir {
-MemRefType getBufferType(Type type, bool isView);
-}
-
-bool mlir::tt::d2m::EmptyOp::bufferizesToMemoryRead(
+bool d2m::EmptyOp::bufferizesToMemoryRead(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   return false;
 }
 
-bool mlir::tt::d2m::EmptyOp::bufferizesToMemoryWrite(
+bool d2m::EmptyOp::bufferizesToMemoryWrite(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   return false;
 }
 
-mlir::LogicalResult mlir::tt::d2m::EmptyOp::bufferize(
+mlir::LogicalResult d2m::EmptyOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
@@ -288,34 +326,34 @@ mlir::LogicalResult mlir::tt::d2m::EmptyOp::bufferize(
 }
 
 mlir::bufferization::AliasingValueList
-mlir::tt::d2m::EmptyOp::getAliasingValues(
+d2m::EmptyOp::getAliasingValues(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::d2m::EmptyOp::getBufferType(
+mlir::FailureOr<mlir::BaseMemRefType> d2m::EmptyOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
+  return d2m::getBufferType(value.getType(), /*isView=*/false);
 }
 
 //===----------------------------------------------------------------------===//
 // ToLayoutOp Bufferization Interface Implementation
 //===----------------------------------------------------------------------===//
 
-bool mlir::tt::d2m::ToLayoutOp::bufferizesToMemoryRead(
+bool d2m::ToLayoutOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   return operand.getOperandNumber() == 0; // Input operand
 }
 
-bool mlir::tt::d2m::ToLayoutOp::bufferizesToMemoryWrite(
+bool d2m::ToLayoutOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   return operand.getOperandNumber() == 1; // Output operand
 }
 
-mlir::LogicalResult mlir::tt::d2m::ToLayoutOp::bufferize(
+mlir::LogicalResult d2m::ToLayoutOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
@@ -332,7 +370,7 @@ mlir::LogicalResult mlir::tt::d2m::ToLayoutOp::bufferize(
     return maybeOutputBuffer;
   }
 
-  rewriter.create<mlir::tt::d2m::ToLayoutOp>(
+  rewriter.create<d2m::ToLayoutOp>(
       getLoc(), TypeRange(), *maybeInputBuffer, *maybeOutputBuffer,
       getLayoutAttr());
 
@@ -342,7 +380,7 @@ mlir::LogicalResult mlir::tt::d2m::ToLayoutOp::bufferize(
 }
 
 mlir::bufferization::AliasingValueList
-mlir::tt::d2m::ToLayoutOp::getAliasingValues(
+d2m::ToLayoutOp::getAliasingValues(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
   if (operand.getOperandNumber() == 1) { // Output operand aliases with result
@@ -351,14 +389,14 @@ mlir::tt::d2m::ToLayoutOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::d2m::ToLayoutOp::getBufferType(
+mlir::FailureOr<mlir::BaseMemRefType> d2m::ToLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
+  return d2m::getBufferType(value.getType(), /*isView=*/false);
 }
 
-mlir::LogicalResult mlir::tt::d2m::ToLayoutOp::fold(
+mlir::LogicalResult d2m::ToLayoutOp::fold(
     FoldAdaptor, llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
   mlir::RankedTensorType inputType =
       dyn_cast<mlir::RankedTensorType>(getInput().getType());
@@ -391,7 +429,7 @@ struct D2MToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
   }
 };
 
-void mlir::tt::d2m::ToLayoutOp::getCanonicalizationPatterns(
+void d2m::ToLayoutOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // Fold into d2m.empty w/ desired layout
   patterns.add(+[](ToLayoutOp op, mlir::PatternRewriter &rewriter) {
@@ -410,32 +448,32 @@ void mlir::tt::d2m::ToLayoutOp::getCanonicalizationPatterns(
 // GenericOp Bufferization Interface Implementation
 //===----------------------------------------------------------------------===//
 
-bool mlir::tt::d2m::GenericOp::bufferizesToMemoryRead(
+bool d2m::GenericOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // If the operand is an input, it is bufferized to a memory read.
   return isDpsInput(&operand);
 }
 
-bool mlir::tt::d2m::GenericOp::bufferizesToMemoryWrite(
+bool d2m::GenericOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // If the operand is an output, it is bufferized to a memory write.
   return isDpsInit(&operand);
 }
 
 mlir::bufferization::AliasingValueList
-mlir::tt::d2m::GenericOp::getAliasingValues(
+d2m::GenericOp::getAliasingValues(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
   return result;
 }
 
-bool mlir::tt::d2m::GenericOp::isWritable(
+bool d2m::GenericOp::isWritable(
     mlir::Value value, const mlir::bufferization::AnalysisState &) {
   return mlir::isa<mlir::OpResult>(value) ||
          mlir::isa<mlir::BlockArgument>(value);
 }
 
-mlir::LogicalResult mlir::tt::d2m::GenericOp::bufferize(
+mlir::LogicalResult d2m::GenericOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
@@ -469,7 +507,7 @@ mlir::LogicalResult mlir::tt::d2m::GenericOp::bufferize(
     }
     bufferOutputs.push_back(*maybeValue);
   }
-  auto bufferGeneric = rewriter.create<mlir::tt::d2m::GenericOp>(
+  auto bufferGeneric = rewriter.create<d2m::GenericOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGrid(),
       getBlockFactors(), getIndexingMaps(), getIteratorTypes(), getThreads(),
       getNumRegions());
@@ -502,7 +540,7 @@ mlir::LogicalResult mlir::tt::d2m::GenericOp::bufferize(
   return success();
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::d2m::GenericOp::getBufferType(
+mlir::FailureOr<mlir::BaseMemRefType> d2m::GenericOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
@@ -514,24 +552,24 @@ mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::d2m::GenericOp::getBufferType(
         ttcore::MemorySpaceAttr::get(tensorType.getContext(),
                                      ttcore::MemorySpace::DeviceL1));
   }
-  return mlir::tt::ttir::getBufferType(tensorType, /*isView=*/false);
+  return d2m::getBufferType(tensorType, /*isView=*/false);
 }
 
 //===----------------------------------------------------------------------===//
 // StreamLayoutOp Bufferization Interface Implementation
 //===----------------------------------------------------------------------===//
 
-bool mlir::tt::d2m::StreamLayoutOp::bufferizesToMemoryRead(
+bool d2m::StreamLayoutOp::bufferizesToMemoryRead(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   return false;
 }
 
-bool mlir::tt::d2m::StreamLayoutOp::bufferizesToMemoryWrite(
+bool d2m::StreamLayoutOp::bufferizesToMemoryWrite(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   return false;
 }
 
-mlir::LogicalResult mlir::tt::d2m::StreamLayoutOp::bufferize(
+mlir::LogicalResult d2m::StreamLayoutOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
@@ -552,7 +590,7 @@ mlir::LogicalResult mlir::tt::d2m::StreamLayoutOp::bufferize(
   }
 
   ::llvm::SmallVector<mlir::Value> invocationStack;
-  Value result = rewriter.create<mlir::tt::d2m::StreamLayoutOp>(
+  Value result = rewriter.create<d2m::StreamLayoutOp>(
       getLoc(), *getBufferType(getResult(), options, state, invocationStack),
       *maybeInput, *maybeStorage);
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, result);
@@ -560,16 +598,17 @@ mlir::LogicalResult mlir::tt::d2m::StreamLayoutOp::bufferize(
 }
 
 mlir::bufferization::AliasingValueList
-mlir::tt::d2m::StreamLayoutOp::getAliasingValues(
+d2m::StreamLayoutOp::getAliasingValues(
     mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
   bufferization::AliasingValueList result;
   return result;
 }
 
 mlir::FailureOr<mlir::BaseMemRefType>
-mlir::tt::d2m::StreamLayoutOp::getBufferType(
+d2m::StreamLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/true);
+  return d2m::getBufferType(value.getType(), /*isView=*/true);
 }
+} // namespace mlir::tt::d2m

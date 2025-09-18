@@ -12,6 +12,7 @@
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/Support/MathExtras.h"
+#include <limits>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.cpp.inc"
@@ -22,11 +23,6 @@ using namespace mlir::tt::d2m;
 void AcquireDstOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "dst");
-}
-
-// Forward decl to TTIR helper
-namespace mlir::tt::ttir {
-MemRefType getBufferType(Type type, bool isView);
 }
 
 // Helper to extract element type from ranked tensor or memref
@@ -66,6 +62,10 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
   return mlir::ConstantIntRanges::fromUnsigned(mlir::APInt(width, umin),
                                                mlir::APInt(width, umax));
 }
+
+//===----------------------------------------------------------------------===//
+// DMA Operations
+//===----------------------------------------------------------------------===//
 
 // DMA base verification and helpers
 mlir::LogicalResult DMAOp::verify() {
@@ -163,10 +163,11 @@ void DMAOp::getAsmResultNames(function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "tx");
 }
 
-// Minimal verifiers mirroring TTIR contracts
+// Comprehensive verifiers matching TTIR
 ::mlir::LogicalResult DMAWriteOp::verify() {
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
   ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
+
   auto isLocal = [&](auto operand) {
     Block *block = operand.getParentBlock();
     Block::BlockArgListType blockArgs = block->getArguments();
@@ -174,19 +175,33 @@ void DMAOp::getAsmResultNames(function_ref<void(Value, StringRef)> setNameFn) {
            blockArgs.end();
   };
   auto isRemote = [&](auto operand) { return !isLocal(operand); };
+
   if (isRemote(getSrc())) {
     return emitOpError("For DMAWrite, src must be local");
   }
+
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError("Operands to DMAWrite must have the same element type");
   }
+
   if (isDstRemote() && isMcast()) {
     return emitOpError("cannot mcast to remote dst");
   }
+
+  if (!getMcastStartIndex().empty() && getMcastShape().empty()) {
+    return emitOpError("mcast shape defined but mcast start index is not");
+  }
+
+  if (!getMcastShape().empty() && getMcastStartIndex().empty()) {
+    return emitOpError("mcast start index defined but mcast shape is not");
+  }
+
   constexpr int64_t kExpectedIndicesRemote = 3;
   constexpr int64_t kExpectedIndicesLocal = 1;
+
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();
+
   if (isDstRemote()) {
     if (numDstIndices != kExpectedIndicesRemote) {
       return emitOpError("Must have 3 dst indices for remote dst operand");
@@ -196,6 +211,7 @@ void DMAOp::getAsmResultNames(function_ref<void(Value, StringRef)> setNameFn) {
       return emitOpError("Must have 1 dst index for local dst operand");
     }
   }
+
   if (numSrcIndices != kExpectedIndicesLocal) {
     return emitOpError("Must have 1 src index for local src operand");
   }
@@ -289,7 +305,7 @@ DMAOp::getBufferType(mlir::Value value,
                      const mlir::bufferization::BufferizationState &,
                      ::llvm::SmallVector<mlir::Value> &) {
   auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-  return mlir::tt::ttir::getBufferType(rankedTensorType, /*isView=*/true);
+  return mlir::tt::d2m::getBufferType(rankedTensorType, /*isView=*/true);
 }
 
 mlir::LogicalResult
@@ -333,23 +349,14 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
   return mlir::success();
 }
 
+//===----------------------------------------------------------------------===//
+// Index Operations
+//===----------------------------------------------------------------------===//
+
 void IterIndexOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   int64_t dim = getDim();
   setNameFn(getResult(), "iter" + std::to_string(dim));
-}
-
-void CoreIndexOp::getAsmResultNames(
-    function_ref<void(Value, StringRef)> setNameFn) {
-  int64_t dim = getDim();
-  setNameFn(getResult(), "core" + std::to_string(dim));
-}
-
-mlir::OpFoldResult IterIndexOp::fold(FoldAdaptor adaptor) {
-  return adaptor.getDimAttr();
-}
-mlir::OpFoldResult CoreIndexOp::fold(FoldAdaptor adaptor) {
-  return adaptor.getDimAttr();
 }
 
 void IterIndexOp::inferResultRanges(
@@ -359,6 +366,12 @@ void IterIndexOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
+void CoreIndexOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  int64_t dim = getDim();
+  setNameFn(getResult(), "core" + std::to_string(dim));
+}
+
 void CoreIndexOp::inferResultRanges(
     ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
     mlir::SetIntRangeFn setResultRange) {
@@ -366,13 +379,39 @@ void CoreIndexOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
-mlir::LogicalResult TileMatmulBlockOp::verify() {
+mlir::OpFoldResult IterIndexOp::fold(FoldAdaptor adaptor) {
+  llvm::errs() << "[D2M DEBUG] IterIndexOp::fold called for dim " << getDim()
+               << "\n";
+  llvm::errs() << "[D2M DEBUG] IterIndexOp being folded: " << *this << "\n";
+  llvm::errs() << "[D2M DEBUG] Parent operation: "
+               << *getOperation()->getParentOp() << "\n";
+  return adaptor.getDimAttr();
+}
+
+mlir::OpFoldResult CoreIndexOp::fold(FoldAdaptor adaptor) {
+  return adaptor.getDimAttr();
+}
+
+// TileMatmulBlockOp verification
+::mlir::LogicalResult TileMatmulBlockOp::verify() {
   if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getA().getType())) ||
       !llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getB().getType()))) {
-    return emitOpError(
-        "operands to TileMatmulBlock must have ttcore.tile element type");
+    return emitOpError("operands to TileMatmulBlock must have ttcore.tile "
+                       "element type");
   }
+
+  int numAttrsSet = getBlockM().has_value() + getBlockK().has_value() +
+                    getBlockN().has_value() + getBBlockStride().has_value();
+  if (numAttrsSet != 0 && numAttrsSet != 4) {
+    return emitOpError(
+        "all or none of the block dim attributes must be present");
+  }
+
   return success();
+}
+
+bool TileMatmulBlockOp::hasBlockDims() {
+  return getBlockM() && getBlockK() && getBlockN() && getBBlockStride();
 }
 
 void TileMatmulBlockOp::getEffects(
@@ -391,25 +430,27 @@ mlir::LogicalResult TileTilizeBlockOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
-  OpBuilder::InsertionGuard guard(rewriter);
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(getOperation());
-  Value in = getInput();
-  Value out = getOutput();
-  if (isa<RankedTensorType>(in.getType())) {
+
+  mlir::Value in = getInput();
+  mlir::Value out = getOutput();
+  if (mlir::isa<mlir::RankedTensorType>(in.getType())) {
     auto maybe = mlir::bufferization::getBuffer(rewriter, in, options, state);
     if (failed(maybe)) {
       return maybe;
     }
     in = *maybe;
   }
-  if (isa<RankedTensorType>(out.getType())) {
+  if (mlir::isa<mlir::RankedTensorType>(out.getType())) {
     auto maybe = mlir::bufferization::getBuffer(rewriter, out, options, state);
     if (failed(maybe)) {
       return maybe;
     }
     out = *maybe;
   }
-  Operation *old = getOperation();
+
+  mlir::Operation *old = getOperation();
   auto newOp =
       rewriter.create<mlir::tt::d2m::TileTilizeBlockOp>(old->getLoc(), in, out);
   rewriter.replaceOp(old, newOp->getResults());
@@ -447,11 +488,13 @@ mlir::LogicalResult TileTilizeBlockOp::verify() {
     return emitOpError(
         "operand to TileTilizeBlock must not have ttcore.tile element type");
   }
+
   if (!llvm::isa<mlir::tt::ttcore::TileType>(
           getElemType(getOutput().getType()))) {
     return emitOpError(
         "result of TileTilizeBlock must have ttcore.tile element type");
   }
+
   return success();
 }
 
@@ -469,25 +512,27 @@ mlir::LogicalResult TileUntilizeBlockOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
-  OpBuilder::InsertionGuard guard(rewriter);
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(getOperation());
-  Value in = getInput();
-  Value out = getOutput();
-  if (isa<RankedTensorType>(in.getType())) {
+
+  mlir::Value in = getInput();
+  mlir::Value out = getOutput();
+  if (mlir::isa<mlir::RankedTensorType>(in.getType())) {
     auto maybe = mlir::bufferization::getBuffer(rewriter, in, options, state);
     if (failed(maybe)) {
       return maybe;
     }
     in = *maybe;
   }
-  if (isa<RankedTensorType>(out.getType())) {
+  if (mlir::isa<mlir::RankedTensorType>(out.getType())) {
     auto maybe = mlir::bufferization::getBuffer(rewriter, out, options, state);
     if (failed(maybe)) {
       return maybe;
     }
     out = *maybe;
   }
-  Operation *old = getOperation();
+
+  mlir::Operation *old = getOperation();
   auto newOp = rewriter.create<mlir::tt::d2m::TileUntilizeBlockOp>(
       old->getLoc(), in, out);
   rewriter.replaceOp(old, newOp->getResults());
