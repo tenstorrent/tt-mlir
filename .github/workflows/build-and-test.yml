@@ -424,7 +424,7 @@ jobs:
 
         # Set up PYTHONPATH to include the built packages
         python --version
-        export PYTHONPATH="$PWD/build/python_packages/ttnn:$PYTHONPATH"
+        export PYTHONPATH="${{ steps.strings.outputs.build-output-dir }}/python_packages/ttmlir:$PYTHONPATH"
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         echo "PYTHONPATH: $PYTHONPATH"
@@ -445,8 +445,8 @@ jobs:
         python3 -c "import ttnn; print('ttnn successfully imported')" || echo "ttnn import failed"
 
         echo "Running PyKernel tests..."
-        cd test/pykernel/demo
-        python3 -m pytest test.py -v
+        cd ${{ steps.strings.outputs.build-output-dir }}/test/pykernel/demo
+        pytest -v ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo/test.py
 
     # # PyKernel Test Runner
     # - name: Prepare and run PyKernel Test
