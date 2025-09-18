@@ -324,6 +324,12 @@ struct TTNNBackendToEmitCPipelineOptions
                      "function. This should only be used if the `target-dylib` "
                      "option is set to `true`"),
       llvm::cl::init(false)};
+
+  Option<bool> loadInputTensorsFromDisk{
+      *this, "load-input-tensors-from-disk",
+      llvm::cl::desc("Load input tensors from disk using ttnn.load_tensor "
+                     "instead of generating synthetic inputs with ttnn.ones"),
+      llvm::cl::init(false)};
 };
 
 // TTNN Backend to EmitPy PipelineOptions.
