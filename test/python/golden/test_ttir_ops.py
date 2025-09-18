@@ -2399,12 +2399,14 @@ def test_unary_ops_int32(
         ),
         maximum
         | Marks(
-            pytest.mark.skip_config(["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"), pytest.mark.skip_config(["emitpy"])
+            pytest.mark.skip_config(
+                ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
+            ),
+            pytest.mark.skip_config(["emitpy"]),
         ),
         minimum
         | Marks(
-            pytest.mark.skip_config(["ttmetal"]), 
-            pytest.mark.skip_config(["emitpy"])
+            pytest.mark.skip_config(["ttmetal"]), pytest.mark.skip_config(["emitpy"])
         ),
         matmul | Marks(pytest.mark.skip_config(["ttmetal"])),
         logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -2635,7 +2637,10 @@ unaligned_shapes = [
     (3, 5, 7, 11, 13),
 ]
 
-@pytest.mark.skip_config(["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5023")
+
+@pytest.mark.skip_config(
+    ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5023"
+)
 @pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -2651,7 +2656,9 @@ def test_unaligned_shapes_neg(shape: Shape, dtype: torch.dtype, target: str, req
     )
 
 
-@pytest.mark.skip_config(["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5023")
+@pytest.mark.skip_config(
+    ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5023"
+)
 @pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
