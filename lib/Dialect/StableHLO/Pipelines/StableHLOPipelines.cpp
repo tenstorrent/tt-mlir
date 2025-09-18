@@ -31,9 +31,6 @@ void createStableHLOPipeline(OpPassManager &pm,
   analyzeMeshOptions.automaticArgAnalysis = options.automaticArgAnalysis;
   pm.addPass(createAnalyzeMeshPass(analyzeMeshOptions));
 
-  // Convert GSPMD custom calls to SDY sharding constraints after mesh analysis.
-  pm.addPass(createConvertGSPMDToSDYPass());
-
   // Apply sharding constraints.
   pm.nest<mlir::func::FuncOp>().addPass(
       mlir::sdy::createApplyShardingConstraintsPass());
