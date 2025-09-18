@@ -1881,14 +1881,12 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
       getOperandThroughDPSOps(op.getKey()));
   auto value = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getValue()));
+  auto curPosTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getCurPosTensor()));
   auto attentionMask = op.getAttentionMask()
                            ? cache.at<::tt::target::ttnn::TensorRef>(
                                  getOperandThroughDPSOps(op.getAttentionMask()))
                            : 0;
-  auto curPosTensor = op.getCurPosTensor()
-                          ? cache.at<::tt::target::ttnn::TensorRef>(
-                                getOperandThroughDPSOps(op.getCurPosTensor()))
-                          : 0;
   auto attentionSink = op.getAttentionSink()
                            ? cache.at<::tt::target::ttnn::TensorRef>(
                                  getOperandThroughDPSOps(op.getAttentionSink()))
@@ -1900,7 +1898,7 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
 
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
-      *cache.fbb, query, key, value, isCausal, attentionMask, curPosTensor,
+      *cache.fbb, query, key, value, curPosTensor, isCausal, attentionMask,
       attentionSink, scale.convertToFloat(), out, memoryConfig);
 }
 

@@ -5491,4 +5491,98 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
       ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
           getOperation()));
 }
+
+//===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult
+mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
+
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+  RankedTensorType curPosTensorType = getCurPosTensor().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  if (isa<IntegerType>(curPosTensorType.getElementType())) {
+    return emitOpError("Cur pos tensor must be a tensor of integers");
+  }
+
+  if (curPosTensorType.getShape().size() != 1) {
+    return emitOpError("Cur pos tensor must be a 1D tensor");
+  }
+
+  if (keyType != valueType) {
+    return emitOpError("Key and value must have the same type");
+  }
+  if (queryType.getShape().size() != 4) {
+    return emitOpError("Query must be a 4D tensor");
+  }
+  if (keyType.getShape().size() != 4) {
+    return emitOpError("Key/Value must be a 4D tensor");
+  }
+  if (resultType.getShape().size() != 4) {
+    return emitOpError("Output must be a 4D tensor");
+  }
+
+  if (queryType.getShape()[0] != 1) {
+    return emitOpError("Query dim 0 must be 1");
+  }
+
+  int64_t batchSize = queryType.getShape()[1];
+  int64_t nQueryHeads = queryType.getShape()[2];
+  int64_t nKVHeads = keyType.getShape()[2];
+  int64_t headSize = queryType.getShape()[3];
+  int64_t maxSeqLen = keyType.getShape()[2];
+
+  if (curPosTensorType.getShape()[0] != batchSize) {
+    return emitOpError("Cur pos tensor batch size must match query batch size");
+  }
+
+  if (keyType.getShape()[0] != batchSize) {
+    return emitOpError("Key/Value batch size must match query batch size");
+  }
+
+  if (keyType.getShape()[3] != headSize) {
+    return emitOpError("Key/Value head size must match query head size");
+  }
+
+  if (nQueryHeads % nKVHeads != 0) {
+    return emitOpError(
+        "Query num heads must be divisible by key/value num heads");
+  }
+
+  if (getAttentionMask()) {
+    if (getIsCausal()) {
+      return emitOpError(
+          "Attention mask is not allowed when is_causal is true");
+    }
+    RankedTensorType attentionMaskType = getAttentionMask().getType();
+    if (attentionMaskType.getShape().size() != 4) {
+      return emitOpError("Attention mask must be a 4D tensor");
+    }
+    if (attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError(
+          "Attention mask batch size must match query batch size");
+    }
+    if (attentionMaskType.getShape()[1] != 1) {
+      return emitOpError("Attention mask dim 1 must be 1");
+    }
+    if (attentionMaskType.getShape()[2] != nQueryHeads) {
+      return emitOpError("Attention mask num heads must match query num heads");
+    }
+    if (attentionMaskType.getShape()[3] != maxSeqLen) {
+      return emitOpError(
+          "Attention mask sequence length must key/value sequence length");
+    }
+  } else {
+    if (!getIsCausal()) {
+      return emitOpError("Attention mask is required when is_causal is false");
+    }
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttir

@@ -25,9 +25,9 @@ table ScaledDotProductAttentionDecodeOp {
   query: tt.target.ttnn.TensorRef;
   key: tt.target.ttnn.TensorRef;
   value: tt.target.ttnn.TensorRef;
+  cur_pos_tensor: tt.target.ttnn.TensorRef;
   is_causal: bool;
   attention_mask: tt.target.ttnn.TensorRef;
-  cur_pos_tensor: tt.target.ttnn.TensorRef;
   attention_sink: tt.target.ttnn.TensorRef;
   scale: float;
   out: tt.target.ttnn.TensorRef;
