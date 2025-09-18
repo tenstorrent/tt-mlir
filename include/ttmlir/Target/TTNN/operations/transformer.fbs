@@ -20,3 +20,10 @@ table RotaryEmbeddingLlamaOp {
   memcfg: tt.target.ttnn.MemoryConfig;
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
+
+table NLPConcatHeadsDecodeOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  num_heads: uint32;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}

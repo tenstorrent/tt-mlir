@@ -1025,6 +1025,25 @@ def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads", [TTNN_MemoryConfigOpIn
     let hasVerifier = 1;
 }
 
+def TTNN_NLPConcatHeadsDecodeOp: TTNN_Op<"nlp_concat_heads_decode", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Concatenate heads op used in attention layer.";
+    let description = [{
+      Shuffles [S=1, B=32, 32(num_heads), head_dim] tensor into tensor with shape [S=1, 1, B=32, num_heads * head_dim].
+      This operation assumes that input num_heads is padded to at most 32. When invoking this op,
+      we specify the actual num_heads via the attribute `num_heads` and it should be less than input padded num_heads.
+      Operation will unpad the input num_heads to the actual num_heads.
+      The output is default width sharded by num heads.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         UI32Attr:$num_heads,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
 
     let summary = "Softmax op.";

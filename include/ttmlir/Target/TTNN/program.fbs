@@ -68,6 +68,7 @@ union OpType {
   MeshShardOp,
   MorehCumSumOp,
   NamedFullOp,
+  NLPConcatHeadsDecodeOp,
   PadOp,
   PermuteOp,
   PointToPointOp,
