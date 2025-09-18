@@ -21,17 +21,16 @@ static void runScaledDotProductAttentionDecodeOp(
   const ::ttnn::Tensor &key = tensorPool.getTTNNTensorAndValidate(op->key());
   const ::ttnn::Tensor &value =
       tensorPool.getTTNNTensorAndValidate(op->value());
+  const ::ttnn::Tensor &curPosTensor =
+      tensorPool.getTTNNTensorAndValidate(op->cur_pos_tensor());
   bool isCausal = op->is_causal();
+
   const std::optional<::ttnn::Tensor> &attentionMask =
       op->attention_mask()
           ? std::make_optional(
                 tensorPool.getTTNNTensorAndValidate(op->attention_mask()))
           : std::nullopt;
-  const std::optional<::ttnn::Tensor> &curPosTensor =
-      op->cur_pos_tensor()
-          ? std::make_optional(
-                tensorPool.getTTNNTensorAndValidate(op->cur_pos_tensor()))
-          : std::nullopt;
+
   const std::optional<::ttnn::Tensor> &attentionSink =
       op->attention_sink()
           ? std::make_optional(
@@ -39,8 +38,9 @@ static void runScaledDotProductAttentionDecodeOp(
           : std::nullopt;
   float scale = op->scale();
 
-  // Must pass a uint vector for curPos even though we are using a tensor
-  // instead, as the TTNN API expects a vector.
+  // The current position information is required for this op. It can either be
+  // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
+  // std::optional so we must pass an empty vector.
   constexpr std::vector<uint32_t> curPosEmpty = {};
   ::ttnn::Tensor out = ::ttnn::transformer::scaled_dot_product_attention_decode(
       query, key, value, isCausal, attentionMask, curPosEmpty, curPosTensor,
