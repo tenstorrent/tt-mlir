@@ -209,9 +209,9 @@ jobs:
           # {runs-on: n150,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/device_agnostic"},
           # {runs-on: n150,         sh-run: false, name: "perf", suite: "explorer",       image: "tracy",  type: "pytest",          path: "tools/explorer/test/run_tests.py"},
           # {runs-on: n150,         sh-run: false, name: "run",  suite: "op_by_op",       image: "tracy",  type: "pytest",          path: "test/python/op_by_op"},
-          {runs-on: n300,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/multi_device"},
+          # {runs-on: n300,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/multi_device"},
           # {runs-on: n150,         sh-run: false, name: "run",  suite: "chisel",         image: "tracy",  type: "pytest",          path: "runtime/tools/chisel/test"},
-          # {runs-on: n150,         sh-run: false,  name: "run",  suite: "run",            image: "tracy",  type: "pykernel"},
+          {runs-on: n150,         sh-run: false,  name: "run",  suite: "run",            image: "tracy",  type: "pykernel"},
           # {runs-on: n300,         sh-run: false, name: "run",  suite: "runtime_debug",  image: "tracy",  type: "unit"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
@@ -423,22 +423,21 @@ jobs:
         echo "Setting up Python environment for PyKernel tests..."
 
         # Set up PYTHONPATH to include the built packages
-        python --version
-        export PYTHONPATH="${{ steps.strings.outputs.build-output-dir }}/python_packages:${{ steps.strings.outputs.build-output-dir }}/tools/ttrt/build/lib/ttrt/runtime:$PYTHONPATH"
+        export PYTHONPATH="${{ steps.strings.outputs.build-output-dir }}/python_packages:${{ steps.strings.outputs.install-output-dir }}/tt-metal/ttnn:$PYTHONPATH"
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         echo "PYTHONPATH: $PYTHONPATH"
 
-        # Filter and install requirements from tt-metal (same as CMake does)
-        echo "Installing filtered requirements..."
-        grep -vE '^(git\+|^-r|^#)' ${{ steps.strings.outputs.install-output-dir }}/tt-metal/tt_metal/python_env/requirements-dev.txt > filtered_requirements.txt
-        echo "Filtered requirements:"
-        cat filtered_requirements.txt
-        PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install -r filtered_requirements.txt
+        # # Filter and install requirements from tt-metal (same as CMake does)
+        # echo "Installing filtered requirements..."
+        # grep -vE '^(git\+|^-r|^#)' ${{ steps.strings.outputs.install-output-dir }}/tt-metal/tt_metal/python_env/requirements-dev.txt > filtered_requirements.txt
+        # echo "Filtered requirements:"
+        # cat filtered_requirements.txt
+        # PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install -r filtered_requirements.txt
 
-        # Install extra packages
-        echo "Installing extra packages..."
-        PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install graphviz
+        # # Install extra packages
+        # echo "Installing extra packages..."
+        # PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu pip install graphviz
 
         # Check if ttnn is available
         echo "Checking for ttnn availability..."

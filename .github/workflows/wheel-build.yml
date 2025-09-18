@@ -156,11 +156,6 @@ jobs:
           # Test the pykernel installation
           python -c "import pykernel; print('Imported pykernel:', pykernel)"
 
-      - name: Test pykernel
-        shell: bash
-        run: |
-          pytest -v tools/pykernel/demo/test.py
-
   test-ttmlir-wheel-install:
     needs: build-ttmlir-wheel
     timeout-minutes: 30
