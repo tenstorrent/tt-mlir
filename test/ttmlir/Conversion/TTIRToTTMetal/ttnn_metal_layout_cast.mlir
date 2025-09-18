@@ -7,11 +7,10 @@
   <1x1, (d0, d1) -> (0, d0, d1)>,
   memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>
   >
-
 #metal_layout = #ttcore.metal_layout<
   logical_shape = 32x32,
   dim_alignments = 32x32,
-  collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1
+  collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1
   >
 
 module {
