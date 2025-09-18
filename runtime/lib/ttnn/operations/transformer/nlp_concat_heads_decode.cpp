@@ -2,15 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-
-// TODO (milant): remove when metal uplift is done.
-using MemoryConfig = tt::tt_metal::MemoryConfig;
 #include "operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
+
+#include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::transformer {
 
