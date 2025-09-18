@@ -5,14 +5,11 @@
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
-#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/ADT/SmallVector.h"
-#include <optional>
-#include <string>
 
 using namespace mlir;
 using namespace mlir::tt;
