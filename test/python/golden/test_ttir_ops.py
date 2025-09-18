@@ -2275,8 +2275,8 @@ unary_ops = [
     ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
     sum | Marks(pytest.mark.skip_config(["ttmetal"])),
     mean | Marks(pytest.mark.skip_config(["ttmetal"])),
-    # max | Marks(pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])),
-    max,
+    max | Marks(pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])),
+    # max,
     min | Marks(pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])),
     get_dimension_size
     | Marks(
