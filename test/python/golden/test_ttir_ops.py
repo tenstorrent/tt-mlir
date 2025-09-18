@@ -2382,23 +2382,26 @@ def test_unary_ops_int32(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize(
     "test_fn",
     [
         add,
         multiply,
         subtract,
-        eq | Marks(pytest.mark.skip_config(["ttmetal"])),
-        ne | Marks(pytest.mark.skip_config(["ttmetal"])),
-        le | Marks(pytest.mark.skip_config(["ttmetal"])),
-        lt | Marks(pytest.mark.skip_config(["ttmetal"])),
-        ge | Marks(pytest.mark.skip_config(["ttmetal"])),
-        gt | Marks(pytest.mark.skip_config(["ttmetal"])),
-        remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
+        remainder
+        | Marks(
+            pytest.mark.skip_config(["ttmetal"]), pytest.mark.skip_config(["emitpy"])
+        ),
         maximum
-        | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4084")),
-        minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
+        | Marks(
+            pytest.mark.skip_config(["ttmetal"], reason="Issue #4084"),
+            pytest.mark.skip_config(["emitpy"]),
+        ),
+        minimum
+        | Marks(
+            pytest.mark.skip_config(["ttmetal"]), pytest.mark.skip_config(["emitpy"])
+        ),
         matmul | Marks(pytest.mark.skip_config(["ttmetal"])),
         logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
         logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -2437,6 +2440,65 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.skip_config(
+    ["ttmetal", "p150"], reason="https://github.com/tenstorrent/tt-mlir/issues/4910"
+)
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        eq,
+        ne,
+        le,
+        lt,
+        ge,
+        gt,
+    ],
+)
+def test_comparison_ops(
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+):
+    def comparison_ops(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        randn_tensor1 = torch.randn(shape, dtype=torch.float32)
+        randn_tensor2 = torch.randn(shape, dtype=torch.float32)
+
+        # Set some indices in randn_tensor2 to be the same as randn_tensor1
+        # This ensures we have both equal and unequal values for comprehensive testing
+        num_elements = torch.numel(randn_tensor1)
+        num_equal_indices = num_elements // 2
+
+        equal_indices = torch.randperm(num_elements)[:num_equal_indices]
+        randn_tensor2.view(-1)[equal_indices] = randn_tensor1.view(-1)[equal_indices]
+
+        input_tensor1 = randn_tensor1.to(dtype)
+        input_tensor2 = randn_tensor2.to(dtype)
+
+        builder.set_goldens(inputs={in0: input_tensor1, in1: input_tensor2})
+
+        return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
+
+    compile_ttir_to_flatbuffer(
+        comparison_ops,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
 
 

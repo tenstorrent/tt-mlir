@@ -359,8 +359,8 @@ jobs:
         source env/activate
         pytest ${{ matrix.build.path }} ${{ matrix.build.flags }} -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
         if [[ "${{ matrix.build.run-ttrt }}" == "true" ]]; then
-          ttrt run ${{ matrix.build.ttrt-flags }} ttnn/
-          ttrt run ${{ matrix.build.ttrt-flags }} ttmetal/
+          ttrt run ${{ matrix.build.ttrt-flags }} ttir-builder-artifacts/
+          ttrt run ${{ matrix.build.ttrt-flags }} stablehlo-builder-artifacts/
         fi
 
 
@@ -513,7 +513,7 @@ jobs:
     - name: Download tt-alchemist wheel
       uses: actions/download-artifact@v4
       with:
-        name: tt-alchemist-whl-speedy
+        name: tt-alchemist-whl-tracy
 
     - name: Install tt-alchemist wheel
       shell: bash
