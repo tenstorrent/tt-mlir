@@ -18,7 +18,9 @@ namespace mlir::tt::ttmetal {
 namespace {
 class TTIRGenericRewriter : public OpConversionPattern<ttir::GenericOp> {
 public:
-  using OpConversionPattern<ttir::GenericOp>::OpConversionPattern;
+  TTIRGenericRewriter(MLIRContext *ctx, ttmetal::MathFidelity mathFidelity)
+      : OpConversionPattern<ttir::GenericOp>(ctx), mathFidelity_(mathFidelity) {
+  }
 
   static KernelArgsAttr evalKernelArgsFromSpec(Builder &builder,
                                                const SymbolTable &symbolTable,
@@ -44,7 +46,8 @@ public:
   static ArrayAttr
   convertThreadsToKernelConfigs(Builder &builder, mlir::ValueRange operands,
                                 ArrayAttr threads, ttcore::GridAttr opGrid,
-                                const SymbolTable &symbolTable) {
+                                const SymbolTable &symbolTable,
+                                ttmetal::MathFidelity mathFidelity) {
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
     auto coreRange = builder.getAttr<ttmetal::CoreRangeAttr>(opGrid);
@@ -59,8 +62,8 @@ public:
         constexpr bool fp32DestAccum = false;
         std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs, fp32DestAccum,
-            unpackModes);
+            thread.getKernelSymbol(), coreRange, kernelArgs, mathFidelity,
+            fp32DestAccum, unpackModes);
         break;
       }
       case ttir::ThreadType::Datamovement: {
@@ -113,12 +116,16 @@ public:
     ArrayAttr threads = op.getThreads();
     ttcore::GridAttr opGrid = op.getGrid();
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
-    auto kernelConfigs = convertThreadsToKernelConfigs(
-        rewriter, adaptor.getOperands(), threads, opGrid, symbolTable);
+    auto kernelConfigs =
+        convertThreadsToKernelConfigs(rewriter, adaptor.getOperands(), threads,
+                                      opGrid, symbolTable, mathFidelity_);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, buffers, cbs, cbPorts, kernelConfigs);
     return success();
   };
+
+private:
+  ttmetal::MathFidelity mathFidelity_;
 };
 } // namespace
 
@@ -220,10 +227,11 @@ namespace mlir::tt {
 
 void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
-                                   TypeConverter & /*typeConverter*/) {
-  patterns.add<ttmetal::TTIRGenericRewriter, ttmetal::MemrefAllocRewriter,
-               ttmetal::MemrefDeallocRewriter, ttmetal::TTIRToLayoutRewriter>(
-      ctx);
+                                   TypeConverter & /*typeConverter*/,
+                                   ttmetal::MathFidelity mathFidelity) {
+  patterns.add<ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
+               ttmetal::TTIRToLayoutRewriter>(ctx);
+  patterns.add<ttmetal::TTIRGenericRewriter>(ctx, mathFidelity);
 }
 
 } // namespace mlir::tt
