@@ -21,7 +21,7 @@ namespace ttnn {
 
 struct Conv2dConfigSearchSpace {
   llvm::SmallVector<ttcore::DataType> weightsDtype;
-  llvm::SmallVector<UnaryOpType> activation;
+  llvm::SmallVector<std::string> activation;
   llvm::SmallVector<bool> deallocateActivation;
   llvm::SmallVector<bool> reallocateHaloOutput;
   llvm::SmallVector<uint32_t> actBlockHOverride;
@@ -34,6 +34,7 @@ struct Conv2dConfigSearchSpace {
   llvm::SmallVector<::mlir::tt::ttnn::Layout> outputLayout;
   llvm::SmallVector<bool> enableActDoubleBuffer;
   llvm::SmallVector<bool> enableWeightsDoubleBuffer;
+  llvm::SmallVector<bool> enableSplitReader;
 
   // Constructor: All fields are empty by default.
   Conv2dConfigSearchSpace() = default;
@@ -69,6 +70,9 @@ struct Conv2dConfigSearchSpace {
   bool isEnableWeightsDoubleBufferSetForSearch() const {
     return !enableWeightsDoubleBuffer.empty();
   }
+  bool isEnableSplitReaderSetForSearch() const {
+    return !enableSplitReader.empty();
+  }
 
   // Helper to check if any field has been set with search values
   bool isAnyFieldSetForSearch() const {
@@ -81,7 +85,8 @@ struct Conv2dConfigSearchSpace {
            isShardLayoutSetForSearch() || isCoreGridSetForSearch() ||
            isTransposeShardsSetForSearch() || isOutputLayoutSetForSearch() ||
            isEnableActDoubleBufferSetForSearch() ||
-           isEnableWeightsDoubleBufferSetForSearch();
+           isEnableWeightsDoubleBufferSetForSearch() ||
+           isEnableSplitReaderSetForSearch();
   }
 };
 
@@ -91,7 +96,7 @@ struct Conv2dConfigSearchSpace {
 struct Conv2dConfigGeneratorSearchFieldInfo {
   using SearchValueVariant =
       std::variant<llvm::SmallVector<ttcore::DataType>,
-                   llvm::SmallVector<UnaryOpType>, llvm::SmallVector<uint32_t>,
+                   llvm::SmallVector<std::string>, llvm::SmallVector<uint32_t>,
                    llvm::SmallVector<bool>,
                    llvm::SmallVector<::mlir::tt::ttnn::TensorMemoryLayout>,
                    llvm::SmallVector<::mlir::tt::ttnn::Layout>,
@@ -125,8 +130,8 @@ struct Conv2dConfigGeneratorSearchFieldInfo {
   ttcore::DataType getCurrentDataType() const {
     return std::get<llvm::SmallVector<ttcore::DataType>>(values)[currentIndex];
   }
-  UnaryOpType getCurrentUnaryOpType() const {
-    return std::get<llvm::SmallVector<UnaryOpType>>(values)[currentIndex];
+  std::string getCurrentString() const {
+    return std::get<llvm::SmallVector<std::string>>(values)[currentIndex];
   }
   uint32_t getCurrentUint32() const {
     return std::get<llvm::SmallVector<uint32_t>>(values)[currentIndex];

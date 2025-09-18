@@ -26,13 +26,14 @@ public:
     ReluOp reluOp = getReluOp(srcOp);
     Value reluInput = reluOp.getInput();
 
+    mlir::StringAttr activation = rewriter.getStringAttr("relu");
     ttcore::DataType weightDtype = ttcore::elementTypeToDataType(
         srcOp.getWeight().getType().getElementType());
     Conv2dConfigAttr conv2dConfigAttr =
         srcOp.getConv2dConfigAttr()
             ? srcOp.getConv2dConfigAttr()
             : Conv2dConfigAttr::get(rewriter.getContext());
-    conv2dConfigAttr = conv2dConfigAttr.withActivation(UnaryOpType::Relu)
+    conv2dConfigAttr = conv2dConfigAttr.withActivation(activation)
                            .withWeightsDtype(weightDtype);
 
     rewriter.modifyOpInPlace(

@@ -461,6 +461,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     - `output_layout`: Layout of output tensor - TILE_LAYOUT or ROW_MAJOR_LAYOUT (default: TILE_LAYOUT)
     - `enable_act_double_buffer`: Enable activation double buffering for increased performance at cost of higher L1 usage (default: false)
     - `enable_weights_double_buffer`: Enable weights double buffering when using block sharding for increased performance at cost of higher L1 usage (default: false)
+    - `enable_split_reader`: Enable dual concurrent reader kernels instead of one. Only for height sharding, requires act_block_h >= 64 (default: false)
     - `in_place`: Re-use input tensor storage when creating output tensor (default: false)
 
     Example:
@@ -480,13 +481,14 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
       output_layout = tile,
       enable_act_double_buffer = false,
       enable_weights_double_buffer = false,
+      enable_split_reader = false,
       in_place = false
     >
     ```
   }];
 
   let parameters = (ins OptionalParameter<"std::optional<ttcore::DataType>">:$weights_dtype,
-                        OptionalParameter<"UnaryWithParamAttr">:$activation,
+                        OptionalParameter<"StringAttr">:$activation,
                         OptionalParameter<"BoolAttr">:$deallocate_activation,
                         OptionalParameter<"BoolAttr">:$reallocate_halo_output,
                         OptionalParameter<"std::optional<uint32_t>">:$act_block_h_override,
@@ -499,6 +501,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         OptionalParameter<"std::optional<Layout>">:$output_layout,
                         OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
+                        OptionalParameter<"BoolAttr">:$enable_split_reader,
                         OptionalParameter<"BoolAttr">:$in_place);
 
   let builders = [
@@ -508,7 +511,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   let extraClassDeclaration = [{
     static Conv2dConfigAttr getDefault(::mlir::MLIRContext *context);
 
-    Conv2dConfigAttr withActivation(UnaryOpType activation) const;
+    Conv2dConfigAttr withActivation(StringRef activation) const;
     Conv2dConfigAttr withWeightsDtype(ttcore::DataType dtype) const;
     Conv2dConfigAttr withDeallocateActivation(bool value) const;
     Conv2dConfigAttr withReallocateHaloOutput(bool value) const;
@@ -522,6 +525,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     Conv2dConfigAttr withOutputLayout(Layout layout) const;
     Conv2dConfigAttr withEnableActDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
+    Conv2dConfigAttr withEnableSplitReader(bool value) const;
     Conv2dConfigAttr withInPlace(bool value) const;
     bool hasActivation() const;
     bool hasWeightsDtype() const;
@@ -539,6 +543,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     bool hasAlwaysPreprocessWeights() const;
     bool hasEnableActDoubleBuffer() const;
     bool hasEnableWeightsDoubleBuffer() const;
+    bool hasEnableSplitReader() const;
     bool hasInPlace() const;
   }];
 

@@ -251,6 +251,8 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def_rw("enable_weights_double_buffer",
               &mlir::tt::ttnn::Conv2dConfigOverrideParams::
                   enableWeightsDoubleBuffer)
+      .def_rw("enable_split_reader",
+              &mlir::tt::ttnn::Conv2dConfigOverrideParams::enableSplitReader)
       .def("set_weights_dtype_from_str",
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
               const std::string &value) {
@@ -267,12 +269,7 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
              if (value != "none" && value != "relu") {
                throw std::invalid_argument("Invalid activation: " + value);
              }
-             if (auto activation =
-                     mlir::tt::ttnn::symbolizeUnaryOpType(value)) {
-               obj.activation = activation;
-             } else {
-               throw std::invalid_argument("Invalid activation: " + value);
-             }
+             obj.activation = value;
            })
       .def("set_deallocate_activation_from_str",
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
@@ -347,6 +344,11 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
            [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
               const std::string &value) {
              obj.enableWeightsDoubleBuffer = (value == "True");
+           })
+      .def("set_enable_split_reader_from_str",
+           [](mlir::tt::ttnn::Conv2dConfigOverrideParams &obj,
+              const std::string &value) {
+             obj.enableSplitReader = (value == "True");
            })
       .def("empty", &mlir::tt::ttnn::Conv2dConfigOverrideParams::empty);
 }

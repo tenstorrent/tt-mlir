@@ -886,11 +886,11 @@ template struct UnaryEltwiseOpModel<CbrtOp>;
 template struct UnaryEltwiseOpModel<BitwiseNotOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
-template struct UnaryEltwiseOpModel<RsqrtOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfcOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ExpOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<GeluOp>;
+template struct UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp>;
 
 //===----------------------------------------------------------------------===//
 // SigmoidOp
