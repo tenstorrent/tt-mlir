@@ -45,8 +45,6 @@ static void runScaledDotProductAttentionDecodeOp(
   ::ttnn::Tensor out = ::ttnn::transformer::scaled_dot_product_attention_decode(
       query, key, value, isCausal, attentionMask, curPosEmpty, curPosTensor,
       attentionSink, scale, outputMemoryConfig, std::nullopt, std::nullopt);
-  auto onHost = ::ttnn::from_device(out);
-  onHost.print();
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
