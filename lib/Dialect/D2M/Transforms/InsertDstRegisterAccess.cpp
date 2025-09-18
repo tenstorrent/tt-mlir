@@ -13,9 +13,9 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
 namespace mlir::tt::d2m {
@@ -27,8 +27,7 @@ template <typename GenericOrFuncOp>
 struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOrFuncOp> {
 public:
-  D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx,
-                                      bool useTileMatmul)
+  D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul)
       : OpRewritePattern<GenericOrFuncOp>(ctx), useTileMatmul(useTileMatmul) {};
 
   template <typename OpT>
@@ -75,17 +74,6 @@ public:
 
   LogicalResult matchAndRewrite(GenericOrFuncOp op,
                                 PatternRewriter &rewriter) const final {
-    static int matchCount = 0;
-    matchCount++;
-    std::error_code EC_match_start;
-    std::string filename =
-        "/tmp/d2m_match_start_" + std::to_string(matchCount) + ".mlir";
-    llvm::raw_fd_ostream DebugFile_match_start(filename, EC_match_start);
-    if (!EC_match_start) {
-      op->print(DebugFile_match_start);
-      DebugFile_match_start.close();
-    }
-
     bool modified = false;
     if constexpr (std::is_same_v<GenericOrFuncOp, GenericOp>) {
       for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
@@ -113,7 +101,7 @@ public:
             linalgToAffineFailed = true;
             return;
           }
-          
+
           rewriter.eraseOp(linalgGenericOp);
 
           modified |= insertDstRegisterAccess(
@@ -409,7 +397,7 @@ public:
       rewriter.eraseOp(loopOp);
     }
     rewriter.create<d2m::TileMatmulBlockOp>(op.getLoc(), inputAMemref,
-                                             inputBMemref, outputCMemref);
+                                            inputBMemref, outputCMemref);
     return true;
   }
 
@@ -624,8 +612,7 @@ public:
 
 namespace {
 class D2MInsertDstRegisterAccess
-    : public impl::D2MInsertDstRegisterAccessBase<
-          D2MInsertDstRegisterAccess> {
+    : public impl::D2MInsertDstRegisterAccessBase<D2MInsertDstRegisterAccess> {
 public:
   using impl::D2MInsertDstRegisterAccessBase<
       D2MInsertDstRegisterAccess>::D2MInsertDstRegisterAccessBase;

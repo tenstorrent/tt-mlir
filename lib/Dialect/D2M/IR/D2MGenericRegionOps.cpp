@@ -380,11 +380,6 @@ void CoreIndexOp::inferResultRanges(
 }
 
 mlir::OpFoldResult IterIndexOp::fold(FoldAdaptor adaptor) {
-  llvm::errs() << "[D2M DEBUG] IterIndexOp::fold called for dim " << getDim()
-               << "\n";
-  llvm::errs() << "[D2M DEBUG] IterIndexOp being folded: " << *this << "\n";
-  llvm::errs() << "[D2M DEBUG] Parent operation: "
-               << *getOperation()->getParentOp() << "\n";
   return adaptor.getDimAttr();
 }
 

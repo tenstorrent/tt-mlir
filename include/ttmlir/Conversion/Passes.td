@@ -129,7 +129,6 @@ def TTIRToD2MGeneric: Pass<"ttir-to-d2m-generic", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::d2m::D2MDialect", "mlir::linalg::LinalgDialect"];
   let constructor = "createTTIRToD2MGenericPass()";
   let options = [
-      Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"true", "Use tile_matmul">,
       Option<"defaultInputMemSpace", "default-input-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceL1", "Set default memspace for input tensors",
           [{::llvm::cl::values(
             clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),

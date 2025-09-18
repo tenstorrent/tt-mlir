@@ -251,6 +251,15 @@ public:
                                targetGridShape) {}
 
 private:
+  static constexpr bool isComparisonOp =
+      std::is_same_v<TileOp, d2m::TileEqzOp> ||
+      std::is_same_v<TileOp, d2m::TileNezOp> ||
+      std::is_same_v<TileOp, d2m::TileGtzOp> ||
+      std::is_same_v<TileOp, d2m::TileGezOp> ||
+      std::is_same_v<TileOp, d2m::TileLtzOp> ||
+      std::is_same_v<TileOp, d2m::TileLezOp>;
+
+private:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -312,10 +321,24 @@ private:
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
-              mlir::Value yield = bbBuilder.create<TileOp>(
-                  loc,
-                  /* resultTypes */ bbArgs.take_back(numOutputs).getTypes(),
-                  /* operands */ bbArgs.take_front(numInputs));
+              mlir::Value yield;
+
+              if constexpr (isComparisonOp) {
+                // For comparison ops, first subtract then compare with zero
+                mlir::Value subResult = bbBuilder.create<d2m::TileSubBinaryOp>(
+                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
+                    /*operands=*/bbArgs.take_front(numInputs));
+                yield = bbBuilder.create<TileOp>(
+                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
+                    /*operands=*/subResult);
+              } else {
+                // For regular elementwise ops, create TileOp directly
+                yield = bbBuilder.create<TileOp>(
+                    loc,
+                    /* resultTypes */ bbArgs.take_back(numOutputs).getTypes(),
+                    /* operands */ bbArgs.take_front(numInputs));
+              }
+
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
 
@@ -929,7 +952,7 @@ void populateTTIRToD2MGenericPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     mlir::tt::ttcore::MemorySpace defaultInputMemSpace,
     mlir::tt::ttcore::MemorySpace defaultOutputMemSpace,
-    const llvm::SmallVector<int64_t> &targetGridShape, bool useTileMatmul) {
+    const llvm::SmallVector<int64_t> &targetGridShape) {
   // clang-format off
   patterns.add<
     // Elementwise.
@@ -940,6 +963,7 @@ void populateTTIRToD2MGenericPatterns(
     D2MNamedElementwiseRewriter<ttir::DivOp,        d2m::TileDivOp>,
     D2MNamedElementwiseRewriter<ttir::ExpOp,        d2m::TileExpOp>,
     D2MNamedElementwiseRewriter<ttir::FloorOp,      d2m::TileFloorOp>,
+    D2MNamedElementwiseRewriter<ttir::GeluOp,       d2m::TileGeluOp>,
     D2MNamedElementwiseRewriter<ttir::LogOp,        d2m::TileLogOp>,
     D2MNamedElementwiseRewriter<ttir::LogicalNotOp, d2m::TileLogicalNotOp>,
     D2MNamedElementwiseRewriter<ttir::MultiplyOp,   d2m::TileMulOp>,
@@ -953,6 +977,15 @@ void populateTTIRToD2MGenericPatterns(
     D2MNamedElementwiseRewriter<ttir::SqrtOp,       d2m::TileSqrtOp>,
     D2MNamedElementwiseRewriter<ttir::SubtractOp,   d2m::TileSubOp>,
     D2MNamedElementwiseRewriter<ttir::TanOp,        d2m::TileTanOp>,
+
+    // Comparison.
+    D2MNamedElementwiseRewriter<ttir::EqualOp,        d2m::TileEqzOp>,
+    D2MNamedElementwiseRewriter<ttir::NotEqualOp,     d2m::TileNezOp>,
+    D2MNamedElementwiseRewriter<ttir::GreaterThanOp,  d2m::TileGtzOp>,
+    D2MNamedElementwiseRewriter<ttir::GreaterEqualOp, d2m::TileGezOp>,
+    D2MNamedElementwiseRewriter<ttir::LessThanOp,     d2m::TileLtzOp>,
+    D2MNamedElementwiseRewriter<ttir::LessEqualOp,    d2m::TileLezOp>,
+
     // Reduction.
     D2MNamedReductionRewriter<ttir::MaxOp,          d2m::TileReduceMaxOp>,
     D2MNamedReductionRewriter<ttir::SumOp,          d2m::TileReduceSumOp>,
@@ -969,12 +1002,7 @@ void populateTTIRToD2MGenericPatterns(
   patterns.add<TTIREmptyToD2MEmptyRewriter>(typeConverter, ctx);
 
   // Matmul.
-  if (useTileMatmul) {
-    patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
-  }
-  else {
-    patterns.add<D2MMatmulRewriter<d2m::TileMatmulBlockOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
-  }
+  patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
   // clang-format on
 }
 
@@ -990,7 +1018,6 @@ public:
   TTIRToD2MGenericPass() = default;
 
   TTIRToD2MGenericPass(const TTIRToD2MGenericOptions &options) : Base() {
-    this->useTileMatmul = options.useTileMatmul;
     this->defaultInputMemSpace = options.defaultInputMemSpace;
     this->defaultOutputMemSpace = options.defaultOutputMemSpace;
     this->overrideDeviceShape = options.overrideDeviceShape;
@@ -999,7 +1026,6 @@ public:
   TTIRToD2MGenericPass(const TTIRToD2MGenericPass &rhs) : Base(rhs) {
     // Workaround: Passes are required to be copy-constructible but autogen'ed
     // base class copy constructors ignore Pass option fields.
-    this->useTileMatmul = rhs.useTileMatmul;
     this->defaultInputMemSpace = rhs.defaultInputMemSpace;
     this->defaultOutputMemSpace = rhs.defaultOutputMemSpace;
     this->overrideDeviceShape = rhs.overrideDeviceShape;
@@ -1016,9 +1042,9 @@ public:
     typeConverter.addConversion([](Type t) { return t; });
 
     RewritePatternSet patterns(ctx);
-    populateTTIRToD2MGenericPatterns(
-        ctx, patterns, typeConverter, defaultInputMemSpace,
-        defaultOutputMemSpace, gridShape, useTileMatmul);
+    populateTTIRToD2MGenericPatterns(ctx, patterns, typeConverter,
+                                     defaultInputMemSpace,
+                                     defaultOutputMemSpace, gridShape);
 
     ConversionTarget target(*ctx);
     target.addIllegalDialect<mlir::tt::ttir::TTIRDialect>();

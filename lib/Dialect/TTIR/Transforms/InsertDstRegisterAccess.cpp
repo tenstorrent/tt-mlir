@@ -75,17 +75,6 @@ public:
 
   LogicalResult matchAndRewrite(GenericOrFuncOp op,
                                 PatternRewriter &rewriter) const final {
-    static int matchCount = 0;
-    matchCount++;
-    std::error_code EC_match_start;
-    std::string filename =
-        "/tmp/ttir_match_start_" + std::to_string(matchCount) + ".mlir";
-    llvm::raw_fd_ostream DebugFile_match_start(filename, EC_match_start);
-    if (!EC_match_start) {
-      op->print(DebugFile_match_start);
-      DebugFile_match_start.close();
-    }
-
     bool modified = false;
     if constexpr (std::is_same_v<GenericOrFuncOp, GenericOp>) {
       for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
@@ -113,7 +102,7 @@ public:
             linalgToAffineFailed = true;
             return;
           }
-          
+
           rewriter.eraseOp(linalgGenericOp);
 
           modified |= insertDstRegisterAccess(

@@ -14,12 +14,6 @@ include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/IR/OpAsmInterface.td"
 
-// Generate op declarations/definitions
-#ifdef GET_OP_CLASSES
-#undef GET_OP_CLASSES
-#endif
-
-
 // Minimal scaffolding op: ViewLayout
 
 def D2M_ViewLayoutOp : D2M_Op<"view_layout", [Pure, D2M_ViewOpInterface]> {
@@ -50,44 +44,63 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
       "getBufferType"
     ]>
   ]> {
-  let hasCanonicalizer = 1;
-  let hasFolder = 1;
-  let summary = "Layout transition (D2M)";
-  let description = [{
-    Transition tensors from one layout to another (memory space, format,
-    tiling, sharding). This mirrors `ttir.to_layout` semantics for D2M.
-  }];
+    let summary = "Layout op.";
+    let description = [{
+      ToLayout operation, transition tensors from one layout to another.  Some examples include:
+        - Transitioning between different memory spaces, e.g. DRAM to L1.
+        - Transitioning between different data types, e.g. f32 to f16.
+        - Transitioning between different tile sizes, e.g. 1x16 to 32x32
+        - Transitioning between different tensor sharding
+        - Some combination of the above
 
-  let arguments = (ins AnyRankedTensorOrMemRef:$input,
-                       AnyRankedTensorOrMemRef:$output,
-                       OptionalAttr<TTCore_MetalLayoutAttr>:$layout);
-  let results = (outs Variadic<AnyRankedTensor>:$results);
+      ```llvm
+      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
+      #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      %1 = "d2m.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
+      ```
+    }];
 
-  let assemblyFormat = [{ $input `,` $output `:` type($input) `into` type($output) (`hostInfo` `=` $layout^)? attr-dict (`->` type($results)^)? }];
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output,
+                         OptionalAttr<TTCore_MetalLayoutAttr>:$layout);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
 
-  let builders = [
-    OpBuilder<(ins "Value": $input, "Value": $output, CArg<"ttcore::MetalLayoutAttr", "nullptr">: $layout),
-    [{
-      build($_builder, $_state, {output.getType()}, input, output, layout);
-    }]>,
-  ];
+    let assemblyFormat = [{ $input `,` $output `:` type($input) `into` type($output) (`hostInfo` `=` $layout^)? attr-dict (`->` type($results)^)? }];
 
-  let extraClassDeclaration = [{
-    struct CompoundComponents {
-      bool isLayoutChange = false;
-      bool isGridChange = false;
-      bool isFormatChange = false;
-      bool isMemorySpaceChange = false;
+    let builders =
+    [
+      OpBuilder<(ins "Value": $input, "Value": $output, CArg<"ttcore::MetalLayoutAttr", "nullptr">: $layout),
+      [{
+        build($_builder, $_state, {output.getType()}, input, output, layout);
+      }]>,
+    ];
 
-      bool isCompound() const {
-        return isLayoutChange + isFormatChange + (isGridChange || isMemorySpaceChange) > 1;
-      }
-    };
+    let extraClassDeclaration = [{
+      struct CompoundComponents {
+        bool isLayoutChange = false;
+        bool isGridChange = false;
+        bool isFormatChange = false;
+        bool isMemorySpaceChange = false;
 
-    CompoundComponents compoundComponents();
-    ttcore::MetalLayoutAttr getOrCreateInputLayout();
-    ttcore::MetalLayoutAttr getOrCreateOutputLayout();
-  }];
+        bool isCompound() {
+          return isLayoutChange + isFormatChange + (isGridChange || isMemorySpaceChange) > 1;
+        }
+      };
+
+      // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
+      CompoundComponents compoundComponents();
+      bool isCompound() { return compoundComponents().isCompound(); }
+      ttcore::MetalLayoutAttr getOrCreateInputLayout();
+      ttcore::MetalLayoutAttr getOrCreateOutputLayout();
+
+      bool isHostToDevice();
+      bool isDeviceToHost();
+    }];
+
+    let hasVerifier = 1;
+
+    let hasFolder = 1;
+    let hasCanonicalizer = 1;
 }
 
 def D2M_StreamLayoutOp : D2M_Op<"stream_layout", [
@@ -114,8 +127,6 @@ def D2M_StreamLayoutOp : D2M_Op<"stream_layout", [
   let assemblyFormat = [{ $input `,` $storage attr-dict `:` `(` type($input) `,` type($storage) `)` `->` type($result) }];
 }
 
-// D2M generic op (mirrors TTIR_GenericOp signature)
-
 def D2M_GenericOp : D2M_Op<"generic",
   [ AttrSizedOperandSegments
   , NoTerminator
@@ -133,7 +144,7 @@ def D2M_GenericOp : D2M_Op<"generic",
   ]> {
     let summary = "Generically dispatch work to a grid of cores (D2M).";
     let description = [{
-      Same semantics as TTIR generic; carries regions for compute/datamovement
+      Same semantics as D2M generic; carries regions for compute/datamovement
       to be consumed by the metal path.
     }];
 

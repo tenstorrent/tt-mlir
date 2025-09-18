@@ -10,6 +10,9 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Operation.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+
 namespace mlir::tt::d2m {
 
 namespace detail {
