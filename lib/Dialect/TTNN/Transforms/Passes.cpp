@@ -29,6 +29,7 @@
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
+#define GEN_PASS_DEF_TTNNLOADINPUTTENSORS
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
 #define GEN_PASS_DEF_TTNNEMPYWORKAROUNDS
@@ -527,6 +528,205 @@ public:
             });
           });
     }
+  }
+};
+
+class TTNNLoadInputTensors
+    : public impl::TTNNLoadInputTensorsBase<TTNNLoadInputTensors> {
+
+public:
+  using impl::TTNNLoadInputTensorsBase<
+      TTNNLoadInputTensors>::TTNNLoadInputTensorsBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    // Ensure that the module has a single region and a single block within that
+    // region.
+    //
+    assert(moduleOp->getRegions().size() == 1);
+    assert(moduleOp->getRegion(0).hasOneBlock());
+
+    // Get the only existing block.
+    //
+    Block *block = moduleOp.getBody(0);
+
+    // Find all the func.func ops in the module that are "forward" functions.
+    //
+    SmallVector<func::FuncOp, 1> forwardFuncOps;
+    block->walk([&](func::FuncOp funcOp) {
+      // Rename the function if it's named `main` to `_main`. This is done to
+      // avoid name conflicts.
+      //
+      if (funcOp.getName() == "main") {
+        rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
+      }
+
+      if (funcOp.isPrivate() || ttmlir::utils::isConstEvalFunc(funcOp)) {
+        return mlir::WalkResult::skip();
+      }
+
+      forwardFuncOps.push_back(funcOp);
+      return mlir::WalkResult::advance();
+    });
+
+    // Iterate over all func ops and add input tensor loader functions.
+    //
+    llvm::SmallVector<mlir::func::FuncOp, 1> inputLoaderFuncOps;
+    for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
+      rewriter.setInsertionPointToEnd(block);
+      inputLoaderFuncOps.emplace_back(createInputLoaderFunction(
+          rewriter, forwardFuncOp.getLoc(), forwardFuncOp));
+    }
+
+    // Create a main function to call input loaders and forward funcs.
+    //
+    {
+      std::string mainFuncName = "main";
+
+      // Create a function type.
+      //
+      FunctionType functionType =
+          mlir::FunctionType::get(&getContext(), {}, rewriter.getI32Type());
+
+      // Set insertion point to end of the block.
+      //
+      rewriter.setInsertionPointToEnd(block);
+
+      // Create the main function.
+      //
+      func::FuncOp mainFuncOp = rewriter.create<mlir::func::FuncOp>(
+          moduleOp.getLoc(), mainFuncName, functionType);
+
+      // Set insertion point to the start of the main function.
+      //
+      rewriter.modifyOpInPlace(mainFuncOp, [&]() {
+        rewriter.setInsertionPointToStart(mainFuncOp.addEntryBlock());
+      });
+
+      for (auto [forwardFuncOp, inputLoaderFuncOp] :
+           llvm::zip_equal(forwardFuncOps, inputLoaderFuncOps)) {
+
+        // Load the input tensors for a forwardFuncOp.
+        //
+        func::CallOp loadedTensors = rewriter.create<mlir::func::CallOp>(
+            forwardFuncOp.getLoc(), inputLoaderFuncOp,
+            /*operands=*/ValueRange());
+
+        // Call a forward function with the loaded tensors.
+        //
+        rewriter.create<mlir::func::CallOp>(
+            forwardFuncOp.getLoc(), forwardFuncOp, loadedTensors->getResults());
+      }
+
+      // Return 0
+      //
+      // func::ReturnOp requires a Value to be returned, which means that an SSA
+      // needs to be returned, hence create a constant 0 via arith::ConstantOp.
+      //
+      Value constantZero = rewriter.create<arith::ConstantOp>(
+          rewriter.getUnknownLoc(), rewriter.getI32Type(),
+          rewriter.getI32IntegerAttr(0));
+      rewriter.create<func::ReturnOp>(mainFuncOp->getLoc(), constantZero);
+    }
+  }
+
+private:
+  static func::FuncOp createInputLoaderFunction(IRRewriter &rewriter,
+                                                Location loc,
+                                                func::FuncOp forwardFuncOp) {
+    MLIRContext *ctx = rewriter.getContext();
+
+    // Create a new function that will load the input tensors from disk.
+    //
+    std::string inputLoaderFuncName =
+        "load_inputs_for_" + forwardFuncOp.getName().str();
+
+    // Create the function type.
+    //
+    llvm::ArrayRef<mlir::Type> returnTypes =
+        forwardFuncOp.getFunctionType().getInputs();
+    FunctionType functionType = mlir::FunctionType::get(ctx, {}, returnTypes);
+
+    // Create the function.
+    //
+    func::FuncOp inputLoaderFuncOp = rewriter.create<mlir::func::FuncOp>(
+        loc, inputLoaderFuncName, functionType);
+
+    // Add a Block to func op and set insertion point to the beginning of the
+    // Block.
+    //
+    rewriter.modifyOpInPlace(inputLoaderFuncOp, [&]() {
+      rewriter.setInsertionPointToStart(inputLoaderFuncOp.addEntryBlock());
+    });
+
+    // Load input tensors from disk using hardcoded filenames.
+    //
+    assert(returnTypes.size() == 1 &&
+           mlir::isa<TupleType>(returnTypes.front()) &&
+           "Expected input loader to return a single tuple of input tensors!");
+
+    SmallVector<Value> loadedTensors;
+    size_t argIndex = 0;
+    for (const Type &type :
+         mlir::cast<mlir::TupleType>(returnTypes[0]).getTypes()) {
+      // Ensure that the type is a RankedTensorType.
+      //
+      RankedTensorType rankedTensorType =
+          mlir::dyn_cast<RankedTensorType>(type);
+      assert(rankedTensorType &&
+             "Expected input tensor to be of type RankedTensorType!");
+
+      loadedTensors.push_back(
+          loadTensor(rewriter, loc, rankedTensorType, argIndex));
+      argIndex++;
+    }
+
+    // Create a tuple from the loaded tensors.
+    //
+    ttcore::TupleOp tuple =
+        rewriter.create<ttcore::TupleOp>(loc, returnTypes, loadedTensors);
+
+    // Create ReturnOp.
+    //
+    rewriter.create<func::ReturnOp>(forwardFuncOp.getLoc(),
+                                    tuple->getResults());
+
+    return inputLoaderFuncOp;
+  }
+
+  static mlir::Value loadTensor(IRRewriter &rewriter, Location loc, Type type,
+                                size_t argIndex) {
+    RankedTensorType tensorType = llvm::cast<mlir::RankedTensorType>(type);
+
+    // Get the layout attribute.
+    //
+    ttnn::TTNNLayoutAttr layoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+
+    // Create hardcoded filename: arg0.tensorbin, arg1.tensorbin, etc.
+    //
+    std::string filename = "arg" + std::to_string(argIndex) + ".tensorbin";
+    StringAttr filePathAttr = rewriter.getStringAttr(filename);
+
+    // Create LoadTensorOp to load tensor from disk.
+    //
+    ttnn::LoadTensorOp loadTensorOp = rewriter.create<ttnn::LoadTensorOp>(
+        loc, tensorType, filePathAttr, /*device=*/nullptr);
+
+    // If tensor is meant to be on device, add ToDevice op.
+    //
+    if (layoutAttr.isDeviceBufferType()) {
+      ttnn::GetDeviceOp device =
+          ttnn::utils::getOrInsertDevice(rewriter, loadTensorOp);
+
+      mlir::Value tensorOnDevice = rewriter.create<ttnn::ToDeviceOp>(
+          loc, tensorType, loadTensorOp, device, nullptr);
+
+      return tensorOnDevice;
+    }
+    return loadTensorOp;
   }
 };
 
