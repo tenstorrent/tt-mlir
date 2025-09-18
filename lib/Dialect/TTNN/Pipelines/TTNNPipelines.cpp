@@ -174,9 +174,9 @@ void createTTIRToTTNNBackendPipeline(
     devicePm.addPass(tt::ttnn::createTTNNFusing());
   }
   createTTNNPipelineWorkaroundPass(devicePm, options);
-  if (options.enableConstEval) {
-    devicePm.addPass(transforms::createConstEvalHoistTransform());
-  }
+  // if (options.enableConstEval) {
+  //   devicePm.addPass(transforms::createConstEvalHoistTransform());
+  // }
   createTTNNPipelineAnalysisPasses(devicePm, options);
   // We need to re-run const-eval to pick up const prepare conv2d weight ops
   // split during the analysis passes.
