@@ -103,7 +103,6 @@ void createTTIRToTTMetalMiddleendPipeline(
     allocateOptions.allowOutputSpilling = options.allowOutputSpilling;
   }
   pm.addPass(ttir::createTTIRAllocate(allocateOptions));
-  pm.addPass(ttir::createTTIRAllocate());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   ttir::TTIRGenericApplyInterchangeOptions applyInterchangeOptions;
   {
