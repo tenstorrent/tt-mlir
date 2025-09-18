@@ -469,6 +469,7 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
                                                        , "bufferizesToMemoryWrite"
+                                                       , "isNotConflicting"
                                                        , "bufferize"
                                                        , "getAliasingValues"
                                                        , "getBufferType"

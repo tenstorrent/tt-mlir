@@ -327,6 +327,13 @@ bool mlir::tt::ttir::DMAOp::bufferizesToMemoryWrite(
   return operand.get() == getDst();
 }
 
+bool mlir::tt::ttir::DMAOp::isNotConflicting(
+    mlir::OpOperand *, mlir::OpOperand *,
+    const mlir::bufferization::AnalysisState &) {
+  // Return true to avoid forcing out of place bufferization.
+  return true;
+}
+
 mlir::LogicalResult mlir::tt::ttir::DMAOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
