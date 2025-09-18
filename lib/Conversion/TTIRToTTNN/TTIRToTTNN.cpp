@@ -1775,11 +1775,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ScaledDotProductAttentionDecodeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    FloatAttr scaleAttr = op.getScaleAttr() ? op.getScaleAttr() : nullptr;
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionDecodeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
         adaptor.getCurPosTensor(), adaptor.getAttentionMask(),
-        adaptor.getAttentionSink(), op.getIsCausal(), op.getScale(),
+        adaptor.getAttentionSink(), op.getIsCausal(), scaleAttr,
         /*memory_config=*/nullptr);
     return success();
   }
