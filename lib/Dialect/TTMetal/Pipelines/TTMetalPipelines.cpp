@@ -100,7 +100,6 @@ void createTTIRToTTMetalMiddleendPipeline(
   ttir::TTIRAllocateOptions allocateOptions;
   { allocateOptions.numStreamBuffers = options.numStreamBuffers; }
   pm.addPass(ttir::createTTIRAllocate(allocateOptions));
-  pm.addPass(ttir::createTTIRAllocate());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   ttir::TTIRGenericApplyInterchangeOptions applyInterchangeOptions;
   {
