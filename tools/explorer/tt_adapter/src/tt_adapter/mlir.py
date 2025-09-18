@@ -456,9 +456,11 @@ def parse_conv2d_config(attr):
             },
         )
     )
-    activation = str(conv2d_config.activation.op_type)
-    if len(activation) == 0:
-        activation = OVERRIDE_PARAMETER_DISABLED_STR
+    activation = (
+        str(conv2d_config.activation.op_type)
+        if conv2d_config.activation is not None
+        else OVERRIDE_PARAMETER_DISABLED_STR
+    )
     result.append(
         utils.make_editable_kv(
             graph_builder.KeyValue(
