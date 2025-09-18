@@ -416,9 +416,9 @@ private:
       std::is_same_v<TileOp, ttir::TileLezOp>;
 
   static constexpr bool isNativeBcastOp =
-      std::is_same_v<ConcreteOp, ttir::AddOp> ||
-      std::is_same_v<ConcreteOp, ttir::SubtractOp> ||
-      std::is_same_v<ConcreteOp, ttir::MultiplyOp>;
+      std::is_same_v<TileOp, ttir::TileAddOp> ||
+      std::is_same_v<TileOp, ttir::TileSubOp> ||
+      std::is_same_v<TileOp, ttir::TileMulOp>;
 
   std::pair<ttcore::TileBcastType, ttcore::TileBcastType>
   getImplicitBcastInfo(ConcreteOp op, ArrayRef<Value> inputs,
@@ -530,6 +530,8 @@ private:
 
     const auto [lhsBcastType, rhsBcastType] =
         getImplicitBcastInfo(op, origInputs, origOutputs);
+    TT_assertv(lhsBcastType == ttcore::TileBcastType::None,
+               "LHS and bi-directional broadcast are unsupported.");
 
     ttcore::GridAttr grid = ttcore::GridAttr::get(ctx, targetSquareGridShape);
 
@@ -580,11 +582,11 @@ private:
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
-        SmallVector<mlir::NamedAttribute, 2u> attributes;
-        attributes.emplace_back(
+        SmallVector<mlir::NamedAttribute, 2u> bcastAttrs;
+        bcastAttrs.emplace_back(
             rewriter.getStringAttr("lhsBcastType"),
             tt::ttcore::TileBcastTypeAttr::get(ctx, lhsBcastType));
-        attributes.emplace_back(
+        bcastAttrs.emplace_back(
             rewriter.getStringAttr("rhsBcastType"),
             tt::ttcore::TileBcastTypeAttr::get(ctx, rhsBcastType));
 
@@ -598,21 +600,19 @@ private:
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
-              mlir::Value yield;
+              mlir::ValueRange operands = bbArgs.take_front(numInputs);
+              mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
 
+              mlir::Value yield;
               if constexpr (isComparisonOp) {
-                // For comparison ops, first subtract then compare with zero
-                mlir::Value subResult = bbBuilder.create<ttir::TileSubOp>(
-                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
-                    /*operands=*/bbArgs.take_front(numInputs));
-                yield = bbBuilder.create<TileOp>(
-                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
-                    /*operands=*/subResult);
+                // For comparison ops, first subtract then compare with zero.
+                yield = bbBuilder.create<ttir::TileSubOp>(
+                    loc, resultTypes, operands);
+                yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
               } else {
-                // For regular elementwise ops, create TileOp directly
-                yield = bbBuilder.create<TileOp>(
-                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
-                    /*operands=*/bbArgs.take_front(numInputs), attributes);
+                // For regular elementwise ops, create TileOp directly.
+                yield = bbBuilder.create<TileOp>(loc, resultTypes, operands,
+                                                 bcastAttrs);
               }
 
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);

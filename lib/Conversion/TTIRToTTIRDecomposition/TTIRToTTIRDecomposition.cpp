@@ -2098,6 +2098,42 @@ public:
 };
 } // namespace
 
+namespace {
+template <typename RhsBcastOp>
+struct MetalLhsBcastPattern : public OpConversionPattern<RhsBcastOp> {
+public:
+  using OpConversionPattern<RhsBcastOp>::OpConversionPattern;
+
+  static_assert(std::is_same_v<RhsBcastOp, ttir::AddOp> ||
+                std::is_same_v<RhsBcastOp, ttir::SubtractOp> ||
+                std::is_same_v<RhsBcastOp, ttir::MultiplyOp>);
+
+  LogicalResult
+  matchAndRewrite(RhsBcastOp op,
+                  typename OpConversionPattern<RhsBcastOp>::OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if constexpr (std::is_same_v<RhsBcastOp, ttir::SubtractOp>) {
+      // For the non-commutative subtraction, negate then add.
+      auto negatedRhs =
+          rewriter.create<ttir::EmptyOp>(op.getLoc(), op.getRhs().getType());
+      auto negateOp = rewriter.create<ttir::NegOp>(op.getLoc(), op.getType(),
+                                                   op.getRhs(), negatedRhs);
+      auto addOp = rewriter.create<ttir::AddOp>(
+          op.getLoc(), op.getType(), negateOp, op.getLhs(), op.getOutput());
+
+      rewriter.replaceOp(op, addOp);
+    } else {
+      // Otherwise just flip the operands.
+      auto swappedOp = rewriter.create<RhsBcastOp>(
+          op.getLoc(), op.getType(), op.getRhs(), op.getLhs(), op.getOutput());
+      rewriter.replaceOp(op, swappedOp);
+    }
+
+    return success();
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
@@ -2117,6 +2153,9 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);
   patterns.add<ReductionProdPattern>(typeConverter, ctx);
+  patterns.add<MetalLhsBcastPattern<ttir::AddOp>>(typeConverter, ctx);
+  patterns.add<MetalLhsBcastPattern<ttir::SubtractOp>>(typeConverter, ctx);
+  patterns.add<MetalLhsBcastPattern<ttir::MultiplyOp>>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

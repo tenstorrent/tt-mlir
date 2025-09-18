@@ -82,7 +82,9 @@ void createTTIRToTTMetalFrontendPipeline(
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
   }
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
-  pm.addPass(tt::createTTIRToTTIRDecompositionPass());
+  mlir::tt::TTIRToTTIRDecompositionOptions decompOptions;
+  decompOptions.decompConfig = mlir::tt::DecompMode::TTMetal;
+  pm.addPass(tt::createTTIRToTTIRDecompositionPass(decompOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
 
   ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;

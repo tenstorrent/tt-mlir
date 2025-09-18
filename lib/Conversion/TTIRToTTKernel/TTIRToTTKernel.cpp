@@ -518,9 +518,8 @@ public:
           op.getLhsBcastType().value_or(ttcore::TileBcastType::None);
       auto rhsBcastType =
           op.getRhsBcastType().value_or(ttcore::TileBcastType::None);
-      TT_assertv((lhsBcastType == ttcore::TileBcastType::None ||
-                  rhsBcastType == ttcore::TileBcastType::None),
-                 "Bi-directional broadcast is unsupported.");
+      TT_assertv(lhsBcastType == ttcore::TileBcastType::None,
+                 "LHS and bi-directional broadcast are unsupported.");
 
       auto cbLhs = getCB(rewriter, op.getLhs());
       auto cbRhs = getCB(rewriter, op.getRhs());
@@ -528,14 +527,6 @@ public:
       auto lhsIdx = adaptor.getLhs();
       auto rhsIdx = adaptor.getRhs();
       auto dstIdx = getDstIdxFromResult(op.getResult());
-
-      // Only RHS bcast is supported at the ttkernel level
-      if (lhsBcastType != ttcore::TileBcastType::None &&
-          rhsBcastType == ttcore::TileBcastType::None) {
-        std::swap(cbLhs, cbRhs);
-        std::swap(lhsIdx, rhsIdx);
-        std::swap(lhsBcastType, rhsBcastType);
-      }
 
       const auto kernelBcastOp = getKernelBcastOp();
       const auto kernelBcastType = getKernelBcastType(rhsBcastType);
