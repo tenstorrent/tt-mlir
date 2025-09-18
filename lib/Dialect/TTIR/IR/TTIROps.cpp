@@ -3178,10 +3178,6 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::verify() {
   auto inputType = mlir::dyn_cast<mlir::ShapedType>(getInput().getType());
   auto outputType = mlir::dyn_cast<mlir::ShapedType>(getResult().getType());
 
-  if (!inputType || !outputType) {
-    return emitOpError("Input/output must be shaped types (tensor or memref)");
-  }
-
   const bool inputIsMemref = mlir::isa<mlir::MemRefType>(inputType);
   const bool outputIsMemref = mlir::isa<mlir::MemRefType>(outputType);
 
