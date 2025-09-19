@@ -294,7 +294,7 @@ struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
 
   ToLayoutFoldRedundantPattern(MLIRContext *context)
       : OpRewritePattern<ToLayoutOp>(context) {
-    setDebugName("ttir.ToLayoutFoldRedundantPattern");
+    setDebugName("d2m.ToLayoutFoldRedundantPattern");
   }
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
@@ -303,6 +303,7 @@ struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
     if (!producerLayoutOp) {
       return failure();
     }
+    // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
     rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
                                             op.getOutput());
     return success();

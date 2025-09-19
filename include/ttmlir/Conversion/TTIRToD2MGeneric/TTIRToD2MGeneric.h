@@ -23,7 +23,7 @@ void populateTTIRToD2MGenericPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     mlir::tt::ttcore::MemorySpace defaultInputMemSpace,
     mlir::tt::ttcore::MemorySpace defaultOutputMemSpace,
-    const llvm::SmallVector<int64_t> &targetGridShape, bool useTileMatmul);
+    const llvm::SmallVector<int64_t> &targetGridShape);
 
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToD2MGenericPass();
 

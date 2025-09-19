@@ -187,7 +187,7 @@ void createTTIRToTTMetalPipelineDebug(
   devicePm.addPass(ttir::createTTIRLowerToLayout());
 
   // Middleend with TTIR passes
-  createTTIRBufferizationPipeline(devicePm);
+  createTTIRBufferizationPipeline(devicePm, options);
   devicePm.addPass(ttir::createTTIRAllocate());
   devicePm.addPass(createCanonicalizerPassWithOptions(options));
 

@@ -313,9 +313,11 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
                  const mlir::bufferization::BufferizationOptions &options,
                  mlir::bufferization::BufferizationState &state) {
   Value src = nullptr;
+  // NOLINTNEXTLINE
   if (isSrcRemote()) {
     auto srcToTensor =
         wrapValueInTensorCompatibleType(rewriter, getSrc(), getLoc());
+
     auto maybeSrc =
         mlir::bufferization::getBuffer(rewriter, srcToTensor, options, state);
     if (failed(maybeSrc)) {
@@ -327,9 +329,11 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
   }
 
   Value dst = nullptr;
+  // NOLINTNEXTLINE
   if (isDstRemote()) {
     auto dstToTensor =
         wrapValueInTensorCompatibleType(rewriter, getDst(), getLoc());
+
     auto maybeDst =
         mlir::bufferization::getBuffer(rewriter, dstToTensor, options, state);
     if (failed(maybeDst)) {
@@ -340,12 +344,13 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
     dst = getDst();
   }
 
-  Operation *old = getOperation();
-  auto newOp = rewriter.create<mlir::tt::d2m::DMAOp>(
-      old->getLoc(), getResult().getType(), src, getSrcAffineMapAttr(),
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  // NOLINTNEXTLINE
+  mlir::bufferization::replaceOpWithNewBufferizedOp<mlir::tt::d2m::DMAOp>(
+      rewriter, *this, getResult().getType(), src, getSrcAffineMapAttr(),
       getSrcIndices(), dst, getDstAffineMapAttr(), getDstIndices(),
       getOptNumElemsAttr(), getMcastStartIndex(), getMcastShape());
-  rewriter.replaceOp(old, newOp->getResults());
+
   return mlir::success();
 }
 
