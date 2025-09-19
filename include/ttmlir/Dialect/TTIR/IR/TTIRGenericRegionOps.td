@@ -82,10 +82,19 @@ class TTIR_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []>
     TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionDatamovementOpTrait] # traits> {}
 
 //===----------------------------------------------------------------------===//
+// TTIR Generic Region Trait Bundles
+//===----------------------------------------------------------------------===//
+
+// Shared trait bundle for TTIR tile compute ops.
+defvar TTIR_TileComputeOpTraitBundle = [
+  Pure
+];
+
+//===----------------------------------------------------------------------===//
 // TTIR Generic Region Math Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_TileAddOp : TTIR_GenericRegionComputeOp<"tile_add", [Pure]> {
+def TTIR_TileAddOp : TTIR_GenericRegionComputeOp<"tile_add", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Add Op";
     let description = [{
         The `tile_add` operation adds two tiles element-wise.
@@ -96,7 +105,7 @@ def TTIR_TileAddOp : TTIR_GenericRegionComputeOp<"tile_add", [Pure]> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileSubOp : TTIR_GenericRegionComputeOp<"tile_sub"> {
+def TTIR_TileSubOp : TTIR_GenericRegionComputeOp<"tile_sub", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Sub Op";
     let description = [{
         The `tile_sub` operation subtracts two tiles element-wise.
@@ -107,7 +116,7 @@ def TTIR_TileSubOp : TTIR_GenericRegionComputeOp<"tile_sub"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileMulOp : TTIR_GenericRegionComputeOp<"tile_mul"> {
+def TTIR_TileMulOp : TTIR_GenericRegionComputeOp<"tile_mul", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Mul Op";
     let description = [{
         The `tile_mul` operation multiplies two tiles element-wise.
@@ -118,7 +127,7 @@ def TTIR_TileMulOp : TTIR_GenericRegionComputeOp<"tile_mul"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileDivOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_div"> {
+def TTIR_TileDivOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_div", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Div Op";
     let description = [{
         The `tile_div` operation divides two tiles element-wise.
@@ -129,7 +138,7 @@ def TTIR_TileDivOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_div"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileRecipOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_recip"> {
+def TTIR_TileRecipOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_recip", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Recip Op";
     let description = [{
         The `tile_recip` operation computes the reciprocal of each element in the input tile.
@@ -139,7 +148,7 @@ def TTIR_TileRecipOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_recip"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TilePowOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_pow"> {
+def TTIR_TilePowOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_pow", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Pow Op";
     let description = [{
         The `tile_pow` operation raises two tiles element-wise.
@@ -150,7 +159,7 @@ def TTIR_TilePowOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_pow"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileExpOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_exp"> {
+def TTIR_TileExpOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_exp", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Exp Op";
     let description = [{
         The `tile_exp` operation computes the exponential of each element in the input tile.
@@ -160,7 +169,7 @@ def TTIR_TileExpOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_exp"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileLogOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_log"> {
+def TTIR_TileLogOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_log", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Log Op";
     let description = [{
         The `tile_log` operation computes the natural logarithm of each element in the input tile.
@@ -170,7 +179,7 @@ def TTIR_TileLogOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_log"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileNegativeOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_negative"> {
+def TTIR_TileNegativeOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_negative", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Negative Op";
     let description = [{
         The `tile_negative` operation computes the negative of each element in the input tile.
@@ -180,7 +189,7 @@ def TTIR_TileNegativeOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_negative"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileCosOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_cos"> {
+def TTIR_TileCosOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_cos", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Cos Op";
     let description = [{
         The `tile_cos` operation computes the cosine function of each element in the input tile.
@@ -190,7 +199,7 @@ def TTIR_TileCosOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_cos"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileTanOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_tan"> {
+def TTIR_TileTanOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_tan", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Tan Op";
     let description = [{
         The `tile_tan` operation computes the tangent function of each element in the input tile.
@@ -200,7 +209,7 @@ def TTIR_TileTanOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_tan"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileSqrtOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sqrt"> {
+def TTIR_TileSqrtOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sqrt", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Sqrt Op";
     let description = [{
         The `tile_sqrt` operation computes the sqrt function of each element in the input tile.
@@ -210,7 +219,7 @@ def TTIR_TileSqrtOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sqrt"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileRsqrtOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_rsqrt"> {
+def TTIR_TileRsqrtOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_rsqrt", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Rsqrt Op";
     let description = [{
         The `tile_rsqrt` operation computes the reciprocal sqrt function of each element in the input tile.
@@ -220,7 +229,7 @@ def TTIR_TileRsqrtOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_rsqrt"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileSinOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sin"> {
+def TTIR_TileSinOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sin", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Sin Op";
     let description = [{
         The `tile_sin` operation computes the sine function of each element in the input tile.
@@ -230,7 +239,7 @@ def TTIR_TileSinOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sin"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileSigmoidOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sigmoid"> {
+def TTIR_TileSigmoidOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sigmoid", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Sigmoid Op";
     let description = [{
         The `tile_sigmoid` operation computes the sigmoid of each element in the input tile.
@@ -240,7 +249,7 @@ def TTIR_TileSigmoidOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sigmoid"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileGeluOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gelu"> {
+def TTIR_TileGeluOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gelu", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile GELU Op";
     let description = [{
         The `tile_gelu` operation computes the GELU (Gaussian Error Linear Unit) of each element in the input tile.
@@ -250,7 +259,7 @@ def TTIR_TileGeluOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gelu"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileCeilOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ceil"> {
+def TTIR_TileCeilOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ceil", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Ceil Op";
     let description = [{
         The `tile_ceil` operation computes the ceiling function of each element in the input tile.
@@ -260,7 +269,7 @@ def TTIR_TileCeilOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ceil"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileFloorOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_floor"> {
+def TTIR_TileFloorOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_floor", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Floor Op";
     let description = [{
         The `tile_floor` operation computes the floor function of each element in the input tile.
@@ -270,7 +279,7 @@ def TTIR_TileFloorOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_floor"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileAbsOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_abs"> {
+def TTIR_TileAbsOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_abs", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Abs Op";
     let description = [{
         The `tile_abs` operation computes the absolute value of each element in the input tile.
@@ -280,7 +289,7 @@ def TTIR_TileAbsOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_abs"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_not"> {
+def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_not", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Logical Not Op";
     let description = [{
         The `tile_logical_not` operation computes the logical negation of each element in the input tile.
@@ -290,7 +299,7 @@ def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_no
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileSubBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub_binary"> {
+def TTIR_TileSubBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub_binary", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Subtract Binary Op";
     let description = [{
         The `tile_sub_binary` operation uses the SFPU to subtract two tiles element-wise.
@@ -301,7 +310,7 @@ def TTIR_TileSubBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub_binary
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileEqzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_eqz"> {
+def TTIR_TileEqzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_eqz", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Eqz Op";
     let description = [{
         The `tile_eqz` operation checks if each element in the input tile == 0
@@ -311,7 +320,7 @@ def TTIR_TileEqzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_eqz"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileNezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_nez"> {
+def TTIR_TileNezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_nez", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Nez Op";
     let description = [{
         The `tile_nez` operation checks if each element in the input tile != 0
@@ -321,7 +330,7 @@ def TTIR_TileNezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_nez"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileGtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gtz"> {
+def TTIR_TileGtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gtz", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Gtz Op";
     let description = [{
         The `tile_gtz` operation checks if each element in the input tile > 0
@@ -331,7 +340,7 @@ def TTIR_TileGtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gtz"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileGezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gez"> {
+def TTIR_TileGezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gez", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Gez Op";
     let description = [{
         The `tile_gez` operation checks if each element in the input tile >= 0
@@ -341,7 +350,7 @@ def TTIR_TileGezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gez"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileLtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ltz"> {
+def TTIR_TileLtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ltz", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Ltz Op";
     let description = [{
         The `tile_ltz` operation checks if each element in the input tile < 0
@@ -351,7 +360,7 @@ def TTIR_TileLtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ltz"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileLezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_lez"> {
+def TTIR_TileLezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_lez", TTIR_TileComputeOpTraitBundle> {
     let summary = "TTIR Tile Lez Op";
     let description = [{
         The `tile_lez` operation checks if each element in the input tile <= 0
@@ -361,7 +370,7 @@ def TTIR_TileLezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_lez"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileMaximumOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_maximum">{
+def TTIR_TileMaximumOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_maximum", TTIR_TileComputeOpTraitBundle>{
     let summary = "TTIR Tile Maximum Op";
     let description = [{
         The `tile_maximum` operation calculates the maximum of two tensors element-wise.
