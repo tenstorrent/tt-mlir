@@ -88,42 +88,33 @@ class TTIR_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []>
 def TTIR_TileAddOp : TTIR_GenericRegionComputeOp<"tile_add"> {
     let summary = "TTIR Tile Add Op";
     let description = [{
-        The `tile_add` operation adds two tiles element-wise. Supports
-        tile-level broadcast.
+        The `tile_add` operation adds two tiles element-wise.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs,
-                         OptionalAttr<TTCore_TileBcastTypeAttr>:$lhsBcastType,
-                         OptionalAttr<TTCore_TileBcastTypeAttr>:$rhsBcastType);
+                         TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileSubOp : TTIR_GenericRegionComputeOp<"tile_sub"> {
     let summary = "TTIR Tile Sub Op";
     let description = [{
-        The `tile_sub` operation subtracts two tiles element-wise. Supports
-        tile-level broadcast.
+        The `tile_sub` operation subtracts two tiles element-wise.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs,
-                         OptionalAttr<TTCore_TileBcastTypeAttr>:$lhsBcastType,
-                         OptionalAttr<TTCore_TileBcastTypeAttr>:$rhsBcastType);
+                         TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
 def TTIR_TileMulOp : TTIR_GenericRegionComputeOp<"tile_mul"> {
     let summary = "TTIR Tile Mul Op";
     let description = [{
-        The `tile_mul` operation multiplies two tiles element-wise. Supports
-        tile-level broadcast.
+        The `tile_mul` operation multiplies two tiles element-wise.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs,
-                         OptionalAttr<TTCore_TileBcastTypeAttr>:$lhsBcastType,
-                         OptionalAttr<TTCore_TileBcastTypeAttr>:$rhsBcastType);
+                         TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -299,10 +290,32 @@ def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_no
     let results = (outs TTCore_Tile:$result);
 }
 
+def TTIR_TileAddBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_add_binary"> {
+    let summary = "TTIR Tile Add Binary Op";
+    let description = [{
+        The `tile_add_binary` operation uses the SFPU to add two tiles element-wise.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs,
+                         TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def TTIR_TileSubBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub_binary"> {
     let summary = "TTIR Tile Subtract Binary Op";
     let description = [{
         The `tile_sub_binary` operation uses the SFPU to subtract two tiles element-wise.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs,
+                         TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileMulBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_mul_binary"> {
+    let summary = "TTIR Tile Multiply Binary Op";
+    let description = [{
+        The `tile_mul_binary` operation uses the SFPU to multiply two tiles element-wise.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
@@ -379,6 +392,18 @@ def TTIR_TileMaximumOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_maximum">{
     let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
+
+def TTIR_TileBcastOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_bcast"> {
+    let summary = "TTIR Tile Broadcast Op";
+    let description = [{
+        The `tile_bcast` operation does row/col/scalar broadcast inside a single tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input,
+                         TTIR_TileBcastTypeAttr:$bcast_type);
+    let results = (outs TTCore_Tile:$result);
+}
+
 
 def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum">{
     let summary = "TTIR Tile Reduce Sum Op";

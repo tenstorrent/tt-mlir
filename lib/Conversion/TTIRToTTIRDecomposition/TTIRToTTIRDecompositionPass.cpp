@@ -42,14 +42,6 @@ struct TTIRToTTIRDecompositionPass
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalOp<ttir::EmptyOp>();
 
-    if (decompConfig == DecompMode::TTNN) {
-      fprintf(stderr, "-- Seeing decompMode ttnn\n");
-    } else if (decompConfig == DecompMode::TTMetal) {
-      fprintf(stderr, "-- Seeing decompMode ttmetal\n");
-    } else {
-      fprintf(stderr, "-- Seeing decompMode cpu\n");
-    }
-
     // Configure which ops to decompose based on the configuration
     switch (decompConfig) {
     case DecompMode::CPUFallback:
@@ -112,66 +104,6 @@ struct TTIRToTTIRDecompositionPass
       }
       uint64_t rank = op.getInput().getType().getRank();
       return (dimArg->size() == 1 || dimArg->size() == rank);
-    });
-
-    target.addDynamicallyLegalOp<ttir::SubtractOp>([&](ttir::SubtractOp op) {
-      if (decompConfig != DecompMode::TTMetal) {
-        fprintf(stderr, "-- Skipping non-ttmetal backends.\n");
-        return true;
-      }
-      //////////////////////////////////////////////////////////////////////////
-      // Ugly way to detect LHS bcast.
-      const auto lhsShape = op.getLhs().getType().getShape();
-      const auto rhsShape = op.getRhs().getType().getShape();
-      llvm::SmallVector<int64_t> broadcastedShape;
-      mlir::OpTrait::util::getBroadcastedShape(lhsShape, rhsShape,
-                                               broadcastedShape);
-      const bool isLhsBcast =
-          ttmlir::utils::volume(lhsShape) <
-          ttmlir::utils::volume(mlir::ArrayRef<int64_t>(broadcastedShape));
-      fprintf(stderr, "-- isLhsBcast: %d\n", isLhsBcast);
-      //////////////////////////////////////////////////////////////////////////
-      return !isLhsBcast;
-    });
-
-    target.addDynamicallyLegalOp<ttir::AddOp>([&](ttir::AddOp op) {
-      if (decompConfig != DecompMode::TTMetal) {
-        fprintf(stderr, "-- Skipping non-ttmetal backends.\n");
-        return true;
-      }
-      //////////////////////////////////////////////////////////////////////////
-      // Ugly way to detect LHS bcast.
-      const auto lhsShape = op.getLhs().getType().getShape();
-      const auto rhsShape = op.getRhs().getType().getShape();
-      llvm::SmallVector<int64_t> broadcastedShape;
-      mlir::OpTrait::util::getBroadcastedShape(lhsShape, rhsShape,
-                                               broadcastedShape);
-      const bool isLhsBcast =
-          ttmlir::utils::volume(lhsShape) <
-          ttmlir::utils::volume(mlir::ArrayRef<int64_t>(broadcastedShape));
-      fprintf(stderr, "-- isLhsBcast: %d\n", isLhsBcast);
-      //////////////////////////////////////////////////////////////////////////
-      return !isLhsBcast;
-    });
-
-    target.addDynamicallyLegalOp<ttir::MultiplyOp>([&](ttir::MultiplyOp op) {
-      if (decompConfig != DecompMode::TTMetal) {
-        fprintf(stderr, "-- Skipping non-ttmetal backends.\n");
-        return true;
-      }
-      //////////////////////////////////////////////////////////////////////////
-      // Ugly way to detect LHS bcast.
-      const auto lhsShape = op.getLhs().getType().getShape();
-      const auto rhsShape = op.getRhs().getType().getShape();
-      llvm::SmallVector<int64_t> broadcastedShape;
-      mlir::OpTrait::util::getBroadcastedShape(lhsShape, rhsShape,
-                                               broadcastedShape);
-      const bool isLhsBcast =
-          ttmlir::utils::volume(lhsShape) <
-          ttmlir::utils::volume(mlir::ArrayRef<int64_t>(broadcastedShape));
-      fprintf(stderr, "-- isLhsBcast: %d\n", isLhsBcast);
-      //////////////////////////////////////////////////////////////////////////
-      return !isLhsBcast;
     });
 
     TypeConverter typeConverter;
