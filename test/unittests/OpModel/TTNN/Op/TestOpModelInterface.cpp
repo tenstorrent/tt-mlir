@@ -921,7 +921,6 @@ TEST_F(OpModelBase, LinearOpInterfaceNullOutput) {
   ASSERT_TRUE(outputLayout);
   EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
   EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
-  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, LinearOpInterfacePartialOutput) {
@@ -958,7 +957,6 @@ TEST_F(OpModelBase, LinearOpInterfacePartialOutput) {
   EXPECT_EQ(constraints.outputLayout.getLayout(), Layout::Tile);
   EXPECT_TRUE(constraints.outputLayout.hasShardedL1TensorMemoryLayout());
   EXPECT_TRUE(constraints.outputLayout.getGrid());
-  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, MatmulOpInterface) {
@@ -1148,9 +1146,6 @@ TEST_F(OpModelBase, SumOpInterface) {
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
       /*expectedL1PeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
-
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, ArgMaxOpInterface) {
@@ -1232,8 +1227,6 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
   auto reshape = builder.create<ReshapeOp>(
       builder.getUnknownLoc(), output.getType(), mlir::ValueRange{input});
   reshape.setShapeAttr(builder.getArrayAttr(llvm::SmallVector<mlir::Attribute>{
@@ -1244,8 +1237,6 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   opConstraintsCache().clear();
   opRuntimeCache().clear();
 
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
   // test reshape Op interface
   auto constraintsExp = getOpConstraints(reshape.getOperation());
   if (constraintsExp) {
@@ -1266,8 +1257,6 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto cachedConstraintsExp = getOpConstraints(reshape.getOperation());
   if (cachedConstraintsExp) {
@@ -1281,8 +1270,6 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto cachedRuntimeExp = getOpRuntime(reshape.getOperation());
   if (cachedRuntimeExp) {
@@ -1296,8 +1283,6 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
 
   EXPECT_EQ(opRuntimeCache().getStats().hits, 1);
   EXPECT_EQ(opRuntimeCache().getStats().misses, 1);
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, SliceStaticOpInterface) {
@@ -1904,9 +1889,6 @@ TEST_F(OpModelBase, Conv2dInterface) {
       nullptr                          // ComputeKernelConfig (optional)
   );
 
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
-
   // test Conv2dOp interface
   auto constraintsExp = getOpConstraints(conv2d.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
@@ -1915,9 +1897,6 @@ TEST_F(OpModelBase, Conv2dInterface) {
   EXPECT_EQ(cbSize, 229440);
   EXPECT_EQ(l1PeakSize, 190572);
   EXPECT_EQ(outputSize, 26624);
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(conv2d.getOperation());
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
@@ -1970,9 +1949,6 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
       nullptr,                         // Conv2dConfig (optional)
       nullptr                          // ComputeKernelConfig (optional)
   );
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
 
   // test Conv2dOp interface
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
@@ -2079,9 +2055,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
 
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
-
   // Will fail due to assertion at
   // tt-metal/ttnn/cpp/ttnn/operations/conv/conv2d/conv2d_utils.cpp:156 "Conv2d
   // supports Height, Block or Width Sharded Layouts but got
@@ -2112,18 +2085,12 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   ASSERT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto runtimeExp =
       backend.getOpRuntime(getInputLayouts(conv2d),
                            OpConfig(getOutputLayout(conv2d),
                                     Conv2dAttrs{badConvConfig, std::nullopt}));
   ASSERT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto goodConvConfig = Conv2dConfigAttr::get(
       &context,
@@ -2153,9 +2120,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   EXPECT_EQ(cbSize, 69696);
   EXPECT_EQ(l1PeakSize, 88400);
   EXPECT_EQ(outputSize, 26624);
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
 
   runtimeExp =
       backend.getOpRuntime(getInputLayouts(conv2d),
@@ -2199,9 +2163,6 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
 
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
-
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
 
   Conv2dConfigAttr configAttr = Conv2dConfigAttr::get(&context);
@@ -2223,9 +2184,6 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
   EXPECT_EQ(cbSize, 65600);
   EXPECT_EQ(l1PeakSize, 88400);
   EXPECT_EQ(outputSize, 26624);
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp =
       backend.getOpRuntime(getInputLayouts(conv2d),
@@ -2269,9 +2227,6 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       llvm::ArrayRef<int32_t>({0, 0}), llvm::ArrayRef<int32_t>({1, 1}), 1,
       outputDtype, nullptr, nullptr);
 
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto goodConvConfig = Conv2dConfigAttr::get(
       &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
@@ -2301,9 +2256,6 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp =
       backend.getOpRuntime(getInputLayouts(convTranspose2d),
@@ -2578,7 +2530,6 @@ TEST_F(OpModelBase, maxPool2DOp) {
 
   constexpr int32_t numRuns = 10;
   for (int i = 0; i < numRuns; i++) {
-    op_model::SingletonDeviceContext::resetInstance();
     auto backend = dyn_cast<OpModel>(maxPool2DOp.getOperation());
     auto constraintsExp = backend.getOpConstraints(
         getInputLayouts(maxPool2DOp.getOperation()), OpConfig());
@@ -2593,7 +2544,6 @@ TEST_F(OpModelBase, maxPool2DOp) {
     EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
   }
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(maxPool2DOp.getOperation());
   if (runtimeExp) {
@@ -2662,8 +2612,6 @@ TEST_F(OpModelBase, avgPool2DOp) {
   EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto runtimeExp = getOpRuntime(avgPool2DOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -2689,8 +2637,6 @@ TEST_F(OpModelBase, LeakyReluOp) {
       builder.getUnknownLoc(), outputType, input, slopeAPF);
   leakyReluOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(leakyReluOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing L1 constraints; Error="
@@ -2701,8 +2647,6 @@ TEST_F(OpModelBase, LeakyReluOp) {
   EXPECT_EQ(cbSize, 8192);
   EXPECT_EQ(l1PeakSize, 2048);
   EXPECT_EQ(outputSize, 2048);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(leakyReluOp.getOperation());
   if (runtimeExp) {
@@ -2731,8 +2675,6 @@ TEST_F(OpModelBase, clampScalarOp) {
       builder.getUnknownLoc(), outputType, input, minValAPF, maxValAPF);
   clampScalarOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(clampScalarOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing L1 constraints; Error="
@@ -2743,8 +2685,6 @@ TEST_F(OpModelBase, clampScalarOp) {
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(clampScalarOp.getOperation());
   if (runtimeExp) {
@@ -2767,8 +2707,6 @@ TEST_F(OpModelBase, clampTensorOp) {
       builder.getUnknownLoc(), outputType, input, min, max);
   clampTensorOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(clampTensorOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing L1 constraints; Error="
@@ -2779,8 +2717,6 @@ TEST_F(OpModelBase, clampTensorOp) {
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(clampTensorOp.getOperation());
   if (runtimeExp) {
@@ -2802,8 +2738,6 @@ TEST_F(OpModelBase, permuteOp) {
       llvm::ArrayRef<int64_t>({0, 3, 1, 2}), nullptr, llvm::APFloat(0.0f));
   permuteOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(permuteOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing L1 constraints; Error="
@@ -2814,8 +2748,6 @@ TEST_F(OpModelBase, permuteOp) {
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(permuteOp.getOperation());
   if (runtimeExp) {
@@ -2853,8 +2785,6 @@ TEST_F(OpModelBase, upsampleOp) {
                                  scaleFactorAttr, modeAttr, nullptr);
   upsampleOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   // getOutputLayout() hardcodes L1, so we cannot use it
   OpModel backend = dyn_cast<OpModel>(upsampleOp.getOperation());
   auto constraintsExp =
@@ -2868,8 +2798,6 @@ TEST_F(OpModelBase, upsampleOp) {
   EXPECT_GT(cbSize, 0);
   EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(upsampleOp.getOperation());
   if (runtimeExp) {
@@ -3157,8 +3085,6 @@ TEST_F(OpModelBase, batchNormOp) {
       training, epsilon, momentum, weight, bias, nullptr);
   batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing constraints; Error="
@@ -3170,8 +3096,6 @@ TEST_F(OpModelBase, batchNormOp) {
   EXPECT_EQ(cbSize, 36864);
   EXPECT_EQ(l1PeakSize, 16384);
   EXPECT_EQ(outputSize, 16384);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(batchNormOp.getOperation());
   if (runtimeExp) {
@@ -3198,8 +3122,6 @@ TEST_F(OpModelBase, batchNormOpTraining) {
       epsilon, momentum, nullptr, nullptr, nullptr);
   batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing constraints; Error="
@@ -3211,8 +3133,6 @@ TEST_F(OpModelBase, batchNormOpTraining) {
   EXPECT_EQ(cbSize, 49152);
   EXPECT_EQ(l1PeakSize, 16384);
   EXPECT_EQ(outputSize, 8192);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(batchNormOp.getOperation());
   if (runtimeExp) {
@@ -3258,8 +3178,6 @@ TEST_F(OpModelBase, batchNormOpL1Memory) {
       training, epsilon, momentum, weight, bias, nullptr);
   batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing L1 constraints; Error="
@@ -3271,8 +3189,6 @@ TEST_F(OpModelBase, batchNormOpL1Memory) {
   EXPECT_EQ(cbSize, 36864);
   EXPECT_EQ(l1PeakSize, 2048);
   EXPECT_EQ(outputSize, 2048);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(batchNormOp.getOperation());
   if (runtimeExp) {
@@ -3303,8 +3219,6 @@ TEST_F(OpModelBase, rmsNormOp) {
                                 weight, bias, epsilon, nullptr);
   rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing constraints; Error="
@@ -3316,8 +3230,6 @@ TEST_F(OpModelBase, rmsNormOp) {
   EXPECT_EQ(cbSize, 94208);
   EXPECT_EQ(l1PeakSize, 16384);
   EXPECT_EQ(outputSize, 16384);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
   if (runtimeExp) {
@@ -3342,8 +3254,6 @@ TEST_F(OpModelBase, rmsNormOpMinimal) {
                                 nullptr, nullptr, epsilon, nullptr);
   rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing constraints; Error="
@@ -3355,8 +3265,6 @@ TEST_F(OpModelBase, rmsNormOpMinimal) {
   EXPECT_EQ(cbSize, 45056);
   EXPECT_EQ(l1PeakSize, 8192);
   EXPECT_EQ(outputSize, 8192);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
   if (runtimeExp) {
@@ -3396,8 +3304,6 @@ TEST_F(OpModelBase, rmsNormOpL1Memory) {
                                 weight, bias, epsilon, nullptr);
   rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing L1 constraints; Error="
@@ -3409,8 +3315,6 @@ TEST_F(OpModelBase, rmsNormOpL1Memory) {
   EXPECT_EQ(cbSize, 45056);
   EXPECT_EQ(l1PeakSize, 2048);
   EXPECT_EQ(outputSize, 2048);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
   if (runtimeExp) {
@@ -3865,9 +3769,6 @@ TEST_F(OpModelBase, FillCacheOpInterface) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
-
   // Test getOpRuntime
   auto runtimeExp = backend.getOpRuntime(
       getInputLayouts(fillCache.getOperation()), OpConfig());
@@ -3913,9 +3814,6 @@ TEST_F(OpModelBase, UpdateCacheOpInterface) {
     FAIL() << "Missing constraints for UpdateCacheOp; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
 
   // Test getOpRuntime
   auto runtimeExp = backend.getOpRuntime(
