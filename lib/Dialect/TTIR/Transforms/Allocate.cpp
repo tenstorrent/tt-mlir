@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Analysis/AllocationPlanner.h"
+#include "ttmlir/Dialect/TTIR/Analysis/BlockFactorAnalysis.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
