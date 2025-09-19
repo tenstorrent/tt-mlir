@@ -1379,9 +1379,7 @@ def execute_fb(
     # TODO: move this to a session wide fixture
     # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
     print("Opening device...")
-    device = ttrt.runtime.open_mesh_device(
-        mesh_options
-    )  # TODO: fails when attempting to open a second time
+    device = ttrt.runtime.open_mesh_device(mesh_options)
     print("Device opened.")
 
     # Figure out the number of devices we physically have
@@ -1496,90 +1494,25 @@ def execute_fb(
                     golden_tensor_torch = golden_tensor_to_torch(golden_tensor)
                     golden_outputs_torch.append(golden_tensor_torch)
 
-        ## Parse the dirty tensor schedule
-        # update_tensor_schedule = {}
-        # if self["--dirty-tensor-schedule"]:
-        #    dirty_configs = self["--dirty-tensor-schedule"].split(",")
-
-        #    if not dirty_configs:
-        #        raise Exception(
-        #            "Invalid --dirty-tensor-schedule format. Expected 'index:iterations,...'"
-        #        )
-        #    for config in dirty_configs:
-        #        if ":" not in config:
-        #            raise Exception(
-        #                f"Invalid dirty tensor configuration: '{config}'. Missing colon separator. Expected format 'index:iterations'"
-        #            )
-        #        parts = config.split(":")
-        #        if len(parts) != 2:
-        #            raise Exception(
-        #                f"Invalid dirty tensor configuration: '{config}'. Too many colons. Expected format 'index:iterations'"
-        #            )
-        #        try:
-        #            input_idx = int(parts[0])
-        #            iterations = int(parts[1])
-        #        except ValueError:
-        #            raise Exception(
-        #                f"Invalid dirty tensor configuration: '{config}'. Both index and iterations must be integers. Got '{parts[0]}' and '{parts[1]}'"
-        #            )
-
-        #        if input_idx < 0:
-        #            raise Exception(
-        #                f"Invalid dirty tensor configuration: '{config}'. Tensor index must be non-negative. Got {input_idx}"
-        #            )
-
-        #        if iterations < 0:
-        #            raise Exception(
-        #                f"Invalid dirty tensor configuration: '{config}'. Iterations must be non-negative. Got {iterations}"
-        #            )
-
-        #        if iterations not in update_tensor_schedule:
-        #            update_tensor_schedule[iterations] = []
-        #        update_tensor_schedule[iterations].append(input_idx)
-
         # pre-upload inputs
         inputs = convert_input_layouts(device, inputs, bin.fbb, program_index)
 
         logging.debug(f"starting exectution of binary={bin.file_path}")
 
-        ## Check if we need to dirty any input tensors in this iteration
-        # if loop in update_tensor_schedule:
-        #    for input_idx in update_tensor_schedule[loop]:
-        #        if input_idx < len(inputs):
-        #            # Get the tensor to dirty
-        #            tensor_to_dirty = inputs[input_idx]
-        #            # Call the dirtyTensor function to increment the version counter
-        #            expected_layout = ttrt.runtime.get_layout(
-        #                bin.fbb, program_index, input_idx
-        #            )
-        #            perf_env.tracy_log_op_location(
-        #                f"loc(arg_{input_idx})"
-        #            )
-        #            result_tensor = ttrt.runtime.to_layout(
-        #                tensor_to_dirty,
-        #                device,
-        #                expected_layout,
-        #                True,
-        #            )
-        #            inputs[input_idx] = result_tensor
-        #            logging.info(
-        #                f"Marked input tensor {input_idx} as dirty after {loop} iterations"
-        #            )
-        #        else:
-        #            logging.warning(
-        #                f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
-        #            )
-
-        start_submit = time.perf_counter_ns()
-
         # Actually execute the flatbuffer
-        runtime_outputs = ttrt.runtime.submit(
-            device,
-            bin.fbb,
-            program_index,
-            inputs,
-        )
-        ttrt.runtime.wait(runtime_outputs)
+        start_submit = time.perf_counter_ns()
+        try:
+            runtime_outputs = ttrt.runtime.submit(
+                device,
+                bin.fbb,
+                program_index,
+                inputs,
+            )
+            ttrt.runtime.wait(runtime_outputs)
+        except Exception as e:
+            # Runtime failure
+            ttrt.runtime.close_mesh_device(device)
+            raise TTBuilderRuntimeException(e)
 
         end_submit = time.perf_counter_ns()
         e2e_duration_nanoseconds_submit = end_submit - start_submit
@@ -1628,7 +1561,7 @@ def execute_fb(
                 print(f"executing program level golden comparison for output_{i}")
                 golden_tensor_torch = golden_outputs_torch[i]
                 if golden_tensor_torch.shape != output_tensor_torch.shape:
-                    raise TTIRGoldenException(
+                    raise TTBuilderGoldenException(
                         f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
                     )
 
@@ -1640,7 +1573,7 @@ def execute_fb(
             )
             pcc_fail = cal_pcc < post_op_callback_runtime_config.pcc
             if pcc_fail:
-                raise TTIRGoldenException(
+                raise TTBuilderGoldenException(
                     f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
                 )
             else:
