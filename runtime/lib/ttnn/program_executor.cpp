@@ -67,6 +67,7 @@
 #include "operations/trace/execute_trace.h"
 #include "operations/transformer/concatenate_heads.h"
 #include "operations/transformer/rotary_embedding_llama.h"
+#include "operations/transformer/scaled_dot_product_attention.h"
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
@@ -373,6 +374,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
     return operations::transformer::run(
         op->type_as_ScaledDotProductAttentionDecodeOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
+    return operations::transformer::run(
+        op->type_as_ScaledDotProductAttentionOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",
