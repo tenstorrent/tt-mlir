@@ -1780,15 +1780,15 @@ unpackScaledDotProductAttentionDecodeOptionalArgs(
 
   if (attentionMask && attentionSink) {
     ret.attentionMaskShape = attentionMask.getType().getShape();
-    ret.attentionMaskLayout = inputs[3];
+    ret.attentionMaskLayout = inputs[4];
     ret.attentionSinkShape = attentionSink.getType().getShape();
-    ret.attentionSinkLayout = inputs[4];
+    ret.attentionSinkLayout = inputs[5];
   } else if (attentionMask) {
     ret.attentionMaskShape = attentionMask.getType().getShape();
-    ret.attentionMaskLayout = inputs[3];
+    ret.attentionMaskLayout = inputs[4];
   } else if (attentionSink) {
     ret.attentionSinkShape = attentionSink.getType().getShape();
-    ret.attentionSinkLayout = inputs[3];
+    ret.attentionSinkLayout = inputs[4];
   } else {
     llvm_unreachable("All combinations of attention mask and attention sink "
                      "should have been handled");
