@@ -119,14 +119,13 @@ public:
     llvm::SmallVector<int64_t> cbPorts(size);
     int64_t cbPort = 0;
     for (const auto [i, operand] : llvm::enumerate(op.getOperands())) {
-      if (auto castOp =
-              mlir::dyn_cast_if_present<ttir::TTNNToMetalLayoutCastOp>(
-                  operand.getDefiningOp());
+      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+              operand.getDefiningOp());
           castOp) {
         // Use the TTNN tensor operand of the cast as the io for ttnn.generic,
         // Use the memref operand for CB descriptor creation.
         ios[i] = castOp->getOperands()[0];
-        cbs[i] = castOp->getOperands()[1];
+        cbs[i] = castOp->getResult(0);
       } else {
         llvm_unreachable("Expected TTNNToMetalLayoutCastOp");
       }
@@ -179,24 +178,16 @@ public:
 } // namespace
 
 namespace {
-class TTNNToMetalLayoutCastRewriter
-    : public OpConversionPattern<ttir::TTNNToMetalLayoutCastOp> {
+class TTNNMetalLayoutCastRewriter
+    : public OpConversionPattern<ttir::TTNNMetalLayoutCastOp> {
 public:
-  using OpConversionPattern<ttir::TTNNToMetalLayoutCastOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::TTNNMetalLayoutCastOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::TTNNToMetalLayoutCastOp op,
-                  ttir::TTNNToMetalLayoutCastOpAdaptor adaptor,
+  matchAndRewrite(ttir::TTNNMetalLayoutCastOp op,
+                  ttir::TTNNMetalLayoutCastOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-
-    // Replace all uses of the cast result with the second input (result of the
-    // cast)
-    if (!op->getResults().empty()) {
-      Value replacement = op.getOperation()->getOperand(1);
-      rewriter.replaceOp(op, replacement);
-    } else {
-      rewriter.eraseOp(op);
-    }
+    rewriter.replaceOp(op, op.getOperand());
     return success();
   };
 };
@@ -207,7 +198,7 @@ namespace mlir::tt {
 void populateTTIRToTTNNGenericPatterns(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter) {
-  patterns.add<TTIRGenericRewriter, TTNNToMetalLayoutCastRewriter>(ctx);
+  patterns.add<TTIRGenericRewriter, TTNNMetalLayoutCastRewriter>(ctx);
 }
 
 } // namespace mlir::tt
