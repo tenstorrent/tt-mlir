@@ -103,8 +103,22 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
                    op->getName());
       return;
     }
+
+    if (isa<ttnn::ReshapeOp>(op)) {
+      if (checkReshapeSkip(op, op, false)) {
+        return;
+      }
+    }
+    for (auto *user : op->getUsers()) {
+      if (isa<ttnn::ReshapeOp>(user) && utils::producesDRAMLayout(user)) {
+        if (checkReshapeSkip(user, op, true)) {
+          return;
+        }
+      }
+    }
     tryUpgradeToL1Interleaved(op);
   });
+
   TTMLIR_TRACE(
       ttmlir::LogComponent::Optimizer,
       "L1InterleavedFallbackAnalysis: Completed - upgraded {} operations.",
@@ -184,6 +198,112 @@ bool L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(Operation *op) {
   return true;
 }
 
+bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
+    Operation *reshapeOperation, Operation *contextOp, bool isUserOp) const {
+
+  auto reshapeOp = cast<ttnn::ReshapeOp>(reshapeOperation);
+
+  // Get input and output shapes
+  auto inputType = mlir::dyn_cast<mlir::RankedTensorType>(
+      reshapeOp->getOperand(0).getType());
+  auto outputType =
+      mlir::dyn_cast<mlir::RankedTensorType>(reshapeOp->getResult(0).getType());
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+
+  // Skip if reshape is a no-op (same shape in and out).
+  if (inputShape == outputShape) {
+    if (isUserOp) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
+                   "no-op.",
+                   contextOp->getName());
+    } else {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
+                   "no-op.",
+                   contextOp->getName());
+    }
+    return true;
+  }
+
+  // Check if this reshape can be optimized to a view (TTNN-style check)
+  bool canBeView = false;
+  if (inputShape.size() >= 1 && outputShape.size() >= 1) {
+    // Get last dimensions
+    int64_t inputLastDim = inputShape.back();
+    int64_t outputLastDim = outputShape.back();
+
+    // Get second-to-last dimensions (or 1 if rank < 2)
+    int64_t inputSecondLastDim =
+        inputShape.size() >= 2 ? inputShape[inputShape.size() - 2] : 1;
+    int64_t outputSecondLastDim =
+        outputShape.size() >= 2 ? outputShape[outputShape.size() - 2] : 1;
+
+    // TTNN view conditions adapted for MLIR:
+    // 1. Last dimension must be the same
+    // 2. Either second-to-last dimension is the same OR no tile padding OR
+    // row-major input
+    // 3. Sharded/Interleaved must match for output and input
+    // 4. L1/DRAM must match for output and input
+    const int64_t tileHeight = 32; // tt::constants::TILE_HEIGHT
+    const int64_t tileWidth = 32;  // tt::constants::TILE_WIDTH
+
+    // Checking if the other tensor is sharded/interleaved:
+    // Input if we are checking the output of the op (this reshape is contextOp)
+    // Output if we are checking the input of the op (this reshape is user of
+    // contextOp)
+    bool otherTensorSharded = false;
+    if (isUserOp) {
+      if (auto ttnnLayout =
+              mlir::dyn_cast<TTNNLayoutAttr>(outputType.getEncoding())) {
+        otherTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
+      }
+    } else {
+      if (auto ttnnLayout =
+              mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding())) {
+        otherTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
+      }
+    }
+
+    bool inputTensorTiled = false;
+    if (auto ttnnLayout =
+            mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding())) {
+      inputTensorTiled = ttnnLayout.isTiled();
+    }
+
+    canBeView =
+        // 1. Sharded/Interleaved must match for output and input for metal
+        // optimization (always false for tensor checked for upgrade since in
+        // DRAM -> never sharded) so there is no point to keep the tensor in
+        // DRAM if the other is L1 sharded.
+        // 2. Since sharding is the only way any of these can already be in
+        // L1, and the other must be in DRAM to be considered for upgrade,
+        // checking sharding covers the input.isL1() == output.isL1() as well.
+        !otherTensorSharded && (inputLastDim == outputLastDim) &&
+        (!inputTensorTiled || (inputSecondLastDim == outputSecondLastDim) ||
+         (outputSecondLastDim % tileHeight == 0 &&
+          inputSecondLastDim % tileWidth == 0));
+  }
+
+  if (canBeView) {
+    if (isUserOp) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
+                   "can be optimized to view.",
+                   contextOp->getName());
+    } else {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
+                   "can be optimized to view.",
+                   contextOp->getName());
+    }
+    return true;
+  }
+
+  return false;
+}
+
 void L1InterleavedFallbackAnalysis::tryUpgradeToL1Interleaved(Operation *op) {
   std::vector<OpConfig> opL1InterleavedConfigs =
       getL1InterleavedLayoutConfigs(op);
@@ -257,8 +377,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
 
     if (operand.getDefiningOp()) {
       if (operand.getDefiningOp() == upgradedProducerOp) {
-        // If it's a nested check of update candidate's (producer in this scope)
-        // consumer's storage.
+        // If it's a nested check of update candidate's (producer in this
+        // scope) consumer's storage.
         inputLayouts.push_back(upgradedProducerLayout);
         continue;
       }
@@ -337,15 +457,15 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   // - Recursive call: upgradedProducerOp=consumerOp, checks if consumer can
   // handle the upgrade.
   if (upgradedProducerOp) {
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::Optimizer,
-        "OpModel constraints valid for input of consumer {0}:\n"
-        "OutputLayout: {1}\n"
-        "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
-        "producerL1OutputUsage: {5}, totalL1Usage: {6}",
-        consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
-        outputTensorUsage, producersL1OutputUsage,
-        cBUsagePeak + tensorUsage + producersL1OutputUsage);
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "OpModel constraints valid for input of consumer {0}:\n"
+                 "OutputLayout: {1}\n"
+                 "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, "
+                 "outputTensorUsage: {4}, "
+                 "producerL1OutputUsage: {5}, totalL1Usage: {6}",
+                 consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
+                 outputTensorUsage, producersL1OutputUsage,
+                 cBUsagePeak + tensorUsage + producersL1OutputUsage);
 
     return outputLayout;
   }
