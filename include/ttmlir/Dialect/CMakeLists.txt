@@ -6,6 +6,7 @@ add_subdirectory(TTKernel)
 add_subdirectory(SFPI)
 add_subdirectory(LLVM)
 add_subdirectory(EmitPy)
+add_subdirectory(D2M)
 
 if (TTMLIR_ENABLE_STABLEHLO)
   add_subdirectory(StableHLO)

@@ -6,6 +6,8 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Conversion/TTIRToTTIRGeneric/TTIRToTTIRGeneric.h"
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
@@ -82,41 +84,42 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;
+  // Configure D2M generic options to match the original TTIR options
+  tt::TTIRToD2MGenericOptions toD2MGenericOptions;
   {
-    toTTIRGenericOptions.defaultInputMemSpace = options.defaultInputMemSpace;
-    toTTIRGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
-    toTTIRGenericOptions.overrideDeviceShape =
+    toD2MGenericOptions.defaultInputMemSpace = options.defaultInputMemSpace;
+    toD2MGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
+    toD2MGenericOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
   }
-  pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
+  pm.addPass(tt::createTTIRToD2MGenericPass(toD2MGenericOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  pm.addPass(ttir::createTTIRLowerToLayout());
+  pm.addPass(d2m::createD2MLowerToLayout());
 }
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   createTTIRBufferizationPipeline(pm, options);
-  ttir::TTIRAllocateOptions allocateOptions;
+  d2m::D2MAllocateOptions allocateOptions;
   { allocateOptions.numStreamBuffers = options.numStreamBuffers; }
-  pm.addPass(ttir::createTTIRAllocate(allocateOptions));
+  pm.addPass(d2m::createD2MAllocate(allocateOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  ttir::TTIRGenericApplyInterchangeOptions applyInterchangeOptions;
+  d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
     applyInterchangeOptions.matmulInterchange =
         llvm::to_vector(options.matmulInterchange);
   }
-  pm.addPass(ttir::createTTIRGenericApplyInterchange(applyInterchangeOptions));
-  ttir::TTIRGenericTileComputeLoopsOptions tileComputeLoopsOptions;
+  pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
+  d2m::D2MGenericTileComputeLoopsOptions tileComputeLoopsOptions;
   {
     tileComputeLoopsOptions.maxDstRegisterSizeTiles =
         options.maxDstRegisterSizeTiles;
   }
-  pm.addPass(ttir::createTTIRGenericTileComputeLoops(tileComputeLoopsOptions));
-  ttir::TTIRInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
+  pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
+  d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   { insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul; }
   pm.addPass(
-      ttir::createTTIRInsertDstRegisterAccess(insertDstRegisterAccessOptions));
+      d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
   OpPassManager &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(affine::createAffineLoopInvariantCodeMotionPass());
@@ -124,22 +127,22 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(memref::createFoldMemRefAliasOpsPass());
   pm.addPass(mlir::createLowerAffinePass());
-  pm.addPass(ttir::createTTIRGenericLinearizeMemref());
-  pm.addPass(ttir::createTTIRGenericGenerateDatamovement());
-  pm.addPass(ttir::createTTIRGenericHWThreadSelection());
-  pm.addPass(ttir::createTTIRGenericLowerDMAs());
-  pm.addPass(ttir::createTTIRGenericGenerateLoops());
+  pm.addPass(d2m::createD2MGenericLinearizeMemref());
+  pm.addPass(d2m::createD2MGenericGenerateDatamovement());
+  pm.addPass(d2m::createD2MGenericLowerDMAs());
+  pm.addPass(d2m::createD2MGenericHWThreadSelection());
+  pm.addPass(d2m::createD2MGenericGenerateLoops());
   createOptimizationPasses(pm, options);
-  pm.addPass(ttir::createTTIRGenericRegionsToFuncs());
+  pm.addPass(d2m::createD2MGenericRegionsToFuncs());
 }
 
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  pm.addPass(tt::createConvertTTIRToTTKernelPass());
+  pm.addPass(tt::createConvertD2MToTTKernelPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);
-  pm.addPass(tt::createConvertTTIRToTTMetalPass());
+  pm.addPass(tt::createConvertD2MToTTMetalPass());
   // Insert DeviceZone scopes around selected ttkernel ops before EmitC
   // lowering.
   if (options.insertProfilerTraces) {
@@ -148,6 +151,95 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(mlir::emitc::createFormExpressionsPass());
+}
+
+void createTTIRToTTMetalPipelineDebug(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  // TTIR-based debug pipeline for comparison with D2M
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
+  pm.addPass(ttir::createTTIRHoistTransform());
+
+  OpPassManager &devicePm =
+      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+  // Frontend with TTIR (not D2M)
+  ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
+  {
+    registerDeviceOptions.systemDescPath = options.systemDescPath;
+    registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
+    registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
+  }
+  devicePm.addPass(
+      ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
+  devicePm.addPass(tt::createTTIRToTTIRDecompositionPass());
+  devicePm.addPass(createCanonicalizerPassWithOptions(options));
+
+  ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;
+  {
+    toTTIRGenericOptions.defaultInputMemSpace = options.defaultInputMemSpace;
+    toTTIRGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
+    toTTIRGenericOptions.overrideDeviceShape =
+        llvm::to_vector(options.overrideDeviceShape);
+  }
+  devicePm.addPass(createTTIRToTTIRGenericPass(toTTIRGenericOptions));
+  devicePm.addPass(createCanonicalizerPassWithOptions(options));
+  devicePm.addPass(createCanonicalizerPassWithOptions(options));
+  devicePm.addPass(ttir::createTTIRLowerToLayout());
+
+  // Middleend with TTIR passes
+  createTTIRBufferizationPipeline(devicePm, options);
+  devicePm.addPass(ttir::createTTIRAllocate());
+  devicePm.addPass(createCanonicalizerPassWithOptions(options));
+
+  ttir::TTIRGenericApplyInterchangeOptions applyInterchangeOptions;
+  {
+    applyInterchangeOptions.matmulInterchange =
+        llvm::to_vector(options.matmulInterchange);
+  }
+  devicePm.addPass(
+      ttir::createTTIRGenericApplyInterchange(applyInterchangeOptions));
+
+  ttir::TTIRGenericTileComputeLoopsOptions tileComputeLoopsOptions;
+  {
+    tileComputeLoopsOptions.maxDstRegisterSizeTiles =
+        options.maxDstRegisterSizeTiles;
+  }
+  devicePm.addPass(
+      ttir::createTTIRGenericTileComputeLoops(tileComputeLoopsOptions));
+  devicePm.addPass(ttir::createTTIRInsertDstRegisterAccess());
+
+  OpPassManager &funcPm = devicePm.nest<func::FuncOp>();
+  funcPm.addPass(affine::createLoopCoalescingPass());
+
+  devicePm.addPass(mlir::createLowerAffinePass());
+  devicePm.addPass(memref::createFoldMemRefAliasOpsPass());
+  devicePm.addPass(mlir::createLowerAffinePass());
+  devicePm.addPass(ttir::createTTIRGenericLinearizeMemref());
+  devicePm.addPass(ttir::createTTIRGenericGenerateDatamovement());
+  devicePm.addPass(ttir::createTTIRGenericLowerDMAs());
+  devicePm.addPass(ttir::createTTIRGenericHWThreadSelection());
+  devicePm.addPass(ttir::createTTIRGenericGenerateLoops());
+  createOptimizationPasses(devicePm, options);
+  devicePm.addPass(ttir::createTTIRGenericRegionsToFuncs());
+
+  // Backend - use TTIR-to-TTKernel instead of D2M-to-TTKernel
+  devicePm.addPass(tt::createConvertTTIRToTTKernelPass());
+  devicePm.addPass(createCanonicalizerPassWithOptions(options));
+  devicePm.addPass(ttkernel::createTTKernelControlDstSection());
+  createOptimizationPasses(devicePm, options);
+  devicePm.addPass(tt::createConvertTTIRToTTMetalPass());
+  // Insert DeviceZone scopes around selected ttkernel ops before EmitC
+  // lowering.
+  if (options.insertProfilerTraces) {
+    devicePm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes());
+  }
+  devicePm.addPass(createConvertTTKernelToEmitC());
+  devicePm.addPass(createCanonicalizerPassWithOptions(options));
+  devicePm.addPass(mlir::emitc::createFormExpressionsPass());
+
+  // Run lowering to LLVM pass on hoisted funcs in CPUModule.
+  ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
+  ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
 }
 
 void createTTIRToTTMetalPipeline(OpPassManager &pm,
@@ -177,6 +269,10 @@ void registerTTMetalPipelines() {
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-to-ttmetal-pipeline", "Pipeline lowering ttir to ttmetal.",
       tt::ttmetal::createTTIRToTTMetalPipeline);
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+      "ttir-to-ttmetal-debug-pipeline",
+      "TTIR-based debug pipeline for comparison with D2M.",
+      tt::ttmetal::createTTIRToTTMetalPipelineDebug);
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-to-ttmetal-fe-pipeline", "Frontend lowering passes.",
       tt::ttmetal::createTTIRToTTMetalFrontendPipeline);

@@ -12,6 +12,6 @@ target_include_directories(${TESTSUITE}
 target_link_libraries(${TESTSUITE}
   PRIVATE
     TTMLIRTestUtils
-    MLIRTTIRAnalysis
+    MLIRD2MAnalysis
     coverage_config
 )

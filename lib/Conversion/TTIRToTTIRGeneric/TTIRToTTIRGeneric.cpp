@@ -4,20 +4,20 @@
 
 #include "ttmlir/Conversion/TTIRToTTIRGeneric/TTIRToTTIRGeneric.h"
 
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
-
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
@@ -283,7 +283,7 @@ private:
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, rank);
 
-    // Create 'ttir.generic' accepting 'op's operands.
+    // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<ttir::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
@@ -421,7 +421,7 @@ private:
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, op, rank);
 
-    // Create 'ttir.generic' accepting extended operands.
+    // Create 'd2m.generic' accepting extended operands.
     auto generic = rewriter.create<ttir::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
@@ -655,7 +655,7 @@ private:
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, rank);
 
-    // Create 'ttir.generic' accepting 'op's operands.
+    // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<ttir::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));

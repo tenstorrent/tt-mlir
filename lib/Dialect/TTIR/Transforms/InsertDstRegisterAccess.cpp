@@ -102,7 +102,9 @@ public:
             linalgToAffineFailed = true;
             return;
           }
+
           rewriter.eraseOp(linalgGenericOp);
+
           modified |= insertDstRegisterAccess(
               rewriter, op.getLoc(), region,
               !linalgLoops.value().empty() ? linalgLoops.value().front()
@@ -155,12 +157,12 @@ public:
 
     // 4. Rewrite stores to use dst register based on allocation.
     insertDstRegisterAllocation(rewriter, loc, dst, dstAllocation);
-
     return true;
   }
 
   static bool hasAcquireDstOp(Region &region) {
-    return !region.getOps<AcquireDstOp>().empty();
+    bool result = !region.getOps<AcquireDstOp>().empty();
+    return result;
   }
 
   static unsigned getDstRegisterSizeTiles(Operation *op) {
@@ -171,7 +173,8 @@ public:
     auto chipDescIndices = systemDesc.getChipDescIndices();
     assert(chipIds.size() == 1);
     auto chipDesc = chipDescs[chipDescIndices[chipIds[0]]];
-    return chipDesc.getDstRegisterSizeTiles();
+    unsigned result = chipDesc.getDstRegisterSizeTiles();
+    return result;
   }
 
   static AcquireDstOp
@@ -311,7 +314,8 @@ public:
                memref.getDefiningOp())) {
       memref = subView.getSource();
     }
-    return mlir::cast<BlockArgument>(memref);
+    BlockArgument result = mlir::cast<BlockArgument>(memref);
+    return result;
   }
 
   // Collect a single load or store to dst organized by loop nest. Returns the
@@ -462,6 +466,7 @@ public:
     if (guardIndices.empty()) {
       return nullptr;
     }
+
     auto zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIndexType(),
         rewriter.getIntegerAttr(rewriter.getIndexType(), 0));

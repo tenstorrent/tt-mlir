@@ -124,6 +124,26 @@ def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTIRToD2MGeneric: Pass<"ttir-to-d2m-generic", "::mlir::ModuleOp"> {
+  let summary = "Convert named TTIR operations to their d2m.generic form.";
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::d2m::D2MDialect", "mlir::linalg::LinalgDialect"];
+  let constructor = "createTTIRToD2MGenericPass()";
+  let options = [
+      Option<"defaultInputMemSpace", "default-input-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceL1", "Set default memspace for input tensors",
+          [{::llvm::cl::values(
+            clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
+            clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")
+          )}]>,
+      Option<"defaultOutputMemSpace", "default-output-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceL1", "Set default memspace for output tensors",
+          [{::llvm::cl::values(
+            clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
+            clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")
+          )}]>,
+      ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
+          "Override the device shape.">
+  ];
+}
+
 def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to TTNN dialect.";
   let constructor = "createConvertTTIRToTTNNPass()";
@@ -140,6 +160,18 @@ def ConvertTTIRToTTKernel: Pass<"convert-ttir-to-ttkernel", "::mlir::ModuleOp"> 
   let summary = "Convert TTIR dialect to TTKernel dialect.";
   let constructor = "createConvertTTIRToTTKernelPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect", "mlir::arith::ArithDialect"];
+}
+
+def ConvertD2MToTTKernel: Pass<"convert-d2m-to-ttkernel", "::mlir::ModuleOp"> {
+  let summary = "Convert D2M dialect to TTKernel dialect.";
+  let constructor = "createConvertD2MToTTKernelPass()";
+  let dependentDialects = ["mlir::tt::d2m::D2MDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect", "mlir::arith::ArithDialect"];
+}
+
+def ConvertD2MToTTMetal: Pass<"convert-d2m-to-ttmetal", "::mlir::ModuleOp"> {
+  let summary = "Convert D2M dialect to TTMetal dialect.";
+  let constructor = "createConvertD2MToTTMetalPass()";
+  let dependentDialects = ["mlir::tt::d2m::D2MDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect", "mlir::arith::ArithDialect"];
 }
 
 def ConvertTTNNToEmitC : Pass<"convert-ttnn-to-emitc", "::mlir::ModuleOp"> {
