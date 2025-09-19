@@ -3348,6 +3348,43 @@ ExecuteTraceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// CloneOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+CloneOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  if (inputShape.empty()) {
+    return llvm::createStringError("Input shape is empty");
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const std::optional<mlir::tt::ttcore::DataType> dtype = getDtype();
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<CloneOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], dtype, getMemoryConfig(), getComputeConfig(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+CloneOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+  const std::optional<mlir::tt::ttcore::DataType> dtype = getDtype();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<CloneOp>::getOpRuntime, *this, inputShape, inputs[0],
+      dtype, getMemoryConfig(), getComputeConfig(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // CaptureOrExecuteTraceOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

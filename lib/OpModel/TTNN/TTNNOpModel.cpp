@@ -5003,4 +5003,92 @@ OpModel<ConstantOp>::getOpConstraints(ttcore::GridAttr deviceGrid,
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// CloneOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<CloneOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, std::optional<ttcore::DataType> dtype,
+    std::optional<MemoryConfigAttr> memoryConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::DataType> metalDtype = std::nullopt;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+  std::optional<::ttnn::MemoryConfig> metalMemConfig = std::nullopt;
+  if (memoryConfig.has_value()) {
+    metalMemConfig = conversion::getMemoryConfig(memoryConfig.value());
+  }
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      deviceComputeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
+
+  // Create query closure
+  auto cloneOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::clone, device, inputSpec, metalDtype, metalMemConfig,
+        deviceComputeKernelConfigConverted);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     cloneOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<CloneOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<ttcore::DataType> dtype,
+    std::optional<MemoryConfigAttr> memoryConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::DataType> metalDtype = std::nullopt;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+  std::optional<::ttnn::MemoryConfig> metalMemConfig = std::nullopt;
+  if (memoryConfig.has_value()) {
+    metalMemConfig = conversion::getMemoryConfig(memoryConfig.value());
+  }
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      deviceComputeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
+
+  // Create query closure
+  auto cloneOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::clone, device, inputSpec,
+                                           metalDtype, metalMemConfig,
+                                           deviceComputeKernelConfigConverted);
+  };
+
+  return operation::getOpRuntime(cloneOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 } // namespace mlir::tt::ttnn::op_model

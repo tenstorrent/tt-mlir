@@ -1388,6 +1388,37 @@ public:
 };
 } // namespace
 
+// CloneOp conversion pattern
+//
+namespace {
+class CloneOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::CloneOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::CloneOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CloneOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::CloneOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        /*compute_config=*/emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // mlir::tt::ttcore::DeviceOp conversion pattern
 //
 namespace {
@@ -3094,13 +3125,14 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Tensor manipulation ops
   //
-  patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
-               ReshapeOpConversionPattern, RepeatOpConversionPattern,
-               RepeatInterleaveOpConversionPattern,
-               SliceStaticOpConversionPattern, SliceDynamicOpConversionPattern,
-               SortOpConversionPattern, PermuteOpConversionPattern,
-               DefaultOpConversionPattern<mlir::tt::ttnn::PadOp>>(typeConverter,
-                                                                  ctx);
+  patterns
+      .add<TransposeOpConversionPattern, ConcatOpConversionPattern,
+           ReshapeOpConversionPattern, RepeatOpConversionPattern,
+           RepeatInterleaveOpConversionPattern, SliceStaticOpConversionPattern,
+           SliceDynamicOpConversionPattern, SortOpConversionPattern,
+           PermuteOpConversionPattern, CloneOpConversionPattern,
+           DefaultOpConversionPattern<mlir::tt::ttnn::PadOp>>(typeConverter,
+                                                              ctx);
 
   // Quantization ops.
   //

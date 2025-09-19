@@ -2409,4 +2409,19 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Memory
     let hasVerifier = 1;
 }
 
+def TTNN_CloneOp : TTNN_Op<"clone"> {
+    let summary = "Clone op.";
+    let description = [{
+      Clones the input, creating a copy with the specified memory_config and converting its data type to dtype. This operation does not alter the tensor's layout.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
 #endif

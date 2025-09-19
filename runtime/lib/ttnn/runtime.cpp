@@ -1186,6 +1186,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RotaryEmbeddingLlamaOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::CloneOp: {
+    tensorRef = opContext.type_as_CloneOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1509,6 +1513,10 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->sin_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->trans_mat()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CloneOp: {
+    tensorRefs = {opContext.type_as_CloneOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
