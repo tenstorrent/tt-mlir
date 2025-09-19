@@ -105,9 +105,6 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createCanonicalizerPass());
-  createTTIRBufferizationPipeline(pm);
-  pm.addPass(ttir::createTTIRAllocate());
-  pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   ttir::TTIRAllocateOptions allocateOptions;
   {
