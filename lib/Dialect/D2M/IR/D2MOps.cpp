@@ -789,4 +789,92 @@ mlir::FailureOr<mlir::BaseMemRefType> d2m::StreamLayoutOp::getBufferType(
     ::llvm::SmallVector<mlir::Value> &) {
   return d2m::getBufferType(value.getType(), /*isView=*/true);
 }
+
+//===----------------------------------------------------------------------===//
+// ViewLayoutOp
+//===----------------------------------------------------------------------===//
+
+bool d2m::ViewLayoutOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // If the operand is an input, it is a bufferized to a memory read.
+  return false;
+}
+
+bool d2m::ViewLayoutOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // If the operand is an output, it is a bufferized to a memory write.
+  return false;
+}
+
+mlir::LogicalResult d2m::ViewLayoutOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  if (mlir::isa<mlir::MemRefType>(getInput().getType())) {
+    return mlir::failure();
+  }
+
+  auto maybeInput =
+      mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
+  if (failed(maybeInput)) {
+    return maybeInput;
+  }
+
+  // Build the memref result type from the tensor result encoding so that any
+  // index_map on the encoding is honored when creating the view layout.
+  ::llvm::SmallVector<mlir::Value> dummy;
+  auto outMemrefTypeOr = getBufferType(getResult(), options, state, dummy);
+  if (mlir::failed(outMemrefTypeOr)) {
+    return outMemrefTypeOr;
+  }
+
+  auto outMemrefType = mlir::cast<mlir::MemRefType>(*outMemrefTypeOr);
+  auto newOp = rewriter.create<d2m::ViewLayoutOp>(
+      getLoc(), outMemrefType, *maybeInput, getReinterpretLayout());
+
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     newOp.getResult());
+
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList d2m::ViewLayoutOp::getAliasingValues(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType> d2m::ViewLayoutOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return d2m::getBufferType(value.getType(), /*isView=*/true);
+}
+
+mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
+  ViewLayoutOp consecutiveView = getInput().getDefiningOp<d2m::ViewLayoutOp>();
+  if (!consecutiveView) {
+    return nullptr;
+  }
+
+  // Replace the input through the consecutive view.
+  setOperand(consecutiveView.getInput());
+
+  MemRefType inputType = mlir::dyn_cast<MemRefType>(consecutiveView.getType());
+  if (!inputType) {
+    return getResult();
+  }
+
+  // If we're dealing with memrefs, we need to compose the layouts.
+  MemRefType resultType = mlir::cast<MemRefType>(getType());
+  ttcore::ViewLayoutAttr inputView =
+      mlir::cast<ttcore::ViewLayoutAttr>(inputType.getLayout());
+  ttcore::ViewLayoutAttr resultView =
+      mlir::cast<ttcore::ViewLayoutAttr>(resultType.getLayout());
+  ttcore::ViewLayoutAttr newView = inputView.compose(resultView);
+  getResult().setType(MemRefType::Builder(resultType).setLayout(newView));
+
+  return getResult();
+}
+
 } // namespace mlir::tt::d2m

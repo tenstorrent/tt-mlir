@@ -16,7 +16,17 @@ include "mlir/IR/OpAsmInterface.td"
 
 // Minimal scaffolding op: ViewLayout
 
-def D2M_ViewLayoutOp : D2M_Op<"view_layout", [Pure, D2M_ViewOpInterface]> {
+def D2M_ViewLayoutOp : D2M_Op<"view_layout", [
+    Pure,
+    D2M_ViewOpInterface,
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
   let summary = "View Layout op (D2M subset)";
   let description = [{
     Create a representational view of a tensor/memref with a different layout.
@@ -29,6 +39,8 @@ def D2M_ViewLayoutOp : D2M_Op<"view_layout", [Pure, D2M_ViewOpInterface]> {
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($result)
   }];
+
+  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//

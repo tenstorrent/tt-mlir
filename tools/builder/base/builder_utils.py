@@ -29,6 +29,7 @@ from ttmlir.passes import (
 from builder.base.builder import *
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
+from builder.d2m.d2m_builder import D2MBuilder
 
 # ----- Exception Classes -----
 
@@ -288,6 +289,274 @@ def build_ttir_module(
         return module, ttir_builder
 
 
+def build_d2m_module(
+    fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    module_dump: bool = False,
+    base: Optional[str] = None,
+    output_root: str = ".",
+) -> Tuple[Module, D2MBuilder]:
+    """
+    Define a MLIR module specified as a python function using D2M operations.
+
+    This is similar to build_ttir_module but uses D2MBuilder to create D2M operations
+    directly, bypassing TTIR. This is useful for tests that need to work with D2M
+    operations without going through the full TTIR-to-D2M conversion pipeline.
+
+    Parameters
+    ----------
+    fn : Callable
+        Python function to be converted to MLIR
+
+    inputs_shapes : *List[Shape]*
+        Shapes of the respective ranked tensor inputs of the test function.
+
+    inputs_types: *Optional[List[Union[torch.dtype, TypeInfo]]]*
+        Data types of the input tensors
+
+    mesh_name: *str*
+        Name of the mesh to be used in the module. Default is "mesh".
+
+    mesh_dict: *OrderedDict[str, int]*
+        Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
+
+    module_dump : bool
+        Set to True to print out generated MLIR module. Default is False.
+
+    base : *Optional[str]*
+        Output file name
+
+    output_root: str = ".",
+        Output file path
+
+    Returns
+    -------
+    Tuple[Module, D2MBuilder]
+        A tuple containing the MLIR module and the D2MBuilder instance
+
+    Example
+    -------
+    >>> def test_to_layout(in0: Operand, builder: D2MBuilder):
+    ...     return builder.to_layout(in0, target_layout)
+    ...
+    >>> build_d2m_module(test_to_layout, ((32, 32),))
+    """
+
+    ctx = Context()
+
+    # Grab the location of the test function in python for later debugging
+    try:
+        fname = inspect.getfile(fn)
+        line_no = inspect.getsourcelines(fn)[1]
+        loc = Location.file(fname, line_no, 0, ctx)
+    except (OSError, TypeError):
+        loc = Location.unknown(ctx)
+
+    d2m_builder = D2MBuilder(ctx, loc, mesh_name, mesh_dict)
+
+    # Default to all f32s
+    if inputs_types is None:
+        inputs_types = [torch.float32] * len(inputs_shapes)
+
+    if len(inputs_shapes) != len(inputs_types):
+        raise ValueError(
+            f"inputs_shapes and inputs_types must have the same length: "
+            f"{len(inputs_shapes)} != {len(inputs_types)}"
+        )
+
+    with ctx, loc:
+        fn_input_types = [
+            d2m_builder._create_ranked_tensor_type(
+                shape,
+                d2m_builder._get_type_from_torch_dtype(
+                    dtype if isinstance(dtype, torch.dtype) else dtype
+                ),
+            )
+            for (shape, dtype) in zip(inputs_shapes, inputs_types)
+        ]
+
+        module = Module.create()
+        with InsertionPoint(module.body):
+
+            @func.func(*fn_input_types, name=fn.__name__)
+            def decorated_func(*inputs):
+                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
+                    input_goldens[operand] = d2m_builder._generate_golden_tensor(
+                        operand, dtype
+                    )
+                d2m_builder._set_goldens(input_goldens)
+                d2m_builder._set_input_ordering(inputs)
+
+                result = fn(*inputs, d2m_builder)
+
+                outputs = result if hasattr(result, "__iter__") else (result,)
+                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = d2m_builder._get_golden_tensor(op)
+                d2m_builder._set_goldens(output_goldens)
+                d2m_builder._set_output_ordering(outputs)
+
+                return result
+
+        print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
+        base = fn.__name__ if base is None else base
+        filename = _get_target_path(
+            output_root, "d2m-builder-artifacts", "d2m.mlir", base
+        )
+
+        if module_dump:
+            with open(filename, "w") as f:
+                f.write(str(module))
+                print(module)
+
+        return module, d2m_builder
+
+
+def build_module(
+    fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    module_dump: bool = False,
+    base: Optional[str] = None,
+    output_root: str = ".",
+    builder_type: str = "ttir",
+) -> Tuple[Module, Builder]:
+    """
+    Unified function to define a MLIR module specified as a python function.
+
+    This function can create either TTIR or D2M modules based on the builder_type parameter.
+
+    Parameters
+    ----------
+    fn : Callable
+        Python function to be converted to MLIR
+
+    inputs_shapes : *List[Shape]*
+        Shapes of the respective ranked tensor inputs of the test function.
+
+    inputs_types: *Optional[List[Union[torch.dtype, TypeInfo]]]*
+        Data types of the input tensors
+
+    mesh_name: *str*
+        Name of the mesh to be used in the module. Default is "mesh".
+
+    mesh_dict: *OrderedDict[str, int]*
+        Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
+
+    module_dump : bool
+        Set to True to print out generated MLIR module. Default is True.
+
+    base : *Optional[str]*
+        Output file name
+
+    output_root: str = ".",
+        Output file path
+
+    builder_type: str = "ttir"
+        Type of builder to use: "ttir" for TTIRBuilder, "d2m" for D2MBuilder
+
+    Returns
+    -------
+    Tuple[Module, Builder]
+        A tuple containing the MLIR module and the Builder instance
+
+    Example
+    -------
+    >>> def test_to_layout(in0: Operand, builder: D2MBuilder):
+    ...     return builder.to_layout(in0, target_layout)
+    ...
+    >>> build_module(test_to_layout, ((32, 32),), builder_type="d2m")
+    """
+
+    ctx = Context()
+
+    # Grab the location of the test function in python for later debugging
+    try:
+        fname = inspect.getfile(fn)
+        line_no = inspect.getsourcelines(fn)[1]
+        loc = Location.file(fname, line_no, 0, ctx)
+    except (OSError, TypeError):
+        loc = Location.unknown(ctx)
+
+    # Create the appropriate builder based on builder_type
+    if builder_type.lower() == "d2m":
+        from builder.d2m.d2m_builder import D2MBuilder
+
+        builder = D2MBuilder(ctx, loc, mesh_name, mesh_dict)
+        artifacts_dir = "d2m-builder-artifacts"
+        default_filename = "d2m.mlir"
+    else:  # default to ttir
+        from builder.ttir.ttir_builder import TTIRBuilder
+
+        builder = TTIRBuilder(ctx, loc, mesh_name, mesh_dict)
+        artifacts_dir = "ttir-builder-artifacts"
+        default_filename = "ttir.mlir"
+
+    # Default to all f32s
+    if inputs_types is None:
+        inputs_types = [torch.float32] * len(inputs_shapes)
+
+    if len(inputs_shapes) != len(inputs_types):
+        raise ValueError(
+            f"inputs_shapes and inputs_types must have the same length: "
+            f"{len(inputs_shapes)} != {len(inputs_types)}"
+        )
+
+    with ctx, loc:
+        fn_input_types = [
+            builder._create_ranked_tensor_type(
+                shape,
+                builder._get_type_from_torch_dtype(
+                    dtype if isinstance(dtype, torch.dtype) else dtype
+                ),
+            )
+            for (shape, dtype) in zip(inputs_shapes, inputs_types)
+        ]
+
+        module = Module.create()
+        with InsertionPoint(module.body):
+
+            @func.func(*fn_input_types, name=fn.__name__)
+            def decorated_func(*inputs):
+                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
+                    input_goldens[operand] = builder._generate_golden_tensor(
+                        operand, dtype
+                    )
+                builder._set_goldens(input_goldens)
+                builder._set_input_ordering(inputs)
+
+                result = fn(*inputs, builder)
+
+                outputs = result if hasattr(result, "__iter__") else (result,)
+                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = builder._get_golden_tensor(op)
+                builder._set_goldens(output_goldens)
+                builder._set_output_ordering(outputs)
+
+                return result
+
+        print(
+            f"`{fn.__name__}` successfully transformed into a MLIR module using {builder_type.upper()}Builder."
+        )
+        base = fn.__name__ if base is None else base
+        filename = _get_target_path(output_root, artifacts_dir, default_filename, base)
+
+        if module_dump:
+            with open(filename, "w") as f:
+                f.write(str(module))
+                print(module)
+
+        return module, builder
+
+
 def compile_ttir_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
@@ -303,14 +572,15 @@ def compile_ttir_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    builder_type: str = "ttir",
 ) -> str:
     """
-    Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
+    Compiles a TTIRBuilder or D2MBuilder function `fn` to MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
 
-    This decorator is mainly a wrapper around the following functions, with
-    each next function called on the output of the last:
+    This decorator automatically detects whether the function uses TTIRBuilder or D2MBuilder
+    based on type annotations and calls the appropriate build function. It's a wrapper around:
 
-    1. `build_ttir_module`
+    1. `build_ttir_module` or `build_d2m_module` (auto-detected)
     2. `_run_ttir_pipeline`
     3. `to_target`
 
@@ -319,7 +589,7 @@ def compile_ttir_to_flatbuffer(
     Parameters
     ----------
     fn : Callable
-        The TTIRBuilder function to compile. Must take `builder : TTIRBuilder` as a kwarg.
+        The builder function to compile. Must take `builder : TTIRBuilder` or `builder : D2MBuilder` as a kwarg.
 
     inputs_shapes : *List[Shape]*
         Shapes of the respective ranked tensor inputs of the test function.
@@ -389,9 +659,9 @@ def compile_ttir_to_flatbuffer(
         if len(inputs_shapes) != len(inputs_types):
             raise ValueError("inputs_shapes and inputs_types must have the same length")
 
-    # Compile model to TTIR MLIR
+    # Compile model to MLIR using unified build_module function
     try:
-        module, builder = build_ttir_module(
+        module, builder = build_module(
             fn,
             inputs_shapes,
             inputs_types,
@@ -400,6 +670,7 @@ def compile_ttir_to_flatbuffer(
             module_dump=module_dump,
             output_root=output_root,
             base=test_base,
+            builder_type=builder_type,
         )
 
         return compile_ttir_module_to_flatbuffer(

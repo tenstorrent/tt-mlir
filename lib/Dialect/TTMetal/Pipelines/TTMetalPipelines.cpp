@@ -100,9 +100,9 @@ void createTTIRToTTMetalFrontendPipeline(
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   createTTIRBufferizationPipeline(pm, options);
-  ttir::TTIRAllocateOptions allocateOptions;
+  d2m::D2MAllocateOptions allocateOptions;
   { allocateOptions.numStreamBuffers = options.numStreamBuffers; }
-  pm.addPass(ttir::createTTIRAllocate(allocateOptions));
+  pm.addPass(d2m::createD2MAllocate(allocateOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {

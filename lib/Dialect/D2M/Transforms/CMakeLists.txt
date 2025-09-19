@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRD2MTransforms
+  Allocate.cpp
   LowerToLayout.cpp
   GenericApplyInterchange.cpp
   GenericTileComputeLoops.cpp

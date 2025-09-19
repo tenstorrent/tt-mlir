@@ -59,4 +59,28 @@ def D2MLowerToLayout : Pass<"d2m-lower-to-layout", "::mlir::ModuleOp"> {
   let summary = "Lower layout transitions to D2M generic ops.";
 }
 
+def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
+  let summary = "Create streams required by D2M generic ops.";
+  let description = [{
+    This pass handles several related tasks:
+      - allocating data streams (stream_layouts) and their associated buffers as required by generic
+        op operands;
+      - allocating memory addresses/alignments for buffers supporting such streams as well as
+        other memref allocs needed by data movement/compute kernel functions.
+
+    Currently this pass only does some simple heuristics for forming stream_layout ops when required
+    for correctness. In the future, this will be augmented with analysis that will consider resource conflicts
+    between the number of streams, their buffer sizes, and L1 memory size limits.
+
+    Similarly, memory addresses are currently taken from L1 and never deallocated and so are assigned
+    by a simple bumper allocation scheme -- again, this will be modified to do smarter static allocation
+    schedules.
+  }];
+
+  let options = [
+    Option<"numStreamBuffers", "num-stream-buffers", "unsigned", "2",
+           "Number of stream buffers to use for double buffering.">
+  ];
+}
+
 #endif // TTMLIR_DIALECT_D2M_TRANSFORMS_PASSES_TD

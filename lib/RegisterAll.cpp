@@ -6,6 +6,7 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/SFPI/IR/SFPI.h"
@@ -126,6 +127,7 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttcore::registerPasses();
   mlir::tt::ttcore::registerTTPopulateArgumentTypes();
   mlir::tt::ttir::registerPasses();
+  mlir::tt::d2m::registerPasses();
   mlir::tt::ttnn::registerTTNNOptimizer();
   mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();
