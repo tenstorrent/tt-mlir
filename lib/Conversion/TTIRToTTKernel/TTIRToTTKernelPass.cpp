@@ -60,6 +60,7 @@ struct ConvertTTIRToTTKernel
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
+    target.addLegalOp<ttir::EmptyOp>();
 
     // Inputs to matmul_block. Will be folded in this pass.
     target.addLegalOp<memref::CastOp>();
