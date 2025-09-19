@@ -26,10 +26,10 @@ public:
   using AllocSizeT = std::int64_t;
   // Type for liveness "logical time".
   using SequenceT = std::int32_t;
-  eto
-      /// An allocation descriptor, a range of memory usage `[offset,
-      /// offset+size)` over a liveness range `[first, last]`.
-      struct Record {
+
+  /// An allocation descriptor, a range of memory usage `[offset, offset+size)`
+  /// over a liveness range `[first, last]`.
+  struct Record {
 
     friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
                                          const Record &obj);
