@@ -623,6 +623,19 @@ def TTIRQuantDequantConversion : Pass<"ttir-quant-dequant-conversion", "::mlir::
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::quant::QuantDialect"];
 }
 
+def TTIRConv2DToMatmulPass : Pass<"ttir-conv2d-to-matmul", "::mlir::ModuleOp">
+{
+  let summary = "Convert Conv2D to Matmul.";
+  let description = [{
+    This pass converts 1x1 Conv2D operations (kernel_size=1x1, stride=1, padding=0) to Matmul operations.
+    If a bias is present, the operation is converted to a Linear operation instead.
+    The NCHW input is reshaped to [NHW, C] and the OIHW weight vector is permuted to [I, O, H, W] and reshaped to [IOH, W].
+    The convolution is replaced with a matmul of [NHW, C] and [IOH, W] with output [NHW, W].
+    Finally the output is reshaped to the original output tensor of [N, H, W, C].
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTIR fusing pass.";

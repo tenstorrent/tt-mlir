@@ -53,6 +53,11 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
+  // Convert 1x1 Conv to Matmul (or Linear if bias is present).
+  if (options.conv2dToMatmulEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRConv2DToMatmulPass());
+  }
+
   pm.addPass(mlir::createCanonicalizerPass());
 
   // Inlines all private functions. I.e flattens the program into the main

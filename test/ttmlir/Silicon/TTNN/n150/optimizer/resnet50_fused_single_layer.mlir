@@ -20,7 +20,8 @@ module @ResNetBlock attributes {} {
     %1 = "ttir.relu"(%arg0, %0) : (tensor<8x56x56x256xbf16>, tensor<8x56x56x256xbf16>) -> tensor<8x56x56x256xbf16> loc(#loc2)
     %2 = ttir.empty() : tensor<8x56x56x64xbf16> loc(#loc3)
     // CHECK-DAG: #[[SHARDED_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}_sharded
-    // CHECK: %{{.*}}conv2d_config = #ttnn.conv2d_config<weights_dtype = bf16, activation = "relu", deallocate_activation = false
+    // CHECK: "ttnn.reshape"([[INPUT1:%.+]]) <{shape = [25088 : i32, 256 : i32]}>
+    // CHECK: "ttnn.matmul"([[RESHAPED_INPUT1:%.+]], [[WEIGHTS1:%.+]]) <{transpose_a = false, transpose_b = false}>
     %3 = "ttir.conv2d"(%1, %arg1, %2) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<8x56x56x256xbf16>, tensor<64x256x1x1xbf16>, tensor<8x56x56x64xbf16>) -> tensor<8x56x56x64xbf16> loc(#loc4)
     %10 = ttir.empty() : tensor<8x56x56x64xbf16> loc(#loc11)
     %11 = "ttir.conv2d"(%3, %arg4, %10) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> {channel_last = 1 : si32} : (tensor<8x56x56x64xbf16>, tensor<64x64x3x3xbf16>, tensor<8x56x56x64xbf16>) -> tensor<8x56x56x64xbf16> loc(#loc12)

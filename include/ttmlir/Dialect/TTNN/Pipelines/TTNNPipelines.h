@@ -240,6 +240,9 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-quant-dequant-conversion-pass",
       llvm::cl::desc("Enable quant-dequant conversion pass."),
       llvm::cl::init(true)};
+  Option<bool> conv2dToMatmulEnabled{
+      *this, "enable-conv2d-to-matmul-pass",
+      llvm::cl::desc("Enable conv2d to matmul pass."), llvm::cl::init(true)};
 
   Option<bool> enableFusing{*this, "enable-fusing-pass",
                             llvm::cl::desc("Enable fusing pass."),
