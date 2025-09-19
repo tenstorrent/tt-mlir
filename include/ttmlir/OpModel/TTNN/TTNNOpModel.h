@@ -126,7 +126,7 @@ template <>
 struct OpModel<BitwiseNotOp> : UnaryEltwiseOpModel<BitwiseNotOp> {};
 
 template <>
-struct OpModel<RsqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp> {};
+struct OpModel<RsqrtOp> : UnaryEltwiseOpModel<RsqrtOp> {};
 
 template <>
 struct OpModel<GeluOp> : UnaryEltwiseWithFastApproxModeOpModel<GeluOp> {};
