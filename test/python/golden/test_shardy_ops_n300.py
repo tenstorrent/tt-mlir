@@ -70,13 +70,10 @@ def sharding_constraint(
     )
     # builder.op_sharding_rule_attr([8,16,8], [tensor_mapping_attr, tensor_mapping_attr1], [tensor_mapping_attr2])
     # print(op_sharding_rule_attr)
-    # builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
-    add_0 = builder.add(
-        in0, in1, unit_attrs=["sdy.sharding"]
-    )  # [tensor_sharding_attr])
-    # builder.reshard(in1, sharding=tensor_sharding_attr2)
+    builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
+    add_0 = builder.add(in0, in1, unit_attrs=["sdy.sharding"])
     # builder.tensor_sharding_per_value_attr([tensor_sharding_attr, tensor_sharding_attr2])#, [in0, in1])
-    return add_0  # builder.add(add_0, in1, unit_attrs=unit_attrs)
+    return add_0
 
 
 @pytest.mark.parametrize("shape", [(8, 8, 8)], ids=shape_str)
@@ -88,7 +85,7 @@ def sharding_constraint(
         sharding_constraint,
     ],
 )
-def test_sharding_constraint(
+def test_sharding_constraint3(
     test_fn: Callable,
     shape: Shape,
     dtype: torch.dtype,
