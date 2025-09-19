@@ -18,6 +18,8 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/Support/raw_ostream.h"
+
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRINSERTDSTREGISTERACCESS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -286,14 +288,22 @@ public:
 
         }
         // If the user isn't a store, it must be another compute consumer and we
-        // need to allocate a dest register intermediate for it.
+        // need to set or allocate a dest register intermediate for it.
         else {
           assert(user->hasTrait<TTIRGenericRegionComputeOpTrait>());
           assert(op->hasOneUse() && "Currently we do not support multiple "
                                     "users in the same compute dst region.");
           assert(op->getNumResults() == 1);
           assert(!dstRegisterAllocation.contains(op));
-          dstRegisterAllocation[op] = dstRegisterAllocationState.allocate();
+          // If op stores to dst in place, we don't need to allocate a new dst
+          // register, just use the current dst index.
+          auto allocatedIndex = -1;
+          if (op.getDstRegInPlace()) {
+            allocatedIndex = dstRegisterAllocationState.getCurrDstIndex();
+          } else {
+            allocatedIndex = dstRegisterAllocationState.allocate();
+          }
+          dstRegisterAllocation[op] = allocatedIndex;
         }
       }
     });
