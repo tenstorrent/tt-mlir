@@ -73,6 +73,8 @@ void createOptimizationPasses(OpPassManager &pm,
 
 void createTTIRToTTMetalFrontendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  // Create multi-device tensor annotation for graph with mesh.
+  pm.addPass(ttir::createTTIRMultiDeviceTensorAnnotation());
   ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;

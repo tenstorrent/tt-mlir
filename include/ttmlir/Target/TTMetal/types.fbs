@@ -58,6 +58,7 @@ table BufferDesc {
   data_type: DataType;
   element_shape: Dim2d;
   buffer_detail: BufferDetail;
+  mesh: string;
 }
 
 table BufferRef {
@@ -69,4 +70,10 @@ table BufferRef {
 table CBRef {
   port: uint32;
   buffer_ref: BufferRef;
+}
+
+table MeshDesc {
+  name: string;
+  mesh_shape: [int64];
+  mesh_offset: [int64];
 }

@@ -69,6 +69,7 @@ struct TTIRToTTIRGenericPass final
       target.addLegalOp<ttir::EmptyOp>();
       target.addLegalOp<ttir::ConstantOp>();
       target.addLegalOp<ttir::FullOp>();
+      target.addLegalOp<ttir::MeshShardOp>();
 
       target.addLegalOp<
 #define GET_OP_LIST

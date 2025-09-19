@@ -73,6 +73,23 @@ def TTMetal_DeallocateBufferOp : TTMetal_Op<"deallocate_buffer", [MemoryEffects<
     let arguments = (ins AnyNon0RankedMemRef:$input);
 }
 
+def TTMetal_MeshShardOp : TTMetal_Op<"mesh_shard", [MemoryEffects<[MemRead, MemAlloc]>]> {
+    let summary = "Nd sharding or (partial) concat op";
+    let description = [{
+      Nd sharding or (partial) concat op in D2M runtime.
+      ShardToFull: Nd sharding in host memory.
+      FullToshard: (partial) concat in host memory.
+    }];
+
+    let arguments = (ins AnyNon0RankedMemRef:$input,
+                         TTCore_MeshShardTypeAttr:$shard_type,
+                         TTCore_MeshShardDirectionAttr:$shard_direction,
+                         DenseI64ArrayAttr:$shard_shape,
+                         DenseI64ArrayAttr:$shard_dims);
+
+    let results = (outs AnyNon0RankedMemRef:$result);
+}
+
 def TTMetal_FinishOp : TTMetal_Op<"finish", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "Finish op for command queue.";
     let description = [{

@@ -169,7 +169,6 @@ public:
     auto chipIds = device.getChipIds();
     auto chipDescs = systemDesc.getChipDescs();
     auto chipDescIndices = systemDesc.getChipDescIndices();
-    assert(chipIds.size() == 1);
     auto chipDesc = chipDescs[chipDescIndices[chipIds[0]]];
     return chipDesc.getDstRegisterSizeTiles();
   }

@@ -2117,8 +2117,8 @@ public:
     // Insert the new MeshShardOp with the generated GSPMDMeshSharding.
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp->getResult(0).getType()));
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
-        rewriter, srcOp, outputType, definingOp.getInputs().front(),
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
+        srcOp, outputType, definingOp.getInputs().front(),
         gspmdMeshSharding->getShardType(),
         gspmdMeshSharding->getShardDirection(),
         gspmdMeshSharding->getShardShape(), gspmdMeshSharding->getShardDims());

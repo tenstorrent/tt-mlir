@@ -12,6 +12,7 @@
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/Target.h"
+#include "ttmlir/Target/TTMetal/binary_generated.h"
 #include "ttmlir/Target/TTMetal/command_generated.h"
 #include "ttmlir/Target/TTMetal/types_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
@@ -410,12 +411,16 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
 
   std::vector<int32_t> hostStrides{};
   uint64_t hostVolume = 0;
+  mlir::StringAttr meshName = nullptr;
   auto hostLayout =
       mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(memref.getLayout());
   if (hostLayout) {
     hostStrides = ttmlir::utils::castContainer<std::vector<int32_t>>(
         hostLayout.getHostStrides());
     hostVolume = hostLayout.getHostVolume();
+    if (auto hostLayoutTensorMeshAttr = hostLayout.getMesh()) {
+      meshName = hostLayoutTensorMeshAttr.getName();
+    }
   } else {
     // Default values for host strides & volume when H2D/D2H copy doesn't need
     // host-side alignment & padding.
@@ -426,7 +431,8 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
 
   return target::metal::CreateBufferDescDirect(
       *cache.fbb, &shape, &hostStrides, hostVolume, toFlatbuffer(cache, dtype),
-      &elementShape, bufferDetailType, bufferDetail);
+      &elementShape, bufferDetailType, bufferDetail,
+      (meshName ? meshName.str().data() : nullptr));
 }
 
 static flatbuffers::Offset<target::metal::BufferRef>
@@ -639,6 +645,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   flatbuffers::Offset<::tt::target::MLIR> binaryMLIR =
       toMLIR(fbb, "ttmetal", module);
   std::vector<flatbuffers::Offset<target::metal::Program>> programs;
+  auto meshes = module->getAttrOfType<mlir::tt::ttcore::MeshesAttr>(
+      mlir::tt::ttcore::MeshesAttr::name);
 
   // Handle dylib creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
@@ -807,6 +815,47 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                                   systemDesc, 0),
                 memrefGlobalOpToFlatbufferByteVector(cache, globalOp)),
             op);
+      } else if (auto meshShardOp =
+                     dyn_cast_if_present<tt::ttmetal::MeshShardOp>(op);
+                 meshShardOp) {
+        const mlir::tt::ttcore::MeshShardDirection shardDirection =
+            meshShardOp.getShardDirection();
+        const mlir::tt::ttcore::MeshShardType shardType =
+            meshShardOp.getShardType();
+
+        ::tt::target::MeshShardDirection meshShardDirection;
+        if (shardDirection ==
+            mlir::tt::ttcore::MeshShardDirection::FullToShard) {
+          meshShardDirection =
+              ::tt::target::MeshShardDirection::FullToShardShape;
+        } else if (shardDirection ==
+                   mlir::tt::ttcore::MeshShardDirection::ShardToFull) {
+          meshShardDirection =
+              ::tt::target::MeshShardDirection::ShardToFullShape;
+        } else {
+          llvm_unreachable("unhandled mesh_shard direction");
+        }
+
+        ::tt::target::MeshShardType meshShardType;
+        if (shardType == mlir::tt::ttcore::MeshShardType::Replicate) {
+          meshShardType = ::tt::target::MeshShardType::Replicate;
+        } else if (shardType == mlir::tt::ttcore::MeshShardType::Devices) {
+          meshShardType = ::tt::target::MeshShardType::Devices;
+        } else if (shardType == mlir::tt::ttcore::MeshShardType::Identity) {
+          meshShardType = ::tt::target::MeshShardType::Identity;
+        } else {
+          llvm_unreachable("unhandled mesh_shard type");
+        }
+
+        cqBuilder.appendCommand(
+            target::metal::CreateMeshShardCommand(
+                fbb, cache.at<target::metal::BufferRef>(meshShardOp.getInput()),
+                cache.getOrCreate(meshShardOp.getResult(),
+                                  bufferValueToFlatbuffer, systemDesc, 0),
+                meshShardType, meshShardDirection,
+                cache.fbb->CreateVector<int64_t>(meshShardOp.getShardShape()),
+                cache.fbb->CreateVector<int64_t>(meshShardOp.getShardDims())),
+            op);
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
         // Unqualified walk will visit the root op itself last, we should
         // ignore this.
@@ -815,6 +864,18 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         llvm_unreachable("Encountered unsupported op.");
       }
     });
+
+    // We currently use the first mesh (default_device) for the device program.
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(entry);
+    auto meshName = (meshes && !meshes.getMeshes().empty())
+                        ? meshes.getMeshes()[0].getName()
+                        : nullptr;
+    flatbuffers::Offset<target::metal::MeshDesc> meshRef(
+        target::metal::CreateMeshDesc(
+            fbb, (meshName ? fbb.CreateString(meshName.str()) : 0),
+            fbb.CreateVector<int64_t>((deviceAttr.getMeshShape().empty()
+                                           ? llvm::ArrayRef<int64_t>{1, 1}
+                                           : deviceAttr.getMeshShape()))));
 
     constexpr uint32_t cqId = 0;
     std::vector<flatbuffers::Offset<target::metal::CommandQueue>>
@@ -825,14 +886,13 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
     std::vector<flatbuffers::Offset<target::metal::DeviceProgram>>
         devicePrograms = {
-            target::metal::CreateDeviceProgramDirect(
-                fbb, &cqBuilder.inputs, &cqBuilder.outputs, &commandQueues),
+            target::metal::CreateDeviceProgramDirect(fbb, &cqBuilder.inputs,
+                                                     &cqBuilder.outputs,
+                                                     &commandQueues, meshRef),
         };
 
     flatbuffers::Offset<target::DebugInfo> debugInfo =
         debugInfoToFlatbuffer(fbb, goldenMap, moduleCache);
-
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(entry);
 
     ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
 
