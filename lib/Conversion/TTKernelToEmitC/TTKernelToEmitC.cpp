@@ -292,20 +292,6 @@ public:
     }
   }
 
-  template <typename BcastKindOp>
-  StringRef getBcastBinaryOpStr(BcastKindOp op) const {
-    const auto bcastOp = op.getBcastBinaryOp();
-    switch (bcastOp) {
-    case ttkernel::BcastBinaryOp::Add:
-      return "EltwiseBinaryType::ELWADD";
-    case ttkernel::BcastBinaryOp::Sub:
-      return "EltwiseBinaryType::ELWSUB";
-    case ttkernel::BcastBinaryOp::Mul:
-      return "EltwiseBinaryType::ELWMUL";
-    }
-    llvm_unreachable("Unknown bcast binary op");
-  }
-
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
                   std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
@@ -322,20 +308,6 @@ public:
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::UnaryBcastInitOp> ||
                          std::is_same_v<SourceOp, ttkernel::UnaryBcastTileOp>) {
-      SmallVector<Attribute, 1> template_args;
-      template_args.push_back(
-          emitc::OpaqueAttr::get(op.getContext(), getBcastTypeStr(op)));
-      return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp, ttkernel::BcastInitOp>) {
-      SmallVector<Attribute, 2> template_args;
-      template_args.push_back(
-          emitc::OpaqueAttr::get(op.getContext(), getBcastBinaryOpStr(op)));
-      template_args.push_back(
-          emitc::OpaqueAttr::get(op.getContext(), getBcastTypeStr(op)));
-      return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp, ttkernel::BcastAddTilesOp> ||
-                         std::is_same_v<SourceOp, ttkernel::BcastSubTilesOp> ||
-                         std::is_same_v<SourceOp, ttkernel::BcastMulTilesOp>) {
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), getBcastTypeStr(op)));
@@ -807,10 +779,6 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::BcastInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::BcastAddTilesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::BcastSubTilesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::BcastMulTilesOp>,
 
         // Transpose Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::TransposeInitOp>,

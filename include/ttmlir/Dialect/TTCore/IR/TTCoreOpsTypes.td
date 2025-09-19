@@ -543,10 +543,6 @@ def TTCore_ReduceTypeAttr : EnumAttr<TTCore_Dialect, TTCore_ReduceType, "reduce_
 
 def TTCore_ReduceTypeArrayAttr : TypedArrayAttrBase<TTCore_ReduceTypeAttr, "">;
 
-def TTCore_TileBcastTypeAttr : EnumAttr<TTCore_Dialect, TTCore_TileBcastType, "tile_bcast_type"> {
-  let assemblyFormat = "`<` $value `>`";
-}
-
 def TTCore_MeshShardDirectionAttr : EnumAttr<TTCore_Dialect, TTCore_MeshShardDirection, "shard_direction"> {
   let assemblyFormat = "`<` $value `>`";
 }

@@ -92,9 +92,7 @@ def TTIR_TileAddOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_add"> {
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs,
-                         OptionalAttr<TTCore_TileBcastTypeAttr>:$lhsBcastType,
-                         OptionalAttr<TTCore_TileBcastTypeAttr>:$rhsBcastType);
+                         TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -105,9 +103,7 @@ def TTIR_TileSubOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub"> {
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs,
-                         OptionalAttr<TTCore_TileBcastTypeAttr>:$lhsBcastType,
-                         OptionalAttr<TTCore_TileBcastTypeAttr>:$rhsBcastType);
+                         TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -118,9 +114,7 @@ def TTIR_TileMulOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_mul"> {
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs,
-                         OptionalAttr<TTCore_TileBcastTypeAttr>:$lhsBcastType,
-                         OptionalAttr<TTCore_TileBcastTypeAttr>:$rhsBcastType);
+                         TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -365,6 +359,18 @@ def TTIR_TileMaximumOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_maximum">{
     let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
+
+def TTIR_TileBcastOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_bcast"> {
+    let summary = "TTIR Tile Broadcast Op";
+    let description = [{
+        The `tile_bcast` operation does row/col/scalar broadcast inside a single tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input,
+                         TTIR_TileBcastTypeAttr:$bcast_type);
+    let results = (outs TTCore_Tile:$result);
+}
+
 
 def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum">{
     let summary = "TTIR Tile Reduce Sum Op";

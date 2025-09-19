@@ -36,6 +36,7 @@
 
 #include "llvm/ADT/STLExtras.h"
 #include <cstdint>
+#include <dbg.h>
 #include <numeric>
 #include <string>
 
@@ -5045,13 +5046,30 @@ mlir::tt::ttir::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
 mlir::SmallVector<int64_t>
 mlir::tt::ttir::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
   AffineMap indexingMap = getIndexingMap(operandIndex);
+  fprintf(stderr, "---- getNonParticipatingLoopDims[operand %ld]: affineMap ",
+          operandIndex);
+  indexingMap.dump();
   SmallVector<int64_t> participatingDims =
       getParticipatingLoopDims(operandIndex);
+  [[maybe_unused]] auto foo = dbg(participatingDims);
   llvm::BitVector nonParticipatingDims(indexingMap.getNumDims(), true);
   llvm::for_each(participatingDims, [&nonParticipatingDims](int64_t dim) {
     nonParticipatingDims.reset(dim);
   });
-  return llvm::SmallVector<int64_t>(nonParticipatingDims.set_bits());
+  const auto ret = llvm::SmallVector<int64_t>(nonParticipatingDims.set_bits());
+  [[maybe_unused]] auto bar = dbg(ret);
+  return ret;
+}
+
+mlir::SmallVector<int64_t>
+mlir::tt::ttir::GenericOp::getBcastLoopDims(int64_t operandIndex) {
+  AffineMap indexingMap = getIndexingMap(operandIndex);
+  fprintf(stderr, "---- getBcastLoopDims[operand %ld]: affineMap ",
+          operandIndex);
+  indexingMap.dump();
+  fprintf(stderr, "---- bcast dims ");
+  [[maybe_unused]] auto foo = indexingMap.getBroadcastDims();
+  return mlir::SmallVector<int64_t>(foo.begin(), foo.end());
 }
 
 void mlir::tt::ttir::GenericOp::getAsmBlockArgumentNames(

@@ -18,6 +18,8 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
+#include "dbg.h"
+
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRINSERTDSTREGISTERACCESS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -61,6 +63,8 @@ public:
     int64_t allocate(int64_t numElems = 1) {
       int64_t currDstIndex = nextDstIndex;
       nextDstIndex += numElems;
+      fprintf(stderr, "---- DstRegisterAllocationState::allocate: slice %ld\n",
+              currDstIndex);
       return currDstIndex;
     }
 
@@ -103,6 +107,8 @@ public:
             return;
           }
           rewriter.eraseOp(linalgGenericOp);
+          fprintf(stderr,
+                  "-- matchAndRewrite: calling insertDstRegisterAccess()\n");
           modified |= insertDstRegisterAccess(
               rewriter, op.getLoc(), region,
               !linalgLoops.value().empty() ? linalgLoops.value().front()
@@ -138,6 +144,8 @@ public:
       return false;
     }
 
+    fprintf(stderr,
+            "-- insertDstRegisterAccess: calling collectDstAccesses()\n");
     // 1. Collect all loads/stores to dst organized by loop nest.
     auto [copyNests, dstAllocation] = collectDstAccesses(
         region, getNonParticipatingLoopDims, outermostInnerComputeLoop);
@@ -145,17 +153,25 @@ public:
       return false;
     }
 
+    fprintf(stderr, "-- insertDstRegisterAccess: calling insertAcquireDst()\n");
     // 2. Insert acquire dst.
     AcquireDstOp acquireDst = insertAcquireDst(rewriter, loc, region, copyNests,
                                                outermostInnerComputeLoop);
     Value dst = acquireDst.getResult();
+    fprintf(stderr, "-- insertDstRegisterAccess: DST ");
+    dst.dump();
 
+    fprintf(stderr, "-- insertDstRegisterAccess: calling dataCopyGenerate()\n");
     // 3. Generate data copy loops to/from dst and output cb.
     dataCopyGenerate(rewriter, loc, dst, copyNests);
 
+    fprintf(
+        stderr,
+        "-- insertDstRegisterAccess: calling insertDstRegisterAllocation()\n");
     // 4. Rewrite stores to use dst register based on allocation.
     insertDstRegisterAllocation(rewriter, loc, dst, dstAllocation);
 
+    fprintf(stderr, "-- insertDstRegisterAccess: Done\n");
     return true;
   }
 
@@ -246,8 +262,11 @@ public:
                          ttcore::MemorySpace::RegisterDst;
       };
 
+      fprintf(stderr, "-- collectDstAccesses: collecting loads\n");
       // Collect loads to this op.
       for (int64_t operandIdx : op.getOperandsLoadFromDstRegister()) {
+        fprintf(stderr, "-- collectDstAccesses: load w/ operandIdx %ld\n",
+                operandIdx);
         if (auto potentialLoad = op->getOperand(operandIdx)
                                      .getDefiningOp<affine::AffineLoadOp>();
             notDstMemspace(potentialLoad)) {
@@ -259,6 +278,7 @@ public:
         }
       }
 
+      fprintf(stderr, "-- collectDstAccesses: collecting stores\n");
       // Collect stores from this op.
       for (auto *user : op->getUsers()) {
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
@@ -282,6 +302,8 @@ public:
             dstIndex = dstRegisterAllocationState.allocate();
             dstRegisterAllocationState.setStoreToDst();
           }
+          fprintf(stderr, "-- collectDstAccesses: store w/ dstSliceIdx %ld\n",
+                  dstIndex);
           SmallVector<int64_t> dstExtents =
               collectDstAccess<affine::AffineStoreOp>(
                   potentialStore, loopNests, dstIndex,
@@ -308,6 +330,14 @@ public:
         }
       }
     });
+    fprintf(stderr, "-- collectDstAccesses: Done w/ CopyInfo statistics");
+    for (const auto &entry : loopNests) {
+      const CopyInfo &copyInfo = entry.getSecond();
+      fprintf(stderr, " { idx[%zu] loads[%zu] stores[%zu] }",
+              copyInfo.guardIndices.size(), copyInfo.loads.size(),
+              copyInfo.stores.size());
+    }
+    fprintf(stderr, "\n");
     return {loopNests, dstRegisterAllocation};
   }
 
@@ -340,16 +370,21 @@ public:
     copyInfo.push_back(loadOrStore, nextDstIndex);
     SmallVector<int64_t> guardIndices = getNonParticipatingLoopDims(
         lookThroughSubView(loadOrStore.getMemRef()).getArgNumber());
+    fprintf(stderr, "-- collectDstAccess: ");
     if (inserted) {
       // First access in this loop nest - set the guard indices.
       copyInfo.guardIndices = guardIndices;
+      [[maybe_unused]] auto foo = dbg(copyInfo.guardIndices);
     } else {
+      [[maybe_unused]] auto foo = dbg(copyInfo.guardIndices, guardIndices);
       // Subsequent access - verify guard indices are the same.
       assert(
           guardIndices == copyInfo.guardIndices &&
           "Expected same guard indices across all accesses in this loop nest.");
     }
+    // Aaaaand getBcastLoopDims
 
+    fprintf(stderr, "-- collectDstAccess: Done\n");
     // This isn't very rigorous but it should work for now.  By just returning
     // the memref shape we're assuming the whole memref is accessed inside of
     // this loop.
@@ -391,6 +426,8 @@ public:
       return false;
     }
     rewriter.eraseOp(linalgGenericOp);
+    fprintf(stderr, "-- rewriteTileMatmulAsTileMatmulBlock: calling "
+                    "insertDstRegisterAccess()\n");
     modified |= insertDstRegisterAccess(
         rewriter, op.getLoc(), region,
         !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr,
@@ -476,9 +513,9 @@ public:
                    .getResult();
     for (int64_t index : guardIndices) {
       auto iterIndex = rewriter.create<ttir::IterIndexOp>(loc, index);
-      auto eq = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
+      auto ne = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
                                                iterIndex, zero);
-      cmp = rewriter.create<arith::OrIOp>(loc, cmp, eq).getResult();
+      cmp = rewriter.create<arith::OrIOp>(loc, cmp, ne).getResult();
     }
     return rewriter.create<scf::IfOp>(loc, cmp);
   }
