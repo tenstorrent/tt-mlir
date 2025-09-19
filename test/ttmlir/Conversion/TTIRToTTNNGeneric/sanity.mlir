@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttir-to-ttmetal-be-pipeline="lower-to-ttnn-generic=true" -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttir-to-ttmetal-be-pipeline="ttnn-mode=true" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
@@ -30,14 +30,10 @@ module {
     %ttnn_input_l1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #l1_memory_config}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
     %ttnn_output_l1 = "ttnn.empty"(%device) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #l1_memory_config, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
 
-    // CHECK-NOT: memref.alloc()
-    // CHECK-NOT: ttir.ttnn_to_metal_layout_cast
-    // CHECK-NOT: memref.alloc()
-    // CHECK-NOT: ttir.ttnn_to_metal_layout_cast
-    %alloc_0 = memref.alloc() {address = 103872 : i64, alignment = 16 : i64} : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
-    %metal_input_l1 = ttir.ttnn_to_metal_layout_cast %ttnn_input_l1, %alloc_0 : tensor<32x32xf32, #l1_layout> into memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>> -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
-    %alloc_1 = memref.alloc() {address = 99776 : i64, alignment = 16 : i64} : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
-    %metal_output_l1 = ttir.ttnn_to_metal_layout_cast %ttnn_output_l1, %alloc_1 : tensor<32x32xf32, #l1_layout> into memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>> -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
+    // CHECK-NOT: ttir.ttnn_metal_layout_cast
+    // CHECK-NOT: ttir.ttnn_metal_layout_cast
+    %metal_input_l1 = ttir.ttnn_metal_layout_cast %ttnn_input_l1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
+    %metal_output_l1 = ttir.ttnn_metal_layout_cast %ttnn_output_l1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
 
     // CHECK: "ttnn.generic"
     // CHECK-SAME: #ttnn.read_kernel<symbol_ref = @read_kernel
@@ -54,12 +50,8 @@ module {
         ins(%metal_input_l1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>)
         outs(%metal_output_l1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>)
 
-    // CHECK-NOT: ttir.ttnn_to_metal_layout_cast
-    // CHECK-NOT: memref.dealloc
-    // CHECK-NOT: memref.dealloc
-    %output_l1 = ttir.ttnn_to_metal_layout_cast %metal_output_l1, %ttnn_output_l1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>> into tensor<32x32xf32, #l1_layout> -> tensor<32x32xf32, #l1_layout>
-    memref.dealloc %alloc_0 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
-    memref.dealloc %alloc_1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>>
+    // CHECK-NOT: ttir.ttnn_metal_layout_cast
+    %output_l1 = ttir.ttnn_metal_layout_cast %metal_output_l1 : memref<1x1x32x32xf32, #ttcore.shard<128x4>, #ttcore.memory_space<l1>> -> tensor<32x32xf32, #l1_layout>
 
     %output_dram = "ttnn.to_memory_config"(%output_l1) <{memory_config = #dram_memory_config}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
     return %output_dram : tensor<32x32xf32, #dram_layout>
