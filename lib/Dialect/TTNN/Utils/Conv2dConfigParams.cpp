@@ -24,17 +24,15 @@ Conv2dConfigParams::Conv2dConfigParams(Conv2dConfigAttr attr, bool partial) {
                 : (partial ? std::nullopt : std::optional<bool>(false));
   };
 
+  auto getOrDefaultString =
+      [partial](mlir::StringAttr attr) -> std::optional<std::string> {
+    return attr ? std::optional<std::string>(attr.getValue().str())
+                : (partial ? std::nullopt : std::optional<std::string>(""));
+  };
+
   weightsDtype = getOrDefaultOpt(attr.getWeightsDtype(),
                                  mlir::tt::ttcore::DataType::BFloat16);
-
-  if (attr.getActivation()) {
-    activation = attr.getActivation().getOpType();
-    activationParams = attr.getActivation().getParams();
-  } else {
-    activation = std::nullopt;
-    activationParams = std::nullopt;
-  }
-
+  activation = getOrDefaultString(attr.getActivation());
   deallocateActivation = getOrDefaultBool(attr.getDeallocateActivation());
   reallocateHaloOutput = getOrDefaultBool(attr.getReallocateHaloOutput());
   actBlockHOverride = getOrDefaultOpt(attr.getActBlockHOverride(), 0);
@@ -50,34 +48,29 @@ Conv2dConfigParams::Conv2dConfigParams(Conv2dConfigAttr attr, bool partial) {
   enableActDoubleBuffer = getOrDefaultBool(attr.getEnableActDoubleBuffer());
   enableWeightsDoubleBuffer =
       getOrDefaultBool(attr.getEnableWeightsDoubleBuffer());
+  enableSplitReader = getOrDefaultBool(attr.getEnableSplitReader());
   inPlace = getOrDefaultBool(attr.getInPlace());
 }
 
 Conv2dConfigAttr
 Conv2dConfigParams::buildConv2dConfigAttr(::mlir::MLIRContext *ctx) const {
+  auto toStringAttr =
+      [ctx](const std::optional<std::string> &str) -> mlir::StringAttr {
+    return str.has_value() ? mlir::StringAttr::get(ctx, str.value()) : nullptr;
+  };
+
   auto toBoolAttr = [ctx](const std::optional<bool> &b) -> mlir::BoolAttr {
     return b.has_value() ? mlir::BoolAttr::get(ctx, b.value()) : nullptr;
   };
 
-  auto toUnaryAttr =
-      [ctx](const std::optional<UnaryOpType> &act,
-            const std::optional<std::vector<FloatAttr>> &actParams)
-      -> UnaryWithParamAttr {
-    if (act) {
-      return UnaryWithParamAttr::get(
-          ctx, *act, actParams.value_or(llvm::ArrayRef<FloatAttr>{}));
-    }
-
-    return nullptr;
-  };
-
   return Conv2dConfigAttr::get(
-      ctx, weightsDtype, toUnaryAttr(activation, activationParams),
+      ctx, weightsDtype, toStringAttr(activation),
       toBoolAttr(deallocateActivation), toBoolAttr(reallocateHaloOutput),
       actBlockHOverride, actBlockWDiv, toBoolAttr(reshardIfNotOptimal),
       toBoolAttr(overrideShardingConfig), shardLayout,
       coreGrid.value_or(CoreRangeSetAttr()), toBoolAttr(transposeShards),
       outputLayout, toBoolAttr(enableActDoubleBuffer),
-      toBoolAttr(enableWeightsDoubleBuffer), toBoolAttr(inPlace));
+      toBoolAttr(enableWeightsDoubleBuffer), toBoolAttr(enableSplitReader),
+      toBoolAttr(inPlace));
 }
 } // namespace mlir::tt::ttnn

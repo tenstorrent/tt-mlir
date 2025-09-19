@@ -801,6 +801,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileInitOp>,

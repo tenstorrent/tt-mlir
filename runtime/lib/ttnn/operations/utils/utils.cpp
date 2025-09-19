@@ -235,9 +235,7 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   }
 
   if (config->activation()) {
-    conv2dConfig.activation =
-        std::optional<::ttnn::operations::unary::UnaryWithParam>(
-            toTTNNUnaryWithParam(*config->activation()));
+    conv2dConfig.activation = config->activation()->str();
   }
 
   if (config->deallocate_activation()) {
@@ -291,6 +289,10 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   if (config->enable_weights_double_buffer()) {
     conv2dConfig.enable_weights_double_buffer =
         *config->enable_weights_double_buffer();
+  }
+
+  if (config->enable_split_reader()) {
+    conv2dConfig.enable_split_reader = *config->enable_split_reader();
   }
 
   if (config->in_place()) {

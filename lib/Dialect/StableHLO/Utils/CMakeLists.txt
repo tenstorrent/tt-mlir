@@ -1,4 +1,4 @@
-add_mlir_dialect_library(TTMLIRSTABLEHLOUtils
+add_mlir_dialect_library(TTMLIRStableHLOUtils
   ShardyUtils.cpp
   GSPMDUtils.cpp
 

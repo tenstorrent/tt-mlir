@@ -66,109 +66,6 @@ ttcore::DataType getDataType(const ::tt::tt_metal::DataType dataType) {
   }
 }
 
-::ttnn::operations::unary::UnaryWithParam
-getUnaryWithParams(UnaryWithParamAttr attr) {
-  using TTMLIRUnaryOpType = mlir::tt::ttnn::UnaryOpType;
-  using TTNNUnaryOpType = ::ttnn::operations::unary::UnaryOpType;
-
-  static const std::unordered_map<TTMLIRUnaryOpType, TTNNUnaryOpType>
-      opTypeMap = {
-          {TTMLIRUnaryOpType::Exp, TTNNUnaryOpType::EXP},
-          {TTMLIRUnaryOpType::Recip, TTNNUnaryOpType::RECIP},
-          {TTMLIRUnaryOpType::Gelu, TTNNUnaryOpType::GELU},
-          {TTMLIRUnaryOpType::Relu, TTNNUnaryOpType::RELU},
-          {TTMLIRUnaryOpType::Sqrt, TTNNUnaryOpType::SQRT},
-          {TTMLIRUnaryOpType::Sigmoid, TTNNUnaryOpType::SIGMOID},
-          {TTMLIRUnaryOpType::Log, TTNNUnaryOpType::LOG},
-          {TTMLIRUnaryOpType::Tanh, TTNNUnaryOpType::TANH},
-          {TTMLIRUnaryOpType::Log2, TTNNUnaryOpType::LOG2},
-          {TTMLIRUnaryOpType::Log10, TTNNUnaryOpType::LOG10},
-          {TTMLIRUnaryOpType::Sin, TTNNUnaryOpType::SIN},
-          {TTMLIRUnaryOpType::Cos, TTNNUnaryOpType::COS},
-          {TTMLIRUnaryOpType::Abs, TTNNUnaryOpType::ABS},
-          {TTMLIRUnaryOpType::AbsInt32, TTNNUnaryOpType::ABS_INT32},
-          {TTMLIRUnaryOpType::Sign, TTNNUnaryOpType::SIGN},
-          {TTMLIRUnaryOpType::Square, TTNNUnaryOpType::SQUARE},
-          {TTMLIRUnaryOpType::Eqz, TTNNUnaryOpType::EQZ},
-          {TTMLIRUnaryOpType::Nez, TTNNUnaryOpType::NEZ},
-          {TTMLIRUnaryOpType::Gtz, TTNNUnaryOpType::GTZ},
-          {TTMLIRUnaryOpType::Ltz, TTNNUnaryOpType::LTZ},
-          {TTMLIRUnaryOpType::Gez, TTNNUnaryOpType::GEZ},
-          {TTMLIRUnaryOpType::Lez, TTNNUnaryOpType::LEZ},
-          {TTMLIRUnaryOpType::ReluMax, TTNNUnaryOpType::RELU_MAX},
-          {TTMLIRUnaryOpType::ReluMin, TTNNUnaryOpType::RELU_MIN},
-          {TTMLIRUnaryOpType::Power, TTNNUnaryOpType::POWER},
-          {TTMLIRUnaryOpType::LeakyRelu, TTNNUnaryOpType::LEAKY_RELU},
-          {TTMLIRUnaryOpType::Elu, TTNNUnaryOpType::ELU},
-          {TTMLIRUnaryOpType::Exp2, TTNNUnaryOpType::EXP2},
-          {TTMLIRUnaryOpType::Heaviside, TTNNUnaryOpType::HEAVISIDE},
-          {TTMLIRUnaryOpType::Expm1, TTNNUnaryOpType::EXPM1},
-          {TTMLIRUnaryOpType::Signbit, TTNNUnaryOpType::SIGNBIT},
-          {TTMLIRUnaryOpType::Asin, TTNNUnaryOpType::ASIN},
-          {TTMLIRUnaryOpType::Acos, TTNNUnaryOpType::ACOS},
-          {TTMLIRUnaryOpType::Rsqrt, TTNNUnaryOpType::RSQRT},
-          {TTMLIRUnaryOpType::Relu6, TTNNUnaryOpType::RELU6},
-          {TTMLIRUnaryOpType::Atan, TTNNUnaryOpType::ATAN},
-          {TTMLIRUnaryOpType::Erf, TTNNUnaryOpType::ERF},
-          {TTMLIRUnaryOpType::Erfc, TTNNUnaryOpType::ERFC},
-          {TTMLIRUnaryOpType::IsInf, TTNNUnaryOpType::ISINF},
-          {TTMLIRUnaryOpType::IsPosInf, TTNNUnaryOpType::ISPOSINF},
-          {TTMLIRUnaryOpType::IsNegInf, TTNNUnaryOpType::ISNEGINF},
-          {TTMLIRUnaryOpType::IsNan, TTNNUnaryOpType::ISNAN},
-          {TTMLIRUnaryOpType::LogicalNotUnary,
-           TTNNUnaryOpType::LOGICAL_NOT_UNARY},
-          {TTMLIRUnaryOpType::IsFinite, TTNNUnaryOpType::ISFINITE},
-          {TTMLIRUnaryOpType::Erfinv, TTNNUnaryOpType::ERFINV},
-          {TTMLIRUnaryOpType::I0, TTNNUnaryOpType::I0},
-          {TTMLIRUnaryOpType::I1, TTNNUnaryOpType::I1},
-          {TTMLIRUnaryOpType::Tan, TTNNUnaryOpType::TAN},
-          {TTMLIRUnaryOpType::Rsub, TTNNUnaryOpType::RSUB},
-          {TTMLIRUnaryOpType::Rdiv, TTNNUnaryOpType::RDIV},
-          {TTMLIRUnaryOpType::Silu, TTNNUnaryOpType::SILU},
-          {TTMLIRUnaryOpType::SoftPlus, TTNNUnaryOpType::SOFTPLUS},
-          {TTMLIRUnaryOpType::Identity, TTNNUnaryOpType::IDENTITY},
-          {TTMLIRUnaryOpType::Neg, TTNNUnaryOpType::NEG},
-          {TTMLIRUnaryOpType::AddUnarySfpu, TTNNUnaryOpType::ADD_UNARY_SFPU},
-          {TTMLIRUnaryOpType::SubUnarySfpu, TTNNUnaryOpType::SUB_UNARY_SFPU},
-          {TTMLIRUnaryOpType::MulUnarySfpu, TTNNUnaryOpType::MUL_UNARY_SFPU},
-          {TTMLIRUnaryOpType::DivUnarySfpu, TTNNUnaryOpType::DIV_UNARY_SFPU},
-          {TTMLIRUnaryOpType::IdentityUint32, TTNNUnaryOpType::IDENTITY},
-          {TTMLIRUnaryOpType::UnaryNe, TTNNUnaryOpType::UNARY_NE},
-          {TTMLIRUnaryOpType::UnaryGt, TTNNUnaryOpType::UNARY_GT},
-          {TTMLIRUnaryOpType::UnaryLt, TTNNUnaryOpType::UNARY_LT},
-          {TTMLIRUnaryOpType::TiledProd, TTNNUnaryOpType::TILED_PROD},
-          {TTMLIRUnaryOpType::Typecast, TTNNUnaryOpType::TYPECAST},
-          {TTMLIRUnaryOpType::BitwiseXor, TTNNUnaryOpType::BITWISE_XOR},
-          {TTMLIRUnaryOpType::BitwiseNot, TTNNUnaryOpType::BITWISE_NOT},
-          {TTMLIRUnaryOpType::BitwiseAnd, TTNNUnaryOpType::BITWISE_AND},
-          {TTMLIRUnaryOpType::BitwiseOr, TTNNUnaryOpType::BITWISE_OR},
-          {TTMLIRUnaryOpType::RightShift, TTNNUnaryOpType::RIGHT_SHIFT},
-          {TTMLIRUnaryOpType::Floor, TTNNUnaryOpType::FLOOR},
-          {TTMLIRUnaryOpType::Ceil, TTNNUnaryOpType::CEIL},
-          {TTMLIRUnaryOpType::Round, TTNNUnaryOpType::ROUND},
-          {TTMLIRUnaryOpType::LeftShift, TTNNUnaryOpType::LEFT_SHIFT},
-          {TTMLIRUnaryOpType::Remainder, TTNNUnaryOpType::REMAINDER},
-          {TTMLIRUnaryOpType::Fmod, TTNNUnaryOpType::FMOD},
-          {TTMLIRUnaryOpType::Dropout, TTNNUnaryOpType::DROPOUT},
-          {TTMLIRUnaryOpType::Fill, TTNNUnaryOpType::FILL},
-          {TTMLIRUnaryOpType::PreluSfpu, TTNNUnaryOpType::PRELU_SFPU},
-          {TTMLIRUnaryOpType::ZeroPoint, TTNNUnaryOpType::ZERO_POINT},
-      };
-
-  auto it = opTypeMap.find(attr.getOpType());
-  if (it != opTypeMap.end()) {
-    return it->second;
-  }
-
-  throw std::runtime_error("Unsupported element type.");
-
-  std::vector<float> params(attr.getParams().size());
-  for (std::size_t i = 0; i < attr.getParams().size(); ++i) {
-    params[i] = attr.getParams()[i].getValue().convertToFloat();
-  }
-  return ::ttnn::operations::unary::UnaryWithParam(it->second, params);
-}
-
 ::ttnn::Shape getShape(const ::llvm::ArrayRef<int64_t> shape) {
   ::ttsl::SmallVector<uint32_t> small_vector_shape;
   for (const auto &dim : shape) {
@@ -460,7 +357,7 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   }
 
   if (conv2dConfig->getActivation()) {
-    config.activation = getUnaryWithParams(conv2dConfig->getActivation());
+    config.activation = conv2dConfig->getActivation().getValue().str();
   }
 
   if (conv2dConfig->getDeallocateActivation()) {
@@ -516,6 +413,11 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   if (conv2dConfig->getEnableWeightsDoubleBuffer()) {
     config.enable_weights_double_buffer =
         conv2dConfig->getEnableWeightsDoubleBuffer().getValue();
+  }
+
+  if (conv2dConfig->getEnableSplitReader()) {
+    config.enable_split_reader =
+        conv2dConfig->getEnableSplitReader().getValue();
   }
 
   return config;

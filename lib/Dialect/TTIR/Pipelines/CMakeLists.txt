@@ -31,7 +31,7 @@ set(TTMLIR_PIPELINES_LIBS
 if(TTMLIR_ENABLE_STABLEHLO)
   list(APPEND TTMLIR_PIPELINES_LIBS
     TTMLIRStableHLOToTTIR
-    TTMLIRSTABLEHLOUtils
+    TTMLIRStableHLOUtils
     StablehloLinalgTransforms
     StablehloPasses
   )

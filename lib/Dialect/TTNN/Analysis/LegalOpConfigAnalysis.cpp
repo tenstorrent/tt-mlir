@@ -107,6 +107,11 @@ applyConv2dConfigOverrides(ttnn::Conv2dOp op,
         *overrides.enableWeightsDoubleBuffer);
   }
 
+  if (overrides.enableSplitReader.has_value()) {
+    conv2dConfigAttr =
+        conv2dConfigAttr.withEnableSplitReader(*overrides.enableSplitReader);
+  }
+
   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                "Conv2d config after overrides: {}", conv2dConfigAttr);
 
@@ -189,11 +194,14 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
       //
       // Combinations that are invalid:
       // 1. reshard_if_not_optimal = true and shard_layout is not set.
+      // 2. enable_split_reader = true and act_block_h_override < 64.
       //
       return (config.hasReshardIfNotOptimal() &&
               config.getReshardIfNotOptimal().getValue() &&
               !config.hasShardLayout()) ||
-             (config.getActBlockHOverride().value_or(0) < 64);
+             (config.hasEnableSplitReader() &&
+              config.getEnableSplitReader().getValue() &&
+              config.getActBlockHOverride().value_or(0) < 64);
     };
 
     Conv2dConfigGenerator configGenerator(&conv2dOp, conv2dConfigAttrBase,
