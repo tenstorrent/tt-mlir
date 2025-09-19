@@ -299,15 +299,15 @@ struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
+    // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
     ToLayoutOp producerLayoutOp = op.getInput().getDefiningOp<ToLayoutOp>();
     if (!producerLayoutOp) {
       return failure();
     }
-    // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
     rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
                                             op.getOutput());
-    // NOLINTEND(clang-analyzer-core.StackAddressEscape)
     return success();
+    // NOLINTEND(clang-analyzer-core.StackAddressEscape)
   }
 };
 
@@ -574,9 +574,11 @@ ToLayoutOp::bufferize(mlir::RewriterBase &rewriter,
     }
   }
 
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   auto toLayoutOp =
       rewriter.create<ToLayoutOp>(getLoc(), TypeRange(), *maybeInput,
                                   *maybeOutput, getLayout().value_or(nullptr));
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
   // For unaligned D2H, read the device tensor to an aligned & padded bounce
   // buffer, then do strided memcpy to copy the data into the unaligned tensor.
