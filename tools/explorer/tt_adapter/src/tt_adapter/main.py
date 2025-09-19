@@ -121,6 +121,10 @@ def settings_to_overrides(settings, artifacts_dir):
                         conv2d_config_override.set_enable_weights_double_buffer_from_str(
                             attr["value"]
                         )
+                    case "enable_split_reader":
+                        conv2d_config_override.set_enable_split_reader_from_str(
+                            attr["value"]
+                        )
                     case _:
                         raise ValueError(f"Invalid override attribute: {attr['key']}")
             if not output_layout_override.empty():

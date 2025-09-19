@@ -328,29 +328,6 @@ public:
       return;
     }
 
-    // Check if we have frontend_attributes with sdy information
-    bool hasFrontendSdyAttrs =
-        gspmd_utils::hasFrontendSdyAttributes(rootModule);
-
-    if (hasFrontendSdyAttrs) {
-      // Handle frontend_attributes conversion
-      // Parse mesh information from module attributes and create sdy.mesh
-      if (mlir::failed(gspmd_utils::parseMeshFromFrontendAttributes(rootModule,
-                                                                    context))) {
-        signalPassFailure();
-        return;
-      }
-
-      // Convert function arguments from frontend_attributes to sdy.sharding
-      if (mlir::failed(shardy_utils::convertFrontendAttributesToSDY(rootModule,
-                                                                    context))) {
-        signalPassFailure();
-        return;
-      }
-
-      return;
-    }
-
     // If gspmd annotations exist, analyze the graph and determine the mesh
     // shape. Then we can add it to the module as a sdy.meshOp.
     if (gspmdAnnotationsExist) {

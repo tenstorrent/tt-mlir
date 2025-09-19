@@ -142,7 +142,12 @@ module {
     // CHECK: ttir.tile_sub_binary
     // CHECK: ttir.tile_gez
     %24 = "ttir.ge"(%lhs, %rhs, %out) : (!ttype, !ttype, !ttype) -> !ttype
-    return %24: !ttype
+    // named elementwise op, unary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_gelu
+    %25= "ttir.gelu"(%24, %out) : (!ttype, !ttype) -> !ttype
+    return %25: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R

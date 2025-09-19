@@ -69,7 +69,11 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
     // Nd (partial) Concat
     MeshComposerConfig meshComposerConfig;
     if (shardType == ::tt::target::MeshShardType::Replicate) {
-      meshComposerConfig.dims.push_back(static_cast<int>(1));
+      // All buffers in devices are replicated across devices. Thus, we pick up
+      // the data from the first device by providing {1} mesh shape. By setting
+      // 0 in the dim, we allow all dimensional tensors staring from single
+      // dimensional tensor.
+      meshComposerConfig.dims.push_back(static_cast<int>(0));
       meshComposerConfig.mesh_shape_override = ::ttnn::MeshShape({1});
     } else {
       // meshComposerConfig.dims must be unique, and thus, we need to find

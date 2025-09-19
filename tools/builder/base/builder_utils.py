@@ -33,14 +33,14 @@ from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 # ----- Exception Classes -----
 
 
-class TTIRCompileException(Exception):
-    """Exception raised when TTIR compilation fails during compile_ttir_to_flatbuffer."""
+class TTBuilderCompileException(Exception):
+    """Exception raised when builder compilation fails during compile_ttir_to_flatbuffer."""
 
     pass
 
 
-class TTIRRuntimeException(Exception):
-    """Exception raised when compiled TTIR code fails during runtime execution.
+class TTBuilderRuntimeException(Exception):
+    """Exception raised when compiled builder code fails during runtime execution.
 
     This exception is reserved for future use when runtime execution is implemented.
     """
@@ -48,8 +48,8 @@ class TTIRRuntimeException(Exception):
     pass
 
 
-class TTIRGoldenException(Exception):
-    """Exception raised when TTIR output doesn't match expected golden results.
+class TTBuilderGoldenException(Exception):
+    """Exception raised when builder output doesn't match expected golden results.
 
     This exception is reserved for future use when golden verification is implemented.
     """
@@ -388,33 +388,36 @@ def compile_ttir_to_flatbuffer(
     if inputs_types is not None:
         if len(inputs_shapes) != len(inputs_types):
             raise ValueError("inputs_shapes and inputs_types must have the same length")
+
     # Compile model to TTIR MLIR
+    try:
+        module, builder = build_ttir_module(
+            fn,
+            inputs_shapes,
+            inputs_types,
+            mesh_name=mesh_name,
+            mesh_dict=mesh_dict,
+            module_dump=module_dump,
+            output_root=output_root,
+            base=test_base,
+        )
 
-    module, builder = build_ttir_module(
-        fn,
-        inputs_shapes,
-        inputs_types,
-        mesh_name=mesh_name,
-        mesh_dict=mesh_dict,
-        module_dump=module_dump,
-        output_root=output_root,
-        base=test_base,
-    )
-
-    return compile_ttir_module_to_flatbuffer(
-        module,
-        builder,
-        system_desc_path=system_desc_path,
-        test_base=test_base,
-        output_root=output_root,
-        target=target,
-        mesh_dict=mesh_dict,
-        module_dump=module_dump,
-        argument_types_string=argument_types_string,
-        custom_pipeline=custom_pipeline,
-        pipeline_options=pipeline_options,
-        print_ir=print_ir,
-    )
+        return compile_ttir_module_to_flatbuffer(
+            module,
+            builder,
+            system_desc_path=system_desc_path,
+            test_base=test_base,
+            output_root=output_root,
+            target=target,
+            mesh_dict=mesh_dict,
+            module_dump=module_dump,
+            argument_types_string=argument_types_string,
+            custom_pipeline=custom_pipeline,
+            pipeline_options=pipeline_options,
+            print_ir=print_ir,
+        )
+    except Exception as e:
+        raise TTBuilderCompileException(e)
 
 
 def build_stablehlo_module(
@@ -660,16 +663,19 @@ def compile_stablehlo_to_flatbuffer(
             raise ValueError("inputs_shapes and inputs_types must have the same length")
 
     # Compile model to StableHLO and run stablehlo pipeline to TTIR MLIR
-    module, builder = build_stablehlo_module(
-        fn,
-        inputs_shapes,
-        inputs_types,
-        mesh_name=mesh_name,
-        mesh_dict=mesh_dict,
-        module_dump=module_dump,
-        output_root=output_root,
-        base=test_base,
-    )
+    try:
+        module, builder = build_stablehlo_module(
+            fn,
+            inputs_shapes,
+            inputs_types,
+            mesh_name=mesh_name,
+            mesh_dict=mesh_dict,
+            module_dump=module_dump,
+            output_root=output_root,
+            base=test_base,
+        )
+    except Exception as e:
+        raise TTBuilderCompileException(e)
 
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
@@ -717,7 +723,7 @@ def compile_ttir_module_to_flatbuffer(
     test_base: str = "test",
     output_root: str = ".",
     builder_dir: str = "ttir-builder-artifacts",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
@@ -830,28 +836,36 @@ def compile_ttir_module_to_flatbuffer(
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
-    module = _run_ttir_pipeline(
-        module,
-        pipeline_fn,
-        pipeline_options=pipeline_options,
-        dump_to_file=module_dump,
-        output_file_name=output_file_mlir,
-        system_desc_path=system_desc_path,
-        mesh_dict=mesh_dict,
-        argument_types_string=argument_types_string,
-    )
+    try:
+        module = _run_ttir_pipeline(
+            module,
+            pipeline_fn,
+            pipeline_options=pipeline_options,
+            dump_to_file=module_dump,
+            output_file_name=output_file_mlir,
+            system_desc_path=system_desc_path,
+            mesh_dict=mesh_dict,
+            argument_types_string=argument_types_string,
+        )
+    except Exception as e:
+        raise TTBuilderCompileException(e)
+
     print(f"{target} pipeline ran successfully.")
 
     module_logger = MLIRModuleLogger()
     module_logger.attach_context(module.context)
 
     # Compile TT{Metal,NN} MLIR -> flatbuffer
-    to_target(
-        module,
-        output_file_fbb,
-        builder.golden_map,
-        module_logger.module_log if module_logger.module_log else [],
-    )
+    try:
+        to_target(
+            module,
+            output_file_fbb,
+            builder.golden_map,
+            module_logger.module_log if module_logger.module_log else [],
+        )
+    except Exception as e:
+        raise TTBuilderCompileException(e)
+
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
     return output_file_mlir
 
