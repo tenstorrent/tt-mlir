@@ -19,6 +19,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -4522,6 +4523,76 @@ static mlir::LogicalResult verifyAffineBlocking(
   }
 
   return success();
+}
+
+void mlir::tt::ttir::GenericOp::getCanonicalizationPatterns(
+  mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+patterns.add(
+    // Check to see if any linalg generic passes have wired up ttir generic op
+    // inputs to the outputs (i.e. inplace) which we currently do not support.
+    // This canonicalization pattern will catch these cases and rewire the
+    // inputs.
+    +[](mlir::tt::ttir::GenericOp op, mlir::PatternRewriter &rewriter) {
+      if (op->getNumRegions() == 0) {
+        return mlir::failure();
+      }
+
+      auto replaceWithOutputCb =
+          +[](PatternRewriter &rewriter, Region &region, Operation *regionOp,
+              OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
+        BlockArgument blockArg =
+          mlir::dyn_cast<BlockArgument>(initOperand.get());
+        if (blockArg && blockArg.getArgNumber() >= dpsIOBoundary) {
+          return false;
+        }
+
+        Operation *origDefiningOp = initOperand.get().getDefiningOp();
+        if (origDefiningOp && !mlir::isa<ttir::EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
+          return false;
+        }
+
+        rewriter.modifyOpInPlace(regionOp, [&]() {
+          initOperand.assign(region.getArgument(dpsIOBoundary));
+        });
+
+        if (origDefiningOp && mlir::isa<ttir::EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
+          rewriter.replaceAllUsesWith(origDefiningOp->getResult(0),
+                                      initOperand.get());
+        }
+
+        return true;
+      };
+
+      int64_t dpsIOBoundary = op.getNumDpsInputs();
+      bool updated = false;
+      for (Region &region : op->getRegions()) {
+        if (op.getRegionThreadType(region.getRegionNumber()) != ThreadType::Compute) {
+          continue;
+        }
+
+        region.walk([&](Operation *regionOp) {
+          if (DestinationStyleOpInterface dps =
+                  mlir::dyn_cast<DestinationStyleOpInterface>(regionOp);
+              dps) {
+            for (OpOperand &initOperand : dps.getDpsInitsMutable()) {
+              assert(op.getNumDpsInits() == dps.getNumDpsInits());
+              assert(op.getNumDpsInits() == 1);
+
+              updated |= replaceWithOutputCb(rewriter, region, regionOp,
+                                             initOperand, dpsIOBoundary);
+            }
+          } else if (TileMatmulBlockOp tmb =
+                         mlir::dyn_cast<TileMatmulBlockOp>(regionOp);
+                     tmb) {
+            updated |=
+                replaceWithOutputCb(rewriter, region, regionOp,
+                                    tmb.getOutputMutable(), dpsIOBoundary);
+          }
+        });
+      }
+
+      return updated ? mlir::success() : mlir::failure();
+    });
 }
 
 unsigned mlir::tt::ttir::GenericOp::getNumLoops() { return getNumDims(); }

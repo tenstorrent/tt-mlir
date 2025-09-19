@@ -11,6 +11,8 @@
 #include "mlir/Dialect/Affine/IR/AffineValueMap.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/IR/AsmState.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRELEMENTWISEFUSION
@@ -21,6 +23,39 @@ using namespace mlir;
 using namespace mlir::tt::ttir;
 
 namespace {
+
+static bool hasMultiUseOperand(GenericOp gOp) {
+  // TODO(mbagherbeikTT) create issue for this
+  // make sure all producer inputs are also single use
+  // otherwise we can end up with intermediate inputs
+  // that the compiler can't handle for now
+  for (OpOperand *input : gOp.getDpsInputOperands()) {
+    if (llvm::range_size(input->get().getUsers()) > 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Check if op should be skipped for elementwise fusion.
+///
+/// If op or any of the operations nested within it's regions have
+/// the TTIRSkipOpEltWiseFusionTrait, the op should be skipped.
+static bool shouldBeSkipped(Operation *op) {
+  if(op->hasTrait<TTIRSkipOpEltWiseFusionTrait>()) {
+    return true;
+  }
+
+  for (Region &region : op->getRegions()) {
+    for (Operation &opInner : region.getOps()) {
+      if (shouldBeSkipped(&opInner)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 static bool hasCompatibleBlocking(GenericOp a, GenericOp b) {
   return a.getGrid() == b.getGrid() &&
@@ -87,7 +122,36 @@ static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
 }
 
 static bool isElementwiseFusable(GenericOp producer, GenericOp consumer,
-                                 OpOperand *use) {
+                                 OpOperand *use) {  
+  // operand only has 1 user
+  if (llvm::range_size(use->get().getUsers()) > 1) {
+    return false;
+  }
+
+  // TODO(mbagherbeikTT) create issue for this
+  // make sure all producer inputs are also single use
+  // otherwise we can end up with intermediate inputs
+  // that the compiler can't handle for now
+  if (hasMultiUseOperand(producer)) {
+    return false;
+  }
+
+  // NOTE: this only works under assumption that the operand that we're
+  // fusing over only has a single user!
+  //
+  // fused op can't have more than set amount of operands
+  // due to number of CBs that can fit in L1
+  //
+  // TODO(mbagherbeikTT) figure out where to move this constant
+  unsigned int kFusedOpOperandLimit = 32; 
+  unsigned int consumerOperands = consumer->getNumOperands();
+  unsigned int producerOperands = consumer->getNumOperands();
+
+  // -2 since were removing 1 operand from both consumer and producer
+  if ((consumerOperands + producerOperands - 2) > kFusedOpOperandLimit) {
+    return false;
+  }
+
   if (!hasCompatibleBlocking(producer, consumer)) {
     return false;
   }
@@ -155,6 +219,10 @@ struct FuseTTIRElementwiseOpsPattern : OpRewritePattern<GenericOp> {
 
   LogicalResult matchAndRewrite(GenericOp consumer,
                                 PatternRewriter &rewriter) const override {
+    if (shouldBeSkipped(consumer)) {
+      return failure();
+    }
+
     if (!consumer.isComputeOnlyForm()) {
       return failure();
     }
@@ -164,9 +232,18 @@ struct FuseTTIRElementwiseOpsPattern : OpRewritePattern<GenericOp> {
       return failure();
     }
 
+    if (hasMultiUseOperand(consumer)) {
+      return failure();
+    }
+
+
     for (OpOperand *use : consumer.getDpsInputOperands()) {
       auto producer = dyn_cast_or_null<GenericOp>(use->get().getDefiningOp());
       if (!producer) {
+        continue;
+      }
+
+      if (shouldBeSkipped(producer)) {
         continue;
       }
 
@@ -371,7 +448,16 @@ struct FuseTTIRElementwiseOpsPattern : OpRewritePattern<GenericOp> {
         r.replaceAllUsesWith(fused->getResult(resIdx++));
       }
 
+      llvm::errs() << "Consumer to be deleted: " << consumer << "\n";
+      llvm::errs() << "Producer to be deleted: " << producer << "\n\n";
+
+      llvm::errs() << "Fused op: " << fused << "\n";
+
+      llvm::errs() << "Consumer users = " << llvm::range_size(consumer->getUsers()) << "\n";
+      llvm::errs() << "Producer users = " << llvm::range_size(producer->getUsers()) << "\n";
+
       rewriter.eraseOp(consumer);
+      rewriter.eraseOp(producer);
       return success();
     }
 

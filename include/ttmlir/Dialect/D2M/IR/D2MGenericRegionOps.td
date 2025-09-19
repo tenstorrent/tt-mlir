@@ -86,7 +86,7 @@ class D2M_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []> 
 // D2M Generic Region Math Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def D2M_TileAddOp : D2M_GenericRegionComputeBinaryDstOp<"tile_add"> {
+def D2M_TileAddOp : D2M_GenericRegionComputeBinaryDstOp<"tile_add", [Pure]> {
     let summary = "D2M Tile Add Op";
     let description = [{
         The `tile_add` operation adds two tiles element-wise on the SFPU.
@@ -443,6 +443,7 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
                                                        , "getAliasingValues"
                                                        , "getBufferType"
                                                        ]>
+  , TTIR_SkipOpEltWiseFusionTrait
   ]> {
     let summary = "D2M Tile Tilize Block Op";
     let description = [{
@@ -467,6 +468,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
                                                        , "getAliasingValues"
                                                        , "getBufferType"
                                                        ]>
+  , TTIR_SkipOpEltWiseFusionTrait
   ]> {
     let summary = "D2M Tile Untilize Block Op";
     let description = [{
