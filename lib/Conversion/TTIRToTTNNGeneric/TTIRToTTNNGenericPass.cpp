@@ -57,6 +57,8 @@ struct ConvertTTIRToTTNNGenericPass final
     target.addLegalOp<memref::AllocOp>();
     target.addLegalOp<memref::DeallocOp>();
 
+    target.addLegalOp<ttir::EmptyOp>();
+
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
 

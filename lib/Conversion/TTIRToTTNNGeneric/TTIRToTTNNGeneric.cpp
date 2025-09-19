@@ -123,7 +123,7 @@ public:
               operand.getDefiningOp());
           castOp) {
         // Use the TTNN tensor operand of the cast as the io for ttnn.generic,
-        // Use the memref operand for CB descriptor creation.
+        // Use the memref result for CB descriptor creation.
         ios[i] = castOp->getOperands()[0];
         cbs[i] = castOp->getResult(0);
       } else {
@@ -147,6 +147,9 @@ public:
     // Create CBDescriptor
     for (auto [i, cb] : llvm::enumerate(cbs)) {
       auto cb_memref = dyn_cast<MemRefType>(cb.getType());
+
+      TT_assertv(mlir::isa<ttcore::TileType>(cb_memref.getElementType()),
+                 "Only TileType supported.");
       ttcore::DataType dtype =
           ttcore::elementTypeToDataType(cb_memref.getElementType());
       auto pageSize = device.getMemrefCBPageSizeBytes(cb_memref);
