@@ -633,8 +633,7 @@ class D2MTilizeUntilizeRewriter
           mlir::tt::d2m::D2MGenericRegionComputeOpTrait> {
 public:
   using OpTraitConversionPattern<
-      mlir::tt::d2m::D2MGenericRegionComputeOpTrait>::
-      OpTraitConversionPattern;
+      mlir::tt::d2m::D2MGenericRegionComputeOpTrait>::OpTraitConversionPattern;
 
   static Value findUncollapsedMemref(Value memref) {
     if (auto funcArg = mlir::dyn_cast<BlockArgument>(memref)) {
@@ -665,8 +664,7 @@ public:
       rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
       rewriter.create<ttkernel::ExperimentalTilizeBlockOp>(op->getLoc(), src,
                                                            dst, blockR, blockC);
-    } else if (auto untilizeOp =
-                   mlir::dyn_cast<d2m::TileUntilizeBlockOp>(op)) {
+    } else if (auto untilizeOp = mlir::dyn_cast<d2m::TileUntilizeBlockOp>(op)) {
       assert(operands.size() == 2);
       Value src = operands[0];
       Value dst = operands[1];
@@ -698,8 +696,7 @@ public:
   using OpConversionPattern<d2m::TileTransposeOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(d2m::TileTransposeOp op,
-                  d2m::TileTransposeOpAdaptor adaptor,
+  matchAndRewrite(d2m::TileTransposeOp op, d2m::TileTransposeOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     // TileTransposeOp is a unary op that takes an input tile and produces
     // an output tile.
@@ -730,13 +727,11 @@ public:
 
 namespace {
 
-class D2MTypecastRewriter
-    : public OpTraitConversionPattern<
-          mlir::tt::d2m::D2MGenericRegionComputeOpTrait> {
+class D2MTypecastRewriter : public OpTraitConversionPattern<
+                                mlir::tt::d2m::D2MGenericRegionComputeOpTrait> {
 public:
   using OpTraitConversionPattern<
-      mlir::tt::d2m::D2MGenericRegionComputeOpTrait>::
-      OpTraitConversionPattern;
+      mlir::tt::d2m::D2MGenericRegionComputeOpTrait>::OpTraitConversionPattern;
 
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
@@ -869,8 +864,8 @@ static Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
 class D2MDMAReadRewriter : public OpConversionPattern<d2m::DMAReadOp> {
 public:
   D2MDMAReadRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                      const d2m::AssociatedDMAWaits *associatedDMAWaits,
-                      const d2m::CBProducerConsumer *cbProducerConsumer)
+                     const d2m::AssociatedDMAWaits *associatedDMAWaits,
+                     const d2m::CBProducerConsumer *cbProducerConsumer)
       : OpConversionPattern<d2m::DMAReadOp>(typeConverter, context),
         associatedDMAWaits(associatedDMAWaits),
         cbProducerConsumer(cbProducerConsumer) {}
@@ -927,8 +922,8 @@ private:
 class D2MDMAWriteRewriter : public OpConversionPattern<d2m::DMAWriteOp> {
 public:
   D2MDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                       const d2m::AssociatedDMAWaits *associatedDMAWaits,
-                       const d2m::CBProducerConsumer *cbProducerConsumer)
+                      const d2m::AssociatedDMAWaits *associatedDMAWaits,
+                      const d2m::CBProducerConsumer *cbProducerConsumer)
       : OpConversionPattern<d2m::DMAWriteOp>(typeConverter, context),
         associatedDMAWaits(associatedDMAWaits),
         cbProducerConsumer(cbProducerConsumer) {}
@@ -1175,8 +1170,7 @@ public:
 } // namespace
 
 namespace {
-class D2MKernelFunctionArgsRewriter
-    : public OpConversionPattern<func::FuncOp> {
+class D2MKernelFunctionArgsRewriter : public OpConversionPattern<func::FuncOp> {
 public:
   using OpConversionPattern<func::FuncOp>::OpConversionPattern;
 
@@ -1342,8 +1336,7 @@ public:
   using OpConversionPattern<d2m::SemaphoreWaitOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(d2m::SemaphoreWaitOp op,
-                  d2m::SemaphoreWaitOpAdaptor adaptor,
+  matchAndRewrite(d2m::SemaphoreWaitOp op, d2m::SemaphoreWaitOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
     Value semaphoreAddr = adaptor.getSemaphore();
