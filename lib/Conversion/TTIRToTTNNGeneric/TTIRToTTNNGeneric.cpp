@@ -111,6 +111,9 @@ public:
 
     MLIRContext *ctx = rewriter.getContext();
     const size_t size = op.getOperands().size();
+    auto device = ttcore::lookupDevice(op->getParentOp());
+    TT_assert(device);
+
     llvm::SmallVector<Value> ios(size);
     llvm::SmallVector<Value> cbs(size);
     llvm::SmallVector<int64_t> cbPorts(size);
@@ -143,19 +146,17 @@ public:
     }
 
     // Create CBDescriptor
-    constexpr int64_t TILE_SIZE = 32 * 32;
     for (auto [i, cb] : llvm::enumerate(cbs)) {
       auto cb_memref = dyn_cast<MemRefType>(cb.getType());
-      auto elementSize = cb_memref.getElementType().getIntOrFloatBitWidth() / 8;
-      auto pageSize = TILE_SIZE * elementSize;
-
       ttcore::DataType dtype =
           ttcore::elementTypeToDataType(cb_memref.getElementType());
+      auto pageSize = device.getMemrefCBPageSizeBytes(cb_memref);
+      auto numPages = device.getMemrefCBNumPages(cb_memref);
+
       ttnn::KernelCBFormatAttr cbFormat =
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
-      // Assumption is one CBFormat per descriptor, so total_size = page_size
-      ttnn::KernelCBAttr cbDescriptor =
-          ttnn::KernelCBAttr::get(ctx, pageSize, coreRangeSet, {cbFormat});
+      ttnn::KernelCBAttr cbDescriptor = ttnn::KernelCBAttr::get(
+          ctx, numPages * pageSize, coreRangeSet, {cbFormat});
       cbDescriptors[i] = cbDescriptor;
     }
 
