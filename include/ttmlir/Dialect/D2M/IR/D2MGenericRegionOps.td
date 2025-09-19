@@ -83,10 +83,19 @@ class D2M_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []> 
     D2M_GenericRegionOp<mnemonic, [D2M_GenericRegionDatamovementOpTrait] # traits> {}
 
 //===----------------------------------------------------------------------===//
+// D2M Generic Region Trait Bundles
+//===----------------------------------------------------------------------===//
+
+// Shared trait bundle for TTIR tile compute ops.
+defvar D2M_TileComputeOpTraitBundle = [
+  Pure
+];
+
+//===----------------------------------------------------------------------===//
 // D2M Generic Region Math Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def D2M_TileAddOp : D2M_GenericRegionComputeBinaryDstOp<"tile_add", [Pure]> {
+def D2M_TileAddOp : D2M_GenericRegionComputeBinaryDstOp<"tile_add", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Add Op";
     let description = [{
         The `tile_add` operation adds two tiles element-wise on the SFPU.
@@ -97,7 +106,7 @@ def D2M_TileAddOp : D2M_GenericRegionComputeBinaryDstOp<"tile_add", [Pure]> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileSubOp : D2M_GenericRegionComputeBinaryDstOp<"tile_sub"> {
+def D2M_TileSubOp : D2M_GenericRegionComputeBinaryDstOp<"tile_sub", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sub Op";
     let description = [{
         The `tile_sub` operation subtracts two tiles element-wise on the SFPU.
@@ -108,7 +117,7 @@ def D2M_TileSubOp : D2M_GenericRegionComputeBinaryDstOp<"tile_sub"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileMulOp : D2M_GenericRegionComputeBinaryDstOp<"tile_mul"> {
+def D2M_TileMulOp : D2M_GenericRegionComputeBinaryDstOp<"tile_mul", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Mul Op";
     let description = [{
         The `tile_mul` operation multiplies two tiles element-wise on the SFPU.
@@ -119,7 +128,7 @@ def D2M_TileMulOp : D2M_GenericRegionComputeBinaryDstOp<"tile_mul"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileDivOp : D2M_GenericRegionComputeBinaryDstOp<"tile_div"> {
+def D2M_TileDivOp : D2M_GenericRegionComputeBinaryDstOp<"tile_div", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Div Op";
     let description = [{
         The `tile_div` operation divides two tiles element-wise.
@@ -130,7 +139,7 @@ def D2M_TileDivOp : D2M_GenericRegionComputeBinaryDstOp<"tile_div"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileRecipOp : D2M_GenericRegionComputeUnaryDstOp<"tile_recip"> {
+def D2M_TileRecipOp : D2M_GenericRegionComputeUnaryDstOp<"tile_recip", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Recip Op";
     let description = [{
         The `tile_recip` operation computes the reciprocal of each element in the input tile.
@@ -140,7 +149,7 @@ def D2M_TileRecipOp : D2M_GenericRegionComputeUnaryDstOp<"tile_recip"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TilePowOp : D2M_GenericRegionComputeBinaryDstOp<"tile_pow"> {
+def D2M_TilePowOp : D2M_GenericRegionComputeBinaryDstOp<"tile_pow", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Pow Op";
     let description = [{
         The `tile_pow` operation raises two tiles element-wise.
@@ -151,7 +160,7 @@ def D2M_TilePowOp : D2M_GenericRegionComputeBinaryDstOp<"tile_pow"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileExpOp : D2M_GenericRegionComputeUnaryDstOp<"tile_exp"> {
+def D2M_TileExpOp : D2M_GenericRegionComputeUnaryDstOp<"tile_exp", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Exp Op";
     let description = [{
         The `tile_exp` operation computes the exponential of each element in the input tile.
@@ -161,7 +170,7 @@ def D2M_TileExpOp : D2M_GenericRegionComputeUnaryDstOp<"tile_exp"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileLogOp : D2M_GenericRegionComputeUnaryDstOp<"tile_log"> {
+def D2M_TileLogOp : D2M_GenericRegionComputeUnaryDstOp<"tile_log", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Log Op";
     let description = [{
         The `tile_log` operation computes the natural logarithm of each element in the input tile.
@@ -171,7 +180,7 @@ def D2M_TileLogOp : D2M_GenericRegionComputeUnaryDstOp<"tile_log"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileNegativeOp : D2M_GenericRegionComputeUnaryDstOp<"tile_negative"> {
+def D2M_TileNegativeOp : D2M_GenericRegionComputeUnaryDstOp<"tile_negative", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Negative Op";
     let description = [{
         The `tile_negative` operation computes the negative of each element in the input tile.
@@ -181,7 +190,7 @@ def D2M_TileNegativeOp : D2M_GenericRegionComputeUnaryDstOp<"tile_negative"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileCosOp : D2M_GenericRegionComputeUnaryDstOp<"tile_cos"> {
+def D2M_TileCosOp : D2M_GenericRegionComputeUnaryDstOp<"tile_cos", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Cos Op";
     let description = [{
         The `tile_cos` operation computes the cosine function of each element in the input tile.
@@ -191,7 +200,7 @@ def D2M_TileCosOp : D2M_GenericRegionComputeUnaryDstOp<"tile_cos"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileTanOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tan"> {
+def D2M_TileTanOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tan", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Tan Op";
     let description = [{
         The `tile_tan` operation computes the tangent function of each element in the input tile.
@@ -201,7 +210,7 @@ def D2M_TileTanOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tan"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileSqrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sqrt"> {
+def D2M_TileSqrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sqrt", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sqrt Op";
     let description = [{
         The `tile_sqrt` operation computes the sqrt function of each element in the input tile.
@@ -211,7 +220,7 @@ def D2M_TileSqrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sqrt"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileRsqrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_rsqrt"> {
+def D2M_TileRsqrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_rsqrt", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Rsqrt Op";
     let description = [{
         The `tile_rsqrt` operation computes the reciprocal sqrt function of each element in the input tile.
@@ -221,7 +230,7 @@ def D2M_TileRsqrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_rsqrt"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileSinOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sin"> {
+def D2M_TileSinOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sin", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sin Op";
     let description = [{
         The `tile_sin` operation computes the sine function of each element in the input tile.
@@ -231,7 +240,7 @@ def D2M_TileSinOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sin"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileSigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sigmoid"> {
+def D2M_TileSigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sigmoid", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sigmoid Op";
     let description = [{
         The `tile_sigmoid` operation computes the sigmoid of each element in the input tile.
@@ -241,7 +250,7 @@ def D2M_TileSigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sigmoid"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileGeluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gelu"> {
+def D2M_TileGeluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gelu", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile GELU Op";
     let description = [{
         The `tile_gelu` operation computes the GELU (Gaussian Error Linear Unit) of each element in the input tile.
@@ -251,7 +260,7 @@ def D2M_TileGeluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gelu"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileCeilOp : D2M_GenericRegionComputeUnaryDstOp<"tile_ceil"> {
+def D2M_TileCeilOp : D2M_GenericRegionComputeUnaryDstOp<"tile_ceil", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Ceil Op";
     let description = [{
         The `tile_ceil` operation computes the ceiling function of each element in the input tile.
@@ -261,7 +270,7 @@ def D2M_TileCeilOp : D2M_GenericRegionComputeUnaryDstOp<"tile_ceil"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileFloorOp : D2M_GenericRegionComputeUnaryDstOp<"tile_floor"> {
+def D2M_TileFloorOp : D2M_GenericRegionComputeUnaryDstOp<"tile_floor", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Floor Op";
     let description = [{
         The `tile_floor` operation computes the floor function of each element in the input tile.
@@ -271,7 +280,7 @@ def D2M_TileFloorOp : D2M_GenericRegionComputeUnaryDstOp<"tile_floor"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileAbsOp : D2M_GenericRegionComputeUnaryDstOp<"tile_abs"> {
+def D2M_TileAbsOp : D2M_GenericRegionComputeUnaryDstOp<"tile_abs", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Abs Op";
     let description = [{
         The `tile_abs` operation computes the absolute value of each element in the input tile.
@@ -281,7 +290,7 @@ def D2M_TileAbsOp : D2M_GenericRegionComputeUnaryDstOp<"tile_abs"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileLogicalNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_logical_not"> {
+def D2M_TileLogicalNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_logical_not", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Logical Not Op";
     let description = [{
         The `tile_logical_not` operation computes the logical negation of each element in the input tile.
@@ -301,7 +310,7 @@ def D2M_TileEqzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_eqz"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileNezOp : D2M_GenericRegionComputeUnaryDstOp<"tile_nez"> {
+def D2M_TileNezOp : D2M_GenericRegionComputeUnaryDstOp<"tile_nez", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Nez Op";
     let description = [{
         The `tile_nez` operation checks if each element in the input tile != 0
@@ -311,7 +320,7 @@ def D2M_TileNezOp : D2M_GenericRegionComputeUnaryDstOp<"tile_nez"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileGtzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gtz"> {
+def D2M_TileGtzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gtz", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Gtz Op";
     let description = [{
         The `tile_gtz` operation checks if each element in the input tile > 0
@@ -321,7 +330,7 @@ def D2M_TileGtzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gtz"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileGezOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gez"> {
+def D2M_TileGezOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gez", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Gez Op";
     let description = [{
         The `tile_gez` operation checks if each element in the input tile >= 0
@@ -331,7 +340,7 @@ def D2M_TileGezOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gez"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileLtzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_ltz"> {
+def D2M_TileLtzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_ltz", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Ltz Op";
     let description = [{
         The `tile_ltz` operation checks if each element in the input tile < 0
@@ -341,7 +350,7 @@ def D2M_TileLtzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_ltz"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileLezOp : D2M_GenericRegionComputeUnaryDstOp<"tile_lez"> {
+def D2M_TileLezOp : D2M_GenericRegionComputeUnaryDstOp<"tile_lez", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Lez Op";
     let description = [{
         The `tile_lez` operation checks if each element in the input tile <= 0
@@ -351,7 +360,7 @@ def D2M_TileLezOp : D2M_GenericRegionComputeUnaryDstOp<"tile_lez"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileMaximumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_maximum">{
+def D2M_TileMaximumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_maximum", D2M_TileComputeOpTraitBundle>{
     let summary = "D2M Tile Maximum Op";
     let description = [{
         The `tile_maximum` operation calculates the maximum of two tensors element-wise.
