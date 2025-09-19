@@ -12,8 +12,7 @@ from ttmlir.dialects import func, emitc
 class PyKernelAstBase(ast.NodeVisitor):
     _fn_map = {}
 
-    def __init__(self, name, *args, **kwargs):
-        self.name = name
+    def __init__(self, *args, **kwargs):
         self.ctx = Context()
         self.cursor = Location.unknown(self.ctx)
         self.module = Module.create(self.cursor)
