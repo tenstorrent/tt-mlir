@@ -1759,6 +1759,108 @@ ConcatenateHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionDecodeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct ScaledDotProductAttentionDecodeOptionalArgs {
+  std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
+};
+
+static ScaledDotProductAttentionDecodeOptionalArgs
+unpackScaledDotProductAttentionDecodeOptionalArgs(
+    const std::vector<TTNNLayoutAttr> &inputs,
+    ScaledDotProductAttentionDecodeOp op) {
+  ScaledDotProductAttentionDecodeOptionalArgs ret;
+
+  TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
+  TypedValue<RankedTensorType> attentionSink = op.getAttentionSink();
+
+  if (attentionMask && attentionSink) {
+    ret.attentionMaskShape = attentionMask.getType().getShape();
+    ret.attentionMaskLayout = inputs[4];
+    ret.attentionSinkShape = attentionSink.getType().getShape();
+    ret.attentionSinkLayout = inputs[5];
+  } else if (attentionMask) {
+    ret.attentionMaskShape = attentionMask.getType().getShape();
+    ret.attentionMaskLayout = inputs[4];
+  } else if (attentionSink) {
+    ret.attentionSinkShape = attentionSink.getType().getShape();
+    ret.attentionSinkLayout = inputs[4];
+  } else {
+    llvm_unreachable("All combinations of attention mask and attention sink "
+                     "should have been handled");
+  }
+
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+ScaledDotProductAttentionDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
+         "ttnn::scaled_dot_product_attention_decode can have 4, 5, or 6 "
+         "input tensors");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto queryShape = getQuery().getType().getShape();
+  const auto keyShape = getKey().getType().getShape();
+  const auto valueShape = getValue().getType().getShape();
+  const auto curPosTensorShape = getCurPosTensor().getType().getShape();
+
+  ScaledDotProductAttentionDecodeOptionalArgs optionalArgs =
+      unpackScaledDotProductAttentionDecodeOptionalArgs(inputs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints,
+      *this, deviceGrid, queryShape, inputs[0], keyShape, inputs[1], valueShape,
+      inputs[2], curPosTensorShape, inputs[3], optionalArgs.attentionMaskShape,
+      optionalArgs.attentionMaskLayout, optionalArgs.attentionSinkShape,
+      optionalArgs.attentionSinkLayout, getIsCausal(), getScale(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
+         "ttnn::scaled_dot_product_attention_decode can have 4, 5, or 6 "
+         "input tensors");
+
+  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
+         "ttnn::scaled_dot_product_attention_decode can have 4, 5, or 6 "
+         "input tensors");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  const auto queryShape = getQuery().getType().getShape();
+  const auto keyShape = getKey().getType().getShape();
+  const auto valueShape = getValue().getType().getShape();
+  const auto curPosTensorShape = getCurPosTensor().getType().getShape();
+
+  ScaledDotProductAttentionDecodeOptionalArgs optionalArgs =
+      unpackScaledDotProductAttentionDecodeOptionalArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime, *this,
+      queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
+      curPosTensorShape, inputs[3], optionalArgs.attentionMaskShape,
+      optionalArgs.attentionMaskLayout, optionalArgs.attentionSinkShape,
+      optionalArgs.attentionSinkLayout, getIsCausal(), getScale(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 
