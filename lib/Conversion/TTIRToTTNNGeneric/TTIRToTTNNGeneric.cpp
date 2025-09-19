@@ -10,6 +10,8 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
@@ -196,12 +198,45 @@ public:
 };
 } // namespace
 
+namespace {
+class TTIREmptyRewriter : public OpConversionPattern<ttir::EmptyOp> {
+public:
+  using OpConversionPattern<ttir::EmptyOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::EmptyOp op, ttir::EmptyOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    MLIRContext *ctx = rewriter.getContext();
+    auto tensorType = cast<RankedTensorType>(op.getResult().getType());
+    auto layoutAttr = cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+    auto shape = ttnn::ShapeAttr::get(ctx, tensorType.getShape());
+    auto dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
+    auto layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
+
+    // Reuses the existing ttnn.get_device op if present, else create one
+    auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
+    // TT_assert(device, "Expected a ttnn.get_device op in the block");
+
+    // Device grid neededfor shard spec:
+    auto deviceAttr = ttcore::lookupDevice(op);
+    auto memcfg =
+        ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
+
+    rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(op, tensorType, device, shape,
+                                               dtype, layout, memcfg);
+    return success();
+  };
+};
+} // namespace
+
 } // namespace mlir::tt
 namespace mlir::tt {
 void populateTTIRToTTNNGenericPatterns(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter) {
-  patterns.add<TTIRGenericRewriter, TTNNMetalLayoutCastRewriter>(ctx);
+  patterns
+      .add<TTIRGenericRewriter, TTNNMetalLayoutCastRewriter, TTIREmptyRewriter>(
+          ctx);
 }
 
 } // namespace mlir::tt
