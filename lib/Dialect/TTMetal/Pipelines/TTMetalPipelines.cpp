@@ -139,7 +139,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);
-  if (options.lowerToTTNNGeneric) {
+  if (options.ttnnMode) {
     pm.addPass(tt::createConvertTTIRToTTNNGenericPass());
   } else {
     ttir::ConvertTTIRToTTMetalOptions ttirToTTMetalOptions;

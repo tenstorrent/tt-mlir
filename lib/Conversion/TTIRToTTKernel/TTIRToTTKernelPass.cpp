@@ -84,7 +84,7 @@ struct ConvertTTIRToTTKernel
              (op.getFunctionType().getNumInputs() == 0);
     });
 
-    target.addLegalOp<ttir::TTNNToMetalLayoutCastOp>();
+    target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
