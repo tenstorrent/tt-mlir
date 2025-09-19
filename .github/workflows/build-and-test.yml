@@ -514,7 +514,7 @@ jobs:
     - name: Download tt-alchemist wheel
       uses: actions/download-artifact@v4
       with:
-        name: tt-alchemist-whl-tracy
+        name: tt-alchemist-whl-speedy
 
     - name: Install tt-alchemist wheel
       shell: bash
