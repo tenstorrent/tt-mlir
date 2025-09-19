@@ -1474,32 +1474,24 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
     }
   }
 
-  DeviceLayoutInterface layout =
-      mlir::dyn_cast<DeviceLayoutInterface>(memrefType.getLayout());
-  // assert(
-  //     (layout || !mlir::isa<DeviceLayoutInterface>(memrefType.getLayout()))
-  //     && "expected shard layout");
-  bool isLocalMemref =
-      !(mlir::isa<ShardLayoutAttr>(memrefType.getLayout()) ||
-        mlir::isa<InterleavedLayoutAttr>(memrefType.getLayout()));
-  auto shardShape =
-      isLocalMemref ? memrefType.getShape() : layout.getShardShape(memrefType);
-
-  // XXX: clean this up
   int64_t numBuffers = 1;
-  if (auto shard_layout =
-          mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout())) {
-    numBuffers = shard_layout.getBuffers();
-  } else if (auto interleaved_layout = mlir::dyn_cast<InterleavedLayoutAttr>(
-                 memrefType.getLayout())) {
-    numBuffers = interleaved_layout.getBuffers();
+  ArrayRef<int64_t> shardShape;
+
+  // local memrefs have no layout attribute
+  bool isLocalMemref = !memrefType.getLayout();
+  if (isLocalMemref) {
+    numBuffers = 1;
+    shardShape = memrefType.getShape();
+  } else {
+    auto layout = mlir::dyn_cast<DeviceLayoutInterface>(memrefType.getLayout());
+    assert(layout && "expected DeviceLayoutInterface");
+    shardShape = layout.getShardShape(memrefType);
+    numBuffers = (includeBuffers) ? layout.getBuffers() : 1;
   }
 
-  return ttmlir::utils::alignUp(
-      static_cast<size_t>(ttmlir::utils::volume(
-          shardShape,
-          elementSizeBytes * ((includeBuffers && layout) ? numBuffers : 1))),
-      alignSize);
+  return ttmlir::utils::alignUp(static_cast<size_t>(ttmlir::utils::volume(
+                                    shardShape, elementSizeBytes * numBuffers)),
+                                alignSize);
 }
 
 size_t DeviceAttr::getMemrefCBPageSizeBytes(MemRefType memrefType) const {

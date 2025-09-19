@@ -53,6 +53,11 @@ def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface"> {
       }]
     >,
     InterfaceMethod<
+      "Returns the number of buffers",
+      "size_t", "getBuffers", (ins),
+      /*methodBody=*/""
+    >,
+    InterfaceMethod<
       "Return true if the layout is physical rather than a view",
       "bool", "isPhysical", (ins),
       /*methodBody=*/""
