@@ -558,7 +558,6 @@ def div(
     return div0
 
 
-# TODO (wenbinlyuTT): fix f32 accuracy issue for small values
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
