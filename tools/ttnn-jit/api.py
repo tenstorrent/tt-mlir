@@ -18,12 +18,13 @@ from ttmlir.passes import (
 
 from ttnn_jit._src.ttir_ast import TTIRCompiler
 from ttnn_jit._src.utils import _cleanup_source_code
+from ttnn_jit._src.dispatch_op import _run_binary
 
 
 def jit(
     backend: Literal["ttnn", "metal"] = "ttnn",
     perf: bool = False,
-    dump_flatbuffer: bool = False,
+    dump_flatbuffer: bool = True,
     debug: bool = False,
 ):
     def _decorator(f):
@@ -80,12 +81,13 @@ def jit(
                     print("---- After ttir_to_ttnn_backend_pipeline ----")
                     print(ir)
 
+                out_dir = os.path.join("generated", "pykernels")
+                os.makedirs(out_dir, exist_ok=True)
+                flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttnn")
                 if dump_flatbuffer:
-                    out_dir = os.path.join("generated", "pykernels")
-                    os.makedirs(out_dir, exist_ok=True)
-                    ttnn_to_flatbuffer_file(
-                        ir, os.path.join(out_dir, f.__name__ + ".ttnn"), {}, []
-                    )
+                    ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+
+                return _run_binary(flatbuffer_bin, args)
 
             return ir
 
