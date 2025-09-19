@@ -51,8 +51,19 @@ struct ConvertTTIRToTTNNGenericPass final
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
-    target.addLegalOp<ttir::StreamLayoutOp>();
-    target.addLegalOp<ttir::ViewLayoutOp>();
+    // target.addLegalOp<ttir::StreamLayoutOp>();
+    target.addDynamicallyLegalOp<ttir::StreamLayoutOp>(
+        [](ttir::StreamLayoutOp op) {
+          // Keep legal while any user is ttir.generic; illegal otherwise.
+          for (Operation *u : op->getResult(0).getUsers()) {
+            if (mlir::isa<ttir::GenericOp>(u)) {
+              return true;
+            }
+          }
+          return false;
+        });
+    // target.addLegalOp<ttir::ViewLayoutOp>();
+    // target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
 
     target.addLegalOp<memref::AllocOp>();
     target.addLegalOp<memref::DeallocOp>();
