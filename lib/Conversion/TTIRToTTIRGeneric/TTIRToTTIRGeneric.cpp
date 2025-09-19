@@ -914,7 +914,7 @@ void populateTTIRToTTIRGenericPatterns(
 
     // Elementwise.
     TTIRNamedElementwiseRewriter<ttir::AbsOp,          ttir::TileAbsOp>,
-    TTIRNamedElementwiseRewriter<ttir::AddOp,          ttir::TileAddOp>,
+    TTIRNamedElementwiseRewriter<ttir::AddOp,          ttir::TileAddBinaryOp>,
     TTIRNamedElementwiseRewriter<ttir::CeilOp,         ttir::TileCeilOp>,
     TTIRNamedElementwiseRewriter<ttir::CosOp,          ttir::TileCosOp>,
     TTIRNamedElementwiseRewriter<ttir::DivOp,          ttir::TileDivOp>,
@@ -923,7 +923,7 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::GeluOp,         ttir::TileGeluOp>,
     TTIRNamedElementwiseRewriter<ttir::LogOp,          ttir::TileLogOp>,
     TTIRNamedElementwiseRewriter<ttir::LogicalNotOp,   ttir::TileLogicalNotOp>,
-    TTIRNamedElementwiseRewriter<ttir::MultiplyOp,     ttir::TileMulOp>,
+    TTIRNamedElementwiseRewriter<ttir::MultiplyOp,     ttir::TileMulBinaryOp>,
     TTIRNamedElementwiseRewriter<ttir::MaximumOp,      ttir::TileMaximumOp>,
     TTIRNamedElementwiseRewriter<ttir::NegOp,          ttir::TileNegativeOp>,
     TTIRNamedElementwiseRewriter<ttir::PowOp,          ttir::TilePowOp>,
@@ -932,7 +932,7 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::SigmoidOp,      ttir::TileSigmoidOp>,
     TTIRNamedElementwiseRewriter<ttir::SinOp,          ttir::TileSinOp>,
     TTIRNamedElementwiseRewriter<ttir::SqrtOp,         ttir::TileSqrtOp>,
-    TTIRNamedElementwiseRewriter<ttir::SubtractOp,     ttir::TileSubOp>,
+    TTIRNamedElementwiseRewriter<ttir::SubtractOp,     ttir::TileSubBinaryOp>,
     TTIRNamedElementwiseRewriter<ttir::TanOp,          ttir::TileTanOp>,
 
     // Comparison.
