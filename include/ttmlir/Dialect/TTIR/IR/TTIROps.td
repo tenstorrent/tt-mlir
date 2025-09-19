@@ -118,6 +118,7 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 
     let assemblyFormat = [{ attr-dict `\n`
     ` ` ` ` ` ` ` ` `ins` `(` $inputs `:` type($inputs) `)` `\n`

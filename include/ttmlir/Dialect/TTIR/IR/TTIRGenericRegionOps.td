@@ -85,7 +85,7 @@ class TTIR_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []>
 // TTIR Generic Region Math Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_TileAddOp : TTIR_GenericRegionComputeOp<"tile_add"> {
+def TTIR_TileAddOp : TTIR_GenericRegionComputeOp<"tile_add", [Pure]> {
     let summary = "TTIR Tile Add Op";
     let description = [{
         The `tile_add` operation adds two tiles element-wise.
@@ -453,6 +453,7 @@ def TTIR_TileTilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_tilize_block",
                                                        , "getAliasingValues"
                                                        , "getBufferType"
                                                        ]>
+  , TTIR_SkipOpEltWiseFusionTrait
   ]> {
     let summary = "TTIR Tile Tilize Block Op";
     let description = [{
@@ -477,6 +478,7 @@ def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_untilize_block"
                                                        , "getAliasingValues"
                                                        , "getBufferType"
                                                        ]>
+  , TTIR_SkipOpEltWiseFusionTrait
   ]> {
     let summary = "TTIR Tile Untilize Block Op";
     let description = [{

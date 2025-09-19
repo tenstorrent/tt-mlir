@@ -76,6 +76,10 @@ def TTIR_GenericRegionDatamovementOpTrait : TTIR_Trait<"TTIRGenericRegionDatamov
 
 def TTIR_Broadcastable : TTIR_Trait<"Broadcastable">;
 
+// SkipOpEltWiseFusion is a trait that can be used to mark specific compute operations
+// to skip the TTIRElementwiseFusion pass
+def TTIR_SkipOpEltWiseFusionTrait : TTIR_Trait<"TTIRSkipOpEltWiseFusionTrait">;
+
 //===----------------------------------------------------------------------===//
 // TTIR common types.
 //===----------------------------------------------------------------------===//
