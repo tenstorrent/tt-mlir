@@ -62,9 +62,11 @@ void D2MDialect::initialize() {
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.cpp.inc"
       >();
   addInterfaces<D2MDialectFoldInterface>();
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   addAttributes<
 #define GET_ATTRDEF_LIST
 #include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.cpp.inc"
       >();
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
   registerTypes();
 }

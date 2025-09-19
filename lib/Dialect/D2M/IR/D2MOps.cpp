@@ -303,9 +303,10 @@ struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
     if (!producerLayoutOp) {
       return failure();
     }
-    // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+    // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
     rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
                                             op.getOutput());
+    // NOLINTEND(clang-analyzer-core.StackAddressEscape)
     return success();
   }
 };
