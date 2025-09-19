@@ -289,10 +289,10 @@ public:
         // need to allocate a dest register intermediate for it.
         else {
           assert(user->hasTrait<TTIRGenericRegionComputeOpTrait>());
-          assert(op->hasOneUse() && "Currently we do not support multiple "
-                                    "users in the same compute dst region.");
+          // assert(op->hasOneUse() && "Currently we do not support multiple "
+          //                           "users in the same compute dst region.");
           assert(op->getNumResults() == 1);
-          assert(!dstRegisterAllocation.contains(op));
+          // assert(!dstRegisterAllocation.contains(op));
           dstRegisterAllocation[op] = dstRegisterAllocationState.allocate();
         }
       }

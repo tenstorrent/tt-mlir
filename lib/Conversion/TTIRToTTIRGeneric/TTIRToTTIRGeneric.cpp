@@ -321,12 +321,19 @@ private:
 
               if constexpr (isComparisonOp) {
                 // For comparison ops, first subtract then compare with zero
+                auto inputArgs = bbArgs.take_front(numInputs);
+                auto outputTypes = bbArgs.take_back(numOutputs);
+
                 mlir::Value subResult = bbBuilder.create<ttir::TileSubBinaryOp>(
-                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
-                    /*operands=*/bbArgs.take_front(numInputs));
-                yield = bbBuilder.create<TileOp>(
-                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
-                    /*operands=*/subResult);
+                    loc, /*resultTypes=*/outputTypes,
+                    /*operands=*/inputArgs);
+                mlir::Value subResult2 =
+                    bbBuilder.create<ttir::TileSubBinaryOp>(
+                        loc, /*resultTypes=*/outputTypes,
+                        /*operands=*/mlir::ValueRange{subResult, subResult});
+                yield =
+                    bbBuilder.create<TileOp>(loc, /*resultTypes=*/outputTypes,
+                                             /*operands=*/subResult2);
               } else {
                 // For regular elementwise ops, create TileOp directly
                 yield = bbBuilder.create<TileOp>(
