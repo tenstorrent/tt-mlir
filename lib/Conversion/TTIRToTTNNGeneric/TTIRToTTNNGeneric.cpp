@@ -116,30 +116,52 @@ public:
     auto device = ttcore::lookupDevice(op->getParentOp());
     TT_assert(device);
 
-    llvm::SmallVector<Value> ios(size);
-    llvm::SmallVector<Value> cbs(size);
-    llvm::SmallVector<int64_t> cbPorts(size);
-    int64_t cbPort = 0;
-    for (const auto [i, operand] : llvm::enumerate(op.getOperands())) {
-      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-              operand.getDefiningOp());
-          castOp) {
-        // Use the TTNN tensor operand of the cast as the io for ttnn.generic,
-        // Use the memref result for CB descriptor creation.
-        ios[i] = castOp->getOperands()[0];
-        cbs[i] = castOp->getResult(0);
-      } else {
-        llvm_unreachable("Expected TTNNToMetalLayoutCastOp");
-      }
-      cbPorts[i] = cbPort++;
-    }
-
     ttcore::GridAttr grid = op.getGrid();
     ttnn::CoreRangeSetAttr coreRangeSet = ttnn::CoreRangeSetAttr::get(
         ctx, ttnn::CoreRangeAttr::get(
                  ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
                  ttnn::CoreCoordAttr::get(ctx, grid.getShape()[0] - 1,
                                           grid.getShape()[1] - 1)));
+
+    llvm::SmallVector<Value> ios(size);
+    llvm::SmallVector<Value> cbs(size);
+    llvm::SmallVector<int64_t> cbPorts(size);
+    int64_t cbPort = 0;
+    const size_t numInputs = op.getInputs().size();
+    for (auto [i, operand] : llvm::enumerate(op.getInputs())) {
+      if (auto streamLayoutOp = mlir::dyn_cast_if_present<ttir::StreamLayoutOp>(
+              operand.getDefiningOp());
+          streamLayoutOp) {
+        // Prefer the TTNN tensor feeding the layout cast if available.
+        if (auto castOp =
+                mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+                    streamLayoutOp.getInput().getDefiningOp());
+            castOp) {
+          ios[i] = castOp.getOperand();
+        } else {
+          llvm_unreachable(
+              "Expected TTNNMetalLayoutCastOp producing stream input.");
+        }
+        cbs[i] = streamLayoutOp.getStorage();
+      } else {
+        llvm_unreachable("Expected stream_layout op for the input.");
+      }
+      cbPorts[i] = cbPort++;
+    }
+    for (const auto [i, operand] : llvm::enumerate(op.getOutputs())) {
+      const size_t idx = numInputs + i;
+      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+              operand.getDefiningOp());
+          castOp) {
+        // Use the TTNN tensor operand of the cast as the io for ttnn.generic,
+        // Use the memref result for CB descriptor creation.
+        ios[idx] = castOp->getOperands()[0];
+        cbs[idx] = castOp->getResult(0);
+      } else {
+        llvm_unreachable("Expected TTNNToMetalLayoutCastOp");
+      }
+      cbPorts[idx] = cbPort++;
+    }
 
     llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors(cbPort);
     if (cbs.empty()) {
@@ -192,7 +214,45 @@ public:
   matchAndRewrite(ttir::TTNNMetalLayoutCastOp op,
                   ttir::TTNNMetalLayoutCastOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOp(op, op.getOperand());
+    if (auto inner =
+            op.getOperand().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+      rewriter.replaceOp(op, inner.getOperand());
+    }
+    return success();
+  };
+};
+} // namespace
+
+namespace {
+class StreamLayoutRewriter : public OpConversionPattern<ttir::StreamLayoutOp> {
+public:
+  using OpConversionPattern<ttir::StreamLayoutOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::StreamLayoutOp op, ttir::StreamLayoutOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+
+    auto castOp = op.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
+    TT_assertv(castOp, "Expected TTNNMetalLayoutCastOp as stream input.");
+    rewriter.replaceAllUsesWith(op, castOp.getOperand());
+    rewriter.eraseOp(castOp);
+
+    llvm::SmallVector<Operation *> producersToCheck;
+    for (Value operand : op->getOperands()) {
+      if (Operation *defOp = operand.getDefiningOp()) {
+        producersToCheck.push_back(defOp);
+      }
+    }
+
+    rewriter.eraseOp(op);
+
+    for (Operation *producer : producersToCheck) {
+      bool allResultsDead = llvm::all_of(producer->getResults(),
+                                         [](Value r) { return r.use_empty(); });
+      if (allResultsDead) {
+        rewriter.eraseOp(producer);
+      }
+    }
     return success();
   };
 };
@@ -234,9 +294,8 @@ namespace mlir::tt {
 void populateTTIRToTTNNGenericPatterns(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter) {
-  patterns
-      .add<TTIRGenericRewriter, TTNNMetalLayoutCastRewriter, TTIREmptyRewriter>(
-          ctx);
+  patterns.add<TTIRGenericRewriter, TTNNMetalLayoutCastRewriter,
+               TTIREmptyRewriter, StreamLayoutRewriter>(ctx);
 }
 
 } // namespace mlir::tt
