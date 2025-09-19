@@ -2,6 +2,7 @@ set(TESTSUITE AllocationTests)
 
 add_mlir_unittest(${TESTSUITE}
     TestAllocation.cpp
+    TestBlockFactorAnalysis.cpp
 )
 
 target_include_directories(${TESTSUITE}
