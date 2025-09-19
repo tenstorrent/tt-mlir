@@ -420,15 +420,15 @@ private:
       std::is_same_v<TileOp, ttir::TileSubOp> ||
       std::is_same_v<TileOp, ttir::TileMulOp>;
 
-  std::pair<ttcore::TileBcastType, ttcore::TileBcastType>
+  std::pair<ttir::TileBcastType, ttir::TileBcastType>
   getImplicitBcastInfo(ConcreteOp op, ArrayRef<Value> inputs,
                        ArrayRef<Value> outputs) const {
     if constexpr (!isNativeBcastOp) {
-      return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+      return {ttir::TileBcastType::None, ttir::TileBcastType::None};
     }
 
     if (inputs.size() != 2u || outputs.size() != 1u) {
-      return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+      return {ttir::TileBcastType::None, ttir::TileBcastType::None};
     }
 
     const auto lhsType =
@@ -443,11 +443,11 @@ private:
     const int outRank = static_cast<int>(outType.getRank());
 
     if (outRank != std::max(lhsRank, rhsRank)) {
-      return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+      return {ttir::TileBcastType::None, ttir::TileBcastType::None};
     }
 
     if (outRank != 2) {
-      return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+      return {ttir::TileBcastType::None, ttir::TileBcastType::None};
     }
 
     const auto lhsShape = lhsType.getShape();
@@ -466,7 +466,7 @@ private:
       if ((lhsDimSize != -1) && (rhsDimSize != -1) &&
           (lhsDimSize != rhsDimSize) && (lhsDimSize != 1) &&
           (rhsDimSize != 1)) {
-        return {ttcore::TileBcastType::None, ttcore::TileBcastType::None};
+        return {ttir::TileBcastType::None, ttir::TileBcastType::None};
       }
 
       const bool lhsBcast = (lhsDimSize != rhsDimSize) &&
@@ -480,31 +480,56 @@ private:
       rhsIsBcast[outDim] = rhsBcast;
     }
 
-    auto getTileBcastType =
-        [](ArrayRef<bool> isBcast) -> ttcore::TileBcastType {
+    auto getTileBcastType = [](ArrayRef<bool> isBcast) -> ttir::TileBcastType {
       const size_t rank = isBcast.size();
       const bool isColBcast = isBcast[rank - 1];
       const bool isRowBcast = isBcast[rank - 2];
 
       if (isRowBcast && isColBcast) {
-        return ttcore::TileBcastType::Scalar;
+        return ttir::TileBcastType::Scalar;
       }
       if (isRowBcast) {
-        return ttcore::TileBcastType::Row;
+        return ttir::TileBcastType::Row;
       }
       if (isColBcast) {
-        return ttcore::TileBcastType::Column;
+        return ttir::TileBcastType::Col;
       }
-      return ttcore::TileBcastType::None;
+      return ttir::TileBcastType::None;
     };
 
-    std::pair<ttcore::TileBcastType, ttcore::TileBcastType> tileBcastInfo{
-        getTileBcastType(lhsIsBcast), getTileBcastType(rhsIsBcast)};
-    TT_assertv((tileBcastInfo.first == ttcore::TileBcastType::None ||
-                tileBcastInfo.second == ttcore::TileBcastType::None),
-               "Bi-directional broadcast is unsupported.");
+    return {getTileBcastType(lhsIsBcast), getTileBcastType(rhsIsBcast)};
+  }
 
-    return tileBcastInfo;
+  void createComputeRegion(mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                           mlir::ValueRange bbArgs,
+                           mlir::ConversionPatternRewriter &rewriter,
+                           mlir::Location loc, const size_t numInputs,
+                           const size_t numOutputs,
+                           const ttir::TileBcastType lhsBcastType,
+                           const ttir::TileBcastType rhsBcastType) const {
+    mlir::MLIRContext *ctx = rewriter.getContext();
+
+    mlir::NamedAttribute lhsBcastAttr(
+        rewriter.getStringAttr("lhsBcastType"),
+        ttir::TileBcastTypeAttr::get(ctx, lhsBcastType));
+    mlir::NamedAttribute rhsBcastAttr(
+        rewriter.getStringAttr("rhsBcastType"),
+        ttir::TileBcastTypeAttr::get(ctx, rhsBcastType));
+
+    mlir::ValueRange operands = bbArgs.take_front(numInputs);
+    mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
+
+    mlir::Value yield;
+    if constexpr (isComparisonOp) {
+      // For comparison ops, first subtract then compare with zero.
+      yield = bbBuilder.create<ttir::TileSubOp>(loc, resultTypes, operands);
+      yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
+    } else {
+      // For regular elementwise ops, create TileOp directly.
+      yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
+    }
+
+    bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
   }
 
   LogicalResult
@@ -528,10 +553,10 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    const auto [lhsBcastType, rhsBcastType] =
+    auto lhsBcastType = ttir::TileBcastType::None;
+    auto rhsBcastType = ttir::TileBcastType::None;
+    std::tie(lhsBcastType, rhsBcastType) =
         getImplicitBcastInfo(op, origInputs, origOutputs);
-    TT_assertv(lhsBcastType == ttcore::TileBcastType::None,
-               "LHS and bi-directional broadcast are unsupported.");
 
     ttcore::GridAttr grid = ttcore::GridAttr::get(ctx, targetSquareGridShape);
 
@@ -582,14 +607,6 @@ private:
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
-        SmallVector<mlir::NamedAttribute, 2u> bcastAttrs;
-        bcastAttrs.emplace_back(
-            rewriter.getStringAttr("lhsBcastType"),
-            tt::ttcore::TileBcastTypeAttr::get(ctx, lhsBcastType));
-        bcastAttrs.emplace_back(
-            rewriter.getStringAttr("rhsBcastType"),
-            tt::ttcore::TileBcastTypeAttr::get(ctx, rhsBcastType));
-
         auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
             loc,
             /* result tensor types */
@@ -600,22 +617,9 @@ private:
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
-              mlir::ValueRange operands = bbArgs.take_front(numInputs);
-              mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
-
-              mlir::Value yield;
-              if constexpr (isComparisonOp) {
-                // For comparison ops, first subtract then compare with zero.
-                yield = bbBuilder.create<ttir::TileSubOp>(
-                    loc, resultTypes, operands);
-                yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
-              } else {
-                // For regular elementwise ops, create TileOp directly.
-                yield = bbBuilder.create<TileOp>(loc, resultTypes, operands,
-                                                 bcastAttrs);
-              }
-
-              bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+              createComputeRegion(bbBuilder, bbLoc, bbArgs, rewriter, loc,
+                                  numInputs, numOutputs, lhsBcastType,
+                                  rhsBcastType);
             });
 
         rewriter.create<ttir::YieldOp>(loc, linalgGeneric->getResults());

@@ -33,6 +33,21 @@ def TTIR_ReduceDim : I32EnumAttr<"ReduceDim", "TTIR ReduceDim", [
   let cppNamespace = "::mlir::tt::ttir";
 }
 
+def TTIR_TileBcastTypeNone   : I32EnumAttrCase<"None",   0, "none">;
+def TTIR_TileBcastTypeCol    : I32EnumAttrCase<"Col",    1, "col">;
+def TTIR_TileBcastTypeRow    : I32EnumAttrCase<"Row",    2, "row">;
+def TTIR_TileBcastTypeScalar : I32EnumAttrCase<"Scalar", 3, "scalar">;
+
+def TTIR_TileBcastType : I32EnumAttr<"TileBcastType", "TTIR TileBcastType", [
+                                     TTIR_TileBcastTypeNone,
+                                     TTIR_TileBcastTypeCol,
+                                     TTIR_TileBcastTypeRow,
+                                     TTIR_TileBcastTypeScalar
+                                   ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
 def TTIR_ThreadTypeCompute : I32EnumAttrCase<"Compute", 0, "compute">;
 def TTIR_ThreadTypeDatamovement : I32EnumAttrCase<"Datamovement", 1, "datamovement">;
 
