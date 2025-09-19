@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -48,6 +49,7 @@ struct ConvertTTIRToTTKernel
     target.addLegalDialect<ttmetal::TTMetalDialect>();
     target.addLegalDialect<ttcore::TTCoreDialect>();
     target.addLegalDialect<ttkernel::TTKernelDialect>();
+    target.addLegalDialect<ttnn::TTNNDialect>();
     target.addLegalDialect<scf::SCFDialect>();
     target.addLegalDialect<emitc::EmitCDialect>();
     target.addIllegalDialect<math::MathDialect>();
@@ -58,6 +60,7 @@ struct ConvertTTIRToTTKernel
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
+    target.addLegalOp<ttir::EmptyOp>();
 
     // Inputs to matmul_block. Will be folded in this pass.
     target.addLegalOp<memref::CastOp>();
@@ -81,6 +84,8 @@ struct ConvertTTIRToTTKernel
       return !op->hasAttr(ttir::ThreadAttr::name) ||
              (op.getFunctionType().getNumInputs() == 0);
     });
+
+    target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
