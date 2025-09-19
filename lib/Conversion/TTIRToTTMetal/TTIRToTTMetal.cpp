@@ -43,12 +43,14 @@ public:
 
   static Type getOperandInnerElementType(const mlir::Value operand) {
     auto elemType = operand.getType();
-    if (mlir::isa<MemRefType>(elemType)) {
-      elemType = mlir::cast<MemRefType>(elemType).getElementType();
+    if (auto memRefType = mlir::dyn_cast<MemRefType>(elemType);
+        memRefType != nullptr) {
+      elemType = memRefType.getElementType();
     }
-    // We could have a memref of tiles, so this needs to be the second query
-    if (mlir::isa<ttcore::TileType>(elemType)) {
-      elemType = mlir::cast<ttcore::TileType>(elemType).getElementType();
+    // We could have a memref of tiles, so this needs to be the second query.
+    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elemType);
+        tileType != nullptr) {
+      elemType = tileType.getElementType();
     }
     assert(elemType.isIntOrFloat());
     return elemType;
