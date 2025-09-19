@@ -143,9 +143,9 @@ static bool isElementwiseFusable(GenericOp producer, GenericOp consumer,
   // due to number of CBs that can fit in L1
   //
   // TODO(mbagherbeikTT) figure out where to move this constant
-  unsigned int kFusedOpOperandLimit = 32; 
+  unsigned int kFusedOpOperandLimit = 16; 
   unsigned int consumerOperands = consumer->getNumOperands();
-  unsigned int producerOperands = consumer->getNumOperands();
+  unsigned int producerOperands = producer->getNumOperands();
 
   // -2 since were removing 1 operand from both consumer and producer
   if ((consumerOperands + producerOperands - 2) > kFusedOpOperandLimit) {
