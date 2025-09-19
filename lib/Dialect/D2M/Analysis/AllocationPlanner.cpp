@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationPlanner.h"
+#include "ttmlir/Dialect/D2M/Analysis/AllocationPlanner.h"
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Support/Logger.h"
@@ -14,7 +14,7 @@
 #include <map>
 #include <queue>
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::d2m {
 
 // Define some local convenience macros.
 
@@ -269,4 +269,4 @@ AllocationPlanner::Stats AllocationPlanner::verify(const Context &context) {
 #undef TT_ALLOC_TRACE
 #undef TT_ALLOC_DEBUG
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::d2m

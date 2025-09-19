@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/AllocationPlanner.h"
+#include "ttmlir/Dialect/D2M/Analysis/AllocationPlanner.h"
 
 #include "ttmlir/Support/Logger.h"
 
@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <random>
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::d2m {
 
 namespace gtest = ::testing;
 
@@ -194,4 +194,4 @@ TEST(GreedyAllocationTest, ConflictFree) {
   }
 }
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::d2m
