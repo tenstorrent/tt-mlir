@@ -324,9 +324,12 @@ private:
                 mlir::Value subResult = bbBuilder.create<ttir::TileSubBinaryOp>(
                     loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
                     /*operands=*/bbArgs.take_front(numInputs));
-                yield = bbBuilder.create<TileOp>(
+                mlir::Value intermediateResult = bbBuilder.create<TileOp>(
                     loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
                     /*operands=*/subResult);
+                yield = bbBuilder.create<TileOp>(
+                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
+                    /*operands=*/intermediateResult);
               } else {
                 // For regular elementwise ops, create TileOp directly
                 yield = bbBuilder.create<TileOp>(
