@@ -62,15 +62,6 @@ static mlir::Value wrapValueInTensorCompatibleType(mlir::RewriterBase &rewriter,
 // TileMatmulBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileMatmulBlockOp::verify() {
 
-  auto getElemType = [](mlir::Type t) -> mlir::Type {
-    auto shaped = mlir::cast<mlir::ShapedType>(t);
-    return shaped.getElementType();
-  };
-
-  if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getA().getType())) ||
-      !llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getB().getType()))) {
-    return emitOpError("operands to TileMatmulBlock must have ttcore.tile "
-                       "element type");
   if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getA().getType())) ||
       !llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getB().getType()))) {
     return emitOpError("operands to TileMatmulBlock must have ttcore.tile "
@@ -94,11 +85,6 @@ bool mlir::tt::ttir::TileMatmulBlockOp::hasBlockDims() {
 // TileTilizeBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileTilizeBlockOp::verify() {
 
-  auto getElemType = [](mlir::Type t) -> mlir::Type {
-    auto shaped = mlir::cast<mlir::ShapedType>(t);
-    return shaped.getElementType();
-  };
-
   if (llvm::isa<mlir::tt::ttcore::TileType>(
           getElemType(getInput().getType()))) {
     return emitOpError("operand to TileTilizeBlock must not have ttcore.tile "
@@ -116,11 +102,6 @@ bool mlir::tt::ttir::TileMatmulBlockOp::hasBlockDims() {
 
 // TileUntilizeBlockOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TileUntilizeBlockOp::verify() {
-
-  auto getElemType = [](mlir::Type t) -> mlir::Type {
-    auto shaped = mlir::cast<mlir::ShapedType>(t);
-    return shaped.getElementType();
-  };
 
   if (!llvm::isa<mlir::tt::ttcore::TileType>(
           getElemType(getInput().getType()))) {
