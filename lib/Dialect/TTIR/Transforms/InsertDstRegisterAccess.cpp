@@ -295,12 +295,10 @@ public:
           assert(!dstRegisterAllocation.contains(op));
           // If op stores to dst in place, we don't need to allocate a new dst
           // register, just use the current dst index.
-          auto allocatedIndex = -1;
-          if (op.getDstRegInPlace()) {
-            allocatedIndex = dstRegisterAllocationState.getCurrDstIndex();
-          } else {
-            allocatedIndex = dstRegisterAllocationState.allocate();
-          }
+          int32_t allocatedIndex =
+              op.getDstRegInPlace()
+                  ? dstRegisterAllocationState.getCurrDstIndex()
+                  : dstRegisterAllocationState.allocate();
           dstRegisterAllocation[op] = allocatedIndex;
         }
       }
