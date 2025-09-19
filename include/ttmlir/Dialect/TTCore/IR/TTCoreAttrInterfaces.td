@@ -53,11 +53,6 @@ def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface"> {
       }]
     >,
     InterfaceMethod<
-      "Returns the number of buffers",
-      "size_t", "getBuffers", (ins),
-      /*methodBody=*/""
-    >,
-    InterfaceMethod<
       "Return true if the layout is physical rather than a view",
       "bool", "isPhysical", (ins),
       /*methodBody=*/""
@@ -67,6 +62,22 @@ def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface"> {
       "bool", "isView", (ins),
       /*methodBody=*/""
     >,
+  ];
+}
+
+def TTCore_BufferedDeviceLayoutInterface : AttrInterface<"BufferedDeviceLayoutInterface"> {
+  let summary = "TT BufferedDeviceLayoutInterface";
+  let cppNamespace = "::mlir::tt::ttcore";
+  let description = [{
+    This interface
+  }];
+
+  let methods = [
+    InterfaceMethod<
+      "Returns the number of buffers for this layout",
+      "size_t", "getBuffers", (ins),
+      /*methodBody=*/""
+    >
   ];
 }
 

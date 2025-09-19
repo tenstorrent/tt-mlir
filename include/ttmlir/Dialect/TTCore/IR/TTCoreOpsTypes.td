@@ -241,7 +241,7 @@ def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayo
   }];
 }
 
-def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
+def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface, TTCore_BufferedDeviceLayoutInterface]> {
   let summary = "Shard layout attribute in TT dialect";
   let description = [{
     Describes shard layout of a memref buffer.
@@ -269,7 +269,7 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
   }];
 }
 
-def TTCore_InterleavedLayoutAttr : TTCore_Attr<"InterleavedLayout", "interleaved", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
+def TTCore_InterleavedLayoutAttr : TTCore_Attr<"InterleavedLayout", "interleaved", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface, TTCore_BufferedDeviceLayoutInterface]> {
   let summary = "Interleaved layout attribute in TT dialect";
   let description = [{
     Describes page layout of an interleaved memref buffer.

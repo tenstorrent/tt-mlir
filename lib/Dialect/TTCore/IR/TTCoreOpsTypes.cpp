@@ -555,22 +555,8 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MemRefType memrefType,
 }
 
 mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
-  auto *context = getContext();
-  int64_t rank = getStride().size();
-  SmallVector<mlir::AffineExpr> mapExprs(rank + 1);
-
-  for (int64_t i = 0; i < rank; i++) {
-    mapExprs[i] = getAffineDimExpr(i, context);
-  }
-
-  mapExprs[rank] = getAffineConstantExpr(0, context);
-  for (int64_t i = rank - 1; i >= 0; i--) {
-    mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
-    mlir::AffineExpr stride = getAffineConstantExpr(getStride()[i], context);
-    mapExprs[rank] = shardDim * stride + mapExprs[rank];
-  }
-
-  return mlir::AffineMap::get(getStride().size() * 2, 0, mapExprs, context);
+  return ttmlir::utils::generateAffineMapFromShardStrides(getStride(),
+                                                          getContext());
 }
 
 InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MLIRContext *context,
@@ -601,23 +587,8 @@ InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MemRefType memrefType,
 }
 
 mlir::AffineMap InterleavedLayoutAttr::getAffineMap() const {
-  auto *context = getContext();
-  int64_t rank = getStride().size();
-  SmallVector<mlir::AffineExpr> mapExprs(rank + 1);
-
-  for (int64_t i = 0; i < rank; i++) {
-    mapExprs[i] = getAffineDimExpr(i, context);
-  }
-
-  mapExprs[rank] = getAffineConstantExpr(0, context);
-  for (int64_t i = rank - 1; i >= 0; i--) {
-    mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
-    mlir::AffineExpr stride = getAffineConstantExpr(getStride()[i], context);
-    mapExprs[rank] = shardDim * stride + mapExprs[rank];
-  }
-
-  auto map = mlir::AffineMap::get(getStride().size() * 2, 0, mapExprs, context);
-  return map;
+  return ttmlir::utils::generateAffineMapFromShardStrides(getStride(),
+                                                          getContext());
 }
 
 ViewLayoutAttr ViewLayoutAttr::compose(ViewLayoutAttr g) const {
@@ -1478,7 +1449,8 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
   ArrayRef<int64_t> shardShape;
 
   // local memrefs have no layout attribute
-  bool isLocalMemref = !memrefType.getLayout();
+  bool isLocalMemref =
+      !mlir::isa<DeviceLayoutInterface>(memrefType.getLayout());
   if (isLocalMemref) {
     numBuffers = 1;
     shardShape = memrefType.getShape();
@@ -1486,7 +1458,9 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
     auto layout = mlir::dyn_cast<DeviceLayoutInterface>(memrefType.getLayout());
     assert(layout && "expected DeviceLayoutInterface");
     shardShape = layout.getShardShape(memrefType);
-    numBuffers = (includeBuffers) ? layout.getBuffers() : 1;
+    auto buffered_layout =
+        mlir::dyn_cast<BufferedDeviceLayoutInterface>(memrefType.getLayout());
+    numBuffers = (includeBuffers) ? buffered_layout.getBuffers() : 1;
   }
 
   return ttmlir::utils::alignUp(static_cast<size_t>(ttmlir::utils::volume(
