@@ -51,7 +51,6 @@ struct ConvertTTIRToTTNNGenericPass final
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
-    // target.addLegalOp<ttir::StreamLayoutOp>();
     target.addDynamicallyLegalOp<ttir::StreamLayoutOp>(
         [](ttir::StreamLayoutOp op) {
           // Keep legal while any user is ttir.generic; illegal otherwise.
@@ -62,13 +61,9 @@ struct ConvertTTIRToTTNNGenericPass final
           }
           return false;
         });
-    // target.addLegalOp<ttir::ViewLayoutOp>();
-    // target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
 
     target.addLegalOp<memref::AllocOp>();
     target.addLegalOp<memref::DeallocOp>();
-
-    // target.addLegalOp<ttir::EmptyOp>();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
