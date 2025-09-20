@@ -75,7 +75,7 @@ public:
       // Create KernelDescriptor
       switch (threadAttr.getThreadType()) {
       case ttir::ThreadType::Compute: {
-        // TODO (vtangTT): support lowering to different compute configs.
+        // TODO (vtangTT) #5032: support lowering to different compute configs.
         kernelConfigs[i] = builder.getAttr<ttnn::ComputeKernelAttr>(
             kernelSymbol, coreRangeSet,
             /*math_fidelity*/ ttnn::ComputeKernelMathFidelity::HiFi4,
@@ -88,8 +88,8 @@ public:
             /*math_approx_mode*/ false, kernelRTArgs, kernelCTArgs);
         break;
       }
-      // TODO (vtangTT): fix this assumption that order is read->write->compute
-      // so nocIndex == 0 for read, nocIndex == 1 for write
+      // TODO (vtangTT) #5033: fix this assumption that order is
+      // read->write->compute so nocIndex == 0 for read, nocIndex == 1 for write
       case ttir::ThreadType::Datamovement: {
         TT_assert(nocIndex < 2);
         if (nocIndex == 0) {
@@ -152,8 +152,8 @@ public:
       if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
               operand.getDefiningOp());
           castOp) {
-        // Use the TTNN tensor operand of the cast as the io for ttnn.generic,
-        // Use the memref result for CB descriptor creation.
+        // Use the TTNN tensor operand of the cast as the output for
+        // ttnn.generic, Use the memref result for CB descriptor creation.
         ios[idx] = castOp->getOperands()[0];
         cbs[idx] = castOp->getResult(0);
       } else {
@@ -168,6 +168,8 @@ public:
     }
 
     // Create CBDescriptor
+    // TODO (vtangTT) #5031: support setting buffer ptr in CBDescriptor for
+    // aliasing.
     for (auto [i, cb] : llvm::enumerate(cbs)) {
       auto cb_memref = dyn_cast<MemRefType>(cb.getType());
 
