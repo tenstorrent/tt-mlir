@@ -14,7 +14,7 @@ module {
     // named elementwise op, binary:
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
-    // CHECK: ttir.tile_add
+    // CHECK: ttir.tile_add_binary
     %0 = "ttir.add"(%lhs, %rhs, %out) : (!ttype, !ttype, !ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
@@ -24,7 +24,7 @@ module {
     // named elementwise op, binary:
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
-    // CHECK: ttir.tile_mul
+    // CHECK: ttir.tile_mul_binary
     %2 = "ttir.multiply"(%0, %1, %out) : (!ttype, !ttype, !ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
@@ -44,7 +44,7 @@ module {
     // named elementwise op, binary:
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
-    // CHECK: ttir.tile_sub
+    // CHECK: ttir.tile_sub_binary
     %6 = "ttir.subtract"(%4, %5, %out) : (!ttype, !ttype, !ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]

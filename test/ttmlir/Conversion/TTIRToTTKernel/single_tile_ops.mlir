@@ -24,46 +24,46 @@ module {
     return
   }
 
-  // CHECK-LABEL: func.func @test_add_lowering
-  func.func @test_add_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+  // CHECK-LABEL: func.func @test_add_binary_lowering
+  func.func @test_add_binary_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
     %c0 = arith.constant 0 : index
     %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
     %1 = affine.load %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
-    // CHECK-NOT: ttir.tile_add
-    // CHECK: ttkernel.binary_op_init_common
-    // CHECK: ttkernel.add_tiles_init
-    // CHECK: ttkernel.add_tiles
-    %2 = "ttir.tile_add"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    // CHECK-NOT: ttir.tile_add_binary
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: ttkernel.add_binary_tile_init
+    // CHECK: ttkernel.add_binary_tile
+    %2 = "ttir.tile_add_binary"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
     // CHECK: ttkernel.pack_tile
     affine.store %2, %arg2[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
     return
   }
 
-  // CHECK-LABEL: func.func @test_sub_lowering
-  func.func @test_sub_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+  // CHECK-LABEL: func.func @test_sub_binary_lowering
+  func.func @test_sub_binary_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
     %c0 = arith.constant 0 : index
     %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
     %1 = affine.load %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
-    // CHECK-NOT: ttir.tile_sub
-    // CHECK: ttkernel.binary_op_init_common
-    // CHECK: ttkernel.sub_tiles_init
-    // CHECK: ttkernel.sub_tiles
-    %2 = "ttir.tile_sub"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    // CHECK-NOT: ttir.tile_sub_binary
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: ttkernel.sub_binary_tile_init
+    // CHECK: ttkernel.sub_binary_tile
+    %2 = "ttir.tile_sub_binary"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
     // CHECK: ttkernel.pack_tile
     affine.store %2, %arg2[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
     return
   }
 
-  // CHECK-LABEL: func.func @test_mul_lowering
-  func.func @test_mul_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
+  // CHECK-LABEL: func.func @test_mul_binary_lowering
+  func.func @test_mul_binary_lowering(%arg0: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x!ttcore.tile<32x32, f32>, #l1_>) attributes {ttir.thread = #ttir.thread<compute>} {
     %c0 = arith.constant 0 : index
     %0 = affine.load %arg0[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
     %1 = affine.load %arg1[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
-    // CHECK-NOT: ttir.tile_mul
-    // CHECK: ttkernel.binary_op_init_common
-    // CHECK: ttkernel.mul_tiles_init
-    // CHECK: ttkernel.mul_tiles
-    %2 = "ttir.tile_mul"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    // CHECK-NOT: ttir.tile_mul_binary
+    // CHECK: ttkernel.init_sfpu
+    // CHECK: ttkernel.mul_binary_tile_init
+    // CHECK: ttkernel.mul_binary_tile
+    %2 = "ttir.tile_mul_binary"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
     // CHECK: ttkernel.pack_tile
     affine.store %2, %arg2[%c0] : memref<1x!ttcore.tile<32x32, f32>, #l1_>
     return
