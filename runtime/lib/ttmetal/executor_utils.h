@@ -295,20 +295,27 @@ inline std::string coreRangeToString(const CoreRangeSet &coreRanges) {
 
 inline std::string createKernelFilePath(
     const char *currentProgramName, const char *kernelDebugInfo,
-    const CoreRangeSet &coreRangeSet,
+    const char *kernelLoc, const CoreRangeSet &coreRangeSet,
     const std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig,
                        tt_metal::EthernetConfig> &kernelConfig,
-    const char *prefix = "/tmp/ttmlir_", const char *extention = ".cpp") {
+    std::string prefix = {}, const char *extention = ".cpp") {
+  if (prefix.empty()) {
+    prefix = "/tmp/ttmlir_";
+  }
   std::string path(prefix);
-  path += currentProgramName;
-  path += "_";
-  path += kernelDebugInfo;
-  path += "_";
-  path += kernelConfigTypeString(kernelConfig);
+  if (debug::Env::get().useLocForKernelName && kernelLoc) {
+    path += kernelLoc;
+  } else {
+    path += currentProgramName;
+    path += "_";
+    path += kernelDebugInfo;
+    path += "_";
+    path += kernelConfigTypeString(kernelConfig);
 
-  // Double underscore to visually separate core ranges from the rest.
-  path += "__";
-  path += coreRangeToString(coreRangeSet);
+    // Double underscore to visually separate core ranges from the rest.
+    path += "__";
+    path += coreRangeToString(coreRangeSet);
+  }
   path += extention;
   return path;
 }
@@ -330,7 +337,7 @@ inline tt_metal::KernelHandle createKernel(
     const std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig,
                        tt_metal::EthernetConfig> &kernelConfig,
     const char *currentProgramName, const char *programDebugInfo,
-    const char *kernelDebugInfo) {
+    const char *kernelDebugInfo, const char *kernelLoc) {
   LOG_TRACE(logger::LogRuntimeTTMetalKernel,
             "Creating kernel: ", kernelDebugInfo);
   LOG_TRACE(logger::LogRuntimeTTMetalKernelSource, "Kernel source:\n",
@@ -340,7 +347,8 @@ inline tt_metal::KernelHandle createKernel(
   std::string fileName;
   if (kernelFromFile) {
     fileName = createKernelFilePath(currentProgramName, kernelDebugInfo,
-                                    coreRangeSet, kernelConfig);
+                                    kernelLoc, coreRangeSet, kernelConfig,
+                                    debug::Env::get().kernelSourceDir);
     writeFile(fileName, kernelSource);
   }
   return kernelFromFile
