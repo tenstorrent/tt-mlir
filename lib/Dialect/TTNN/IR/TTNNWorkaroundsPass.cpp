@@ -296,7 +296,6 @@ TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
   hostRowMajorWorkaround.tensorMemoryLayoutWorkaround =
       TensorMemoryLayoutAttr();
   hostRowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
-  hostRowMajorWorkaround.tensorDataTypeWorkaround = ttcore::DataType::Float32;
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addOutputOperandWorkaround(hostRowMajorWorkaround);
 }

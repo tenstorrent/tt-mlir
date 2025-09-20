@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_EMITPY_CONSTANTOP4DWORKAROUND_H
-#define TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_EMITPY_CONSTANTOP4DWORKAROUND_H
+#ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_EMITPY_CONSTANTOP4DWORKAROUNDPATTERN_H
+#define TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_EMITPY_CONSTANTOP4DWORKAROUNDPATTERN_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
@@ -14,7 +14,7 @@ namespace mlir::tt::ttnn::workarounds::emitpy {
 // it to fix the shape. This is required because ttnn.Tensor constructor in
 // EmitPy requires exactly 4D tensors.
 // Tracking issue to remove this workaround:
-// https://github.com/tenstorrent/tt-mlir/issues/5021
+// https://github.com/tenstorrent/tt-metal/issues/28739
 class ConstantOp4DWorkaroundPattern
     : public OpRewritePattern<ttnn::ConstantOp> {
 public:
@@ -25,4 +25,4 @@ public:
 };
 } // namespace mlir::tt::ttnn::workarounds::emitpy
 
-#endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_EMITPY_CONSTANTOP4DWORKAROUND_H
+#endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_WORKAROUNDS_EMITPY_CONSTANTOP4DWORKAROUNDPATTERN_H
