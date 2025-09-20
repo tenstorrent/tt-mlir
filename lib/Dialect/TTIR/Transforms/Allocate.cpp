@@ -364,26 +364,26 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     // Finish building the allocation planner context by computing
     // (aligned) sizes of all buffers under consideration.
 
-    for (auto &[op, ctx] : livenessJoinGraph) {
-      if (memref::AllocOp alloc = llvm::dyn_cast<memref::AllocOp>(op)) {
-        MemRefType memrefTy = alloc.getType();
-        ttcore::MemorySpace memorySpace = getMemorySpace(
-            memrefTy,
-            ttcore::MemorySpace::System); // Interpret unset as "host memory".
+    funcBody.walk<WalkOrder::PreOrder>([&](memref::AllocOp alloc) {
+      assert(livenessJoinGraph.contains(alloc));
+      auto &ctx = livenessJoinGraph.at(alloc);
+      MemRefType memrefTy = alloc.getType();
+      ttcore::MemorySpace memorySpace = getMemorySpace(
+          memrefTy,
+          ttcore::MemorySpace::System); // Interpret unset as "host memory".
 
-        if (!isDeviceMemorySpace(memorySpace)) {
-          continue;
-        }
-
-        const AllocSizeT alignment =
-            memSpaces[llvm::to_underlying(memorySpace)].alignment;
-        const AllocSizeT sizeBytes = device.getMemrefSizeBytes(memrefTy);
-        const AllocSizeT alignedSize =
-            ttmlir::utils::alignUp(sizeBytes, alignment);
-
-        analysis.add(alignedSize, ctx.first, ctx.maxLast, alloc, memorySpace);
+      if (!isDeviceMemorySpace(memorySpace)) {
+        return;
       }
-    }
+
+      const AllocSizeT alignment =
+          memSpaces[llvm::to_underlying(memorySpace)].alignment;
+      const AllocSizeT sizeBytes = device.getMemrefSizeBytes(memrefTy);
+      const AllocSizeT alignedSize =
+          ttmlir::utils::alignUp(sizeBytes, alignment);
+
+      analysis.add(alignedSize, ctx.first, ctx.maxLast, alloc, memorySpace);
+    });
 
     for (ttcore::MemorySpace memorySpace :
          {ttcore::MemorySpace::DeviceL1, ttcore::MemorySpace::DeviceDRAM}) {
