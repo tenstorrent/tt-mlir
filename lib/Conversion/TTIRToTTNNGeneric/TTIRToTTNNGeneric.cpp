@@ -88,7 +88,7 @@ public:
             /*math_approx_mode*/ false, kernelRTArgs, kernelCTArgs);
         break;
       }
-      // TODO (vtangTT): fix this assumption that order is read->compute->write
+      // TODO (vtangTT): fix this assumption that order is read->write->compute
       // so nocIndex == 0 for read, nocIndex == 1 for write
       case ttir::ThreadType::Datamovement: {
         TT_assert(nocIndex < 2);
@@ -132,7 +132,6 @@ public:
       if (auto streamLayoutOp = mlir::dyn_cast_if_present<ttir::StreamLayoutOp>(
               operand.getDefiningOp());
           streamLayoutOp) {
-        // Prefer the TTNN tensor feeding the layout cast if available.
         if (auto castOp =
                 mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
                     streamLayoutOp.getInput().getDefiningOp());
@@ -232,27 +231,16 @@ public:
   matchAndRewrite(ttir::StreamLayoutOp op, ttir::StreamLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
-    auto castOp = op.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
-    TT_assertv(castOp, "Expected TTNNMetalLayoutCastOp as stream input.");
-    rewriter.replaceAllUsesWith(op, castOp.getOperand());
-    rewriter.eraseOp(castOp);
-
-    llvm::SmallVector<Operation *> producersToCheck;
-    for (Value operand : op->getOperands()) {
-      if (Operation *defOp = operand.getDefiningOp()) {
-        producersToCheck.push_back(defOp);
-      }
+    if (auto castOp =
+            op.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+      rewriter.replaceAllUsesWith(op, castOp.getOperand());
+      rewriter.eraseOp(castOp);
+    } else {
+      llvm_unreachable("Expected TTNNMetalLayoutCastOp as stream input.");
     }
 
+    // Canonicalization will clean up dead inputs of stream_layout.
     rewriter.eraseOp(op);
-
-    for (Operation *producer : producersToCheck) {
-      bool allResultsDead = llvm::all_of(producer->getResults(),
-                                         [](Value r) { return r.use_empty(); });
-      if (allResultsDead) {
-        rewriter.eraseOp(producer);
-      }
-    }
     return success();
   };
 };

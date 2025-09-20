@@ -1,6 +1,5 @@
 // RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttir-to-ttmetal-be-pipeline="ttnn-mode=true" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
-// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
@@ -27,8 +26,10 @@
 module {
   func.func @abs(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> {
     %device = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+
+    // CHECK: %[[T1:.*]] = "ttnn.to_memory_config"
+    // CHECK: %[[T2:.*]] = "ttnn.empty"
     %ttnn_input_l1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #l1_memory_config}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
-    // %ttnn_output_l1 = "ttnn.empty"(%device) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #l1_memory_config, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
     %ttnn_output_l1 = ttir.empty() : tensor<32x32xf32, #l1_layout>
 
     // CHECK-NOT: ttir.ttnn_metal_layout_cast
@@ -44,7 +45,7 @@ module {
              memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>)
           -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #ttcore.memory_space<l1>>
 
-    // CHECK: "ttnn.generic"
+    // CHECK: "ttnn.generic"(%[[T1]], %[[T2]])
     // CHECK-SAME: #ttnn.read_kernel<symbol_ref = @read_kernel
     // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>]
     // CHECK-SAME: common_rt_args = [#ttnn.kernel_arg_address_of_tensor<0>]
