@@ -566,6 +566,8 @@ class Run:
             debug_env = ttrt.runtime.DebugEnv.get(
                 self["--dump-kernels-to-disk"],
                 self["--load-kernels-from-disk"],
+                self["--use-loc-for-kernel-name"],
+                self["--kernel-source-dir"],
                 not self["--disable-device-address-validation"],
                 self["--blocking-cq"],
             )

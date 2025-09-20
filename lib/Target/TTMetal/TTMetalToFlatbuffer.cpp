@@ -580,11 +580,18 @@ kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
   }
   }
 
+  std::string locStr;
+  if (auto nameLoc =
+          mlir::dyn_cast<NameLoc>(LocationAttr(kernelEntry->getLoc()))) {
+    locStr = nameLoc.getName().getValue();
+  }
+
   return target::metal::CreateKernelConfigDirect(
       *cache.fbb, target::metal::Kernel::KernelSource,
       target::metal::CreateKernelSourceDirect(*cache.fbb, source.c_str())
           .Union(),
-      &coreRangeSet, args, configType, configUnion, kernelSymbol.data());
+      &coreRangeSet, args, configType, configUnion, kernelSymbol.data(),
+      kernelSymbol.data(), locStr.empty() ? nullptr : locStr.c_str());
 }
 
 static flatbuffers::Offset<::flatbuffers::Vector<uint8_t>>
