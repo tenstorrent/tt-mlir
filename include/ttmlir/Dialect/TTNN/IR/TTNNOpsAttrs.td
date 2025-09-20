@@ -662,6 +662,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     TTNNLayoutAttr withShardShape(llvm::SmallVector<int64_t> shardShape);
     TTNNLayoutAttr withTensorShape(ArrayRef<int64_t> tensorShape);
     TTNNLayoutAttr withIgnorePhysicalLayout(bool ignorePhysicalLayout);
+    TTNNLayoutAttr withDataType(ttcore::DataType dataType);
 
     bool isSystemBufferType() const { return ::mlir::tt::ttnn::isSystemBufferType(getBufferType()); }
     bool isDeviceBufferType() const { return ::mlir::tt::ttnn::isDeviceBufferType(getBufferType()); }

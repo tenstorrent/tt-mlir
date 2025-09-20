@@ -434,6 +434,29 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(
 // Construct a new TTNNLayoutAttr
 //
 // This function creates a deep copy of the current TTNNLayoutAttr and
+// replaces the data type with the given one.
+//
+// param dataType The new data type.
+// return The new TTNNLayoutAttr with the given data type.
+TTNNLayoutAttr TTNNLayoutAttr::withDataType(ttcore::DataType dataType) {
+  Type elementType = getElementType();
+  if (isTiled()) {
+    elementType = mlir::tt::ttcore::TileType::get(
+        ttcore::dataTypeToElementType(getContext(), dataType));
+  } else {
+    elementType = ttcore::dataTypeToElementType(getContext(), dataType);
+  }
+
+  return TTNNLayoutAttr::get(
+      getContext(), getLinear(), getGrid(),
+      ttcore::buildMemRef<BufferType, BufferTypeAttr>(
+          getContext(), getScalarShardShape(), elementType, getBufferType()),
+      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout());
+}
+
+// Construct a new TTNNLayoutAttr
+//
+// This function creates a deep copy of the current TTNNLayoutAttr and
 // replaces the memory space with the given one.
 //
 // param context The MLIR context.

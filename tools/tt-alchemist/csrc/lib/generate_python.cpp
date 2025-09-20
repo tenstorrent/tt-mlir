@@ -145,6 +145,24 @@ bool TTAlchemist::generatePython(const std::string &input_file,
 
   pythonFile.close();
 
+  // Create requirements.txt
+  //
+  fs::path requirementsPath = outputPath / "requirements.txt";
+  std::ofstream requirementsFile(requirementsPath);
+  if (!requirementsFile.is_open()) {
+    std::cout << "Failed to create requirements file: " << requirementsPath
+              << std::endl;
+    return false;
+  }
+
+  // Add required Python packages
+  requirementsFile << "loguru\n";
+  requirementsFile << "pandas\n";
+  requirementsFile << "seaborn\n";
+  requirementsFile << "graphviz\n";
+
+  requirementsFile.close();
+
   return true;
 }
 
