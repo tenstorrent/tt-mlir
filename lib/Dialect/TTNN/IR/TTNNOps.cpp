@@ -1838,14 +1838,6 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
       return failure();
     }
 
-    // ConstantOp doesn't support INT32 data type on device.
-    if (mlir::isa<ttnn::ConstantOp>(creationOp) &&
-        !isSystemBufferType(
-            targetMemoryConfigAttr.getBufferType().getValue()) &&
-        targetDataTypeAttr.getValue() == ttcore::DataType::Int32) {
-      return failure();
-    }
-
     auto tensorSpecOp = mlir::cast<TTNNTensorSpecInterface>(creationOp);
 
     rewriter.startOpModification(tensorSpecOp);
