@@ -27,7 +27,6 @@ static SmallVector<ttir::DMAWaitOp> findAssociatedDMAWaits(DMAOpInterface op) {
       llvm_unreachable("Unexpected user of DMAOp");
     }
   }
-  assert(!dmaWaits.empty());
   return dmaWaits;
 }
 
