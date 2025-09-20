@@ -12,9 +12,7 @@ targets tt-metal.
   command before running any other commands.
 - `cmake -G Ninja -B build -DCMAKE_CXX_COMPILER_LAUNCHER=ccache`: Configures the
   project using CMake.
-- `cmake --build build`: Builds the project using CMake.
-- `cmake --build build --target ttrt`: Builds ttrt tool and installs it into venv
-  using CMake.
+- `cmake --build build`: Builds and installs the project into venv using CMake.
 - `ttrt query --save-artifacts`: Runs ttrt to query and save a system descriptor
   to location `ttrt-artifacts/system_desc.ttsys`.  Required before running
   python tests.
