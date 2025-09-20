@@ -11,7 +11,10 @@ from enum import Enum, auto
 import re
 from collections import OrderedDict
 
-from ttmlir.ir import *
+from ttmlir.ir import (
+    Context, Location, Value, OpView, Operation, RankedTensorType, Type, Attribute,
+    BF16Type, F16Type, F32Type, F64Type, IntegerType
+)
 from ttmlir.dialects import tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 from builder.base.builder_golden import BuilderGoldenTensor
@@ -143,8 +146,8 @@ class Builder:
 
     def set_goldens(
         self,
-        inputs: Dict[operand, Union[torch.tensor, Dict[int : torch.tensor]]],
-        outputs: Dict[operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
+        inputs: Dict[Operand, Union[Callable, torch.tensor, Dict[int : torch.tensor]]],
+        outputs: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
     ):
         self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
 
@@ -154,8 +157,8 @@ class Builder:
 
     def set_goldens_from_builder_tensor(
         self,
-        inputs: Dict[operand, BuilderGoldenTensor],
-        outputs: Dict[operand, BuilderGoldenTensor] = None,
+        inputs: Dict[Operand, BuilderGoldenTensor],
+        outputs: Dict[Operand, BuilderGoldenTensor] = None,
     ):
         self._set_goldens(inputs)
 
@@ -164,12 +167,12 @@ class Builder:
             self._set_goldens(outputs)
 
     def set_operand_goldens(
-        self, operands: Dict[operand, Union[torch.tensor, Dict[int : torch.tensor]]]
+        self, operands: Dict[Operand, Union[Callable, torch.tensor, Dict[int : torch.tensor]]]
     ):
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())
 
-    def set_goldens_to_check(self, operands: List[operands], override: bool = False):
+    def set_goldens_to_check(self, operands: List[Operand], override: bool = False):
         if override:
             self._goldens_to_store = operands
         else:
@@ -372,17 +375,28 @@ class Builder:
 
     def _create_builder_golden_from_torch_tensor(
         self,
-        inputs: Union[torch.Tensor, Dict[int, torch.Tensor]],
-    ) -> BuilderGoldenTensor:
+        inputs: Dict[Operand, Union[Callable, torch.Tensor, Dict[int, torch.Tensor]]],
+    ) -> Dict[Operand, BuilderGoldenTensor]:
         input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
-        for operand, tensor_or_shard_map in inputs.items():
-            if isinstance(tensor_or_shard_map, torch.Tensor):
+        for operand, tensor_or_shard_map_or_callable in inputs.items():
+            if callable(tensor_or_shard_map_or_callable):
+                operand_shape = self.get_shape(operand)
+                try:
+                    generated_tensor = tensor_or_shard_map_or_callable(operand_shape)
+                    if not isinstance(generated_tensor, torch.Tensor):
+                        raise TypeError(f"Callable must return a torch.Tensor, got {type(generated_tensor)}")
+                except Exception as e:
+                    raise RuntimeError(f"Error calling initialization function for operand {operand}: {e}")
                 golden_tensor = BuilderGoldenTensor(
-                    {0: tensor_or_shard_map}, mesh_shape=self._mesh_shape
+                    {0: generated_tensor}, mesh_shape=self._mesh_shape
+                )
+            elif isinstance(tensor_or_shard_map_or_callable, torch.Tensor):
+                golden_tensor = BuilderGoldenTensor(
+                    {0: tensor_or_shard_map_or_callable}, mesh_shape=self._mesh_shape
                 )
             else:
                 golden_tensor = BuilderGoldenTensor(
-                    tensor_or_shard_map, mesh_shape=self._mesh_shape
+                    tensor_or_shard_map_or_callable, mesh_shape=self._mesh_shape
                 )
             input_goldens[operand] = golden_tensor
 
