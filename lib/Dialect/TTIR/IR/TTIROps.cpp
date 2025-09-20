@@ -3043,6 +3043,11 @@ static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
     mlir::AffineMap map = inputEncoding.getIndexAffineMapOrIdentity(
         static_cast<unsigned>(outputShape.size()));
 
+    mlir::AffineMap reblockMap = mlir::tt::ttir::utils::calculateReblockMap(
+        inputType.getShape(), outputShape, builder.getContext());
+
+    map = reblockMap.compose(map);
+
     auto outputEncoding = mlir::tt::ttcore::MetalLayoutAttr::get(
         builder.getContext(), inputEncoding.getLogicalShape(),
         inputEncoding.getDimAlignments(), inputEncoding.getCollapsedIntervals(),
