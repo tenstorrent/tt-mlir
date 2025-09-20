@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -37,6 +38,8 @@ struct ArithToD2MTileOpsPass final
     target.addLegalDialect<mlir::scf::SCFDialect>();
     target.addLegalDialect<ttcore::TTCoreDialect>();
     target.addLegalDialect<ttir::TTIRDialect>();
+
+    target.addLegalOp<ttkernel::DPrintOp>();
 
     // Mark arith ops inside of a ttir.generic that operate on tiles as illegal.
     target.addDynamicallyLegalOp<arith::AddFOp, arith::DivFOp, arith::MulFOp>(

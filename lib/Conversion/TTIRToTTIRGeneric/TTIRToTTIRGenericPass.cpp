@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -74,6 +75,8 @@ struct TTIRToTTIRGenericPass final
       target.addLegalOp<ttir::EmptyOp>();
       target.addLegalOp<ttir::ConstantOp>();
       target.addLegalOp<ttir::FullOp>();
+
+      target.addLegalOp<ttkernel::DPrintOp>();
 
       target.addLegalOp<
 #define GET_OP_LIST
