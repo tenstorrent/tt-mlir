@@ -1882,7 +1882,6 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
       getOperandThroughDPSOps(op.getKey()));
   auto value = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getValue()));
-<<<<<<< HEAD
   auto curPosTensor = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getCurPosTensor()));
   auto attentionMask = op.getAttentionMask()
@@ -1894,21 +1893,11 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
                                  getOperandThroughDPSOps(op.getAttentionSink()))
                            : 0;
 
-=======
-  auto attentionMask = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getAttentionMask()));
-  auto curPosTensor = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getCurPosTensor()));
-  auto attentionSink = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getAttentionSink()));
-  auto scale = op.getScale();
->>>>>>> b06d1c038 (Bringup sdpa op in runtime and ttnn dialect)
   auto isCausal = op.getIsCausal();
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
 
-<<<<<<< HEAD
   ::flatbuffers::Optional<float> scale = toFlatbuffer(
       cache, op.getScale()
                  ? std::make_optional(op.getScale().value().convertToFloat())
@@ -1917,11 +1906,6 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, curPosTensor, isCausal, attentionMask,
       attentionSink, scale, out, memoryConfig);
-=======
-  return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
-      *cache.fbb, query, key, value, isCausal, attentionMask, curPosTensor,
-      attentionSink, scale.convertToFloat(), out, memoryConfig);
->>>>>>> b06d1c038 (Bringup sdpa op in runtime and ttnn dialect)
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ScaledDotProductAttentionOp>
@@ -2672,7 +2656,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, rotaryEmbeddingLlamaOp),
                            debugString, locInfo);
   }
-<<<<<<< HEAD
   if (auto dumpTensorOp = dyn_cast<DumpTensorOp>(op); dumpTensorOp) {
     return createOperation(cache, createOp(cache, dumpTensorOp), debugString,
                            locInfo);
@@ -2681,8 +2664,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, loadTensorOp), debugString,
                            locInfo);
   }
-=======
->>>>>>> b06d1c038 (Bringup sdpa op in runtime and ttnn dialect)
   if (auto scaledDotProductAttentionDecodeOp =
           dyn_cast<ScaledDotProductAttentionDecodeOp>(op);
       scaledDotProductAttentionDecodeOp) {
