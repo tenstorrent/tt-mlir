@@ -1719,10 +1719,9 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
   if (constraintsExp) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
         constraintsExp.get();
-    (void)cbSize;
-    (void)l1PeakSize;
-    (void)totalPeakSize;
-    (void)outputSize;
+
+    EXPECT_EQ(cbSize, 483328);
+    EXPECT_EQ(totalPeakSize, 483328);
 
     ASSERT_TRUE(outputLayout);
     EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
