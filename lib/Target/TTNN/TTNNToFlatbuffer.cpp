@@ -1894,6 +1894,7 @@ createOp(FlatbufferObjectCache &cache, NLPConcatHeadsDecodeOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::ScaledDotProductAttentionDecodeOp>
 createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
   auto query = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getQuery()));
   auto key = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1920,6 +1921,7 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
       cache, op.getScale()
                  ? std::make_optional(op.getScale().value().convertToFloat())
                  : std::nullopt);
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, curPosTensor, isCausal, attentionMask,

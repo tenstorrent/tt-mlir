@@ -2417,6 +2417,15 @@ namespace {
 class ScaledDotProductAttentionDecodeOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
           mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.scaled_dot_product_attention_decode";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::scaled_dot_product_attention_decode";
+  }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>::
@@ -2431,10 +2440,13 @@ public:
         mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>
         emitter(srcOp, adaptor, rewriter);
 
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     std::optional<float> scale =
         srcOp.getScale()
             ? std::make_optional(srcOp.getScale().value().convertToFloat())
             : std::nullopt;
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
@@ -2443,6 +2455,7 @@ public:
         emitter.emit(srcOp.getAttentionMask()),
         // TODO(LPanosTT): We must pass an empty vector in this location in
         // actual C code to this op. emitter.emit(std::vector<uint32_t>()),
+        rewriter.getStringAttr("std::vector<uint32_t>"),
         emitter.emit(srcOp.getCurPosTensor()),
         emitter.emit(srcOp.getAttentionSink()),
         emitter.emit(scale),
