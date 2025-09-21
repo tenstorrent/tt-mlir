@@ -4861,7 +4861,8 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
   let arguments = (ins SI64Attr:$start,
                        SI64Attr:$end,
                        SI64Attr:$step,
-                       I64Attr:$arange_dimension);
+                       I64Attr:$arange_dimension,
+                       TypeAttr:$dtype);
 
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
@@ -4955,7 +4956,7 @@ class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
     by providing common argument and result definitions.
   }];
 
-  let arguments = (ins DenseI32ArrayAttr:$shape);
+  let arguments = (ins DenseI32ArrayAttr:$shape,TypeAttr:$dtype);
 
   let results = (outs AnyRankedTensor:$result);
 }
@@ -4995,6 +4996,9 @@ def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
     This operation is useful for initializing tensors before filling them with computed values or as a
     starting point for accumulation operations.
   }];
+  let arguments = (ins DenseI32ArrayAttr:$shape,
+                       TypeAttr:$dtype);  // Added dtype argument
+
 }
 
 def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
