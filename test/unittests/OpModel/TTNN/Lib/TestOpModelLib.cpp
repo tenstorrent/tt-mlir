@@ -14,6 +14,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Error.h"
 
+#include "llvm/ADT/APFloat.h"
 #include <cstdint>
 #include <optional>
 #include <tuple>
@@ -4558,5 +4559,280 @@ const auto dequantizeOpTestValues = testing::Values(
 
 INSTANTIATE_TEST_SUITE_P(DequantizeTests, OpModelDequantizeParam,
                          dequantizeOpTestValues);
+
+// === ScaledDotProductAttentionDecodeOp Tests ===
+
+struct ScaledDotProductAttentionDecodeOpParam {
+  detail::TestTensor query;
+  detail::TestTensor key;
+  detail::TestTensor value;
+  detail::TestTensor curPosTensor; // Int32
+  std::optional<detail::TestTensor> attentionMask;
+  std::optional<detail::TestTensor> attentionSink;
+  bool isCausal;
+  std::optional<llvm::APFloat> scale;
+  detail::TestTensor output;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelScaledDotProductAttentionDecodeParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          ScaledDotProductAttentionDecodeOpParam> {
+protected:
+  void RunTest() {
+    const auto [queryShape, queryTensorLayout, queryBufferType,
+                queryVirtualGrid] = GetParam().query;
+    const auto [keyShape, keyTensorLayout, keyBufferType, keyVirtualGrid] =
+        GetParam().key;
+    const auto [valueShape, valueTensorLayout, valueBufferType,
+                valueVirtualGrid] = GetParam().value;
+    const auto [curPosTensorShape, curPosTensorTensorLayout,
+                curPosTensorBufferType, curPosTensorVirtualGrid] =
+        GetParam().curPosTensor;
+
+    std::optional<SmallVector<int64_t>> attentionMaskShape = std::nullopt;
+    std::optional<TensorMemoryLayout> attentionMaskTensorLayout = std::nullopt;
+    std::optional<BufferType> attentionMaskBufferType = std::nullopt;
+    std::optional<SmallVector<int64_t>> attentionMaskVirtualGrid = std::nullopt;
+
+    std::optional<SmallVector<int64_t>> attentionSinkShape = std::nullopt;
+    std::optional<TensorMemoryLayout> attentionSinkTensorLayout = std::nullopt;
+    std::optional<BufferType> attentionSinkBufferType = std::nullopt;
+    std::optional<SmallVector<int64_t>> attentionSinkVirtualGrid = std::nullopt;
+
+    if (auto attentionMaskDetail = GetParam().attentionMask) {
+      attentionMaskShape = attentionMaskDetail->shape;
+      attentionMaskTensorLayout = attentionMaskDetail->layout;
+      attentionMaskBufferType = attentionMaskDetail->bufferType;
+      attentionMaskVirtualGrid = attentionMaskDetail->virtualGrid;
+    }
+
+    if (auto attentionSinkDetail = GetParam().attentionSink) {
+      attentionSinkShape = attentionSinkDetail->shape;
+      attentionSinkTensorLayout = attentionSinkDetail->layout;
+      attentionSinkBufferType = attentionSinkDetail->bufferType;
+      attentionSinkVirtualGrid = attentionSinkDetail->virtualGrid;
+    }
+
+    const auto isCausal = GetParam().isCausal;
+    const auto scale = GetParam().scale;
+
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        GetParam().expectedResult;
+
+    const TTNNLayoutAttr queryLayout = CreateTiledLayout(
+        queryShape, queryBufferType, queryTensorLayout, queryVirtualGrid);
+    const TTNNLayoutAttr keyLayout = CreateTiledLayout(
+        keyShape, keyBufferType, keyTensorLayout, keyVirtualGrid);
+    const TTNNLayoutAttr valueLayout = CreateTiledLayout(
+        valueShape, valueBufferType, valueTensorLayout, valueVirtualGrid);
+    const TTNNLayoutAttr curPosTensorLayout =
+        CreateTiledLayout(curPosTensorShape, curPosTensorBufferType,
+                          curPosTensorTensorLayout, curPosTensorVirtualGrid);
+
+    std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
+    std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
+
+    if (attentionMaskShape) {
+      attentionMaskLayout = CreateTiledLayout(
+          *attentionMaskShape, *attentionMaskBufferType,
+          *attentionMaskTensorLayout, attentionMaskVirtualGrid);
+    }
+    if (attentionSinkShape) {
+      attentionSinkLayout = CreateTiledLayout(
+          *attentionSinkShape, *attentionSinkBufferType,
+          *attentionSinkTensorLayout, attentionSinkVirtualGrid);
+    }
+
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp =
+        OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
+            CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
+            valueShape, valueLayout, curPosTensorShape, curPosTensorLayout,
+            attentionMaskShape, attentionMaskLayout, attentionSinkShape,
+            attentionSinkLayout, isCausal, scale, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBack] = constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
+      EXPECT_EQ(outputSizeResult, expectedOutputSize);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelScaledDotProductAttentionDecodeParam,
+       ScaledDotProductAttentionDecodeOp) {
+  RunTest();
+}
+
+const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
+    ScaledDotProductAttentionDecodeOpParam{
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, std::nullopt, true, std::nullopt,
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 66560, 0, 66560, 0}},
+
+    ScaledDotProductAttentionDecodeOpParam{
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, std::nullopt, true,
+        std::make_optional(llvm::APFloat(1.0f)),
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 78848, 0, 78848, 0}},
+
+    ScaledDotProductAttentionDecodeOpParam{
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional(detail::TestTensor{{1, 1, 12, 128},
+                                              TensorMemoryLayout::Interleaved,
+                                              BufferType::DRAM}),
+        std::nullopt, false, std::nullopt,
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 118784, 0, 118784, 0}},
+
+    ScaledDotProductAttentionDecodeOpParam{
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional(detail::TestTensor{{1, 1, 12, 128},
+                                              TensorMemoryLayout::Interleaved,
+                                              BufferType::DRAM}),
+        std::nullopt, false, std::make_optional(llvm::APFloat(1.0f)),
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 118784, 0, 118784, 0}},
+
+    ScaledDotProductAttentionDecodeOpParam{
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt,
+        std::make_optional(detail::TestTensor{
+            {12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        true, std::nullopt,
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 79872, 0, 79872, 0}},
+
+    ScaledDotProductAttentionDecodeOpParam{
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt,
+        std::make_optional(detail::TestTensor{
+            {12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        true, std::make_optional(llvm::APFloat(1.0f)),
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 79872, 0, 79872, 0}},
+
+    ScaledDotProductAttentionDecodeOpParam{
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional(detail::TestTensor{{1, 1, 12, 128},
+                                              TensorMemoryLayout::Interleaved,
+                                              BufferType::DRAM}),
+        std::make_optional(detail::TestTensor{
+            {12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        false, std::nullopt,
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 120832, 0, 120832, 0}},
+
+    ScaledDotProductAttentionDecodeOpParam{
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional(detail::TestTensor{{1, 1, 12, 128},
+                                              TensorMemoryLayout::Interleaved,
+                                              BufferType::DRAM}),
+        std::make_optional(detail::TestTensor{
+            {12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        false, std::make_optional(llvm::APFloat(1.0f)),
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 120832, 0, 120832, 0}});
+
+INSTANTIATE_TEST_SUITE_P(ScaledDotProductAttentionDecodeTests,
+                         OpModelScaledDotProductAttentionDecodeParam,
+                         scaledDotProductAttentionDecodeOpTestValues);
 
 } // namespace mlir::tt::ttnn::op_model
