@@ -2453,9 +2453,8 @@ public:
         emitter.emit(srcOp.getValue()),
         emitter.emit(srcOp.getIsCausal()),
         emitter.emit(srcOp.getAttentionMask()),
-        // TODO(LPanosTT): We must pass an empty vector in this location in
-        // actual C code to this op. emitter.emit(std::vector<uint32_t>()),
-        rewriter.getStringAttr("std::vector<uint32_t>"),
+        emitc::OpaqueAttr::get(rewriter.getContext(),
+                               "std::vector<uint32_t>()"),
         emitter.emit(srcOp.getCurPosTensor()),
         emitter.emit(srcOp.getAttentionSink()),
         emitter.emit(scale),
