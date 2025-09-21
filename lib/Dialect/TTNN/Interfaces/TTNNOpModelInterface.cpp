@@ -1801,7 +1801,8 @@ llvm::Expected<op_model::OpConstraints>
 ScaledDotProductAttentionDecodeOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   assert(inputs.size() >= 4 && inputs.size() <= 6 &&
-         "ttnn::scaled_dot_product_attention_decode can have 4, 5, or 6 "
+         "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
+         "5, or 6 "
          "input tensors");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
@@ -1819,6 +1820,7 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
   ScaledDotProductAttentionDecodeOptionalArgs optionalArgs =
       unpackScaledDotProductAttentionDecodeOptionalArgs(inputs, *this);
 
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints,
       *this, deviceGrid, queryShape, inputs[0], keyShape, inputs[1], valueShape,
@@ -1826,12 +1828,15 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
       optionalArgs.attentionMaskLayout, optionalArgs.attentionSinkShape,
       optionalArgs.attentionSinkLayout, getIsCausal(), getScale(),
       opConfig.outputLayout);
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
 llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
   assert(inputs.size() >= 4 && inputs.size() <= 6 &&
-         "ttnn::scaled_dot_product_attention_decode can have 4, 5, or 6 "
+         "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
+         "5, or 6 "
          "input tensors");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
@@ -1854,6 +1859,7 @@ llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
       optionalArgs.attentionMaskLayout, optionalArgs.attentionSinkShape,
       optionalArgs.attentionSinkLayout, getIsCausal(), getScale(),
       opConfig.outputLayout);
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
 //===----------------------------------------------------------------------===//
