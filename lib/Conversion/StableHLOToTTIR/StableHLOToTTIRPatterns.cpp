@@ -3075,7 +3075,7 @@ public:
         isCausal = false;
       } else {
         return rewriter.notifyMatchFailure(
-            srcOp, "is_causal attribute must be true or false. Recived \"" +
+            srcOp, "is_causal attribute must be true or false. Received \"" +
                        isCausalSringAttr.getValue() + "\".");
       }
     }
@@ -3089,7 +3089,7 @@ public:
       if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
         return rewriter.notifyMatchFailure(
             srcOp,
-            "scale attribute string must be convertible to float. Recived \"" +
+            "scale attribute string must be convertible to float. Received \"" +
                 scaleStringAttr.getValue() + "\".");
       }
       scale = _scale;
@@ -3113,7 +3113,7 @@ public:
     } else {
       return rewriter.notifyMatchFailure(
           srcOp,
-          "has_attention_mask attribute must be true or false. Recived \"" +
+          "has_attention_mask attribute must be true or false. Received \"" +
               hasAttentionMaskStringAttr.getValue() + "\".");
     }
 
@@ -3132,7 +3132,7 @@ public:
     } else {
       return rewriter.notifyMatchFailure(
           srcOp,
-          "has_attention_sink attribute must be true or false. Recived \"" +
+          "has_attention_sink attribute must be true or false. Received \"" +
               hasAttentionSinkStringAttr.getValue() + "\".");
     }
 
