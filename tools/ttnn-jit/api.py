@@ -58,6 +58,8 @@ def jit(
 
             system_desc_path = os.getenv("SYSTEM_DESC_PATH")
             assert system_desc_path, "SYSTEM_DESC_PATH must be set."
+            if debug:
+                os.environ["TTRT_LOGGER_LEVEL"] = "DEBUG"
 
             if backend == "metal":
                 ttir_to_ttmetal_backend_pipeline(
@@ -73,6 +75,8 @@ def jit(
                     ttmetal_to_flatbuffer_file(
                         ir, os.path.join(out_dir, f.__name__ + ".ttm"), {}, []
                     )
+                # TODO: hook up metal runtime here
+                return ir
             elif backend == "ttnn":
                 ttir_to_ttnn_backend_pipeline(
                     ir, f"system-desc-path={system_desc_path}"
@@ -88,8 +92,8 @@ def jit(
                     ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
 
                 return _run_binary(flatbuffer_bin, args)
-
-            return ir
+            else:
+                raise ValueError(f"Unsupported backend: {backend}")
 
         if inspect.ismethod(f):
             return staticmethod(_wrapper)
