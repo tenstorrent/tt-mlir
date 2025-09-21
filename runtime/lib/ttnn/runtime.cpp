@@ -1192,6 +1192,7 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::LoadTensorOp: {
     tensorRef = opContext.type_as_LoadTensorOp()->out();
+    break;
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
     tensorRef = opContext.type_as_ScaledDotProductAttentionDecodeOp()->out();
