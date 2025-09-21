@@ -140,10 +140,11 @@ protected:
                               bool tiled,
                               mlir::ConversionPatternRewriter &rewriter) const {
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    if (tensorType.getEncoding() &&
-        mlir::isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding())) {
-      auto a = createTTNNTensorLayoutOp(value, rewriter);
-      return a;
+    if (tensorType.getEncoding()) {
+      assert(mlir::isa<ttcore::MetalLayoutAttr>(tensorType.getEncoding()) &&
+             "Tensors must have a MetalLayoutAttr or no encoding");
+      // The tensor is already a metal tensor. Maintain the existing layout.
+      return value;
     }
 
     ArrayRef<int64_t> logicalShape = tensorType.getShape();
@@ -204,12 +205,22 @@ protected:
   }
 
   static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
-                                   Value fromValue, Type toResultType) {
+                                   Value fromValue, Type toResultType,
+                                   Value originalResult) {
     RankedTensorType resultTensorType =
         mlir::cast<RankedTensorType>(toResultType);
-    if (mlir::isa<ttnn::TTNNLayoutAttr>(resultTensorType.getEncoding())) {
+    if (resultTensorType.getEncoding() &&
+        mlir::isa<ttnn::TTNNLayoutAttr>(resultTensorType.getEncoding())) {
       return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
           fromValue.getLoc(), resultTensorType, fromValue);
+    }
+    // If the original op's result is immediately consumed by a
+    // TTNNMetalLayoutCastOp, skip inserting an Empty/ToLayout. The consumer
+    // will cast from whatever metal layout we have to the desired TTNN layout.
+    for (Operation *user : originalResult.getUsers()) {
+      if (mlir::isa<ttir::TTNNMetalLayoutCastOp>(user)) {
+        return fromValue.getDefiningOp();
+      }
     }
     auto output =
         rewriter.create<tt::ttir::EmptyOp>(fromValue.getLoc(), toResultType);
@@ -348,17 +359,7 @@ private:
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
-    // dump all IR here
-    // std::cout<<"inputs: "<<std::endl;
-    // for(auto input : inputs) {
-    //   input.dump();
-    // }
-    // std::cout<<"outputs: "<<std::endl;
-    // for(auto output : outputs) {
-    //   output.dump();
-    // }
-    // std::cout<<"full IR: "<<std::endl;
-    // op->template getParentOfType<mlir::ModuleOp>().dump();
+
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
@@ -379,7 +380,7 @@ private:
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
     std::cout << "generic: " << std::endl;
-    // generic.dump();
+
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic);
@@ -434,13 +435,10 @@ private:
     }
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
-    std::cout << "generic: " << std::endl;
-    // generic.dump();
+
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType()));
-    // rewriter.replaceOp(op, generic->getResults());
-    // generic->template getParentOfType<mlir::ModuleOp>().dump();
-    std::cout << "replaced op" << std::endl;
+                                          op->getResult(0).getType(),
+                                          op->getResult(0)));
     return llvm::success();
   }
 
@@ -575,7 +573,8 @@ private:
     rewriter.restoreInsertionPoint(insertPoint);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType()));
+                                          op->getResult(0).getType(),
+                                          op->getResult(0)));
     return llvm::success();
   }
 
@@ -812,7 +811,7 @@ private:
     rewriter.restoreInsertionPoint(insertPoint);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType()));
+                                          op->getResult(0).getType(), op->getResult(0)));
     return llvm::success();
   }
 
@@ -962,7 +961,7 @@ public:
         });
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType()));
+                                          op->getResult(0).getType(), op->getResult(0)));
     return success();
   }
 
