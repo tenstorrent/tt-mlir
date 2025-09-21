@@ -4,7 +4,6 @@
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
-#include <operations/transformer/sdpa_decode/sdpa_decode.hpp>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
