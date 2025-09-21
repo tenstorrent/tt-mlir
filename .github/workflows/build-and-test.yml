@@ -364,6 +364,26 @@ jobs:
         cd ${{ steps.strings.outputs.install-output-dir }}/${{ matrix.build.path }}
         ./ttnn-standalone
 
+    - name: Run TTNN-Standalone load_input test
+      shell: bash
+      if: ${{ matrix.build.type == 'ttnn_standalone' && matrix.build.suite == 'run' }}
+      run: |
+        source env/activate
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export TT_METAL_LIB="${{ steps.strings.outputs.install-output-dir }}/lib"
+
+        # Process the load_input test
+        cd ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN/load_input
+        ttmlir-opt -ttir-to-emitc-pipeline="load-input-tensors-from-disk=true" ttnn_load_input_tensors.mlir | ttmlir-translate -mlir-to-cpp -o ttnn-standalone.cpp
+
+        # Copy generated code and tensor files to ttnn-standalone directory
+        cp arg0.tensorbin arg1.tensorbin ttnn-standalone.cpp ${{ steps.strings.outputs.install-output-dir }}/tools/ttnn-standalone/
+
+        # Build and run
+        cd ${{ steps.strings.outputs.install-output-dir }}/tools/ttnn-standalone
+        ./run
+
     - name: Builder Tests
       if: matrix.build.type == 'builder'
       shell: bash
