@@ -1834,10 +1834,6 @@ llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
          "ttnn::scaled_dot_product_attention_decode can have 4, 5, or 6 "
          "input tensors");
 
-  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
-         "ttnn::scaled_dot_product_attention_decode can have 4, 5, or 6 "
-         "input tensors");
-
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
