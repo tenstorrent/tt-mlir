@@ -362,23 +362,17 @@ private:
     ttcore::DataTypeAttr dTypeAttr =
         ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
 
+    mlir::Value device;
+    if (layoutAttr.isDeviceBufferType()) {
+      device = ttnn::utils::getOrInsertDevice(rewriter,
+                                              rewriter.getInsertionBlock());
+    }
     // Create a new tensor of ones.
     //
     ttnn::OnesOp onesOp = rewriter.create<ttnn::OnesOp>(
-        loc, tensorType, /*device=*/nullptr, shapeAttr, dTypeAttr,
-        tensorLayoutAttr, /*memory_config=*/nullptr);
+        loc, tensorType, device, shapeAttr, dTypeAttr, tensorLayoutAttr,
+        /*memory_config=*/nullptr);
 
-    // If tensor is meant to be on device, add ToDevice op.
-    //
-    if (layoutAttr.isDeviceBufferType()) {
-      ttnn::GetDeviceOp device =
-          ttnn::utils::getOrInsertDevice(rewriter, onesOp);
-
-      mlir::Value tensorOnDevice = rewriter.create<ttnn::ToDeviceOp>(
-          loc, tensorType, onesOp, device, nullptr);
-
-      return tensorOnDevice;
-    }
     return onesOp;
   }
 };
@@ -417,22 +411,16 @@ private:
     std::string filename = "arg" + std::to_string(argIndex) + ".tensorbin";
     StringAttr filePathAttr = rewriter.getStringAttr(filename);
 
+    mlir::Value device;
+    if (layoutAttr.isDeviceBufferType()) {
+      device = ttnn::utils::getOrInsertDevice(rewriter,
+                                              rewriter.getInsertionBlock());
+    }
     // Create LoadTensorOp to load tensor from disk.
     //
     ttnn::LoadTensorOp loadTensorOp = rewriter.create<ttnn::LoadTensorOp>(
-        loc, tensorType, filePathAttr, /*device=*/nullptr);
+        loc, tensorType, filePathAttr, device);
 
-    // If tensor is meant to be on device, add ToDevice op.
-    //
-    if (layoutAttr.isDeviceBufferType()) {
-      ttnn::GetDeviceOp device =
-          ttnn::utils::getOrInsertDevice(rewriter, loadTensorOp);
-
-      mlir::Value tensorOnDevice = rewriter.create<ttnn::ToDeviceOp>(
-          loc, tensorType, loadTensorOp, device, nullptr);
-
-      return tensorOnDevice;
-    }
     return loadTensorOp;
   }
 };
