@@ -16,6 +16,10 @@ declare_mlir_python_sources(BuilderSources
     # stablehlo subpackage files
     stablehlo/__init__.py
     stablehlo/stablehlo_builder.py
+
+    # ttnn subpackage files
+    ttnn/__init__.py
+    ttnn/ttnn_builder.py
 )
 
 add_mlir_python_modules(BuilderPythonModules
