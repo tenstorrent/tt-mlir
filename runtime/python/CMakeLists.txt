@@ -39,19 +39,22 @@ target_link_libraries(_ttmlir_runtime
 )
 add_dependencies(_ttmlir_runtime TTMLIRRuntime)
 
-# Isolate utils.cpp to a separate TU to avoid pulling in pybinds.
-add_library(_mlir_runtime_utils OBJECT runtime/utils.cpp)
-target_include_directories(_mlir_runtime_utils
-  SYSTEM PRIVATE ${pybind11_INCLUDE_DIRS}
-  PRIVATE
-    ${PROJECT_SOURCE_DIR}/runtime/include
-    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
-    ${PROJECT_SOURCE_DIR}/runtime/python/include
-)
-target_link_libraries(_mlir_runtime_utils
-  PRIVATE
-  TTRuntimeTTNNUtils
-  nanobind-static
-)
-target_sources(_ttmlir_runtime PRIVATE $<TARGET_OBJECTS:_mlir_runtime_utils>)
-set_property(TARGET _mlir_runtime_utils PROPERTY CXX_STANDARD 20)
+# Utils bindings only needed for ttnn-jit.
+if (TTMLIR_ENABLE_RUNTIME AND TTMLIR_ENABLE_PYKERNEL)
+  # Isolate utils.cpp to a separate TU to avoid pulling in pybinds.
+  add_library(_mlir_runtime_utils OBJECT runtime/utils.cpp)
+  target_include_directories(_mlir_runtime_utils
+    SYSTEM PRIVATE ${pybind11_INCLUDE_DIRS}
+    PRIVATE
+      ${PROJECT_SOURCE_DIR}/runtime/include
+      ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+      ${PROJECT_SOURCE_DIR}/runtime/python/include
+  )
+  target_link_libraries(_mlir_runtime_utils
+    PRIVATE
+    TTRuntimeTTNNUtils
+    nanobind-static
+  )
+  target_sources(_ttmlir_runtime PRIVATE $<TARGET_OBJECTS:_mlir_runtime_utils>)
+  set_property(TARGET _mlir_runtime_utils PROPERTY CXX_STANDARD 20)
+endif()
