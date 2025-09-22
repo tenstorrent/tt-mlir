@@ -362,6 +362,7 @@ jobs:
           EMITC_FLAG=""
           if [[ "${{ matrix.build.run-emitc }}" == "true" ]]; then
             EMITC_FLAG="--emitc"
+          fi
           ttrt run ${{ matrix.build.ttrt-flags }} ttir-builder-artifacts/
           ttrt run ${{ matrix.build.ttrt-flags }} stablehlo-builder-artifacts/
         fi
