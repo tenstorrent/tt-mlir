@@ -295,6 +295,7 @@ jobs:
         pip show ttnn && pip uninstall -y ttnn || true
         pip install ttnn-0.59.0rc57-cp311-cp311-manylinux_2_34_x86_64.whl --force-reinstall
         rm -f ttnn-0.59.0rc57-cp311-cp311-manylinux_2_34_x86_64.whl
+        mv ${TTMLIR_TOOLCHAIN_DIR}/venv/lib/python3.11/site-packages/ttnn/_ttnn.cpython-310-x86_64-linux-gnu.so ${TTMLIR_TOOLCHAIN_DIR}/venv/lib/python3.11/site-packages/ttnn/_ttnn.so
 
     - name: Download Build Artifacts
       uses: ./.github/actions/download-artifact
