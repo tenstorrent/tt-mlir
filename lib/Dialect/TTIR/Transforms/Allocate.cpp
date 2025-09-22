@@ -241,8 +241,9 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       return getMemorySpaces(chipDesc);
     }();
 
-    TT_ALLOC_DEBUG("configured with 'allow-output-spilling' = {}",
-                   allowOutputSpilling);
+    TT_ALLOC_DEBUG("configured with {{num-stream-buffers: {}, "
+                   "allow-output-spilling: {}}",
+                   numStreamBuffers, allowOutputSpilling);
 
     if (moduleOp
             ->walk([&](func::FuncOp funcOp) -> WalkResult {
@@ -602,8 +603,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
                   if (!operandCtx.bufferType) {
                     // In principle, buffer shape/size could depend on whether
                     // the stream is out of L1 or DRAM... but not right now.
-                    operandCtx.bufferType =
-                        selectStreamBuffer(rewriter, memrefCtx.type);
+                    operandCtx.bufferType = selectStreamBuffer(
+                        rewriter, memrefCtx.type, numStreamBuffers);
                   }
                   const AllocSizeT bufferSize =
                       device.getMemrefSizeBytes(operandCtx.bufferType);
@@ -908,12 +909,13 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   }
 
   static MemRefType selectStreamBuffer(RewriterBase &rewriter,
-                                       MemRefType operandType) {
+                                       MemRefType operandType,
+                                       uint32_t buffers) {
     llvm::SmallVector<int64_t> bufferShape =
         selectStreamBufferShape(operandType);
     auto bufferLayout = ttcore::ShardLayoutAttr::get(
         ArrayRef(bufferShape).take_back(bufferShape.size() / 2),
-        operandType.getElementType(), /*buffers=*/1);
+        operandType.getElementType(), /*buffers=*/buffers);
     return MemRefType::get(
         ArrayRef(bufferShape), operandType.getElementType(), bufferLayout,
         rewriter.getAttr<ttcore::MemorySpaceAttr>(MemorySpace::DeviceL1));
