@@ -24,7 +24,8 @@ from ttnn_jit._src.dispatch_op import _run_binary
 def jit(
     backend: Literal["ttnn", "metal"] = "ttnn",
     perf: bool = False,
-    dump_flatbuffer: bool = True,
+    compile_only: bool = False,
+    dump_flatbuffer: bool = False,
     debug: bool = False,
 ):
     def _decorator(f):
@@ -77,8 +78,11 @@ def jit(
                     ttmetal_to_flatbuffer_file(
                         ir, os.path.join(out_dir, f.__name__ + ".ttm"), {}, []
                     )
-                # TODO: hook up metal runtime here
-                return ir
+                if compile_only:
+                    return ir
+                else:
+                    # TODO: hook up metal runtime here
+                    raise NotImplementedError("Metal runtime is not implemented yet")
             elif backend == "ttnn":
                 ttir_to_ttnn_backend_pipeline(
                     ir, f"system-desc-path={system_desc_path}"
@@ -90,10 +94,17 @@ def jit(
                 out_dir = os.path.join("generated", "pykernels")
                 os.makedirs(out_dir, exist_ok=True)
                 flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttnn")
-                if dump_flatbuffer:
+
+                if compile_only:
+                    ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+                    return ir
+                else:
+                    # TODO (#5055): always dump flatbuffer to disk for now, in the future we want to run flatbuffer from memory.
+                    if dump_flatbuffer:
+                        pass
                     ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
 
-                return _run_binary(flatbuffer_bin, args)
+                    return _run_binary(flatbuffer_bin, args)
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
 
