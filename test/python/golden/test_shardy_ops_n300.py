@@ -56,6 +56,7 @@ def test_sharding_constraint(
     dtype: torch.dtype,
     mesh_shape: Tuple[int, int],
     request,
+    device,
 ):
     compile_stablehlo_to_flatbuffer(
         test_fn,
@@ -66,4 +67,5 @@ def test_sharding_constraint(
         system_desc_path=request.config.getoption("--sys-desc"),
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        device=device,
     )

@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 import ttrt
+import ttrt.runtime
 import json
 import platform
 from functools import reduce
@@ -10,6 +11,7 @@ import operator
 import torch
 import subprocess
 from typing import Any, Dict, List, Optional
+from ttrt.common.util import parse_fabric_config
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
@@ -53,6 +55,39 @@ def log_global_env_facts(record_testsuite_property, pytestconfig):
     except (subprocess.CalledProcessError, FileNotFoundError):
         # If git command fails or git is not available, record as unknown.
         record_testsuite_property("git_sha", "unknown")
+
+
+@pytest.fixture(scope="session")
+def device(pytestconfig):
+    """
+    Session-wide device fixture that opens a device once per test session.
+
+    This fixture opens the device with a compatible configuration that can handle
+    most test cases and keeps it open for the entire test session to avoid the
+    overhead of repeatedly opening/closing devices.
+
+    The device opened here will be reused by execute_fb calls, avoiding the need
+    to repeatedly open/close devices for each test.
+    """
+    print("Opening device for test session...")
+
+    # Use maximum available mesh shape to support all test cases
+    # Individual tests will validate their mesh requirements against available devices
+    mesh_options = ttrt.runtime.MeshDeviceOptions()
+    mesh_options.dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
+
+    # Start with a small mesh shape that should work for most tests
+    # Tests requiring larger meshes will be handled appropriately
+    mesh_options.mesh_shape = [2, 1]  # Support up to 2 devices in x dimension
+
+    opened_device = ttrt.runtime.open_mesh_device(mesh_options)
+    print(f"Device opened for test session with mesh shape {mesh_options.mesh_shape}.")
+
+    yield opened_device
+
+    print("Closing device for test session...")
+    ttrt.runtime.close_mesh_device(opened_device)
+    print("Device closed for test session.")
 
 
 def pytest_addoption(parser):

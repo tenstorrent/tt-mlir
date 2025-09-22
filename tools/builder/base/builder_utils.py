@@ -557,6 +557,7 @@ def compile_ttir_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    device=None,  # Optional device parameter for fixture reuse
 ) -> str:
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
@@ -808,6 +809,7 @@ def compile_d2m_to_flatbuffer(
             custom_pipeline=custom_pipeline,
             pipeline_options=pipeline_options,
             print_ir=print_ir,
+            device=device,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -977,6 +979,7 @@ def compile_stablehlo_to_flatbuffer(
     shlo_pipeline_options: Optional[List[str]] = None,
     shlo_to_ttir_pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    device=None,  # Optional device parameter for fixture reuse
 ) -> str:
     """
     Compiles a StableHLO function to flatbuffer format.
@@ -1126,6 +1129,7 @@ def compile_stablehlo_to_flatbuffer(
         custom_pipeline=custom_pipeline,
         pipeline_options=ttir_pipeline_options,
         print_ir=print_ir,
+        device=device,
     )
 
 
@@ -1143,6 +1147,7 @@ def compile_ttir_module_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
+    device=None,  # Optional device parameter for fixture reuse
 ):
     """
     Compiles a TTIR MLIR module to flatbuffer format.
@@ -1301,7 +1306,7 @@ def compile_ttir_module_to_flatbuffer(
         raise TTBuilderCompileException(e)
 
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
-    execute_fb(output_file_fbb)
+    execute_fb(output_file_fbb, device=device)
     return output_file_mlir
 
 
@@ -1315,6 +1320,7 @@ def execute_fb(
     debugger: bool = False,
     memory: bool = False,
     disable_eth_dispatch: bool = False,  # Needed for blackhole
+    device=None,  # Optional device parameter for fixture reuse
 ) -> None:
     """
     Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
@@ -1365,22 +1371,26 @@ def execute_fb(
 
     bin = Binary(logger, FileManager(logger), fb_path)
 
-    mesh_options = ttrt.runtime.MeshDeviceOptions()
-    mesh_options.dispatch_core_type = (
-        ttrt.runtime.DispatchCoreType.WORKER
-        if disable_eth_dispatch
-        else ttrt.runtime.DispatchCoreType.ETH
-    )
-
     fb_mesh_shape = bin.get_program(0).mesh_shape
     num_mesh_devices = reduce(operator.mul, fb_mesh_shape, 1)
-    mesh_options.mesh_shape = fb_mesh_shape
 
-    # TODO: move this to a session wide fixture
-    # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
-    print("Opening device...")
-    device = ttrt.runtime.open_mesh_device(mesh_options)
-    print("Device opened.")
+    # Use provided device or open a new one
+    device_provided = device is not None
+    if not device_provided:
+        mesh_options = ttrt.runtime.MeshDeviceOptions()
+        mesh_options.dispatch_core_type = (
+            ttrt.runtime.DispatchCoreType.WORKER
+            if disable_eth_dispatch
+            else ttrt.runtime.DispatchCoreType.ETH
+        )
+        mesh_options.mesh_shape = fb_mesh_shape
+
+        # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
+        print("Opening device...")
+        device = ttrt.runtime.open_mesh_device(mesh_options)
+        print("Device opened.")
+    else:
+        print("Using provided device.")
 
     # Figure out the number of devices we physically have
     # TODO: make this a fixture that's run at the beginning of testing using `Query` or some other discovery mechanism; don't hardcode
@@ -1510,8 +1520,9 @@ def execute_fb(
             )
             ttrt.runtime.wait(runtime_outputs)
         except Exception as e:
-            # Runtime failure
-            ttrt.runtime.close_mesh_device(device)
+            # Runtime failure - only close device if we opened it
+            if not device_provided:
+                ttrt.runtime.close_mesh_device(device)
             raise TTBuilderRuntimeException(e)
 
         end_submit = time.perf_counter_ns()
@@ -1606,7 +1617,9 @@ def execute_fb(
             # check operation level golden comparison result.
             post_op_callback_runtime_config.check_pcc()
 
-        ttrt.runtime.close_mesh_device(device)
+        # Only close device if we opened it (not provided as parameter)
+        if not device_provided:
+            ttrt.runtime.close_mesh_device(device)
 
 
 # ----- Experimental Public APIs -----

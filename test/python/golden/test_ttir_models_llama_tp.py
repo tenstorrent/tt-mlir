@@ -192,6 +192,7 @@ def test_llama_attention_1xn_tp(
     target: str,
     mesh_shape: Tuple[int, int],
     request,
+    device,
 ):
     def model(
         arg0: Operand,
@@ -392,6 +393,7 @@ def test_llama_attention_1xn_tp(
         shapes,
         dtypes,
         target=target,
+        device=device,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,

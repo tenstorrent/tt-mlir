@@ -53,6 +53,7 @@ def test_conv2d_sharding(
     dilation: List[int],
     groups: int,
     request,
+    device,
 ):
     def conv2d(
         in0: Operand,
@@ -78,6 +79,7 @@ def test_conv2d_sharding(
         dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        device=device,
         system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=[
             "enable-optimizer=true",

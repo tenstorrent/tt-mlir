@@ -18,7 +18,7 @@ from test_utils import Marks, shape_str
 pytestmark = pytest.mark.frontend("ttir")
 
 
-def compile_dma_test(test_func, shape, request):
+def compile_dma_test(test_func, shape, request, device):
 
     # Back to back tolayout ops are normally folded during canonicalization into
     # a single ToLayoutOp representing the final result. The option
@@ -33,6 +33,7 @@ def compile_dma_test(test_func, shape, request):
         test_func,
         [shape],
         target="ttmetal",
+        device=device,
         custom_pipeline=pipeline,
         test_base=request.node.name,
         print_ir="ir_dump",
@@ -47,6 +48,7 @@ def test_host_interop_single_bank_dram_dma(
     shape: Shape,
     memory_space: ttcore.MemorySpace,
     request,
+    device,
 ):
     """tests that host enqueue_read|write_buffer works for single-shard DRAM
     buffers"""
@@ -95,6 +97,7 @@ def test_roundtrip_dma_tiled(
     end_grid: tuple[int, int],
     memory_space: ttcore.MemorySpace,
     request,
+    device,
 ):
     def tilize(
         in0: Operand,
@@ -176,6 +179,7 @@ def test_roundtrip_dma_rowmajor(
     end_grid: tuple[int, int],
     memory_space: ttcore.MemorySpace,
     request,
+    device,
 ):
     def dram_write(
         in0: Operand,
@@ -233,7 +237,7 @@ def test_roundtrip_dma_rowmajor(
 
         return system_out
 
-    compile_dma_test(dram_write, shape, request)
+    compile_dma_test(dram_write, shape, request, device)
 
 
 @pytest.mark.parametrize("shape", [(64, 64), (64, 128), (128, 64), (128, 128)])
@@ -242,6 +246,7 @@ def test_interleaved_dma(
     shape: Shape,
     end_grid: tuple[int, int],
     request,
+    device
 ):
     def interleaved_dma(
         in0: Operand,
@@ -299,8 +304,4 @@ def test_interleaved_dma(
 
         return untilize_out
 
-    compile_dma_test(
-        interleaved_dma,
-        shape,
-        request,
-    )
+    compile_dma_test(interleaved_dma, shape, request, device)

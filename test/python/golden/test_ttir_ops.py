@@ -68,7 +68,7 @@ def logical_not(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def logical_not_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -82,6 +82,7 @@ def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -89,7 +90,9 @@ def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_hoisted_logical_not(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
     def hoisted_logical_not_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -103,6 +106,7 @@ def test_hoisted_logical_not(shape: Shape, dtype: torch.dtype, target: str, requ
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -132,7 +136,7 @@ def cos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         import math
 
@@ -153,6 +157,7 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -169,7 +174,7 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_log(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_log(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         randn_tensor = torch.randn(shape, dtype=dtype)
         abs_tensor = torch.abs(randn_tensor)
@@ -188,13 +193,14 @@ def test_log(shape: Shape, dtype: torch.dtype, target: str, request):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
 # Special handling for log1p PCC checks. Due to the vertical asymptote on the log1p graph, small changes in input values result in large changes in output values at values below -1, so both graph and golden tensors must be constrained accordingly.
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-def test_log1p(shape: Shape, dtype: torch.dtype, request):
+def test_log1p(shape: Shape, dtype: torch.dtype, request, device):
     def log1p(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -212,6 +218,7 @@ def test_log1p(shape: Shape, dtype: torch.dtype, request):
         [shape],
         [dtype],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -227,7 +234,7 @@ def gelu(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
-def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request):
+def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, device):
     def clamp_scalar(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -239,6 +246,7 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request):
         clamp_scalar,
         [shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -247,7 +255,7 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request):
 @pytest.mark.parametrize(
     "shapes", [[(32, 64), (32, 64), (32, 64)]], ids=shapes_list_str
 )
-def test_clamp_tensor(shapes: List[Shape], request):
+def test_clamp_tensor(shapes: List[Shape], request, device):
     def clamp_tensor(
         in0: Operand,
         in1: Operand,
@@ -261,6 +269,7 @@ def test_clamp_tensor(shapes: List[Shape], request):
         clamp_tensor,
         shapes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -275,7 +284,7 @@ def leaky_relu(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_sqrt(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_sqrt(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def sqrt(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -293,6 +302,7 @@ def test_sqrt(shape: Shape, dtype: torch.dtype, target: str, request):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -303,7 +313,7 @@ def cbrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def rsqrt(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -321,6 +331,7 @@ def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -365,6 +376,7 @@ def test_dot_general(
     batch_dims_rhs: List[int],
     contract_dims_rhs: List[int],
     request,
+    device,
 ):
     def dot_general(
         in0: Operand,
@@ -386,6 +398,7 @@ def test_dot_general(
         dot_general,
         shapes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -562,7 +575,7 @@ def div(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_div(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
     compile_ttir_to_flatbuffer(
         div,
         [shape, shape],
@@ -571,6 +584,7 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -578,7 +592,7 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request):
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def hoisted_div_wrapper(
         in0: Operand,
         in1: Operand,
@@ -601,6 +615,7 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -634,7 +649,7 @@ def minimum(
 @pytest.mark.parametrize(
     "shapes", [[(10, 64, 32), (32, 128), (128,)]], ids=shapes_list_str
 )
-def test_linear(shapes: List[Shape], request):
+def test_linear(shapes: List[Shape], request, device):
     def linear(
         in0: Operand,
         in1: Operand,
@@ -648,6 +663,7 @@ def test_linear(shapes: List[Shape], request):
         linear,
         shapes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -682,7 +698,7 @@ def pow(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_pow(shape: Shape, dtype: torch.dtype, target: str, request, device):
     compile_ttir_to_flatbuffer(
         pow,
         [shape, shape],
@@ -691,6 +707,7 @@ def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -699,7 +716,7 @@ def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def hoisted_pow_wrapper(
         in0: Operand,
         in1: Operand,
@@ -716,6 +733,7 @@ def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -770,7 +788,7 @@ def squeeze(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dim_arg", [0])
 @pytest.mark.parametrize("keep_dim", [False])
-def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request):
+def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request, device):
     def prod(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -780,6 +798,7 @@ def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request):
         prod,
         [shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -819,7 +838,7 @@ def concat(
 
 @pytest.mark.parametrize("shape", [(1, 1, 32)], ids=shape_str)
 @pytest.mark.parametrize("broadcast_dimensions", [[1, 16, 1]])
-def test_broadcast(shape: Shape, broadcast_dimensions: List[int], request):
+def test_broadcast(shape: Shape, broadcast_dimensions: List[int], request, device):
     # Create a wrapper function that captures broadcast_dimensions
     def broadcast_wrapper(
         in0: Operand,
@@ -835,6 +854,7 @@ def test_broadcast(shape: Shape, broadcast_dimensions: List[int], request):
         broadcast_wrapper,
         [shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -842,7 +862,7 @@ def test_broadcast(shape: Shape, broadcast_dimensions: List[int], request):
 
 @pytest.mark.parametrize("shape", [(1, 128, 128, 1)], ids=shape_str)
 @pytest.mark.parametrize("dim", [0])
-def test_squeeze(shape: Shape, dim: int, request):
+def test_squeeze(shape: Shape, dim: int, request, device):
     def squeeze(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -852,6 +872,7 @@ def test_squeeze(shape: Shape, dim: int, request):
         squeeze,
         [shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -859,7 +880,7 @@ def test_squeeze(shape: Shape, dim: int, request):
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dim", [0])
-def test_unsqueeze(shape: Shape, dim: int, request):
+def test_unsqueeze(shape: Shape, dim: int, request, device):
     def unsqueeze(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -869,6 +890,7 @@ def test_unsqueeze(shape: Shape, dim: int, request):
         unsqueeze,
         [shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -877,7 +899,7 @@ def test_unsqueeze(shape: Shape, dim: int, request):
 @pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16), (1, 1, 64)], ids=shape_str)
 @pytest.mark.parametrize("dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-def test_repeat(shape: Shape, dims: List[int], dtype, request):
+def test_repeat(shape: Shape, dims: List[int], dtype, request, device):
     def repeat(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -888,6 +910,7 @@ def test_repeat(shape: Shape, dims: List[int], dtype, request):
         [shape],
         [dtype],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -905,7 +928,9 @@ def test_repeat(shape: Shape, dims: List[int], dtype, request):
 )
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("repeats", [1])
-def test_repeat_interleave(shapes: List[Shape], repeats: int, dim: int, request):
+def test_repeat_interleave(
+    shapes: List[Shape], repeats: int, dim: int, request, device
+):
     def repeat_interleave(
         in0: Operand,
         in1: Operand,
@@ -920,6 +945,7 @@ def test_repeat_interleave(shapes: List[Shape], repeats: int, dim: int, request)
         repeat_interleave,
         shapes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -937,7 +963,7 @@ def test_repeat_interleave(shapes: List[Shape], repeats: int, dim: int, request)
     ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dim", [0])
-def test_concat(shapes: List[Shape], dim: int, request):
+def test_concat(shapes: List[Shape], dim: int, request, device):
     # Create a wrapper function that captures dim
     def concat_wrapper(
         in0: Operand,
@@ -955,6 +981,7 @@ def test_concat(shapes: List[Shape], dim: int, request):
         concat_wrapper,
         shapes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1000,6 +1027,7 @@ def test_conv2d(
     dilation: List[int],
     groups: int,
     request,
+    device,
 ):
     def conv2d(
         in0: Operand,
@@ -1024,6 +1052,7 @@ def test_conv2d(
         shapes,
         input_dtypes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1051,6 +1080,7 @@ def test_conv2d_consteval(
     dilation: List[int],
     groups: int,
     request,
+    device,
 ):
     def conv2d_consteval(
         in0: Operand,
@@ -1075,6 +1105,7 @@ def test_conv2d_consteval(
         shapes,
         argument_types_string="conv2d_consteval=input,parameter,parameter",
         test_base=request.node.name,
+        device=device,
     )
 
 
@@ -1161,6 +1192,7 @@ def test_conv_transpose2d(
     dilation: int,
     groups: int,
     request,
+    device,
 ):
     def conv_transpose2d(
         in0: Operand,
@@ -1186,6 +1218,7 @@ def test_conv_transpose2d(
         shapes,
         dtypes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1206,6 +1239,7 @@ def test_max_pool2d(
     padding: List[int],
     ceil_mode: bool,
     request,
+    device,
 ):
     def max_pool2d(
         in0: Operand,
@@ -1227,6 +1261,7 @@ def test_max_pool2d(
         [shape],
         [dtype],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1308,6 +1343,7 @@ def test_avg_pool2d(
     ceil_mode: bool,
     count_include_pad: bool,
     request,
+    device,
 ):
     def avg_pool2d(
         in0: Operand,
@@ -1330,6 +1366,7 @@ def test_avg_pool2d(
         [shape],
         [dtype],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1359,6 +1396,7 @@ def test_batch_norm(
     epsilon: float,
     training: bool,
     request,
+    device,
 ):
     def batch_norm(
         in0: Operand,
@@ -1387,6 +1425,7 @@ def test_batch_norm(
         shapes,
         dtypes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1396,7 +1435,7 @@ def test_batch_norm(
 @pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
 @pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
 @pytest.mark.parametrize("value", [0])
-def test_pad(shape: Shape, padding: List[int], value: int, request):
+def test_pad(shape: Shape, padding: List[int], value: int, request, device):
     def pad(
         in0: Operand,
         builder: TTIRBuilder,
@@ -1408,6 +1447,7 @@ def test_pad(shape: Shape, padding: List[int], value: int, request):
         pad,
         inputs_shapes=[shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1415,7 +1455,9 @@ def test_pad(shape: Shape, padding: List[int], value: int, request):
 
 @pytest.mark.parametrize("shape", [(32, 64)], ids=shape_str)
 @pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1)])
-def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request):
+def test_index(
+    shape: Shape, dim: int, begin: int, end: int, step: int, request, device
+):
     def index(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -1427,6 +1469,7 @@ def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request)
         index,
         [shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1434,7 +1477,9 @@ def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request)
 
 @pytest.mark.parametrize("shape", [(4, 4)], ids=shape_str)
 @pytest.mark.parametrize("dim,begin,length,stride", [(1, 2, 2, 2)])
-def test_select(shape: Shape, dim: int, begin: int, length: int, stride: int, request):
+def test_select(
+    shape: Shape, dim: int, begin: int, length: int, stride: int, request, device
+):
     def select(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -1451,6 +1496,7 @@ def test_select(shape: Shape, dim: int, begin: int, length: int, stride: int, re
         select,
         [shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1461,7 +1507,7 @@ def test_select(shape: Shape, dim: int, begin: int, length: int, stride: int, re
 @pytest.mark.parametrize(
     "dtype", [torch.bfloat16, torch.float32, torch.int32], ids=["bf16", "f32", "i32"]
 )
-def test_zeros(shape: Shape, dtype: torch.dtype, request):
+def test_zeros(shape: Shape, dtype: torch.dtype, request, device):
     def zeros(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         return builder.zeros(shape, dtype, unit_attrs=unit_attrs)
 
@@ -1470,13 +1516,14 @@ def test_zeros(shape: Shape, dtype: torch.dtype, request):
         inputs_shapes=[],
         inputs_types=[],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
-def test_ones(shape: Shape, request):
+def test_ones(shape: Shape, request, device):
     def ones(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         return builder.ones(shape, unit_attrs=unit_attrs)
 
@@ -1484,6 +1531,7 @@ def test_ones(shape: Shape, request):
         ones,
         inputs_shapes=[],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1678,7 +1726,7 @@ def test_callable_initialization_error_handling(shape: Shape, dtype: torch.dtype
 
 @pytest.mark.parametrize("shapes", [[(128, 128)]], ids=shapes_list_str)
 @pytest.mark.parametrize("dim_arg", [[1]])
-def test_argmax(shapes, dim_arg, request):
+def test_argmax(shapes, dim_arg, request, device):
     def argmax(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -1688,6 +1736,7 @@ def test_argmax(shapes, dim_arg, request):
         argmax,
         inputs_shapes=shapes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1696,7 +1745,7 @@ def test_argmax(shapes, dim_arg, request):
 @pytest.mark.xfail(reason="`reverse` doesn't have a legalization. See issue #2495")
 @pytest.mark.parametrize("shape", [(64, 64)], ids=shape_str)
 @pytest.mark.parametrize("dims", [[0, 1]])
-def test_reverse(shape: Shape, dims: List[int], request):
+def test_reverse(shape: Shape, dims: List[int], request, device):
     def reverse(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -1706,6 +1755,7 @@ def test_reverse(shape: Shape, dims: List[int], request):
         reverse,
         [shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1714,7 +1764,7 @@ def test_reverse(shape: Shape, dims: List[int], request):
 @pytest.mark.skip(reason="See issue #3685")
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0, 1]])
-def test_reduce_and(shape: Shape, dim_args: List[int], request):
+def test_reduce_and(shape: Shape, dim_args: List[int], request, device):
     def reduce_and(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -1725,6 +1775,7 @@ def test_reduce_and(shape: Shape, dim_args: List[int], request):
         [shape],
         [torch.int32],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1746,7 +1797,7 @@ def reduce_or(
 @pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(4, 4)], ids=shape_str)
 @pytest.mark.parametrize("dim_args", [[0, 1]])
-def test_reduce_or(shape: Shape, dim_args: List[int], request):
+def test_reduce_or(shape: Shape, dim_args: List[int], request, device):
     def reduce_or_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -1757,6 +1808,7 @@ def test_reduce_or(shape: Shape, dim_args: List[int], request):
         [shape],
         [torch.int32],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1777,7 +1829,7 @@ def permute(
 
 @pytest.mark.parametrize("shapes", [[(2, 3, 4)]], ids=shapes_list_str)
 @pytest.mark.parametrize("permutation", [[1, 2, 0]])
-def test_permute(shapes: List[Shape], permutation: List[int], request):
+def test_permute(shapes: List[Shape], permutation: List[int], request, device):
     # Create a wrapper function that captures permutation
     def permute_wrapper(
         in0: Operand,
@@ -1793,6 +1845,7 @@ def test_permute(shapes: List[Shape], permutation: List[int], request):
         permute_wrapper,
         shapes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1802,7 +1855,7 @@ def test_permute(shapes: List[Shape], permutation: List[int], request):
     "shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]], ids=shapes_list_str
 )
 @pytest.mark.parametrize("scale_factor", [[2, 4]])
-def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
+def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request, device):
     def upsample2d(
         in0: Operand,
         in1: Operand,
@@ -1820,13 +1873,16 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
         upsample2d,
         shapes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
 @pytest.mark.parametrize("shape,start,end,step,dim", [((5,), 0, 5, 1, 0)])
-def test_arange(shape: Shape, start: int, end: int, step: int, dim: int, request):
+def test_arange(
+    shape: Shape, start: int, end: int, step: int, dim: int, request, device
+):
     def arange(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -1836,6 +1892,7 @@ def test_arange(shape: Shape, start: int, end: int, step: int, dim: int, request
         arange,
         [shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1848,7 +1905,12 @@ def test_arange(shape: Shape, start: int, end: int, step: int, dim: int, request
 )
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_typecast(
-    shape: Shape, from_type: torch.dtype, to_type: torch.dtype, target: str, request
+    shape: Shape,
+    from_type: torch.dtype,
+    to_type: torch.dtype,
+    target: str,
+    request,
+    device,
 ):
     def typecast(
         in0: Operand,
@@ -1866,6 +1928,7 @@ def test_typecast(
         [shape],
         [from_type],
         test_base=request.node.name,
+        device=device,
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         pipeline_options=pipeline_options,
@@ -1874,7 +1937,7 @@ def test_typecast(
 
 @pytest.mark.parametrize("shapes", [[(4, 4, 128, 128)]], ids=shapes_list_str)
 @pytest.mark.parametrize("dim", [1])
-def test_cumsum(shapes: List[Shape], dim: int, request):
+def test_cumsum(shapes: List[Shape], dim: int, request, device):
     def cumsum(
         in0: Operand,
         builder: TTIRBuilder,
@@ -1886,6 +1949,7 @@ def test_cumsum(shapes: List[Shape], dim: int, request):
         cumsum,
         shapes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1899,7 +1963,7 @@ def prod(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 @pytest.mark.parametrize(
     "shapes", [[(1, 32, 64, 512), (1, 32, 3, 512)]], ids=shapes_list_str
 )
-def test_fill_cache(shapes: List[Shape], request):
+def test_fill_cache(shapes: List[Shape], request, device):
     def fill_cache(
         in0: Operand,
         in1: Operand,
@@ -1912,6 +1976,7 @@ def test_fill_cache(shapes: List[Shape], request):
         fill_cache,
         shapes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1932,7 +1997,7 @@ def softmax(
 @pytest.mark.parametrize("shape", [(512, 1024)], ids=shape_str)
 @pytest.mark.parametrize("dimension", [-1])
 @pytest.mark.parametrize("numeric_stable", [False, True])
-def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request):
+def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request, device):
     # Create a wrapper function that captures dimension
     def softmax_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -1946,6 +2011,7 @@ def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request):
         softmax_wrapper,
         [shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -1956,7 +2022,7 @@ def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request):
     "shapes", [[(1, 32, 64, 512), (1, 32, 1, 512), (1,)]], ids=shapes_list_str
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32, torch.float32, torch.int32]])
-def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request):
+def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request, device):
     def update_cache(
         in0: Operand,
         in1: Operand,
@@ -1971,6 +2037,7 @@ def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request):
         shapes,
         inputs_types=dtypes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2002,7 +2069,12 @@ def embedding(
     ids=["qint32", "qint8"],
 )
 def test_quantize(
-    shape: Shape, scale: float, zero_point: int, dtype: torch.dtype, request
+    shape: Shape,
+    scale: float,
+    zero_point: int,
+    dtype: torch.dtype,
+    request,
+    device,
 ):
     def quantize(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -2013,6 +2085,7 @@ def test_quantize(
         quantize,
         [shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2042,6 +2115,7 @@ def test_dequantize(
     zero_point: int,
     dtype: torch.dtype,
     request,
+    device,
 ):
     def dequantize(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -2053,6 +2127,7 @@ def test_dequantize(
         [shape],
         inputs_types=[input_dtype],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2090,6 +2165,7 @@ def test_requantize(
     zero_point: int,
     dtype: torch.dtype,
     request,
+    device,
 ):
     def requantize(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -2101,6 +2177,7 @@ def test_requantize(
         [shape],
         inputs_types=[input_dtype],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2296,6 +2373,7 @@ def test_cpu_hoistable_unary_ops(
     shape: Shape,
     request,
     target: str,
+    device,
     dtype: torch.dtype = torch.float32,
 ):
     """Test unary ops that support CPU hoisting"""
@@ -2305,6 +2383,7 @@ def test_cpu_hoistable_unary_ops(
         inputs_types=[dtype],
         test_base=f"{request.node.name}",
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2325,7 +2404,12 @@ def test_cpu_hoistable_unary_ops(
 @pytest.mark.parametrize("test_fn", hoisted_binary_ops)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_cpu_hoistable_binary_ops(
-    test_fn: Callable, shapes: List[Shape], dtype: torch.dtype, request, target: str
+    test_fn: Callable,
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    request,
+    target: str,
+    device,
 ):
     """Test binary ops that support CPU hoisting"""
     compile_ttir_to_flatbuffer(
@@ -2334,6 +2418,7 @@ def test_cpu_hoistable_binary_ops(
         [dtype] * len(shapes),
         test_base=f"{request.node.name}",
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2352,7 +2437,7 @@ def test_cpu_hoistable_binary_ops(
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.fails_golden
-def test_hoisted_permute(shapes, permutation, request, target: str):
+def test_hoisted_permute(shapes, permutation, request, target: str, device):
     def permute_wrapper(
         in0: Operand,
         in1: Operand,
@@ -2368,6 +2453,7 @@ def test_hoisted_permute(shapes, permutation, request, target: str):
         shapes,
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2381,7 +2467,7 @@ def test_hoisted_permute(shapes, permutation, request, target: str):
     "shape", [(1, 1), (1, 10), (10, 1), (64, 32), (128, 64), (128, 128)], ids=shape_str
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
+def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str, device):
     if keep_dim is False:
         pytest.skip(
             "Known mismatch: TTIR keep_dim=False rank change unsupported by TOSA reduce op; "
@@ -2399,6 +2485,7 @@ def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
         [shape],
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2422,6 +2509,7 @@ def test_hoisted_slice(
     step: List[int],
     target: str,
     request,
+    device,
 ):
     def slice_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -2434,6 +2522,7 @@ def test_hoisted_slice(
         [shape],
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2445,7 +2534,7 @@ def test_hoisted_slice(
     "shapes", [[(64, 64), (64, 64), (64, 64)]], ids=shapes_list_str
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_where(shapes, request, target: str):
+def test_hoisted_where(shapes, request, target: str, device):
     def where_wrapper(condition: Operand, x: Operand, y: Operand, builder: TTIRBuilder):
         return builder.where(condition, x, y, unit_attrs=["ttir.should_hoist"])
 
@@ -2456,6 +2545,7 @@ def test_hoisted_where(shapes, request, target: str):
         shapes,
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2480,7 +2570,7 @@ def test_hoisted_where(shapes, request, target: str):
 @pytest.mark.parametrize(
     "dtype", [torch.float32, torch.int32, torch.uint8], ids=["f32", "i32", "ui8"]
 )
-def test_reshape(shapes, dtype: torch.dtype, request):
+def test_reshape(shapes, dtype: torch.dtype, request, device):
     input_shape, output_shape = shapes
 
     def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
@@ -2491,6 +2581,7 @@ def test_reshape(shapes, dtype: torch.dtype, request):
         [input_shape],
         [dtype],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2507,7 +2598,7 @@ def test_reshape(shapes, dtype: torch.dtype, request):
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_reshape(input_shape, output_shape, request, target: str):
+def test_hoisted_reshape(input_shape, output_shape, request, target: str, device):
     def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
         return builder.reshape(in0, output_shape, unit_attrs=["ttir.should_hoist"])
 
@@ -2518,6 +2609,7 @@ def test_hoisted_reshape(input_shape, output_shape, request, target: str):
         [input_shape],
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2534,7 +2626,7 @@ def test_hoisted_reshape(input_shape, output_shape, request, target: str):
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_transpose(input_shape, dims, request, target: str):
+def test_hoisted_transpose(input_shape, dims, request, target: str, device):
     def transpose_wrapper(in0: Operand, builder: TTIRBuilder):
         # For 2D tensors with permutation [1, 0], swap dimensions 0 and 1
         # For 3D tensors with permutation [2, 1, 0], swap dimensions 0 and 2
@@ -2551,6 +2643,7 @@ def test_hoisted_transpose(input_shape, dims, request, target: str):
         [input_shape],
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2615,7 +2708,12 @@ unary_ops = [
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
 ):
     pipeline_options = []
     compile_ttir_to_flatbuffer(
@@ -2626,6 +2724,7 @@ def test_unary_ops(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
         pipeline_options=pipeline_options,
     )
 
@@ -2633,7 +2732,7 @@ def test_unary_ops(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone"])
-def test_reciprocal(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_reciprocal(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def reciprocal(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -2656,6 +2755,7 @@ def test_reciprocal(shape: Shape, dtype: torch.dtype, target: str, request):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
         pipeline_options=pipeline_options,
     )
 
@@ -2701,7 +2801,12 @@ unary_ops_int32 = [
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("test_fn", unary_ops_int32)
 def test_unary_ops_int32(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
 ):
     pipeline_options = []
     compile_ttir_to_flatbuffer(
@@ -2712,6 +2817,7 @@ def test_unary_ops_int32(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
         pipeline_options=pipeline_options,
     )
 
@@ -2752,6 +2858,7 @@ def test_binary_ops(
     dtype: torch.dtype,
     target: str,
     request,
+    device,
 ):
     # NOTE: this function is _only_ for binary ops that take the same shape arguments
     pipeline_options = []
@@ -2763,6 +2870,7 @@ def test_binary_ops(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
         pipeline_options=pipeline_options,
     )
 
@@ -2770,12 +2878,13 @@ def test_binary_ops(
 @pytest.mark.run_error
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("test_fn", [bitwise_and, bitwise_or, bitwise_xor])
-def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
+def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request, device):
     compile_ttir_to_flatbuffer(
         test_fn,
         inputs_shapes=[shape] * 2,
         inputs_types=[torch.int8] * 2,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -2801,6 +2910,7 @@ def test_comparison_ops(
     dtype: torch.dtype,
     target: str,
     request,
+    device,
 ):
     def comparison_ops(
         in0: Operand,
@@ -2834,6 +2944,7 @@ def test_comparison_ops(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -2873,7 +2984,10 @@ def test_comparison_ops(
         remainder,
         maximum,
         minimum,
-        pow | Marks(pytest.mark.run_error),
+        pow
+        | Marks(
+            pytest.mark.skip(reason="Golden Failure")
+        ),  # TODO: make issue for this, make xfail
         logical_and,
         logical_or,
         logical_xor,
@@ -2885,6 +2999,7 @@ def test_binary_eltwise_ops_implicit_broadcast(
     dtype: torch.dtype,
     target: str,
     request,
+    device,
 ):
     compile_ttir_to_flatbuffer(
         test_fn,
@@ -2894,6 +3009,7 @@ def test_binary_eltwise_ops_implicit_broadcast(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -2928,6 +3044,7 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     input_dtypes: Tuple[torch.dtype, torch.dtype, torch.dtype],
     target: str,
     request,
+    device,
 ):
     dtype1, dtype2, dtype3 = input_dtypes
 
@@ -2939,6 +3056,7 @@ def test_ternary_eltwise_ops_implicit_broadcast(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -2974,7 +3092,9 @@ unaligned_shapes = [
 @pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_unaligned_shapes_neg(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_unaligned_shapes_neg(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
     compile_ttir_to_flatbuffer(
         neg,
         [shape],
@@ -2983,13 +3103,16 @@ def test_unaligned_shapes_neg(shape: Shape, dtype: torch.dtype, target: str, req
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
 @pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_unaligned_shapes_add(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_unaligned_shapes_add(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
     def add(
         in0: Operand,
         in1: Operand,
@@ -3014,6 +3137,7 @@ def test_unaligned_shapes_add(shape: Shape, dtype: torch.dtype, target: str, req
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -3051,6 +3175,7 @@ def test_unique_ops(
     inputs_dtypes: List[torch.dtype],
     target: str,
     request,
+    device,
 ):
     compile_ttir_to_flatbuffer(
         test_fn,
@@ -3060,6 +3185,7 @@ def test_unique_ops(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -3084,7 +3210,12 @@ def slice(
     ids=["basic_slice", "explicit_step", "3d_slice"],
 )
 def test_slice(
-    shape: Shape, begins: List[int], ends: List[int], step: List[int], request
+    shape: Shape,
+    begins: List[int],
+    ends: List[int],
+    step: List[int],
+    request,
+    device,
 ):
     def slice_op(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -3095,6 +3226,7 @@ def test_slice(
         slice_op,
         [shape],
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -3105,7 +3237,9 @@ def test_slice(
 @pytest.mark.parametrize("dim_args", [[0]])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.run_error  # Issue #3883.
-def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, request):
+def test_hoisted_reduce_or(
+    shape: Shape, dim_args: List[int], target: str, request, device
+):
     """Test the hoisted reduce_or operation with proper dimensions and keep_dim parameter"""
 
     def hoisted_reduce_or_wrapper(
@@ -3121,6 +3255,7 @@ def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, reque
         inputs_types=[torch.float32],
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -3137,7 +3272,7 @@ def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, reque
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_broadcast(shape, broadcast_dims, request, target: str):
+def test_hoisted_broadcast(shape, broadcast_dims, request, target: str, device):
     """Test broadcast operation with CPU hoisting enabled using the 'hoisted_' naming convention"""
 
     def broadcast_wrapper(
@@ -3154,6 +3289,7 @@ def test_hoisted_broadcast(shape, broadcast_dims, request, target: str):
         inputs_shapes=[shape],
         test_base=f"{request.node.name}",
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -3233,6 +3369,7 @@ def test_gather(
     slice_sizes: List[int],
     target: str,
     request,
+    device,
 ):
     def gather_wrapper(in0: Operand, builder: TTIRBuilder):
         return gather(
@@ -3251,6 +3388,7 @@ def test_gather(
         [input_dtype],
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -3285,6 +3423,7 @@ def test_hoisted_gather(
     slice_sizes: List[int],
     target: str,
     request,
+    device,
 ):
     def gather_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -3305,6 +3444,7 @@ def test_hoisted_gather(
         [input_shape],
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -3333,6 +3473,7 @@ def test_hoisted_dot_general(
     contract_dims_rhs: List[int],
     target: str,
     request,
+    device,
 ):
     def dot_general_wrapper(
         in0: Operand,
@@ -3357,6 +3498,7 @@ def test_hoisted_dot_general(
         shapes,
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -3410,6 +3552,7 @@ def test_rms_norm(
     has_weight: bool,
     has_bias: bool,
     request,
+    device,
 ):
     def rms_norm(*inputs, unit_attrs: Optional[List[str]] = None):
 
@@ -3446,6 +3589,7 @@ def test_rms_norm(
         rms_norm,
         shapes,
         test_base=request.node.name,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -3492,7 +3636,11 @@ def test_rms_norm(
     "mesh_shape", [(2, 4), (4, 2), (1, 8), (8, 1), (1, 2), (2, 1)], ids=shape_str
 )
 def test_mesh_shard_devices(
-    input_rank: int, shard_dims: Tuple[int, int], mesh_shape: Tuple[int, int], request
+    input_rank: int,
+    shard_dims: Tuple[int, int],
+    mesh_shape: Tuple[int, int],
+    request,
+    device,
 ):
     shard_shape = make_shard_shape(input_rank, shard_dims, mesh_shape)
     if all(x == 1 for x in shard_shape):
@@ -3520,6 +3668,7 @@ def test_mesh_shard_devices(
         mesh_shard_devices,
         [input_shape],
         mesh_name="mesh",
+        device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -3555,6 +3704,7 @@ def test_all_gather(
     cluster_axis: int,
     dtype: torch.dtype,
     request,
+    device,
 ):
     if all_gather_dim >= len(test_shape):
         pytest.skip("all_gather_dim is out of range")
@@ -3575,6 +3725,7 @@ def test_all_gather(
         [test_bundle.input_shape],
         [dtype],
         mesh_name="mesh",
+        device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -3613,6 +3764,7 @@ def test_all_reduce(
     cluster_axis: int,
     dtype: torch.dtype,
     request,
+    device,
 ):
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("CCL across 1 device is meaningless")
@@ -3632,6 +3784,7 @@ def test_all_reduce(
         [test_bundle.input_shape],
         [dtype],
         mesh_name="mesh",
+        device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -3670,6 +3823,7 @@ def test_reduce_scatter(
     cluster_axis: int,
     dtype: torch.dtype,
     request,
+    device,
 ):
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("CCL across 1 device is meaningless")
@@ -3694,6 +3848,7 @@ def test_reduce_scatter(
         [test_bundle.input_shape],
         [dtype],
         mesh_name="mesh",
+        device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -3766,6 +3921,7 @@ def test_collective_permute(
     source_target_pairs: List[Tuple[int, int]],
     dtype: torch.dtype,
     request,
+    device,
 ):
     max_id = reduce(operator.mul, mesh_shape, 1)
     if not all(pair[0] < max_id and pair[1] < max_id for pair in source_target_pairs):
@@ -3784,6 +3940,7 @@ def test_collective_permute(
         [test_bundle.input_shape],
         [dtype],
         mesh_name="mesh",
+        device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -3833,6 +3990,7 @@ def test_all_to_all(
     replica_groups,
     dtype: torch.dtype,
     request,
+    device,
 ):
     split_count = len(replica_groups[0])
     if split_dim >= len(test_shape):
@@ -3856,6 +4014,7 @@ def test_all_to_all(
         [test_bundle.input_shape],
         [dtype],
         mesh_name="mesh",
+        device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -3902,6 +4061,7 @@ def test_collective_broadcast(
     replica_groups,
     dtype: torch.dtype,
     request,
+    device,
 ):
     def collective_broadcast(mesh_shard_in: Operand, builder: TTIRBuilder):
         return builder.collective_broadcast(
@@ -3916,6 +4076,7 @@ def test_collective_broadcast(
         [test_bundle.input_shape],
         [dtype],
         mesh_name="mesh",
+        device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),

@@ -15,7 +15,9 @@ pytestmark = pytest.mark.frontend("ttir")
 
 @pytest.mark.parametrize("shapes", [[(32, 32), (32, 32), (32, 32)]], ids=["32x32"])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
-def test_arbitrary_model(shapes: List[Shape], dtypes: List[torch.dtype], request):
+def test_arbitrary_model(
+    shapes: List[Shape], dtypes: List[torch.dtype], request, device
+):
     def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         add = builder.add(in0, in1)
         exp = builder.exp(in2)
@@ -27,6 +29,7 @@ def test_arbitrary_model(shapes: List[Shape], dtypes: List[torch.dtype], request
         dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("path"),
+        device=device,
         system_desc_path=request.config.getoption("--sys-desc"),
     )
 
@@ -60,6 +63,7 @@ def test_mnist(
     dtypes: List[torch.dtype],
     target: str,
     request,
+    device,
 ):
     def model(
         in0: Operand,  # Input 28x28 image
@@ -83,6 +87,7 @@ def test_mnist(
         dtypes,
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -124,6 +129,7 @@ def test_llama_attention(
     dtypes: List[torch.dtype],
     target: str,
     request,
+    device,
 ):
     def model(
         arg0: Operand,
@@ -209,6 +215,7 @@ def test_llama_attention(
         shapes,
         dtypes,
         target=target,
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("path"),
         system_desc_path=request.config.getoption("--sys-desc"),

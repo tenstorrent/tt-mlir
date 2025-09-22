@@ -100,7 +100,7 @@ def _build_matmul_parallel(
 )
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 def test_matmul_k_split_parallelism(
-    shapes: List[Shape], mesh_shape: Tuple[int, int], cluster_axis: int, request
+    shapes: List[Shape], mesh_shape: Tuple[int, int], cluster_axis: int, request, device
 ):
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("parallelism across 1 device is meaningless")
@@ -131,6 +131,7 @@ def test_matmul_k_split_parallelism(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
     )
 
 
@@ -146,7 +147,7 @@ def test_matmul_k_split_parallelism(
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 def test_parallelized_matmul_with_unary_chaining(
-    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
         matmul_shard = _build_matmul_parallel(
@@ -182,6 +183,7 @@ def test_parallelized_matmul_with_unary_chaining(
         shapes,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -200,7 +202,7 @@ def test_parallelized_matmul_with_unary_chaining(
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 def test_parallelized_matmul_with_binary_chaining(
-    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         matmul_shard = _build_matmul_parallel(
@@ -242,6 +244,7 @@ def test_parallelized_matmul_with_binary_chaining(
         shapes,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -261,7 +264,7 @@ def test_parallelized_matmul_with_binary_chaining(
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 def test_parallelized_matmul_fusion_with_binary_chaining(
-    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
     def matmul_test(
         in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
@@ -308,6 +311,7 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
         shapes,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -340,7 +344,7 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
     "mesh_shape", [(2, 4), (1, 8), (1, 2), (4, 2), (8, 1), (2, 1)], ids=shape_str
 )
 def test_parallelized_elementwise_operations(
-    shape: Shape, shard_dims: List[int], mesh_shape: Tuple[int, int], request
+    shape: Shape, shard_dims: List[int], mesh_shape: Tuple[int, int], request, device
 ):
     def eltwise_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
         shard_shape = make_shard_shape(len(shape), shard_dims, mesh_shape)
@@ -379,6 +383,7 @@ def test_parallelized_elementwise_operations(
         [shape, shape],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -402,7 +407,7 @@ def test_parallelized_elementwise_operations(
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 def test_mixed_device_parallelism_with_unary(
-    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
         matmul_result = _build_matmul_parallel(
@@ -430,6 +435,7 @@ def test_mixed_device_parallelism_with_unary(
         shapes,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -448,7 +454,7 @@ def test_mixed_device_parallelism_with_unary(
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 def test_mixed_device_parallelism_with_binary(
-    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         matmul_result = _build_matmul_parallel(
@@ -475,6 +481,7 @@ def test_mixed_device_parallelism_with_binary(
         shapes,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -493,7 +500,7 @@ def test_mixed_device_parallelism_with_binary(
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 def test_mixed_device_parallelism_with_dual_matmul(
-    shapes: List[Shape], mesh_shape: Tuple[int, int], request
+    shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
     def matmul_test(
         in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
@@ -533,6 +540,7 @@ def test_mixed_device_parallelism_with_dual_matmul(
         shapes,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

@@ -53,6 +53,7 @@ def test_batch_norm_decomposition(
     epsilon: float,
     training: bool,
     request,
+    device,
 ):
     def conv2d_batch_norm(
         input_tensor: Operand,
@@ -145,7 +146,10 @@ def test_batch_norm_decomposition(
         shapes,
         dtypes,
         test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        output_root=request.config.getoption(
+            "--path",
+            device=device,
+        ),
         system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=["enable-fusing-conv2d-with-multiply-pattern=true"],
     )

@@ -51,11 +51,7 @@ def sharding_constraint(
     ],
 )
 def test_sharding_constraint(
-    test_fn: Callable,
-    shape: Shape,
-    dtype: torch.dtype,
-    target: str,
-    request,
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     compile_stablehlo_to_flatbuffer(
         test_fn,
@@ -67,4 +63,5 @@ def test_sharding_constraint(
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
         target=target,
+        device=device,
     )

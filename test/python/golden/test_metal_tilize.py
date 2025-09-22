@@ -20,7 +20,7 @@ pytestmark = pytest.mark.frontend("ttir")
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_tilize(shape: Shape, target: str, request):
+def test_tilize(shape: Shape, target: str, request, device):
     def tilize(
         in0: Operand,
         builder: D2MBuilder,
@@ -57,6 +57,7 @@ def test_tilize(shape: Shape, target: str, request):
         [shape],
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -68,7 +69,7 @@ def test_tilize(shape: Shape, target: str, request):
 )
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_untilize(shape: Shape, target: str, request):
+def test_untilize(shape: Shape, target: str, request, device):
     def untilize(
         in0: Operand,
         builder: D2MBuilder,
@@ -113,6 +114,7 @@ def test_untilize(shape: Shape, target: str, request):
         [shape],
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -121,7 +123,7 @@ def test_untilize(shape: Shape, target: str, request):
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_tilize_untilize(shape: Shape, target: str, request):
+def test_tilize_untilize(shape: Shape, target: str, request, device):
     def tilize_untilize(
         in0: Operand,
         builder: D2MBuilder,
@@ -144,6 +146,7 @@ def test_tilize_untilize(shape: Shape, target: str, request):
         [shape],
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
