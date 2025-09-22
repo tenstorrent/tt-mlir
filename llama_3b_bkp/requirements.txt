@@ -1,0 +1,4 @@
+loguru
+pandas
+seaborn
+graphviz
