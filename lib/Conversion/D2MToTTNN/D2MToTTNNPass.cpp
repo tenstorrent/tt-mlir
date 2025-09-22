@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTIRToTTNNGeneric/TTIRToTTNNGeneric.h"
+#include "ttmlir/Conversion/D2MToTTNN/D2MToTTNN.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
@@ -27,16 +27,16 @@
 // ----------------------------------------------------------------------------
 namespace mlir::tt::ttir {
 
-#define GEN_PASS_DEF_CONVERTTTIRTOTTNNGENERIC
-#include "ttmlir/Conversion/Passes.h.inc" // impl::ConvertTTIRToTTNNGenericBase
+#define GEN_PASS_DEF_CONVERTD2MTOTTNN
+#include "ttmlir/Conversion/Passes.h.inc" // impl::ConvertD2MToTTNNBase
 
 // ............................................................................
 using namespace llvm;
 
 namespace {
 
-struct ConvertTTIRToTTNNGenericPass final
-    : impl::ConvertTTIRToTTNNGenericBase<ConvertTTIRToTTNNGenericPass> {
+struct ConvertD2MToTTNNPass final
+    : impl::ConvertD2MToTTNNBase<ConvertD2MToTTNNPass> {
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
@@ -69,7 +69,7 @@ struct ConvertTTIRToTTNNGenericPass final
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
-    populateTTIRToTTNNGenericPatterns(&getContext(), patterns, typeConverter);
+    populateD2MToTTNNPatterns(&getContext(), patterns, typeConverter);
 
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
@@ -84,8 +84,8 @@ struct ConvertTTIRToTTNNGenericPass final
 // ............................................................................
 namespace mlir::tt {
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToTTNNGenericPass() {
-  return std::make_unique<ttir::ConvertTTIRToTTNNGenericPass>();
+std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTNNPass() {
+  return std::make_unique<ttir::ConvertD2MToTTNNPass>();
 }
 
 } // namespace mlir::tt
