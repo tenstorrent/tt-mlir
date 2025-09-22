@@ -198,12 +198,12 @@ jobs:
           # {runs-on: tg,           sh-run: false, name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch"},
           # {runs-on: tg,           sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch"},
           {runs-on: n150,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "pytest",          path: "tools/ttrt/test"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
-          {runs-on: n300,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
-          {runs-on: n300-llmbox,  sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
-          {runs-on: p150,         sh-run: false, name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, ttrt-flags: "--disable-eth-dispatch"},
+          {runs-on: n150,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, run-emitpy: true},
+          {runs-on: n300,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true, run-emitpy: true},
+          {runs-on: n300-llmbox,  sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true, run-emitpy: true},
+          {runs-on: p150,         sh-run: false, name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, run-emitpy: true, ttrt-flags: "--disable-eth-dispatch"},
           # Optimizer builder tests need opmodel
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "silicon",        image: "speedy",  type: "builder",         path: "test/python/golden/optimizer",          flags: "-m \"not run_error and not fails_golden\" --require-opmodel", run-ttrt: true},
+          {runs-on: n150,         sh-run: true,  name: "run",  suite: "silicon",        image: "speedy",  type: "builder",         path: "test/python/golden/optimizer",          flags: "-m \"not run_error and not fails_golden\" --require-opmodel", run-ttrt: true, run-emitpy: true},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
           {runs-on: n150,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/device_agnostic"},
@@ -285,6 +285,16 @@ jobs:
           pip install pytest
         fi
 
+    - name: Download and install ttnn whl
+      shell: bash
+      run: |
+        source env/activate
+        wget -O ttnn-0.59.0rc57-cp310-cp310-manylinux_2_34_x86_64.whl \
+          https://github.com/tenstorrent/tt-metal/releases/download/v0.59.0/ttnn-0.59.0rc57-cp310-cp310-manylinux_2_34_x86_64.whl
+        pip show ttnn && pip uninstall -y ttnn || true
+        pip install ttnn-0.59.0rc57-cp310-cp310-manylinux_2_34_x86_64.whl --force-reinstall
+        rm -f ttnn-0.59.0rc57-cp310-cp310-manylinux_2_34_x86_64.whl
+
     - name: Download Build Artifacts
       uses: ./.github/actions/download-artifact
       with:
@@ -362,7 +372,15 @@ jobs:
           ttrt run ${{ matrix.build.ttrt-flags }} ttir-builder-artifacts/
           ttrt run ${{ matrix.build.ttrt-flags }} stablehlo-builder-artifacts/
         fi
-
+        if [[ "${{ matrix.build.run-emitpy }}" == "true" ]]; then
+          export PYTHONPATH="${GITHUB_WORKSPACE}/tools/tt-alchemist/templates/python/local:${PYTHONPATH}"
+          find ttir-builder-artifacts -name "*.py" -type f | while read -r py_file; do
+            python "$py_file"
+          done
+          find stablehlo-builder-artifacts -name "*.py" -type f | while read -r py_file; do
+            python "$py_file"
+          done
+        fi
 
     - name: Generate EmitC tests
       shell: bash
