@@ -14,6 +14,7 @@ from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
 pytestmark = pytest.mark.frontend("ttir")
 
+
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("m", [4, 8, 16])
 @pytest.mark.parametrize("n", [2, 4, 8])
@@ -39,7 +40,9 @@ def test_sum(
         builder: TTIRBuilder,
         unit_attrs: List[str] = None,
     ):
-        return builder.sum(in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs)
+        return builder.sum(
+            in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
+        )
 
     compile_ttir_to_flatbuffer(
         reduce_sum,
@@ -50,6 +53,7 @@ def test_sum(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
 
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("m", [4, 8, 16])
@@ -76,7 +80,9 @@ def test_max(
         builder: TTIRBuilder,
         unit_attrs: List[str] = None,
     ):
-        return builder.max(in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs)
+        return builder.max(
+            in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
+        )
 
     compile_ttir_to_flatbuffer(
         reduce_max,
