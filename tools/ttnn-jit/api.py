@@ -25,7 +25,6 @@ def jit(
     backend: Literal["ttnn", "metal"] = "ttnn",
     perf: bool = False,
     compile_only: bool = False,
-    dump_flatbuffer: bool = False,
     debug: bool = False,
 ):
     def _decorator(f):
@@ -64,6 +63,8 @@ def jit(
             if debug:
                 os.environ["TTRT_LOGGER_LEVEL"] = "DEBUG"
 
+            out_dir = os.path.join("generated", "pykernels")
+            os.makedirs(out_dir, exist_ok=True)
             if backend == "metal":
                 ttir_to_ttmetal_backend_pipeline(
                     ir, f"system-desc-path={system_desc_path} override-device-shape=1,1"
@@ -72,13 +73,9 @@ def jit(
                     print("---- After ttir_to_ttmetal_backend_pipeline ----")
                     print(ir)
 
-                if dump_flatbuffer:
-                    out_dir = os.path.join("generated", "pykernels")
-                    os.makedirs(out_dir, exist_ok=True)
-                    ttmetal_to_flatbuffer_file(
-                        ir, os.path.join(out_dir, f.__name__ + ".ttm"), {}, []
-                    )
+                flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttm")
                 if compile_only:
+                    ttmetal_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
                     return ir
                 else:
                     # TODO: hook up metal runtime here
@@ -91,17 +88,12 @@ def jit(
                     print("---- After ttir_to_ttnn_backend_pipeline ----")
                     print(ir)
 
-                out_dir = os.path.join("generated", "pykernels")
-                os.makedirs(out_dir, exist_ok=True)
                 flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttnn")
-
                 if compile_only:
                     ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
                     return ir
                 else:
-                    # TODO (#5055): always dump flatbuffer to disk for now, in the future we want to run flatbuffer from memory.
-                    if dump_flatbuffer:
-                        pass
+                    # TODO (#5055): always dump flatbuffer to disk for now, in the future we want to run flatbuffer from memory and only dump to disk if debug=True.
                     ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
 
                     return _run_binary(flatbuffer_bin, args)
