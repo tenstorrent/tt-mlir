@@ -121,6 +121,10 @@ void registerBinaryBindings(nb::module_ &m) {
                itemSize = sizeof(float);
                break;
 
+             case tt::target::DataType::BFloat16:
+               itemSize = 2;
+               break;
+
              default:
                throw std::runtime_error("Only 32-bit floats and unsigned ints "
                                         "are currently supported "
