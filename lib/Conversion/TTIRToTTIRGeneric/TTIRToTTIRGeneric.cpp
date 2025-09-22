@@ -8,7 +8,6 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -66,73 +65,6 @@ protected:
     assert(grid.size() == physicalShape.size());
 
     return grid;
-  }
-
-  Value
-  createTTNNTensorLayoutOp(Value value,
-                           mlir::ConversionPatternRewriter &rewriter) const {
-    auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    auto ttnnLayout =
-        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-
-    // Get memory space from the TTNN memref
-    assert(ttnnLayout.isDeviceBufferType() && "Must be a device tensor");
-    ttcore::MemorySpace memSpace =
-        ttnnLayout.getBufferType() == ttnn::BufferType::DRAM
-            ? ttcore::MemorySpace::DeviceDRAM
-            : ttcore::MemorySpace::DeviceL1;
-    // With these assumptions we can use the default alignment and dim
-    // collapsing behaviour in the MetalLayoutAttr
-    assert(ttnnLayout.isTiled() &&
-           "Row major TTNN layouts are not supported yet");
-    assert(
-        mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getHeight() ==
-            ttcore::TileType::getDefaultShape()[0] &&
-        mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getWidth() ==
-            ttcore::TileType::getDefaultShape()[1] &&
-        "Only default tile shape is supported");
-    assert(ttnnLayout.hasL1BufferType() &&
-           ttnnLayout.getMemLayout().getValue() ==
-               ttnn::TensorMemoryLayout::BlockSharded &&
-           "Only block sharded L1 tensor memory layout is supported");
-
-    Type elementType = ttnnLayout.getElementType();
-    auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
-    auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
-    DenseIntElementsAttr collapsedIntervals =
-        DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
-
-    // The index map in TTNNLayoutAttr is for collapsing an N-D tensor on to
-    // the grid. It has no relevance to the index map in MetalLayoutAttr.
-    // Hardcode collapse intervals to [[0, -1]].
-    // MetalLayoutAttr takes the grid shape of the device, not the grid on which
-    // the tensor is sharded
-    auto metalLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), tensorType.getShape(), targetSquareGridShape,
-        ttcore::OOBVal::Undef, memSpace, collapsedIntervals);
-    // Get raw, unsharded physical shape.
-    llvm::SmallVector<int64_t> unshardedShape =
-        metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
-
-    std::cout << "unshardedShape: " << unshardedShape[0] << " "
-              << unshardedShape[1] << std::endl;
-    // Calculate optimal grid for given physical shape.
-    llvm::SmallVector<int64_t> optimalGrid(ttnnLayout.getGrid().getShape());
-    std::cout << "optimalGrid: " << optimalGrid[0] << " " << optimalGrid[1]
-              << std::endl;
-
-    llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
-        optimalGrid, ttcore::TileType::getDefaultShape());
-    std::cout << "shardedShape: " << shardedShape[0] << " " << shardedShape[1]
-              << std::endl;
-
-    auto resultType =
-        mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
-    // resultType.dump();
-    auto castOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-        value.getLoc(), resultType, value);
-    // castOp.dump();
-    return castOp.getResult();
   }
 
   // Create a ToLayout op for a value using the provided layout info and grid.
@@ -207,16 +139,9 @@ protected:
   static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
                                    Value fromValue, Type toResultType,
                                    Value originalResult) {
-    RankedTensorType resultTensorType =
-        mlir::cast<RankedTensorType>(toResultType);
-    if (resultTensorType.getEncoding() &&
-        mlir::isa<ttnn::TTNNLayoutAttr>(resultTensorType.getEncoding())) {
-      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-          fromValue.getLoc(), resultTensorType, fromValue);
-    }
     // If the original op's result is immediately consumed by a
-    // TTNNMetalLayoutCastOp, skip inserting an Empty/ToLayout. The consumer
-    // will cast from whatever metal layout we have to the desired TTNN layout.
+    // TTNNMetalLayoutCastOp, skip inserting an Empty/ToLayout. This tensor is
+    // already allocated in TTNN, and the layout is set by the cast.
     for (Operation *user : originalResult.getUsers()) {
       if (mlir::isa<ttir::TTNNMetalLayoutCastOp>(user)) {
         return fromValue.getDefiningOp();
@@ -811,7 +736,8 @@ private:
     rewriter.restoreInsertionPoint(insertPoint);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType(), op->getResult(0)));
+                                          op->getResult(0).getType(),
+                                          op->getResult(0)));
     return llvm::success();
   }
 
@@ -961,7 +887,8 @@ public:
         });
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType(), op->getResult(0)));
+                                          op->getResult(0).getType(),
+                                          op->getResult(0)));
     return success();
   }
 

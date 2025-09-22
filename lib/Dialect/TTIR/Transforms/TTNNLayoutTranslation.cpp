@@ -34,6 +34,20 @@ static bool isTTNNTensor(Type type) {
   return enc && mlir::isa<ttnn::TTNNLayoutAttr>(enc);
 }
 
+static bool hasTTNNTensorOperandorResult(Operation *op) {
+  for (Value operand : op->getOperands()) {
+    if (isTTNNTensor(operand.getType())) {
+      return true;
+    }
+  }
+  for (Value result : op->getResults()) {
+    if (isTTNNTensor(result.getType())) {
+      return true;
+    }
+  }
+  return false;
+}
+
 class TranslateTTNNLayoutsPattern : public RewritePattern {
 public:
   TranslateTTNNLayoutsPattern(MLIRContext *context,
@@ -84,17 +98,12 @@ public:
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), targetSquareGridShape,
         ttcore::OOBVal::Undef, memSpace, collapsedIntervals);
-    // Get raw, unsharded physical shape.
+
     llvm::SmallVector<int64_t> unshardedShape =
         metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
 
-    std::cout << "unshardedShape: " << unshardedShape[0] << " "
-              << unshardedShape[1] << std::endl;
-
     llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
         ttnnLayout.getGrid().getShape(), ttcore::TileType::getDefaultShape());
-    std::cout << "shardedShape: " << shardedShape[0] << " " << shardedShape[1]
-              << std::endl;
 
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
@@ -117,22 +126,8 @@ public:
     }
 
     // Avoid infinite rewrite loops: only match ops that actually have TTNN
-    // operands or results. If nothing to change, report no match.
-    bool hasTTNNOperand = false;
-    for (Value operand : op->getOperands()) {
-      if (isTTNNTensor(operand.getType())) {
-        hasTTNNOperand = true;
-        break;
-      }
-    }
-    bool hasTTNNResult = false;
-    for (Value result : op->getResults()) {
-      if (isTTNNTensor(result.getType())) {
-        hasTTNNResult = true;
-        break;
-      }
-    }
-    if (!hasTTNNOperand && !hasTTNNResult) {
+    // operands or results and would be modified.
+    if (!hasTTNNTensorOperandorResult(op)) {
       return failure();
     }
 
@@ -159,11 +154,6 @@ public:
     state.addTypes(newResultTypes);
     state.addAttributes(op->getAttrs());
     state.addSuccessors(op->getSuccessors());
-    for (Region &r : op->getRegions()) {
-      Region *newRegion = state.addRegion();
-      rewriter.cloneRegionBefore(r, *newRegion, newRegion->begin());
-    }
-
     Operation *newOp = rewriter.create(state);
 
     SmallVector<Value> finalResults;
