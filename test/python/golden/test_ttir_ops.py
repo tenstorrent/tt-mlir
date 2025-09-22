@@ -3522,11 +3522,13 @@ def test_mesh_shard_devices(
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 @pytest.mark.parametrize("all_gather_dim", range(4))
 @pytest.mark.parametrize("cluster_axis", [0, 1])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 def test_all_gather(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
     all_gather_dim: int,
     cluster_axis: int,
+    dtype: torch.dtype,
     request,
 ):
     if all_gather_dim >= len(test_shape):
@@ -3546,6 +3548,7 @@ def test_all_gather(
     compile_ttir_to_flatbuffer(
         test_bundle.test_fn,
         [test_bundle.input_shape],
+        [dtype],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
@@ -3576,10 +3579,12 @@ def test_all_gather(
 )
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 @pytest.mark.parametrize("cluster_axis", [0, 1])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 def test_all_reduce(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
     cluster_axis: int,
+    dtype: torch.dtype,
     request,
 ):
     if mesh_shape[cluster_axis] == 1:
@@ -3598,6 +3603,7 @@ def test_all_reduce(
     compile_ttir_to_flatbuffer(
         test_bundle.test_fn,
         [test_bundle.input_shape],
+        [dtype],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
@@ -3627,11 +3633,13 @@ def test_all_reduce(
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 @pytest.mark.parametrize("scatter_dim", [0, 1, 2, 3])
 @pytest.mark.parametrize("cluster_axis", [0, 1])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 def test_reduce_scatter(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
     scatter_dim: int,
     cluster_axis: int,
+    dtype: torch.dtype,
     request,
 ):
     if mesh_shape[cluster_axis] == 1:
@@ -3655,6 +3663,7 @@ def test_reduce_scatter(
     compile_ttir_to_flatbuffer(
         test_bundle.test_fn,
         [test_bundle.input_shape],
+        [dtype],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
@@ -3692,10 +3701,12 @@ def test_reduce_scatter(
         [(0, 7), (1, 6), (2, 5), (3, 4), (4, 3), (5, 2), (6, 1), (7, 0)],
     ],
 )
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 def test_collective_permute(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
     source_target_pairs: List[Tuple[int, int]],
+    dtype: torch.dtype,
     request,
 ):
     max_id = reduce(operator.mul, mesh_shape, 1)
@@ -3713,6 +3724,7 @@ def test_collective_permute(
     compile_ttir_to_flatbuffer(
         test_bundle.test_fn,
         [test_bundle.input_shape],
+        [dtype],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
@@ -3744,12 +3756,14 @@ def test_collective_permute(
         ((2, 1), ((0, 1),)),
     ],
 )
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 def test_all_to_all(
     test_shape: Shape,
     split_dim,
     concat_dim,
     mesh_shape,
     replica_groups,
+    dtype: torch.dtype,
     request,
 ):
     split_count = len(replica_groups[0])
@@ -3772,6 +3786,7 @@ def test_all_to_all(
     compile_ttir_to_flatbuffer(
         test_bundle.test_fn,
         [test_bundle.input_shape],
+        [dtype],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
@@ -3802,10 +3817,12 @@ def test_all_to_all(
         ((2, 1), ((0, 1),)),
     ],
 )
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 def test_collective_broadcast(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
     replica_groups,
+    dtype: torch.dtype,
     request,
 ):
     def collective_broadcast(mesh_shard_in: Operand, builder: TTIRBuilder):
@@ -3819,6 +3836,7 @@ def test_collective_broadcast(
     compile_ttir_to_flatbuffer(
         test_bundle.test_fn,
         [test_bundle.input_shape],
+        [dtype],
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
