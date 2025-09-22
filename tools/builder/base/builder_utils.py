@@ -6,6 +6,7 @@ import os
 import inspect
 import subprocess
 import torch
+import copy
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
@@ -388,6 +389,25 @@ def compile_ttir_to_flatbuffer(
     if inputs_types is not None:
         if len(inputs_shapes) != len(inputs_types):
             raise ValueError("inputs_shapes and inputs_types must have the same length")
+
+    if target == "emitc":
+        # Compile a ttnn flatbuffer for EmitC comparison
+        compile_ttir_to_flatbuffer(
+            fn=fn,
+            inputs_shapes=inputs_shapes,
+            inputs_types=inputs_types,
+            system_desc_path=system_desc_path,
+            test_base=test_base,
+            output_root=output_root,
+            target="ttnn",
+            mesh_name=mesh_name,
+            mesh_dict=mesh_dict,
+            module_dump=module_dump,
+            argument_types_string=argument_types_string,
+            custom_pipeline=custom_pipeline,
+            pipeline_options=pipeline_options,
+            print_ir=print_ir,
+        )
 
     # Compile model to TTIR MLIR
     try:
@@ -867,6 +887,20 @@ def compile_ttir_module_to_flatbuffer(
         raise TTBuilderCompileException(e)
 
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
+
+    if target == "emitc":
+        # Generate a .so flatbuffer file from the .cpp file
+        env = os.environ.copy()
+        env[
+            "TT_METAL_HOME"
+        ] = "/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal"
+
+        subprocess.run(
+            ["tools/ttnn-standalone/ci_compile_dylib.py", "--file", output_file_fbb],
+            env=env,
+            check=True,
+        )
+
     return output_file_mlir
 
 

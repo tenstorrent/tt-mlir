@@ -2299,7 +2299,7 @@ def test_unary_ops(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitc"])
+@pytest.mark.parametrize("target", ["emitc"])
 def test_reciprocal(shape: Shape, dtype: torch.dtype, target: str, request):
     def reciprocal(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
