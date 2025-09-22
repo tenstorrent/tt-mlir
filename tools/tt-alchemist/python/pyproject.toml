@@ -39,4 +39,4 @@ tt-alchemist = "tt_alchemist.cli:cli"
 where = ["."]  # list of folders that contain the packages
 
 [tool.setuptools.package-data]
-tt_alchemist = ["lib/*.so", "templates/**/*"]  # Include .so files and templates directory in the package
+tt_alchemist = ["lib/*.so", "lib/*.so.*", "templates/**/*"]  # Include .so files, versioned .so files, and templates directory in the package
