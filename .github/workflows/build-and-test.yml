@@ -419,6 +419,7 @@ jobs:
       if: matrix.build.type == 'pykernel'
       shell: bash
       run: |
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         source env/activate
         cmake --build build
         cmake --build build -- pykernel-demo
@@ -513,7 +514,7 @@ jobs:
     - name: Download tt-alchemist wheel
       uses: actions/download-artifact@v4
       with:
-        name: tt-alchemist-whl-tracy
+        name: tt-alchemist-whl-speedy
 
     - name: Install tt-alchemist wheel
       shell: bash
