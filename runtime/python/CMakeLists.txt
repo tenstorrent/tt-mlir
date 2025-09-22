@@ -21,8 +21,8 @@ nanobind_add_module(
 )
 
 set_target_properties(_ttmlir_runtime PROPERTIES
-  INSTALL_RPATH "$ORIGIN;$<TARGET_FILE_DIR:TTMLIRRuntime>"
-  BUILD_RPATH "$<TARGET_FILE_DIR:TTMLIRRuntime>"
+  INSTALL_RPATH "$ORIGIN"
+  BUILD_RPATH "$ORIGIN;$<TARGET_FILE_DIR:TTMLIRRuntime>"
   BUILD_WITH_INSTALL_RPATH FALSE
 )
 
