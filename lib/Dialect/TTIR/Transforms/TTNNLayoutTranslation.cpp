@@ -68,7 +68,8 @@ public:
            "Only block sharded L1 tensor memory layout is supported");
   }
 
-  Type getMetalTensorType(PatternRewriter &rewriter, Value value) const {
+  RankedTensorType getMetalTensorType(PatternRewriter &rewriter,
+                                      Value value) const {
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
     auto ttnnLayout =
         mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());

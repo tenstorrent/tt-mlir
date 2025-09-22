@@ -647,7 +647,8 @@ def TTNNLayoutTranslation : Pass<"ttnn-layout-translation", "::mlir::ModuleOp"> 
     - the tensor layout can be represented and used in the TTMetalPipeline
 
     The translation is represented by inserting a ttir.ttnn_metal_layout_cast op.
-    This pass assumes the tensors are device tensors and already allocated. Translated tensors bypass allocation logic in TTMetalPipeline.
+    This pass can only cast existing tensors to tensors representing the same underlying data. This pass does not generate new temporaries
+    that would require allocation and/or layout conversion the way ToLayoutOp does.
   }];
   let dependentDialects = [
     "::mlir::tt::ttir::TTIRDialect",
