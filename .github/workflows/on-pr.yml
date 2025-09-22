@@ -30,20 +30,22 @@ jobs:
   spdx:
     uses: ./.github/workflows/spdx.yml
     secrets: inherit
-  # build-and-test:
-  #   needs:
-  #     - pre-commit
-  #     - spdx
-  #   if: github.event.pull_request.draft == false
-  #   uses: ./.github/workflows/build-and-test.yml
-  #   secrets: inherit
-  #   with:
-  #     metal_override: ${{ inputs.metal_override }}
-  #     builder_build: ${{ inputs.builder_build || false }}
+  build-and-test:
+    needs:
+      - pre-commit
+      - spdx
+    if: github.event.pull_request.draft == false
+    uses: ./.github/workflows/build-and-test.yml
+    secrets: inherit
+    with:
+      metal_override: ${{ inputs.metal_override }}
+      builder_build: ${{ inputs.builder_build || false }}
 
   # When a PR runs on the uplift branch trigger the downstream checks
   downstream-checks:
     runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event.pull_request.head.ref == 'uplift'
     strategy:
       matrix:
         projects: [
@@ -63,7 +65,11 @@ jobs:
             gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \
               --field mlir_override=${{ github.event.pull_request.head.sha }} \
+<<<<<<< HEAD
               --field test_suite=model-test-push.json
+=======
+              --field test_suite=basic-test.json \
+>>>>>>> 62ed2a115 (revert test changes)
             gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \
               --field mlir_override=${{ github.event.pull_request.head.sha }} \
@@ -82,6 +88,7 @@ jobs:
     needs:
     - pre-commit
     - spdx
+    - build-and-test
     runs-on: ubuntu-latest
     steps:
     - name: Check if the needed jobs succeeded or failed
