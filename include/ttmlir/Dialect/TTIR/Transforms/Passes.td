@@ -639,12 +639,15 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
   ];
 }
 
-def TTIRLowerTTNNLayouts : Pass<"ttir-lower-ttnn-layouts", "::mlir::ModuleOp"> {
-  let summary = "Skeleton: identify TTNN layout encodings for explicit view_layout lowering";
+def TTNNLayoutTranslation : Pass<"ttnn-layout-translation", "::mlir::ModuleOp"> {
+  let summary = "Translate tensor operands of TTIR ops with TTNNLayoutAttr encoding to equivalent tensors with MetalLayoutAttr";
   let description = [{
-    Skeleton pass that scans RankedTensorType values encoded with ttnn.ttnn_layout and
-    emits remarks indicating where lowering to ttir.view_layout should occur.
-    Option A only: no function signature rewrites and no replacements performed.
+    This pass translates RankedTensorType values with TTTNLayoutAttr encoding to RankedTensorType values with MetalLayoutAttr encoding if:
+    - the tensor is an operand or resultof a TTIR op, and
+    - the tensor layout can be represented and used in the TTMetalPipeline
+
+    The translation is represented by inserting a ttir.ttnn_metal_layout_cast op.
+    This pass assumes the tensors are device tensors and already allocated. Translated tensors bypass allocation logic in TTMetalPipeline.
   }];
   let dependentDialects = [
     "::mlir::tt::ttir::TTIRDialect",
