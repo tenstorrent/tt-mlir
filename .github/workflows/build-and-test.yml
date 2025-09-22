@@ -444,6 +444,7 @@ jobs:
         python3 -c "import ttnn; print('ttnn successfully imported')" || echo "ttnn import failed"
 
         echo "Running PyKernel tests..."
+        # cmake --build ${{ steps.strings.outputs.build-output-dir }} --target pykernel-demo-run
         cd ${{ steps.strings.outputs.build-output-dir }}/test/pykernel/demo
         pytest -v ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo/test.py
 

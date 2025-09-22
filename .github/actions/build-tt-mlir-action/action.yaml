@@ -101,6 +101,13 @@ runs:
         llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
         ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
+    - name: Build pykernel demo
+      if: inputs.enable-pykernel == 'ON'
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ inputs.build-output-dir }} -- pykernel-demo-compile
+
     - name: Build tt-explorer
       if: inputs.enable-explorer == 'ON'
       shell: bash
@@ -134,9 +141,7 @@ runs:
     - name: Archive Install Directory
       shell: bash
       working-directory: ${{ inputs.install-output-dir }}
-      run: |
-        rm -rf tt-metal/.cpmcache
-        tar cf artifact.tar lib tt-metal bin tools
+      run: tar cf artifact.tar lib tt-metal bin tools
 
     - name: Upload Install Folder
       uses: actions/upload-artifact@v4
