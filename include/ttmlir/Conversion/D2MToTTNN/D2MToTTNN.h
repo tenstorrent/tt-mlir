@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_CONVERSION_D2M_TO_TTNN_D2M_TO_TTNN_H
-#define TTMLIR_CONVERSION_D2M_TO_TTNN_D2M_TO_TTNN_H
+#ifndef TTMLIR_CONVERSION_D2MTOTTNN_D2MTOTTNN_H
+#define TTMLIR_CONVERSION_D2MTOTTNN_D2MTOTTNN_H
 
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -17,4 +17,4 @@ std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTNNPass();
 
 } // namespace mlir::tt
 
-#endif // TTMLIR_CONVERSION_D2M_TO_TTNN_D2M_TO_TTNN_H
+#endif // TTMLIR_CONVERSION_D2MTOTTNN_D2MTOTTNN_H
