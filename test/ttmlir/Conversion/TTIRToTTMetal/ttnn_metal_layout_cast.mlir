@@ -14,7 +14,6 @@
   >
 
 module {
-<<<<<<< HEAD
   // CHECK-NOT: %arg0: memref
   func.func @test_bufferization(%arg0: tensor<32x32xf32, #ttnn_l1_layout>) -> tensor<32x32xf32, #ttnn_l1_layout> {
     // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x32xf32, #ttnn_layout> -> memref<
@@ -39,12 +38,5 @@ module {
     %5 = ttir.ttnn_metal_layout_cast %4 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #metal_layout> -> tensor<32x32xf32, #ttnn_l1_layout>
 
     return %5 : tensor<32x32xf32, #ttnn_l1_layout>
-=======
-  func.func @test_no_bufferization(%arg0 : tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
-    %0 = ttir.empty() : tensor<32x32xf32, #ttnn_layout>
-    %1 = ttir.ttnn_metal_layout_cast %0 : tensor<32x32xf32, #ttnn_layout> -> tensor<32x32xf32, #metal_layout>
-    %2 = ttir.ttnn_metal_layout_cast %1 : tensor<32x32xf32, #metal_layout> -> tensor<32x32xf32, #ttnn_layout>
-    return %2 : tensor<32x32xf32, #ttnn_layout>
->>>>>>> 067136df7 (cleanup)
   }
 }
