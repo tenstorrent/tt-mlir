@@ -24,7 +24,6 @@
 
 #include <algorithm>
 #include <array>
-#include <iostream>
 
 namespace mlir::tt {
 
@@ -137,18 +136,17 @@ protected:
   }
 
   static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
-                                   Value fromValue, Type toResultType,
-                                   Value originalResult) {
+                                   Value fromValue, Value toResult) {
     // If the original op's result is immediately consumed by a
     // TTNNMetalLayoutCastOp, skip inserting an Empty/ToLayout. This tensor is
     // already allocated in TTNN, and the layout is set by the cast.
-    for (Operation *user : originalResult.getUsers()) {
+    for (Operation *user : toResult.getUsers()) {
       if (mlir::isa<ttir::TTNNMetalLayoutCastOp>(user)) {
         return fromValue.getDefiningOp();
       }
     }
-    auto output =
-        rewriter.create<tt::ttir::EmptyOp>(fromValue.getLoc(), toResultType);
+    auto output = rewriter.create<tt::ttir::EmptyOp>(fromValue.getLoc(),
+                                                     toResult.getType());
     return rewriter.create<tt::ttir::ToLayoutOp>(fromValue.getLoc(), fromValue,
                                                  output);
   }
@@ -304,7 +302,6 @@ private:
     auto generic = rewriter.create<ttir::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
-    std::cout << "generic: " << std::endl;
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
@@ -361,9 +358,8 @@ private:
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType(),
-                                          op->getResult(0)));
+    rewriter.replaceOp(
+        op, unLayoutResult(rewriter, generic->getResult(0), op->getResult(0)));
     return llvm::success();
   }
 
@@ -497,9 +493,8 @@ private:
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType(),
-                                          op->getResult(0)));
+    rewriter.replaceOp(
+        op, unLayoutResult(rewriter, generic->getResult(0), op->getResult(0)));
     return llvm::success();
   }
 
@@ -735,9 +730,8 @@ private:
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType(),
-                                          op->getResult(0)));
+    rewriter.replaceOp(
+        op, unLayoutResult(rewriter, generic->getResult(0), op->getResult(0)));
     return llvm::success();
   }
 
@@ -886,9 +880,8 @@ public:
           builder.create<ttir::YieldOp>(bodyLoc, linalgGeneric->getResults());
         });
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType(),
-                                          op->getResult(0)));
+    rewriter.replaceOp(
+        op, unLayoutResult(rewriter, generic->getResult(0), op->getResult(0)));
     return success();
   }
 
