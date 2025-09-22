@@ -20,7 +20,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         QuantDequantConversion.cpp
         Transforms.cpp
         TTIRFusing.cpp
-        TTIRLowerTTNNLayouts.cpp
+        TTNNLayoutTranslation.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir

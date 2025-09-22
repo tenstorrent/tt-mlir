@@ -21,7 +21,7 @@ using namespace mlir;
 
 namespace mlir::tt::ttir {
 
-#define GEN_PASS_DEF_TTIRLOWERTTNNLAYOUTS
+#define GEN_PASS_DEF_TTNNLAYOUTTRANSLATION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
@@ -34,24 +34,16 @@ static bool isTTNNTensor(Type type) {
   return enc && mlir::isa<ttnn::TTNNLayoutAttr>(enc);
 }
 
-class LowerTTNNLayoutsPattern : public RewritePattern {
+class TranslateTTNNLayoutsPattern : public RewritePattern {
 public:
-  LowerTTNNLayoutsPattern(MLIRContext *context,
-                          llvm::SmallVector<int64_t> targetSquareGridShape)
+  TranslateTTNNLayoutsPattern(MLIRContext *context,
+                              llvm::SmallVector<int64_t> targetSquareGridShape)
       : RewritePattern(Pattern::MatchAnyOpTypeTag(), /*benefit=*/1, context),
         targetSquareGridShape(targetSquareGridShape) {}
 
-  Type getMetalTensorType(PatternRewriter &rewriter, Value value) const {
-    auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    auto ttnnLayout =
-        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-
-    // Get memory space from the TTNN memref
+  void assertTTNNLayoutSupported(ttnn::TTNNLayoutAttr ttnnLayout) const {
     assert(ttnnLayout.isDeviceBufferType() && "Must be a device tensor");
-    ttcore::MemorySpace memSpace =
-        ttnnLayout.getBufferType() == ttnn::BufferType::DRAM
-            ? ttcore::MemorySpace::DeviceDRAM
-            : ttcore::MemorySpace::DeviceL1;
+
     // With these assumptions we can use the default alignment and dim
     // collapsing behaviour in the MetalLayoutAttr
     assert(ttnnLayout.isTiled() &&
@@ -59,13 +51,24 @@ public:
     assert(
         mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getHeight() ==
             ttcore::TileType::getDefaultShape()[0] &&
-        mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getWidth() ==
-            ttcore::TileType::getDefaultShape()[1] &&
         "Only default tile shape is supported");
     assert(ttnnLayout.hasL1BufferType() &&
            ttnnLayout.getMemLayout().getValue() ==
                ttnn::TensorMemoryLayout::BlockSharded &&
            "Only block sharded L1 tensor memory layout is supported");
+  }
+
+  Type getMetalTensorType(PatternRewriter &rewriter, Value value) const {
+    auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+    auto ttnnLayout =
+        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+
+    assertTTNNLayoutSupported(ttnnLayout);
+
+    ttcore::MemorySpace memSpace =
+        ttnnLayout.getBufferType() == ttnn::BufferType::DRAM
+            ? ttcore::MemorySpace::DeviceDRAM
+            : ttcore::MemorySpace::DeviceL1;
 
     Type elementType = ttnnLayout.getElementType();
     auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
@@ -87,13 +90,9 @@ public:
 
     std::cout << "unshardedShape: " << unshardedShape[0] << " "
               << unshardedShape[1] << std::endl;
-    // Calculate optimal grid for given physical shape.
-    llvm::SmallVector<int64_t> optimalGrid(ttnnLayout.getGrid().getShape());
-    std::cout << "optimalGrid: " << optimalGrid[0] << " " << optimalGrid[1]
-              << std::endl;
 
     llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
-        optimalGrid, ttcore::TileType::getDefaultShape());
+        ttnnLayout.getGrid().getShape(), ttcore::TileType::getDefaultShape());
     std::cout << "shardedShape: " << shardedShape[0] << " " << shardedShape[1]
               << std::endl;
 
@@ -188,13 +187,13 @@ protected:
   llvm::SmallVector<int64_t> targetSquareGridShape;
 };
 
-class TTIRLowerTTNNLayoutsPass
-    : public impl::TTIRLowerTTNNLayoutsBase<TTIRLowerTTNNLayoutsPass> {
-  using impl::TTIRLowerTTNNLayoutsBase<
-      TTIRLowerTTNNLayoutsPass>::TTIRLowerTTNNLayoutsBase;
+class TTNNLayoutTranslationPass
+    : public impl::TTNNLayoutTranslationBase<TTNNLayoutTranslationPass> {
+  using impl::TTNNLayoutTranslationBase<
+      TTNNLayoutTranslationPass>::TTNNLayoutTranslationBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<LowerTTNNLayoutsPattern>(
+    patterns.add<TranslateTTNNLayoutsPattern>(
         &getContext(),
         tt::ttir::utils::getSquareTargetGrid(getTargetGridShape()));
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
