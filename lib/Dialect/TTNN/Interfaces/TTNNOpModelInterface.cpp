@@ -1820,20 +1820,18 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
   ScaledDotProductAttentionDecodeOptionalArgs optionalArgs =
       unpackScaledDotProductAttentionDecodeOptionalArgs(inputs, *this);
 
-  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+  auto scale = getScale();
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints,
       *this, deviceGrid, queryShape, inputs[0], keyShape, inputs[1], valueShape,
       inputs[2], curPosTensorShape, inputs[3], optionalArgs.attentionMaskShape,
       optionalArgs.attentionMaskLayout, optionalArgs.attentionSinkShape,
-      optionalArgs.attentionSinkLayout, getIsCausal(), getScale(),
+      optionalArgs.attentionSinkLayout, getIsCausal(), scale,
       opConfig.outputLayout);
-  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
 llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
   assert(inputs.size() >= 4 && inputs.size() <= 6 &&
          "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
          "5, or 6 "
@@ -1852,14 +1850,14 @@ llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
   ScaledDotProductAttentionDecodeOptionalArgs optionalArgs =
       unpackScaledDotProductAttentionDecodeOptionalArgs(inputs, *this);
 
+  auto scale = getScale();
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime, *this,
       queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
       curPosTensorShape, inputs[3], optionalArgs.attentionMaskShape,
       optionalArgs.attentionMaskLayout, optionalArgs.attentionSinkShape,
-      optionalArgs.attentionSinkLayout, getIsCausal(), getScale(),
+      optionalArgs.attentionSinkLayout, getIsCausal(), scale,
       opConfig.outputLayout);
-  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
 //===----------------------------------------------------------------------===//

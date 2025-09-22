@@ -3153,24 +3153,24 @@ public:
           srcOp,
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, curPosTensor, adaptor.getOperands()[4],
-          adaptor.getOperands()[5], outputTensor, isCausalAttr, scaleAttr);
+          query, key, value, isCausalAttr, adaptor.getOperands()[4],
+          curPosTensor, adaptor.getOperands()[5], outputTensor, scaleAttr);
     } else if (hasAttentionMask) {
       rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
           srcOp,
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, curPosTensor, adaptor.getOperands()[4], nullptr,
-          outputTensor, isCausalAttr, scaleAttr);
+          query, key, value, isCausalAttr, adaptor.getOperands()[4],
+          curPosTensor, nullptr, outputTensor, scaleAttr);
     } else if (hasAttentionSink) {
       rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
           srcOp,
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, curPosTensor, nullptr, adaptor.getOperands()[4],
-          outputTensor, isCausalAttr, scaleAttr);
+          query, key, value, isCausalAttr, nullptr, curPosTensor,
+          adaptor.getOperands()[4], outputTensor, scaleAttr);
     } else {
       if (hasAttentionMask || hasAttentionSink) {
         llvm_unreachable("All combinations of attention mask "
