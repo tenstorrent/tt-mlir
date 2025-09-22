@@ -414,7 +414,7 @@ jobs:
         source env/activate
         python -m pip install -e runtime/tools/chisel/
 
-    # PyKernel Test Runner
+    # PyKernel + ttnn.jit Test Runner
     - name: Prepare and run PyKernel Test
       if: matrix.build.type == 'pykernel'
       shell: bash
@@ -422,7 +422,9 @@ jobs:
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         source env/activate
         cmake --build build
-        cmake --build build -- pykernel-demo
+        cmake --build build -- pykernel
+        pytest -svv test/pykernel/demo/test.py
+        pytest -svv test/ttnn-jit/test_unary_composite.py
 
     # pytest runner
     - name: Run pytest ttrt tests
