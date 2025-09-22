@@ -102,15 +102,13 @@ def test_roundtrip_dma_tiled(
         unit_attrs: List[str] = None,
     ):
         # derive sharded shapes
-        assert (
-            (shape[0] % start_grid[0] == 0) and (shape[1] % start_grid[1] == 0),
-            "shape must be divisible by start_grid",
-        )
+        assert (shape[0] % start_grid[0] == 0) and (
+            shape[1] % start_grid[1] == 0
+        ), "shape must be divisible by start_grid"
         start_shard_shape = (shape[0] // start_grid[0], shape[1] // start_grid[1])
-        assert (
-            (shape[0] % end_grid[0] == 0) and (shape[1] % end_grid[1] == 0),
-            "shard_shape must be divisible by end_grid",
-        )
+        assert (shape[0] % end_grid[0] == 0) and (
+            shape[1] % end_grid[1] == 0
+        ), "shard_shape must be divisible by end_grid"
         end_shard_shape = (shape[0] // end_grid[0], shape[1] // end_grid[1])
 
         # tilize the tensor on a single worker
@@ -194,17 +192,14 @@ def test_roundtrip_dma_rowmajor(
         )
 
         # derive sharded shapes
-        assert (
-            (shape[0] % start_grid[0] == 0) and (shape[1] % start_grid[1] == 0),
-            "shape must be divisible by grid",
-        )
+        assert (shape[0] % start_grid[0] == 0) and (
+            shape[1] % start_grid[1] == 0
+        ), "shape must be divisible by grid"
         start_shard_shape = (shape[0] // start_grid[0], shape[1] // start_grid[1])
 
-        assert (
-            (start_shard_shape[0] % end_grid[0] == 0)
-            and (start_shard_shape[1] % end_grid[1] == 0),
-            "start_shard_shape must be divisible by end_grid",
-        )
+        assert (start_shard_shape[0] % end_grid[0] == 0) and (
+            start_shard_shape[1] % end_grid[1] == 0
+        ), "start_shard_shape must be divisible by end_grid"
         end_shard_shape = (shape[0] // end_grid[0], shape[1] // end_grid[1])
 
         # WRITE L1 to initial shard layout
