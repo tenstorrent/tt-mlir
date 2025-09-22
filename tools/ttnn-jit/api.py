@@ -90,8 +90,11 @@ def jit(
                 out_dir = os.path.join("generated", "pykernels")
                 os.makedirs(out_dir, exist_ok=True)
                 flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttnn")
-                if dump_flatbuffer:
-                    ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+
+                # TODO: remove once we can run flatbuffer from memory
+                if not dump_flatbuffer:
+                    raise RuntimeError("dump_flatbuffer must be True for ttnn backend")
+                ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
 
                 return _run_binary(flatbuffer_bin, args)
             else:
