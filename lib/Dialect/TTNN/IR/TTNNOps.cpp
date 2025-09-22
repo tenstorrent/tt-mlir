@@ -3348,6 +3348,38 @@ void CaptureOrExecuteTraceOp::getEffects(
   return success();
 }
 
+//===-----------------------------------------------------------------------===//
+// NLPConcatHeadsOp
+// ===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::NLPConcatHeadsOp::verify() {
+  ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  ArrayRef<int64_t> outputShape = getResult().getType().getShape();
+
+  if (outputShape.size() != 4) {
+    return emitOpError() << "output tensor must be a 4D tensor";
+  }
+
+  if (inputShape.size() != 4) {
+    return emitOpError() << "input tensor must be a 4D tensor";
+  }
+
+  using namespace ttmlir::utils::transformer;
+
+  llvm::SmallVector<int64_t> expectedOutputShape = {
+      inputShape[INPUT_BATCH], 1, inputShape[INPUT_SEQ],
+      inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE]};
+
+  if (!llvm::equal(expectedOutputShape, outputShape)) {
+    return emitOpError() << "expected output shape ("
+                         << ttmlir::utils::join(expectedOutputShape, ", ")
+                         << "), got (" << ttmlir::utils::join(outputShape, ", ")
+                         << ")";
+  }
+
+  return mlir::success();
+}
+
 //===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//

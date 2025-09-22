@@ -666,6 +666,22 @@ struct OpModel<RotaryEmbeddingLlamaOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// NLPConcatHeadsOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<NLPConcatHeadsOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // RepeatInterleaveOp
 //===----------------------------------------------------------------------===//
 
