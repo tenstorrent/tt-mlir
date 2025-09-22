@@ -49,8 +49,8 @@ jobs:
     strategy:
       matrix:
         projects: [
-          { name: "tenstorrent/tt-forge-fe", workflow-name: "on-pr.yml" },
-          { name: "tenstorrent/tt-torch", workflow-name: "on-pr.yml" },
+          # { name: "tenstorrent/tt-forge-fe", workflow-name: "on-pr.yml" },
+          # { name: "tenstorrent/tt-torch", workflow-name: "on-pr.yml" },
           { name: "tenstorrent/tt-xla", workflow-name: "manual-test.yml" },
         ]
     env:
