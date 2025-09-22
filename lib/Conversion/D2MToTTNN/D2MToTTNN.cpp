@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTIRToTTNNGeneric/TTIRToTTNNGeneric.h"
+#include "ttmlir/Conversion/D2MToTTNN/D2MToTTNN.h"
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -281,9 +281,8 @@ public:
 
 } // namespace mlir::tt
 namespace mlir::tt {
-void populateTTIRToTTNNGenericPatterns(MLIRContext *ctx,
-                                       RewritePatternSet &patterns,
-                                       TypeConverter &typeConverter) {
+void populateD2MToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                               TypeConverter &typeConverter) {
   patterns.add<TTIRGenericRewriter, TTNNMetalLayoutCastRewriter,
                TTIREmptyRewriter, StreamLayoutRewriter>(ctx);
 }

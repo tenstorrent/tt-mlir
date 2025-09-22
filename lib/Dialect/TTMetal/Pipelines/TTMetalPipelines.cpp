@@ -143,7 +143,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);
   if (options.ttnnMode) {
-    pm.addPass(tt::createConvertTTIRToTTNNGenericPass());
+    pm.addPass(tt::createConvertD2MToTTNNPass());
   } else {
     ttir::ConvertTTIRToTTMetalOptions ttirToTTMetalOptions;
     { ttirToTTMetalOptions.mathFidelity = options.mathFidelity; }

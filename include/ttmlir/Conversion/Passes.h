@@ -11,6 +11,7 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #endif
+#include "ttmlir/Conversion/D2MToTTNN/D2MToTTNN.h"
 #include "ttmlir/Conversion/SFPIToEmitC/SFPIToEmitC.h"
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
@@ -18,7 +19,6 @@
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
-#include "ttmlir/Conversion/TTIRToTTNNGeneric/TTIRToTTNNGeneric.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"

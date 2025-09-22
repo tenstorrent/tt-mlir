@@ -1,6 +1,6 @@
-add_mlir_conversion_library(TTMLIRTTIRToTTNNGeneric
-  TTIRToTTNNGeneric.cpp
-  TTIRToTTNNGenericPass.cpp
+add_mlir_conversion_library(TTMLIRD2MToTTNN
+  D2MToTTNN.cpp
+  D2MToTTNNPass.cpp
 
   DEPENDS
   TTMLIRConversionPassIncGen

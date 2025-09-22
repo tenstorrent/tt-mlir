@@ -222,8 +222,8 @@ let summary = "Convert TTNN dialect to TTIR dialect.";
   let dependentDialects = ["mlir::tt::ttnn::TTNNDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
-def ConvertTTIRToTTNNGeneric: Pass<"convert-ttir-to-ttnn-generic", "::mlir::ModuleOp">{
-  let summary = "Convert from TTIRGeneric to TTNNGeneric";
+def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
+  let summary = "Conversion to exit D2M flow into TTNN";
   let description = [{
     Conversion pass to convert from TTIR to TTNN by constructing a TTNN Generic op using the TTIRGeneric op.
     For now assume, input into the TTIRGeneric will always be a stream layout, output is `ttnn_metal_layout_cast`.
@@ -251,7 +251,7 @@ def ConvertTTIRToTTNNGeneric: Pass<"convert-ttir-to-ttnn-generic", "::mlir::Modu
       %2 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>, <physical>>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout1>
       "ttnn.generic"(%1, %2) ...
   }];
-  let constructor = "createConvertTTIRToTTNNGenericPass()";
+  let constructor = "createConvertD2MToTTNNPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttnn::TTNNDialect"];
 }
 
