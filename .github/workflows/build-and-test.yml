@@ -426,7 +426,6 @@ jobs:
         # Set up PYTHONPATH to include the built packages
         export PYTHONPATH="${{ steps.strings.outputs.build-output-dir }}/python_packages:${{ steps.strings.outputs.install-output-dir }}/tt-metal/ttnn:${{ steps.strings.outputs.install-output-dir }}/tt-metal:$PYTHONPATH"
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         echo "PYTHONPATH: $PYTHONPATH"
 

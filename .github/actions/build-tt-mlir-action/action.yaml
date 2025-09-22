@@ -101,13 +101,6 @@ runs:
         llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
         ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
-    - name: Build pykernel demo
-      if: inputs.enable-pykernel == 'ON'
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ inputs.build-output-dir }} -- pykernel-demo-compile
-
     - name: Build tt-explorer
       if: inputs.enable-explorer == 'ON'
       shell: bash
