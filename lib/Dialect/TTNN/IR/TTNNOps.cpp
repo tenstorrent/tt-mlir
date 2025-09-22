@@ -3455,6 +3455,19 @@ void CaptureOrExecuteTraceOp::getEffects(
 
   uint32_t numHeads = getNumHeads();
 
+  if (outputShape[1] != 1) {
+    return emitOpError() << "output dimension 1 must be 1, got "
+                         << outputShape[1];
+  }
+
+  if (inputShape[INPUT_NUM_HEADS] < numHeads) {
+    return emitOpError() << "num_heads attribute must be less than or equal to "
+                            "input num_heads "
+                            "dimension, got num_heads = "
+                         << numHeads << ", input num_heads dimension = "
+                         << inputShape[INPUT_NUM_HEADS];
+  }
+
   if (inputShape[INPUT_SEQ] != outputShape[OUTPUT_SEQ]) {
     return emitOpError()
            << "input sequence dimension must match output sequence dimension, "
