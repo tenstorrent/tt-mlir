@@ -32,7 +32,7 @@ def jit(
         def _wrapper(*args, **kwargs):
             source_code = _cleanup_source_code(f)
 
-            # Pass the actual tensors as kwargs
+            # Pass the actual tensors through as kwargs
             tensor_args = {}
             sig = inspect.signature(f)
             param_names = list(sig.parameters.keys())
@@ -47,6 +47,8 @@ def jit(
             m = ast.parse(source_code)
             if debug:
                 print(ast.dump(m, indent=2) + "\n")
+
+            # TODO (#5043): emit ttnn IR instead of TTIR, TTIR should be fallback.
             b = TTIRCompiler(None, *args, **kwargs)
             b.visit(m)
 

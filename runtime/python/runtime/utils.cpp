@@ -2,18 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cstdint>
-#include <iostream>
-#include <sstream>
-#include <vector>
-
 #include "tt/runtime/detail/ttnn/utils.h"
-
 #include "tt/runtime/detail/python/nanobind_headers.h"
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
 #include <pybind11/cast.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
+#pragma clang diagnostic pop
 
 namespace nb = nanobind;
 namespace py = pybind11;
@@ -27,8 +24,6 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
         py::handle tensor_pybind_obj(tensor_obj.ptr());
         const ::ttnn::Tensor &tensor =
             py::cast<const ::ttnn::Tensor &>(tensor_pybind_obj);
-        std::cout << "tensor: " << tensor.is_allocated() << " storage_type: "
-                  << static_cast<int>(tensor.storage_type()) << std::endl;
         return ::tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(
             tensor, std::nullopt, retain);
       },

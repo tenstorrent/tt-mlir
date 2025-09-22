@@ -8,11 +8,8 @@ find_package(pybind11 CONFIG REQUIRED)
 set(TTMLIR_RUNTIME_PYTHON_SRCS
   __init__.cpp
   runtime/runtime.cpp
-  # runtime/utils.cpp
   binary/binary.cpp
 )
-
-# set_source_files_properties(runtime/utils.cpp PROPERTIES INCLUDE_DIRECTORIES "${pybind11_INCLUDE_DIRS}")
 
 if (TTMLIR_ENABLE_RUNTIME_TESTS)
   list(APPEND TTMLIR_RUNTIME_PYTHON_SRCS runtime/test.cpp)
@@ -58,16 +55,3 @@ target_link_libraries(_mlir_runtime_utils
 )
 target_sources(_ttmlir_runtime PRIVATE $<TARGET_OBJECTS:_mlir_runtime_utils>)
 set_property(TARGET _mlir_runtime_utils PROPERTY CXX_STANDARD 20)
-
-if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  target_compile_options(nanobind-static PRIVATE
-      -Wno-cast-qual
-      -Wno-zero-length-array
-      -Wno-nested-anon-types
-      -Wno-c++98-compat-extra-semi
-      -Wno-covered-switch-default
-  )
-  target_compile_options(_mlir_runtime_utils PRIVATE
-    -Wno-covered-switch-default
-  )
-endif()
