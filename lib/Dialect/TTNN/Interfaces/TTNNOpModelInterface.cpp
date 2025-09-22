@@ -1839,6 +1839,43 @@ NLPConcatHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// NLPConcatHeadsDecodeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+llvm::Expected<op_model::OpConstraints>
+NLPConcatHeadsDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+  uint32_t numHeads = getNumHeads();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], numHeads, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+NLPConcatHeadsDecodeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+  uint32_t numHeads = getNumHeads();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime, *this,
+      inputShape, inputs[0], numHeads, opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RepeatInterleaveOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
