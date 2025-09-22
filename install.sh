@@ -22,7 +22,6 @@ show_help() {
     echo "  --tracy                          Tracy CI build settings."
 
     echo "  --skip-tests                     Skip running check-ttmlir tests."
-    echo "  --skip-ttrt                      Skip building ttrt utils."
 }
 
 clean() {
@@ -45,7 +44,6 @@ enable_runtime_debug="OFF"
 enable_pykernel="OFF"
 enable_stablehlo="OFF"
 skip_tests="OFF"
-skip_ttrt="OFF"
 # to add: TTMLIR_ENABLE_TTIRTONVVM, CODE_COVERAGE
 
 declare -a cmake_args
@@ -62,7 +60,6 @@ explorer
 speedy
 tracy
 skip-tests
-skip-ttrt
 "
 
 # Flatten LONGOPTIONS into a comma-separated string for getopt
@@ -93,13 +90,11 @@ while true; do
         --explorer)
             build_preset="explorer"; enable_runtime="ON"; enable_explorer="ON"; enable_runtime_debug="ON";;
         --speedy)
-            build_preset="speedy"; enable_runtime="ON"; enable_op_model="ON"; enable_emitc="ON"; enable_stablehlo="ON";;
+            build_preset="speedy"; enable_runtime="ON"; enable_runtime_tests="ON"; enable_op_model="ON"; enable_emitc="ON"; enable_stablehlo="ON";;
         --tracy)
-            build_preset="tracy"; enable_runtime="ON"; enable_profiler="ON"; enable_emitc="ON"; enable_runtime_debug="ON"; enable_explorer="ON"; enable_pykernel="ON"; enable_stablehlo="ON";;
+            build_preset="tracy"; enable_runtime="ON"; enable_runtime_tests="ON"; enable_profiler="ON"; enable_emitc="ON"; enable_runtime_debug="ON"; enable_explorer="ON"; enable_pykernel="ON"; enable_stablehlo="ON";;
         --skip-tests)
             skip_tests="ON";;
-        --skip-ttrt)
-            skip_ttrt="ON";;
         --clean)
 	    clean; exit 0;;
         --)
@@ -195,15 +190,5 @@ if [ "$skip_tests" != "ON" ]; then
     cmake --build $build_dir -- check-ttmlir
 fi
 
-if [ "$skip_ttrt" != "ON" ]; then
-    echo "INFO: Building ttrt"
-    if [ -e "$build_dir"/runtime/tools/python/build/.installed ]; then
-        if [ ! -e "$TTMLIR_VENV_DIR"/bin/ttrt ]; then
-            echo "INFO: Did not find ttrt binary, rebuilding"
-            rm -f "$build_dir"/runtime/tools/python/build/.installed
-        fi
-    fi
-    cmake --build $build_dir -- ttrt
-    echo "INFO: ttrt build done, now try:"
-    echo "  ttrt query --save-artifacts && export SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys"
-fi
+echo "tt-mlir build finished. Try:"
+echo "  ttrt query --save-artifacts && export SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys"
