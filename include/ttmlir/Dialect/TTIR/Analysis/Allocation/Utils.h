@@ -5,12 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATION_UTILS_H
 #define TTMLIR_DIALECT_TTIR_ANALYSIS_ALLOCATION_UTILS_H
 
-// TODO(vroubtsov) temp workaround for #4304 not being available yet
-#if defined(__has_include)
-#if __has_include("ttmlir/Asserts.h")
 #include "ttmlir/Asserts.h"
-#endif
-#endif // defined(__has_include)
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/AsmState.h"
@@ -21,28 +16,6 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
-
-// clang-format off
-#ifndef TT_IMPL_ASSERT_LOC_INFO
-
-# define TT_assert(condition)                            assert(condition)
-# define TT_assertv(condition, /* message[, args] */...) assert(condition)
-
-# define TT_assert_open_range(x, a, b)                   ((void)0)
-# define TT_assert_limit(x, limit)                       ((void)0)
-# define TT_assert_exclusive_range(x, a, b)              ((void)0)
-# define TT_assert_inclusive_range(x, a, b)              ((void)0)
-
-# define TT_debug(condition)                             assert(condition)
-# define TT_debugv(condition, /* message[, args] */...)  assert(condition)
-
-# define TT_debug_open_range(x, a, b)                    ((void)0)
-# define TT_debug_limit(x, limit)                        ((void)0)
-# define TT_debug_exclusive_range(x, a, b)               ((void)0)
-# define TT_debug_inclusive_range(x, a, b)               ((void)0)
-
-#endif
-// clang-format on
 
 namespace mlir::tt::ttir::allocation {
 
