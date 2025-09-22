@@ -72,10 +72,6 @@ public:
       if (AffineConstantExpr constant =
               mlir::dyn_cast<AffineConstantExpr>(result)) {
         assert(constant.getValue() == 0);
-        // assert(grid.getShape()[dim] ==
-        //        1); // this is too conservative, I think there will be bcast
-        // cases in the future where this isn't true.  Probably best
-        // to have it as a canary when we hit this case tho
 
         iteratorType = ttcore::IteratorType::Parallel;
       } else {

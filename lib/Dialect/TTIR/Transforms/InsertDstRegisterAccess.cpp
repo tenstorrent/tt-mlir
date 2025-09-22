@@ -272,8 +272,8 @@ public:
             bool isReduction = mlir::isa<ttir::TileReduceMaxOp>(op) ||
                                mlir::isa<ttir::TileReduceSumOp>(op);
             assert((isUnaryOp || isTileMatmul || isReduction) &&
-                   "Only unary ops and tile matmul supported for destination "
-                   "register in "
+                   "Only unary ops, tile matmul, and reductions supported for "
+                   "destination register in "
                    "place, multi-operand ops would reference wrong tile, but "
                    "those ops should be setting output tile.");
             dstIndex = dstRegisterAllocationState.getCurrDstIndex();
@@ -645,9 +645,6 @@ public:
         op->template getParentOfType<GenericOp>().getLoopBounds();
 
     scf::IfOp ifOp;
-    // check if iter index == last index of generic.getLoopBounds(), if so dont
-    // reset, otherwise reset
-
     if (reduceDim == ReduceDim::R) {
       auto iterIndex = rewriter.create<ttir::IterIndexOp>(op.getLoc(), 1);
       auto condOp = rewriter.create<arith::CmpIOp>(
