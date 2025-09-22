@@ -73,7 +73,7 @@ jobs:
               --repo ${{ env.TARGET_REPO }} --ref main \
               --field mlir_override=${{ github.event.pull_request.head.sha }}
           fi
-          gh run list --workflow=${{ env.WORKFLOW_NAME }} --repo ${{ env.TARGET_REPO }} --ref main --limit 1
+          gh run list --workflow=${{ env.WORKFLOW_NAME }} --repo ${{ env.TARGET_REPO }} --branch main --limit 1
           echo "Triggered ${{ env.TARGET_REPO }} with tt-mlir ${{ github.event.pull_request.head.sha }}"
           echo "### Triggered [${{ env.TARGET_REPO }}](https://github.com/${{ env.TARGET_REPO }}/actions/workflows/${{ env.WORKFLOW_NAME }}) with tt-mlir ${{ github.event.pull_request.head.sha }} :rocket:" >> $GITHUB_STEP_SUMMARY
 
