@@ -1,9 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttnn-layout-translation -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
-// Single-case test: block-sharded L1 tiled TTNN layout is lowered to an
-// explicit ttir.ttnn_to_metal_layout_cast with a ttcore.metal_layout encoding.
-
 #l1 = #ttnn.buffer_type<l1>
 
 // CHECK: #layout = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals

@@ -117,7 +117,7 @@ public:
       return failure();
     }
 
-    if (isa<ttir::TTNNMetalLayoutCastOp>(op)) {
+    if (isa<ttir::TTNNMetalLayoutCastOp>(op) || isa<ttir::EmptyOp>(op)) {
       return failure();
     }
 
@@ -190,6 +190,10 @@ class TTNNLayoutTranslationPass
 private:
   // Helper to get defined device shape if an override is not provided.
   SmallVector<int64_t> getTargetGridShape() {
+    if (!overrideDeviceShape.empty()) {
+      return llvm::to_vector(overrideDeviceShape);
+    }
+
     // Get from device if no override given.
     mlir::ModuleOp moduleOp = getOperation();
     ttcore::DeviceAttr device = ttcore::lookupDevice(moduleOp);

@@ -654,6 +654,10 @@ def TTNNLayoutTranslation : Pass<"ttnn-layout-translation", "::mlir::ModuleOp"> 
     "::mlir::tt::ttcore::TTCoreDialect",
     "::mlir::tt::ttnn::TTNNDialect"
   ];
+  let options = [
+    ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
+          "Override the device shape.">
+  ];
 }
 
 #endif
