@@ -1185,11 +1185,15 @@ def ttkernel_compile(
             else:
                 NotImplementedError(f"Unknown dialect {dialect}")
 
-            print(ast.dump(m, indent=4) + "\n")
+            if verbose:
+                print(ast.dump(m, indent=4) + "\n")
+
             b.visit(m)
 
             # Check if generated IR is valid
-            print(b.module)
+            if verbose:
+                print(b.module)
+
             b.module.operation.verify()
 
             if return_compiler:
@@ -1576,6 +1580,7 @@ def pykernel_gen(
     num_outs=1,
     kernel_source_dir=None,
     kernel_source_mode=None,  # Literal["store", "load"]
+    verbose=False,
 ):
     assert grid is not None
     assert num_outs == 1
@@ -1614,6 +1619,7 @@ def pykernel_gen(
             nonlocal indexing_maps
             nonlocal iterator_types
             nonlocal kernel_source_dir
+            nonlocal verbose
 
             f_params = inspect.signature(f).parameters
 
@@ -1681,11 +1687,12 @@ def pykernel_gen(
                         num_outs,
                     )
 
-                print(module)
+                if verbose:
+                    print(module)
                 with open("tmp.mlir", "w") as fd:
                     print(module, file=fd)
 
-                print_ir = True
+                print_ir = verbose
                 device_register_options = f"system-desc-path={_g_current_system_desc}"
                 verify = True
                 use_tile_matmul = False
@@ -1700,7 +1707,8 @@ def pykernel_gen(
                 )
                 pm = PassManager.parse(pipeline_str)
                 pm.enable_verifier(verify)
-                print("Running custom pipeline:", pm)
+                if verbose:
+                    print("Running custom pipeline:", pm)
                 if print_ir:
                     print_ir_path = print_ir if isinstance(print_ir, str) else None
                     ctx.enable_multithreading(False)
@@ -1713,7 +1721,8 @@ def pykernel_gen(
                     )
                 pm.run(module.operation)
 
-                print(module)
+                if verbose:
+                    print(module)
                 bin = ttmetal_to_flatbuffer_bin(module)
 
                 # print("RUNTIME DISABLED")
@@ -1743,9 +1752,10 @@ def pykernel_gen(
                     True,  # use_loc_for_kernel_name
                     kernel_source_dir,
                     False,  # disable_device_address_validation
-                    True,  # blocking_cq
+                    False,  # blocking_cq
                 )
-                print(f"setting tt runtime debug env={debug_env}")
+                if verbose:
+                    print(f"setting tt runtime debug env={debug_env}")
 
                 inputs = []
                 for tensor in args:

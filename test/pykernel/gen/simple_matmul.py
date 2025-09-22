@@ -14,7 +14,7 @@ def matmul(lhs, rhs, out):
         rhs_shard: Tensor,
         out_shard: Tensor,
     ):
-        out = lhs_shard @ rhs_shard
+        out = lhs_shard @ rhs_shard + out_shard
         yield out
 
     return Program(mm)(lhs, rhs, out)

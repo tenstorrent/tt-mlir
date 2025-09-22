@@ -6,7 +6,7 @@ from utils import assert_pcc
 import torch
 
 
-@pykernel_gen(**matmul_fused_template(args=4))
+@pykernel_gen(**matmul_fused_template(args=4), kernel_source_dir="tmp/", kernel_source_mode="store")
 def fused_matmul(lhs, rhs, bias, out):
     @compute()
     def mm(
@@ -15,7 +15,7 @@ def fused_matmul(lhs, rhs, bias, out):
         bias_shard: Tensor,
         out_shard: Tensor,
     ):
-        out = lhs_shard @ rhs_shard
+        out = lhs_shard @ rhs_shard + out_shard
 
         out = out + bias_shard
 
