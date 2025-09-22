@@ -493,15 +493,10 @@ createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
 
 ::tt::runtime::Device
 createRuntimeDeviceFromTTNN(::ttnn::MeshDevice *meshDevice) {
-  LOG_DEBUG("Device grid size = { ",
-            meshDevice->compute_with_storage_grid_size().x, ", ",
-            meshDevice->compute_with_storage_grid_size().y, " }");
-
   // Create a non-owning shared_ptr to the provided MeshDevice with no-op
   // deleter.
   std::shared_ptr<::ttnn::MeshDevice> unsafeMeshDeviceSharedPtr(meshDevice,
                                                                 [](auto *) {});
-
   // Wrap the the device in the runtime device.
   auto ttnnTraceCache = std::make_shared<::tt::runtime::ttnn::TraceCache>(
       unsafeMeshDeviceSharedPtr);
