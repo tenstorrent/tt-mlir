@@ -203,6 +203,7 @@ def get_dynamic_dependencies():
                 "pytest",
                 "sphinx",
                 "flake8",
+                "libnuma-dev",
             }
 
             with open(metal_req_path, "r") as f:
