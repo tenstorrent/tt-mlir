@@ -22,6 +22,7 @@ option(TTMLIR_ENABLE_OPMODEL "Enable OpModel support" OFF)
 option(TTMLIR_ENABLE_OPMODEL_TESTS "Enable OpModel tests" ON)
 option(TTMLIR_ENABLE_SHARED_LIB "Enable Shared lib building" ON)
 option(TTMLIR_ENABLE_EXPLORER "Enable cloning and building the explorer tool" ON)
+option(TTMLIR_ENABLE_TTNN_JIT "Enable TTNN JIT compilation interface" OFF)
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
 
 if (TTMLIR_ENABLE_RUNTIME)

@@ -25,6 +25,10 @@ inputs:
     description: "Enable PyKernel build"
     default: "OFF"
     required: false
+  enable-ttnn-jit:
+    description: "Enable TTNN JIT build"
+    default: "OFF"
+    required: false
   build-name:
     description: "A unique name for this build (e.g., 'run' or 'perf')"
     required: true
@@ -60,6 +64,7 @@ runs:
           -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
           -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ inputs.enable-perf }} \
           -DTTMLIR_ENABLE_PYKERNEL=${{ inputs.enable-pykernel }} \
+          -DTTMLIR_ENABLE_TTNN_JIT=${{ inputs.enable-ttnn-jit }} \
           -DTTMLIR_ENABLE_STABLEHLO=ON \
           -DTTMLIR_ENABLE_OPMODEL=${{ inputs.enable-op-model }} \
           -DTT_RUNTIME_DEBUG=${{ inputs.enable-runtime-debug }} \

@@ -156,6 +156,95 @@ jobs:
           # Test the pykernel installation
           python -c "import pykernel; print('Imported pykernel:', pykernel)"
 
+  build-ttnn-jit-wheel:
+    timeout-minutes: 60
+    name: Build ttnn-jit Python Wheel
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Maximize space
+        uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set reusable strings
+        id: strings
+        shell: bash
+        run: |
+          echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+          echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+          echo "wheel-output-dir=$(pwd)/dist" >> "$GITHUB_OUTPUT"
+
+      - name: Git safe dir
+        run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Build ttnn-jit Wheel (manylinux)
+        uses: pypa/cibuildwheel@v2.23.2
+        env:
+          CIBW_ENVIRONMENT: "IN_CIBW_ENV=ON"
+          CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34:${{ inputs.docker-tag || 'latest' }}
+        with:
+          output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
+          package-dir: ${{ steps.strings.outputs.work-dir }}/tools/ttnn-jit
+          config-file: "${{ steps.strings.outputs.work-dir }}/tools/ttnn-jit/pyproject.toml"
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ttnn-jit-wheel
+          path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
+          if-no-files-found: error
+
+  test-ttnn-jit-wheel-install:
+    needs: build-ttnn-jit-wheel
+    timeout-minutes: 30
+    name: Test ttnn-jit Wheel Installation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Git safe dir
+        run: git config --global --add safe.directory $(pwd)
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: ttnn-jit-wheel
+          path: ./dist
+
+      - name: Test wheel installation in fresh environment
+        shell: bash
+        run: |
+          # Create completely fresh virtual environment
+          python3 -m venv fresh_test_env
+          source fresh_test_env/bin/activate
+
+          # Install the wheel
+          WHEEL_FILE=$(ls ./dist/ttnn-jit-*.whl)
+          echo "Installing wheel: $WHEEL_FILE"
+          pip install $WHEEL_FILE
+
+          # Test basic import
+          python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
+
+          # Test that ttmlir dependency works
+          python -c "from ttmlir import ir; print('ttmlir dependency works:', ir.Context())"
+
   test-ttmlir-wheel-install:
     needs: build-ttmlir-wheel
     timeout-minutes: 30
