@@ -1186,6 +1186,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RotaryEmbeddingLlamaOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::LoadTensorOp: {
+    tensorRef = opContext.type_as_LoadTensorOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1194,7 +1198,8 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::WriteTensorOp:
   case ::tt::target::ttnn::OpType::EndTraceCaptureOp:
   case ::tt::target::ttnn::OpType::ExecuteTraceOp:
-  case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp: {
+  case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
+  case ::tt::target::ttnn::OpType::DumpTensorOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
@@ -1509,6 +1514,13 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->sin_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->trans_mat()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DumpTensorOp: {
+    tensorRefs = {opContext.type_as_DumpTensorOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LoadTensorOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {

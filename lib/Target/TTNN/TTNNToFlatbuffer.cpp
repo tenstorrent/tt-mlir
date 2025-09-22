@@ -2048,6 +2048,24 @@ createOp(FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op) {
       memoryConfig, computeConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::DumpTensorOp>
+createOp(FlatbufferObjectCache &cache, DumpTensorOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto filePath = toFlatbuffer(cache, op.getFilePath());
+  return ::tt::target::ttnn::CreateDumpTensorOp(*cache.fbb, filePath, input);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::LoadTensorOp>
+createOp(FlatbufferObjectCache &cache, LoadTensorOp op) {
+  auto filePath = toFlatbuffer(cache, op.getFilePath());
+  auto device =
+      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  return ::tt::target::ttnn::CreateLoadTensorOp(*cache.fbb, filePath, device,
+                                                output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -2573,6 +2591,14 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       rotaryEmbeddingLlamaOp) {
     return createOperation(cache, createOp(cache, rotaryEmbeddingLlamaOp),
                            debugString, locInfo);
+  }
+  if (auto dumpTensorOp = dyn_cast<DumpTensorOp>(op); dumpTensorOp) {
+    return createOperation(cache, createOp(cache, dumpTensorOp), debugString,
+                           locInfo);
+  }
+  if (auto loadTensorOp = dyn_cast<LoadTensorOp>(op); loadTensorOp) {
+    return createOperation(cache, createOp(cache, loadTensorOp), debugString,
+                           locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
