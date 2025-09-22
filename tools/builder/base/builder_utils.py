@@ -6,7 +6,6 @@ import os
 import inspect
 import subprocess
 import torch
-import copy
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
@@ -890,14 +889,17 @@ def compile_ttir_module_to_flatbuffer(
 
     if target == "emitc":
         # Generate a .so flatbuffer file from the .cpp file
-        env = os.environ.copy()
-        env[
-            "TT_METAL_HOME"
-        ] = "/home/jgrim/wh-01-src/tt-mlir/third_party/tt-metal/src/tt-metal"
+        tt_metal_home = os.path.abspath(
+            os.path.join(
+                os.path.dirname(__file__),
+                "../../../../third_party/tt-metal/src/tt-metal",
+            )
+        )
+        os.environ["TT_METAL_HOME"] = tt_metal_home
 
         subprocess.run(
             ["tools/ttnn-standalone/ci_compile_dylib.py", "--file", output_file_fbb],
-            env=env,
+            env=os.environ,
             check=True,
         )
 

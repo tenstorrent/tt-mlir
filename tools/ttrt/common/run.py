@@ -670,9 +670,8 @@ class Run:
                     compare_emitc = False
                     if self["--emitc"]:
                         # .so are compiled such that they have the same name as flatbuffers, so we rename here
-                        print("1")
                         emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
-                        print(emitc_dylib_path)
+
                         # Open the dylib
                         if (
                             os.path.exists(emitc_dylib_path)
