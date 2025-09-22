@@ -49,11 +49,15 @@ void createStableHLOPipeline(OpPassManager &pm,
   mlir::sdy::PropagationOptions propagationOptions;
   mlir::sdy::PropagationStrategy propagationStrategy =
       mlir::sdy::PropagationStrategy::Aggressive;
-  const char *loggerLevel = std::getenv("LOGGER_LEVEL");
-  if (loggerLevel && std::string(loggerLevel) == "VERBOSE") {
+  const char *loggerLevel = std::getenv("KEEP_SHARDING_RULES");
+  if (loggerLevel && std::string(loggerLevel) == "1") {
     propagationOptions.keepShardingRules = true;
   }
   propagationOptions.conservativePropagation = true;
+  const char *aggressivePropagation = std::getenv("AGGRESSIVE_PROPAGATION");
+  if (aggressivePropagation && std::string(aggressivePropagation) == "1") {
+    propagationOptions.conservativePropagation = false;
+  }
   pm.addPass(mlir::sdy::createAggressivePropagationPass(propagationOptions,
                                                         propagationStrategy));
 
