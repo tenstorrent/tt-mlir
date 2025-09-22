@@ -33,5 +33,7 @@ def _run_binary(binary_path, input_tensors):
     )
 
     output_runtime_tensor = runtime.submit(runtime_device, bin, 0, runtime_tensors)
+    assert len(output_runtime_tensor) == 1, "Only one output tensor is supported"
+
     output_tensor = utils.get_ttnn_tensor_from_runtime_tensor(output_runtime_tensor[0])
     return output_tensor
