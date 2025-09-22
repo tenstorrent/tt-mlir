@@ -1924,7 +1924,7 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
-      *cache.fbb, query, key, value, curPosTensor, isCausal, attentionMask,
+      *cache.fbb, query, key, value, isCausal, attentionMask, curPosTensor,
       attentionSink, scale, out, memoryConfig);
 }
 

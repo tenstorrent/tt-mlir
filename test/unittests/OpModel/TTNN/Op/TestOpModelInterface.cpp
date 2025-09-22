@@ -1706,10 +1706,11 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
       createRankedTensorType(queryShape, tiledElemType, queryLayout);
 
   auto sdpAttentionDecode = builder.create<ScaledDotProductAttentionDecodeOp>(
-      builder.getUnknownLoc(), outputType, query, key, value, curPos,
+      builder.getUnknownLoc(), outputType, query, key, value,
+      /*is_causal=*/false,
+      /*cur_pos_tensor=*/curPos,
       /*attention_mask=*/attentionMask,
       /*attention_sink=*/nullptr,
-      /*is_causal=*/false,
       /*scale=*/nullptr,
       /*memory_config=*/nullptr);
 

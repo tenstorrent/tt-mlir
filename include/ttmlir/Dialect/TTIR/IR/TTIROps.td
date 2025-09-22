@@ -5563,38 +5563,39 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
 }
 
 def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
-  let summary = "A version of scaled dot product attention specifically for decode.";
-  let description = [{
-    A version of scaled dot product attention specifically for decode.
+    let summary = "A version of scaled dot product attention specifically for decode.";
+    let description = [{
+      A version of scaled dot product attention specifically for decode.
         The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
 
         Args:
             input_tensor_q (AnyRankedTensor): the input tensor [1 x b x nh x dh]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
             input_tensor_k (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
             input_tensor_v (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
-            cur_pos_tensor (AnyRankedTensor): [b] tensor of integers of length b.
-            attention_mask (AnyRankedTensor, optional): the attention mask [b x 1 x s x s].
-            attention_sink (AnyRankedTensor, optional): the attention sink [nh, 32] (must be a single tile wide).
             is_causal (bool, optional): whether the attention is is_causal. Defaults to `true`.
+            attention_mask (AnyRankedTensor, optional): the attention mask [b x 1 x s x s].
+            cur_pos_tensor (AnyRankedTensor): [b] tensor of integers of length b.
+            attention_sink (AnyRankedTensor, optional): the attention sink [nh, 32] (must be a single tile wide).
             scale (float, optional): Defaults to `None`.
+            memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
 
         Returns:
             AnyRankedTensor: the output tensor [1 x b x pnh x dh].
-  }];
+    }];
 
-  let arguments = (ins AnyRankedTensor:$query,
-                       AnyRankedTensor:$key,
-                       AnyRankedTensor:$value,
-                       AnyRankedTensor:$cur_pos_tensor,
-                       Optional<AnyRankedTensor>:$attention_mask,
-                       Optional<AnyRankedTensor>:$attention_sink,
-                       AnyRankedTensor:$output,
-                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
-                       OptionalAttr<F32Attr>:$scale);
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                         Optional<AnyRankedTensor>:$attention_mask,
+                         AnyRankedTensor:$cur_pos_tensor,
+                         Optional<AnyRankedTensor>:$attention_sink,
+                         AnyRankedTensor:$output,
+                         OptionalAttr<F32Attr>:$scale);
 
-  let results = (outs AnyRankedTensor:$result);
+    let results = (outs AnyRankedTensor:$result);
 
-  let hasVerifier = 1;
+    let hasVerifier = 1;
 }
 
 

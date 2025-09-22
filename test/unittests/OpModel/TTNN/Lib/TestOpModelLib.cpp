@@ -4708,7 +4708,7 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
         detail::TestTensor{
             {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         std::nullopt, std::nullopt, true,
-        std::make_optional(llvm::APFloat(1.0f)),
+        std::optional<llvm::APFloat>(llvm::APFloat(1.0f)),
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true, 78848, 0, 78848, 0}},
@@ -4746,7 +4746,7 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
         std::make_optional(detail::TestTensor{{1, 1, 12, 128},
                                               TensorMemoryLayout::Interleaved,
                                               BufferType::DRAM}),
-        std::nullopt, false, std::make_optional(llvm::APFloat(1.0f)),
+        std::nullopt, false, std::optional<llvm::APFloat>(llvm::APFloat(1.0f)),
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true, 118784, 0, 118784, 0}},
@@ -4784,7 +4784,7 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
         std::nullopt,
         std::make_optional(detail::TestTensor{
             {12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
-        true, std::make_optional(llvm::APFloat(1.0f)),
+        true, std::optional<llvm::APFloat>(llvm::APFloat(1.0f)),
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true, 79872, 0, 79872, 0}},
@@ -4826,7 +4826,7 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
                                               BufferType::DRAM}),
         std::make_optional(detail::TestTensor{
             {12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
-        false, std::make_optional(llvm::APFloat(1.0f)),
+        false, std::optional<llvm::APFloat>(llvm::APFloat(1.0f)),
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true, 120832, 0, 120832, 0}});
