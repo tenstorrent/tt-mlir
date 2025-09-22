@@ -35,39 +35,3 @@ def _run_binary(binary_path, input_tensors):
     output_runtime_tensor = runtime.submit(runtime_device, bin, 0, runtime_tensors)
     output_tensor = utils.get_ttnn_tensor_from_runtime_tensor(output_runtime_tensor[0])
     return output_tensor
-
-
-if __name__ == "__main__":
-    device = ttnn.open_device(device_id=0)
-    shape = [1, 1, 32, 32]
-    data0 = torch.randn(shape).to(torch.float32)
-
-    input_tensor = ttnn.from_torch(
-        data0,
-        dtype=ttnn.float32,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-        memory_config=ttnn.DRAM_MEMORY_CONFIG,
-    )
-
-    """
-    cos.ttnn is hand-generated as follows:
-    ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=${SYSTEM_DESC_PATH}" cos.mlir 2>&1 | tee cos_lowered.mlir
-    ttmlir-translate --ttnn-to-flatbuffer cos_lowered.mlir > cos.ttnn
-    func.func @cosine(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
-        %0 = ttir.empty() : tensor<32x32xf32>
-        %1 = "ttir.cos"(%arg0, %0) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
-        return %1 : tensor<32x32xf32>
-    }
-    """
-    output_tensor = _run_binary("cos.ttnn", [input_tensor])
-    print(input_tensor)
-    print(output_tensor)
-
-    golden = torch.cos(data0.cpu())
-    print(golden)
-
-    all_close = torch.allclose(output_tensor.cpu().to_torch(), golden, atol=1e-4)
-    print(all_close)
-
-    ttnn.close_device(device)

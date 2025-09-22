@@ -10,7 +10,7 @@
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
-#include <ttnn/events.hpp>
+#include "ttnn/events.hpp"
 
 namespace tt::runtime::ttnn::utils {
 
