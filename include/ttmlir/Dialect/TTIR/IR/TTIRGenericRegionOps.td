@@ -387,6 +387,9 @@ def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum"> {
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       return {2};
     }
+    bool getDstRegInPlace() {
+      return true;
+    }
   }];
 }
 
@@ -405,6 +408,9 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionComputeOp<"tile_reduce_max"> {
   let extraClassDeclaration = [{
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       return {2};
+    }
+    bool getDstRegInPlace() {
+      return true;
     }
   }];
 }

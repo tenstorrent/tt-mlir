@@ -269,7 +269,8 @@ public:
           if (dstRegInPlace) {
             bool isUnaryOp = op->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<ttir::TileMatmulOp>(op);
-            assert((isUnaryOp || isTileMatmul) &&
+            bool isReduction = mlir::isa<ttir::TileReduceMaxOp>(op) || mlir::isa<ttir::TileReduceSumOp>(op);
+            assert((isUnaryOp || isTileMatmul || isReduction) &&
                    "Only unary ops and tile matmul supported for destination "
                    "register in "
                    "place, multi-operand ops would reference wrong tile, but "
