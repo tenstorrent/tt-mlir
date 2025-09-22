@@ -382,6 +382,12 @@ def TTIR_TileReduceSumOp : TTIR_GenericRegionComputeOp<"tile_reduce_sum"> {
                        TTCore_Tile:$c,
                        TTIR_ReduceDimAttr:$reduce_dim);
   let results = (outs TTCore_Tile:$result);
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {2};
+    }
+  }];
 }
 
 def TTIR_TileReduceMaxOp : TTIR_GenericRegionComputeOp<"tile_reduce_max"> {
@@ -395,6 +401,20 @@ def TTIR_TileReduceMaxOp : TTIR_GenericRegionComputeOp<"tile_reduce_max"> {
                        TTCore_Tile:$c,
                        TTIR_ReduceDimAttr:$reduce_dim);
   let results = (outs TTCore_Tile:$result);
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {2};
+    }
+  }];
+}
+
+def TTIR_PackerMaskResetOp : TTIR_GenericRegionComputeOp<"packer_mask_reset"> {
+  let summary = "TTIR Packer Mask Reset Op";
+  let description = [{
+        The `packer_mask_reset` operation resets the packer mask. This should be removed once LLK refactors the reduce API.
+        See tt-metal#22904 and tt-metal -> reduce.h.
+    }];
 }
 
 def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {

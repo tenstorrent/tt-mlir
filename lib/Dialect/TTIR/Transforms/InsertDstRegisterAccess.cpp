@@ -613,6 +613,74 @@ public:
 } // namespace
 
 namespace {
+template <typename TileReduceOp>
+class TTIRPackerMaskResetRewriter : public OpRewritePattern<TileReduceOp> {
+public:
+  using OpRewritePattern<TileReduceOp>::OpRewritePattern;
+
+  Value index(OpBuilder &rewriter, Location loc, int64_t val) const {
+    return rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
+                                              rewriter.getIndexAttr(val));
+  }
+
+  LogicalResult matchAndRewrite(TileReduceOp op,
+                                PatternRewriter &rewriter) const final {
+
+    bool packerResetFound = false;
+    op->getBlock()->walk([&](Operation *op) {
+      if (auto packerReset =
+              mlir::dyn_cast_or_null<ttir::PackerMaskResetOp>(op)) {
+        packerResetFound = true;
+      }
+    });
+    if (packerResetFound) {
+      return failure();
+    }
+
+    rewriter.setInsertionPointAfter(op);
+    ReduceDim reduceDim = op.getReduceDim();
+    SmallVector<int64_t> loopBounds =
+        op->template getParentOfType<GenericOp>().getLoopBounds();
+
+    scf::IfOp ifOp;
+    // check if iter index == last index of generic.getLoopBounds(), if so dont
+    // reset, otherwise reset
+
+    if (reduceDim == ReduceDim::R) {
+      auto iterIndex = rewriter.create<ttir::IterIndexOp>(op.getLoc(), 1);
+      auto condOp = rewriter.create<arith::CmpIOp>(
+          op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
+          index(rewriter, op.getLoc(), loopBounds[1] - 1));
+      ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condOp);
+    } else if (reduceDim == ReduceDim::C) {
+      auto iterIndex = rewriter.create<ttir::IterIndexOp>(op.getLoc(), 0);
+      auto condOp = rewriter.create<arith::CmpIOp>(
+          op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
+          index(rewriter, op.getLoc(), loopBounds[0] - 1));
+      ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condOp);
+    } else if (reduceDim == ReduceDim::RC) {
+      auto iterIndexR = rewriter.create<ttir::IterIndexOp>(op.getLoc(), 1);
+      auto iterIndexC = rewriter.create<ttir::IterIndexOp>(op.getLoc(), 0);
+      auto condOp = rewriter.create<arith::CmpIOp>(
+          op.getLoc(), arith::CmpIPredicate::ne, iterIndexR,
+          index(rewriter, op.getLoc(), loopBounds[1] - 1));
+      auto condOp2 = rewriter.create<arith::CmpIOp>(
+          op.getLoc(), arith::CmpIPredicate::ne, iterIndexC,
+          index(rewriter, op.getLoc(), loopBounds[0] - 1));
+      auto finalCondOp =
+          rewriter.create<arith::OrIOp>(op.getLoc(), condOp, condOp2);
+      ifOp = rewriter.create<scf::IfOp>(op.getLoc(), finalCondOp);
+    }
+    rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    rewriter.create<ttir::PackerMaskResetOp>(op.getLoc());
+
+    return success();
+  }
+};
+
+} // namespace
+
+namespace {
 class TTIRInsertDstRegisterAccess
     : public impl::TTIRInsertDstRegisterAccessBase<
           TTIRInsertDstRegisterAccess> {
@@ -625,6 +693,9 @@ public:
     patterns.add<TTIRInsertDstRegisterAccessRewriter<GenericOp>,
                  TTIRInsertDstRegisterAccessRewriter<func::FuncOp>>(
         &getContext(), useTileMatmul);
+
+    patterns.add<TTIRPackerMaskResetRewriter<TileReduceSumOp>,
+                 TTIRPackerMaskResetRewriter<TileReduceMaxOp>>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

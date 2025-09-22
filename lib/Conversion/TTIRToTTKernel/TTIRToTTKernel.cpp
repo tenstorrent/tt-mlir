@@ -350,11 +350,11 @@ using ComputeOpMap = OpMap<
   std::pair<ttir::TileSubBinaryOp,   std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
   std::pair<ttir::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
   std::pair<ttir::TileMaximumOp,     std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
-  std::pair<ttir::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>
+  std::pair<ttir::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>,
 
   // Reductions FPU
-  std::pair<ttir::TileReduceSumOp, std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>,
-  std::pair<ttir::TileReduceMaxOp, std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>,
+  std::pair<ttir::TileReduceSumOp,   std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>,
+  std::pair<ttir::TileReduceMaxOp,   std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>
 >;
 // clang-format on
 
@@ -1197,6 +1197,22 @@ public:
 } // namespace
 
 namespace {
+class TTIRPackerMaskResetRewriter
+    : public OpConversionPattern<ttir::PackerMaskResetOp> {
+public:
+  using OpConversionPattern<ttir::PackerMaskResetOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PackerMaskResetOp op,
+                  ttir::PackerMaskResetOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::ReduceUninitOp>(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class MemRefCollapseRewriter
     : public OpConversionPattern<memref::CollapseShapeOp> {
 public:
@@ -1470,6 +1486,7 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRCoreIndexRewriter,
                ttkernel::TTIRGetGlobalOperandRewriter,
                ttkernel::TTIRNullTxRewriter,
+               ttkernel::TTIRPackerMaskResetRewriter,
                ttkernel::MemRefCollapseRewriter,
                ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreSetOp>,
                ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreIncOp>,

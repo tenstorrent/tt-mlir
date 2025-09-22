@@ -840,6 +840,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::RecipTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceUninitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RoundingTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileOp>,
