@@ -6,7 +6,11 @@ from utils import assert_pcc
 import torch
 
 
-@pykernel_gen(**matmul_fused_template(args=4), kernel_source_dir="tmp/", kernel_source_mode="store")
+@pykernel_gen(
+    **matmul_fused_template(args=4),
+    kernel_source_dir="tmp/",
+    kernel_source_mode="store"
+)
 def fused_matmul(lhs, rhs, bias, out):
     @compute()
     def mm(

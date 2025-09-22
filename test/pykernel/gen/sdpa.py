@@ -6,7 +6,9 @@ from utils import assert_pcc
 import torch
 
 
-def scaled_dot_product_attention(query, key, value, attn_mask=None, scale=None) -> torch.Tensor:
+def scaled_dot_product_attention(
+    query, key, value, attn_mask=None, scale=None
+) -> torch.Tensor:
     L, S = query.size(-2), key.size(-2)
     scale_factor = 1 / math.sqrt(query.size(-1))
 
