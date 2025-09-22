@@ -24,6 +24,6 @@ add_mlir_conversion_library(TTMLIRStableHLOToTTIR
   MLIRIR
   MLIRPass
   StablehloPasses
-  TTMLIRSTABLEHLOUtils
+  TTMLIRStableHLOUtils
   TTMLIRTTIRUtils
 )

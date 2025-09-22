@@ -319,54 +319,6 @@ createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id) {
       cache.fbb->CreateString(funcName.c_str()), dylib_id);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::DistributionStrategy>
-createDistributionStrategy(FlatbufferObjectCache &cache,
-                           const Value &deviceValue,
-                           const RankedTensorType &type, uint32_t &numShards) {
-  auto noneDistributionStrategy = [&cache]() {
-    ::flatbuffers::Offset<void> distribution = 0;
-    return ::tt::target::ttnn::CreateDistributionStrategy(
-        *cache.fbb, ::tt::target::ttnn::DistributedTensorConfig::NONE,
-        distribution);
-  };
-
-  if (!deviceValue) {
-    return noneDistributionStrategy();
-  }
-
-  auto deviceOp = mlir::cast<GetDeviceOp>(
-      getOperandThroughDPSOps(deviceValue).getDefiningOp());
-  auto desc = ttcore::lookupDevice(deviceOp);
-  ::llvm::ArrayRef<int64_t> meshShape = desc.getMeshShape();
-  numShards = ttmlir::utils::volume(meshShape);
-
-  if (numShards == 1) {
-    return noneDistributionStrategy();
-  }
-
-  assert(meshShape.size() <= 2 && "expected 2D mesh shape");
-
-  // One-dimensional tensor sharding strategy. Tensor is sliced by the number of
-  // devices at a certain dimension. For EmptyOp and FullOp, we assume that the
-  // tensor is sliced at the fastest dimension.
-  if (meshShape[0] == 1 || meshShape[1] == 1) {
-    assert(type.getShape().size() > 0 && "expected non-zero tensor shape");
-    uint32_t target_dim = type.getShape().size() - 1;
-    auto strategy =
-        ::tt::target::ttnn::CreateShardTensor(*cache.fbb, target_dim);
-    return ::tt::target::ttnn::CreateDistributionStrategy(
-        *cache.fbb, ::tt::target::ttnn::DistributedTensorConfig::ShardTensor,
-        strategy.Union());
-  }
-
-  const ::tt::target::Dim2d shard_mesh(meshShape[0], meshShape[1]);
-  auto strategy =
-      ::tt::target::ttnn::CreateShardTensor2D(*cache.fbb, &shard_mesh);
-  return ::tt::target::ttnn::CreateDistributionStrategy(
-      *cache.fbb, ::tt::target::ttnn::DistributedTensorConfig::ShardTensor2D,
-      strategy.Union());
-}
-
 ::flatbuffers::Offset<::tt::target::ttnn::EmptyOp>
 createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
@@ -2077,6 +2029,43 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
   return ::tt::target::ttnn::CreateGenericOpDirect(*cache.fbb, &ios, program);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingLlamaOp>
+createOp(FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto cosCache = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getCosCache()));
+  auto sinCache = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSinCache()));
+  auto transMat = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTransMat()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  return ::tt::target::ttnn::CreateRotaryEmbeddingLlamaOp(
+      *cache.fbb, in, cosCache, sinCache, transMat, op.getIsDecodeMode(), out,
+      memoryConfig, computeConfig.value_or(0));
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::DumpTensorOp>
+createOp(FlatbufferObjectCache &cache, DumpTensorOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto filePath = toFlatbuffer(cache, op.getFilePath());
+  return ::tt::target::ttnn::CreateDumpTensorOp(*cache.fbb, filePath, input);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::LoadTensorOp>
+createOp(FlatbufferObjectCache &cache, LoadTensorOp op) {
+  auto filePath = toFlatbuffer(cache, op.getFilePath());
+  auto device =
+      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  return ::tt::target::ttnn::CreateLoadTensorOp(*cache.fbb, filePath, device,
+                                                output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -2596,6 +2585,19 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto genericOp = dyn_cast<GenericOp>(op); genericOp) {
     return createOperation(cache, createOp(cache, genericOp), debugString,
+                           locInfo);
+  }
+  if (auto rotaryEmbeddingLlamaOp = dyn_cast<RotaryEmbeddingLlamaOp>(op);
+      rotaryEmbeddingLlamaOp) {
+    return createOperation(cache, createOp(cache, rotaryEmbeddingLlamaOp),
+                           debugString, locInfo);
+  }
+  if (auto dumpTensorOp = dyn_cast<DumpTensorOp>(op); dumpTensorOp) {
+    return createOperation(cache, createOp(cache, dumpTensorOp), debugString,
+                           locInfo);
+  }
+  if (auto loadTensorOp = dyn_cast<LoadTensorOp>(op); loadTensorOp) {
+    return createOperation(cache, createOp(cache, loadTensorOp), debugString,
                            locInfo);
   }
 

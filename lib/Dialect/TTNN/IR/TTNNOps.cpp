@@ -3285,12 +3285,12 @@ void CaptureOrExecuteTraceOp::getEffects(
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult ConcatenateHeadsOp::verify() {
-  const ::mlir::RankedTensorType inputType = this->getInput().getType();
-  const ::mlir::RankedTensorType outputType = this->getResult().getType();
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
-  const ::mlir::tt::ttcore::DataType inputDataType =
+  ::mlir::tt::ttcore::DataType inputDataType =
       ::mlir::tt::ttcore::elementTypeToDataType(inputType.getElementType());
-  const ::mlir::tt::ttcore::DataType outputDataType =
+  ::mlir::tt::ttcore::DataType outputDataType =
       ::mlir::tt::ttcore::elementTypeToDataType(outputType.getElementType());
 
   if (inputDataType != outputDataType) {
@@ -3313,13 +3313,7 @@ void CaptureOrExecuteTraceOp::getEffects(
 
   // Input tensor dimensions [batch_size, num_heads, sequence_size, head_size]
   // Output tensor dimensions [batch_size, sequence_size, num_heads * head_size]
-  enum InputDimensions {
-    INPUT_BATCH = 0,
-    INPUT_NUM_HEADS = 1,
-    INPUT_SEQ = 2,
-    INPUT_HEAD_SIZE = 3
-  };
-  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+  using namespace ttmlir::utils::transformer;
 
   // Verify batch_size dimension matches
   if (inputShape[INPUT_BATCH] != outputShape[OUTPUT_BATCH]) {
@@ -3394,4 +3388,134 @@ void CaptureOrExecuteTraceOp::getEffects(
 
   return mlir::success();
 }
+
+//===----------------------------------------------------------------------===//
+// RotaryEmbeddingLlamaOp
+//===----------------------------------------------------------------------===//
+
+// RotaryEmbeddingLlamaOp verification
+mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
+  mlir::RankedTensorType inputType = getInput().getType();
+  mlir::RankedTensorType cosType = getCosCache().getType();
+  mlir::RankedTensorType sinType = getSinCache().getType();
+  mlir::RankedTensorType transMatType = getTransMat().getType();
+
+  llvm::SmallVector<mlir::RankedTensorType> inputTypes = {
+      inputType, cosType, sinType, transMatType};
+  auto dtypePredicate = [](mlir::RankedTensorType type) {
+    return isa<BFloat16Type>(type.getElementType());
+  };
+
+  auto tileLayoutPredicate = [](mlir::RankedTensorType type) {
+    auto encoding = cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
+    return encoding.isTiled();
+  };
+
+  auto deviceStoragePredicate = [](mlir::RankedTensorType type) {
+    return ttnn::utils::isTensorOnDevice(type);
+  };
+
+  if (!llvm::all_of(inputTypes, dtypePredicate)) {
+    return emitOpError("all input tensors must be bfloat16 type.");
+  }
+
+  if (!llvm::all_of(inputTypes, tileLayoutPredicate)) {
+    return emitOpError("all input tensors must have tiled layout.");
+  }
+
+  if (!llvm::all_of(inputTypes, deviceStoragePredicate)) {
+    return emitOpError("all input tensors must be on device.");
+  }
+
+  // Cos and sin must have the same shape
+  if (cosType.getShape() != sinType.getShape()) {
+    return emitOpError("cos and sin tensors must have the same shape.");
+  }
+
+  // Head dimension validation
+  int64_t headDim = inputType.getShape().back();
+  if (headDim > 256) {
+    return emitOpError("head dimension must be ≤ 256, got ") << headDim << ".";
+  }
+
+  // Transformation matrix shape validation
+  auto transShape = transMatType.getShape();
+  if (transShape.size() != 4) {
+    return emitOpError("transformation matrix must be at least 4D tensor.");
+  }
+
+  llvm::SmallVector<int64_t> expectedTransShape = {1, 1, TILE_WIDTH,
+                                                   TILE_HEIGHT};
+  if (!llvm::equal(transShape.take_back(4), expectedTransShape)) {
+    return emitOpError() << "transformation matrix must have shape ("
+                         << ttmlir::utils::join(expectedTransShape, ",")
+                         << ") but got ("
+                         << ttmlir::utils::join(transShape, ",") << ").";
+  }
+
+  // Decode mode specific validations
+  if (getIsDecodeMode()) {
+    auto isHeightShardedPredicate = [](RankedTensorType type) {
+      auto encoding = mlir::cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
+      return encoding.getMemLayout() &&
+             encoding.getMemLayout().getValue() ==
+                 ttnn::TensorMemoryLayout::HeightSharded;
+    };
+
+    if (!llvm::all_of(inputTypes, isHeightShardedPredicate)) {
+      return emitOpError("in decode mode, all input tensors must have "
+                         "HeightSharded memory layout.");
+    }
+  }
+
+  mlir::RankedTensorType outputType = getResult().getType();
+
+  // Output shape should match input shape
+  if (outputType.getShape() != inputType.getShape()) {
+    return emitOpError("output shape must match input shape.");
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// DumpTensorOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult DumpTensorOp::verify() {
+  if (!getFilePath().ends_with(".tensorbin")) {
+    return emitOpError() << "file " << getFilePath()
+                         << " must end with .tensorbin extension";
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// LoadTensorOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult LoadTensorOp::verify() {
+  if (!getFilePath().ends_with(".tensorbin")) {
+    return emitOpError() << "file " << getFilePath()
+                         << " must end with .tensorbin extension";
+  }
+
+  auto resultLayout =
+      mlir::cast<TTNNLayoutAttr>(getResult().getType().getEncoding());
+  auto device = getDevice();
+
+  if (device && !resultLayout.isDeviceBufferType()) {
+    return emitOpError(
+        "device operand must be null for system memory buffer type");
+  }
+
+  if (!device && resultLayout.isDeviceBufferType()) {
+    return emitOpError(
+        "device operand must be specified for device memory buffer type");
+  }
+
+  return mlir::success();
+}
+
 } // namespace mlir::tt::ttnn

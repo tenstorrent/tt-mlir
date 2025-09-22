@@ -416,8 +416,6 @@ protected:
     const TTNNLayoutAttr outputLayout = CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-    // Need to reset device other wise hangs. See tt-metal issue #25772
-    SingletonDeviceContext::resetInstance();
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
         CreateWorkerGrid(), inputShape, inputLayout, dimArg, keepDim,
         outputLayout);
@@ -435,9 +433,6 @@ protected:
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
     }
-    // TODO(tt-metal #25772): Need to reset device here otherwise hangs. Remove
-    // once fixed.
-    SingletonDeviceContext::resetInstance();
     auto runtimeExp = OpModel<OpTy>::getOpRuntime(
         inputShape, inputLayout, dimArg, keepDim, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
@@ -1840,7 +1835,6 @@ TEST_P(OpModelLinearParam, LinearParam) {
   } else {
     llvm::consumeError(runtimeExp.takeError());
   }
-  SingletonDeviceContext::resetInstance();
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -2281,9 +2275,6 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  // Device hangs otherwise.
-  SingletonDeviceContext::resetInstance();
-
   // This is not configurable, as the backend doesn't support it for now.
   // But this test shows that this information is parsed and passes to the
   // backend correctly.
@@ -2313,9 +2304,6 @@ TEST_P(OpModelConv2dParam, Conv2d) {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  // Device hangs otherwise.
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = OpModel<Conv2dOp>::getOpRuntime(
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
@@ -2416,9 +2404,6 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
   const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  // Device hangs otherwise.
-  SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = OpModel<ConvTranspose2dOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
       std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
@@ -2437,9 +2422,6 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  // Device hangs otherwise.
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = OpModel<ConvTranspose2dOp>::getOpRuntime(
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
@@ -2517,8 +2499,6 @@ protected:
     const TTNNLayoutAttr outputLayout = this->CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-    SingletonDeviceContext::resetInstance();
-
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
         this->CreateWorkerGrid(), inputShape, inputLayout, batchSize,
         inputHeight, inputWidth, inputChannels, kernelSize, stride, padding,
@@ -2535,8 +2515,6 @@ protected:
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
     }
-
-    SingletonDeviceContext::resetInstance();
 
     auto runtimeExp = OpModel<OpTy>::getOpRuntime(
         inputShape, inputLayout, batchSize, inputHeight, inputWidth,
@@ -2582,6 +2560,16 @@ const auto pool2DTestValues = ::testing::Values(
                     1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
                     llvm::SmallVector<int32_t>{4, 2},
                     llvm::SmallVector<int32_t>{0, 0},
+                    llvm::SmallVector<int32_t>{1, 1}, false, false, false),
+    std::make_tuple(detail::TestTensor{{1, 1, 17 * 21, 22},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    detail::TestTensor{{1, 1, 5 * 11, 22},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
+                    llvm::SmallVector<int32_t>{4, 2},
+                    llvm::SmallVector<int32_t>{0, 0, 1, 1},
                     llvm::SmallVector<int32_t>{1, 1}, false, false, false));
 
 // MaxPool2D tests
@@ -2618,8 +2606,6 @@ TEST_P(OpModelLeakyReluParam, LeakyReluParam) {
   const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = op_model::OpModel<LeakyReluOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, slope, outputLayout);
   if (!constraintsExp) {
@@ -2638,8 +2624,6 @@ TEST_P(OpModelLeakyReluParam, LeakyReluParam) {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = op_model::OpModel<LeakyReluOp>::getOpRuntime(
       inputShape, inputLayout, slope, outputLayout);
@@ -2685,8 +2669,6 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
   const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = OpModel<ClampScalarOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, minVal, maxVal,
       outputLayout);
@@ -2706,8 +2688,6 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = OpModel<ClampScalarOp>::getOpRuntime(
       inputShape, inputLayout, minVal, maxVal, outputLayout);
@@ -2759,8 +2739,6 @@ TEST_P(OpModelClampTensorParam, ClampTensorParam) {
   const TTNNLayoutAttr maxLayout = CreateTiledLayout(
       maxShape, maxBufferType, maxTensorLayout, maxVirtualGrid);
 
-  SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = OpModel<ClampTensorOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, minShape, minLayout,
       maxShape, maxLayout, outputLayout);
@@ -2780,8 +2758,6 @@ TEST_P(OpModelClampTensorParam, ClampTensorParam) {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = OpModel<ClampTensorOp>::getOpRuntime(
       inputShape, inputLayout, minShape, minLayout, maxShape, maxLayout,
@@ -2835,8 +2811,6 @@ TEST_P(OpModelPermuteParam, PermuteParam) {
   const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = OpModel<PermuteOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, permutation, padValue,
       outputLayout);
@@ -2856,8 +2830,6 @@ TEST_P(OpModelPermuteParam, PermuteParam) {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = OpModel<PermuteOp>::getOpRuntime(
       inputShape, inputLayout, permutation, padValue, outputLayout);
@@ -2921,8 +2893,6 @@ TEST_P(OpModelUpsampleParam, UpsampleParam) {
   const TTNNLayoutAttr outputLayout = CreateRowMajorLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = OpModel<UpsampleOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, scaleFactor, mode,
       outputLayout);
@@ -2942,8 +2912,6 @@ TEST_P(OpModelUpsampleParam, UpsampleParam) {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = OpModel<UpsampleOp>::getOpRuntime(
       inputShape, inputLayout, scaleFactor, mode, outputLayout);

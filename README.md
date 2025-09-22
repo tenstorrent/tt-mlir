@@ -1,5 +1,6 @@
 [![Tests][tests badge]][tests]
 [![Codecov][codecov badge]][codecov]
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tenstorrent/tt-mlir)
 
 <div align="center">
 
@@ -50,10 +51,10 @@ tt-mlir is an open-source compiler framework that is used to compile and optimiz
 # Related Tenstorrent Projects
 - [tt-forge-fe](https://github.com/tenstorrent/tt-forge-fe)
 - [tt-xla](https://github.com/tenstorrent/tt-xla)
-- [tt-torch](https://github.com/tenstorrent/tt-torch)
 - [tt-forge](https://github.com/tenstorrent/tt-forge)
 - [tt-metalium](https://github.com/tenstorrent/tt-metal)
 - [tt-tvm](https://github.com/tenstorrent/tt-tvm)
+- [tt-torch](https://github.com/tenstorrent/tt-torch) - (deprecated)
 
 -----
 # Tenstorrent Bounty Program Terms and Conditions

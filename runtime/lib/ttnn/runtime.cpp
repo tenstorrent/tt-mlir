@@ -37,7 +37,6 @@
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
-using ::tt::tt_metal::DistributedTensorConfig;
 
 static tt::runtime::MemoryView
 createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
@@ -252,21 +251,8 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                    return utils::getTTNNTensorFromRuntimeTensor(tensorShard);
                  });
 
-  DistributedTensorConfig distributionStrategy =
-      ::tt::tt_metal::get_distributed_tensor_config(strategy);
-
   LOG_ASSERT(meshShape.size() == 2, "Only 2D mesh shape supported for now.");
   ::ttnn::MeshShape ttnnMeshShape(meshShape[0], meshShape[1]);
-
-  if (auto *shard2dConfig =
-          std::get_if<::tt::tt_metal::ShardTensor2D>(&distributionStrategy)) {
-    ::ttnn::MeshShape configMeshShape(shard2dConfig->shard_mesh.y,
-                                      shard2dConfig->shard_mesh.x);
-    LOG_ASSERT(
-        ttnnMeshShape == configMeshShape,
-        "Mesh shape mismatch between device mesh shape and config mesh shape",
-        ttnnMeshShape, " != ", configMeshShape);
-  }
 
   ::ttnn::Tensor multiDeviceHostTensor =
       ::ttnn::distributed::from_host_shards(ttnnTensorShards, ttnnMeshShape);
@@ -1196,6 +1182,14 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ConcatenateHeadsOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
+    tensorRef = opContext.type_as_RotaryEmbeddingLlamaOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LoadTensorOp: {
+    tensorRef = opContext.type_as_LoadTensorOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1204,7 +1198,8 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::WriteTensorOp:
   case ::tt::target::ttnn::OpType::EndTraceCaptureOp:
   case ::tt::target::ttnn::OpType::ExecuteTraceOp:
-  case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp: {
+  case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
+  case ::tt::target::ttnn::OpType::DumpTensorOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
@@ -1512,6 +1507,20 @@ getOpInputRefs(OpContext opContextHandle,
     for (const auto *input : *opContext.type_as_GenericOp()->io_tensors()) {
       tensorRefs.push_back(input);
     }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
+    tensorRefs = {opContext.type_as_RotaryEmbeddingLlamaOp()->input(),
+                  opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
+                  opContext.type_as_RotaryEmbeddingLlamaOp()->sin_cache(),
+                  opContext.type_as_RotaryEmbeddingLlamaOp()->trans_mat()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DumpTensorOp: {
+    tensorRefs = {opContext.type_as_DumpTensorOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LoadTensorOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {

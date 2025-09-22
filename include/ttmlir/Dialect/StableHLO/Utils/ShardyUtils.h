@@ -66,9 +66,21 @@ mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
                                             mlir::BlockArgument &arg,
                                             mlir::MLIRContext *context);
 
+// Convert dictionary with frontend attributes to dictionary with sdy.sharding.
+mlir::DictionaryAttr
+convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
+                             mlir::DictionaryAttr currentArgAttrDict);
+
 // Convert all function arguments from frontend attributes format to SDY format.
 mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
                                                    mlir::MLIRContext *context);
+
+// Convert all stablehlo.custom_call @Sharding ops to sdy.sharding_constraint
+// ops.
+mlir::LogicalResult
+convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
+                                      mlir::MLIRContext *context,
+                                      mlir::OpBuilder &builder);
 
 // Check if the graph is solved.
 bool isGraphSolved(mlir::ModuleOp &module);

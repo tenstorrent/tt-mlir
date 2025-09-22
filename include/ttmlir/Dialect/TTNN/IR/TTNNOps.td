@@ -2378,4 +2378,71 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
     let hasVerifier = 1;
 }
 
+def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Rotary embedding llama operation.";
+    let description = [{
+      Applies rotary embedding to the input tensor using precomputed cosine and sine caches along with a transformation matrix.
+
+      The operation supports both prefill and decode modes:
+      - Prefill mode: Uses interleaved memory layout
+      - Decode mode: Uses height-sharded memory layout
+
+      Example:
+      ```mlir
+      %result = ttnn.rotary_embedding_llama(%input, %cos_cache, %sin_cache, %trans_mat)
+        {is_decode_mode = false, memory_config = #ttnn.memory_config<interleaved>}
+        : tensor<1x32x128xbf16>, tensor<1x32x128xbf16>, tensor<1x32x128xbf16>,
+        tensor<1x1x32x32xbf16> -> tensor<1x32x128xbf16>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$cos_cache,
+                         AnyRankedTensor:$sin_cache,
+                         AnyRankedTensor:$trans_mat,
+                         DefaultValuedAttr<BoolAttr, "false">:$is_decode_mode,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor"> {
+  let summary = "Saves a tensor to disk in the TTNN binary format";
+  let description = [{
+    Saves a tensor to disk in the TTNN binary format. Files must use the `.tensorbin` extension.
+
+    Inputs:
+      - `file_path` StrAttr: Path of the file where tensor should be dumped. Must end with `.tensorbin` extension.
+      - `input` AnyRankedTensor: Tensor to serialize.
+  }];
+
+  let arguments = (ins StrAttr:$file_path,
+                       AnyRankedTensor:$input);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
+  let summary = "Loads a tensor from disk";
+  let description = [{
+    Loads a tensor from disk, optionally placing it directly on a device.
+
+    Inputs:
+      - `file_path` StrAttr: Path of the file of the serialized tensor. Must end with `.tensorbin` extension.
+      - `device` Optional<TTNN_Device>: Device where tensor should be deserialized. It has to be provided iff the serialized tensor is a device tensor.
+    Outputs:
+      - `result` AnyRankedTensor: Deserialized tensor from the `file_path`.
+  }];
+
+  let arguments = (ins StrAttr:$file_path,
+                       Optional<TTNN_Device>:$device);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 #endif

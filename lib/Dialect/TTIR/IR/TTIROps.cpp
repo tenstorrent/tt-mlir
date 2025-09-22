@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/QuantUtils.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTIR/Utils/VerificationUtils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -465,6 +466,11 @@ mlir::LogicalResult mlir::tt::ttir::EmptyOp::bufferize(
     return success();
   }
 
+  // Don't bufferize if tensor has a ttnn_layout; lowering to ttnn generic.
+  if (options.allowUnknownOps &&
+      mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())) {
+    return success();
+  }
   ::llvm::SmallVector<mlir::Value> invocationStack;
   mlir::bufferization::replaceOpWithNewBufferizedOp<memref::AllocOp>(
       rewriter, *this,
@@ -3165,6 +3171,136 @@ mlir::OpFoldResult mlir::tt::ttir::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// TTNNMetalLayoutCastOp
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::verify() {
+  auto inputType = mlir::dyn_cast<mlir::ShapedType>(getInput().getType());
+  auto outputType = mlir::dyn_cast<mlir::ShapedType>(getResult().getType());
+
+  const bool inputIsMemref = mlir::isa<mlir::MemRefType>(inputType);
+  const bool outputIsMemref = mlir::isa<mlir::MemRefType>(outputType);
+
+  auto maybeInputTensor = mlir::dyn_cast<mlir::RankedTensorType>(inputType);
+  auto maybeOutputTensor = mlir::dyn_cast<mlir::RankedTensorType>(outputType);
+
+  auto maybeInputAttr =
+      maybeInputTensor ? maybeInputTensor.getEncoding() : nullptr;
+  auto maybeOutputAttr =
+      maybeOutputTensor ? maybeOutputTensor.getEncoding() : nullptr;
+
+  const bool inputIsTTNNTensor =
+      maybeInputTensor &&
+      mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(maybeInputAttr);
+  const bool outputIsTTNNTensor =
+      maybeOutputTensor &&
+      mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(maybeOutputAttr);
+
+  const bool inputIsMetalTensor =
+      maybeInputTensor &&
+      mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(maybeInputAttr);
+  const bool outputIsMetalTensor =
+      maybeOutputTensor &&
+      mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(maybeOutputAttr);
+
+  if (inputIsTTNNTensor) {
+    if (!outputIsMetalTensor && !outputIsMemref) {
+      return emitOpError(
+          "Input is ttnn tensor, output must be metal tensor or memref");
+    }
+  }
+
+  if (inputIsMetalTensor || inputIsMemref) {
+    if (!outputIsTTNNTensor) {
+      return emitOpError(
+          "Input is metal tensor or memref, output must be ttnn tensor");
+    }
+  }
+
+  return success();
+}
+
+void mlir::tt::ttir::TTNNMetalLayoutCastOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  setNameFn(getResult(), "cast");
+}
+
+mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+
+  Type inputType = getInput().getType();
+  Type resultType = getResult().getType();
+  if (mlir::isa<mlir::MemRefType>(resultType) ||
+      mlir::isa<mlir::MemRefType>(inputType)) {
+    return success();
+  }
+
+  auto inputTensor = mlir::cast<mlir::RankedTensorType>(inputType);
+  auto outputTensor = mlir::cast<mlir::RankedTensorType>(resultType);
+
+  auto inputEncoding = inputTensor.getEncoding();
+  auto outputEncoding = outputTensor.getEncoding();
+
+  if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(inputEncoding)) {
+    // metal_layout -> ttnn_layout becomes memref -> ttnn_layout
+    TT_assertv(mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(outputEncoding),
+               "Output tensor must have a ttnn_layout");
+    auto maybeInputBuf =
+        mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
+    if (failed(maybeInputBuf)) {
+      return maybeInputBuf;
+    }
+    rewriter.replaceOpWithNewOp<TTNNMetalLayoutCastOp>(*this, outputTensor,
+                                                       *maybeInputBuf);
+  } else if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(outputEncoding)) {
+    // ttnn_layout -> metal_layout becomes ttnn_layout -> memref
+    TT_assertv(mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(inputEncoding),
+               "Input tensor must have a ttnn_layout");
+    ::llvm::SmallVector<mlir::Value> dummy;
+    auto bufferType = getBufferType(getResult(), options, state, dummy);
+    if (failed(bufferType)) {
+      return bufferType;
+    }
+    MemRefType outputMemrefType = mlir::cast<mlir::MemRefType>(*bufferType);
+    mlir::bufferization::replaceOpWithNewBufferizedOp<TTNNMetalLayoutCastOp>(
+        rewriter, *this, outputMemrefType, getInput());
+
+  } else {
+    return emitOpError("Neither input or output uses metal_layout");
+  }
+  return success();
+}
+
+mlir::bufferization::AliasingValueList
+mlir::tt::ttir::TTNNMetalLayoutCastOp::getAliasingValues(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType>
+mlir::tt::ttir::TTNNMetalLayoutCastOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
+}
+
+bool mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // no-op
+  return false;
+}
+
+bool mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // no-op
+  return false;
+}
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 
@@ -5203,16 +5339,9 @@ mlir::tt::ttir::CollectiveBroadcastOp::fold(FoldAdaptor adaptor) {
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
   // Input tensor dimensions [batch_size, num_heads, sequence_size, head_size].
-  enum InputDimensions {
-    INPUT_BATCH = 0,
-    INPUT_NUM_HEADS = 1,
-    INPUT_SEQ = 2,
-    INPUT_HEAD_SIZE = 3
-  };
-
   // Output tensor dimensions [batch_size, sequence_size, num_heads *
   // head_size].
-  enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+  using namespace ttmlir::utils::transformer;
 
   // Verify batch_size dimension matches.
   if (inputShape[INPUT_BATCH] != outputShape[OUTPUT_BATCH]) {

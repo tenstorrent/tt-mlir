@@ -39,9 +39,16 @@ std::unique_ptr<Pass> createCanonicalizerPassWithOptions(
   return mlir::createCanonicalizerPass({}, disabledPatterns);
 }
 
-void createTTIRBufferizationPipeline(OpPassManager &pm) {
+void createTTIRBufferizationPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   bufferization::OneShotBufferizePassOptions bufferizePassOptions;
-  bufferizePassOptions.bufferizeFunctionBoundaries = true;
+  if (options.ttnnMode) {
+    bufferizePassOptions.allowUnknownOps = true;
+    bufferizePassOptions.bufferizeFunctionBoundaries = false;
+  } else {
+    bufferizePassOptions.allowUnknownOps = false;
+    bufferizePassOptions.bufferizeFunctionBoundaries = true;
+  }
   bufferizePassOptions.functionBoundaryTypeConversion =
       bufferization::LayoutMapOption::IdentityLayoutMap;
   bufferizePassOptions.unknownTypeConversion =
@@ -89,8 +96,10 @@ void createTTIRToTTMetalFrontendPipeline(
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  createTTIRBufferizationPipeline(pm);
-  pm.addPass(ttir::createTTIRAllocate());
+  createTTIRBufferizationPipeline(pm, options);
+  ttir::TTIRAllocateOptions allocateOptions;
+  { allocateOptions.numStreamBuffers = options.numStreamBuffers; }
+  pm.addPass(ttir::createTTIRAllocate(allocateOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   ttir::TTIRGenericApplyInterchangeOptions applyInterchangeOptions;
   {
@@ -110,7 +119,7 @@ void createTTIRToTTMetalMiddleendPipeline(
       ttir::createTTIRInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
   OpPassManager &funcPm = pm.nest<func::FuncOp>();
-  funcPm.addPass(affine::createLoopCoalescingPass());
+  funcPm.addPass(affine::createAffineLoopInvariantCodeMotionPass());
 
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(memref::createFoldMemRefAliasOpsPass());
@@ -177,7 +186,7 @@ void registerTTMetalPipelines() {
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-to-ttmetal-be-pipeline", "Backend lowering passes.",
       tt::ttmetal::createTTIRToTTMetalBackendPipeline);
-  mlir::PassPipelineRegistration<>(
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-bufferization-pipeline",
       "Pipeline bufferizing ttir ops on tensors to ops on buffers (memrefs).",
       tt::ttmetal::createTTIRBufferizationPipeline);

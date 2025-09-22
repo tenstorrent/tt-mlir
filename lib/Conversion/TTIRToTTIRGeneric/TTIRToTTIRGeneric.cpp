@@ -231,7 +231,7 @@ namespace {
 // ----------------------------------------------------------------------------
 //
 // Rewrite elementwise ops by emitting a matching tile version of the op
-// into a ttir.generic/linang.generic nest.
+// into a ttir.generic/linalg.generic nest.
 template <typename ConcreteOp, typename TileOp>
 class TTIRNamedElementwiseRewriter final
     : public mlir::OpConversionPattern<ConcreteOp>,
@@ -248,6 +248,14 @@ public:
                                 targetGridShape) {}
 
 private:
+  static constexpr bool isComparisonOp =
+      std::is_same_v<TileOp, ttir::TileEqzOp> ||
+      std::is_same_v<TileOp, ttir::TileNezOp> ||
+      std::is_same_v<TileOp, ttir::TileGtzOp> ||
+      std::is_same_v<TileOp, ttir::TileGezOp> ||
+      std::is_same_v<TileOp, ttir::TileLtzOp> ||
+      std::is_same_v<TileOp, ttir::TileLezOp>;
+
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -309,9 +317,23 @@ private:
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
-              mlir::Value yield = bbBuilder.create<TileOp>(
-                  loc, /* resultTypes */ bbArgs.take_back(numOutputs),
-                  /* operands */ bbArgs.take_front(numInputs));
+              mlir::Value yield;
+
+              if constexpr (isComparisonOp) {
+                // For comparison ops, first subtract then compare with zero
+                mlir::Value subResult = bbBuilder.create<ttir::TileSubBinaryOp>(
+                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
+                    /*operands=*/bbArgs.take_front(numInputs));
+                yield = bbBuilder.create<TileOp>(
+                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
+                    /*operands=*/subResult);
+              } else {
+                // For regular elementwise ops, create TileOp directly
+                yield = bbBuilder.create<TileOp>(
+                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
+                    /*operands=*/bbArgs.take_front(numInputs));
+              }
+
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
 
@@ -889,32 +911,43 @@ void populateTTIRToTTIRGenericPatterns(
     const llvm::SmallVector<int64_t> &targetGridShape) {
   // clang-format off
   patterns.add<
+
     // Elementwise.
-    TTIRNamedElementwiseRewriter<ttir::AbsOp,        ttir::TileAbsOp>,
-    TTIRNamedElementwiseRewriter<ttir::AddOp,        ttir::TileAddOp>,
-    TTIRNamedElementwiseRewriter<ttir::CeilOp,       ttir::TileCeilOp>,
-    TTIRNamedElementwiseRewriter<ttir::CosOp,        ttir::TileCosOp>,
-    TTIRNamedElementwiseRewriter<ttir::DivOp,        ttir::TileDivOp>,
-    TTIRNamedElementwiseRewriter<ttir::ExpOp,        ttir::TileExpOp>,
-    TTIRNamedElementwiseRewriter<ttir::FloorOp,      ttir::TileFloorOp>,
-    TTIRNamedElementwiseRewriter<ttir::LogOp,        ttir::TileLogOp>,
-    TTIRNamedElementwiseRewriter<ttir::LogicalNotOp, ttir::TileLogicalNotOp>,
-    TTIRNamedElementwiseRewriter<ttir::MultiplyOp,   ttir::TileMulOp>,
-    TTIRNamedElementwiseRewriter<ttir::MaximumOp,    ttir::TileMaximumOp>,
-    TTIRNamedElementwiseRewriter<ttir::NegOp,        ttir::TileNegativeOp>,
-    TTIRNamedElementwiseRewriter<ttir::PowOp,        ttir::TilePowOp>,
-    TTIRNamedElementwiseRewriter<ttir::ReciprocalOp, ttir::TileRecipOp>,
-    TTIRNamedElementwiseRewriter<ttir::RsqrtOp,      ttir::TileRsqrtOp>,
-    TTIRNamedElementwiseRewriter<ttir::SigmoidOp,    ttir::TileSigmoidOp>,
-    TTIRNamedElementwiseRewriter<ttir::SinOp,        ttir::TileSinOp>,
-    TTIRNamedElementwiseRewriter<ttir::SqrtOp,       ttir::TileSqrtOp>,
-    TTIRNamedElementwiseRewriter<ttir::SubtractOp,   ttir::TileSubOp>,
-    TTIRNamedElementwiseRewriter<ttir::TanOp,        ttir::TileTanOp>,
+    TTIRNamedElementwiseRewriter<ttir::AbsOp,          ttir::TileAbsOp>,
+    TTIRNamedElementwiseRewriter<ttir::AddOp,          ttir::TileAddOp>,
+    TTIRNamedElementwiseRewriter<ttir::CeilOp,         ttir::TileCeilOp>,
+    TTIRNamedElementwiseRewriter<ttir::CosOp,          ttir::TileCosOp>,
+    TTIRNamedElementwiseRewriter<ttir::DivOp,          ttir::TileDivOp>,
+    TTIRNamedElementwiseRewriter<ttir::ExpOp,          ttir::TileExpOp>,
+    TTIRNamedElementwiseRewriter<ttir::FloorOp,        ttir::TileFloorOp>,
+    TTIRNamedElementwiseRewriter<ttir::GeluOp,         ttir::TileGeluOp>,
+    TTIRNamedElementwiseRewriter<ttir::LogOp,          ttir::TileLogOp>,
+    TTIRNamedElementwiseRewriter<ttir::LogicalNotOp,   ttir::TileLogicalNotOp>,
+    TTIRNamedElementwiseRewriter<ttir::MultiplyOp,     ttir::TileMulOp>,
+    TTIRNamedElementwiseRewriter<ttir::MaximumOp,      ttir::TileMaximumOp>,
+    TTIRNamedElementwiseRewriter<ttir::NegOp,          ttir::TileNegativeOp>,
+    TTIRNamedElementwiseRewriter<ttir::PowOp,          ttir::TilePowOp>,
+    TTIRNamedElementwiseRewriter<ttir::ReciprocalOp,   ttir::TileRecipOp>,
+    TTIRNamedElementwiseRewriter<ttir::RsqrtOp,        ttir::TileRsqrtOp>,
+    TTIRNamedElementwiseRewriter<ttir::SigmoidOp,      ttir::TileSigmoidOp>,
+    TTIRNamedElementwiseRewriter<ttir::SinOp,          ttir::TileSinOp>,
+    TTIRNamedElementwiseRewriter<ttir::SqrtOp,         ttir::TileSqrtOp>,
+    TTIRNamedElementwiseRewriter<ttir::SubtractOp,     ttir::TileSubOp>,
+    TTIRNamedElementwiseRewriter<ttir::TanOp,          ttir::TileTanOp>,
+
+    // Comparison.
+    TTIRNamedElementwiseRewriter<ttir::EqualOp,        ttir::TileEqzOp>,
+    TTIRNamedElementwiseRewriter<ttir::NotEqualOp,     ttir::TileNezOp>,
+    TTIRNamedElementwiseRewriter<ttir::GreaterThanOp,  ttir::TileGtzOp>,
+    TTIRNamedElementwiseRewriter<ttir::GreaterEqualOp, ttir::TileGezOp>,
+    TTIRNamedElementwiseRewriter<ttir::LessThanOp,     ttir::TileLtzOp>,
+    TTIRNamedElementwiseRewriter<ttir::LessEqualOp,    ttir::TileLezOp>,
+
     // Reduction.
-    TTIRNamedReductionRewriter<ttir::MaxOp,          ttir::TileReduceMaxOp>,
-    TTIRNamedReductionRewriter<ttir::SumOp,          ttir::TileReduceSumOp>,
+    TTIRNamedReductionRewriter<ttir::MaxOp,            ttir::TileReduceMaxOp>,
+    TTIRNamedReductionRewriter<ttir::SumOp,            ttir::TileReduceSumOp>,
     // Data movement.
-    TTIRNamedElementwiseRewriter<ttir::TypecastOp,   ttir::TileTypecastOp>,
+    TTIRNamedElementwiseRewriter<ttir::TypecastOp,     ttir::TileTypecastOp>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
     TTIRPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);

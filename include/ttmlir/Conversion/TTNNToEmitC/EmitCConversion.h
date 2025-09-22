@@ -1298,11 +1298,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
                  attr.getEnableWeightsDoubleBuffer());
       firstElement = false;
     }
-    if (attr.getEnableSplitReader()) {
-      rso << (firstElement ? "" : ", ") << ".enable_split_reader = "
-          << EmitCTypeConverter<bool>::convert(attr.getEnableSplitReader());
-      firstElement = false;
-    }
     if (attr.getInPlace()) {
       rso << (firstElement ? "" : ", ") << ".in_place = "
           << EmitCTypeConverter<bool>::convert(attr.getInPlace());
@@ -1564,6 +1559,9 @@ public:
   mlir::Attribute
   emit(::mlir::TypedValue<::mlir::tt::ttnn::DeviceType> device) {
     if (!device) {
+      if constexpr (std::is_pointer_v<TargetTy>) {
+        return rewriter.getType<emitc::OpaqueAttr>("nullptr");
+      }
       return emit(std::nullopt);
     }
 

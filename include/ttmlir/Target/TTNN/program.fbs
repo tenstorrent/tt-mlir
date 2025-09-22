@@ -23,6 +23,7 @@ include "ttmlir/Target/TTNN/operations/normalization.fbs";
 include "ttmlir/Target/TTNN/operations/pool.fbs";
 include "ttmlir/Target/TTNN/operations/rand.fbs";
 include "ttmlir/Target/TTNN/operations/reduction.fbs";
+include "ttmlir/Target/TTNN/operations/tensor_serialization.fbs";
 include "ttmlir/Target/TTNN/operations/trace.fbs";
 include "ttmlir/Target/TTNN/operations/transformer.fbs";
 
@@ -37,6 +38,7 @@ union OpType {
   CollectivePermuteOp,
   ConcatOp,
   ConcatenateHeadsOp,
+  RotaryEmbeddingLlamaOp,
   ConstantOp,
   Conv2dOp,
   ConvTranspose2dOp,
@@ -93,7 +95,9 @@ union OpType {
   TypecastOp,
   UpdateCacheOp,
   UpsampleOp,
-  WriteTensorOp
+  WriteTensorOp,
+  DumpTensorOp,
+  LoadTensorOp,
 }
 
 table Operation {

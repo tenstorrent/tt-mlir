@@ -6,12 +6,11 @@ import os
 import inspect
 import subprocess
 import torch
-import pytest
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
 from ttmlir.ir import *
-from ttmlir.dialects import func, sdy, mpmd
+from ttmlir.dialects import func
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
@@ -20,9 +19,11 @@ from ttmlir.passes import (
     ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,
     translate_to_cpp,
+    translate_to_python,
     MLIRModuleLogger,
     stablehlo_pipeline,
     stablehlo_to_ttir_pipeline,
+    ttir_to_emitpy_pipeline,
 )
 
 from builder.base.builder import *
@@ -32,14 +33,14 @@ from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 # ----- Exception Classes -----
 
 
-class TTIRCompileException(Exception):
-    """Exception raised when TTIR compilation fails during compile_ttir_to_flatbuffer."""
+class TTBuilderCompileException(Exception):
+    """Exception raised when builder compilation fails during compile_ttir_to_flatbuffer."""
 
     pass
 
 
-class TTIRRuntimeException(Exception):
-    """Exception raised when compiled TTIR code fails during runtime execution.
+class TTBuilderRuntimeException(Exception):
+    """Exception raised when compiled builder code fails during runtime execution.
 
     This exception is reserved for future use when runtime execution is implemented.
     """
@@ -47,8 +48,8 @@ class TTIRRuntimeException(Exception):
     pass
 
 
-class TTIRGoldenException(Exception):
-    """Exception raised when TTIR output doesn't match expected golden results.
+class TTBuilderGoldenException(Exception):
+    """Exception raised when builder output doesn't match expected golden results.
 
     This exception is reserved for future use when golden verification is implemented.
     """
@@ -60,14 +61,20 @@ class TTIRGoldenException(Exception):
 
 
 def _get_target_path(output_path, builder_dir, filename, target):
-    target_dir = os.path.join(output_path, "builder-artifacts", builder_dir, target)
+    target_dir = os.path.join(output_path, builder_dir, target)
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
     return os.path.join(target_dir, filename)
 
 
 def _emitc_to_executable(module, filepath: str, golden_map, module_cache):
-    cpp = translate_to_cpp(module)
+    py = translate_to_cpp(module)
+    with open(filepath, "w") as f:
+        f.write(py)
+
+
+def _emitpy_to_executable(module, filepath: str, golden_map, module_cache):
+    cpp = translate_to_python(module)
     with open(filepath, "w") as f:
         f.write(cpp)
 
@@ -270,7 +277,7 @@ def build_ttir_module(
         print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base
         filename = _get_target_path(
-            output_root, "ttir-builder", base + "_ttir.mlir", base
+            output_root, "ttir-builder-artifacts", "ttir.mlir", base
         )
 
         if module_dump:
@@ -381,33 +388,36 @@ def compile_ttir_to_flatbuffer(
     if inputs_types is not None:
         if len(inputs_shapes) != len(inputs_types):
             raise ValueError("inputs_shapes and inputs_types must have the same length")
+
     # Compile model to TTIR MLIR
+    try:
+        module, builder = build_ttir_module(
+            fn,
+            inputs_shapes,
+            inputs_types,
+            mesh_name=mesh_name,
+            mesh_dict=mesh_dict,
+            module_dump=module_dump,
+            output_root=output_root,
+            base=test_base,
+        )
 
-    module, builder = build_ttir_module(
-        fn,
-        inputs_shapes,
-        inputs_types,
-        mesh_name=mesh_name,
-        mesh_dict=mesh_dict,
-        module_dump=module_dump,
-        output_root=output_root,
-        base=test_base,
-    )
-
-    return compile_ttir_module_to_flatbuffer(
-        module,
-        builder,
-        system_desc_path=system_desc_path,
-        test_base=test_base,
-        output_root=output_root,
-        target=target,
-        mesh_dict=mesh_dict,
-        module_dump=module_dump,
-        argument_types_string=argument_types_string,
-        custom_pipeline=custom_pipeline,
-        pipeline_options=pipeline_options,
-        print_ir=print_ir,
-    )
+        return compile_ttir_module_to_flatbuffer(
+            module,
+            builder,
+            system_desc_path=system_desc_path,
+            test_base=test_base,
+            output_root=output_root,
+            target=target,
+            mesh_dict=mesh_dict,
+            module_dump=module_dump,
+            argument_types_string=argument_types_string,
+            custom_pipeline=custom_pipeline,
+            pipeline_options=pipeline_options,
+            print_ir=print_ir,
+        )
+    except Exception as e:
+        raise TTBuilderCompileException(e)
 
 
 def build_stablehlo_module(
@@ -546,7 +556,7 @@ def build_stablehlo_module(
         print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base
         filename = _get_target_path(
-            output_root, "stablehlo-builder", base + "_shlo.mlir", base
+            output_root, "stablehlo-builder-artifacts", "shlo.mlir", base
         )
 
         if module_dump:
@@ -653,23 +663,26 @@ def compile_stablehlo_to_flatbuffer(
             raise ValueError("inputs_shapes and inputs_types must have the same length")
 
     # Compile model to StableHLO and run stablehlo pipeline to TTIR MLIR
-    module, builder = build_stablehlo_module(
-        fn,
-        inputs_shapes,
-        inputs_types,
-        mesh_name=mesh_name,
-        mesh_dict=mesh_dict,
-        module_dump=module_dump,
-        output_root=output_root,
-        base=test_base,
-    )
+    try:
+        module, builder = build_stablehlo_module(
+            fn,
+            inputs_shapes,
+            inputs_types,
+            mesh_name=mesh_name,
+            mesh_dict=mesh_dict,
+            module_dump=module_dump,
+            output_root=output_root,
+            base=test_base,
+        )
+    except Exception as e:
+        raise TTBuilderCompileException(e)
 
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
 
     filename = _get_target_path(
-        output_root, "stablehlo-builder", test_base + ".mlir", test_base
+        output_root, "stablehlo-builder-artifacts", "shlo_pipeline.mlir", test_base
     )
     if module_dump:
         with open(filename, "w") as f:
@@ -680,7 +693,7 @@ def compile_stablehlo_to_flatbuffer(
     print(module)
 
     filename = _get_target_path(
-        output_root, "stablehlo-builder", test_base + "_ttir.mlir", test_base
+        output_root, "stablehlo-builder-artifacts", "ttir.mlir", test_base
     )
     if module_dump:
         with open(filename, "w") as f:
@@ -692,7 +705,7 @@ def compile_stablehlo_to_flatbuffer(
         system_desc_path=system_desc_path,
         test_base=test_base,
         output_root=output_root,
-        builder_dir="stablehlo-builder",
+        builder_dir="stablehlo-builder-artifacts",
         target=target,
         mesh_dict=mesh_dict,
         module_dump=module_dump,
@@ -709,8 +722,8 @@ def compile_ttir_module_to_flatbuffer(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    builder_dir: str = "ttir-builder",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
+    builder_dir: str = "ttir-builder-artifacts",
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
@@ -784,7 +797,7 @@ def compile_ttir_module_to_flatbuffer(
 
     pipeline_fn: Callable
     to_target: Callable
-    mlir_suffix: str
+    filename: str
     target_extension: str
 
     if target == "ttnn":
@@ -792,14 +805,14 @@ def compile_ttir_module_to_flatbuffer(
             custom_pipeline if custom_pipeline else ttir_to_ttnn_backend_pipeline
         )
         to_target = ttnn_to_flatbuffer_file
-        mlir_suffix = "_ttnn.mlir"
+        filename = "ttnn.mlir"
         target_extension = "ttnn"
     elif target == "ttmetal":
         pipeline_fn = (
             custom_pipeline if custom_pipeline else ttir_to_ttmetal_backend_pipeline
         )
         to_target = ttmetal_to_flatbuffer_file
-        mlir_suffix = "_ttm.mlir"
+        filename = "ttm.mlir"
         target_extension = "ttm"
     elif target == "ttnn-standalone":
         ttir_to_ttnn_emitc_pipeline = _create_custom_ttir_pipeline_fn(
@@ -809,39 +822,50 @@ def compile_ttir_module_to_flatbuffer(
             custom_pipeline if custom_pipeline else ttir_to_ttnn_emitc_pipeline
         )
         to_target = _emitc_to_executable
-        mlir_suffix = "_ttnn.mlir"
+        filename = "ttnn.mlir"
         target_extension = "cpp"
+    elif target == "emitpy":
+        pipeline_fn = custom_pipeline if custom_pipeline else ttir_to_emitpy_pipeline
+        to_target = _emitpy_to_executable
+        filename = "ttnn.mlir"
+        target_extension = "py"
     else:
         raise ValueError("Unsupported target: " + target)
 
-    output_file_mlir = _get_target_path(
-        output_root, builder_dir, test_base + mlir_suffix, test_base
-    )
+    output_file_mlir = _get_target_path(output_root, builder_dir, filename, test_base)
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
-    module = _run_ttir_pipeline(
-        module,
-        pipeline_fn,
-        pipeline_options=pipeline_options,
-        dump_to_file=module_dump,
-        output_file_name=output_file_mlir,
-        system_desc_path=system_desc_path,
-        mesh_dict=mesh_dict,
-        argument_types_string=argument_types_string,
-    )
+    try:
+        module = _run_ttir_pipeline(
+            module,
+            pipeline_fn,
+            pipeline_options=pipeline_options,
+            dump_to_file=module_dump,
+            output_file_name=output_file_mlir,
+            system_desc_path=system_desc_path,
+            mesh_dict=mesh_dict,
+            argument_types_string=argument_types_string,
+        )
+    except Exception as e:
+        raise TTBuilderCompileException(e)
+
     print(f"{target} pipeline ran successfully.")
 
     module_logger = MLIRModuleLogger()
     module_logger.attach_context(module.context)
 
     # Compile TT{Metal,NN} MLIR -> flatbuffer
-    to_target(
-        module,
-        output_file_fbb,
-        builder.golden_map,
-        module_logger.module_log if module_logger.module_log else [],
-    )
+    try:
+        to_target(
+            module,
+            output_file_fbb,
+            builder.golden_map,
+            module_logger.module_log if module_logger.module_log else [],
+        )
+    except Exception as e:
+        raise TTBuilderCompileException(e)
+
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
     return output_file_mlir
 
@@ -937,7 +961,7 @@ def experimental_build_stablehlo_module(
         print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base
         filename = _get_target_path(
-            output_root, "stablehlo-builder", base + "_shlo.mlir", base
+            output_root, "stablehlo-builder-artifacts", "shlo.mlir", base
         )
 
         if module_dump:

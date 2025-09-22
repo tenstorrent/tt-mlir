@@ -1,13 +1,12 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-from pykernel.kernel_types import *
-import hashlib
-import inspect
-import logging
 
-from collections import namedtuple
 import math
+import hashlib
+from collections import namedtuple
+
+from .kernel_types import *
 
 
 # Import ttnn for only the op.py module
