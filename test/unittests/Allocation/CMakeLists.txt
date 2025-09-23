@@ -2,6 +2,7 @@ set(TESTSUITE AllocationTests)
 
 add_mlir_unittest(${TESTSUITE}
     TestAllocation.cpp
+    TestBlockFactorAnalysis.cpp
 )
 
 target_include_directories(${TESTSUITE}
@@ -13,5 +14,9 @@ target_link_libraries(${TESTSUITE}
   PRIVATE
     TTMLIRTestUtils
     MLIRTTIRAnalysis
+    MLIRTTCoreDialect
+    MLIRTTIRDialect
+    MLIRFuncDialect
+    MLIRLinalgDialect
     coverage_config
 )
