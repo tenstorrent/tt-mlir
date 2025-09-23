@@ -76,6 +76,8 @@
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
+#include <iostream>
+
 namespace tt::runtime::ttnn {
 
 using LogType = ::tt::runtime::logger::LogType;
@@ -131,9 +133,12 @@ void ProgramExecutor::runCallback(
 void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+  std::cout << "Dhruv is here" << std::endl;
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
+    std::cout << "Dhruv processing operation: " << op->debug_info()->c_str()
+              << std::endl;
     perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
@@ -143,6 +148,7 @@ void ProgramExecutor::execute() {
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
+
     dumpPerfCountersIfNeeded();
   }
   LOG_DEBUG(LogType::LogRuntimeTTNN,
