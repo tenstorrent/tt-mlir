@@ -126,9 +126,10 @@ struct ModuleAnalysisData {
 namespace {
 class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
 public:
-  TTIRAllocateStreams(MLIRContext *context, unsigned numStreamBuffers)
+  TTIRAllocateStreams(MLIRContext *context, unsigned numStreamBuffers,
+                      bool alwaysStream)
       : OpRewritePattern<ttir::GenericOp>(context),
-        numStreamBuffers(numStreamBuffers) {}
+        numStreamBuffers(numStreamBuffers), alwaysStream(alwaysStream) {}
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
@@ -143,7 +144,7 @@ public:
               .getValue();
 
       if (!needsStream(operand.get(), isOutput, operandIndexingMap,
-                       iteratorTypes)) {
+                       iteratorTypes, alwaysStream)) {
         continue;
       }
 
@@ -155,8 +156,8 @@ public:
   }
 
   static bool needsStream(Value operand, bool isOutput,
-                          AffineMap operandIndexingMap,
-                          ArrayAttr iteratorTypes) {
+                          AffineMap operandIndexingMap, ArrayAttr iteratorTypes,
+                          bool alwaysStream) {
 
     Operation *definingOp = operand.getDefiningOp();
 
@@ -170,6 +171,11 @@ public:
     // to be the case for outputs.
     if (isOutput) {
       return false;
+    }
+
+    // Right now, only in ttnn-mode we always stream.
+    if (alwaysStream) {
+      return true;
     }
 
     // A core participating in a reduction dim necessarily requires
@@ -224,6 +230,7 @@ public:
   }
 
   unsigned numStreamBuffers;
+  bool alwaysStream;
 };
 } // namespace
 
@@ -239,6 +246,11 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     // (1) Create streams (with their backing buffers) where needed.
     if (failed(runAllocateStreams(moduleOp))) {
       signalPassFailure();
+      return;
+    }
+
+    // ttnn-mode is the only time we always stream; don't allocate buffers.
+    if (alwaysStream) {
       return;
     }
 
@@ -259,7 +271,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   // Create/allocate streams within a module.
   LogicalResult runAllocateStreams(ModuleOp moduleOp) {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRAllocateStreams>(&getContext(), numStreamBuffers);
+    patterns.add<TTIRAllocateStreams>(&getContext(), numStreamBuffers,
+                                      alwaysStream);
     return mlir::applyPatternsGreedily(getOperation(), std::move(patterns));
   }
 

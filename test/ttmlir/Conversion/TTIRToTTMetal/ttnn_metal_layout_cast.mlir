@@ -27,11 +27,15 @@ module {
 
     // CHECK: ins(%[[CAST0]] : memref<{{.*}}>)
     // CHECK: outs(%[[CAST1]] : memref<{{.*}}>)
-    ttir.generic {grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], block_factors = [], threads = [#ttir.thread<compute>]}
+    ttir.generic {grid = #ttcore.grid<1x1>,
+                  indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
+                  iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
+                  block_factors = [1, 1],
+                  threads = [#ttir.thread<compute>]}
         ins(%2 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #metal_layout>)
         outs(%4 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #metal_layout>) {
-      ^compute0(%arg_in: tensor<1x1x1x1x!ttcore.tile<32x32, f32>>, %arg_out: tensor<1x1x1x1x!ttcore.tile<32x32, f32>>):
-        ttir.yield %arg_in : (tensor<1x1x1x1x!ttcore.tile<32x32, f32>>)
+      ^compute0(%arg_in: tensor<1x1x!ttcore.tile<32x32, f32>>, %arg_out: tensor<1x1x!ttcore.tile<32x32, f32>>):
+        ttir.yield %arg_in : (tensor<1x1x!ttcore.tile<32x32, f32>>)
     } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #metal_layout>
 
     // CHECK: ttir.ttnn_metal_layout_cast %[[CAST1]] : memref{{.*}}> -> tensor<32x32xf32, #ttnn_layout>
