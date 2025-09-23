@@ -3810,50 +3810,6 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def subtract(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.subtract``.
-
-        *Elementwise subtraction operation.*
-
-        Performs elementwise subtraction between two tensors.
-        For each pair of corresponding elements, subtracts the element in the second
-        tensor from the element in the first tensor.
-
-        Mathematical definition: subtract(x, y) = x - y
-
-        .. code-block:: mlir
-
-            // Subtract corresponding elements
-            %result = ttir.subtract(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensors:
-            // lhs: [3.5, 0.0, -1.2]
-            // rhs: [1.5, 2.0, -3.2]
-            // Output tensor:
-            // [2.0, -2.0, 2.0]
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor (minuend)
-        in1 : Operand
-            Second input tensor (subtrahend)
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the elementwise difference of the inputs
-        """
-        return self._op_proxy(
-            ttir.SubtractOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
-
     def div(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
