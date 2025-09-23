@@ -759,6 +759,10 @@ def transpose(
     return builder.transpose(in0, unit_attrs=unit_attrs)
 
 
+def squeeze(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.squeeze(in0, unit_attrs=unit_attrs)
+
+
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dim_arg", [0])
@@ -1967,6 +1971,8 @@ hoisted_unary_ops = [
     ),
     create_hoisted_unary_op(reshape, "reshape"),
     create_hoisted_unary_op(transpose, "transpose"),
+    create_hoisted_unary_op(mean, "mean"),
+    create_hoisted_unary_op(squeeze, "squeeze"),
 ]
 
 
