@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTIR/Analysis/Allocation/Utils.h"
 
+#include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "llvm/ADT/DenseSet.h"
@@ -348,8 +349,10 @@ public:
                                          const AllocateStats &obj) {
       os << "{max size = " << obj.maxSize << ", mem usage = " << obj.memUsage;
       if (obj.maxLoad) {
-        os << ", max load = " << obj.maxLoad << " (ratio {"
-           << (static_cast<double>(obj.memUsage) / obj.maxLoad) << "})";
+        os << ", max load = " << obj.maxLoad << " (ratio "
+           << llvm::format("%.3f",
+                           static_cast<double>(obj.memUsage) / obj.maxLoad)
+           << ")";
       }
       return os << "}";
     }
