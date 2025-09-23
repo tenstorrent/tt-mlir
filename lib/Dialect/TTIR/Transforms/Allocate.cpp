@@ -603,11 +603,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
                   if (!operandCtx.bufferType) {
                     // In principle, buffer shape/size could depend on whether
                     // the stream is out of L1 or DRAM... but not right now.
-                    operandCtx.bufferType =
-                        selectStreamBuffer(rewriter, memrefCtx.type,
-                                           /* TODO(vroubtsov) debugging
-                                              overwrite: numStreamBuffers */
-                                           1);
+                    operandCtx.bufferType = selectStreamBuffer(
+                        rewriter, memrefCtx.type, numStreamBuffers);
                   }
                   const AllocSizeT bufferSize =
                       device.getMemrefSizeBytes(operandCtx.bufferType);
