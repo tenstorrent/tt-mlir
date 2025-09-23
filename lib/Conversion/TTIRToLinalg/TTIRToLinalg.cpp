@@ -27,6 +27,7 @@
 #include <cstdint>
 
 #include <cstdint>
+#include "mlir/IR/OpDefinition.h"
 
 namespace mlir::tt {
 //===----------------------------------------------------------------------===//
@@ -1015,13 +1016,13 @@ public:
     auto dilation = adaptor.getDilation();
 
     // Expand stride if it contains only one element.
-    auto stridesResult = ttmlir::utils::getPairOfInteger<int64_t>(strides);
+    auto stridesResult = ttmlir::utils::getPairOfInteger<int32_t>(strides);
     if (!stridesResult) {
       return rewriter.notifyMatchFailure(
           op, "stride must be an integer or array attribute");
     }
 
-    auto paddingResult = ttmlir::utils::getQuadrupleOfInteger<int64_t>(padding);
+    auto paddingResult = ttmlir::utils::getQuadrupleOfInteger<int32_t>(padding);
     if (!paddingResult) {
       return rewriter.notifyMatchFailure(
           op, "padding must be an integer, 2-element, or 4-element array "
@@ -1041,7 +1042,7 @@ public:
         std::get<1>(*paddingResult), std::get<3>(*paddingResult)};
 
     // Expand kernel if it contains only one element.
-    auto kernelResult = ttmlir::utils::getPairOfInteger<int64_t>(kernel);
+    auto kernelResult = ttmlir::utils::getPairOfInteger<int32_t>(kernel);
     if (!kernelResult) {
       return rewriter.notifyMatchFailure(
           op, "kernel must be an integer or array attribute");
@@ -1113,7 +1114,7 @@ public:
     // Slice the result back to the original expected shape if needed.
     Value result = maxPoolOp.getResult();
     if (!llvm::equal(resultShape, resultType.getShape())) {
-      SmallVector<Attribute> offsets, sizes, strides;
+      SmallVector<OpFoldResult> offsets, sizes, strides;
       for (int64_t i = 0; i < resultType.getRank(); ++i) {
         offsets.push_back(rewriter.getI64IntegerAttr(0));
         sizes.push_back(rewriter.getI64IntegerAttr(resultType.getShape()[i]));
