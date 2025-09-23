@@ -795,24 +795,24 @@ def compile_d2m_to_flatbuffer(
             output_root=output_root,
             base=test_base,
         )
-
-        return compile_ttir_module_to_flatbuffer(
-            module,
-            builder,
-            system_desc_path=system_desc_path,
-            test_base=test_base,
-            output_root=output_root,
-            target=target,
-            mesh_dict=mesh_dict,
-            module_dump=module_dump,
-            argument_types_string=argument_types_string,
-            custom_pipeline=custom_pipeline,
-            pipeline_options=pipeline_options,
-            print_ir=print_ir,
-            device=device,
-        )
     except Exception as e:
         raise TTBuilderCompileException(e)
+
+    return compile_ttir_module_to_flatbuffer(
+        module,
+        builder,
+        system_desc_path=system_desc_path,
+        test_base=test_base,
+        output_root=output_root,
+        target=target,
+        mesh_dict=mesh_dict,
+        module_dump=module_dump,
+        argument_types_string=argument_types_string,
+        custom_pipeline=custom_pipeline,
+        pipeline_options=pipeline_options,
+        print_ir=print_ir,
+        device=device,
+    )
 
 
 def build_stablehlo_module(
