@@ -1278,9 +1278,10 @@ public:
 
 namespace {
 class DumpTensorOpConversionPattern
-    : public OpConversionPattern<mlir::tt::ttnn::DumpTensorOp> {
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::DumpTensorOp> {
 public:
-  using OpConversionPattern<mlir::tt::ttnn::DumpTensorOp>::OpConversionPattern;
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::DumpTensorOp>::TTNNToEmitPyBaseOpConversionPattern;
 
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::DumpTensorOp srcOp, OpAdaptor adaptor,
@@ -1303,9 +1304,10 @@ public:
 
 namespace {
 class LoadTensorOpConversionPattern
-    : public OpConversionPattern<mlir::tt::ttnn::LoadTensorOp> {
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::LoadTensorOp> {
 public:
-  using OpConversionPattern<mlir::tt::ttnn::LoadTensorOp>::OpConversionPattern;
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::LoadTensorOp>::TTNNToEmitPyBaseOpConversionPattern;
 
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::LoadTensorOp srcOp, OpAdaptor adaptor,
@@ -1330,10 +1332,11 @@ public:
 //
 namespace {
 class NLPConcatHeadsOpConversionPattern
-    : public OpConversionPattern<mlir::tt::ttnn::NLPConcatHeadsOp> {
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::NLPConcatHeadsOp> {
 public:
-  using OpConversionPattern<
-      mlir::tt::ttnn::NLPConcatHeadsOp>::OpConversionPattern;
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::NLPConcatHeadsOp>::TTNNToEmitPyBaseOpConversionPattern;
 
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::NLPConcatHeadsOp srcOp, OpAdaptor adaptor,
@@ -1360,10 +1363,12 @@ public:
 //
 namespace {
 class NLPConcatHeadsDecodeOpConversionPattern
-    : public OpConversionPattern<mlir::tt::ttnn::NLPConcatHeadsDecodeOp> {
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::NLPConcatHeadsDecodeOp> {
 public:
-  using OpConversionPattern<
-      mlir::tt::ttnn::NLPConcatHeadsDecodeOp>::OpConversionPattern;
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::NLPConcatHeadsDecodeOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
 
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::NLPConcatHeadsDecodeOp srcOp,
@@ -1446,12 +1451,12 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::NegOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReciprocalOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SignOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SinOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SqrtOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::TanOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::GeluOp>,
-               EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::ExpOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::ErfOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::ErfcOp>,
