@@ -22,12 +22,9 @@ namespace mlir::tt::ttir {
 
 namespace {
 static bool isTTNNTensor(Type type) {
-  auto maybeTensor = mlir::dyn_cast<RankedTensorType>(type);
-  if (!maybeTensor) {
-    return false;
-  }
-  auto enc = maybeTensor.getEncoding();
-  return enc && mlir::isa<ttnn::TTNNLayoutAttr>(enc);
+  auto tensor = mlir::dyn_cast<RankedTensorType>(type);
+  return tensor &&
+         mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(tensor.getEncoding());
 }
 
 static bool hasTTNNTensorOperandorResult(Operation *op) {
