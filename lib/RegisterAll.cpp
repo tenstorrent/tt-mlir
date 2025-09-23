@@ -19,6 +19,10 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/Pipelines/TTKernelPipelines.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 // #include "ttmlir/Dialect/SFPI/Transforms/Passes.h"  // Commented out until we
 // have passes
 #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
@@ -86,6 +90,8 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   mlir::sdy::registerAllDialects(registry);
   mlir::mpmd::registerAllDialects(registry);
 #endif
+
+  // IR dumping will be set up when dialects are initialized
 }
 
 void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
@@ -160,7 +166,7 @@ void mlir::tt::registerAllPasses() {
 }
 
 void mlir::tt::MLIRModuleLogger::attachContext(
-    mlir::MLIRContext *ctx, std::vector<std::string> passNamesToCache = {}) {
+    mlir::MLIRContext *ctx, std::vector<std::string> passNamesToCache) {
   context = ctx;
 
   context->registerActionHandler(
@@ -204,4 +210,216 @@ void mlir::tt::MLIRModuleLogger::attachContext(
           }
         }
       });
+}
+
+mlir::tt::MLIRModuleLogger::Config
+mlir::tt::MLIRModuleLogger::Config::fromEnvironment() {
+  Config config;
+
+  // Check if IR dumping is enabled
+  const char *dumpEnabled = std::getenv("TTMLIR_DUMP_IR");
+  if (dumpEnabled &&
+      (std::string(dumpEnabled) == "1" || std::string(dumpEnabled) == "true")) {
+    config.dumpEnabled = true;
+  }
+
+  // Get dump directory
+  const char *dumpDir = std::getenv("TTMLIR_DUMP_IR_DIR");
+  if (dumpDir) {
+    config.dumpDir = std::string(dumpDir);
+  } else {
+    config.dumpDir = "./ir_dumps"; // Default directory
+  }
+
+  // Parse specific passes to dump
+  const char *specificPasses = std::getenv("TTMLIR_DUMP_IR_PASSES");
+  if (specificPasses) {
+    std::string passes(specificPasses);
+    std::stringstream ss(passes);
+    std::string pass;
+    while (std::getline(ss, pass, ',')) {
+      if (!pass.empty()) {
+        config.specificPasses.insert(pass);
+      }
+    }
+  }
+
+  // Check if dialect creation dumping is enabled
+  const char *dumpDialects = std::getenv("TTMLIR_DUMP_IR_DIALECTS");
+  if (dumpDialects && (std::string(dumpDialects) == "1" ||
+                       std::string(dumpDialects) == "true")) {
+    config.dumpDialectCreation = true;
+  }
+
+  // Check if debug info should be preserved
+  const char *debugInfo = std::getenv("TTMLIR_DUMP_IR_DEBUG_INFO");
+  if (debugInfo &&
+      (std::string(debugInfo) == "0" || std::string(debugInfo) == "false")) {
+    config.preserveDebugInfo = false;
+  }
+
+  return config;
+}
+
+void mlir::tt::MLIRModuleLogger::attachContextWithDumping(
+    mlir::MLIRContext *ctx) {
+  context = ctx;
+  config = Config::fromEnvironment();
+
+  if (!config.dumpEnabled) {
+    // Fall back to original behavior
+    attachContext(ctx);
+    return;
+  }
+
+  // Create dump directory if it doesn't exist
+  std::filesystem::create_directories(config.dumpDir);
+
+  context->registerActionHandler([this](llvm::function_ref<void()> transform,
+                                        const mlir::tracing::Action &action) {
+    // Dump pre-pipeline IR
+    if (moduleCache.empty()) {
+      std::string passName = "PRE-PIPELINE", outString;
+      llvm::raw_string_ostream os(outString);
+      mlir::OpPrintingFlags flags;
+      if (config.preserveDebugInfo) {
+        flags.enableDebugInfo();
+      }
+      action.getContextIRUnits()[0].print(os, flags);
+      os.flush();
+
+      // Cache and dump to file
+      moduleCache.emplace_back(passName, outString);
+      dumpIRToFile(outString, getOutputFilename(passName));
+    }
+
+    // Run the transformation pass
+    transform();
+
+    // Dump post-pass IR
+    if (mlir::isa<mlir::PassExecutionAction>(action)) {
+      auto passAction = mlir::cast<mlir::PassExecutionAction>(action);
+      std::string passName = passAction.getPass().getName().str();
+
+      // Check if we should dump this specific pass
+      bool shouldDump = config.specificPasses.empty() ||
+                        config.specificPasses.count(passName) > 0;
+
+      if (shouldDump) {
+        std::string outString;
+        llvm::raw_string_ostream os(outString);
+        mlir::OpPrintingFlags flags;
+        if (config.preserveDebugInfo) {
+          flags.enableDebugInfo();
+        }
+        passAction.getOp()->print(os, flags);
+        os.flush();
+
+        // Cache and dump to file
+        moduleCache.emplace_back(passName, outString);
+        dumpIRToFile(outString, getOutputFilename(passName));
+      }
+    }
+  });
+}
+
+std::string
+mlir::tt::MLIRModuleLogger::getOutputFilename(const std::string &passName,
+                                              const std::string &stage) const {
+  // Create a safe filename from the pass name
+  std::string safeName = passName;
+  std::replace(safeName.begin(), safeName.end(), '/', '_');
+  std::replace(safeName.begin(), safeName.end(), '<', '_');
+  std::replace(safeName.begin(), safeName.end(), '>', '_');
+  std::replace(safeName.begin(), safeName.end(), ' ', '_');
+
+  std::string filename = safeName;
+  if (!stage.empty()) {
+    filename += "_" + stage;
+  }
+  filename += ".mlir";
+
+  return config.dumpDir + "/" + filename;
+}
+
+void mlir::tt::MLIRModuleLogger::dumpIRToFile(
+    const std::string &irContent, const std::string &filename) const {
+  std::ofstream file(filename);
+  if (file.is_open()) {
+    file << irContent;
+    file.close();
+  }
+}
+
+void mlir::tt::MLIRModuleLogger::dumpDialectCreation(
+    const std::string &dialectName, mlir::MLIRContext *ctx) {
+  Config config = Config::fromEnvironment();
+
+  if (!config.dumpEnabled || !config.dumpDialectCreation) {
+    return;
+  }
+
+  // Create dump directory if it doesn't exist
+  std::filesystem::create_directories(config.dumpDir);
+
+  std::string filename =
+      config.dumpDir + "/dialect_" + dialectName + "_created.log";
+  std::ofstream file(filename);
+  if (file.is_open()) {
+    file << "Dialect '" << dialectName << "' created in MLIRContext"
+         << std::endl;
+    file << "Available dialects after creation:" << std::endl;
+
+    // List all loaded dialects
+    for (const auto &loadedDialectName : ctx->getAvailableDialects()) {
+      file << "  - " << loadedDialectName.str() << std::endl;
+    }
+
+    file.close();
+  }
+}
+
+void mlir::tt::MLIRModuleLogger::enableGlobalIRDumping(mlir::MLIRContext *ctx) {
+  Config config = Config::fromEnvironment();
+
+  if (!config.dumpEnabled) {
+    return; // IR dumping not enabled
+  }
+
+  // Create a static logger to ensure it stays alive
+  static MLIRModuleLogger logger;
+  logger.attachContextWithDumping(ctx);
+}
+
+// Global static initializer that will be called when this library loads
+namespace {
+class IRDumpingInitializer {
+public:
+  IRDumpingInitializer() {
+    // Check if we should enable IR dumping
+    mlir::tt::MLIRModuleLogger::Config config =
+        mlir::tt::MLIRModuleLogger::Config::fromEnvironment();
+    dumpingEnabled = config.dumpEnabled;
+  }
+
+  bool shouldEnableDumping() const { return dumpingEnabled; }
+
+private:
+  bool dumpingEnabled = false;
+};
+
+static IRDumpingInitializer globalInit;
+} // namespace
+
+bool mlir::tt::MLIRModuleLogger::shouldEnableIRDumping() {
+  Config config = Config::fromEnvironment();
+  return config.dumpEnabled;
+}
+
+void mlir::tt::MLIRModuleLogger::setupIRDumping(mlir::PassManager &pm) {
+  if (!shouldEnableIRDumping()) {
+    return;
+  }
+
+  enableGlobalIRDumping(pm.getContext());
 }
