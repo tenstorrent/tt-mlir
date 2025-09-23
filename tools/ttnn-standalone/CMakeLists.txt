@@ -17,6 +17,7 @@ install(
 
 install(
   PROGRAMS
+    run
     ci_compile_dylib.py
   DESTINATION tools/ttnn-standalone
   COMPONENT TTNNStandalone
@@ -73,14 +74,63 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
-# Link directories - use standardized directory from third_party/CMakeLists.txt
+# Directories to search for headers
 #
-set(LINK_DIRS
-    ${TTMETAL_LIBRARY_DIR}
+set(INCLUDE_DIRS
+    # TODO: Remove these when ttmetal removes the dependencies from public facing headers
+    ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
+    ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
+    ${CPM_SOURCE_CACHE}/enchantum/2fb7ab238e36c101b9848892ddb6382276b65837/enchantum/include
+    ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
+    ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
+    ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
+    ${CPM_SOURCE_CACHE}/tt-logger/48ec77b63c35cf84c47678990aa3603b492d0c7c/include
+
+    # Metalium
+    ${METAL_SRC_DIR}
+    ${METAL_SRC_DIR}/tt_metal
+    ${METAL_SRC_DIR}/tt_metal/api
+    ${METAL_SRC_DIR}/tt_metal/hostdevcommon/api
+    ${METAL_SRC_DIR}/tt_metal/hw/inc
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/grayskull
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole/wormhole_b0_defines
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole
+    ${METAL_SRC_DIR}/tt_metal/hw/inc/blackhole
+    ${METAL_SRC_DIR}/tt_metal/include
+    ${METAL_SRC_DIR}/tt_stl
+    ${METAL_SRC_DIR}/tt_stl/tt_stl
+    ${METAL_SRC_DIR}/tt_metal/third_party/fmt
+    ${METAL_SRC_DIR}/tt_metal/third_party/enchantum
+    ${METAL_SRC_DIR}/tt_metal/third_party/taskflow
+    ${METAL_SRC_DIR}/tt_metal/third_party/tracy/public
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/device/api
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/grayskull
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/wormhole
+    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/blackhole
+
+    # TTNN
+    ${METAL_SRC_DIR}/ttnn
+    ${METAL_SRC_DIR}/ttnn/api
+    ${METAL_SRC_DIR}/ttnn/core
+    ${METAL_SRC_DIR}/ttnn/cpp
+    ${METAL_SRC_DIR}/ttnn/cpp/ttnn
 )
 
-# Use standardized library targets from third_party/CMakeLists.txt
-set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY TT_STL_LIBRARY TRACY_LIBRARY)
+# Link directories
+#
+set(LINK_DIRS
+    ${METAL_LIB_DIR}
+)
+
+# Libraries to link
+#
+set(LINK_LIBS
+    tt_metal
+    device
+    tt_stl
+    ${METAL_LIB_DIR}/_ttnncpp.so
+)
 
 # Compile definitions
 #
@@ -96,36 +146,16 @@ set(COMPILE_DEFS
 
 add_executable(ttnn-standalone ttnn-standalone.cpp)
 set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
-set_target_properties(ttnn-standalone PROPERTIES INSTALL_RPATH "$ORIGIN:${TTMETAL_LIBRARY_DIR}")
+set_property(TARGET ttnn-standalone PROPERTY EXCLUDE_FROM_ALL TRUE)
+set_target_properties(ttnn-standalone PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_LIB_DIR}")
 set_target_properties(ttnn-standalone PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
-# Add dependency on tt-metal external project
-add_dependencies(ttnn-standalone tt-metal)
-
-# Debug: Check if the required header file exists
-set(BFLOAT16_HEADER "${CMAKE_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api/tt-metalium/bfloat16.hpp")
-if(EXISTS "${BFLOAT16_HEADER}")
-    message(STATUS "Found bfloat16.hpp at: ${BFLOAT16_HEADER}")
-else()
-    message(WARNING "bfloat16.hpp not found at: ${BFLOAT16_HEADER}")
-endif()
-
-target_include_directories(ttnn-standalone SYSTEM PRIVATE
-    "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>"
-    "${CMAKE_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api"
-)
+target_include_directories(ttnn-standalone PRIVATE ${INCLUDE_DIRS})
 target_link_directories(ttnn-standalone PRIVATE ${LINK_DIRS})
-target_link_libraries(ttnn-standalone PRIVATE ${TTNN_LIBS})
+target_link_libraries(ttnn-standalone PRIVATE ${LINK_LIBS})
 target_compile_definitions(ttnn-standalone PRIVATE ${COMPILE_DEFS})
 
 target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
-
-# Install the ttnn-standalone executable
-install(
-  TARGETS ttnn-standalone
-  DESTINATION tools/ttnn-standalone
-  COMPONENT TTNNStandalone
-)
 
 #      _         _  _  _
 #   __| | _   _ | |(_)| |__
@@ -141,14 +171,11 @@ add_library(ttnn-dylib SHARED ttnn-dylib.cpp)
 set_property(TARGET ttnn-dylib PROPERTY CXX_STANDARD 20)
 set_property(TARGET ttnn-dylib PROPERTY EXCLUDE_FROM_ALL TRUE)
 
-target_include_directories(ttnn-dylib SYSTEM PRIVATE
-    "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>"
-    "${CMAKE_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api"
-)
+target_include_directories(ttnn-dylib PRIVATE ${INCLUDE_DIRS})
 target_link_directories(ttnn-dylib PRIVATE ${LINK_DIRS})
-target_link_libraries(ttnn-dylib PRIVATE ${TTNN_LIBS})
+target_link_libraries(ttnn-dylib PRIVATE ${LINK_LIBS})
 set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
-set_target_properties(ttnn-dylib PROPERTIES INSTALL_RPATH "$ORIGIN:${TTMETAL_LIBRARY_DIR}")
+set_target_properties(ttnn-dylib PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_LIB_DIR}")
 set_target_properties(ttnn-dylib PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
   target_compile_options(ttnn-dylib PRIVATE -march=x86-64-v3)
