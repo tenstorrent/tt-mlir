@@ -122,7 +122,7 @@ runs:
       shell: bash
       run: |
         source env/activate
-        export TT_METAL_HOME="${{ inputs.work-dir }}/tt-metal/src/tt-metal"
+        export TT_METAL_HOME="${{ inputs.work-dir }}/third_party/tt-metal/src/tt-metal"
         echo "---- dirs in TT_METAL_HOME ----"
         ls -la $TT_METAL_HOME
         echo "---- end dirs in TT_METAL_HOME ----"
