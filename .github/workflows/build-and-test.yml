@@ -577,6 +577,25 @@ jobs:
         [ -d /tmp/test-generate-python ] || { echo "Directory not found: /tmp/test-generate-python" >&2; exit 1; }
         # ./run  # TODO: enable when fixed
 
+    - name: Run builder emitpy tests
+      shell: bash
+      run: |
+        source testenv/bin/activate
+        pip show ttrt && pip uninstall -y ttrt
+        pip install ttrt-${{ env.version }}*.whl --force-reinstall
+        if [ "${{ matrix.build.type }}" == "pytest" ]; then
+          pip install pytest
+        fi
+        pytest ${{ matrix.build.path }} ${{ matrix.build.flags }} -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
+        if [[ "${{ matrix.build.run-emitpy }}" == "true" ]]; then
+          find ttir-builder-artifacts -name "*.py" -type f | while read -r py_file; do
+            python "$py_file"
+          done
+          find stablehlo-builder-artifacts -name "*.py" -type f | while read -r py_file; do
+            python "$py_file"
+          done
+        fi
+
   lint:
     if: github.event_name == 'pull_request'
     needs: build-image
