@@ -84,8 +84,8 @@ Planner::AllocateStats PlannerImpl::allocateImpl<Planner::Algorithm::Simple>(
             (requests[lhs].last > requests[rhs].last));
   };
 
-  std::priority_queue<IndexT, std::vector<IndexT>, decltype(lexicographic)> pq(
-      lexicographic);
+  std::priority_queue<IndexT, std::vector<IndexT>, decltype(lexicographic)>
+      requestIndices(lexicographic);
   [[maybe_unused]] int32_t varCount = 0;
 
   for (const Planner::Variable &var : problem.variables) {
@@ -93,20 +93,20 @@ Planner::AllocateStats PlannerImpl::allocateImpl<Planner::Algorithm::Simple>(
       continue;
     }
     for (const auto reqIndex : var.domain[ordinal(var.placement)]) {
-      pq.push(reqIndex);
+      requestIndices.push(reqIndex);
     }
     ++varCount;
   }
 
   TT_ALLOC_DEBUG("allocating {} var(s), {} requests(s) ...", varCount,
-                 pq.size());
+                 requestIndices.size());
 
   AllocSizeT memUsage = 0;
   AllocSizeT maxSize = 0;
 
-  while (!pq.empty()) {
-    const IndexT reqIndex = pq.top();
-    pq.pop();
+  while (!requestIndices.empty()) {
+    const IndexT reqIndex = requestIndices.top();
+    requestIndices.pop();
     Request &request = requests[reqIndex];
     TT_ALLOC_TRACE("request #{}: {}", reqIndex, request);
 
@@ -141,7 +141,8 @@ Planner::AllocateStats PlannerImpl::allocateImpl<Planner::Algorithm::Greedy>(
     return (requests[lhs].size < requests[rhs].size);
   };
 
-  std::priority_queue<IndexT, std::vector<IndexT>, decltype(bySize)> pq(bySize);
+  std::priority_queue<IndexT, std::vector<IndexT>, decltype(bySize)>
+      requestIndices(bySize);
   [[maybe_unused]] int32_t varCount = 0;
 
   for (const Planner::Variable &var : problem.variables) {
@@ -149,13 +150,13 @@ Planner::AllocateStats PlannerImpl::allocateImpl<Planner::Algorithm::Greedy>(
       continue;
     }
     for (const auto reqIndex : var.domain[ordinal(var.placement)]) {
-      pq.push(reqIndex);
+      requestIndices.push(reqIndex);
     }
     ++varCount;
   }
 
   TT_ALLOC_DEBUG("allocating {} var(s), {} requests(s) ...", varCount,
-                 pq.size());
+                 requestIndices.size());
 
   // An index of already visited requests in increasing offset order.
   // TODO(vroubtsov) using std::multimap allows some undesired (but not
@@ -166,9 +167,9 @@ Planner::AllocateStats PlannerImpl::allocateImpl<Planner::Algorithm::Greedy>(
   AllocSizeT memUsage = 0;
   AllocSizeT maxSize = 0;
 
-  while (!pq.empty()) {
-    const IndexT reqIndex = pq.top();
-    pq.pop();
+  while (!requestIndices.empty()) {
+    const IndexT reqIndex = requestIndices.top();
+    requestIndices.pop();
     Request &request = requests[reqIndex];
     TT_ALLOC_TRACE("request #{}: {}", reqIndex, request);
     TT_assertv(request.offset < 0,
@@ -232,7 +233,7 @@ Planner::AnalysisStats PlannerImpl::analyze(const Problem &solution,
   using IntervalTree = llvm::IntervalTree<SequenceT, IndexT>;
 
   IntervalTree::Allocator allocator;
-  IntervalTree iv(allocator);
+  IntervalTree intervals(allocator);
 
   for (const Variable &var : solution.variables) {
     if (var.placement == Space::NA) {
@@ -242,11 +243,11 @@ Planner::AnalysisStats PlannerImpl::analyze(const Problem &solution,
       const Request &req = solution.request(reqIndex);
 
       requests.emplace_back(reqIndex);
-      iv.insert(req.first, req.last, reqIndex);
+      intervals.insert(req.first, req.last, reqIndex);
     }
   }
   // NOLINTNEXTLINE
-  iv.create();
+  intervals.create();
 
   analysis.requestMetrics.resize(solution.requests.size());
 
@@ -257,7 +258,7 @@ Planner::AnalysisStats PlannerImpl::analyze(const Problem &solution,
     SequenceT position = req.first;
     AllocSizeT usage = 0;
 
-    const auto conflicts = iv.getContaining(position);
+    const auto conflicts = intervals.getContaining(position);
     for (const auto &entry : conflicts) {
       const auto conflictIndex = entry->value();
       const Request &conflict = solution.request(conflictIndex);
@@ -449,10 +450,10 @@ Planner::AllocateStats Planner::verify(const Problem &solution) {
   using IntervalTree = llvm::IntervalTree<SequenceT, IndexT>;
 
   IntervalTree::Allocator allocator;
-  IntervalTree iv(allocator);
+  IntervalTree intervals(allocator);
 
   // All requests referenced by enabled 'solution.variables'.
-  std::vector<Planner::IndexT> requests;
+  std::vector<Planner::IndexT> requestIndices;
   [[maybe_unused]] int32_t varCount = 0;
 
   for (const Variable &var : solution.variables) {
@@ -462,15 +463,15 @@ Planner::AllocateStats Planner::verify(const Problem &solution) {
     for (const auto reqIndex : var.domain[ordinal(var.placement)]) {
       const Request &req = solution.request(reqIndex);
 
-      requests.emplace_back(reqIndex);
-      iv.insert(req.first, req.last, reqIndex);
+      requestIndices.emplace_back(reqIndex);
+      intervals.insert(req.first, req.last, reqIndex);
     }
     ++varCount;
   }
   // NOLINTNEXTLINE
-  iv.create();
+  intervals.create();
 
-  const int32_t reqCount = requests.size();
+  const int32_t reqCount = requestIndices.size();
   TT_ALLOC_TRACE("verifying {} var(s), {} request(s) ...", varCount, reqCount);
   if (!reqCount) {
     return {0, 0, 0};
@@ -480,13 +481,13 @@ Planner::AllocateStats Planner::verify(const Problem &solution) {
   AllocSizeT maxSize = 0;
   AllocSizeT maxLoad = 0;
 
-  for (const auto reqIndex : requests) {
+  for (const auto reqIndex : requestIndices) {
     const Request &req = solution.request(reqIndex);
     TT_assertv(req.offset >= 0, "unexpected unallocated request {}", req);
 
     AllocSizeT load = req.size;
 
-    const auto conflicts = iv.getContaining(req.first);
+    const auto conflicts = intervals.getContaining(req.first);
     for (const auto &entry : conflicts) {
       if (entry->value() != reqIndex) {
         const Request &conflict = solution.request(entry->value());
