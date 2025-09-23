@@ -4,6 +4,8 @@
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
 
+#include <Python.h>
+
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/collective_permute.h"
@@ -131,14 +133,53 @@ void ProgramExecutor::runCallback(
 }
 
 void ProgramExecutor::execute() {
+  // Check if Python interpreter is already initialized
+  bool python_initialized_here = false;
+  if (!Py_IsInitialized()) {
+    Py_Initialize();
+    python_initialized_here = true;
+  }
+
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
-  std::cout << "Dhruv is here" << std::endl;
+
+  // Import and call Python print function
+  // Add the runtime/python directory to Python path
+  PyObject *sys_path = PySys_GetObject("path");
+  PyObject *runtime_path =
+      PyUnicode_FromString("/localdev/dloke/src/tt-mlir/runtime/python");
+  PyList_Append(sys_path, runtime_path);
+  Py_DECREF(runtime_path);
+
+  PyObject *print_utils_module = PyImport_ImportModule("scripts.print_utils");
+  if (print_utils_module) {
+    PyObject *print_start_func =
+        PyObject_GetAttrString(print_utils_module, "print_execution_start");
+    if (print_start_func && PyCallable_Check(print_start_func)) {
+      PyObject_CallObject(print_start_func, nullptr);
+    }
+    Py_XDECREF(print_start_func);
+    Py_DECREF(print_utils_module);
+  }
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
-    std::cout << "Dhruv processing operation: " << op->debug_info()->c_str()
-              << std::endl;
+
+    // Import and call Python print function for operation processing
+    PyObject *print_utils_module = PyImport_ImportModule("scripts.print_utils");
+    if (print_utils_module) {
+      PyObject *print_op_func = PyObject_GetAttrString(
+          print_utils_module, "print_operation_processing");
+      if (print_op_func && PyCallable_Check(print_op_func)) {
+        PyObject *arg = PyUnicode_FromString(op->debug_info()->c_str());
+        if (arg) {
+          PyObject_CallFunctionObjArgs(print_op_func, arg, nullptr);
+          Py_DECREF(arg);
+        }
+      }
+      Py_XDECREF(print_op_func);
+      Py_DECREF(print_utils_module);
+    }
     perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
@@ -153,6 +194,11 @@ void ProgramExecutor::execute() {
   }
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
+
+  // Finalize Python interpreter only if we initialized it
+  if (python_initialized_here) {
+    Py_Finalize();
+  }
 }
 
 std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {

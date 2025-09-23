@@ -4,6 +4,9 @@ else()
     set(TTNN_RUNTIME_ENABLED OFF)
 endif()
 
+# Find Python3 for embedding Python interpreter
+find_package(Python3 COMPONENTS Development REQUIRED)
+
 add_subdirectory(utils)
 add_subdirectory(debug)
 add_subdirectory(types)
@@ -26,6 +29,8 @@ target_include_directories(TTRuntimeTTNN PUBLIC
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 target_include_directories(TTRuntimeTTNN SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
+target_include_directories(TTRuntimeTTNN SYSTEM PUBLIC ${Python3_INCLUDE_DIRS})
 target_link_libraries(TTRuntimeTTNN PUBLIC TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
 target_link_libraries(TTRuntimeTTNN PUBLIC coverage_config)
+target_link_libraries(TTRuntimeTTNN PUBLIC ${Python3_LIBRARIES})
 add_dependencies(TTRuntimeTTNN TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
