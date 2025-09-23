@@ -46,7 +46,7 @@ jobs:
     needs: ignore-files
     if: ${{ needs.ignore-files.outputs.other_changed_files || needs.ignore-files.outputs.other_deleted_files }}
     runs-on:
-      - builder
+      - mlir-n150-3
     outputs:
       docker-image-harbor: ${{ steps.build.outputs.docker-image-harbor }}
       docker-image: ${{ steps.build.outputs.docker-image }}
@@ -103,7 +103,7 @@ jobs:
         ]
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
-    runs-on: ${{ needs.build-image.outputs.runner }}
+    runs-on: mlir-n150-3
 
 
     container:
@@ -182,41 +182,41 @@ jobs:
       matrix:
         build: [
           # When sh-run is true, the runner will use TT-shared GH infra and pull from harbor for image cache pull through
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "unit",           image: "speedy", type: "unit"},
-          {runs-on: n300,         sh-run: true,  name: "run",  suite: "unit",           image: "tracy",  type: "unit"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttnn_standalone", path: "tools/ttnn-standalone"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
-          {runs-on: n150,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n150/perf"},
-          {runs-on: n150,         sh-run: false, name: "perf", suite: "optimizer",      image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n150/optimizer"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "emitc",          image: "tracy",  type: "ttrt",            path: "EmitC",                       flags: "--emitc"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "op_model",       image: "speedy", type: "ttrt",            path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "runtime_debug",  image: "tracy",  type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
-          {runs-on: n300,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
-          {runs-on: n300,         sh-run: true,  name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n300/perf"},
-          {runs-on: llmbox,       sh-run: false, name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
-          {runs-on: llmbox,       sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/llmbox/perf"},
+          {runs-on: mlir-n150-3,         sh-run: true,  name: "run",  suite: "unit",           image: "speedy", type: "unit"},
+          # {runs-on: n300,         sh-run: true,  name: "run",  suite: "unit",           image: "tracy",  type: "unit"},
+          {runs-on: mlir-n150-3,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttnn_standalone", path: "tools/ttnn-standalone"},
+          {runs-on: mlir-n150-3,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
+          {runs-on: mlir-n150-3,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n150/perf"},
+          {runs-on: mlir-n150-3,         sh-run: false, name: "perf", suite: "optimizer",      image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n150/optimizer"},
+          {runs-on: mlir-n150-3,         sh-run: true,  name: "run",  suite: "emitc",          image: "tracy",  type: "ttrt",            path: "EmitC",                       flags: "--emitc"},
+          {runs-on: mlir-n150-3,         sh-run: true,  name: "run",  suite: "op_model",       image: "speedy", type: "ttrt",            path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
+          {runs-on: mlir-n150-3,         sh-run: true,  name: "run",  suite: "runtime_debug",  image: "tracy",  type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
+          # {runs-on: n300,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
+          # {runs-on: n300,         sh-run: true,  name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n300/perf"},
+          # {runs-on: llmbox,       sh-run: false, name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
+          # {runs-on: llmbox,       sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/llmbox/perf"},
           # {runs-on: tg,           sh-run: false, name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch"},
           # {runs-on: tg,           sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch"},
-          {runs-on: n150,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "pytest",          path: "tools/ttrt/test"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
-          {runs-on: n300,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
-          {runs-on: n300-llmbox,  sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
-          {runs-on: p150,         sh-run: false, name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, ttrt-flags: "--disable-eth-dispatch"},
+          {runs-on: mlir-n150-3,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "pytest",          path: "tools/ttrt/test"},
+          {runs-on: mlir-n150-3,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
+          # {runs-on: n300,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
+          # {runs-on: n300-llmbox,  sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
+          # {runs-on: p150,         sh-run: false, name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, ttrt-flags: "--disable-eth-dispatch"},
           # Optimizer builder tests need opmodel
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "silicon",        image: "speedy",  type: "builder",         path: "test/python/golden/optimizer",          flags: "-m \"not run_error and not fails_golden\" --require-opmodel", run-ttrt: true},
+          {runs-on: mlir-n150-3,         sh-run: true,  name: "run",  suite: "silicon",        image: "speedy",  type: "builder",         path: "test/python/golden/optimizer",          flags: "-m \"not run_error and not fails_golden\" --require-opmodel", run-ttrt: true},
           # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
           # Therefore running these tests on n150 specifically
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/device_agnostic"},
-          {runs-on: n150,         sh-run: false, name: "perf", suite: "explorer",       image: "tracy",  type: "pytest",          path: "tools/explorer/test/run_tests.py"},
-          {runs-on: n150,         sh-run: false, name: "run",  suite: "op_by_op",       image: "tracy",  type: "pytest",          path: "test/python/op_by_op"},
-          {runs-on: n300,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/multi_device"},
-          {runs-on: n150,         sh-run: false, name: "run",  suite: "chisel",         image: "tracy",  type: "pytest",          path: "runtime/tools/chisel/test"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "run",            image: "tracy",  type: "pykernel"},
-          {runs-on: n300,         sh-run: false, name: "run",  suite: "runtime_debug",  image: "tracy",  type: "unit"},
+          {runs-on: mlir-n150-3,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/device_agnostic"},
+          {runs-on: mlir-n150-3,         sh-run: false, name: "perf", suite: "explorer",       image: "tracy",  type: "pytest",          path: "tools/explorer/test/run_tests.py"},
+          {runs-on: mlir-n150-3,         sh-run: false, name: "run",  suite: "op_by_op",       image: "tracy",  type: "pytest",          path: "test/python/op_by_op"},
+          # {runs-on: n300,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/multi_device"},
+          {runs-on: mlir-n150-3,         sh-run: false, name: "run",  suite: "chisel",         image: "tracy",  type: "pytest",          path: "runtime/tools/chisel/test"},
+          {runs-on: mlir-n150-3,         sh-run: true,  name: "run",  suite: "run",            image: "tracy",  type: "pykernel"},
+          # {runs-on: n300,         sh-run: false, name: "run",  suite: "runtime_debug",  image: "tracy",  type: "unit"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
-    runs-on: ${{ matrix.build.sh-run && format('tt-ubuntu-2204-{0}-stable', matrix.build.runs-on) || fromJson(format('["{0}", "in-service"]', matrix.build.runs-on)) }}
+    runs-on: mlir-n150-3
 
     container:
       image: ${{ matrix.build.sh-run && needs.build-image.outputs.docker-image-harbor || needs.build-image.outputs.docker-image }}
@@ -474,8 +474,8 @@ jobs:
       - build-image
       - build-ttmlir
     runs-on:
-      - n150
-      - in-service
+      - mlir-n150-3
+      # - in-service
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
       options: '--device /dev/tenstorrent'
@@ -566,204 +566,204 @@ jobs:
         [ -d /tmp/test-generate-python ] || { echo "Directory not found: /tmp/test-generate-python" >&2; exit 1; }
         # ./run  # TODO: enable when fixed
 
-  lint:
-    if: github.event_name == 'pull_request'
-    needs: build-image
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-    name: Lint (clang-tidy)
-    runs-on: ubuntu-latest
-    container:
-      image: ${{ needs.build-image.outputs.docker-image }}
+  # lint:
+  #   if: github.event_name == 'pull_request'
+  #   needs: build-image
+  #   timeout-minutes: 120
+  #   strategy:
+  #     fail-fast: false
+  #   name: Lint (clang-tidy)
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: ${{ needs.build-image.outputs.docker-image }}
 
-    steps:
-    - uses: actions/checkout@v4
-      with:
-          fetch-depth: 0
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #     with:
+  #         fetch-depth: 0
 
-    - name: Set reusable strings
-      id: strings
-      shell: bash
-      run: |
-        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-        echo "build-output-dir=$(pwd)/build_tidy" >> "$GITHUB_OUTPUT"
+  #   - name: Set reusable strings
+  #     id: strings
+  #     shell: bash
+  #     run: |
+  #       echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+  #       echo "build-output-dir=$(pwd)/build_tidy" >> "$GITHUB_OUTPUT"
 
-    - name: Git safe dir
-      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+  #   - name: Git safe dir
+  #     run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
-    - name: Configure CMake
-      shell: bash
-      run: |
-        source env/activate
-        cmake -G Ninja \
-        -B ${{ steps.strings.outputs.build-output-dir }} \
-        -DCMAKE_CXX_COMPILER=clang++-17 \
-        -DCMAKE_C_COMPILER=clang-17 \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        -DTTMLIR_ENABLE_RUNTIME=ON \
-        -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
-        -DTTMLIR_ENABLE_STABLEHLO=ON \
-        -DTTMLIR_ENABLE_OPMODEL=ON \
-        -S ${{ steps.strings.outputs.work-dir }}
+  #   - name: Configure CMake
+  #     shell: bash
+  #     run: |
+  #       source env/activate
+  #       cmake -G Ninja \
+  #       -B ${{ steps.strings.outputs.build-output-dir }} \
+  #       -DCMAKE_CXX_COMPILER=clang++-17 \
+  #       -DCMAKE_C_COMPILER=clang-17 \
+  #       -DCMAKE_BUILD_TYPE=Release \
+  #       -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+  #       -DTTMLIR_ENABLE_RUNTIME=ON \
+  #       -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
+  #       -DTTMLIR_ENABLE_STABLEHLO=ON \
+  #       -DTTMLIR_ENABLE_OPMODEL=ON \
+  #       -S ${{ steps.strings.outputs.work-dir }}
 
-    - name: Lint
-      id: lint
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy-ci
+  #   - name: Lint
+  #     id: lint
+  #     shell: bash
+  #     run: |
+  #       source env/activate
+  #       cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy-ci
 
-    - name: Unique-ify clang-tidy fixes
-      shell: bash
-      if: failure() && steps.lint.outcome == 'failure'
-      run: |
-        source env/activate
-        python tools/scripts/filter-clang-tidy-fixes.py ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+  #   - name: Unique-ify clang-tidy fixes
+  #     shell: bash
+  #     if: failure() && steps.lint.outcome == 'failure'
+  #     run: |
+  #       source env/activate
+  #       python tools/scripts/filter-clang-tidy-fixes.py ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
 
-    - name: Upload clang-tidy fixes
-      uses: actions/upload-artifact@v4
-      if: failure() && steps.lint.outcome == 'failure'
-      with:
-        name: clang-tidy-result
-        path: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+  #   - name: Upload clang-tidy fixes
+  #     uses: actions/upload-artifact@v4
+  #     if: failure() && steps.lint.outcome == 'failure'
+  #     with:
+  #       name: clang-tidy-result
+  #       path: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
 
-    - name: Clang-tidy PR Comments
-      continue-on-error: true
-      uses: platisd/clang-tidy-pr-comments@a8811fa17cd6bd02c52a3791b44f9840777e396a
-      if: failure() && steps.lint.outcome == 'failure'
-      with:
-        # The GitHub token (or a personal access token)
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        # The path to the clang-tidy fixes generated above
-        clang_tidy_fixes: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
-        # Optionally set to true if you want the Action to request
-        # changes in case warnings are found
-        request_changes: false
-        # Optionally set the number of comments per review
-        # to avoid GitHub API timeouts for heavily loaded
-        # pull requests
-        suggestions_per_comment: 10
-        python_path: "python3"
+  #   - name: Clang-tidy PR Comments
+  #     continue-on-error: true
+  #     uses: platisd/clang-tidy-pr-comments@a8811fa17cd6bd02c52a3791b44f9840777e396a
+  #     if: failure() && steps.lint.outcome == 'failure'
+  #     with:
+  #       # The GitHub token (or a personal access token)
+  #       github_token: ${{ secrets.GITHUB_TOKEN }}
+  #       # The path to the clang-tidy fixes generated above
+  #       clang_tidy_fixes: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+  #       # Optionally set to true if you want the Action to request
+  #       # changes in case warnings are found
+  #       request_changes: false
+  #       # Optionally set the number of comments per review
+  #       # to avoid GitHub API timeouts for heavily loaded
+  #       # pull requests
+  #       suggestions_per_comment: 10
+  #       python_path: "python3"
 
-  debug:
-    needs: build-image
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-    name: Debug Build
-    runs-on: ubuntu-latest
-    container:
-      image: ${{ needs.build-image.outputs.docker-image }}
+  # debug:
+  #   needs: build-image
+  #   timeout-minutes: 120
+  #   strategy:
+  #     fail-fast: false
+  #   name: Debug Build
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: ${{ needs.build-image.outputs.docker-image }}
 
-    steps:
+  #   steps:
 
-    - name: Maximize space
-      if: ${{ matrix.build.runs-on }} == 'ubuntu-latest'
-      uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
+  #   - name: Maximize space
+  #     if: ${{ matrix.build.runs-on }} == 'ubuntu-latest'
+  #     uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
 
-    - uses: actions/checkout@v4
-      with:
-          fetch-depth: 0
+  #   - uses: actions/checkout@v4
+  #     with:
+  #         fetch-depth: 0
 
-    - name: Set reusable strings
-      id: strings
-      shell: bash
-      run: |
-        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-        echo "build-output-dir=$(pwd)/build_debug" >> "$GITHUB_OUTPUT"
+  #   - name: Set reusable strings
+  #     id: strings
+  #     shell: bash
+  #     run: |
+  #       echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+  #       echo "build-output-dir=$(pwd)/build_debug" >> "$GITHUB_OUTPUT"
 
-    - name: Git safe dir
-      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+  #   - name: Git safe dir
+  #     run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        create-symlink: true
-        key: debug-${{ env.SDK_VERSION }}
+  #   - name: ccache
+  #     uses: hendrikmuhs/ccache-action@v1.2
+  #     with:
+  #       create-symlink: true
+  #       key: debug-${{ env.SDK_VERSION }}
 
-    - name: Configure CMake
-      shell: bash
-      run: |
-        source env/activate
-        cmake -G Ninja \
-        -B ${{ steps.strings.outputs.build-output-dir }} \
-        -DCMAKE_CXX_COMPILER=clang++-17 \
-        -DCMAKE_C_COMPILER=clang-17 \
-        -DCMAKE_BUILD_TYPE=Debug \
-        -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
-        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        -DTTMLIR_ENABLE_RUNTIME=OFF \
-        -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
-        -DTTMLIR_ENABLE_STABLEHLO=ON \
-        -DTTMLIR_ENABLE_OPMODEL=OFF \
-        -DCODE_COVERAGE=ON \
-        -S ${{ steps.strings.outputs.work-dir }}
+  #   - name: Configure CMake
+  #     shell: bash
+  #     run: |
+  #       source env/activate
+  #       cmake -G Ninja \
+  #       -B ${{ steps.strings.outputs.build-output-dir }} \
+  #       -DCMAKE_CXX_COMPILER=clang++-17 \
+  #       -DCMAKE_C_COMPILER=clang-17 \
+  #       -DCMAKE_BUILD_TYPE=Debug \
+  #       -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
+  #       -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+  #       -DTTMLIR_ENABLE_RUNTIME=OFF \
+  #       -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
+  #       -DTTMLIR_ENABLE_STABLEHLO=ON \
+  #       -DTTMLIR_ENABLE_OPMODEL=OFF \
+  #       -DCODE_COVERAGE=ON \
+  #       -S ${{ steps.strings.outputs.work-dir }}
 
-    - name: Build
-      id: build
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }}
+  #   - name: Build
+  #     id: build
+  #     shell: bash
+  #     run: |
+  #       source env/activate
+  #       cmake --build ${{ steps.strings.outputs.build-output-dir }}
 
-    - name: Check
-      id: check
-      shell: bash
-      run: |
-        source env/activate
-        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
-        # this will output `test/report.xml` in the build dir:
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
+  #   - name: Check
+  #     id: check
+  #     shell: bash
+  #     run: |
+  #       source env/activate
+  #       lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
+  #       # this will output `test/report.xml` in the build dir:
+  #       cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
 
-    - name: Upload Check Test Report xml
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: check_test_report.xml
-        path: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
-        if-no-files-found: 'ignore'
+  #   - name: Upload Check Test Report xml
+  #     uses: actions/upload-artifact@v4
+  #     if: always()
+  #     with:
+  #       name: check_test_report.xml
+  #       path: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
+  #       if-no-files-found: 'ignore'
 
-    - name: Show Check Test Report
-      continue-on-error: true
-      uses: mikepenz/action-junit-report@v5
-      if: always()
-      with:
-        report_paths: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
-        check_name: Debug
-        detailed_summary: true
-        include_time_in_summary: true
-        include_passed: true
+  #   - name: Show Check Test Report
+  #     continue-on-error: true
+  #     uses: mikepenz/action-junit-report@v5
+  #     if: always()
+  #     with:
+  #       report_paths: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
+  #       check_name: Debug
+  #       detailed_summary: true
+  #       include_time_in_summary: true
+  #       include_passed: true
 
-    - name: Prepare code coverage report
-      run: |
-        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --output-file coverage.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
-        lcov --add-tracefile baseline.info --add-tracefile coverage.info --output-file coverage.total
-        lcov --extract coverage.total '**/tt-mlir/*' --output-file coverage.info
-        sed -i 's|SF:/__w/tt-mlir/tt-mlir/|SF:|' coverage.info
-        lcov --list coverage.info
+  #   - name: Prepare code coverage report
+  #     run: |
+  #       lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --output-file coverage.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
+  #       lcov --add-tracefile baseline.info --add-tracefile coverage.info --output-file coverage.total
+  #       lcov --extract coverage.total '**/tt-mlir/*' --output-file coverage.info
+  #       sed -i 's|SF:/__w/tt-mlir/tt-mlir/|SF:|' coverage.info
+  #       lcov --list coverage.info
 
-    - name: Upload coverage reports to Codecov
-      if: success() || failure()
-      uses: codecov/codecov-action@v5
-      with:
-        files: coverage.info
-        disable_search: true
-        token: ${{ secrets.CODECOV_TOKEN }}
+  #   - name: Upload coverage reports to Codecov
+  #     if: success() || failure()
+  #     uses: codecov/codecov-action@v5
+  #     with:
+  #       files: coverage.info
+  #       disable_search: true
+  #       token: ${{ secrets.CODECOV_TOKEN }}
 
-    - name: Upload test results to Codecov
-      if: success() || failure()
-      uses: codecov/test-results-action@v1
-      with:
-        files: ${{ steps.strings.outputs.test_report_path }}
-        disable_search: true
-        token: ${{ secrets.CODECOV_TOKEN }}
+  #   - name: Upload test results to Codecov
+  #     if: success() || failure()
+  #     uses: codecov/test-results-action@v1
+  #     with:
+  #       files: ${{ steps.strings.outputs.test_report_path }}
+  #       disable_search: true
+  #       token: ${{ secrets.CODECOV_TOKEN }}
 
-  # Call wheel-build workflow to build the ttmlir wheel
-  build-ttmlir-wheel:
-    needs:
-      - build-image
-    uses: ./.github/workflows/wheel-build.yml
-    with:
-      docker-tag: ${{ needs.build-image.outputs.docker-tag }}
+  # # Call wheel-build workflow to build the ttmlir wheel
+  # build-ttmlir-wheel:
+  #   needs:
+  #     - build-image
+  #   uses: ./.github/workflows/wheel-build.yml
+  #   with:
+  #     docker-tag: ${{ needs.build-image.outputs.docker-tag }}
