@@ -73,6 +73,65 @@ private:
   std::string opName;
 };
 
+// Special handling for tenstorrent.uniform -> ttir.rand, as
+// it requires extracting values from operands and translating them to
+// attributes, and because ttir.rand is a non-DPS op.
+class TenstorrentUniformToRandConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentUniformToRandConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.uniform") {
+      return failure();
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+    auto compositeAttrs = srcOp.getCompositeAttributes();
+
+    // Extract shape and convert to I32ArrayAttr.
+    auto arrayShapeAttr =
+        mlir::dyn_cast_or_null<ArrayAttr>(compositeAttrs.get("shape"));
+    SmallVector<int32_t> shapeI32;
+    for (auto attr : arrayShapeAttr) {
+      if (auto intAttr = mlir::dyn_cast<IntegerAttr>(attr)) {
+        shapeI32.push_back(static_cast<int32_t>(intAttr.getInt()));
+      }
+    }
+    auto sizeAttr = rewriter.getI32ArrayAttr(shapeI32);
+
+    // Extract low and high from constant operands.
+    auto lowOp =
+        adaptor.getOperands()[1].getDefiningOp<mlir::stablehlo::ConstantOp>();
+    auto highOp =
+        adaptor.getOperands()[2].getDefiningOp<mlir::stablehlo::ConstantOp>();
+
+    auto lowValue = mlir::dyn_cast<DenseFPElementsAttr>(lowOp.getValue());
+    auto highValue = mlir::dyn_cast<DenseFPElementsAttr>(highOp.getValue());
+
+    auto lowAttr = rewriter.getF32FloatAttr(lowValue.getValues<float>()[0]);
+    auto highAttr = rewriter.getF32FloatAttr(highValue.getValues<float>()[0]);
+
+    // Proceed with default seed = 0 for now, because in tt-metal it will
+    // actually generate different random numbers on each execution, which we
+    // agreed is acceptable for training use cases for now. This workaround is
+    // needed because seed is of tensor type in StableHLO, but float in tt-metal
+    // and actual conversion can't be done.
+    auto seedAttr = rewriter.getUI32IntegerAttr(0);
+
+    rewriter.replaceOpWithNewOp<ttir::RandOp>(
+        srcOp, outputType, sizeAttr, TypeAttr::get(outputType.getElementType()),
+        lowAttr, highAttr, seedAttr);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -107,5 +166,6 @@ void populateStableHLOCompositeLegalizationPatterns(
       context, "tenstorrent.gelu");
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
+  patterns.add<TenstorrentUniformToRandConversionPattern>(context);
 }
 } // namespace mlir::tt
