@@ -86,9 +86,7 @@ def test_host_interop_single_bank_dram_dma(
 @pytest.mark.parametrize("start_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
 @pytest.mark.parametrize("end_grid", [(1, 1), (2, 2)])
 @pytest.mark.parametrize(
-    "memory_space",
-    # TODO(vroubtsov) [ttcore.MemorySpace.DeviceL1, ttcore.MemorySpace.DeviceDRAM]
-    [ttcore.MemorySpace.DeviceL1],
+    "memory_space", [ttcore.MemorySpace.DeviceL1, ttcore.MemorySpace.DeviceDRAM]
 )
 def test_roundtrip_dma_tiled(
     target: str,
@@ -170,9 +168,7 @@ def test_roundtrip_dma_tiled(
 @pytest.mark.parametrize("start_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
 @pytest.mark.parametrize("end_grid", [(1, 1), (2, 2)])
 @pytest.mark.parametrize(
-    "memory_space",
-    # TODO(vroubtsov) [ttcore.MemorySpace.DeviceL1, ttcore.MemorySpace.DeviceDRAM]
-    [ttcore.MemorySpace.DeviceL1],
+    "memory_space", [ttcore.MemorySpace.DeviceL1, ttcore.MemorySpace.DeviceDRAM]
 )
 def test_roundtrip_dma_rowmajor(
     shape: Shape,

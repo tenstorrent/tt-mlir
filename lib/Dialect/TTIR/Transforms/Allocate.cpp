@@ -176,6 +176,9 @@ struct GenericOpContext {
   // Context info for each of this generic ops list of operands, in declaration
   // order. (Note that the latter relies on `SmallMapVector` structure).
   OperandContextMap operands;
+  // Generic ops in "DMA-only" form currently operate in alias mode
+  // and do not use operand streams.
+  bool isDMAOnly = false;
 };
 
 struct SequenceMapping {
@@ -436,14 +439,27 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     // Temp state to help set `MemrefValueContext::hasNonGenericUsers`.
     llvm::DenseMap<memref::AllocOp, OperationSet> genericUseClosure;
 
+    [[maybe_unused]] int32_t genericsInDMAOnlyForm = 0;
+
     funcBody.walk([&](ttir::GenericOp genericOp) {
+      GenericOpContext &genericCtx = analysis.generics[genericOp];
+
+      // Detect generic ops in "DMA-only" form, they must not
+      // insert operand streams and therefore have no memory allocation
+      // needs possibly associated with those.
+      genericCtx.isDMAOnly =
+          llvm::all_of(genericOp.getThreads(), [](Attribute attr) {
+            return (mlir::cast<ttir::ThreadAttr>(attr).getThreadType() !=
+                    ttir::ThreadType::Compute);
+          });
+      genericsInDMAOnlyForm += genericCtx.isDMAOnly;
+
       // Decide which operands might/must have streams. Note that
       // the actual stream creation decision is only final after
       // we have a feasible planner solution.
       llvm::SmallVector<OperandContext> streams = getOperandContexts(genericOp);
       TT_debug(streams.size() == genericOp.getNumOperands());
 
-      GenericOpContext &genericCtx = analysis.generics[genericOp];
       for (std::size_t operandIndex = 0;
            operandIndex < genericOp.getNumOperands(); ++operandIndex) {
         auto operand = genericOp->getOperand(operandIndex);
@@ -505,8 +521,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
       }
     }
 
-    TT_ALLOC_DEBUG("collected {} generic op context(s)",
-                   analysis.generics.size());
+    TT_ALLOC_DEBUG("collected {} generic op context(s) ({} DMA-only)",
+                   analysis.generics.size(), genericsInDMAOnlyForm);
     TT_ALLOC_DEBUG("found {} alloc(s) with non-generic use",
                    allocsWithNonGenericUsers);
     return success();
@@ -591,6 +607,9 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
               for (ttir::GenericOp user : memrefCtx.genericUsers) {
                 GenericOpContext &genericCtx = analysis.generics[user];
+                if (genericCtx.isDMAOnly) {
+                  continue;
+                }
                 OperandContext &operandCtx =
                     genericCtx.operands.find(memref)->second;
 
@@ -767,6 +786,9 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     llvm::DenseSet<Operation *> visited;
 
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
+      if (genericCtx.isDMAOnly) {
+        continue;
+      }
       int32_t operandIndex = 0;
       for (const auto &[memref, operandCtx] : genericCtx.operands) {
         TT_debug(analysis.memrefs.contains(memref));
