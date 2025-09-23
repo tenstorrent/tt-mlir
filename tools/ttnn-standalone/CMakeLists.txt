@@ -122,13 +122,13 @@ set(LINK_DIRS
     ${METAL_LIB_DIR}
 )
 
-# Libraries to link
+# Libraries to link - using predefined paths from third_party/CMakeLists.txt
 #
 set(LINK_LIBS
-    tt_metal
-    device
-    tt_stl
-    ${METAL_LIB_DIR}/_ttnncpp.so
+    ${TTMETAL_LIBRARY_PATH}
+    ${DEVICE_LIBRARY_PATH}
+    ${TT_STL_LIBRARY_PATH}
+    ${TTNN_LIBRARY_PATH}
 )
 
 # Compile definitions
