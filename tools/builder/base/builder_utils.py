@@ -887,8 +887,9 @@ def compile_ttir_module_to_flatbuffer(
 
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
 
+    # Generate a .so flatbuffer file from the .cpp file
     if target == "emitc":
-        # Generate a .so flatbuffer file from the .cpp file
+        # Set TT_METAL_HOME for the subprocess call, temporary until builder is decoupled from ttrt
         tt_metal_home = os.path.abspath(
             os.path.join(
                 os.path.dirname(__file__),
