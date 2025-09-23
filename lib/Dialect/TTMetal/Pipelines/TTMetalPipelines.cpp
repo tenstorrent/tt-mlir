@@ -143,6 +143,7 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);
   if (options.ttnnMode) {
+    // TODO(#5075): set MathFidelity of ttnn generic op.
     pm.addPass(tt::createConvertD2MToTTNNPass());
   } else {
     ttir::ConvertTTIRToTTMetalOptions ttirToTTMetalOptions;
