@@ -84,6 +84,9 @@ def TTIRInsertDstRegisterAccess : Pass<"ttir-insert-dst-register-access", "::mli
        - This pass only works on affine ops.
   }];
   let dependentDialects = ["::mlir::tt::ttir::TTIRDialect", "::mlir::affine::AffineDialect", "::mlir::func::FuncDialect"];
+  let options = [
+    Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"false", "Use tile_matmul instead of tile_matmul_block">,
+  ];
 }
 
 def TTIRGenericLinearizeMemref: Pass<"ttir-generic-linearize-memref", "::mlir::ModuleOp"> {
@@ -439,6 +442,13 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
     ```
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
+
+  list<Option> options = [
+    Option<"numStreamBuffers",
+           "num-stream-buffers",
+           "unsigned", /*default=*/"2",
+           "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
+  ];
 }
 
 def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {

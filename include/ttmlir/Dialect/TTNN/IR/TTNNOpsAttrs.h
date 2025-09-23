@@ -11,6 +11,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.h.inc"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNKernelInterface.h"
 
 namespace mlir::tt::ttnn {
 
@@ -61,6 +62,53 @@ parseCoordBracketStyle(::mlir::AsmParser &parser,
   coreCoordAttr = CoreCoordAttr::get(parser.getContext(), x, y);
   return ::mlir::success();
 }
+
+class MemoryConfigAttr::Builder {
+public:
+  /// Build from another MemoryConfigAttr.
+  explicit Builder(MemoryConfigAttr other)
+      : bufferType(other.getBufferType()),
+        tensorMemoryLayout(other.getTensorMemoryLayout()),
+        shardSpec(other.getShardSpec()), context(other.getContext()) {}
+
+  Builder &setBufferType(BufferTypeAttr bufferType) {
+    this->bufferType = bufferType;
+    return *this;
+  }
+
+  Builder &setBufferType(BufferType bufferType) {
+    this->bufferType = BufferTypeAttr::get(context, bufferType);
+    return *this;
+  }
+
+  Builder &setTensorMemoryLayout(TensorMemoryLayoutAttr tensorMemoryLayout) {
+    this->tensorMemoryLayout = tensorMemoryLayout;
+    return *this;
+  }
+
+  Builder &setTensorMemoryLayout(TensorMemoryLayout tensorMemoryLayout) {
+    this->tensorMemoryLayout =
+        TensorMemoryLayoutAttr::get(context, tensorMemoryLayout);
+    return *this;
+  }
+
+  Builder &setShardSpec(std::optional<ShardSpecAttr> shardSpec) {
+    this->shardSpec = shardSpec;
+    return *this;
+  }
+
+  operator MemoryConfigAttr() {
+    return MemoryConfigAttr::get(context, tensorMemoryLayout, bufferType,
+                                 shardSpec);
+  }
+
+private:
+  // Private member variables for the builder
+  BufferTypeAttr bufferType;
+  TensorMemoryLayoutAttr tensorMemoryLayout;
+  std::optional<ShardSpecAttr> shardSpec;
+  MLIRContext *context;
+};
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_IR_TTNNOPSATTRS_H

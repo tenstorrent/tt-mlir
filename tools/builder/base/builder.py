@@ -9,11 +9,12 @@ from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 import torch
 from enum import Enum, auto
 import re
+from collections import OrderedDict
 
 from ttmlir.ir import *
 from ttmlir.dialects import tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
-from builder.base.sharded_tensor import ShardedTensor
+from builder.base.builder_golden import BuilderGoldenTensor
 
 # ----- Public APIs -----
 
@@ -28,112 +29,154 @@ class TypeInfo:
     zero_point: Optional[int] = None
 
 
-@dataclass(frozen=True)
-class Golden:
-    tensor: Union[torch.Tensor, ShardedTensor]
-    seed: Optional[int] = None
-
-    def contiguous(self) -> Golden:
-        return Golden(self.tensor.contiguous(), self.seed)
-
-
-class GoldenCheckLevel(Enum):
-    DISABLED = auto()
-    OP_LEVEL = auto()
-    GRAPH_LEVEL = auto()
-
-
 class Builder:
     # ----- Methods -----
 
-    def __init__(self, ctx: Context, location: Location):
+    def __init__(
+        self,
+        ctx: Context,
+        location: Location,
+        mesh_name: Union[List[str], str] = "mesh",
+        mesh_dict: Union[
+            List[OrderedDict[str, int]], OrderedDict[str, int]
+        ] = OrderedDict([("x", 1), ("y", 1)]),
+        disable_golden_check: bool = False,
+    ):
         self._ctx = ctx
         self._loc = location
-        self._seed = 0
-        self._goldens: Dict[Operand, Golden] = {}
         self._global_id = -1
-        self._id_golden_map = {}
-        self._golden_check_level = GoldenCheckLevel.OP_LEVEL
+        self._disable_golden_check = disable_golden_check
+        self._force_graph_level_check = False
+
+        # Keep a list of inputs and outputs in order so we know how to store them in golden map.
+        self._ordered_inputs: List[Operand] = []
+        self._ordered_outputs: List[Operand] = []
+
+        # Explicity set goldens to store. If empty, store all goldens.
+        self._goldens_to_store: List[Operand] = []
+
+        # Map from operand to its golden tensor.
+        self._goldens: Dict[Operand, BuilderGoldenTensor] = {}
+
+        # Map from operand to its location string.
+        self._operand_to_loc: Dict[Operand, str] = {}
+
+        # Set torch seed for reproducibility.
+        torch.manual_seed(0)
+
+        if not isinstance(mesh_name, List):
+            mesh_name = [mesh_name]
+        if not isinstance(mesh_dict, List):
+            mesh_dict = [mesh_dict]
+        if len(mesh_name) != len(mesh_dict):
+            raise ValueError(
+                f"mesh_name length {len(mesh_name)} must match mesh_dict length {len(mesh_dict)}"
+            )
+        self._meshes = {}
+        for name, mesh in zip(mesh_name, mesh_dict):
+            self._meshes[name] = mesh
+
+        self._mesh_shape = tuple(mesh_dict[0].values())
 
     # ----- Public methods -----
-
-    @property
-    def golden_check_level(self) -> GoldenCheckLevel:
-        return self._golden_check_level
-
-    @golden_check_level.setter
-    def golden_check_level(self, level: GoldenCheckLevel):
-        if not isinstance(level, GoldenCheckLevel):
-            raise ValueError("Invalid golden check level.")
-        self._golden_check_level = level
 
     @property
     def context(self) -> Context:
         return self._ctx
 
     @property
-    def golden_map(self) -> Dict:
-        golden_info = {}
-        if self.golden_check_level == GoldenCheckLevel.DISABLED:
+    def location(self) -> Location:
+        return self._loc
+
+    @property
+    def mesh_shape(self) -> Tuple[int, int]:
+        return self._mesh_shape
+
+    @property
+    def golden_map(self) -> Dict[str, Dict[int, GoldenTensor]]:
+        golden_info: Dict[str, Dict[int, GoldenTensor]] = {}
+
+        if self._disable_golden_check:
             return golden_info
-        for name, golden_tensor in self._id_golden_map.items():
-            if self.golden_check_level == GoldenCheckLevel.GRAPH_LEVEL:
-                if re.match(r"^(input|output)_[0-9]+$", name) is None:
-                    # It means this is not graph level golden.
-                    continue
-            if isinstance(golden_tensor.tensor, ShardedTensor):
-                # Skip multi-device tensors (i.e., ShardedTensor).
-                # We cannot bring them back to the host until we unshard/collect,
-                # so we skip them when building the golden map.
-                continue
-            golden_tensor = golden_tensor.contiguous()
-            data_type = self._get_datatype_from_torch_dtype(golden_tensor.tensor.dtype)
-            golden_info[name] = GoldenTensor(
-                name,
-                list(golden_tensor.tensor.shape),
-                list(golden_tensor.tensor.stride()),
-                data_type if data_type is not None else DataType.Float32,
-                golden_tensor.tensor.data_ptr(),
-                golden_tensor.tensor.numel() * golden_tensor.tensor.dtype.itemsize,
+
+        # If no specific golden is marked to be stored, store all goldens.
+        if len(self._goldens_to_store) == 0:
+            self._goldens_to_store = list(self._goldens.keys())
+
+        # Always store inputs into golden map.
+        for index, input in enumerate(self._ordered_inputs):
+            loc = f"input_{index}"
+            golden_info[loc] = self._generate_golden_device_tensor(
+                loc, self._get_golden_tensor(input)
             )
-        return golden_info
 
-    def set_graph_input_output(
-        self,
-        inputs: List[torch.Tensor],
-        outputs: Optional[List[torch.Tensor]] = None,
-        override: bool = False,
-    ) -> None:
-        for index, tensor in enumerate(inputs):
-            input_key = f"input_{index}"
-
-            if input_key in self._id_golden_map:
-                if self._id_golden_map[input_key].tensor.shape != tensor.shape:
-                    raise ValueError(
-                        f"Shape mismatch for tensor '{input_key}': "
-                        f"expected {self._id_golden_map[input_key].tensor.shape}, got {tensor.shape}"
-                    )
-
-                if self._id_golden_map[input_key].tensor.dtype != tensor.dtype:
-                    raise ValueError(
-                        f"Dtype mismatch for tensor '{input_key}': "
-                        f"expected {self._id_golden_map[input_key].tensor.dtype}, got {tensor.dtype}"
-                    )
-
-            if not override and input_key in self._id_golden_map:
+        # Store outputs into golden map if they are marked to be stored.
+        for index, output in enumerate(self._ordered_outputs):
+            if output not in self._goldens_to_store:
                 continue
-            self._id_golden_map[input_key] = Golden(tensor)
 
-        if outputs is not None:
-            self.golden_check_level = GoldenCheckLevel.GRAPH_LEVEL
-            for index, tensor in enumerate(outputs):
-                output_key = f"output_{index}"
-                if not override and output_key in self._id_golden_map:
-                    continue
-                self._id_golden_map[output_key] = Golden(tensor)
+            loc = f"output_{index}"
+            golden_info[loc] = self._generate_golden_device_tensor(
+                loc, self._get_golden_tensor(output)
+            )
+
+        if self._force_graph_level_check:
+            return golden_info
+
+        # Store other operands into golden map if they are marked to be stored.
+        for operand, builder_golden_tensor in self._goldens.items():
+            if operand not in self._goldens_to_store:
+                continue
+
+            if not (isinstance(operand, OpView) or isinstance(operand, Operation)):
+                continue
+
+            loc = self._operand_to_loc.get(operand, None)
+            golden_info[loc] = self._generate_golden_device_tensor(
+                loc, builder_golden_tensor
+            )
+
+        return golden_info
 
     def get_shape(self, input: Operand) -> Shape:
         return self._get_type(input).shape
+
+    def set_goldens(
+        self,
+        inputs: Dict[operand, Union[torch.tensor, Dict[int : torch.tensor]]],
+        outputs: Dict[operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
+    ):
+        self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
+
+        if outputs != None:
+            self.set_goldens_to_check(outputs.keys())
+            self._set_goldens(self._create_builder_golden_from_torch_tensor(outputs))
+
+    def set_goldens_from_builder_tensor(
+        self,
+        inputs: Dict[operand, BuilderGoldenTensor],
+        outputs: Dict[operand, BuilderGoldenTensor] = None,
+    ):
+        self._set_goldens(inputs)
+
+        if outputs != None:
+            self.set_goldens_to_check(outputs.keys())
+            self._set_goldens(outputs)
+
+    def set_operand_goldens(
+        self, operands: Dict[operand, Union[torch.tensor, Dict[int : torch.tensor]]]
+    ):
+        self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
+        self.set_goldens_to_check(operands.keys())
+
+    def set_goldens_to_check(self, operands: List[operands], override: bool = False):
+        if override:
+            self._goldens_to_store = operands
+        else:
+            self._goldens_to_store.extend(operands)
+
+    def set_graph_level_check(self, check: bool):
+        self._force_graph_level_check = check
 
     # ----- Private methods -----
 
@@ -143,70 +186,14 @@ class Builder:
                 return DataType.Float16
             case torch.bfloat16:
                 return DataType.BFloat16
-            case torch.float32:
-                return DataType.Float32
+            case torch.uint8:
+                return DataType.UInt8
             case torch.int32 | torch.qint32:
                 return DataType.Int32
-            case None:
+            case torch.float32 | None:
                 return DataType.Float32
 
-    def _get_next_global_id(self) -> int:
-        self._global_id += 1
-        return self._global_id
-
-    def _get_name(operand: Operand) -> str:
-        name = getattr(operand, "get_name", lambda: None)() or getattr(
-            operand, "name", None
-        )
-
-        if name is None:
-            raise ValueError(
-                f"Couldn't retrieve name for operand {operand}. Check if this "
-                f"operand type is properly supported."
-            )
-
-        return name
-
-    def _operand_is_mlir_func_arg(operand: Operand) -> bool:
-        return isinstance(operand, BlockArgument) and "arg" in Builder._get_name(
-            operand
-        )
-
-    def _get_seed(self) -> int:
-        seed = self._seed
-        self._seed += 1
-        return seed
-
-    # Generates a random PyTorch tensor with the specified shape, dtype, and seed for testing.
-    def _generate_random_tensor(
-        self, shape: Shape, dtype: Union[torch.dtype, TypeInfo], seed: int
-    ) -> torch.Tensor:
-        if isinstance(dtype, TypeInfo):
-            float_tensor = torch.randn(
-                shape, generator=torch.manual_seed(seed), dtype=torch.float32
-            )
-            return torch.quantize_per_tensor(
-                float_tensor, dtype.scale, dtype.zero_point, dtype.dtype
-            )
-        if dtype.is_floating_point:
-            return torch.randn(shape, generator=torch.manual_seed(seed), dtype=dtype)
-        else:
-            min_int = torch.iinfo(dtype).min
-            max_int = torch.iinfo(dtype).max
-            return torch.randint(
-                low=min_int,
-                high=max_int,
-                size=shape,
-                generator=torch.manual_seed(seed),
-                dtype=dtype,
-            )
-
-    @property
-    def _default_type(self) -> Type:
-        return F32Type.get(self._ctx)
-
-    # Extracts a RankedTensorType from a Value, OpView, or Operation, ensuring the type is ranked.
-    def _get_type(self, input: Operand):
+    def _get_type(self, input: Operand) -> RankedTensorType:
         if isinstance(input, Value):
             typ = input.type
         elif isinstance(input, OpView):
@@ -216,46 +203,8 @@ class Builder:
         else:
             raise TypeError(f"Invalid input {type(input)}")
 
-        if not isinstance(typ, RankedTensorType):
-            raise TypeError("Only ranked tensors are supported")
-
         return typ
 
-    def _get_loc_of_extra_file_callee(self, id: int = 0) -> Location:
-        stack = inspect.stack()
-        caller_filename = stack[1].filename
-
-        while len(stack) > 0 and stack[0].filename == caller_filename:
-            stack = stack[1:]
-
-        if len(stack) == 0:
-            raise RuntimeError(
-                "Top of callstack to builder funcs must be outside the caller's file"
-            )
-
-        return Location.name(
-            f"{stack[0].filename}:{str(stack[0].lineno)}:id({str(id)})"
-        )
-
-    def _get_loc_from_str(self, loc: Union[str, Location]) -> Location:
-        if isinstance(loc, str):
-            return Location.name(loc)
-        else:
-            return loc
-
-    # Creates an MLIR RankedTensorType from a shape, optional data type, and optional encoding.
-    def _create_ranked_tensor_type(
-        self,
-        shape: Shape,
-        data_type: Optional[Type] = None,
-        encoding: Optional[Attribute] = None,
-    ) -> RankedTensorType:
-        dtype = data_type if data_type is not None else self._default_type
-
-        with self._ctx, self._loc:
-            return RankedTensorType.get(shape, dtype, encoding)
-
-    # Converts a torch.dtype or TypeInfo (with optional scale and zero_point) into the corresponding MLIR type.
     def _get_type_from_torch_dtype(
         self,
         dtype: Union[torch.dtype, TypeInfo],
@@ -336,54 +285,138 @@ class Builder:
             case _:
                 raise TypeError(f"Invalid Type {dtype}")
 
-    def _generate_and_store_random_golden(
-        self, operand: Operand, dtype: Union[torch.dtype, TypeInfo] = torch.float32
-    ) -> Golden:
-        seed = self._get_seed()
-        random_tensor = self._generate_random_tensor(
-            self.get_shape(operand), dtype, seed
-        )
-        golden = Golden(random_tensor, seed)
-        self._store_golden(operand, golden)
-        return golden
+    def _get_next_global_id(self) -> int:
+        self._global_id += 1
+        return self._global_id
 
-    def _generate_input_golden(
-        self,
-        operand: Operand,
-        dtype: Union[torch.dtype, TypeInfo],
-        index: int,
-        override: bool = False,
-    ) -> None:
-        if not override and f"input_{index}" in self._id_golden_map:
-            return self._id_golden_map[f"input_{index}"]
-        golden = self._generate_and_store_random_golden(operand, dtype)
-        self._id_golden_map[f"input_{index}"] = golden
-        return golden
+    def _get_loc_of_extra_file_callee(self, id: int = 0) -> Location:
+        stack = inspect.stack()
+        caller_filename = stack[1].filename
 
-    def _get_golden(self, operand: Operand) -> Golden:
-        golden = self._goldens.get(operand)
+        while len(stack) > 0 and stack[0].filename == caller_filename:
+            stack = stack[1:]
 
-        if golden is None:
-            raise ValueError(f"Expected to have a golden stored for {operand}")
-
-        return golden
-
-    def _store_golden(self, operand: Operand, golden: Golden) -> None:
-        if self._goldens.get(operand) is not None:
-            raise ValueError(f"Golden for {operand} already exists.")
-
-        self._goldens[operand] = golden
-
-    def _override_golden(self, operand: Operand, golden: Golden) -> None:
-        if self._goldens.get(operand) is None:
-            raise ValueError(
-                f"Expected golden for {operand} to already exist before overriding it."
+        if len(stack) == 0:
+            raise RuntimeError(
+                "Top of callstack to builder funcs must be outside the caller's file"
             )
 
+        return Location.name(
+            f"{stack[0].filename}:{str(stack[0].lineno)}:id({str(id)})"
+        )
+
+    def _get_loc_from_str(self, loc: Union[str, Location]) -> Location:
+        if isinstance(loc, str):
+            return Location.name(loc)
+        else:
+            return loc
+
+    def _create_ranked_tensor_type(
+        self,
+        shape: Shape,
+        data_type: Optional[Type] = None,
+        encoding: Optional[Attribute] = None,
+    ) -> RankedTensorType:
+        with self._ctx, self._loc:
+            dtype = data_type if data_type is not None else F32Type.get(self._ctx)
+            return RankedTensorType.get(shape, dtype, encoding)
+
+    def _organize_eltwise_golden(
+        self, inputs: List[Operand]
+    ) -> List[BuilderGoldenTensor]:
+        return [self._goldens[inp] for inp in inputs]
+
+    def _generate_random_tensor(
+        self, shape: Shape, dtype: Union[torch.dtype, TypeInfo]
+    ) -> torch.Tensor:
+        if isinstance(dtype, TypeInfo):
+            float_tensor = torch.randn(shape, dtype=torch.float32)
+            return torch.quantize_per_tensor(
+                float_tensor, dtype.scale, dtype.zero_point, dtype.dtype
+            )
+        if dtype.is_floating_point:
+            return torch.randn(shape, dtype=dtype)
+        else:
+            min_int = torch.iinfo(dtype).min
+            max_int = torch.iinfo(dtype).max
+            return torch.randint(
+                low=min_int,
+                high=max_int,
+                size=shape,
+                dtype=dtype,
+            )
+
+    def _generate_golden_tensor(
+        self, operand: Operand, dtype: Union[torch.dtype, TypeInfo]
+    ) -> BuilderGoldenTensor:
+        random_tensor = self._generate_random_tensor(self.get_shape(operand), dtype)
+        return BuilderGoldenTensor({0: random_tensor}, mesh_shape=self._mesh_shape)
+
+    def _generate_golden_device_tensor(
+        self, loc: str, builder_golden_tensor: BuilderGoldenTensor
+    ) -> Dict[int, GoldenTensor]:
+        device_golden_info: Dict[int, GoldenTensor] = {}
+        contiguous_tensor = builder_golden_tensor.contiguous()
+        for device_id, device_golden in contiguous_tensor.shard_map.items():
+            data_type = self._get_datatype_from_torch_dtype(device_golden.dtype)
+            device_golden_info[device_id] = GoldenTensor(
+                loc,
+                list(device_golden.shape),
+                list(device_golden.stride()),
+                data_type if data_type is not None else DataType.Float32,
+                device_golden.data_ptr(),
+                device_golden.numel() * device_golden.dtype.itemsize,
+            )
+
+        return device_golden_info
+
+    def _create_builder_golden_from_torch_tensor(
+        self,
+        inputs: Union[torch.Tensor, Dict[int, torch.Tensor]],
+    ) -> BuilderGoldenTensor:
+        input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+        for operand, tensor_or_shard_map in inputs.items():
+            if isinstance(tensor_or_shard_map, torch.Tensor):
+                golden_tensor = BuilderGoldenTensor(
+                    {0: tensor_or_shard_map}, mesh_shape=self._mesh_shape
+                )
+            else:
+                golden_tensor = BuilderGoldenTensor(
+                    tensor_or_shard_map, mesh_shape=self._mesh_shape
+                )
+            input_goldens[operand] = golden_tensor
+
+        return input_goldens
+
+    def _set_golden_tensor(
+        self,
+        operand: Operand,
+        golden: BuilderGoldenTensor,
+    ):
         self._goldens[operand] = golden
 
-    def _get_golden_tensor(self, operand: Operand) -> torch.Tensor:
-        return self._get_golden(operand).tensor
+        if isinstance(operand, OpView):
+            loc = str(operand.operation.location)
+            self._operand_to_loc[operand] = loc
+        elif isinstance(operand, Operation):
+            loc = str(operand.location)
+            self._operand_to_loc[operand] = loc
 
-    def _organize_eltwise_golden(self, inputs: List[Operand]):
-        return [self._get_golden_tensor(inp) for inp in inputs]
+    def _set_goldens(
+        self,
+        goldens: Dict[Operand, BuilderGoldenTensor],
+    ):
+        for operand, golden in goldens.items():
+            self._set_golden_tensor(operand, golden)
+
+    def _get_golden_tensor(
+        self,
+        operand: Operand,
+    ) -> BuilderGoldenTensor:
+        return self._goldens[operand]
+
+    def _set_input_ordering(self, inputs: List[Operand]):
+        self._ordered_inputs = inputs
+
+    def _set_output_ordering(self, outputs: List[Operand]):
+        self._ordered_outputs = outputs

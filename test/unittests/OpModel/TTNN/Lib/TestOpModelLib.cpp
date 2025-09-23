@@ -15,7 +15,6 @@
 #include "llvm/Support/Error.h"
 
 #include <cstdint>
-#include <iostream>
 #include <optional>
 #include <tuple>
 
@@ -45,7 +44,8 @@ struct TestTensor {
 struct ExpectedResult {
   bool expectedLegal = false;
   size_t expectedCbSize = 0;
-  size_t expectedPeakSize = 0;
+  size_t expectedL1PeakSize = 0;
+  size_t expectedTotalPeakSize = 0;
   size_t expectedOutputSize = 0;
 };
 } // namespace
@@ -85,8 +85,9 @@ protected:
                 inputVirtualGrid] = std::get<0>(params);
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = std::get<1>(params);
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedOutputSize] = std::get<2>(params);
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        std::get<2>(params);
 
     const TTNNLayoutAttr inputLayout = CreateTiledLayout(
         inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
@@ -99,12 +100,13 @@ protected:
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
-      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-          constraintsExp.get();
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                  outputLayoutReadBack] = constraintsExp.get();
 
       bool useGreaterThan = std::is_same_v<OpTy, CbrtOp>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
-      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(l1PeakSize, expectedL1PeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(totalPeakSize, expectedTotalPeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -128,8 +130,9 @@ protected:
                 inputVirtualGrid] = std::get<0>(params);
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = std::get<1>(params);
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedOutputSize] = std::get<2>(params);
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        std::get<2>(params);
 
     const TTNNLayoutAttr inputLayout = CreateTiledLayoutInt32(
         inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
@@ -142,12 +145,13 @@ protected:
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
-      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-          constraintsExp.get();
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                  outputLayoutReadBack] = constraintsExp.get();
 
       bool useGreaterThan = std::is_same_v<OpTy, BitwiseNotOp>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
-      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(l1PeakSize, expectedL1PeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(totalPeakSize, expectedTotalPeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -226,16 +230,16 @@ const std::initializer_list<
     unaryEltwiseParams = {
         std::make_tuple(detail::interleavedN300X1024Dram,
                         detail::interleavedN300X1024Dram,
-                        detail::ExpectedResult{true, 8192, 0, 0}),
+                        detail::ExpectedResult{true, 8192, 0, 8192, 0}),
         std::make_tuple(detail::interleavedN300X1024Dram,
                         detail::interleavedN300X1024L1,
-                        detail::ExpectedResult{true, 8192, 2048, 2048}),
+                        detail::ExpectedResult{true, 8192, 2048, 10240, 2048}),
         std::make_tuple(detail::interleavedN300X1024L1,
                         detail::interleavedN300X1024Dram,
-                        detail::ExpectedResult{true, 8192, 0, 0}),
+                        detail::ExpectedResult{true, 8192, 0, 8192, 0}),
         std::make_tuple(detail::interleavedN300X1024L1,
                         detail::interleavedN300X1024L1,
-                        detail::ExpectedResult{true, 8192, 2048, 2048}),
+                        detail::ExpectedResult{true, 8192, 2048, 10240, 2048}),
         std::make_tuple(
             detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
                                TensorMemoryLayout::HeightSharded,
@@ -243,7 +247,49 @@ const std::initializer_list<
             detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
                                TensorMemoryLayout::HeightSharded,
                                BufferType::L1},
-            detail::ExpectedResult{true, 0, 14 * 32 * 32 * 2,
+            detail::ExpectedResult{true, 0, 14 * 32 * 32 * 2, 14 * 32 * 32 * 2,
+                                   14 * 32 * 32 * 2}),
+        std::make_tuple(
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::L1},
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               TensorMemoryLayout::HeightSharded,
+                               BufferType::L1},
+            detail::ExpectedResult{false}),
+        std::make_tuple(
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               TensorMemoryLayout::HeightSharded,
+                               BufferType::L1},
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::L1},
+            detail::ExpectedResult{false})};
+
+const std::initializer_list<
+    std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
+    tanhParams = {
+        std::make_tuple(detail::interleavedN300X1024Dram,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 28672, 0, 28672, 0}),
+        std::make_tuple(
+            detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
+            detail::ExpectedResult{true, 28672, 2048, 28672 + 2048, 2048}),
+        std::make_tuple(detail::interleavedN300X1024L1,
+                        detail::interleavedN300X1024Dram,
+                        detail::ExpectedResult{true, 28672, 0, 28672, 0}),
+        std::make_tuple(
+            detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
+            detail::ExpectedResult{true, 28672, 2048, 28672 + 2048, 2048}),
+        std::make_tuple(
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               TensorMemoryLayout::HeightSharded,
+                               BufferType::L1},
+            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
+                               TensorMemoryLayout::HeightSharded,
+                               BufferType::L1},
+            detail::ExpectedResult{true, 143360, 14 * 32 * 32 * 2,
+                                   143360 + 14 * 32 * 32 * 2,
                                    14 * 32 * 32 * 2}),
         std::make_tuple(
             detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
@@ -281,7 +327,7 @@ INSTANTIATE_TEST_SUITE_P(ExpTests, OpModelExpParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(TanhTests, OpModelTanhParam,
-                         ::testing::ValuesIn(unaryEltwiseParams));
+                         ::testing::ValuesIn(tanhParams));
 
 INSTANTIATE_TEST_SUITE_P(LogTests, OpModelLogParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
@@ -361,16 +407,15 @@ protected:
                 outputVirtualGrid] = std::get<1>(params);
     const auto dimArg = std::get<2>(params);
     const auto keepDim = std::get<3>(params);
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedOutputSize] = std::get<4>(params);
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        std::get<4>(params);
 
     const TTNNLayoutAttr inputLayout = CreateTiledLayout(
         inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
     const TTNNLayoutAttr outputLayout = CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-    // Need to reset device other wise hangs. See tt-metal issue #25772
-    SingletonDeviceContext::resetInstance();
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
         CreateWorkerGrid(), inputShape, inputLayout, dimArg, keepDim,
         outputLayout);
@@ -378,18 +423,16 @@ protected:
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
-      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-          constraintsExp.get();
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                  outputLayoutReadBack] = constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
       EXPECT_EQ(outputSize, expectedOutputSize);
     } else {
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
     }
-    // TODO(tt-metal #25772): Need to reset device here otherwise hangs. Remove
-    // once fixed.
-    SingletonDeviceContext::resetInstance();
     auto runtimeExp = OpModel<OpTy>::getOpRuntime(
         inputShape, inputLayout, dimArg, keepDim, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
@@ -418,22 +461,22 @@ static const auto reductionParams = ::testing::Values(
                     detail::interleavedN300X1024Dram,
                     std::optional<llvm::SmallVector<int64_t>>{
                         llvm::SmallVector<int64_t>{1}},
-                    true, detail::ExpectedResult{true, 12288, 0, 0}),
+                    true, detail::ExpectedResult{true, 12288, 0, 12288, 0}),
     std::make_tuple(detail::interleavedN300X1024Dram,
                     detail::interleavedN300X1024Dram,
                     std::optional<llvm::SmallVector<int64_t>>{
                         llvm::SmallVector<int64_t>{1, 2}},
-                    false, detail::ExpectedResult{false, 0, 0, 0}),
+                    false, detail::ExpectedResult{false, 0, 0, 0, 0}),
     std::make_tuple(detail::interleavedN300X1024Dram,
                     detail::interleavedN300X1024Dram,
                     std::optional<llvm::SmallVector<int64_t>>{
                         llvm::SmallVector<int64_t>{1, 0}},
-                    false, detail::ExpectedResult{true, 12288, 0, 0}),
+                    false, detail::ExpectedResult{true, 12288, 0, 12288, 0}),
     std::make_tuple(detail::interleavedN300X1024L1,
                     detail::interleavedN300X1024Dram,
                     std::optional<llvm::SmallVector<int64_t>>{
                         llvm::SmallVector<int64_t>{1}},
-                    false, detail::ExpectedResult{true, 12288, 0, 0}));
+                    false, detail::ExpectedResult{true, 12288, 0, 12288, 0}));
 
 INSTANTIATE_TEST_SUITE_P(SumTests, OpModelSumParam, reductionParams);
 
@@ -442,6 +485,106 @@ INSTANTIATE_TEST_SUITE_P(MeanTests, OpModelMeanParam, reductionParams);
 INSTANTIATE_TEST_SUITE_P(MaxTests, OpModelMaxParam, reductionParams);
 
 INSTANTIATE_TEST_SUITE_P(MinTests, OpModelMinParam, reductionParams);
+
+TEST_F(OpModelTest, ArgMax) {
+  const llvm::SmallVector<int64_t> tensorShape = {64, 64};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+
+  // ArgMax requires ROW_MAJOR layout for both input and output
+  // Note: L1 + ROW_MAJOR doesn't work (see tt-mlir issue #2976), so we use DRAM
+  const TTNNLayoutAttr layoutDRAMRowMajor = CreateRowMajorLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  // Test case 1: no keepDim
+  auto constraintsExp = OpModel<ArgMaxOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAMRowMajor, 1, false, false,
+      layoutDRAMRowMajor);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 384);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = OpModel<ArgMaxOp>::getOpRuntime(
+      tensorShape, layoutDRAMRowMajor, 1, false, false, layoutDRAMRowMajor);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  // Test case 2: with keepDim
+  constraintsExp = OpModel<ArgMaxOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAMRowMajor, 1, true, false,
+      layoutDRAMRowMajor);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 160);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  runtimeExp = OpModel<ArgMaxOp>::getOpRuntime(
+      tensorShape, layoutDRAMRowMajor, 1, true, false, layoutDRAMRowMajor);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  // Test case 3: Different tensor shape, no keepDim
+  const llvm::SmallVector<int64_t> tensorShape2 = {32, 128};
+  const TTNNLayoutAttr layoutDRAMRowMajor2 = CreateRowMajorLayout(
+      tensorShape2, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  constraintsExp = OpModel<ArgMaxOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape2, layoutDRAMRowMajor2, 1, false, false,
+      layoutDRAMRowMajor2);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 384);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  runtimeExp = OpModel<ArgMaxOp>::getOpRuntime(
+      tensorShape2, layoutDRAMRowMajor2, 1, false, false, layoutDRAMRowMajor2);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
+TEST_F(OpModelTest, Prod) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300,
+                                                  workerCoresN300};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1Interleaved = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1WSharded = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = op_model::OpModel<ProdOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, false, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  constraintsExp = op_model::OpModel<ProdOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, false,
+      layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 8192);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
+
+  constraintsExp = op_model::OpModel<ProdOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 0, false,
+      layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+}
 
 TEST_F(OpModelTest, SoftmaxInterleaved) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
@@ -455,16 +598,18 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, inputLayout_dram);
+      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, false,
+      inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cb_size, peak_size, output_size, outputLayoutReadBack] =
+  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
-  EXPECT_EQ(cb_size, 137216);
-  EXPECT_EQ(output_size, 0);
-  EXPECT_EQ(peak_size, 0);
+  EXPECT_EQ(cbSize, 137216);
+  EXPECT_EQ(outputSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, inputLayout_l1);
+      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, false,
+      inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
@@ -472,7 +617,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, inputLayout_dram);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, false,
+      inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
@@ -480,7 +626,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, inputLayout_l1);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, false,
+      inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
@@ -488,7 +635,8 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, inputLayout_dram);
+      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, false,
+      inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 137216);
@@ -502,10 +650,26 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
        {inputLayout_l1, inputLayout_l1}};
   for (const auto &[input_layout, output_layout] : layout_combinations) {
     auto runtimeExp = OpModel<SoftmaxOp>::getOpRuntime(
-        tensorShape, input_layout, -1, output_layout);
+        tensorShape, input_layout, -1, false, output_layout);
     EXPECT_TRUE(static_cast<bool>(runtimeExp));
     EXPECT_TRUE(runtimeExp.get() > 0);
   }
+}
+
+TEST_F(OpModelTest, SoftmaxNumericStable) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const TTNNLayoutAttr inputLayout_dram = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, true,
+      inputLayout_dram);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  auto runtimeExp = OpModel<SoftmaxOp>::getOpRuntime(
+      tensorShape, inputLayout_dram, -1, true, inputLayout_dram);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
 TEST_F(OpModelTest, Reshape) {
@@ -579,6 +743,42 @@ TEST_F(OpModelTest, Slice) {
 
   auto runtimeExp = OpModel<SliceStaticOp>::getOpRuntime(
       inputTensorShape, layoutDRAM, begins, ends, step, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
+TEST_F(OpModelTest, SliceDynamic) {
+  const llvm::SmallVector<int64_t> inputTensorShape = {4, 32, 32};
+  const llvm::SmallVector<int64_t> beginsShape = {3};
+  const llvm::SmallVector<int64_t> endsShape = {3};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
+      inputTensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr beginsLayoutDRAM = CreateTiledLayout(
+      beginsShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr endsLayoutDRAM = CreateTiledLayout(
+      endsShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr outputLayoutDRAM = CreateTiledLayout(
+      inputTensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  std::optional<llvm::SmallVector<int64_t>> step =
+      llvm::SmallVector<int64_t>{1, 1, 1};
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = OpModel<SliceDynamicOp>::getOpConstraints(
+      CreateWorkerGrid(), inputTensorShape, inputLayoutDRAM, beginsShape,
+      beginsLayoutDRAM, endsShape, endsLayoutDRAM, step, outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 4096);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = OpModel<SliceDynamicOp>::getOpRuntime(
+      inputTensorShape, inputLayoutDRAM, beginsShape, beginsLayoutDRAM,
+      endsShape, endsLayoutDRAM, step, outputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
@@ -769,6 +969,412 @@ TEST_F(OpModelTest, Transpose) {
   llvm::consumeError(runtimeExp.takeError());
 }
 
+TEST_F(OpModelTest, MorehCumSum) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1Interleaved = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1WSharded = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = op_model::OpModel<MorehCumSumOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 32768);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = op_model::OpModel<MorehCumSumOp>::getOpRuntime(
+      tensorShape, layoutDRAM, 0, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<MorehCumSumOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 32768);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 67584);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
+
+  runtimeExp = op_model::OpModel<MorehCumSumOp>::getOpRuntime(
+      tensorShape, layoutDRAM, 0, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<MorehCumSumOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 0,
+      layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+
+  runtimeExp = op_model::OpModel<MorehCumSumOp>::getOpRuntime(
+      tensorShape, layoutL1Interleaved, 0, layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
+}
+
+// ==== ConcatenateHeadsOp Tests ====
+class OpModelConcatenateHeadsParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,    // input tensor config
+                     detail::TestTensor,    // output tensor config
+                     detail::ExpectedResult // expected results
+                     >> {
+protected:
+  void RunTest() {
+    auto params = GetParam();
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = std::get<0>(params);
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = std::get<1>(params);
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        std::get<2>(params);
+
+    const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<ConcatenateHeadsOp>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, outputLayout);
+
+    // Check if the operation is expected to be legal
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+
+    if (expectedLegal) {
+      auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutResult] =
+          constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
+      EXPECT_EQ(outputSize, expectedOutputSize);
+      EXPECT_TRUE(outputLayoutResult != nullptr);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelConcatenateHeadsParam, ConcatenateHeadsOp) { RunTest(); }
+
+const std::initializer_list<
+    std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
+    concatenateHeadsParams = {
+        // Test case 1: Small transformer L1 to L1
+        std::make_tuple(detail::TestTensor{{1, 8, 512, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        detail::TestTensor{{1, 512, 512},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        detail::ExpectedResult{true, 65536, 8192, 73728, 8192}),
+
+        // Test case 2: DRAM to DRAM configuration
+        std::make_tuple(detail::TestTensor{{2, 12, 1024, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{2, 1024, 768},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::ExpectedResult{true, 98304, 0, 98304, 0}),
+
+        // Test case 3: Mixed memory (DRAM input, L1 output)
+        std::make_tuple(detail::TestTensor{{1, 16, 256, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{1, 256, 512},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        detail::ExpectedResult{true, 65536, 4096, 69632, 4096}),
+
+        // Test case 4: Large transformer configuration
+        std::make_tuple(detail::TestTensor{{4, 24, 2048, 128},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{4, 2048, 3072},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::ExpectedResult{true, 393216, 0, 393216, 0})};
+
+INSTANTIATE_TEST_SUITE_P(ConcatenateHeadsTests, OpModelConcatenateHeadsParam,
+                         ::testing::ValuesIn(concatenateHeadsParams));
+
+TEST_F(OpModelTest, NLPConcatHeadsDecodeOp) {
+  const int64_t batchSizeUnpadded = 2;
+  const int64_t batchSizePadded = 32;
+  const int64_t seqLen = 1;
+  const int64_t numHeadsPadded = 32;
+  const int64_t headDim = 128;
+  const uint32_t numHeadsUnpadded = 8;
+
+  const llvm::SmallVector<int64_t> inputShape = {seqLen, batchSizeUnpadded,
+                                                 numHeadsPadded, headDim};
+  const llvm::SmallVector<int64_t> outputShape = {seqLen, 1, batchSizePadded,
+                                                  numHeadsUnpadded * headDim};
+  const llvm::SmallVector<int64_t> virtualGridHeightSharded = {
+      batchSizeUnpadded, 1};
+  const llvm::SmallVector<int64_t> virtualGridWidthSharded = {
+      1, batchSizeUnpadded};
+
+  ttcore::GridAttr workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::HeightSharded,
+      virtualGridHeightSharded);
+  TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, BufferType::L1, TensorMemoryLayout::WidthSharded,
+      virtualGridWidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp =
+      op_model::OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, numHeadsUnpadded,
+          outputLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 8192);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 8192);
+
+  auto runtimeExp = op_model::OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
+      inputShape, inputLayout, numHeadsUnpadded, outputLayout);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
+TEST_F(OpModelTest, RepeatInterleave) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1Interleaved = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1WSharded = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = op_model::OpModel<RepeatInterleaveOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 2, 0, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = op_model::OpModel<RepeatInterleaveOp>::getOpRuntime(
+      tensorShape, layoutDRAM, 2, 0, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<RepeatInterleaveOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 2, 0, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  runtimeExp = op_model::OpModel<RepeatInterleaveOp>::getOpRuntime(
+      tensorShape, layoutDRAM, 2, 0, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<RepeatInterleaveOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 2, 0,
+      layoutL1WSharded);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 2048);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  runtimeExp = op_model::OpModel<RepeatInterleaveOp>::getOpRuntime(
+      tensorShape, layoutL1Interleaved, 2, 0, layoutL1WSharded);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
+TEST_F(OpModelTest, Repeat) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1Interleaved = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1WSharded = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  std::vector<int64_t> repeatDimsVec = {2, 1};
+  llvm::ArrayRef<int64_t> repeatDims(repeatDimsVec);
+
+  auto constraintsExp = op_model::OpModel<RepeatOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, repeatDims, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = op_model::OpModel<RepeatOp>::getOpRuntime(
+      tensorShape, layoutDRAM, repeatDims, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<RepeatOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, repeatDims,
+      layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  runtimeExp = op_model::OpModel<RepeatOp>::getOpRuntime(
+      tensorShape, layoutDRAM, repeatDims, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<RepeatOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutL1Interleaved, repeatDims,
+      layoutL1WSharded);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 131072);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 8192);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 4096);
+
+  runtimeExp = op_model::OpModel<RepeatOp>::getOpRuntime(
+      tensorShape, layoutL1Interleaved, repeatDims, layoutL1WSharded);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
+TEST_F(OpModelTest, Pad) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1Interleaved = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1WSharded = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  std::vector<int32_t> paddingVec = {0, 2, 0, 2};
+  llvm::ArrayRef<int32_t> padding(paddingVec);
+  llvm::APFloat padValue = llvm::APFloat(1.0f);
+
+  auto constraintsExp = op_model::OpModel<PadOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, padding, padValue, false,
+      layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 6144);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = op_model::OpModel<PadOp>::getOpRuntime(
+      tensorShape, layoutDRAM, padding, padValue, false, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<PadOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, padding, padValue, false,
+      layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 6144);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 4096);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 4096);
+
+  runtimeExp = op_model::OpModel<PadOp>::getOpRuntime(
+      tensorShape, layoutDRAM, padding, padValue, false, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<PadOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutL1Interleaved, padding, padValue,
+      false, layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+
+  runtimeExp = op_model::OpModel<PadOp>::getOpRuntime(
+      tensorShape, layoutL1Interleaved, padding, padValue, false,
+      layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
+}
+
+TEST_F(OpModelTest, Sort) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300,
+                                                  workerCoresN300};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1Interleaved = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1WSharded = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = op_model::OpModel<SortOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, false, false, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 33792);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = op_model::OpModel<SortOp>::getOpRuntime(
+      tensorShape, layoutDRAM, 0, false, false, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<SortOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, 0, false, false,
+      layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 33792);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 4096);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  runtimeExp = op_model::OpModel<SortOp>::getOpRuntime(
+      tensorShape, layoutDRAM, 0, false, false, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<SortOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 0, false, false,
+      layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+
+  runtimeExp = op_model::OpModel<SortOp>::getOpRuntime(
+      tensorShape, layoutL1Interleaved, 0, false, false, layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
+}
+
 TEST_F(OpModelTest, SoftmaxSharded) {
   const llvm::SmallVector<int64_t> tensorShape = {16 * workerCoresN300 * 32,
                                                   32};
@@ -782,7 +1388,7 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_TRUE(static_cast<bool>(legalExp));
 
   auto constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2,
+      CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, false,
       inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
@@ -791,7 +1397,8 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, inputLayout_l1_i);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, false,
+      inputLayout_l1_i);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 24576);
@@ -799,7 +1406,8 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      CreateWorkerGrid(), tensorShape, inputLayout_l1_i, -2, inputLayout_l1_hs);
+      CreateWorkerGrid(), tensorShape, inputLayout_l1_i, -2, false,
+      inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_EQ(opCstr.cbL1PeakSize, 24576);
@@ -807,7 +1415,7 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
 
   auto runtimeExp = OpModel<SoftmaxOp>::getOpRuntime(
-      tensorShape, inputLayout_l1_i, -2, inputLayout_l1_hs);
+      tensorShape, inputLayout_l1_i, -2, false, inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
@@ -877,8 +1485,9 @@ protected:
                 inputVirtualGridB] = GetParam().inputB;
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = GetParam().output;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedOutputSize] = GetParam().expectedResult;
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        GetParam().expectedResult;
 
     const TTNNLayoutAttr inputLayoutA = CreateTiledLayout(
         inputShapeA, inputBufferTypeA, inputTensorLayoutA, inputVirtualGridA);
@@ -894,12 +1503,14 @@ protected:
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
-      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-          constraintsExp.get();
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                  outputLayoutReadBack] = constraintsExp.get();
 
-      bool useGreaterThan = false;
+      bool useGreaterThan =
+          std::is_same_v<OpTy, Atan2Op> || std::is_same_v<OpTy, RemainderOp>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
-      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(l1PeakSize, expectedL1PeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(totalPeakSize, expectedTotalPeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -924,8 +1535,9 @@ protected:
                 inputVirtualGridB] = GetParam().inputB;
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = GetParam().output;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedOutputSize] = GetParam().expectedResult;
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        GetParam().expectedResult;
 
     const TTNNLayoutAttr inputLayoutA = CreateTiledLayoutInt32(
         inputShapeA, inputBufferTypeA, inputTensorLayoutA, inputVirtualGridA);
@@ -941,13 +1553,14 @@ protected:
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
-      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-          constraintsExp.get();
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                  outputLayoutReadBack] = constraintsExp.get();
 
       bool useGreaterThan = std::is_same_v<OpTy, LogicalRightShiftOp> ||
                             std::is_same_v<OpTy, LogicalLeftShiftOp>;
       EXPECT_EQ_OR_GE(cbSize, expectedCbSize, useGreaterThan);
-      EXPECT_EQ_OR_GE(peakSize, expectedPeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(l1PeakSize, expectedL1PeakSize, useGreaterThan);
+      EXPECT_EQ_OR_GE(totalPeakSize, expectedTotalPeakSize, useGreaterThan);
       EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, useGreaterThan);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
@@ -990,6 +1603,8 @@ using OpModelPowParam = OpModelBinaryEltwiseParam<PowOp>;
 using OpModelBitwiseAndParam = OpModelBinaryEltwiseParam<BitwiseAndOp>;
 using OpModelBitwiseOrParam = OpModelBinaryEltwiseParam<BitwiseOrOp>;
 using OpModelBitwiseXorParam = OpModelBinaryEltwiseParam<BitwiseXorOp>;
+using OpModelRemainderParam = OpModelBinaryEltwiseParam<RemainderOp>;
+using OpModelAtan2Param = OpModelBinaryEltwiseParam<Atan2Op>;
 
 TEST_P(OpModelAddParam, AddOp) { RunTest(); }
 TEST_P(OpModelMultiplyParam, MultiplyOp) { RunTest(); }
@@ -1012,36 +1627,38 @@ TEST_P(OpModelBitwiseAndParam, BitwiseAndOp) { RunTestInt32(); }
 TEST_P(OpModelBitwiseOrParam, BitwiseOrOp) { RunTestInt32(); }
 TEST_P(OpModelBitwiseXorParam, BitwiseXorOp) { RunTestInt32(); }
 TEST_P(OpModelPowParam, PowOp) { RunTest(); }
+TEST_P(OpModelRemainderParam, RemainderOp) { RunTest(); }
+TEST_P(OpModelAtan2Param, Atan2Op) { RunTest(); }
 
 const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
     {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
      detail::interleavedN300X1024Dram,
-     detail::ExpectedResult{true, 12288, 0, 0}},
+     detail::ExpectedResult{true, 12288, 0, 12288, 0}},
     {detail::interleavedN300X1024Dram, detail::interleaved2048X2048Dram,
      detail::interleaved2048X2048Dram,
-     detail::ExpectedResult{false, 0, 0, 0}}, // incompatible dimensions at
-                                              // the input
+     detail::ExpectedResult{false, 0, 0, 0, 0}}, // incompatible dimensions at
+                                                 // the input
     {detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
      detail::interleavedN300X1024Dram,
-     detail::ExpectedResult{true, 12288, 0, 0}},
+     detail::ExpectedResult{true, 12288, 0, 12288, 0}},
     {detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
      detail::interleavedN300X1024Dram,
-     detail::ExpectedResult{true, 12288, 0, 0}},
+     detail::ExpectedResult{true, 12288, 0, 12288, 0}},
     {detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
      detail::interleavedN300X1024Dram,
-     detail::ExpectedResult{true, 12288, 0, 0}},
+     detail::ExpectedResult{true, 12288, 0, 12288, 0}},
     {detail::interleavedN300X1024L1, detail::interleavedN300X1024L1,
      detail::interleavedN300X1024L1,
-     detail::ExpectedResult{true, 12288, 2048, 2048}},
+     detail::ExpectedResult{true, 12288, 2048, 14336, 2048}},
     {detail::interleavedN300X1024Dram, detail::interleavedN300X1024L1,
      detail::interleavedN300X1024L1,
-     detail::ExpectedResult{true, 12288, 2048, 2048}},
+     detail::ExpectedResult{true, 12288, 2048, 14336, 2048}},
     {detail::interleavedN300X1024L1, detail::interleavedN300X1024Dram,
      detail::interleavedN300X1024L1,
-     detail::ExpectedResult{true, 12288, 2048, 2048}},
+     detail::ExpectedResult{true, 12288, 2048, 14336, 2048}},
     {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
      detail::interleavedN300X1024L1,
-     detail::ExpectedResult{true, 12288, 2048, 2048}},
+     detail::ExpectedResult{true, 12288, 2048, 14336, 2048}},
     {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         TensorMemoryLayout::HeightSharded,
                         BufferType::L1,
@@ -1053,7 +1670,7 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         TensorMemoryLayout::HeightSharded,
                         BufferType::L1,
                         llvm::SmallVector<int64_t>{8, 1}},
-     detail::ExpectedResult{true, 4096, 262144, 262144}},
+     detail::ExpectedResult{true, 4096, 262144, 266240, 262144}},
     {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         TensorMemoryLayout::HeightSharded,
                         BufferType::L1,
@@ -1064,7 +1681,7 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
      detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         TensorMemoryLayout::Interleaved,
                         BufferType::DRAM},
-     detail::ExpectedResult{true, 8192, 0, 0}},
+     detail::ExpectedResult{true, 8192, 0, 8192, 0}},
     {detail::TestTensor{{16 * OpModelFixture::workerCoresN300 * 32, 32},
                         TensorMemoryLayout::Interleaved,
                         BufferType::DRAM},
@@ -1075,7 +1692,7 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         TensorMemoryLayout::HeightSharded,
                         BufferType::L1,
                         llvm::SmallVector<int64_t>{8, 1}},
-     detail::ExpectedResult{true, 8192, 262144, 262144}}};
+     detail::ExpectedResult{true, 8192, 262144, 270336, 262144}}};
 
 ::testing::internal::ParamGenerator<BinaryEltwiseParam>
 generateBinaryEltwiseParams(std::initializer_list<BinaryEltwiseParam> values,
@@ -1088,7 +1705,9 @@ generateBinaryEltwiseParams(std::initializer_list<BinaryEltwiseParam> values,
   for (const auto &v : values) {
     newValues.emplace_back(v);
     newValues.back().expectedResult.expectedCbSize += extraCbRequirement;
-    newValues.back().expectedResult.expectedPeakSize += extraPeakRequirement;
+    newValues.back().expectedResult.expectedL1PeakSize += extraPeakRequirement;
+    newValues.back().expectedResult.expectedTotalPeakSize +=
+        extraPeakRequirement + extraCbRequirement;
   }
   return ::testing::ValuesIn(newValues);
 }
@@ -1101,8 +1720,23 @@ generateBinaryBitwiseParams(std::initializer_list<BinaryEltwiseParam> values,
   for (const auto &v : values) {
     newValues.emplace_back(v);
     newValues.back().expectedResult.expectedCbSize *= 2;
-    newValues.back().expectedResult.expectedPeakSize *= 2;
+    newValues.back().expectedResult.expectedL1PeakSize *= 2;
+    newValues.back().expectedResult.expectedTotalPeakSize *= 2;
     newValues.back().expectedResult.expectedOutputSize *= 2;
+  }
+  return ::testing::ValuesIn(newValues);
+}
+
+::testing::internal::ParamGenerator<BinaryEltwiseParam>
+generateBinaryEltwiseParamsSameLayout(
+    std::initializer_list<BinaryEltwiseParam> values) {
+  std::vector<BinaryEltwiseParam> newValues;
+  for (const auto &v : values) {
+    newValues.emplace_back(v);
+    if ((newValues.back().inputA.layout != newValues.back().inputB.layout) ||
+        (newValues.back().inputA.layout != newValues.back().output.layout)) {
+      newValues.back().expectedResult.expectedLegal = false;
+    }
   }
   return ::testing::ValuesIn(newValues);
 }
@@ -1174,6 +1808,14 @@ INSTANTIATE_TEST_SUITE_P(BitwiseXorTests, OpModelBitwiseXorParam,
 INSTANTIATE_TEST_SUITE_P(PowTests, OpModelPowParam,
                          generateBinaryEltwiseParams(binaryEltwiseParams));
 
+INSTANTIATE_TEST_SUITE_P(
+    RemainderTests, OpModelRemainderParam,
+    generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(
+    Atan2Tests, OpModelAtan2Param,
+    generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
+
 // ==== Binary Eltwise Ops Ends ====
 
 class OpModelLinearParam
@@ -1197,8 +1839,8 @@ TEST_P(OpModelLinearParam, LinearParam) {
   const auto [outputShape, outputTensorLayout, outputBufferType,
               outputVirtualGrid] = std::get<3>(params);
   llvm::SmallVector<int64_t> physicalGrid = std::get<4>(params);
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-              expectedOutputSize] = std::get<5>(params);
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+              expectedTotalPeakSize, expectedOutputSize] = std::get<5>(params);
 
   const TTNNLayoutAttr inputLayoutA = CreateTiledLayout(
       inputShapeA, inputBufferTypeA, inputTensorLayoutA, inputVirtualGridA);
@@ -1217,10 +1859,11 @@ TEST_P(OpModelLinearParam, LinearParam) {
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (expectedLegal) {
-    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-        constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
     EXPECT_EQ(cbSize, expectedCbSize);
-    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
+    EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
   } else {
     // Must clean up the error
@@ -1236,7 +1879,6 @@ TEST_P(OpModelLinearParam, LinearParam) {
   } else {
     llvm::consumeError(runtimeExp.takeError());
   }
-  SingletonDeviceContext::resetInstance();
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -1247,49 +1889,45 @@ INSTANTIATE_TEST_SUITE_P(
                         detail::interleaved2048X2048Dram,
                         detail::interleaved2048X2048Dram,
                         llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 655360, 0, 0}),
-        std::make_tuple(detail::interleaved2048X2048Dram,
-                        detail::interleaved2048X2048Dram,
-                        detail::interleaved2048X2048Dram,
-                        detail::inerleaved2048X2048L1,
-                        llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 786432, 262144, 131072}),
-        std::make_tuple(detail::interleaved2048X2048Dram,
-                        detail::inerleaved2048X2048L1,
-                        detail::inerleaved2048X2048L1,
-                        detail::interleaved2048X2048Dram,
-                        llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 262144, 0, 0}),
+                        detail::ExpectedResult{true, 655360, 0, 655360, 0}),
+        std::make_tuple(
+            detail::interleaved2048X2048Dram, detail::interleaved2048X2048Dram,
+            detail::interleaved2048X2048Dram, detail::inerleaved2048X2048L1,
+            llvm::SmallVector<int64_t>{8, 8},
+            detail::ExpectedResult{true, 786432, 262144, 1048576, 131072}),
         std::make_tuple(detail::interleaved2048X2048Dram,
                         detail::inerleaved2048X2048L1,
                         detail::inerleaved2048X2048L1,
-                        detail::inerleaved2048X2048L1,
+                        detail::interleaved2048X2048Dram,
                         llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 262144, 262144, 131072}),
+                        detail::ExpectedResult{true, 262144, 0, 262144, 0}),
+        std::make_tuple(
+            detail::interleaved2048X2048Dram, detail::inerleaved2048X2048L1,
+            detail::inerleaved2048X2048L1, detail::inerleaved2048X2048L1,
+            llvm::SmallVector<int64_t>{8, 8},
+            detail::ExpectedResult{true, 262144, 262144, 524288, 131072}),
         std::make_tuple(detail::inerleaved2048X2048L1,
                         detail::interleaved2048X2048Dram,
                         detail::inerleaved2048X2048L1,
                         detail::interleaved2048X2048Dram,
                         llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 262144, 0, 0}),
-        std::make_tuple(detail::inerleaved2048X2048L1,
-                        detail::interleaved2048X2048Dram,
-                        detail::inerleaved2048X2048L1,
-                        detail::inerleaved2048X2048L1,
-                        llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 262144, 262144, 131072}),
-        std::make_tuple(detail::inerleaved2048X2048L1,
-                        detail::inerleaved2048X2048L1,
-                        detail::interleaved2048X2048Dram,
-                        detail::interleaved2048X2048Dram,
-                        llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 786432, 0, 0}),
+                        detail::ExpectedResult{true, 262144, 0, 262144, 0}),
+        std::make_tuple(
+            detail::inerleaved2048X2048L1, detail::interleaved2048X2048Dram,
+            detail::inerleaved2048X2048L1, detail::inerleaved2048X2048L1,
+            llvm::SmallVector<int64_t>{8, 8},
+            detail::ExpectedResult{true, 262144, 262144, 524288, 131072}),
         std::make_tuple(detail::inerleaved2048X2048L1,
                         detail::inerleaved2048X2048L1,
                         detail::interleaved2048X2048Dram,
-                        detail::inerleaved2048X2048L1,
+                        detail::interleaved2048X2048Dram,
                         llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 786432, 262144, 131072})));
+                        detail::ExpectedResult{true, 786432, 0, 786432, 0}),
+        std::make_tuple(
+            detail::inerleaved2048X2048L1, detail::inerleaved2048X2048L1,
+            detail::interleaved2048X2048Dram, detail::inerleaved2048X2048L1,
+            llvm::SmallVector<int64_t>{8, 8},
+            detail::ExpectedResult{true, 786432, 262144, 1048576, 131072})));
 
 INSTANTIATE_TEST_SUITE_P(
     LinearShardedTests, OpModelLinearParam,
@@ -1311,7 +1949,8 @@ INSTANTIATE_TEST_SUITE_P(
                                            BufferType::L1,
                                            llvm::SmallVector<int64_t>{7, 8}},
                         llvm::SmallVector<int64_t>{7, 8},
-                        detail::ExpectedResult{true, 430144, 229376, 114688}),
+                        detail::ExpectedResult{true, 430144, 229376,
+                                               430144 + 229376, 114688}),
         std::make_tuple(detail::TestTensor{{56 * 32, 56 * 32},
                                            TensorMemoryLayout::BlockSharded,
                                            BufferType::L1,
@@ -1365,7 +2004,7 @@ INSTANTIATE_TEST_SUITE_P(
                                            BufferType::DRAM,
                                            llvm::SmallVector<int64_t>{7, 8}},
                         llvm::SmallVector<int64_t>{7, 8},
-                        detail::ExpectedResult{true, 544832, 0, 0}),
+                        detail::ExpectedResult{true, 544832, 0, 544832, 0}),
         std::make_tuple(detail::TestTensor{{56 * 32, 56 * 32},
                                            TensorMemoryLayout::BlockSharded,
                                            BufferType::L1,
@@ -1400,7 +2039,7 @@ INSTANTIATE_TEST_SUITE_P(
                                TensorMemoryLayout::WidthSharded, BufferType::L1,
                                llvm::SmallVector<int64_t>{1, 56}},
             llvm::SmallVector<int64_t>{7, 8},
-            detail::ExpectedResult{true, 8256, 4096, 2048}),
+            detail::ExpectedResult{true, 8256, 4096, 8256 + 4096, 2048}),
         std::make_tuple(detail::TestTensor{{56 * 32, 1 * 32},
                                            TensorMemoryLayout::HeightSharded,
                                            BufferType::L1,
@@ -1418,7 +2057,8 @@ INSTANTIATE_TEST_SUITE_P(
                             TensorMemoryLayout::HeightSharded, BufferType::L1,
                             llvm::SmallVector<int64_t>{56, 1}},
                         llvm::SmallVector<int64_t>{7, 8},
-                        detail::ExpectedResult{true, 114688, 229376, 114688})));
+                        detail::ExpectedResult{true, 114688, 229376,
+                                               114688 + 229376, 114688})));
 
 class OpModelMatmulParam
     : public OpModelTest,
@@ -1438,8 +2078,8 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
   const auto [outputShape, outputTensorLayout, outputBufferType,
               outputVirtualGrid] = std::get<2>(params);
   llvm::SmallVector<int64_t> physicalGrid = std::get<3>(params);
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-              expectedOutputSize] = std::get<4>(params);
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+              expectedTotalPeakSize, expectedOutputSize] = std::get<4>(params);
 
   const TTNNLayoutAttr inputLayoutA = CreateTiledLayout(
       inputShapeA, inputBufferTypeA, inputTensorLayoutA, inputVirtualGridA);
@@ -1456,10 +2096,11 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (expectedLegal) {
-    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-        constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
     EXPECT_EQ(cbSize, expectedCbSize);
-    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
+    EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
   } else {
     // Must clean up the error
@@ -1484,42 +2125,46 @@ INSTANTIATE_TEST_SUITE_P(
                         detail::interleaved2048X2048Dram,
                         detail::interleaved2048X2048Dram,
                         llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 655360, 0, 0}),
+                        detail::ExpectedResult{true, 655360, 0, 655360, 0}),
         std::make_tuple(detail::interleaved2048X2048Dram,
                         detail::interleaved2048X2048Dram,
                         detail::inerleaved2048X2048L1,
                         llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 786432, 131072, 131072}),
+                        detail::ExpectedResult{true, 786432, 131072,
+                                               786432 + 131072, 131072}),
         std::make_tuple(detail::interleaved2048X2048Dram,
                         detail::inerleaved2048X2048L1,
                         detail::interleaved2048X2048Dram,
                         llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 786432, 0, 0}),
+                        detail::ExpectedResult{true, 786432, 0, 786432, 0}),
         std::make_tuple(detail::interleaved2048X2048Dram,
                         detail::inerleaved2048X2048L1,
                         detail::inerleaved2048X2048L1,
                         llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 786432, 131072, 131072}),
+                        detail::ExpectedResult{true, 786432, 131072,
+                                               786432 + 131072, 131072}),
         std::make_tuple(detail::inerleaved2048X2048L1,
                         detail::interleaved2048X2048Dram,
                         detail::interleaved2048X2048Dram,
                         llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 786432, 0, 0}),
+                        detail::ExpectedResult{true, 786432, 0, 786432, 0}),
         std::make_tuple(detail::inerleaved2048X2048L1,
                         detail::interleaved2048X2048Dram,
                         detail::inerleaved2048X2048L1,
                         llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 786432, 131072, 131072}),
+                        detail::ExpectedResult{true, 786432, 131072,
+                                               786432 + 131072, 131072}),
         std::make_tuple(detail::inerleaved2048X2048L1,
                         detail::inerleaved2048X2048L1,
                         detail::interleaved2048X2048Dram,
                         llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 786432, 0, 0}),
+                        detail::ExpectedResult{true, 786432, 0, 786432, 0}),
         std::make_tuple(detail::inerleaved2048X2048L1,
                         detail::inerleaved2048X2048L1,
                         detail::inerleaved2048X2048L1,
                         llvm::SmallVector<int64_t>{8, 8},
-                        detail::ExpectedResult{true, 786432, 131072, 131072})));
+                        detail::ExpectedResult{true, 786432, 131072,
+                                               786432 + 131072, 131072})));
 
 INSTANTIATE_TEST_SUITE_P(
     MatmulShardedTests, OpModelMatmulParam,
@@ -1537,7 +2182,8 @@ INSTANTIATE_TEST_SUITE_P(
                                            BufferType::L1,
                                            llvm::SmallVector<int64_t>{7, 8}},
                         llvm::SmallVector<int64_t>{7, 8},
-                        detail::ExpectedResult{true, 430144, 114688, 114688}),
+                        detail::ExpectedResult{true, 430144, 114688,
+                                               430144 + 114688, 114688}),
         std::make_tuple(detail::TestTensor{{56 * 32, 56 * 32},
                                            TensorMemoryLayout::BlockSharded,
                                            BufferType::L1,
@@ -1566,7 +2212,7 @@ INSTANTIATE_TEST_SUITE_P(
                                            llvm::SmallVector<int64_t>{7, 8}},
                         llvm::SmallVector<int64_t>{7, 8},
                         detail::ExpectedResult{
-                            true, 262144, 401408,
+                            true, 262144, 401408, 401408 + 262144,
                             401408}), // matmul bug shards to less cores
         std::make_tuple(detail::TestTensor{{56 * 32, 56 * 32},
                                            TensorMemoryLayout::BlockSharded,
@@ -1581,7 +2227,7 @@ INSTANTIATE_TEST_SUITE_P(
                                            BufferType::DRAM,
                                            llvm::SmallVector<int64_t>{7, 8}},
                         llvm::SmallVector<int64_t>{7, 8},
-                        detail::ExpectedResult{true, 544832, 0, 0}),
+                        detail::ExpectedResult{true, 544832, 0, 544832, 0}),
         std::make_tuple(detail::TestTensor{{56 * 32, 56 * 32},
                                            TensorMemoryLayout::BlockSharded,
                                            BufferType::L1,
@@ -1608,7 +2254,7 @@ INSTANTIATE_TEST_SUITE_P(
                                TensorMemoryLayout::WidthSharded, BufferType::L1,
                                llvm::SmallVector<int64_t>{1, 56}},
             llvm::SmallVector<int64_t>{7, 8},
-            detail::ExpectedResult{true, 8256, 2048, 2048}),
+            detail::ExpectedResult{true, 8256, 2048, 8256 + 2048, 2048}),
         std::make_tuple(detail::TestTensor{{56 * 32, 1 * 32},
                                            TensorMemoryLayout::HeightSharded,
                                            BufferType::L1,
@@ -1622,7 +2268,8 @@ INSTANTIATE_TEST_SUITE_P(
                             TensorMemoryLayout::HeightSharded, BufferType::L1,
                             llvm::SmallVector<int64_t>{56, 1}},
                         llvm::SmallVector<int64_t>{7, 8},
-                        detail::ExpectedResult{true, 114688, 114688, 114688})));
+                        detail::ExpectedResult{true, 114688, 114688,
+                                               114688 + 114688, 114688})));
 
 class OpModelConv2dParam
     : public OpModelTest,
@@ -1660,8 +2307,8 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   const auto padding = std::get<10>(params);
   const auto dilation = std::get<11>(params);
   const auto groups = std::get<12>(params);
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-              expectedOutputSize] = std::get<13>(params);
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+              expectedTotalPeakSize, expectedOutputSize] = std::get<13>(params);
 
   const TTNNLayoutAttr inputLayout = CreateRowMajorLayout(
       inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid,
@@ -1671,9 +2318,6 @@ TEST_P(OpModelConv2dParam, Conv2d) {
       GetPhysicalGridSize(), builder.getF32Type());
   const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
-
-  // Device hangs otherwise.
-  SingletonDeviceContext::resetInstance();
 
   // This is not configurable, as the backend doesn't support it for now.
   // But this test shows that this information is parsed and passes to the
@@ -1695,17 +2339,15 @@ TEST_P(OpModelConv2dParam, Conv2d) {
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
-    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-        constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
+    EXPECT_GT(totalPeakSize, 0);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  // Device hangs otherwise.
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = OpModel<Conv2dOp>::getOpRuntime(
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
@@ -1727,20 +2369,20 @@ TEST_P(OpModelConv2dParam, Conv2d) {
 INSTANTIATE_TEST_SUITE_P(
     Conv2dTests, OpModelConv2dParam,
     ::testing::Values(
-        std::make_tuple(detail::TestTensor{{1, 1, 50176, 3},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::DRAM},
-                        detail::TestTensor{{64, 3, 7, 7},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::SystemMemory},
-                        detail::TestTensor{{1, 1, 12544, 64},
-                                           TensorMemoryLayout::Interleaved,
-                                           BufferType::DRAM},
-                        3, 64, 1, 224, 224, llvm::SmallVector<int32_t>{7, 7},
-                        llvm::SmallVector<int32_t>{2, 2},
-                        llvm::SmallVector<int32_t>{3, 3},
-                        llvm::SmallVector<int32_t>{1, 1}, 1,
-                        detail::ExpectedResult{true, 229440, 190568, 0}),
+        std::make_tuple(
+            detail::TestTensor{{1, 1, 50176, 3},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            detail::TestTensor{{64, 3, 7, 7},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::SystemMemory},
+            detail::TestTensor{{1, 1, 12544, 64},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            3, 64, 1, 224, 224, llvm::SmallVector<int32_t>{7, 7},
+            llvm::SmallVector<int32_t>{2, 2}, llvm::SmallVector<int32_t>{3, 3},
+            llvm::SmallVector<int32_t>{1, 1}, 1,
+            detail::ExpectedResult{true, 229440, 190568, 229440 + 190568, 0}),
         std::make_tuple(detail::TestTensor{{1, 1, 50176, 3},
                                            TensorMemoryLayout::Interleaved,
                                            BufferType::DRAM},
@@ -1754,7 +2396,7 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int32_t>{2, 2},
                         llvm::SmallVector<int32_t>{3, 3},
                         llvm::SmallVector<int32_t>{1, 1}, 1,
-                        detail::ExpectedResult{true, 0, 0, 0})));
+                        detail::ExpectedResult{true, 0, 0, 0, 0})));
 
 class OpModelConvTranspose2dParam
     : public OpModelTest,
@@ -1794,8 +2436,8 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
   const auto output_padding = std::get<11>(params);
   const auto dilation = std::get<12>(params);
   const auto groups = std::get<13>(params);
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-              expectedOutputSize] = std::get<14>(params);
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+              expectedTotalPeakSize, expectedOutputSize] = std::get<14>(params);
 
   const TTNNLayoutAttr inputLayout =
       CreateRowMajorLayout(inputShape, inputBufferType, inputTensorLayout,
@@ -1806,9 +2448,6 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
   const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  // Device hangs otherwise.
-  SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = OpModel<ConvTranspose2dOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
       std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
@@ -1818,16 +2457,15 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
-    OpConstraints &opCstr = constraintsExp.get();
-    EXPECT_GT(opCstr.cbL1PeakSize, 0);
-    EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
+    EXPECT_GT(totalPeakSize, 0);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  // Device hangs otherwise.
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = OpModel<ConvTranspose2dOp>::getOpRuntime(
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
@@ -1905,8 +2543,6 @@ protected:
     const TTNNLayoutAttr outputLayout = this->CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-    SingletonDeviceContext::resetInstance();
-
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
         this->CreateWorkerGrid(), inputShape, inputLayout, batchSize,
         inputHeight, inputWidth, inputChannels, kernelSize, stride, padding,
@@ -1914,17 +2550,15 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
     if (constraintsExp) {
-      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-          constraintsExp.get();
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                  outputLayoutReadBack] = constraintsExp.get();
       EXPECT_GT(cbSize, 0);
-      EXPECT_GT(peakSize, 0);
+      EXPECT_GT(l1PeakSize, 0);
       EXPECT_EQ(outputSize, 0);
     } else {
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
     }
-
-    SingletonDeviceContext::resetInstance();
 
     auto runtimeExp = OpModel<OpTy>::getOpRuntime(
         inputShape, inputLayout, batchSize, inputHeight, inputWidth,
@@ -1970,6 +2604,16 @@ const auto pool2DTestValues = ::testing::Values(
                     1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
                     llvm::SmallVector<int32_t>{4, 2},
                     llvm::SmallVector<int32_t>{0, 0},
+                    llvm::SmallVector<int32_t>{1, 1}, false, false, false),
+    std::make_tuple(detail::TestTensor{{1, 1, 17 * 21, 22},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    detail::TestTensor{{1, 1, 5 * 11, 22},
+                                       TensorMemoryLayout::Interleaved,
+                                       BufferType::DRAM},
+                    1, 256, 256, 22, llvm::SmallVector<int32_t>{3, 3},
+                    llvm::SmallVector<int32_t>{4, 2},
+                    llvm::SmallVector<int32_t>{0, 0, 1, 1},
                     llvm::SmallVector<int32_t>{1, 1}, false, false, false));
 
 // MaxPool2D tests
@@ -2006,8 +2650,6 @@ TEST_P(OpModelLeakyReluParam, LeakyReluParam) {
   const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = op_model::OpModel<LeakyReluOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, slope, outputLayout);
   if (!constraintsExp) {
@@ -2017,17 +2659,15 @@ TEST_P(OpModelLeakyReluParam, LeakyReluParam) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
   if (constraintsExp) {
-    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-        constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = op_model::OpModel<LeakyReluOp>::getOpRuntime(
       inputShape, inputLayout, slope, outputLayout);
@@ -2073,8 +2713,6 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
   const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = OpModel<ClampScalarOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, minVal, maxVal,
       outputLayout);
@@ -2085,17 +2723,15 @@ TEST_P(OpModelClampScalarParam, ClampScalarParam) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
   if (constraintsExp) {
-    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-        constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = OpModel<ClampScalarOp>::getOpRuntime(
       inputShape, inputLayout, minVal, maxVal, outputLayout);
@@ -2116,6 +2752,83 @@ INSTANTIATE_TEST_SUITE_P(ClampScalarTests, OpModelClampScalarParam,
                                                 TensorMemoryLayout::Interleaved,
                                                 BufferType::L1},
                              1.0, 5.0, true)));
+
+class OpModelClampTensorParam : public OpModelTest,
+                                public testing::WithParamInterface<
+                                    std::tuple<detail::TestTensor, // input
+                                               detail::TestTensor, // output
+                                               detail::TestTensor, // min
+                                               detail::TestTensor, // max
+                                               bool // expected legal
+                                               >> {};
+
+TEST_P(OpModelClampTensorParam, ClampTensorParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto [minShape, minTensorLayout, minBufferType, minVirtualGrid] =
+      std::get<2>(params);
+  const auto [maxShape, maxTensorLayout, maxBufferType, maxVirtualGrid] =
+      std::get<3>(params);
+  const auto expectedLegal = std::get<4>(params);
+
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+  const TTNNLayoutAttr minLayout = CreateTiledLayout(
+      minShape, minBufferType, minTensorLayout, minVirtualGrid);
+  const TTNNLayoutAttr maxLayout = CreateTiledLayout(
+      maxShape, maxBufferType, maxTensorLayout, maxVirtualGrid);
+
+  auto constraintsExp = OpModel<ClampTensorOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, minShape, minLayout,
+      maxShape, maxLayout, outputLayout);
+  if (!constraintsExp) {
+    std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
+              << std::endl;
+  }
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+
+  if (constraintsExp) {
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = OpModel<ClampTensorOp>::getOpRuntime(
+      inputShape, inputLayout, minShape, minLayout, maxShape, maxLayout,
+      outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(ClampTensorTests, OpModelClampTensorParam,
+                         ::testing::Values(std::make_tuple(
+                             detail::TestTensor{{1, 1, 128 * 128, 32},
+                                                TensorMemoryLayout::Interleaved,
+                                                BufferType::DRAM},
+                             detail::TestTensor{{1, 1, 128 * 128, 32},
+                                                TensorMemoryLayout::Interleaved,
+                                                BufferType::L1},
+                             detail::TestTensor{{1, 1, 128 * 128, 32},
+                                                TensorMemoryLayout::Interleaved,
+                                                BufferType::DRAM},
+                             detail::TestTensor{{1, 1, 128 * 128, 32},
+                                                TensorMemoryLayout::Interleaved,
+                                                BufferType::L1},
+                             true)));
 
 class OpModelPermuteParam
     : public OpModelTest,
@@ -2142,8 +2855,6 @@ TEST_P(OpModelPermuteParam, PermuteParam) {
   const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = OpModel<PermuteOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, permutation, padValue,
       outputLayout);
@@ -2154,17 +2865,15 @@ TEST_P(OpModelPermuteParam, PermuteParam) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
   if (constraintsExp) {
-    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-        constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = OpModel<PermuteOp>::getOpRuntime(
       inputShape, inputLayout, permutation, padValue, outputLayout);
@@ -2228,8 +2937,6 @@ TEST_P(OpModelUpsampleParam, UpsampleParam) {
   const TTNNLayoutAttr outputLayout = CreateRowMajorLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
-  SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = OpModel<UpsampleOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, scaleFactor, mode,
       outputLayout);
@@ -2240,17 +2947,15 @@ TEST_P(OpModelUpsampleParam, UpsampleParam) {
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
   if (constraintsExp) {
-    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-        constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
   }
-
-  SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = OpModel<UpsampleOp>::getOpRuntime(
       inputShape, inputLayout, scaleFactor, mode, outputLayout);
@@ -2284,8 +2989,8 @@ protected:
         inputTensor;
     const auto [weightShape, weightLayout, weightBufferType,
                 weightVirtualGrid] = weightTensor;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedOutputSize] = expected;
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] = expected;
     // output shape: [batch, seq_len, hidden_size]
     llvm::SmallVector<int64_t> outputShape = {inputShape[0], inputShape[1],
                                               weightShape[1]};
@@ -2304,10 +3009,11 @@ protected:
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
-      const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-          constraintsExp.get();
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                  outputLayoutReadBack] = constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
       EXPECT_EQ(outputSize, expectedOutputSize);
       ExpectLayoutsEQ(outputTiledLayout, outputLayoutReadBack);
     } else {
@@ -2339,7 +3045,7 @@ INSTANTIATE_TEST_SUITE_P(
             // Weight: [vocab_size=256, hidden_size=128]
             detail::TestTensor{
                 {256, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-            detail::ExpectedResult{true, 16384, 8192, 4096}),
+            detail::ExpectedResult{true, 16384, 8192, 16384 + 8192, 4096}),
         std::make_tuple(
             // Input: [batch=2, seq_len=512] (sharded)
             detail::TestTensor{{2, 512},
@@ -2349,7 +3055,7 @@ INSTANTIATE_TEST_SUITE_P(
             // Weight: [vocab_size=512, hidden_size=256]
             detail::TestTensor{
                 {512, 256}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-            detail::ExpectedResult{true, 32768, 16384, 8192})));
+            detail::ExpectedResult{true, 32768, 16384, 32768 + 16384, 8192})));
 
 TEST_F(OpModelTest, EmbeddingBackwardOp) {
   llvm::SmallVector<int64_t> inputShape = {2, 1024};
@@ -2369,10 +3075,11 @@ TEST_F(OpModelTest, EmbeddingBackwardOp) {
       CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
       inGradientShape, inGradientLayout, outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 12400);
-  EXPECT_EQ(peakSize, 409600);
+  EXPECT_EQ(l1PeakSize, 409600);
+  EXPECT_EQ(totalPeakSize, 12400 + 409600);
   EXPECT_EQ(outputSize, 409600);
 
   auto runtimeExp = OpModel<EmbeddingBackwardOp>::getOpRuntime(
@@ -2393,10 +3100,10 @@ TEST_F(OpModelTest, Where) {
       CreateWorkerGrid(), inputTensorShape, inputLayout, inputTensorShape,
       inputLayout, inputTensorShape, inputLayout, outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 16384);
-  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(l1PeakSize, 2048);
   EXPECT_EQ(outputSize, 2048);
 
   auto runtimeExp = OpModel<WhereOp>::getOpRuntime(
@@ -2428,10 +3135,10 @@ TEST_F(OpModelTest, EmptyOp) {
           CreateWorkerGrid(), inputTensorShape, dtype, layout, memoryConfig,
           outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 0);
-  EXPECT_EQ(peakSize, 4096);
+  EXPECT_EQ(l1PeakSize, 4096);
   EXPECT_EQ(outputSize, 4096);
 }
 
@@ -2462,11 +3169,11 @@ TEST_F(OpModelTest, ArangeOp) {
           CreateWorkerGrid(), startAttr, endAttr, stepAttr, dtype, memConfig,
           nullptr);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
   // Basic assertions to verify the op constraints are computed
   EXPECT_EQ(cbSize, 0);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 }
 
@@ -2481,8 +3188,8 @@ protected:
   void RunTest() {
     auto params = GetParam();
     const auto [tensorShape, expectedResult] = params;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedOutputSize] = expectedResult;
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] = expectedResult;
 
     const mlir::tt::ttnn::TTNNLayoutAttr outputLayout =
         CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
@@ -2495,10 +3202,11 @@ protected:
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
-      auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-          constraintsExp.get();
+      auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+            outputLayoutReadBack] = constraintsExp.get();
       EXPECT_EQ(cbSize, expectedCbSize);
-      EXPECT_EQ(peakSize, expectedPeakSize);
+      EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
       EXPECT_EQ(outputSize, expectedOutputSize);
     }
   }
@@ -2513,7 +3221,7 @@ TEST_P(OpModelOnesParam, OnesOpParameterized) { RunTest(); }
 // Test data for creation operations
 const auto creationOpTestData = testing::Values(
     std::make_tuple(llvm::SmallVector<int64_t>{1024, 256},
-                    detail::ExpectedResult{true, 0, 8192, 8192}));
+                    detail::ExpectedResult{true, 0, 8192, 8192, 8192}));
 
 INSTANTIATE_TEST_SUITE_P(CreationOps, OpModelZerosParam, creationOpTestData);
 INSTANTIATE_TEST_SUITE_P(CreationOps, OpModelOnesParam, creationOpTestData);
@@ -2530,10 +3238,11 @@ TEST_F(OpModelTest, FullOp) {
           CreateWorkerGrid(), shapeAttr, builder.getI32IntegerAttr(0),
           std::nullopt, std::nullopt, std::nullopt, outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
-  auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
+  auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 0);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
+  EXPECT_EQ(totalPeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 }
 
@@ -2576,8 +3285,8 @@ TEST_P(OpModelPrepareConv2dWeightsParam, PrepareConv2dWeights) {
   const auto dilation = std::get<12>(params);
   const auto has_bias = std::get<13>(params);
   const auto groups = std::get<14>(params);
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-              expectedOutputSize] = std::get<15>(params);
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+              expectedTotalPeakSize, expectedOutputSize] = std::get<15>(params);
 
   const TTNNLayoutAttr weightLayout = CreateRowMajorLayout(
       weightShape, weightBufferType, weightTensorLayout, weightVirtualGrid,
@@ -2600,10 +3309,11 @@ TEST_P(OpModelPrepareConv2dWeightsParam, PrepareConv2dWeights) {
       std::nullopt, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
-  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-      constraintsExp.get();
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
   EXPECT_EQ(cbSize, expectedCbSize);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
+  EXPECT_EQ(totalPeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 }
 
@@ -2622,7 +3332,7 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int32_t>{2, 2},
                         llvm::SmallVector<int32_t>{3, 3},
                         llvm::SmallVector<int32_t>{1, 1}, false, 1,
-                        detail::ExpectedResult{true, 0, 0, 0})));
+                        detail::ExpectedResult{true, 0, 0, 0, 0})));
 
 //===----------------------------------------------------------------------===//
 // PrepareConv2dBiasOp Tests
@@ -2663,8 +3373,8 @@ TEST_P(OpModelPrepareConv2dBiasParam, PrepareConv2dBias) {
   const auto padding = std::get<10>(params);
   const auto dilation = std::get<11>(params);
   const auto groups = std::get<12>(params);
-  const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-              expectedOutputSize] = std::get<13>(params);
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+              expectedTotalPeakSize, expectedOutputSize] = std::get<13>(params);
 
   const TTNNLayoutAttr biasLayout = CreateRowMajorLayout(
       biasShape, biasBufferType, biasTensorLayout, biasVirtualGrid,
@@ -2682,7 +3392,7 @@ TEST_P(OpModelPrepareConv2dBiasParam, PrepareConv2dBias) {
   //  get_cb_info expects conv_config.weights_dtype to be set otherwise it
   //  issues an error. See conv2d_op_program_factory_common.cpp in tt-metal.
   Conv2dConfigAttr conv2dConfig = Conv2dConfigAttr::get(&context);
-  conv2dConfig.withWeightsDtype(ttcore::DataType::Float32);
+  conv2dConfig = conv2dConfig.withWeightsDtype(ttcore::DataType::Float32);
 
   auto constraintsExp = OpModel<PrepareConv2dBiasOp>::getOpConstraints(
       CreateWorkerGrid(), biasLayout, biasShape, inputMemConfig,
@@ -2692,10 +3402,11 @@ TEST_P(OpModelPrepareConv2dBiasParam, PrepareConv2dBias) {
       outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
-  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-      constraintsExp.get();
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
   EXPECT_EQ(cbSize, expectedCbSize);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
+  EXPECT_EQ(totalPeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 }
 
@@ -2714,7 +3425,7 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int32_t>{2, 2},
                         llvm::SmallVector<int32_t>{3, 3},
                         llvm::SmallVector<int32_t>{1, 1}, 1,
-                        detail::ExpectedResult{true, 0, 0, 0})));
+                        detail::ExpectedResult{true, 0, 0, 0, 0})));
 
 //===----------------------------------------------------------------------===//
 // BatchNormOp Tests
@@ -2802,10 +3513,11 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
-    const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-        constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
     EXPECT_EQ(cbSize, expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, expectedResult.expectedPeakSize);
+    EXPECT_EQ(l1PeakSize, expectedResult.expectedL1PeakSize);
+    EXPECT_EQ(totalPeakSize, expectedResult.expectedTotalPeakSize);
     EXPECT_EQ(outputSize, expectedResult.expectedOutputSize);
   } else {
     llvm::consumeError(constraintsExp.takeError());
@@ -2843,7 +3555,7 @@ const auto batchNormTestValues = ::testing::Values(
             {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
         std::make_optional(detail::TestTensor{
             {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
-        false, 1e-05f, 0.1f, detail::ExpectedResult{true, 36864, 0, 0}),
+        false, 1e-05f, 0.1f, detail::ExpectedResult{true, 36864, 0, 36864, 0}),
 
     // Test case 2: BatchNorm without optional tensors (training mode)
     std::make_tuple(
@@ -2852,7 +3564,7 @@ const auto batchNormTestValues = ::testing::Values(
         detail::TestTensor{
             {1, 64, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         std::nullopt, std::nullopt, std::nullopt, std::nullopt, true, 1e-05f,
-        0.1f, detail::ExpectedResult{true, 49152, 0, 0}),
+        0.1f, detail::ExpectedResult{true, 49152, 0, 49152, 0}),
 
     // Test case 3: Failing case: BatchNorm supports tensors of rank 4 only.
     std::make_tuple(
@@ -2870,7 +3582,7 @@ const auto batchNormTestValues = ::testing::Values(
             {16}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
         std::make_optional(detail::TestTensor{
             {16}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
-        false, 1e-05f, 0.01f, detail::ExpectedResult{false, 0, 0, 0}),
+        false, 1e-05f, 0.01f, detail::ExpectedResult{false, 0, 0, 0, 0}),
 
     // Test case 4: BatchNorm with L1 memory buffers
     std::make_tuple(
@@ -2886,7 +3598,8 @@ const auto batchNormTestValues = ::testing::Values(
             {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::L1}),
         std::make_optional(detail::TestTensor{
             {1, 32, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::L1}),
-        false, 1e-05f, 0.1f, detail::ExpectedResult{true, 36864, 2048, 2048}),
+        false, 1e-05f, 0.1f,
+        detail::ExpectedResult{true, 36864, 2048, 36864 + 2048, 2048}),
 
     // Test case 5: Failing case: running_mean and running_var must be defined
     // in evaluation mode
@@ -2902,9 +3615,948 @@ const auto batchNormTestValues = ::testing::Values(
             {1, 64, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
         std::make_optional(detail::TestTensor{
             {1, 64, 1, 1}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
-        false, 1e-05f, 0.1f, detail::ExpectedResult{false, 0, 0, 0}));
+        false, 1e-05f, 0.1f, detail::ExpectedResult{false, 0, 0, 0, 0}));
 
 INSTANTIATE_TEST_SUITE_P(BatchNormTests, OpModelBatchNormParam,
                          batchNormTestValues);
+
+//===----------------------------------------------------------------------===//
+// RMSNormOp Tests
+//===----------------------------------------------------------------------===//
+
+class OpModelRMSNormParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,                // input
+                     detail::TestTensor,                // output
+                     std::optional<detail::TestTensor>, // weight
+                     std::optional<detail::TestTensor>, // bias
+                     float,                             // epsilon
+                     detail::ExpectedResult             // expected result
+                     >> {};
+
+TEST_P(OpModelRMSNormParam, RMSNormParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto weightOpt = std::get<2>(params);
+  const auto biasOpt = std::get<3>(params);
+  const auto epsilon = llvm::APFloat(std::get<4>(params));
+  const auto expectedResult = std::get<5>(params);
+  const auto expectedLegal = expectedResult.expectedLegal;
+
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  // Create optional layouts for weight and bias
+  std::optional<llvm::ArrayRef<int64_t>> weightShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
+  if (weightOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] = weightOpt.value();
+    weightShape = shape;
+    weightLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+  if (biasOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] = biasOpt.value();
+    biasShape = shape;
+    biasLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  // Test getOpConstraints
+  auto constraintsExp = op_model::OpModel<RMSNormOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
+      biasShape, biasLayout, epsilon, outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  if (constraintsExp) {
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
+    EXPECT_EQ(cbSize, expectedResult.expectedCbSize);
+    EXPECT_EQ(l1PeakSize, expectedResult.expectedL1PeakSize);
+    EXPECT_EQ(totalPeakSize, expectedResult.expectedTotalPeakSize);
+    EXPECT_EQ(outputSize, expectedResult.expectedOutputSize);
+  } else {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  // Test getOpRuntime
+  auto runtimeExp = op_model::OpModel<RMSNormOp>::getOpRuntime(
+      inputShape, inputLayout, weightShape, weightLayout, biasShape, biasLayout,
+      epsilon, outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+// Shared test values for RMSNormOp operations
+const auto rmsNormTestValues = ::testing::Values(
+    // Test case 1: Basic RMSNorm with all optional tensors (weight and bias)
+    std::make_tuple(
+        detail::TestTensor{{1, 32, 128, 128},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 32, 128, 128},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        std::make_optional(detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::make_optional(detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        1e-12f, detail::ExpectedResult{true, 94208, 0, 94208, 0}),
+
+    // Test case 2: RMSNorm without optional tensors (only input)
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 64, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 64, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, std::nullopt, 1e-12f,
+        detail::ExpectedResult{true, 45056, 0, 45056, 0}),
+
+    // Test case 3: RMSNorm with L1 memory buffers
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 32, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1, 32, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::make_optional(detail::TestTensor{
+            {32}, TensorMemoryLayout::Interleaved, BufferType::L1}),
+        std::make_optional(detail::TestTensor{
+            {32}, TensorMemoryLayout::Interleaved, BufferType::L1}),
+        1e-12f, detail::ExpectedResult{true, 45056, 2048, 45056 + 2048, 2048}),
+
+    // Test case 4: RMSNorm with only weight (no bias)
+    std::make_tuple(
+        detail::TestTensor{
+            {2, 16, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {2, 16, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional(detail::TestTensor{
+            {64}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
+        std::nullopt, 1e-8f, detail::ExpectedResult{true, 57344, 0, 57344, 0}),
+
+    // Test case 5: RMSNorm with different epsilon value
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 16, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 16, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, std::nullopt, 1e-6f,
+        detail::ExpectedResult{true, 36864, 0, 36864, 0}));
+
+INSTANTIATE_TEST_SUITE_P(RMSNormTests, OpModelRMSNormParam, rmsNormTestValues);
+
+// ==== ConstantOp Tests ====
+
+template <typename DataType, typename MLIRType>
+class OpModelConstantParam
+    : public OpModelTest,
+      public testing::WithParamInterface<std::tuple<
+          llvm::SmallVector<int64_t>,             // tensor shape
+          std::vector<DataType>,                  // constant data
+          std::function<MLIRType(OpModelTest *)>, // type creator function
+          std::optional<TTNNLayoutAttr>,          // output layout (optional)
+          detail::ExpectedResult                  // expected results
+          >> {
+protected:
+  void RunTest() {
+    auto params = this->GetParam();
+    const auto [tensorShape, constData, typeCreator, outputLayoutOpt,
+                expectedResult] = params;
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] = expectedResult;
+
+    // Create element type using the provided function
+    MLIRType elementType = typeCreator(this);
+
+    // Create output layout or use default
+    TTNNLayoutAttr outputLayout;
+    if (outputLayoutOpt.has_value()) {
+      outputLayout = outputLayoutOpt.value();
+    } else {
+      // For supported integer types, we need to use specific layout creation
+      // methods
+      if constexpr (std::is_same_v<DataType, int32_t>) {
+        outputLayout = CreateTiledLayoutInt32(tensorShape, BufferType::L1,
+                                              TensorMemoryLayout::Interleaved);
+      } else {
+        outputLayout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                         TensorMemoryLayout::Interleaved);
+      }
+    }
+
+    // Create tensor type and dense elements attribute
+    mlir::RankedTensorType tensorType =
+        mlir::RankedTensorType::get(tensorShape, elementType);
+    llvm::ArrayRef<DataType> dataRef(constData);
+    mlir::DenseElementsAttr attr =
+        mlir::DenseElementsAttr::get(tensorType, dataRef);
+
+    // Test getOpConstraints
+    auto constraintsExp =
+        ttnn::op_model::OpModel<mlir::tt::ttnn::ConstantOp>::getOpConstraints(
+            CreateWorkerGrid(), attr, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+            outputLayoutReadBack] = constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
+      EXPECT_EQ(outputSize, expectedOutputSize);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+  }
+};
+
+// Type aliases for different constant data types
+using OpModelConstantInt32Param = OpModelConstantParam<int32_t, mlir::Type>;
+using OpModelConstantUInt16Param = OpModelConstantParam<uint16_t, mlir::Type>;
+using OpModelConstantUInt8Param = OpModelConstantParam<uint8_t, mlir::Type>;
+
+TEST_P(OpModelConstantInt32Param, ConstantOpInt32) { RunTest(); }
+TEST_P(OpModelConstantUInt16Param, ConstantOpUInt16) { RunTest(); }
+TEST_P(OpModelConstantUInt8Param, ConstantOpUInt8) { RunTest(); }
+
+// Test data for ConstantOp with different supported types
+const auto constantOpInt32TestData = testing::Values(
+    // Basic 2x2 i32 tensor with L1 interleaved layout
+    std::make_tuple(
+        llvm::SmallVector<int64_t>{2, 2}, std::vector<int32_t>{1, 2, 3, 4},
+        [](OpModelTest *test) { return test->builder.getI32Type(); },
+        std::nullopt, detail::ExpectedResult{true, 0, 4096, 4096, 4096}),
+
+    // Larger 32x32 i32 tensor
+    std::make_tuple(
+        llvm::SmallVector<int64_t>{32, 32},
+        std::vector<int32_t>(32 * 32, 42), // Fill with value 42
+        [](OpModelTest *test) { return test->builder.getI32Type(); },
+        std::nullopt, detail::ExpectedResult{true, 0, 4096, 4096, 4096}));
+
+const auto constantOpUInt16TestData = testing::Values(
+    // Basic 2x3x4 u16 tensor
+    std::make_tuple(
+        llvm::SmallVector<int64_t>{2, 3, 4},
+        std::vector<uint16_t>{1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12,
+                              13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24},
+        [](OpModelTest *test) {
+          return test->builder.getIntegerType(16, false);
+        },
+        std::nullopt, detail::ExpectedResult{true, 0, 2048, 2048, 2048}));
+
+const auto constantOpUInt8TestData = testing::Values(
+    // Basic u8 tensor
+    std::make_tuple(
+        llvm::SmallVector<int64_t>{4, 4},
+        std::vector<uint8_t>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                             16},
+        [](OpModelTest *test) {
+          return test->builder.getIntegerType(8, false);
+        },
+        std::nullopt, detail::ExpectedResult{true, 0, 1024, 1024, 1024}));
+
+INSTANTIATE_TEST_SUITE_P(ConstantOpInt32Tests, OpModelConstantInt32Param,
+                         constantOpInt32TestData);
+INSTANTIATE_TEST_SUITE_P(ConstantOpUInt16Tests, OpModelConstantUInt16Param,
+                         constantOpUInt16TestData);
+INSTANTIATE_TEST_SUITE_P(ConstantOpUInt8Tests, OpModelConstantUInt8Param,
+                         constantOpUInt8TestData);
+
+TEST_F(OpModelTest, RandOp) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr outputLayoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr outputLayoutL1 = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  // Test RandOp with DRAM output
+  auto shapeAttr = ttnn::ShapeAttr::get(&context, tensorShape);
+
+  auto constraintsExp = OpModel<RandOp>::getOpConstraints(
+      workerGrid, shapeAttr, ttcore::DataType::BFloat16, nullptr,
+      ttnn::Layout::Tile, llvm::APFloat(0.0f), llvm::APFloat(1.0f), 0,
+      outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  // Test RandOp with L1 output
+  constraintsExp = OpModel<RandOp>::getOpConstraints(
+      workerGrid, shapeAttr, ttcore::DataType::BFloat16, nullptr,
+      ttnn::Layout::Tile, llvm::APFloat(0.0f), llvm::APFloat(1.0f), 0,
+      outputLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 6144);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 2048);
+
+  // Test RandOp with custom range parameters
+  constraintsExp = OpModel<RandOp>::getOpConstraints(
+      workerGrid, shapeAttr, ttcore::DataType::BFloat16, nullptr,
+      ttnn::Layout::Tile, llvm::APFloat(-2.5f), llvm::APFloat(5.0f), 42,
+      outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  // Test RandOp with Float32 data type
+  constraintsExp = OpModel<RandOp>::getOpConstraints(
+      workerGrid, shapeAttr, ttcore::DataType::Float32, nullptr,
+      ttnn::Layout::Tile, llvm::APFloat(0.0f), llvm::APFloat(1.0f), 0,
+      outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 12288);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+}
+
+TEST_F(OpModelTest, FillCacheOp) {
+  // Test basic FillCacheOp with DRAM cache and input tensors
+  const llvm::SmallVector<int64_t> cacheShape = {1, 32, 64, 512};
+  const llvm::SmallVector<int64_t> inputShape = {1, 32, 3, 512};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+
+  const TTNNLayoutAttr cacheLayoutDRAM = CreateTiledLayout(
+      cacheShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr cacheLayoutL1 = CreateTiledLayout(
+      cacheShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayoutL1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  // Test FillCacheOp constraints with batch_offset = 0
+  uint32_t batchOffset = 0;
+  auto constraintsExp = OpModel<FillCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutDRAM, inputShape, inputLayoutDRAM,
+      batchOffset, cacheLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_EQ(opCstr.cbL1PeakSize, 4096);
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+  }
+
+  // Test with L1 output layout
+  constraintsExp = OpModel<FillCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutDRAM, inputShape, inputLayoutDRAM,
+      batchOffset, cacheLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  // Test with L1 cache layout
+  constraintsExp = OpModel<FillCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutL1, inputShape, inputLayoutDRAM,
+      batchOffset, cacheLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  // Test with L1 input layout
+  constraintsExp = OpModel<FillCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutDRAM, inputShape, inputLayoutL1,
+      batchOffset, cacheLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  // Test with all L1 layouts
+  constraintsExp = OpModel<FillCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutL1, inputShape, inputLayoutL1,
+      batchOffset, cacheLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 4096);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
+
+  // Test FillCacheOp runtime estimation
+  auto runtimeExp = OpModel<FillCacheOp>::getOpRuntime(
+      cacheShape, cacheLayoutDRAM, inputShape, inputLayoutDRAM, batchOffset,
+      cacheLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  }
+}
+
+TEST_F(OpModelTest, UpdateCacheOp) {
+  // Test basic UpdateCacheOp with DRAM cache, input, and update_index tensors
+  const llvm::SmallVector<int64_t> cacheShape = {1, 32, 64, 512};
+  const llvm::SmallVector<int64_t> inputShape = {1, 32, 3, 512};
+  const llvm::SmallVector<int64_t> updateIndexShape = {1};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+
+  const TTNNLayoutAttr cacheLayoutDRAM = CreateTiledLayout(
+      cacheShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr updateIndexLayoutDRAM = CreateTiledLayout(
+      updateIndexShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr cacheLayoutL1 = CreateTiledLayout(
+      cacheShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayoutL1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr updateIndexLayoutL1 = CreateTiledLayout(
+      updateIndexShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  // Test UpdateCacheOp constraints with batch_offset = 0
+  uint32_t batchOffset = 0;
+  auto constraintsExp = OpModel<UpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutDRAM, inputShape, inputLayoutDRAM,
+      updateIndexShape, updateIndexLayoutDRAM, batchOffset, cacheLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_EQ(opCstr.cbL1PeakSize, 1310720);
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+  }
+
+  // Test with L1 output layout
+  constraintsExp = OpModel<UpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutDRAM, inputShape, inputLayoutDRAM,
+      updateIndexShape, updateIndexLayoutDRAM, batchOffset, cacheLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  // Test with L1 cache layout
+  constraintsExp = OpModel<UpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutL1, inputShape, inputLayoutDRAM,
+      updateIndexShape, updateIndexLayoutDRAM, batchOffset, cacheLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  // Test with L1 input layout
+  constraintsExp = OpModel<UpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutDRAM, inputShape, inputLayoutL1,
+      updateIndexShape, updateIndexLayoutDRAM, batchOffset, cacheLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  // Test with all L1 layouts
+  constraintsExp = OpModel<UpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayoutL1, inputShape, inputLayoutL1,
+      updateIndexShape, updateIndexLayoutL1, batchOffset, cacheLayoutL1);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  auto opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 1310720);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 32768);
+
+  // Test UpdateCacheOp runtime estimation
+  auto runtimeExp = OpModel<UpdateCacheOp>::getOpRuntime(
+      cacheShape, cacheLayoutDRAM, inputShape, inputLayoutDRAM,
+      updateIndexShape, updateIndexLayoutDRAM, batchOffset, cacheLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// QuantizeOp Tests
+//===----------------------------------------------------------------------===//
+
+struct QuantizeOpParam {
+  detail::TestTensor input;     // BF16
+  detail::TestTensor scale;     // BF16
+  detail::TestTensor zeroPoint; // Int32
+  detail::TestTensor output;    // Int32
+  std::optional<int32_t> axis;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelQuantizeParam
+    : public OpModelTest,
+      public testing::WithParamInterface<QuantizeOpParam> {
+protected:
+  void RunTest() {
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = GetParam().input;
+    const auto [scaleShape, scaleTensorLayout, scaleBufferType,
+                scaleVirtualGrid] = GetParam().scale;
+    const auto [zeroPointShape, zeroPointTensorLayout, zeroPointBufferType,
+                zeroPointVirtualGrid] = GetParam().zeroPoint;
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+    const auto axis = GetParam().axis;
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        GetParam().expectedResult;
+
+    // Create layouts - input and scale use BF16, zeroPoint and output use Int32
+    const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr scaleLayout = CreateTiledLayout(
+        scaleShape, scaleBufferType, scaleTensorLayout, scaleVirtualGrid);
+    const TTNNLayoutAttr zeroPointLayout =
+        CreateTiledLayoutInt32(zeroPointShape, zeroPointBufferType,
+                               zeroPointTensorLayout, zeroPointVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayoutInt32(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<QuantizeOp>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, scaleShape, scaleLayout,
+        zeroPointShape, zeroPointLayout, axis,
+        std::make_optional(ttcore::DataType::Int32), outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBack] = constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(l1PeakSize, expectedPeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
+      EXPECT_EQ(outputSizeResult, expectedOutputSize);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    auto runtimeExp = OpModel<QuantizeOp>::getOpRuntime(
+        inputShape, inputLayout, scaleShape, scaleLayout, zeroPointShape,
+        zeroPointLayout, axis, std::make_optional(ttcore::DataType::Int32),
+        outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelQuantizeParam, QuantizeOp) { RunTest(); }
+
+// Test data for QuantizeOp
+const auto quantizeOpTestValues = testing::Values(
+    // === L1 Memory Tests ===
+    QuantizeOpParam{
+        detail::TestTensor{
+            {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::nullopt,
+        detail::ExpectedResult{true, 14336, 10240, 22528,
+                               4096}}, // note: combined peak < cb+l1 peak
+    QuantizeOpParam{
+        detail::TestTensor{
+            {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::make_optional<int32_t>(1),
+        detail::ExpectedResult{true, 18432, 12288, 28672,
+                               4096}}, // note: combined peak < cb+l1 peak
+    QuantizeOpParam{
+        detail::TestTensor{
+            {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::make_optional<int32_t>(1),
+        detail::ExpectedResult{true, 18432, 12288, 28672,
+                               4096}}, // note: combined peak < cb+l1 peak
+
+    // === DRAM Memory Tests ===
+    QuantizeOpParam{
+        detail::TestTensor{
+            {512, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {512, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional<int32_t>(1),
+        detail::ExpectedResult{true, 18432, 0, 18432, 0}},
+
+    // === Mixed Memory Configuration Tests ===
+    QuantizeOpParam{
+        detail::TestTensor{
+            {64, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {64, 128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::make_optional<int32_t>(1),
+        detail::ExpectedResult{true, 18432, 10240, 26624,
+                               4096}}); // note: combined peak < cb+l1 peak
+
+INSTANTIATE_TEST_SUITE_P(QuantizeTests, OpModelQuantizeParam,
+                         quantizeOpTestValues);
+
+//===----------------------------------------------------------------------===//
+// RequantizeOp Tests
+//===----------------------------------------------------------------------===//
+
+struct RequantizeOpParam {
+  detail::TestTensor input;        // Int32
+  detail::TestTensor inScale;      // BF16
+  detail::TestTensor inZeroPoint;  // Int32
+  detail::TestTensor outScale;     // BF16
+  detail::TestTensor outZeroPoint; // Int32
+  detail::TestTensor output;       // Int32
+  std::optional<int32_t> axis;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelRequantizeParam
+    : public OpModelTest,
+      public testing::WithParamInterface<RequantizeOpParam> {
+protected:
+  void RunTest() {
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = GetParam().input;
+    const auto [inScaleShape, inScaleTensorLayout, inScaleBufferType,
+                inScaleVirtualGrid] = GetParam().inScale;
+    const auto [inZeroPointShape, inZeroPointTensorLayout,
+                inZeroPointBufferType, inZeroPointVirtualGrid] =
+        GetParam().inZeroPoint;
+    const auto [outScaleShape, outScaleTensorLayout, outScaleBufferType,
+                outScaleVirtualGrid] = GetParam().outScale;
+    const auto [outZeroPointShape, outZeroPointTensorLayout,
+                outZeroPointBufferType, outZeroPointVirtualGrid] =
+        GetParam().outZeroPoint;
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+    const auto axis = GetParam().axis;
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        GetParam().expectedResult;
+
+    // Create layouts - input and zero points use Int32, scales use BF16
+    const TTNNLayoutAttr inputLayout = CreateTiledLayoutInt32(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr inScaleLayout =
+        CreateTiledLayout(inScaleShape, inScaleBufferType, inScaleTensorLayout,
+                          inScaleVirtualGrid);
+    const TTNNLayoutAttr inZeroPointLayout =
+        CreateTiledLayoutInt32(inZeroPointShape, inZeroPointBufferType,
+                               inZeroPointTensorLayout, inZeroPointVirtualGrid);
+    const TTNNLayoutAttr outScaleLayout =
+        CreateTiledLayout(outScaleShape, outScaleBufferType,
+                          outScaleTensorLayout, outScaleVirtualGrid);
+    const TTNNLayoutAttr outZeroPointLayout = CreateTiledLayoutInt32(
+        outZeroPointShape, outZeroPointBufferType, outZeroPointTensorLayout,
+        outZeroPointVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayoutInt32(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<RequantizeOp>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, inScaleShape,
+        inScaleLayout, inZeroPointShape, inZeroPointLayout, outScaleShape,
+        outScaleLayout, outZeroPointShape, outZeroPointLayout, axis,
+        std::make_optional(ttcore::DataType::Int32), outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBack] = constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(l1PeakSize, expectedPeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
+      EXPECT_EQ(outputSizeResult, expectedOutputSize);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    auto runtimeExp = OpModel<RequantizeOp>::getOpRuntime(
+        inputShape, inputLayout, inScaleShape, inScaleLayout, inZeroPointShape,
+        inZeroPointLayout, outScaleShape, outScaleLayout, outZeroPointShape,
+        outZeroPointLayout, axis, std::make_optional(ttcore::DataType::Int32),
+        outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelRequantizeParam, RequantizeOp) { RunTest(); }
+
+// Test data for RequantizeOp
+const auto requantizeOpTestValues = testing::Values(
+    // === L1 Memory Tests ===
+    RequantizeOpParam{
+        detail::TestTensor{
+            {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::nullopt,
+        detail::ExpectedResult{true, 24576, 12288, 30720,
+                               4096}}, // note: combined peak < cb+l1 peak
+    RequantizeOpParam{
+        detail::TestTensor{
+            {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::make_optional<int32_t>(1),
+        detail::ExpectedResult{true, 32768, 40960, 32768 + 40960, 4096}},
+
+    // === DRAM Memory Tests ===
+    RequantizeOpParam{
+        detail::TestTensor{
+            {512, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {512, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional<int32_t>(1),
+        detail::ExpectedResult{true, 32768, 0, 32768, 0}},
+    RequantizeOpParam{
+        detail::TestTensor{
+            {256, 512}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {256, 512}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, detail::ExpectedResult{true, 24576, 0, 24576, 0}},
+
+    // === Mixed Memory Configuration Tests ===
+    RequantizeOpParam{
+        detail::TestTensor{
+            {64, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {64, 128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::make_optional<int32_t>(1),
+        detail::ExpectedResult{true, 32768, 36864, 32768 + 36864, 4096}});
+
+INSTANTIATE_TEST_SUITE_P(RequantizeTests, OpModelRequantizeParam,
+                         requantizeOpTestValues);
+
+//===----------------------------------------------------------------------===//
+// DequantizeOp Tests
+//===----------------------------------------------------------------------===//
+
+struct DequantizeOpParam {
+  detail::TestTensor input;     // Int32
+  detail::TestTensor scale;     // BF16
+  detail::TestTensor zeroPoint; // Int32
+  detail::TestTensor output;    // BF16
+  std::optional<int32_t> axis;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelDequantizeParam
+    : public OpModelTest,
+      public testing::WithParamInterface<DequantizeOpParam> {
+protected:
+  void RunTest() {
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = GetParam().input;
+    const auto [scaleShape, scaleTensorLayout, scaleBufferType,
+                scaleVirtualGrid] = GetParam().scale;
+    const auto [zeroPointShape, zeroPointTensorLayout, zeroPointBufferType,
+                zeroPointVirtualGrid] = GetParam().zeroPoint;
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+    const auto axis = GetParam().axis;
+    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        GetParam().expectedResult;
+
+    // Create layouts - input and zeroPoint use Int32, scale and output use BF16
+    const TTNNLayoutAttr inputLayout = CreateTiledLayoutInt32(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr scaleLayout = CreateTiledLayout(
+        scaleShape, scaleBufferType, scaleTensorLayout, scaleVirtualGrid);
+    const TTNNLayoutAttr zeroPointLayout =
+        CreateTiledLayoutInt32(zeroPointShape, zeroPointBufferType,
+                               zeroPointTensorLayout, zeroPointVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<DequantizeOp>::getOpConstraints(
+        CreateWorkerGrid(), inputShape, inputLayout, scaleShape, scaleLayout,
+        zeroPointShape, zeroPointLayout, axis,
+        std::make_optional(ttcore::DataType::BFloat16), outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBack] = constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(l1PeakSize, expectedPeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
+      EXPECT_EQ(outputSizeResult, expectedOutputSize);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    auto runtimeExp = OpModel<DequantizeOp>::getOpRuntime(
+        inputShape, inputLayout, scaleShape, scaleLayout, zeroPointShape,
+        zeroPointLayout, axis, std::make_optional(ttcore::DataType::BFloat16),
+        outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelDequantizeParam, DequantizeOp) { RunTest(); }
+
+// Test data for DequantizeOp
+const auto dequantizeOpTestValues = testing::Values(
+    // === L1 Memory Tests ===
+    DequantizeOpParam{
+        detail::TestTensor{
+            {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::nullopt,
+        detail::ExpectedResult{true, 24576, 6144, 24576 + 6144, 2048}},
+    DequantizeOpParam{
+        detail::TestTensor{
+            {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {32, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::make_optional<int32_t>(1),
+        detail::ExpectedResult{true, 32768, 18432, 32768 + 18432, 2048}},
+    DequantizeOpParam{
+        detail::TestTensor{
+            {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {128, 256}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::make_optional<int32_t>(1),
+        detail::ExpectedResult{true, 32768, 18432, 32768 + 18432, 2048}},
+
+    // === DRAM Memory Tests ===
+    DequantizeOpParam{
+        detail::TestTensor{
+            {512, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {512, 1024}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional<int32_t>(1),
+        detail::ExpectedResult{true, 32768, 0, 32768, 0}},
+    DequantizeOpParam{
+        detail::TestTensor{
+            {256, 512}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {256, 512}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, detail::ExpectedResult{true, 24576, 0, 24576, 0}},
+
+    // === Mixed Memory Configuration Tests ===
+    DequantizeOpParam{
+        detail::TestTensor{
+            {64, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {64, 128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::make_optional<int32_t>(1),
+        detail::ExpectedResult{true, 32768, 14336, 32768 + 14336, 2048}},
+    DequantizeOpParam{
+        detail::TestTensor{
+            {128, 192}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {128, 192}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt,
+        detail::ExpectedResult{true, 24576, 6144, 24576 + 6144, 0}});
+
+INSTANTIATE_TEST_SUITE_P(DequantizeTests, OpModelDequantizeParam,
+                         dequantizeOpTestValues);
 
 } // namespace mlir::tt::ttnn::op_model

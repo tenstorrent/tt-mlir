@@ -38,7 +38,6 @@ struct TTIRToTTIRGenericPass final
   TTIRToTTIRGenericPass(const TTIRToTTIRGenericPass &rhs) : Base(rhs) {
     // Workaround: Passes are required to be copy-constructible but autogen'ed
     // base class copy constructors ignore Pass option fields.
-    this->useTileMatmul = rhs.useTileMatmul;
     this->defaultInputMemSpace = rhs.defaultInputMemSpace;
     this->defaultOutputMemSpace = rhs.defaultOutputMemSpace;
   };
@@ -69,6 +68,7 @@ struct TTIRToTTIRGenericPass final
       target.addLegalOp<ttir::ViewLayoutOp>();
       target.addLegalOp<ttir::EmptyOp>();
       target.addLegalOp<ttir::ConstantOp>();
+      target.addLegalOp<ttir::FullOp>();
 
       target.addLegalOp<
 #define GET_OP_LIST
@@ -87,7 +87,7 @@ struct TTIRToTTIRGenericPass final
     mlir::RewritePatternSet patterns{&ctx};
     populateTTIRToTTIRGenericPatterns(
         &ctx, patterns, typeConverter, defaultInputMemSpace,
-        defaultOutputMemSpace, getTargetGridShape(), useTileMatmul);
+        defaultOutputMemSpace, getTargetGridShape());
 
     if (failed(
             mlir::applyFullConversion(moduleOp, target, std::move(patterns)))) {

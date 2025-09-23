@@ -40,6 +40,7 @@
 #include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
 #include "operations/embedding/embedding_backward.h"
+#include "operations/generic/generic_op.h"
 #include "operations/kv_cache/fill_cache.h"
 #include "operations/kv_cache/update_cache.h"
 #include "operations/layout/from_device.h"
@@ -60,11 +61,16 @@
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
+#include "operations/tensor_serialization/dump_tensor.h"
+#include "operations/tensor_serialization/load_tensor.h"
 #include "operations/trace/begin_trace_capture.h"
 #include "operations/trace/capture_or_execute_trace.h"
 #include "operations/trace/end_trace_capture.h"
 #include "operations/trace/execute_trace.h"
 #include "operations/transformer/concatenate_heads.h"
+#include "operations/transformer/nlp_concat_heads.h"
+#include "operations/transformer/nlp_concat_heads_decode.h"
+#include "operations/transformer/rotary_embedding_llama.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/perf.h"
@@ -254,6 +260,18 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
                                         getContext());
   }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
+    return operations::transformer::run(op->type_as_RotaryEmbeddingLlamaOp(),
+                                        getContext());
+  }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
+    return operations::transformer::run(op->type_as_NLPConcatHeadsOp(),
+                                        getContext());
+  }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
+    return operations::transformer::run(op->type_as_NLPConcatHeadsDecodeOp(),
+                                        getContext());
+  }
   case ::tt::target::ttnn::OpType::WriteTensorOp: {
     return operations::data_movement::run(op->type_as_WriteTensorOp(),
                                           getContext());
@@ -342,6 +360,14 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::BatchNormOp: {
     return operations::batch_norm::run(op->type_as_BatchNormOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::DumpTensorOp: {
+    return operations::tensor_serialization::run(op->type_as_DumpTensorOp(),
+                                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::LoadTensorOp: {
+    return operations::tensor_serialization::run(op->type_as_LoadTensorOp(),
+                                                 getContext());
+  }
   case ::tt::target::ttnn::OpType::BeginTraceCaptureOp: {
     return operations::trace::run(op->type_as_BeginTraceCaptureOp(),
                                   getContext());
@@ -360,7 +386,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::PointToPointOp: {
     return operations::ccl::run(op->type_as_PointToPointOp(), getContext());
   }
-  default: {
+  case ::tt::target::ttnn::OpType::GenericOp: {
+    return operations::generic_op::run(op->type_as_GenericOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",
               ::tt::target::ttnn::EnumNameOpType(op->type_type()));
   }

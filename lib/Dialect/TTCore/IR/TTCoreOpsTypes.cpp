@@ -30,6 +30,7 @@
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.cpp.inc"
+#include "ttmlir/Target/Common/types_generated.h"
 
 namespace mlir::tt::ttcore {
 
@@ -293,9 +294,15 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromPath(
   auto buffer = std::shared_ptr<void>(std::malloc(size), std::free);
   fbb.read(static_cast<char *>(buffer.get()), size);
 
+  return SystemDescAttr::getFromBuffer(context, buffer.get(), diagFn);
+}
+
+mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
+    MLIRContext *context, void *systemDesc,
+    llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
   // Read relevant information from binary
   const auto *binarySystemDescRoot =
-      ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get());
+      ::tt::target::GetSizePrefixedSystemDescRoot(systemDesc);
   if (binarySystemDescRoot->schema_hash()->string_view() !=
       ::tt::target::common::system_desc_bfbs_schema_hash) {
     diagFn() << "system desc schema mismatch, please collect a system desc "
@@ -570,6 +577,42 @@ ViewLayoutAttr ViewLayoutAttr::compose(ViewLayoutAttr g) const {
   return get(getContext(), getAffineMap().compose(g.getAffineMap()));
 }
 
+mlir::AffineMap HostLayoutAttr::getAffineMap() const {
+  auto *context = getContext();
+  const int64_t rank = getLogicalShape().size();
+  SmallVector<int64_t> strides{getHostStrides()};
+  assert(strides.size() == static_cast<size_t>(rank));
+
+  // Expression for generating linearized/flattened offsets.
+  mlir::AffineExpr linearAddrExpr = getAffineConstantExpr(0, context);
+  for (int64_t i = rank - 1; i >= 0; i--) {
+    auto dim = getAffineDimExpr(i, context);
+    auto stride = getAffineConstantExpr(strides[i], context);
+    linearAddrExpr = dim * stride + linearAddrExpr;
+  }
+
+  return mlir::AffineMap::get(rank, 0, linearAddrExpr, context);
+}
+
+LogicalResult
+HostLayoutAttr::getStridesAndOffset(ArrayRef<int64_t> shape,
+                                    SmallVectorImpl<int64_t> &strides,
+                                    int64_t &offset) const {
+  const int64_t rank = getHostStrides().size();
+  assert(rank == static_cast<int64_t>(shape.size()));
+  strides.resize_for_overwrite(rank);
+
+  for (int64_t i = 0; i < rank; i++) {
+    strides[i] = getHostStrides()[i];
+  }
+  offset = 0;
+  return success();
+}
+
+bool HostLayoutAttr::isPadded() const {
+  return getHostVolume() > ttmlir::utils::volume(getLogicalShape());
+}
+
 //
 // This function creates an affine map that represents collapsing the tensor
 // dims onto an n-dimensional grid. E.g. (Where <> is some join operator)
@@ -702,9 +745,11 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
       int64_t collapsedDim =
           ttmlir::utils::alignUp(shape[end - 1], alignments[end - 1]);
 
-      // Process remaining dimensions from inner to outer w/ multplication.
+      // Process remaining dimensions from inner to outer w/ multiplication.
       for (int64_t j = end - 2; j >= start; --j) {
-        // For outer dimensions, multiply then align the product.
+        // Multiply and then align up means that the alignment is in fact, the
+        // intentionally imposed alignment for the current collapse stage of the
+        // current collapsed interval.
         collapsedDim =
             ttmlir::utils::alignUp(shape[j] * collapsedDim, alignments[j]);
       }
@@ -715,8 +760,7 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
   }
 
   // Handle remaining dimensions with alignment.
-  for (int64_t i = shape.size() - 1; i >= static_cast<int64_t>(currentIdx);
-       --i) {
+  for (int64_t i = shape.size() - 1; i >= currentIdx; --i) {
     resultShape.push_back(ttmlir::utils::alignUp(shape[i], alignments[i]));
   }
 
@@ -813,44 +857,108 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::getNormalizedIntervals() const {
                                       getLogicalShape().size());
 }
 
+mlir::AffineMap
+MetalLayoutAttr::getIndexAffineMapOrIdentity(unsigned rank) const {
+  mlir::AffineMap map = getIndexAffineMap();
+  if (!map || map.getNumResults() == 0) {
+    return mlir::AffineMap::getMultiDimIdentityMap(rank, getContext());
+  }
+  return map;
+}
+
+// When tile-alignment is needed and the height dim of the physical shape is
+// collapsed from multiple logical dims, we record two alignment requirements:
+// - One for the 2nd last logical dim (intervalEnd), and it's always the height
+// of a tile.
+// - One for the outermost logical dim (intervalStart), the value that: after
+// applying it to the aligned & collapsed dim, the entire height dim becomes
+// tile/grid-aligned, depending on the need.
+//
+// For example, tensor<4x43x7> + grid<8x8> + tile<32x32> gives:
+// - Tile-aligned logical shape 4x64x32.
+// - Collapsed physical 2D shape 256x32.
+// - Dim alignments 1x32x32.
+// - Unsharded device shape 256x32.
+// - Grid & shard is 256x32 / 32x32 = 8x1.
+// - Tiled device shape 8x1x1x1x!tile<32x32>.
+// So there will be 8 workers, each handling a shard containing a single tile.
+// This achieves high worker utilization, and ensures the majority of the
+// padding are at the end of the tensor buffer so the memory access strides are
+// small.
+//
+// This strategy has good work utilization but also has its issues. Consider the
+// same example as above but with tensor<9x43x7>:
+// - Tile-aligned logical shape 9x64x32.
+// - Collapsed physical 2D shape 576x32.
+// - Dim alignments 256x32x32.
+// - Unsharded device shape [alignUp(9 * alignUp(43, 32), 256)]x32 = 768x32.
+// - Grid & shard is 768x32 / 32x32 = 24x1.
+// - Tiled device shape 8x1x3x1x!tile<32x32>.
+// Similar to the example above, both result in 'unnatural' shard shapes like
+// 1x1x!tile<32x32> and 3x1x!tile<32x32>. The 'natural' shard shape should be
+// 2x1x!tile<32x32>, which has the potential to save some NoC traffic (e.g.
+// reduction of 4x43x7 -> 4x1x7 is now worker-local).
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
                                    ArrayRef<int64_t> deviceGridShape,
                                    ArrayRef<int64_t> normalizedIntervals) {
   constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
-  llvm::SmallVector<int64_t> dimAlignmentsVec(logicalShape.size(), 1);
-  // Handle the last two intervals (which will map to tiles) with
-  // grid-aware alignments.
-  assert(deviceGridShape.size() >= 2);
-  for (int64_t idx = static_cast<int64_t>(deviceGridShape.size()) - 2;
-       idx < static_cast<int64_t>(deviceGridShape.size()); ++idx) {
+  const int64_t logicalRank = logicalShape.size();
+  const int64_t deviceGridRank = deviceGridShape.size();
 
-    const int64_t intervalStart = normalizedIntervals[idx * 2];
-    const int64_t intervalEnd = normalizedIntervals[idx * 2 + 1];
+  assert(logicalRank >= 2);
+  assert(deviceGridRank == 2);
+  assert(deviceGridRank * 2 ==
+         static_cast<int64_t>(normalizedIntervals.size()));
+
+  llvm::SmallVector<int64_t> alignments(logicalRank, 1);
+  // Handle the last two intervals (which will map to tiles) with grid-aware
+  // alignments.
+  for (int64_t idx = -1; idx >= -2; idx--) {
+    const int64_t tileIdx = tileShape.size() + idx;
+    const int64_t tileDim = tileShape[tileIdx];
+
+    const int64_t gridIdx = deviceGridRank + idx;
+    const int64_t gridDim = deviceGridShape[gridIdx];
+
+    const int64_t gridAlignmentThreshold = gridDim * tileDim;
+
+    // Inclusive indices.
+    const int64_t intervalStart = normalizedIntervals[gridIdx * 2];
+    const int64_t intervalEnd = normalizedIntervals[gridIdx * 2 + 1] - 1;
 
     // Calculate collapsed size for this interval.
     int64_t collapsedSize = 1;
-    for (int64_t j = intervalStart; j < intervalEnd; ++j) {
-      collapsedSize *= logicalShape[j];
+    for (int64_t i = intervalEnd; i >= intervalStart; i--) {
+      if (i >= logicalRank - 2) {
+        // Always tile-align the last two dimensions.
+        collapsedSize *= ttmlir::utils::alignUp(logicalShape[i], tileDim);
+      } else {
+        collapsedSize *= logicalShape[i];
+      }
     }
 
-    // Determine which tile dimension corresponds with this interval.
-    const int64_t tileIdx =
-        (idx == static_cast<int64_t>(deviceGridShape.size()) - 2) ? 0 : 1;
-    const int64_t tileDim = tileShape[tileIdx];
-    const int64_t gridAlignmentThreshold = deviceGridShape[idx] * tileDim;
+    // Align to grid boundary iff the collapsed size is strictly larger than
+    // gridAlignmentThreshold, else align to tile boundary.
+    const bool alignToGrid = collapsedSize > gridAlignmentThreshold;
+    const int64_t alignment = alignToGrid ? gridAlignmentThreshold : tileDim;
 
-    // Determine alignment based on collapsed size.
-    // If size > gridAlignmentThreshold, align to grid boundary, else align to
-    // tile boundary.
-    int64_t alignment = (collapsedSize >= gridAlignmentThreshold)
-                            ? gridAlignmentThreshold
-                            : tileDim;
-
-    // Set alignment on the first dimension of the interval.
-    dimAlignmentsVec[intervalStart] = alignment;
+    // Assume the collapsed intervals are always <[[0, N-2], [N-1, N]]>.
+    if (intervalStart == intervalEnd) {
+      alignments[intervalEnd] = alignment;
+    } else {
+      assert(idx == -2);
+      assert(intervalEnd == logicalRank - 2);
+      alignments[intervalEnd] = tileDim;
+      // Avoid results like [32x32]x32, it should be [1x32]x32.
+      if (alignToGrid) {
+        alignments[intervalStart] = alignment;
+      }
+    }
   }
-  return dimAlignmentsVec;
+  assert(alignments[logicalRank - 1] % tileShape[1] == 0);
+  assert(alignments[logicalRank - 2] % tileShape[0] == 0);
+  return alignments;
 }
 
 // Getter with no intervals or alignments, we calculate them both.
@@ -885,7 +993,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
       computeAlignments(logicalShape, deviceGridShape, flattenedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace);
+             oobVal, memorySpace, mlir::AffineMap::get(context));
 }
 
 // Getter with explicit collapsedIntervals, we calculate the alignments.
@@ -900,7 +1008,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
       computeAlignments(logicalShape, deviceGridShape, normalizedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
-             oobVal, memorySpace);
+             oobVal, memorySpace, mlir::AffineMap::get(context));
 }
 
 // Getter with explicit collapsedIntervals and dimAlignments.
@@ -911,7 +1019,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      DenseIntElementsAttr collapsedIntervals,
                                      ArrayRef<int64_t> dimAlignments) {
   return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
-             memorySpace);
+             memorySpace, mlir::AffineMap::get(context));
 }
 
 mlir::MemRefType
@@ -930,6 +1038,21 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
       MemorySpaceAttr::get(tensorType.getContext(), layout.getMemorySpace()));
 }
 
+// 5-arg + explicit index_map convenience overload.
+MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     mlir::AffineMap indexAffineMap) {
+  // Reuse the existing path that computes intervals/alignments, then attach
+  // map.
+  MetalLayoutAttr base =
+      get(context, logicalShape, deviceGridShape, oobVal, memorySpace);
+  return get(context, base.getLogicalShape(), base.getDimAlignments(),
+             base.getCollapsedIntervals(), base.getOobVal(),
+             base.getMemorySpace(), indexAffineMap);
+}
+
 // Get effective stride (use provided or calculate from shape)
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getShardStride(RankedTensorType tensorType) const {
@@ -941,6 +1064,51 @@ MetalLayoutAttr::getShardStride(RankedTensorType tensorType) const {
     shardStride[i] = shardShape[i + 1] * shardStride[i + 1];
   }
   return shardStride;
+}
+
+std::pair<llvm::SmallVector<int64_t>, int64_t>
+MetalLayoutAttr::getHostStrideAndVolume() const {
+  const auto logicalShape = getLogicalShape();
+  const auto alignments = getDimAlignments();
+  const auto normalizedIntervals = getNormalizedIntervals();
+
+  llvm::SmallVector<int64_t> strides(logicalShape.size(), 0);
+
+  int64_t currentStride = 1;
+  for (int i = -1; i >= -2; i--) {
+    const int64_t intervalIdx = normalizedIntervals.size() / 2 + i;
+    // Inclusive indices.
+    const int64_t intervalStart = normalizedIntervals[intervalIdx * 2];
+    const int64_t intervalEnd = normalizedIntervals[intervalIdx * 2 + 1] - 1;
+
+    int64_t collapsedSize = 1;
+    // Both the alignments and the collapsed sizes are "cumulative" relative to
+    // the current collapse interval. But to update the current stride we need
+    // the true per-dim alignment, which is difficult to obtain, especially when
+    // the aligned up new collapsed size is not a multiple of the old collapsed
+    // size.
+    // Solution: revert the current stride to before the current collapse
+    // interval, and then update it straight to the current collapse stage.
+    for (int64_t j = intervalEnd; j >= intervalStart; j--) {
+      strides[j] = currentStride;
+      currentStride /= collapsedSize;
+      collapsedSize = ttmlir::utils::alignUp(collapsedSize * logicalShape[j],
+                                             alignments[j]);
+      currentStride *= collapsedSize;
+    }
+  }
+
+  // At this point, currentStride == 'stride' of the entire tensor, i.e. volume.
+  assert(currentStride >= ttmlir::utils::volume(logicalShape));
+  return {strides, currentStride};
+}
+
+llvm::SmallVector<int64_t> MetalLayoutAttr::getHostStride() const {
+  return getHostStrideAndVolume().first;
+}
+
+int64_t MetalLayoutAttr::getHostVolume() const {
+  return getHostStrideAndVolume().second;
 }
 
 //
@@ -1201,10 +1369,30 @@ DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
                       baseOffset);
 }
 
-size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
-                                      bool includeBuffers) const {
+size_t DeviceAttr::getShardSizeInBytes(MemRefType memrefType, size_t alignSize,
+                                       bool includeBuffers) const {
+
+  ShardLayoutAttr layout =
+      mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout());
+  assert(
+      (layout || !mlir::isa<DeviceLayoutInterface>(memrefType.getLayout())) &&
+      "expected shard layout");
+  bool isLocalMemref = (layout == nullptr);
+  auto shardShape =
+      isLocalMemref ? memrefType.getShape() : layout.getShardShape(memrefType);
+
   mlir::Type elementType = memrefType.getElementType();
   int64_t elementSizeBytes = getElementSizeBytes(elementType);
+  auto numBuffers = (includeBuffers && layout) ? layout.getBuffers() : 1;
+  auto bytesPerElem = elementSizeBytes * numBuffers;
+
+  return ttmlir::utils::alignUp(
+      static_cast<size_t>(ttmlir::utils::volume(shardShape, bytesPerElem)),
+      alignSize);
+}
+
+size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
+                                      bool includeBuffers) const {
   size_t alignSize = pageSize;
   if (alignSize == 0) {
     auto memorySpace = getMemorySpace(memrefType);
@@ -1223,21 +1411,8 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
     }
   }
 
-  ShardLayoutAttr layout =
-      mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout());
-  assert(
-      (layout || !mlir::isa<DeviceLayoutInterface>(memrefType.getLayout())) &&
-      "expected shard layout");
-  bool isLocalMemref = (layout == nullptr);
-  auto shardShape =
-      isLocalMemref ? memrefType.getShape() : layout.getShardShape(memrefType);
-
-  return ttmlir::utils::alignUp(
-      static_cast<size_t>(ttmlir::utils::volume(
-          shardShape,
-          elementSizeBytes *
-              ((includeBuffers && layout) ? layout.getBuffers() : 1))),
-      alignSize);
+  // Assume that memref size footprint is equal to shard size
+  return getShardSizeInBytes(memrefType, alignSize, includeBuffers);
 }
 
 size_t DeviceAttr::getMemrefCBPageSizeBytes(MemRefType memrefType) const {

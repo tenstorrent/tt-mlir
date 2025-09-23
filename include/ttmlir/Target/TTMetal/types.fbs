@@ -13,10 +13,20 @@ table ShardSpecBuffer {
   tensor_shape_in_pages: Dim2d;
 }
 
+table InterleavedBufferConfig {
+  size: uint64;
+  page_size: uint64;
+}
+
 table ShardedBufferConfig {
   size: uint64;
   page_size: uint64;
   shard_spec_buffer: ShardSpecBuffer;
+}
+
+union BufferConfig {
+  ShardedBufferConfig,
+  InterleavedBufferConfig
 }
 
 table CircularBufferConfig {
@@ -32,7 +42,7 @@ table SystemBuffer {
 
 table MetalBuffer {
   buffer_type: BufferType;
-  sharded_buffer_config: ShardedBufferConfig;
+  buffer_config: BufferConfig;
   circular_buffer_config: CircularBufferConfig;
 }
 
@@ -43,6 +53,8 @@ union BufferDetail {
 
 table BufferDesc {
   shape: [int];
+  host_strides: [int];
+  host_volume: uint64;
   data_type: DataType;
   element_shape: Dim2d;
   buffer_detail: BufferDetail;

@@ -40,6 +40,7 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
                                                            , "bufferize"
                                                            , "getAliasingValues"
                                                            , "getBufferType"
+                                                           , "isWritable"
                                                            ]>
       , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
       ], traits)> {
@@ -67,6 +68,12 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
           SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
               &effects) {
         ttir::getDpsEffects(*this, effects);
+      }
+
+      bool $cppClass::isWritable(
+          mlir::Value value, const mlir::bufferization::AnalysisState &) {
+        return mlir::isa<mlir::OpResult>(value) ||
+               mlir::isa<mlir::BlockArgument>(value);
       }
     }];
 }
@@ -157,7 +164,8 @@ def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
         llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
           auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-          return layout.getMemRefType(tensorType);
+          auto shardShape = layout.getShardShape(tensorType);
+          return mlir::RankedTensorType::get(shardShape, tensorType.getElementType());
         });
         Region& region = *$_state.regions.front().get();
         llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
@@ -265,6 +273,9 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
       bool isCompound() { return compoundComponents().isCompound(); }
       ttcore::MetalLayoutAttr getOrCreateInputLayout();
       ttcore::MetalLayoutAttr getOrCreateOutputLayout();
+
+      bool isHostToDevice();
+      bool isDeviceToHost();
     }];
 
     let hasVerifier = 1;
@@ -361,6 +372,56 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
 
     let hasVerifier = 1;
     let hasFolder = 1;
+}
+
+def TTIR_TTNNMetalLayoutCastOp : TTIR_Op<"ttnn_metal_layout_cast",
+  [ Pure
+  , TTIROpInterface
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
+  let summary = "Cast TTNN layout-encoded tensor to/from TTCore metal layout-encoded tensor";
+  let description = [{
+    Purely representational op that reinterprets a tensor's layout encoding from `#ttnn.ttnn_layout<...>`
+    to/from `#ttcore.metal_layout<...>` without modifying the underlying data.
+
+    Pre-bufferization, the input and output must be a RankedTensorType where one holds a
+    `ttnn::TTNNLayoutAttr` and the other, a `ttcore::MetalLayoutAttr`. Post bufferization,
+    the tensor encoded with a `ttcore::MetalLayoutAttr` is bufferized to a memref.
+
+    Examples:
+    ```
+    %cast_to_metal = ttir.ttnn_metal_layout_cast %arg0
+                      : tensor<32x32xf32, #ttnn.ttnn_layout<...>>
+                    -> tensor<32x32xf32, #ttcore.metal_layout<...>>
+
+    %cast_to_metal_bufferized = ttir.ttnn_metal_layout_cast %arg0
+                            : tensor<32x32xf32, #ttnn.ttnn_layout<...>>
+                          -> memref<32x32xf32, ...>
+
+    %cast_to_ttnn = ttir.ttnn_metal_layout_cast %arg0
+                    : tensor<32x32xf32, #ttcore.metal_layout<...>>
+                  -> tensor<32x32xf32, #ttnn.ttnn_layout<...>>
+
+    %cast_to_ttnn_bufferized = ttir.ttnn_metal_layout_cast %arg0
+                            : memref<32x32xf32, ...>
+                          -> tensor<32x32xf32, #ttnn.ttnn_layout<...>>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensorOrMemRef:$input);
+  let results   = (outs AnyRankedTensorOrMemRef:$result);
+
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($result)
+  }];
+
+  let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -2847,6 +2908,7 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
 
       Attributes:
       - `dimension` (Integer): The dimension along which to apply the softmax function.
+      - `numericStable` (Boolean, default=false): Whether to use numerically stable computation.
 
       Outputs:
       - `result` (Tensor): The tensor after applying the softmax function.
@@ -2854,7 +2916,8 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dimension);
+                         SI32Attr:$dimension,
+                         DefaultValuedAttr<BoolAttr, "false">:$numericStable);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -3424,7 +3487,8 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$output_padding,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
-                         I32Attr:$groups);
+                         I32Attr:$groups,
+                         DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
 
     let results = (outs AnyRankedTensor:$result);
 

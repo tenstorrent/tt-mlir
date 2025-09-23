@@ -106,7 +106,48 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: ttir.tile_logical_not
     %18 = "ttir.logical_not"(%17, %out) : (!ttype, !ttype) -> !ttype
-    return %18: !ttype
+    // named elementwise op, binary comparison:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_sub_binary
+    // CHECK: ttir.tile_eqz
+    %19 = "ttir.eq"(%lhs, %rhs, %out) : (!ttype, !ttype, !ttype) -> !ttype
+    // named elementwise op, binary comparison:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_sub_binary
+    // CHECK: ttir.tile_nez
+    %20 = "ttir.ne"(%lhs, %rhs, %out) : (!ttype, !ttype, !ttype) -> !ttype
+    // named elementwise op, binary comparison:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_sub_binary
+    // CHECK: ttir.tile_ltz
+    %21 = "ttir.lt"(%lhs, %rhs, %out) : (!ttype, !ttype, !ttype) -> !ttype
+    // named elementwise op, binary comparison:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_sub_binary
+    // CHECK: ttir.tile_lez
+    %22 = "ttir.le"(%lhs, %rhs, %out) : (!ttype, !ttype, !ttype) -> !ttype
+    // named elementwise op, binary comparison:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_sub_binary
+    // CHECK: ttir.tile_gtz
+    %23 = "ttir.gt"(%lhs, %rhs, %out) : (!ttype, !ttype, !ttype) -> !ttype
+    // named elementwise op, binary comparison:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_sub_binary
+    // CHECK: ttir.tile_gez
+    %24 = "ttir.ge"(%lhs, %rhs, %out) : (!ttype, !ttype, !ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: ttir.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: ttir.tile_gelu
+    %25= "ttir.gelu"(%24, %out) : (!ttype, !ttype) -> !ttype
+    return %25: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R

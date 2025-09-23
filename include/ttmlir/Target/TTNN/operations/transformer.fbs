@@ -1,10 +1,35 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/operations/configs.fbs";
 
 namespace tt.target.ttnn;
 
 table ConcatenateHeadsOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
+table RotaryEmbeddingLlamaOp {
+  input: tt.target.ttnn.TensorRef;
+  cos_cache: tt.target.ttnn.TensorRef;
+  sin_cache: tt.target.ttnn.TensorRef;
+  trans_mat: tt.target.ttnn.TensorRef;
+  is_decode_mode: bool;
+  out: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+}
+
+table NLPConcatHeadsOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
+table NLPConcatHeadsDecodeOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  num_heads: uint32;
   memcfg: tt.target.ttnn.MemoryConfig;
 }

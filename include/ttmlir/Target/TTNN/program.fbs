@@ -10,6 +10,7 @@ include "ttmlir/Target/TTNN/operations/data_movement.fbs";
 include "ttmlir/Target/TTNN/operations/deallocate.fbs";
 include "ttmlir/Target/TTNN/operations/eltwise.fbs";
 include "ttmlir/Target/TTNN/operations/embedding.fbs";
+include "ttmlir/Target/TTNN/operations/generic_op.fbs";
 include "ttmlir/Target/TTNN/operations/kv_cache.fbs";
 include "ttmlir/Target/TTNN/operations/layout.fbs";
 include "ttmlir/Target/TTNN/operations/load_cached.fbs";
@@ -22,6 +23,7 @@ include "ttmlir/Target/TTNN/operations/normalization.fbs";
 include "ttmlir/Target/TTNN/operations/pool.fbs";
 include "ttmlir/Target/TTNN/operations/rand.fbs";
 include "ttmlir/Target/TTNN/operations/reduction.fbs";
+include "ttmlir/Target/TTNN/operations/tensor_serialization.fbs";
 include "ttmlir/Target/TTNN/operations/trace.fbs";
 include "ttmlir/Target/TTNN/operations/transformer.fbs";
 
@@ -36,6 +38,8 @@ union OpType {
   CollectivePermuteOp,
   ConcatOp,
   ConcatenateHeadsOp,
+  RotaryEmbeddingLlamaOp,
+  NLPConcatHeadsOp,
   ConstantOp,
   Conv2dOp,
   ConvTranspose2dOp,
@@ -56,6 +60,7 @@ union OpType {
   FromDeviceOp,
   FullOp,
   FuncCallOp,
+  GenericOp,
   GetDeviceOp,
   LinearOp,
   LoadCachedOp,
@@ -65,6 +70,7 @@ union OpType {
   MeshShardOp,
   MorehCumSumOp,
   NamedFullOp,
+  NLPConcatHeadsDecodeOp,
   PadOp,
   PermuteOp,
   PointToPointOp,
@@ -91,7 +97,9 @@ union OpType {
   TypecastOp,
   UpdateCacheOp,
   UpsampleOp,
-  WriteTensorOp
+  WriteTensorOp,
+  DumpTensorOp,
+  LoadTensorOp,
 }
 
 table Operation {

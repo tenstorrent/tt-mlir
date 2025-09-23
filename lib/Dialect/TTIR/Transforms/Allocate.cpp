@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/Analysis/AllocationPlanner.h"
 #include "ttmlir/Support/Logger.h"
@@ -29,8 +30,6 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 // Helper definitions.
 //===----------------------------------------------------------------------===//
-
-#define TT_assert(condition, msg) assert((condition) && msg)
 
 #define TT_ALLOC_DEBUG(/* fmt, args */...)                                     \
   TTMLIR_DEBUG(ttmlir::LogComponent::Allocator, __VA_ARGS__)
@@ -60,8 +59,8 @@ struct MemorySpaceInfo {
   MemorySpaceInfo(AllocSizeT baseAddress, AllocSizeT maxAddress,
                   AllocSizeT alignment)
       : baseAddress(baseAddress), maxAddress(maxAddress), alignment(alignment) {
-    TT_assert(baseAddress % alignment == 0, "expected aligned base address");
-    TT_assert(baseAddress < maxAddress, "expected positive memory capacity");
+    TT_assert(baseAddress % alignment == 0);
+    TT_assert(baseAddress < maxAddress);
   }
 
   // Valid address range is [baseAddress, maxAddress).
@@ -126,9 +125,10 @@ struct ModuleAnalysisData {
 //===----------------------------------------------------------------------===//
 namespace {
 class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
-  using Base = OpRewritePattern<ttir::GenericOp>;
-
-  using Base::Base;
+public:
+  TTIRAllocateStreams(MLIRContext *context, unsigned numStreamBuffers)
+      : OpRewritePattern<ttir::GenericOp>(context),
+        numStreamBuffers(numStreamBuffers) {}
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
@@ -203,15 +203,16 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
     return operandNeedsDataMovement;
   }
 
-  static void insertStream(PatternRewriter &rewriter, OpOperand &operand,
-                           ttir::GenericOp op) {
+  void insertStream(PatternRewriter &rewriter, OpOperand &operand,
+                    ttir::GenericOp op) const {
     auto memref = mlir::cast<MemRefType>(operand.get().getType());
     auto streamAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
         rewriter.getMultiDimIdentityMap(memref.getRank()));
     auto streamMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), streamAttr,
                         memref.getMemorySpace());
-    auto storageAttr = ttcore::ShardLayoutAttr::get(memref, /*buffers=*/1);
+    auto storageAttr =
+        ttcore::ShardLayoutAttr::get(memref, /*buffers=*/numStreamBuffers);
     auto storageMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), storageAttr,
                         memref.getMemorySpace());
@@ -221,6 +222,8 @@ class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
     rewriter.modifyOpInPlace(
         op, [&]() { operand.assign(streamLayout.getResult()); });
   }
+
+  unsigned numStreamBuffers;
 };
 } // namespace
 
@@ -256,7 +259,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   // Create/allocate streams within a module.
   LogicalResult runAllocateStreams(ModuleOp moduleOp) {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRAllocateStreams>(&getContext());
+    patterns.add<TTIRAllocateStreams>(&getContext(), numStreamBuffers);
     return mlir::applyPatternsGreedily(getOperation(), std::move(patterns));
   }
 
@@ -327,7 +330,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
       if (llvm::isa<memref::AllocOp, ttir::ViewLayoutOp, ttir::StreamLayoutOp>(
               op)) {
-        TT_assert(op->getNumResults() == 1, "expected a single-result op");
+        TT_assertv(op->getNumResults() == 1l, "for {}", *op);
         Value result = op->getResult(0);
 
         Operation *firstOp = li->getStartOperation(result);
@@ -347,8 +350,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
     for (auto &[op, ctx] : livenessJoinGraph) {
       // Initial maxLast values are from the SSA liveness calculation.
       auto i = analysis.operationMap.find(ctx.lastOp);
-      TT_assert(i != analysis.operationMap.end(),
-                "couldn't map the starting lastOp");
+      TT_assert(i != analysis.operationMap.end());
       ctx.maxLast = i->second;
     }
 
@@ -375,7 +377,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 
         const AllocSizeT alignment =
             memSpaces[llvm::to_underlying(memorySpace)].alignment;
-        const AllocSizeT sizeBytes = device.getMemrefSizeBytes(memrefTy);
+        const AllocSizeT sizeBytes =
+            device.getMemrefSizeBytes(memrefTy, 0, true);
         const AllocSizeT alignedSize =
             ttmlir::utils::alignUp(sizeBytes, alignment);
 
@@ -431,8 +434,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   LogicalResult runAllocateBuffers(func::FuncOp func,
                                    const FuncAnalysisData &analysis,
                                    const MemorySpaces &memSpaces) {
-    assert(func.getBody().hasOneBlock() &&
-           "found func that didn't have one block!");
+    TT_assert(func.getBody().hasOneBlock());
 
     // Augment all 'memref.alloc's in device memory with allocated addresses and
     // correct alignments.
@@ -481,7 +483,7 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
           const llvm::DenseMap<Operation *, LivenessClosure> &graph) {
 
     auto opClosure = graph.find(op);
-    TT_assert(opClosure != graph.end(), "malformed liveness closure graph");
+    TT_assert(opClosure != graph.end());
     SequenceT maxLast = opClosure->second.maxLast;
 
     for (Operation *user : op->getResult(0).getUsers()) {

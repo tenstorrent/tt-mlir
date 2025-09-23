@@ -22,9 +22,6 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 ::ttnn::DataType getDataType(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
-    const ::tt::target::ttnn::DistributionStrategy *strategy);
-
 ::ttnn::operations::unary::UnaryOpType
 toTTNNUnaryOpType(::tt::target::ttnn::EltwiseUnaryOpType unaryOpType);
 
@@ -42,7 +39,10 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg);
 
 ::ttnn::Tensor toTTNNTensor(const ::flatbuffers::Vector<uint8_t> *data,
                             const ::ttnn::Shape &shape,
-                            const ::ttnn::DataType &dataType);
+                            const ::ttnn::DataType &dataType,
+                            ::ttnn::MeshDevice *meshDevice,
+                            const ::ttnn::Layout &layout,
+                            const ::ttnn::MemoryConfig &memoryConfig);
 
 ::ttnn::Tensor
 allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,

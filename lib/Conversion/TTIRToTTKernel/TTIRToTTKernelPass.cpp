@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTIR/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -13,6 +14,7 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Math/IR/Math.h"
@@ -47,6 +49,7 @@ struct ConvertTTIRToTTKernel
     target.addLegalDialect<ttcore::TTCoreDialect>();
     target.addLegalDialect<ttkernel::TTKernelDialect>();
     target.addLegalDialect<scf::SCFDialect>();
+    target.addLegalDialect<emitc::EmitCDialect>();
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
     target.addIllegalDialect<memref::MemRefDialect>();
@@ -55,6 +58,10 @@ struct ConvertTTIRToTTKernel
     target.addLegalOp<ttir::StreamLayoutOp>();
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
+
+    // Inputs to matmul_block. Will be folded in this pass.
+    target.addLegalOp<memref::CastOp>();
+    target.addLegalOp<memref::SubViewOp>();
 
     // Allow loads and stores to integer element types.
     //   i.e. riscv accesses to L1.
@@ -67,6 +74,8 @@ struct ConvertTTIRToTTKernel
     target.addLegalOp<memref::AllocOp>();
     target.addLegalOp<memref::DeallocOp>();
     target.addLegalOp<memref::CopyOp>();
+    target.addLegalOp<memref::GlobalOp>();
+    target.addLegalOp<memref::GetGlobalOp>();
 
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
       return !op->hasAttr(ttir::ThreadAttr::name) ||
@@ -106,11 +115,14 @@ struct ConvertTTIRToTTKernel
     ttir::AssociatedDMAWaits associatedDMAWaits =
         getAnalysis<ttir::AssociatedDMAWaits>();
 
+    ttir::CBProducerConsumer cbProducerConsumer =
+        getAnalysis<ttir::CBProducerConsumer>();
+
     RewritePatternSet patterns(&getContext());
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateTTIRToTTKernelPatterns(&getContext(), patterns, typeConverter,
-                                   associatedDMAWaits);
+                                   associatedDMAWaits, cbProducerConsumer);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 

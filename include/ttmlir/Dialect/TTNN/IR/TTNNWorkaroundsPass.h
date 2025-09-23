@@ -23,7 +23,7 @@ class SortOp;
 namespace mlir::tt::ttnn::wa {
 using TensorLayoutWorkaround = std::optional<Layout>;
 using TensorBufferTypeWorkaround = std::optional<BufferType>;
-using TensorMemoryLayoutWorkaround = std::optional<TensorMemoryLayout>;
+using TensorMemoryLayoutWorkaround = std::optional<TensorMemoryLayoutAttr>;
 using TensorDataTypeWorkaround = std::optional<ttcore::DataType>;
 
 // Struct that encapsulates operand workarounds.
@@ -59,27 +59,33 @@ struct TTNNOperandWorkarounds {
   // Constructor that takes tensor layout workaround and sets the other
   // workarounds to nullopt.
   TTNNOperandWorkarounds(TensorLayoutWorkaround tensorLayoutWorkaround)
-      : TTNNOperandWorkarounds(tensorLayoutWorkaround, std::nullopt,
-                               std::nullopt, std::nullopt) {}
+      : TTNNOperandWorkarounds(tensorLayoutWorkaround,
+                               /*tensorBufferType=*/std::nullopt,
+                               /*tensorMemoryLayout=*/std::nullopt,
+                               /*tensorDataType=*/std::nullopt) {}
 
   // Constructor that takes tensor buffer type workaround and sets the other
   // workarounds to nullopt.
   TTNNOperandWorkarounds(TensorBufferTypeWorkaround tensorBufferTypeWorkaround)
-      : TTNNOperandWorkarounds(std::nullopt, tensorBufferTypeWorkaround,
-                               std::nullopt, std::nullopt) {}
+      : TTNNOperandWorkarounds(/*tensorLayout=*/std::nullopt,
+                               tensorBufferTypeWorkaround,
+                               /*tensorMemoryLayout=*/std::nullopt,
+                               /*tensorDataType=*/std::nullopt) {}
 
   // Constructor that takes tensor memory layout workaround and sets the other
   // workarounds to nullopt.
   TTNNOperandWorkarounds(
       TensorMemoryLayoutWorkaround tensorMemoryLayoutWorkaround)
-      : TTNNOperandWorkarounds(std::nullopt, std::nullopt,
-                               tensorMemoryLayoutWorkaround, std::nullopt) {}
+      : TTNNOperandWorkarounds(
+            /*tensorLayout=*/std::nullopt, /*tensorBufferType=*/std::nullopt,
+            tensorMemoryLayoutWorkaround, /*tensorDataType=*/std::nullopt) {}
 
   // Constructor that takes tensor data type workaround and sets the other
   // workarounds to nullopt.
   TTNNOperandWorkarounds(TensorDataTypeWorkaround tensorDataTypeWorkaround)
-      : TTNNOperandWorkarounds(std::nullopt, std::nullopt, std::nullopt,
-                               tensorDataTypeWorkaround) {}
+      : TTNNOperandWorkarounds(
+            /*tensorLayout=*/std::nullopt, /*tensorBufferType=*/std::nullopt,
+            /*tensorMemoryLayout=*/std::nullopt, tensorDataTypeWorkaround) {}
 
   // Operand workarounds factory methods.
   static TTNNOperandWorkarounds createEmptyTTNNOperandWorkarounds();
@@ -122,7 +128,7 @@ struct BufferTypeWorkaroundResult : public WorkaroundResult<BufferType> {};
 
 // Memory layout workaround result struct.
 struct MemoryLayoutWorkaroundResult
-    : public WorkaroundResult<std::optional<TensorMemoryLayout>> {};
+    : public WorkaroundResult<TensorMemoryLayoutAttr> {};
 
 // Data type workaround result struct.
 struct DataTypeWorkaroundResult : public WorkaroundResult<ttcore::DataType> {};
@@ -258,6 +264,9 @@ public:
   createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
 
   static TTNNOperandsWorkarounds
+  createReshapeOpOperandsWorkarounds(RankedTensorType inputType);
+
+  static TTNNOperandsWorkarounds
   createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
 
   // Create workarounds for binary op operands.
@@ -282,9 +291,6 @@ public:
   // Create workarounds for conv2d/convtranspose2d op.
   template <typename T>
   static TTNNOperandsWorkarounds createConvOpOperandsWorkarounds(T op);
-
-  // Create workarounds for arange op.
-  static TTNNOperandsWorkarounds createArangeOpOperandsWorkarounds();
 
   // Create workarounds for reduction op operands.
   static TTNNOperandsWorkarounds

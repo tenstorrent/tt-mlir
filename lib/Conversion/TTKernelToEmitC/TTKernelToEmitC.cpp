@@ -262,43 +262,55 @@ public:
     return name;
   }
 
-  template <typename ReduceKindOp>
-  std::pair<StringRef, StringRef> getReduceTypeAndDim(ReduceKindOp op) const {
+  std::pair<StringRef, StringRef>
+  reduceTypeAndDimToString(ttkernel::ReduceTypeAttr reduceTypeAttr,
+                           ttkernel::ReduceDimAttr reduceDimAttr) const {
     StringRef reduceType =
-        op.getReduceTypeAttr().getValue() == ttkernel::ReduceType::Max
+        reduceTypeAttr.getValue() == ttkernel::ReduceType::Max
             ? "PoolType::MAX"
             : "PoolType::SUM";
-    StringRef reduceDim =
-        op.getReduceDimAttr().getValue() == ttkernel::ReduceDim::Col
-            ? "ReduceDim::REDUCE_COL"
-        : op.getReduceDimAttr().getValue() == ttkernel::ReduceDim::Row
-            ? "ReduceDim::REDUCE_ROW"
-            : "ReduceDim::REDUCE_SCALAR";
+    StringRef reduceDim = reduceDimAttr.getValue() == ttkernel::ReduceDim::Col
+                              ? "ReduceDim::REDUCE_COL"
+                          : reduceDimAttr.getValue() == ttkernel::ReduceDim::Row
+                              ? "ReduceDim::REDUCE_ROW"
+                              : "ReduceDim::REDUCE_SCALAR";
     return {reduceType, reduceDim};
+  }
+
+  StringRef getBroadcastType(ttkernel::BcastType bcastType) const {
+    switch (bcastType) {
+    case ttkernel::BcastType::Row:
+      return "BroadcastType::ROW";
+    case ttkernel::BcastType::Col:
+      return "BroadcastType::COL";
+    case ttkernel::BcastType::Scalar:
+      return "BroadcastType::SCALAR";
+    default:
+      return "BroadcastType::NONE";
+    }
   }
 
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
                   std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
-      SmallVector<Attribute, 4> template_args;
+      SmallVector<Attribute, 3> template_args;
       StringRef reduceType, reduceDim;
-      if (mlir::isa<ttkernel::ReduceInitOp>(op)) {
-        auto reduceInitOp = mlir::cast<ttkernel::ReduceInitOp>(op);
-        template_args.push_back(emitc::OpaqueAttr::get(
-            op.getContext(), "true")); // "at_start" template argument
-        std::tie(reduceType, reduceDim) =
-            getReduceTypeAndDim<ttkernel::ReduceInitOp>(reduceInitOp);
-      } else {
-        auto reduceOp = mlir::cast<ttkernel::ReduceTileOp>(op);
-        std::tie(reduceType, reduceDim) =
-            getReduceTypeAndDim<ttkernel::ReduceTileOp>(reduceOp);
-      }
+      std::tie(reduceType, reduceDim) = reduceTypeAndDimToString(
+          op.getReduceTypeAttr(), op.getReduceDimAttr());
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reduceType));
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reduceDim));
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), op.getFullFp32() ? "true" : "false"));
       return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp> or
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::UnaryBcastInitOp> ||
+                         std::is_same_v<SourceOp, ttkernel::UnaryBcastTileOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), getBroadcastType(op.getBcastType())));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp> ||
                          std::is_same_v<SourceOp,
                                         ttkernel::GetCommonArgValOp>) {
       SmallVector<Attribute, 1> template_args;
@@ -756,10 +768,17 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitShortOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockInitShortOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalMatmulBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubTilesOp>,
+
+        // Transpose Ops
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TransposeInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TransposeTileOp>,
 
         // SFPU Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::InitSFPUOp>,
@@ -782,11 +801,31 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NezTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NezTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NezTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GtzTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GtzTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GtzTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GezTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GezTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GezTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LtzTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LtzTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LtzTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesInitOp>,
@@ -814,6 +853,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
 
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,

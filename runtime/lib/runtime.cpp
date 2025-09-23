@@ -6,14 +6,10 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/types.h"
-#include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
-#include <atomic>
-#include <memory>
 #include <optional>
-#include <utility>
 #include <vector>
 
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
@@ -174,9 +170,6 @@ Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &stride,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType) {
-  LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
-             "Cannot create borrowed tensor with unsupported data type: " +
-                 std::string(::tt::target::EnumNameDataType(dataType)));
   using RetType = Tensor;
   LOG_ASSERT(itemsize > 0);
   return DISPATCH_TO_CURRENT_RUNTIME(
@@ -187,7 +180,7 @@ Tensor createBorrowedHostTensor(void *data,
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::createBorrowedHostTensor(
-            data, TensorDesc(shape, stride, itemsize, dataType));
+            data, TensorDesc(shape, dataType, itemsize, stride));
       });
 }
 
@@ -206,7 +199,7 @@ Tensor createOwnedHostTensor(const void *data,
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::createOwnedHostTensor(
-            data, TensorDesc(shape, stride, itemsize, dataType));
+            data, shape, stride, itemsize, dataType);
       });
 }
 
@@ -228,7 +221,8 @@ Tensor createMultiDeviceHostTensor(
             data, shape, stride, itemsize, dataType, strategy, meshShape);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
+        return ::tt::runtime::ttmetal::createMultiDeviceHostTensor(
+            data, shape, stride, itemsize, dataType, strategy, meshShape);
       });
 }
 
@@ -245,7 +239,8 @@ Tensor createMultiDeviceHostTensor(
             tensorShards, strategy, meshShape);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
+        return ::tt::runtime::ttmetal::createMultiDeviceHostTensor(
+            tensorShards, strategy, meshShape);
       });
 }
 
@@ -672,9 +667,10 @@ std::string getOpLocInfo(OpContext opContextHandle) {
       });
 }
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
-  using RetType = Tensor;
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
+  using RetType = std::unordered_map<std::uint32_t, Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
@@ -774,6 +770,27 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::submit(deviceHandle, executableHandle,
                                               programIndex, inputs);
+      });
+}
+
+void dumpTensor(Tensor tensor, const std::string &filePath) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::dumpTensor(tensor, filePath); },
+      [&]() {
+        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
+      });
+}
+
+Tensor loadTensor(const std::string &filePath, std::optional<Device> device) {
+  using RetType = Tensor;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::loadTensor(filePath, device);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
       });
 }
 

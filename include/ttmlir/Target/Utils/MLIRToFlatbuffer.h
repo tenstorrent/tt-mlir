@@ -11,7 +11,6 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
-#include "ttmlir/Target/TTNN/utils.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
 
@@ -78,18 +77,30 @@ toMLIR(::flatbuffers::FlatBufferBuilder &fbb, const std::string &name,
 
 inline flatbuffers::Offset<::tt::target::DebugInfo> debugInfoToFlatbuffer(
     flatbuffers::FlatBufferBuilder &fbb,
-    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::unordered_map<std::string,
+                             std::unordered_map<std::uint32_t, GoldenTensor>>
+        &goldenMap,
     const std::vector<std::pair<std::string, std::string>> &moduleCache,
     const char *cpp = nullptr) {
   std::vector<flatbuffers::Offset<::tt::target::GoldenKV>> goldenKVList;
   goldenKVList.reserve(goldenMap.size());
 
-  for (const auto &[key, value] : goldenMap) {
-    auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
-        fbb, value.name.c_str(), &value.shape, &value.strides, value.dtype,
-        &value.data);
-    auto goldenKV =
-        ::tt::target::CreateGoldenKVDirect(fbb, key.c_str(), goldenTensor);
+  for (const auto &[loc, device_map] : goldenMap) {
+    std::vector<flatbuffers::Offset<::tt::target::GoldenDeviceTensor>>
+        goldenDeviceTensorList;
+    goldenDeviceTensorList.reserve(device_map.size());
+
+    for (const auto &[deviceId, value] : device_map) {
+      auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
+          fbb, value.name.c_str(), &value.shape, &value.strides, value.dtype,
+          &value.data);
+      auto goldenDeviceTensor =
+          ::tt::target::CreateGoldenDeviceTensor(fbb, deviceId, goldenTensor);
+      goldenDeviceTensorList.push_back(goldenDeviceTensor);
+    }
+
+    auto goldenKV = ::tt::target::CreateGoldenKVDirect(fbb, loc.c_str(),
+                                                       &goldenDeviceTensorList);
     goldenKVList.push_back(goldenKV);
   }
 
@@ -215,18 +226,21 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   return toFlatbuffer(cache, memLayoutAttr.getValue());
 }
 
-inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
-                                              ttnn::BufferType bufferType) {
+inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
+                                             ttnn::BufferType bufferType) {
   switch (bufferType) {
   case ttnn::BufferType::SystemMemory:
-    return ::tt::target::MemorySpace::System;
+    return ::tt::target::BufferType::SystemMemory;
   case ttnn::BufferType::DRAM:
-    return ::tt::target::MemorySpace::DeviceDRAM;
+    return ::tt::target::BufferType::DRAM;
   case ttnn::BufferType::L1:
-    return ::tt::target::MemorySpace::DeviceL1;
-  default:
-    llvm_unreachable("unhandled buffer type");
+    return ::tt::target::BufferType::L1;
+  case ttnn::BufferType::L1Small:
+    return ::tt::target::BufferType::L1Small;
+  case ttnn::BufferType::Trace:
+    return ::tt::target::BufferType::Trace;
   }
+  llvm_unreachable("Unknown ttnn::BufferType");
 }
 
 inline ::tt::target::TensorLayout toFlatbuffer(FlatbufferObjectCache &cache,
@@ -742,9 +756,13 @@ inline ::flatbuffers::Optional<bool> toFlatbuffer(FlatbufferObjectCache &cache,
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
+  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> activation;
+  if (config.getActivation()) {
+    activation = toFlatbuffer(cache, config.getActivation());
+  }
+
   return ::tt::target::ttnn::CreateConv2dConfig(
-      *cache.fbb, toFlatbuffer(cache, config.getWeightsDtype()),
-      toFlatbuffer(cache, config.getActivation()),
+      *cache.fbb, toFlatbuffer(cache, config.getWeightsDtype()), activation,
       toFlatbuffer(cache, config.getDeallocateActivation()),
       toFlatbuffer(cache, config.getReallocateHaloOutput()),
       toFlatbuffer(cache, config.getActBlockHOverride()),
@@ -757,7 +775,6 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getOutputLayout()),
       toFlatbuffer(cache, config.getEnableActDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
-      toFlatbuffer(cache, config.getEnableSplitReader()),
       toFlatbuffer(cache, config.getInPlace()));
 }
 
@@ -811,24 +828,26 @@ toFlatbuffer(FlatbufferObjectCache &cache,
 inline ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ::mlir::tt::ttnn::MemoryConfigAttr memoryConfigAttr) {
+  if (!isDeviceBufferType(memoryConfigAttr.getBufferType().getValue())) {
+    return 0;
+  }
+
+  ::tt::target::BufferType bufferType =
+      toFlatbuffer(cache, memoryConfigAttr.getBufferType().getValue());
   ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
       memoryConfigAttr.getTensorMemoryLayout();
+  assert(tensorMemoryLayoutAttr && "Expected valid TensorMemoryLayoutAttr");
   ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout =
       toFlatbuffer(cache, tensorMemoryLayoutAttr);
-  ::tt::target::BufferType bufferType =
-      ::mlir::tt::ttnn::utils::toTargetBufferType(
-          memoryConfigAttr.getBufferType().getValue());
-
   ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec> shardSpec = 0;
   if (memoryConfigAttr.getShardSpec()) {
     assert(tensorMemoryLayoutAttr && mlir::tt::ttnn::isShardedMemoryLayout(
                                          tensorMemoryLayoutAttr.getValue()));
     shardSpec = toFlatbuffer(cache, *memoryConfigAttr.getShardSpec());
   }
-  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
-      ::tt::target::ttnn::CreateMemoryConfig(*cache.fbb, tensorMemoryLayout,
-                                             bufferType, shardSpec);
-  return memoryConfig;
+
+  return ::tt::target::ttnn::CreateMemoryConfig(*cache.fbb, tensorMemoryLayout,
+                                                bufferType, shardSpec);
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
@@ -841,20 +860,12 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
   ttcore::DataType dtype = ttcore::DataType::Float32;
   ::tt::target::Dim2d tileShape(1, 1);
   mlir::Type elementType = memref.getElementType();
-  std::uint64_t elementSize = 0;
   if (mlir::isa<ttcore::TileType>(elementType)) {
     auto tileType = mlir::cast<ttcore::TileType>(elementType);
     dtype = tileType.getDataType();
     tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
-    elementSize = tileType.getSizeBytes();
   } else {
     dtype = ttcore::elementTypeToDataType(elementType);
-    elementSize = getElementSizeBytes(dtype);
-  }
-
-  std::uint64_t size = elementSize;
-  for (auto dim : shapeInt64) {
-    size *= dim;
   }
 
   ::tt::target::ttnn::StorageType storageType;
@@ -910,7 +921,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
 
   return ::tt::target::ttnn::CreateMemoryDesc(
       *cache.fbb, storageType, &tileShape, toFlatbuffer(cache, dtype),
-      memoryConfig, size);
+      memoryConfig);
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::LayoutDesc>
@@ -929,6 +940,64 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
       toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
                    layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
                    layoutAttr.getGrid(), deviceAttr.getWorkerGrid()));
+}
+
+inline ::tt::target::ttnn::CoreType
+toFlatbuffer(FlatbufferObjectCache &cache, ttnn::KernelCoreType coreType) {
+  ::tt::target::ttnn::CoreType fbCoreType;
+
+  switch (coreType) {
+  case ttnn::KernelCoreType::Eth:
+    fbCoreType = ::tt::target::ttnn::CoreType::ETH;
+    break;
+  case ttnn::KernelCoreType::Worker:
+    fbCoreType = ::tt::target::ttnn::CoreType::WORKER;
+    break;
+  }
+
+  return fbCoreType;
+}
+
+inline std::vector<::tt::target::UnpackToDestMode> toFlatbuffer(
+    FlatbufferObjectCache &cache,
+    ::llvm::ArrayRef<ttnn::ComputeKernelUnpackToDestMode> unpackToDestModes) {
+  std::vector<::tt::target::UnpackToDestMode> fbUnpackToDestModes;
+
+  for (auto mode : unpackToDestModes) {
+    switch (mode) {
+    case ttnn::ComputeKernelUnpackToDestMode::Fp32:
+      fbUnpackToDestModes.push_back(::tt::target::UnpackToDestMode::Fp32);
+      break;
+    case ttnn::ComputeKernelUnpackToDestMode::Default:
+      fbUnpackToDestModes.push_back(::tt::target::UnpackToDestMode::Default);
+      break;
+    }
+  }
+
+  return fbUnpackToDestModes;
+}
+
+inline ::tt::target::MathFidelity
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::ComputeKernelMathFidelity mathFidelity) {
+
+  ::tt::target::MathFidelity fbMathFidelity;
+
+  switch (mathFidelity) {
+  case ttnn::ComputeKernelMathFidelity::LoFi:
+    fbMathFidelity = ::tt::target::MathFidelity::LoFi;
+    break;
+  case ttnn::ComputeKernelMathFidelity::HiFi2:
+    fbMathFidelity = ::tt::target::MathFidelity::HiFi2;
+    break;
+  case ttnn::ComputeKernelMathFidelity::HiFi3:
+    fbMathFidelity = ::tt::target::MathFidelity::HiFi3;
+    break;
+  case ttnn::ComputeKernelMathFidelity::HiFi4:
+    fbMathFidelity = ::tt::target::MathFidelity::HiFi4;
+    break;
+  }
+  return fbMathFidelity;
 }
 
 } // namespace mlir::tt

@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t.mlir
-// RUN: ttmlir-opt --ttnn-tuplify-tensors --convert-ttnn-to-emitc -o %t2.mlir %t.mlir
+// RUN: ttmlir-opt --ttnn-backend-to-emitc-pipeline -o %t2.mlir %t.mlir
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
 #dram = #ttnn.buffer_type<dram>
@@ -39,7 +39,7 @@ func.func @conv2d_with_prepare_conv2d_weights_and_prepare_conv2d_bias(%arg0: ten
           stride = array<i32: 4, 8>,
           weights_format = "OIHW",
           input_dtype = #ttcore.supportedDataTypes<bf16>,
-          output_dtype = #ttcore.supportedDataTypes<bf16>
+          dtype = #ttcore.supportedDataTypes<bf16>
         }> : (tensor<64x16x3x3xbf16, #ttnn_layout1>, !ttnn.device) -> tensor<1x1x576x64xbf16, #ttnn_layout5>
   "ttnn.deallocate"(%arg1) <{force = false}> : (tensor<64x16x3x3xbf16, #ttnn_layout1>) -> ()
   %3 = "ttnn.prepare_conv2d_bias"(%arg2, %0)
@@ -58,10 +58,10 @@ func.func @conv2d_with_prepare_conv2d_weights_and_prepare_conv2d_bias(%arg0: ten
           padding = array<i32: 2, 4>,
           stride = array<i32: 4, 8>,
           input_dtype = #ttcore.supportedDataTypes<bf16>,
-          output_dtype = #ttcore.supportedDataTypes<bf16>
+          dtype = #ttcore.supportedDataTypes<bf16>
         }> : (tensor<1x1x1x64xbf16, #ttnn_layout2>, !ttnn.device) -> tensor<1x1x1x64xbf16, #ttnn_layout6>
   "ttnn.deallocate"(%arg2) <{force = false}> : (tensor<1x1x1x64xbf16, #ttnn_layout2>) -> ()
-  %4 = "ttnn.conv2d"(%1, %2, %3, %0) <{batch_size = 1 : i32, dilation = array<i32: 2, 4>, groups = 4 : i32, in_channels = 64 : i32, input_height = 32 : i32, input_width = 32 : i32, kernel_size = array<i32: 3, 3>, out_channels = 64 : i32, padding = array<i32: 2, 4>, stride = array<i32: 4, 8>, output_dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x1x1024x64xbf16, #ttnn_layout4>, tensor<1x1x576x64xbf16, #ttnn_layout5>, tensor<1x1x1x64xbf16, #ttnn_layout6>, !ttnn.device) -> tensor<1x1x32x64xbf16, #ttnn_layout7>
+  %4 = "ttnn.conv2d"(%1, %2, %3, %0) <{batch_size = 1 : i32, dilation = array<i32: 2, 4>, groups = 4 : i32, in_channels = 64 : i32, input_height = 32 : i32, input_width = 32 : i32, kernel_size = array<i32: 3, 3>, out_channels = 64 : i32, padding = array<i32: 2, 4>, stride = array<i32: 4, 8>, dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x1x1024x64xbf16, #ttnn_layout4>, tensor<1x1x576x64xbf16, #ttnn_layout5>, tensor<1x1x1x64xbf16, #ttnn_layout6>, !ttnn.device) -> tensor<1x1x32x64xbf16, #ttnn_layout7>
   "ttnn.deallocate"(%3) <{force = false}> : (tensor<1x1x1x64xbf16, #ttnn_layout6>) -> ()
   "ttnn.deallocate"(%2) <{force = false}> : (tensor<1x1x576x64xbf16, #ttnn_layout5>) -> ()
   "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x1x1024x64xbf16, #ttnn_layout4>) -> ()

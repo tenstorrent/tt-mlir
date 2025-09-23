@@ -440,9 +440,9 @@ public:
     auto weight = adaptor.getWeight();
     // TTNN api handles reversing weights internally for transposed convolution.
     // So ttir.reverse op is ignored and its input is used as weight.
-    if (isTransposed &&
-        isa<mlir::tt::ttir::ReverseOp>(weight.getDefiningOp())) {
-      weight = weight.getDefiningOp()->getOperand(0);
+    if (auto reverseOp = weight.getDefiningOp<mlir::tt::ttir::ReverseOp>();
+        isTransposed && reverseOp) {
+      weight = reverseOp.getInput();
     }
     auto weightType = mlir::cast<RankedTensorType>(weight.getType());
     auto kernelPermutation = generateConvKernelPermutation(
@@ -454,6 +454,21 @@ public:
         rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_weight"),
         weightOutputShape, weightType.getElementType(),
         weightType.getEncoding(), weight, kernelPermutation);
+
+    // If bias is provided, it needs to be reshaped to match the expected shape
+    Value biasValue = adaptor.getBias();
+    if (biasValue) {
+      auto biasType = mlir::cast<RankedTensorType>(biasValue.getType());
+      auto biasPermutation = generateConvPermutation(op, conv2dLayout);
+      auto biasOutputShape = ::ttmlir::utils::applyPermutation(
+          biasType.getShape(), biasPermutation);
+      SmallVector<int32_t> biasOutputShapeI32(biasOutputShape.begin(),
+                                              biasOutputShape.end());
+      biasValue = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_bias"),
+          biasOutputShape, biasType.getElementType(), biasType.getEncoding(),
+          biasValue, rewriter.getI32ArrayAttr(biasOutputShapeI32));
+    }
 
     mlir::Value newConv;
     if (isTransposed) {
@@ -497,12 +512,12 @@ public:
       });
       newConv = ttir::utils::createDPSOp<ttir::ConvTranspose2dOp>(
           rewriter, op->getLoc(), outputType, Value(input), Value(weight),
-          adaptor.getBias(), inputDilationAttr, paddingAttr, outputPaddingAttr,
+          biasValue, inputDilationAttr, paddingAttr, outputPaddingAttr,
           dilationAttr, groupsAttr);
     } else {
       newConv = ttir::utils::createDPSOp<ttir::Conv2dOp>(
           rewriter, op.getLoc(), outputType, Value(input), Value(weight),
-          adaptor.getBias(), strideAttr, paddingAttr, dilationAttr, groupsAttr,
+          biasValue, strideAttr, paddingAttr, dilationAttr, groupsAttr,
           /*flattenedCompatInfo=*/nullptr);
     }
 
@@ -852,8 +867,11 @@ private:
          offsetDimsIndex++) {
       outputPermutation.push_back(offsetDims[offsetDimsIndex]);
     }
+    auto inverseOutputPermutation =
+        ttmlir::utils::inversePermutation(outputPermutation);
     auto permutedOutputShape = ttmlir::utils::applyPermutation(
         expectedOutputType.getShape(), outputPermutation);
+
     auto reshapedOutput = createReshapeOp(
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshapeOutput"),
         output, permutedOutputShape);
@@ -862,7 +880,7 @@ private:
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_permuteOutput"),
         expectedOutputType.getShape(), expectedOutputType.getElementType(),
         expectedOutputType.getEncoding(), reshapedOutput,
-        ttmlir::utils::inversePermutation(outputPermutation));
+        inverseOutputPermutation);
   }
 
   static ttir::ReshapeOp

@@ -203,6 +203,7 @@ def TTCore_SystemDescAttr : TTCore_Attr<"SystemDesc", "system_desc"> {
   let extraClassDeclaration = [{
     static SystemDescAttr getDefault(MLIRContext *context, Arch arch = Arch::WormholeB0, const llvm::SmallVector<int64_t> &meshShape = {1});
     static FailureOr<SystemDescAttr> getFromPath(MLIRContext *context, StringRef path, llvm::function_ref<mlir::InFlightDiagnostic()> diagFn);
+    static FailureOr<SystemDescAttr> getFromBuffer(MLIRContext *context, void *systemDesc, llvm::function_ref<mlir::InFlightDiagnostic()> diagFn);
     ChipDescAttr getChipDesc(unsigned chipIndex) const;
     unsigned getAddressAlignBytes(unsigned chipIndex = 0) const;
     unsigned getAddressAlignBytes(MemorySpace memorySpace, unsigned chipIndex = 0) const;
@@ -232,10 +233,6 @@ def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayo
   let assemblyFormat = "`<` custom<IdentityAffineMap>($affineMap) `>`";
 
   let extraClassDeclaration = [{
-      static ViewLayoutAttr get(::mlir::MLIRContext *context, unsigned rank) {
-        return get(context, mlir::AffineMap::getMultiDimIdentityMap(rank, context));
-      }
-
       // Compose two view layouts f(g(x)) where f=this and g=other.
       ViewLayoutAttr compose(ViewLayoutAttr g) const;
   }];
@@ -263,6 +260,43 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     static ShardLayoutAttr get(MemRefType memrefType, uint32_t buffers);
 
     AffineMap getAffineMap() const;
+  }];
+}
+
+def TTCore_HostLayoutAttr : TTCore_Attr<"HostLayout", "host_layout", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
+  let summary = "Host-side memref layout attribute with padding support.";
+  let description = [{
+    Describes a host-side memref layout with a logical shape where each
+    dimension may be padded up to a requested alignment. This attribute encodes
+    row-major strides and volume of the aligned shape, both computed in the
+    bufferization pass to match the corresponding device memref's shape.
+
+    This allows host memrefs to reflect the padded footprint required by the
+    device while preserving the original logical shape, enabling I/O for
+    unaligned densly-packed shapes (e.g., non-multiples of 32×32 tiles). The
+    correct element placement in data copys between padded and unpadded host
+    memrefs is ensured by the strided-memcpy of the runtime's `memref.copy`
+    implementation.
+
+    - logical_shape: The unpadded logical shape in elements.
+    - host_strides: Per-dimension alignment in elements used to compute aligned shapes for stride calculation.
+    - host_volume: The (potentially padded) volume in elements.
+  }];
+
+  let parameters = (ins ArrayRefParameter<"int64_t">:$logical_shape,
+                        ArrayRefParameter<"int64_t">:$host_strides,
+                        "int64_t":$host_volume);
+
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `host_strides` `=` custom<DimensionList>($host_strides) `,` `host_volume` `=` $host_volume `>`";
+
+  let extraClassDeclaration = [{
+    LogicalResult getStridesAndOffset(ArrayRef<int64_t> shape,
+                                      SmallVectorImpl<int64_t> &strides,
+                                      int64_t &offset) const;
+
+    AffineMap getAffineMap() const;
+
+    bool isPadded() const;
   }];
 }
 
@@ -309,7 +343,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // The logical tensor shape before distribution.
     ArrayRefParameter<"int64_t">:$logical_shape,
 
-    // Alignment for each logical dim, default is 32x1x...x1x32.
+    // Imposed alignment for each collapse stage in each collapsed interval, interpretation requires its corresponding collapsed_intervals.
+    // Default is 1x1x...x1x32x32.
     ArrayRefParameter<"int64_t">:$dim_alignments,
 
     // Dim collapse info; must be encoded as 2D array of pairs, where each pair represent a half-open range. Negative indexing is supported.
@@ -319,10 +354,14 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
 
     // Memory space for the tensor.
-    DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space
+    DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space,
+
+    // Optional index remapping (e.g., view remap or virtual→physical grid mapping).
+    // Defaults to empty, which is treated as identity.
+    DefaultValuedParameter<"AffineMap", "$_builder.getEmptyAffineMap()">:$indexAffineMap
   );
 
-  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val (`,` $memory_space^)? `>`";
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `dim_alignments` `=` custom<DimensionList>($dim_alignments) `,` `collapsed_intervals` `=` $collapsed_intervals `,` $oob_val (`,` $memory_space^)? (`,` `index_map` `=` custom<IdentityAffineMap>($indexAffineMap)^)? `>`";
 
   let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
@@ -342,6 +381,14 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      DenseIntElementsAttr collapseIntervals, ArrayRef<int64_t> dimAlignments);
 
+    // Convenience getter: same as the 5-arg variant but attaches an explicit
+    // index_map to the resulting attribute.
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     ArrayRef<int64_t> deviceGridShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     mlir::AffineMap indexAffineMap);
+
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
 
@@ -357,7 +404,16 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Stride calculations for shard portion.
     llvm::SmallVector<int64_t> getShardStride(RankedTensorType tensorType) const;
 
+    // Calculate and return the aligned host tensor strides and volume.
+    std::pair<llvm::SmallVector<int64_t>, int64_t> getHostStrideAndVolume() const;
+    llvm::SmallVector<int64_t> getHostStride() const;
+    int64_t getHostVolume() const;
+
     llvm::SmallVector<int64_t> getNormalizedIntervals() const;
+
+    // Returns the explicit index_map if present; otherwise returns an
+    // identity map of the provided rank.
+    mlir::AffineMap getIndexAffineMapOrIdentity(unsigned rank) const;
   }];
 }
 
@@ -402,6 +458,21 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
       //     of the memref type for the given memory space.
       //   - includeBuffers: If true, will multiply the size by the number of back buffers.
       size_t getMemrefSizeBytes(MemRefType memrefType, size_t pageSize = 0, bool includeBuffers = false) const;
+
+      // Returns the size in bytes of a single shard of the given memref type.
+      //
+      // This function computes the size of a single shard for a memref that may be sharded across a device grid.
+      // If the memref uses a ShardLayout, the shard shape is determined from the ShardLayout; otherwise, the memref's
+      // shape is used directly. The size is calculated as the product of the shard shape dimensions and the element
+      // size in bytes, optionally multiplied by the number of buffers if includeBuffers is true. The result is then
+      // aligned up to the specified alignSize.
+      //
+      // Arguments:
+      //   - memrefType: The memref type whose shard size is to be computed.
+      //   - alignSize: The alignment size in bytes to which the result will be rounded up.
+      //   - includeBuffers: If true and the layout specifies multiple buffers, the size will be multiplied accordingly.
+      //
+      size_t getShardSizeInBytes(MemRefType memrefType, size_t alignSize, bool includeBuffers) const;
 
       // Returns the circular buffer page size in bytes of the given memref type. The general heursitic is:
       //   - If element type is tile type, return the size of the tile type.

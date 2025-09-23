@@ -4,20 +4,23 @@
 
 #include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
 
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/TTIR/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
-
 #include <type_traits>
+
 #include <utility>
 
 namespace mlir::tt::ttkernel {
@@ -70,11 +73,73 @@ static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
               index(rewriter, loc, 1))};
 }
 
+static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
+                                       Value inputView) {
+  if (auto collapseOp =
+          mlir::dyn_cast<memref::CollapseShapeOp>(inputView.getDefiningOp())) {
+    return getTileIndexFromBlockView(rewriter, loc, collapseOp.getSrc());
+  }
+  if (auto subViewOp =
+          mlir::dyn_cast<memref::SubViewOp>(inputView.getDefiningOp())) {
+    // We have blocked this input. We need to get the indicies for the first
+    // tile in the subview.
+    SmallVector<Value> indices = {index(rewriter, loc, 0),
+                                  index(rewriter, loc, 0)};
+    SmallVector<Value> sourceIndices;
+
+    // TODO(#4717): This call alone should be enough to get the tile indices,
+    // but currently it returns block index instead. Once fixed, we can remove
+    // all the other calculations below.
+    affine::resolveIndicesIntoOpWithOffsetsAndStrides(
+        rewriter, loc, subViewOp.getMixedOffsets(), subViewOp.getMixedStrides(),
+        subViewOp.getDroppedDims(), indices, sourceIndices);
+
+    auto resultTy = mlir::cast<MemRefType>(subViewOp.getResult().getType());
+    Value rtIdx = index(rewriter, loc, resultTy.getShape()[0]);
+    Value ktIdx = index(rewriter, loc, resultTy.getShape()[1]);
+    Value tilesPerBlock = rewriter.create<arith::MulIOp>(loc, rtIdx, ktIdx);
+
+    // Convert the resolved source row offset to a block-row index.
+    Value rowBlockIdx =
+        rewriter.create<arith::DivSIOp>(loc, sourceIndices[0], rtIdx);
+    Value rowBase =
+        rewriter.create<arith::MulIOp>(loc, rowBlockIdx, tilesPerBlock);
+    return rewriter.create<arith::AddIOp>(loc, rowBase, sourceIndices[1]);
+  }
+
+  if (mlir::isa<memref::CastOp>(inputView.getDefiningOp())) {
+    // We have not blocked this input. Ignore the cast and start from index 0 of
+    // the input.
+    return index(rewriter, loc, 0);
+  }
+  llvm_unreachable("Expected subview or cast op");
+}
+
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
-  memref::LoadOp loadOp = mlir::cast<memref::LoadOp>(cb.getDefiningOp());
-  assert(loadOp.getIndices().size() == 1 &&
-         "Expected single index in load op, failing.");
-  return rewriter.getRemappedValue(loadOp.getMemref());
+  if (auto collapseOp =
+          mlir::dyn_cast<memref::CollapseShapeOp>(cb.getDefiningOp())) {
+    return getCB(rewriter, collapseOp.getSrc());
+  }
+
+  if (memref::LoadOp loadOp =
+          mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
+      loadOp) {
+    assert(loadOp.getIndices().size() == 1 &&
+           "Expected single index in load op, failing.");
+    return rewriter.getRemappedValue(loadOp.getMemref());
+  }
+
+  if (mlir::isa<memref::SubViewOp>(cb.getDefiningOp())) {
+    memref::SubViewOp subViewOp =
+        mlir::cast<memref::SubViewOp>(cb.getDefiningOp());
+    return rewriter.getRemappedValue(subViewOp.getSource());
+  }
+
+  if (mlir::isa<memref::CastOp>(cb.getDefiningOp())) {
+    memref::CastOp castOp = mlir::cast<memref::CastOp>(cb.getDefiningOp());
+    return rewriter.getRemappedValue(castOp.getSource());
+  }
+  llvm_unreachable("Expected load or subview op");
 }
 
 static Value getDstIdxFromResult(Value ttirOpResult) {
@@ -142,6 +207,7 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
     }
   }
 
+  assert(latestDefOp != nullptr);
   rewriter.setInsertionPointAfter(latestDefOp);
 }
 
@@ -244,30 +310,41 @@ struct OpMap {};
 
 // clang-format off
 using ComputeOpMap = OpMap<
-  // Elementwise FPU
-  std::pair<ttir::TileAddOp,        std::pair<ttkernel::AddTilesInitOp,            ttkernel::AddTilesOp>>,
-  std::pair<ttir::TileMatmulOp,     std::pair<ttkernel::MatmulInitOp,              ttkernel::MatmulTilesOp>>,
-  std::pair<ttir::TileMulOp,        std::pair<ttkernel::MulTilesInitOp,            ttkernel::MulTilesOp>>,
-  std::pair<ttir::TileSubOp,        std::pair<ttkernel::SubTilesInitOp,            ttkernel::SubTilesOp>>,
+  // Elementwise FPU.
+  std::pair<ttir::TileAddOp,         std::pair<ttkernel::AddTilesInitOp,            ttkernel::AddTilesOp>>,
+  std::pair<ttir::TileMatmulOp,      std::pair<ttkernel::MatmulInitOp,              ttkernel::MatmulTilesOp>>,
+  std::pair<ttir::TileMatmulBlockOp, std::pair<ttkernel::MatmulBlockInitOp,         ttkernel::ExperimentalMatmulBlockOp>>,
+  std::pair<ttir::TileMulOp,         std::pair<ttkernel::MulTilesInitOp,            ttkernel::MulTilesOp>>,
+  std::pair<ttir::TileSubOp,         std::pair<ttkernel::SubTilesInitOp,            ttkernel::SubTilesOp>>,
 
-  // Elementwise SFPU
-  std::pair<ttir::TileAbsOp,        std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
-  std::pair<ttir::TileCeilOp,       std::pair<ttkernel::RoundingTileInitOp,        ttkernel::CeilTileOp>>,
-  std::pair<ttir::TileCosOp,        std::pair<ttkernel::CosTileInitOp,             ttkernel::CosTileOp>>,
-  std::pair<ttir::TileDivOp,        std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
-  std::pair<ttir::TileExpOp,        std::pair<ttkernel::ExpTileInitOp,             ttkernel::ExpTileOp>>,
-  std::pair<ttir::TileFloorOp,      std::pair<ttkernel::RoundingTileInitOp,        ttkernel::FloorTileOp>>,
-  std::pair<ttir::TileLogOp,        std::pair<ttkernel::LogTileInitOp,             ttkernel::LogTileOp>>,
-  std::pair<ttir::TileLogicalNotOp, std::pair<ttkernel::LogicalNotUnaryTileInitOp, ttkernel::LogicalNotUnaryTileOp>>,
-  std::pair<ttir::TileMaximumOp,    std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
-  std::pair<ttir::TileNegativeOp,   std::pair<ttkernel::NegativeTileInitOp,        ttkernel::NegativeTileOp>>,
-  std::pair<ttir::TilePowOp,        std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>,
-  std::pair<ttir::TileRecipOp,      std::pair<ttkernel::RecipTileInitOp,           ttkernel::RecipTileOp>>,
-  std::pair<ttir::TileRsqrtOp,      std::pair<ttkernel::RsqrtTileInitOp,           ttkernel::RsqrtTileOp>>,
-  std::pair<ttir::TileSqrtOp,       std::pair<ttkernel::SqrtTileInitOp,            ttkernel::SqrtTileOp>>,
-  std::pair<ttir::TileSigmoidOp,    std::pair<ttkernel::SigmoidTileInitOp,         ttkernel::SigmoidTileOp>>,
-  std::pair<ttir::TileSinOp,        std::pair<ttkernel::SinTileInitOp,             ttkernel::SinTileOp>>,
-  std::pair<ttir::TileTanOp,        std::pair<ttkernel::TanTileInitOp,             ttkernel::TanTileOp>>
+  // Elementwise SFPU Unary.
+  std::pair<ttir::TileAbsOp,         std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
+  std::pair<ttir::TileCeilOp,        std::pair<ttkernel::RoundingTileInitOp,        ttkernel::CeilTileOp>>,
+  std::pair<ttir::TileCosOp,         std::pair<ttkernel::CosTileInitOp,             ttkernel::CosTileOp>>,
+  std::pair<ttir::TileExpOp,         std::pair<ttkernel::ExpTileInitOp,             ttkernel::ExpTileOp>>,
+  std::pair<ttir::TileFloorOp,       std::pair<ttkernel::RoundingTileInitOp,        ttkernel::FloorTileOp>>,
+  std::pair<ttir::TileGeluOp,        std::pair<ttkernel::GeluTileInitOp,            ttkernel::GeluTileOp>>,
+  std::pair<ttir::TileLogOp,         std::pair<ttkernel::LogTileInitOp,             ttkernel::LogTileOp>>,
+  std::pair<ttir::TileLogicalNotOp,  std::pair<ttkernel::LogicalNotUnaryTileInitOp, ttkernel::LogicalNotUnaryTileOp>>,
+  std::pair<ttir::TileNegativeOp,    std::pair<ttkernel::NegativeTileInitOp,        ttkernel::NegativeTileOp>>,
+  std::pair<ttir::TileRecipOp,       std::pair<ttkernel::RecipTileInitOp,           ttkernel::RecipTileOp>>,
+  std::pair<ttir::TileRsqrtOp,       std::pair<ttkernel::RsqrtTileInitOp,           ttkernel::RsqrtTileOp>>,
+  std::pair<ttir::TileSqrtOp,        std::pair<ttkernel::SqrtTileInitOp,            ttkernel::SqrtTileOp>>,
+  std::pair<ttir::TileSigmoidOp,     std::pair<ttkernel::SigmoidTileInitOp,         ttkernel::SigmoidTileOp>>,
+  std::pair<ttir::TileSinOp,         std::pair<ttkernel::SinTileInitOp,             ttkernel::SinTileOp>>,
+  std::pair<ttir::TileTanOp,         std::pair<ttkernel::TanTileInitOp,             ttkernel::TanTileOp>>,
+  std::pair<ttir::TileEqzOp,         std::pair<ttkernel::EqzTileInitOp,             ttkernel::EqzTileOp>>,
+  std::pair<ttir::TileNezOp,         std::pair<ttkernel::NezTileInitOp,             ttkernel::NezTileOp>>,
+  std::pair<ttir::TileGtzOp,         std::pair<ttkernel::GtzTileInitOp,             ttkernel::GtzTileOp>>,
+  std::pair<ttir::TileGezOp,         std::pair<ttkernel::GezTileInitOp,             ttkernel::GezTileOp>>,
+  std::pair<ttir::TileLtzOp,         std::pair<ttkernel::LtzTileInitOp,             ttkernel::LtzTileOp>>,
+  std::pair<ttir::TileLezOp,         std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>,
+
+  // Elementwise SFPU Binary.
+  std::pair<ttir::TileSubBinaryOp,   std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
+  std::pair<ttir::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
+  std::pair<ttir::TileMaximumOp,     std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
+  std::pair<ttir::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>
 >;
 // clang-format on
 
@@ -307,7 +384,7 @@ public:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    assert(op->hasOneUse());
+    assert(op->hasOneUse() || op->use_empty());
     if constexpr (arity == 1) {
       assert(op->getNumOperands() == 1u);
     } else if constexpr (arity == 2) {
@@ -341,6 +418,69 @@ public:
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
                                                adaptor.getA(), adaptor.getB(),
                                                adaptor.getC(), transpose);
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::TileMatmulBlockOp>) {
+      auto insertionPoint = rewriter.getInsertionPoint();
+      auto cbA = getCB(rewriter, op.getA());
+      auto cbB = getCB(rewriter, op.getB());
+      auto outCB = getCB(rewriter, op.getOutput());
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB});
+
+      // destIndex is always 0 because we call an experimental LLK that fills up
+      // the entire dest in a loop.
+      Value destIndex = index(rewriter, op->getLoc(), 0);
+
+      assert(op.hasBlockDims() &&
+             "MatmulBlockOp must have all block dimensions to be lowered");
+      auto rt_i32 =
+          i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockM()));
+      auto kt_i32 =
+          i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockK()));
+      auto ct_i32 =
+          i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockN()));
+      auto nt_i32 = i32(rewriter, op->getLoc(),
+                        static_cast<int32_t>(*op.getBBlockStride()));
+
+      auto transpose = i32(rewriter, op->getLoc(), 0);
+
+      rewriter.create<ttkernel::MatmulBlockInitOp>(
+          op->getLoc(), cbA, cbB, outCB, transpose, ct_i32, rt_i32, kt_i32);
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+      rewriter.create<ttkernel::MatmulBlockInitShortOp>(
+          op->getLoc(), cbA, cbB, transpose, ct_i32, rt_i32, kt_i32);
+
+      // Get the tile index for each input in the global memref. This is done by
+      // resolving tile (0,0) from the subview, representing a block, into the
+      // address space of the source memref.
+      Value aTileIndex =
+          getTileIndexFromBlockView(rewriter, op->getLoc(), op.getA());
+      Value bTileIndex =
+          getTileIndexFromBlockView(rewriter, op->getLoc(), op.getB());
+
+      rewriter.create<ttkernel::ExperimentalMatmulBlockOp>(
+          op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
+          ct_i32, rt_i32, kt_i32, nt_i32);
+
+      // Operands are linearized, so this pass creates a
+      // ttkernel.cb_reinterpret_shape from each memref.collapse_shape. However,
+      // ttkernel.matmul_block does *not* use the cb_reinterpret_shape so we
+      // need to clean it up. Cannonicalize does *not* do this automatically.
+      auto tryEraseDeadCBReinterpret = [&](Value v) {
+        Value remapped = rewriter.getRemappedValue(v);
+        if (!remapped) {
+          return;
+        }
+        if (auto *def = remapped.getDefiningOp()) {
+          if (auto cbri = dyn_cast<ttkernel::CBReinterpretShapeOp>(def)) {
+            if (cbri->use_empty()) {
+              rewriter.eraseOp(cbri);
+            }
+          }
+        }
+      };
+      tryEraseDeadCBReinterpret(op.getA());
+      tryEraseDeadCBReinterpret(op.getB());
+      tryEraseDeadCBReinterpret(op.getOutput());
+
     } else if constexpr (arity == 2) {
       auto dstIdx = getDstIdxFromResult(op.getResult());
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
@@ -384,7 +524,12 @@ public:
     auto inCB = getInCB(rewriter, op);
     auto outCB = getOutCB(rewriter, op);
     setInsertionPointAfterOperands(rewriter, {inCB, outCB});
-    rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
+    // Don't init_sfpu for tile sub binary op because it's only used in
+    // conjuction with a comparison op that calls init_sfpu and we only need one
+    // per compute kernel.
+    if constexpr (!std::is_same_v<ConcreteOp, ttir::TileSubBinaryOp>) {
+      rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
+    }
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     rewriter.create<InitOp>(op->getLoc());
@@ -427,10 +572,51 @@ public:
       } else {
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
       }
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::EqzTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::NezTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::GtzTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::GezTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::LtzTileOp> ||
+                         std::is_same_v<SFPUOp, ttkernel::LezTileOp>) {
+      const auto elemType =
+          mlir::cast<ttcore::TileType>(op.getInput().getType())
+              .getElementType();
+      bool isCBI32 = false;
+      if (llvm::isa<IntegerType>(elemType)) {
+        isCBI32 = mlir::cast<IntegerType>(elemType).isSigned() &&
+                  mlir::cast<IntegerType>(elemType).getWidth() == 32;
+      }
+      if (isCBI32) {
+        if constexpr (std::is_same_v<SFPUOp, ttkernel::EqzTileOp>) {
+          rewriter.create<ttkernel::EqzTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::NezTileOp>) {
+          rewriter.create<ttkernel::NezTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::GtzTileOp>) {
+          rewriter.create<ttkernel::GtzTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::GezTileOp>) {
+          rewriter.create<ttkernel::GezTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::LtzTileOp>) {
+          rewriter.create<ttkernel::LtzTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        } else if constexpr (std::is_same_v<SFPUOp, ttkernel::LezTileOp>) {
+          rewriter.create<ttkernel::LezTileI32Op>(op->getLoc(),
+                                                  adaptor.getInput());
+        }
+      } else {
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
+      }
     } else if constexpr (arity == 1) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
-    } else {
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs());
+    } else {
+      const auto dstIdx = getDstIdxFromResult(op.getResult());
+      rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs(),
+                              dstIdx);
     }
 
     rewriter.eraseOp(op);
@@ -502,6 +688,43 @@ public:
     rewriter.eraseOp(op);
     return success();
   };
+};
+} // namespace
+
+namespace {
+class TTIRTileTransposeRewriter
+    : public OpConversionPattern<ttir::TileTransposeOp> {
+public:
+  using OpConversionPattern<ttir::TileTransposeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::TileTransposeOp op,
+                  ttir::TileTransposeOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // TileTransposeOp is a unary op that takes an input tile and produces
+    // an output tile.
+
+    Value inCB = getInCB(rewriter, op);
+
+    Value outCB = getOutCB(rewriter, op);
+
+    auto insertionPoint = rewriter.getInsertionPoint();
+    setInsertionPointAfterOperands(rewriter, {inCB, outCB});
+    rewriter.create<ttkernel::TransposeInitOp>(op->getLoc(), inCB, outCB);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+    // Get the tile index from the input operand.
+    Value tileIndex = adaptor.getInput();
+
+    // Get the destination index where the result will be stored.
+    Value dstIdx = getDstIdxFromResult(op.getResult());
+
+    rewriter.create<ttkernel::TransposeTileOp>(op->getLoc(), inCB, tileIndex,
+                                               dstIdx);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
 };
 } // namespace
 
@@ -646,9 +869,11 @@ static Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
 class TTIRDMAReadRewriter : public OpConversionPattern<ttir::DMAReadOp> {
 public:
   TTIRDMAReadRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                      const ttir::AssociatedDMAWaits *associatedDMAWaits)
+                      const ttir::AssociatedDMAWaits *associatedDMAWaits,
+                      const ttir::CBProducerConsumer *cbProducerConsumer)
       : OpConversionPattern<ttir::DMAReadOp>(typeConverter, context),
-        associatedDMAWaits(associatedDMAWaits) {}
+        associatedDMAWaits(associatedDMAWaits),
+        cbProducerConsumer(cbProducerConsumer) {}
 
   LogicalResult
   matchAndRewrite(ttir::DMAReadOp op, ttir::DMAReadOpAdaptor adaptor,
@@ -666,8 +891,14 @@ public:
     auto srcNocAddr =
         buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
                         op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
-    auto dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
+    auto dstCBMapping = cbProducerConsumer->get(op.getDst());
+    TT_assertv((dstCBMapping == ttir::ThreadCBOrientation::Producer ||
+                dstCBMapping == ttir::ThreadCBOrientation::Default),
+               "Expected dst cb of a read op to have a producer or default "
+               "orientation, failing.");
+    Value dstL1Addr = buildL1Address<ttkernel::GetWritePtrOp>(
         rewriter, op.getLoc(), adaptor.getDst(), op.getDstIndices());
+
     auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
     rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
                                               dstL1Addr, size);
@@ -690,14 +921,17 @@ public:
 
 private:
   const ttir::AssociatedDMAWaits *associatedDMAWaits;
+  const ttir::CBProducerConsumer *cbProducerConsumer;
 };
 
 class TTIRDMAWriteRewriter : public OpConversionPattern<ttir::DMAWriteOp> {
 public:
   TTIRDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                       const ttir::AssociatedDMAWaits *associatedDMAWaits)
+                       const ttir::AssociatedDMAWaits *associatedDMAWaits,
+                       const ttir::CBProducerConsumer *cbProducerConsumer)
       : OpConversionPattern<ttir::DMAWriteOp>(typeConverter, context),
-        associatedDMAWaits(associatedDMAWaits) {}
+        associatedDMAWaits(associatedDMAWaits),
+        cbProducerConsumer(cbProducerConsumer) {}
 
   LogicalResult
   matchAndRewrite(ttir::DMAWriteOp op, ttir::DMAWriteOpAdaptor adaptor,
@@ -714,8 +948,21 @@ public:
 
       // Both src and dst are local, use the metal cb pointers to determine
       // addressing
-      Value srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(
-          op.getLoc(), adaptor.getSrc());
+      Value srcL1Start;
+      auto srcCBMapping = cbProducerConsumer->get(op.getSrc());
+      if (srcCBMapping == ttir::ThreadCBOrientation::Producer) {
+        srcL1Start = rewriter.create<ttkernel::GetWritePtrOp>(op.getLoc(),
+                                                              adaptor.getSrc());
+      } else {
+        srcL1Start = rewriter.create<ttkernel::GetReadPtrOp>(op.getLoc(),
+                                                             adaptor.getSrc());
+      }
+      auto dstCBMapping = cbProducerConsumer->get(op.getDst());
+      TT_assertv((dstCBMapping == ttir::ThreadCBOrientation::Producer ||
+                  dstCBMapping == ttir::ThreadCBOrientation::ProducerConsumer ||
+                  dstCBMapping == ttir::ThreadCBOrientation::Default),
+                 "Expected dst cb of a write op to have a producer, "
+                 "producer-consumer or default orientation, failing.");
       Value dstL1Start = rewriter.create<ttkernel::GetWritePtrOp>(
           op.getLoc(), adaptor.getDst());
 
@@ -794,6 +1041,7 @@ public:
 
 private:
   const ttir::AssociatedDMAWaits *associatedDMAWaits;
+  const ttir::CBProducerConsumer *cbProducerConsumer;
 };
 } // namespace
 
@@ -1120,36 +1368,49 @@ namespace mlir::tt {
 
 void populateTTIRToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const ttir::AssociatedDMAWaits &associatedDMAWaits) {
+    const ttir::AssociatedDMAWaits &associatedDMAWaits,
+    const ttir::CBProducerConsumer &cbProducerConsumer) {
   // clang-format off
   patterns.add<ttkernel::TTIRKernelFunctionArgsRewriter,
 
                // Elementwise FPU.
                ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp>,
+               ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulBlockOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileSubOp>,
 
-               // Elementwise SFPU.
+               // Elementwise SFPU Unary.
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileAbsOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileCeilOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileCosOp>,
-               ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileExpOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileFloorOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileGeluOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLogOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLogicalNotOp>,
-               ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileNegativeOp>,
-               ttkernel::TTIRSFPUOpsRewriter<ttir::TilePowOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileRecipOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileRsqrtOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSqrtOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSigmoidOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileSinOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileTanOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileEqzOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileNezOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileGtzOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileGezOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileLtzOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileLezOp>,
+
+               // Elementwise SFPU Binary.
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileSubBinaryOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TilePowOp>,
 
                ttkernel::TTIRTilizeUntilizeRewriter,
+               ttkernel::TTIRTileTransposeRewriter,
                ttkernel::TTIRTypecastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::MemrefLoadRewriter,
@@ -1165,8 +1426,8 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSemaphoreUpdateRewriter<ttir::SemaphoreIncOp>,
                ttkernel::TTIRSemaphoreWaitRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::TTIRDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits);
-  patterns.add<ttkernel::TTIRDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits);
+  patterns.add<ttkernel::TTIRDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
+  patterns.add<ttkernel::TTIRDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   // clang-format on
 }
 

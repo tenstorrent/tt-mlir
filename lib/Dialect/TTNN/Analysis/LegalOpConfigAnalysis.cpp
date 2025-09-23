@@ -34,7 +34,7 @@ applyConv2dConfigOverrides(ttnn::Conv2dOp op,
   if (!conv2dConfigAttr) {
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                  "Conv2d config not set, using default");
-    conv2dConfigAttr = Conv2dConfigAttr::getEmpty(op.getContext());
+    conv2dConfigAttr = Conv2dConfigAttr::get(op.getContext());
   }
   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                "Conv2d config before overrides: {}", conv2dConfigAttr);
@@ -107,11 +107,6 @@ applyConv2dConfigOverrides(ttnn::Conv2dOp op,
         *overrides.enableWeightsDoubleBuffer);
   }
 
-  if (overrides.enableSplitReader.has_value()) {
-    conv2dConfigAttr =
-        conv2dConfigAttr.withEnableSplitReader(*overrides.enableSplitReader);
-  }
-
   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                "Conv2d config after overrides: {}", conv2dConfigAttr);
 
@@ -175,7 +170,7 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
         analysisResult.begin()->isAttrUninitialized()
             ? (conv2dOp.getConv2dConfigAttr()
                    ? conv2dOp.getConv2dConfigAttr()
-                   : Conv2dConfigAttr::getEmpty(op->getContext()))
+                   : Conv2dConfigAttr::get(op->getContext()))
             : std::get<Conv2dAttrs>(analysisResult.begin()->opSpecificAttrs)
                   .conv2dConfig.value();
 
@@ -194,14 +189,11 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
       //
       // Combinations that are invalid:
       // 1. reshard_if_not_optimal = true and shard_layout is not set.
-      // 2. enable_split_reader = true and act_block_h_override < 64.
       //
       return (config.hasReshardIfNotOptimal() &&
               config.getReshardIfNotOptimal().getValue() &&
               !config.hasShardLayout()) ||
-             (config.hasEnableSplitReader() &&
-              config.getEnableSplitReader().getValue() &&
-              config.getActBlockHOverride().value_or(0) < 64);
+             (config.getActBlockHOverride().value_or(0) < 64);
     };
 
     Conv2dConfigGenerator configGenerator(&conv2dOp, conv2dConfigAttrBase,

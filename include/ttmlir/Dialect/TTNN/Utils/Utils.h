@@ -10,8 +10,6 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
-#include "llvm/Support/CommandLine.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
@@ -78,6 +76,9 @@ void irToFile(mlir::Operation *op, std::string filename);
 // dims to tile size (32). E.g. (1, 2, 16, 16) -> (1, 2, 32, 32).
 llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape);
 
+// Extract input layouts from operation operands, skipping device type operands.
+std::vector<TTNNLayoutAttr> extractInputLayouts(Operation *op);
+
 // Helper method to create a ShardSpecAttr if needed.
 std::optional<ShardSpecAttr>
 createShardSpecIfNeeded(TTNNLayoutAttr layout,
@@ -91,11 +92,7 @@ createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
                         mlir::tt::ttcore::GridAttr deviceGrid);
 
 bool isTTNNTraceFunc(func::FuncOp funcOp);
-
-// Converts TTNNLayoutAttr to RowMajor layout and returns new layout.
-TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
-                                           TTNNLayoutAttr layout,
-                                           llvm::ArrayRef<int64_t> shape);
+bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op);
 
 // Returns all TTNN dialect registered operations.
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context);
@@ -111,6 +108,8 @@ bool producesL1Layout(Operation *op);
 
 // Check if operation's first result uses tiled tensor layout.
 bool producesTiledTensorLayout(Operation *op);
+
+mlir::RankedTensorType getTraceIdType(MLIRContext *ctx);
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

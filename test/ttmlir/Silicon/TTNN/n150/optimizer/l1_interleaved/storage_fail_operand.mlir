@@ -16,6 +16,11 @@ module @L1InterleavedTestLargeTensorInput attributes {} {
     %2 = ttir.empty() : tensor<5120x5120xbf16>
     %3 = "ttir.add"(%1, %arg1, %2) : (tensor<5120x5120xbf16>, tensor<5120x5120xbf16>, tensor<5120x5120xbf16>) -> tensor<5120x5120xbf16>
 
-    return %3 : tensor<5120x5120xbf16>
+    // As output is the return value, not beneficial to move to L1, will always stay in DRAM.
+    // CHECK: "ttnn.add"{{.*}} -> tensor<5120x5120xbf16, #[[DRAM_LAYOUT]]>
+    %4 = ttir.empty() : tensor<5120x5120xbf16>
+    %5 = "ttir.add"(%3, %arg1, %4) : (tensor<5120x5120xbf16>, tensor<5120x5120xbf16>, tensor<5120x5120xbf16>) -> tensor<5120x5120xbf16>
+
+    return %5 : tensor<5120x5120xbf16>
   }
 }

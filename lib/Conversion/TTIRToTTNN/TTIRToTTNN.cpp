@@ -74,8 +74,8 @@ public:
       // Replace op
       //
       rewriter.replaceOpWithNewOp<ttnn::ZerosOp>(
-          op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
-          dTypeAttr, tensorLayoutAttr, /*device=*/nullptr,
+          op, this->getTypeConverter()->convertType(op.getType()),
+          /*device=*/nullptr, shapeAttr, dTypeAttr, tensorLayoutAttr,
           /*memoryConfig=*/nullptr);
       // Otherwise, we use regular empty op, with device-specific fields.
     } else {
@@ -94,8 +94,8 @@ public:
       // Replace op
       //
       rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
-          op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
-          dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
+          op, this->getTypeConverter()->convertType(op.getType()), device,
+          shapeAttr, dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
     }
     return success();
   }
@@ -151,8 +151,8 @@ public:
                   : nullptr;
 
     rewriter.replaceOpWithNewOp<TTNNType>(
-        op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
-        dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
+        op, this->getTypeConverter()->convertType(op.getType()), device,
+        shapeAttr, dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
 
     return success();
   }
@@ -490,7 +490,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::SoftmaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getDimension());
+        adaptor.getInput(), adaptor.getDimension(), adaptor.getNumericStable());
     return success();
   }
 };
@@ -866,9 +866,41 @@ public:
       return legalityResult;
     }
 
+    // Get ttnn::TTNNLayoutAttr of the result type
+    //
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+
+    // Get the data type and tensor layout
+    //
+    ttcore::DataType dtype = layoutAttr.getDataType();
+    ttcore::DataTypeAttr dTypeAttr =
+        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype);
+
+    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+
+    if (layoutAttr.isTiled()) {
+      ttnnLayoutEnum = ttnn::Layout::Tile;
+    }
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+
+    mlir::Value device = nullptr;
+    ttnn::MemoryConfigAttr memoryConfigAttr = nullptr;
+
+    if (!mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
+      device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+      ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
+          op.getContext(), layoutAttr.getBufferType());
+      memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+          op.getContext(), layoutAttr.getMemLayout(), bufferTypeAttr,
+          std::nullopt);
+    }
+
     rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getValue());
+        op, this->getTypeConverter()->convertType(op.getType()), device,
+        adaptor.getValue(), dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
 
     return success();
   }
@@ -1108,15 +1140,25 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConvTranspose2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
+    if (!adaptor.getFlattenedCompatInfo()) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "Please run the FlattenSlidingWindow pass before lowering to TTNN.");
+    }
+    auto flattenedCompatInfo = adaptor.getFlattenedCompatInfo();
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     auto outputTy = op.getResult().getType();
 
-    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
-    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
-    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
+    auto batchSizeAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getBatchSize());
+    auto inputHeightAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputHeight());
+    auto inputWidthAttr =
+        rewriter.getI32IntegerAttr(flattenedCompatInfo.getInputWidth());
     auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
     auto outChannelsAttr = rewriter.getI32IntegerAttr(outputTy.getDimSize(3));
 
@@ -1167,28 +1209,14 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Transposed convolution in ttnn returns a tensor in a flattened shape
-    // (1 x 1 x N * H * W x C).
-    llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
-    llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
-        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
-    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
-
-    ttnn::ConvTranspose2dOp newConv = rewriter.create<ttnn::ConvTranspose2dOp>(
-        op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
-        adaptor.getBias(), device, inChannelsAttr, outChannelsAttr,
-        batchSizeAttr, inputHeightAttr, inputWidthAttr, kernelSizeAttr,
-        *strideAttr, reducedPaddingAttr, *outputPaddingAttr, *dilationAttr,
-        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+    rewriter.replaceOpWithNewOp<ttnn::ConvTranspose2dOp>(
+        op, getTypeConverter()->convertType(outputTy), adaptor.getInput(),
+        adaptor.getWeight(), adaptor.getBias(), device, inChannelsAttr,
+        outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
+        kernelSizeAttr, *strideAttr, reducedPaddingAttr, *outputPaddingAttr,
+        *dilationAttr, groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
         /*memoryConfig=*/nullptr);
 
-    // Restore the normal shape (N x H x W x C).
-    Value output = ttir_to_ttnn::utils::generateReshape(
-        newConv, outputShape, rewriter,
-        ttmlir::utils::appendLocationSuffix(op->getLoc(), "_reshape"));
-
-    rewriter.replaceOp(op, output);
     return success();
   }
 
@@ -1468,22 +1496,31 @@ public:
 
     // Get ttnn::TTNNLayoutAttr of the result type
     //
-    ttnn::TTNNLayoutAttr layoutAttr =
+    ttnn::TTNNLayoutAttr ttnnLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
 
     ttcore::DataTypeAttr dtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
         ttcore::elementTypeToDataType(outputType.getElementType()));
     Value device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
 
+    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+
+    if (ttnnLayoutAttr.isTiled()) {
+      ttnnLayoutEnum = ttnn::Layout::Tile;
+    }
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+
     ttnn::MemoryConfigAttr memConfigAttr =
         rewriter.getAttr<ttnn::MemoryConfigAttr>(
-            layoutAttr.getMemLayout(),
-            rewriter.getAttr<ttnn::BufferTypeAttr>(layoutAttr.getBufferType()),
+            ttnnLayoutAttr.getMemLayout(),
+            rewriter.getAttr<ttnn::BufferTypeAttr>(
+                ttnnLayoutAttr.getBufferType()),
             std::nullopt);
 
     rewriter.replaceOpWithNewOp<ttnn::ArangeOp>(
-        op, outputType, adaptor.getStart(), adaptor.getEnd(), adaptor.getStep(),
-        dtypeAttr, device, memConfigAttr);
+        op, outputType, device, adaptor.getStart(), adaptor.getEnd(),
+        adaptor.getStep(), dtypeAttr, tensorLayoutAttr, memConfigAttr);
 
     return success();
   }
@@ -1526,9 +1563,9 @@ public:
         rewriter.getContext(), op.getResult().getType().getShape());
 
     rewriter.replaceOpWithNewOp<ttnn::RandOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), sizeAttr,
-        device, dTypeAttr, tensorLayoutAttr, memoryConfigAttr,
-        adaptor.getLowAttr(), adaptor.getHighAttr(), adaptor.getSeedAttr());
+        op, this->getTypeConverter()->convertType(op.getType()), device,
+        sizeAttr, adaptor.getLowAttr(), adaptor.getHighAttr(),
+        adaptor.getSeedAttr(), dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
     return success();
   }
 };

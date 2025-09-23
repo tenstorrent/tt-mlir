@@ -16,6 +16,11 @@ enum Arch: uint {
   Blackhole
 }
 
+enum DispatchCoreType: uint {
+  Worker,
+  Ethernet
+}
+
 enum DataType: uint16 {
   Float32,
   Float16,
@@ -146,6 +151,11 @@ enum MathFidelity : uint8 {
   HiFi4 = 4,
 }
 
+enum UnpackToDestMode : uint8 {
+  Fp32,
+  Default,
+}
+
 table DynamicLib {
   dylib_id: uint32;
   raw_file: [uint8];
@@ -154,4 +164,16 @@ table DynamicLib {
 table MLIR {
   name: string;
   source: string;
+}
+
+enum MeshShardDirection: uint32 {
+  FullToShardShape,
+  ShardToFullShape,
+}
+
+enum MeshShardType: uint32 {
+  Identity,
+  Replicate,
+  Maximal,
+  Devices,
 }

@@ -14,18 +14,6 @@ enum StorageType: ushort {
     Device,
 }
 
-enum MeshShardDirection: uint32 {
-  FullToShardShape,
-  ShardToFullShape,
-}
-
-enum MeshShardType: uint32 {
-  Identity,
-  Replicate,
-  Maximal,
-  Devices,
-}
-
 enum ShardOrientation: uint32 {
   RowMajor,
   ColMajor,
@@ -66,17 +54,6 @@ table AllGatherTensor {
 
 }
 
-union DistributedTensorConfig {
-  ReplicateTensor,
-  ShardTensor,
-  ShardTensor2D,
-  AllGatherTensor
-}
-
-table DistributionStrategy {
-  strategy: DistributedTensorConfig;
-}
-
 table ShardSpec {
   core_range_set: CoreRangeSet;
   shape: [int32];
@@ -96,13 +73,11 @@ table MemoryDesc {
   tile_shape: Dim2d;
   data_type: DataType;
   memory_config: MemoryConfig;
-  size: uint64;
 }
 
 table LayoutDesc {
   oob_val: OOBVal;
   memory_desc: MemoryDesc;
-  strategy: DistributionStrategy;
 }
 
 table TensorDesc {
@@ -113,6 +88,5 @@ table TensorDesc {
 
 table TensorRef {
   global_id: uint32;
-  size: uint64;
   desc: TensorDesc;
 }

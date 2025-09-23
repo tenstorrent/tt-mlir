@@ -6,11 +6,10 @@
 #define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 
 #include "tt-metalium/bfloat16.hpp"
+#include "ttnn/common/queue_id.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
-#include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/ccl/ccl_host_types.hpp"
-#include "ttnn/operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "ttnn/operations/conv/conv_transpose2d/conv_transpose2d.hpp"
@@ -38,6 +37,8 @@
 #include "ttnn/operations/reduction/argmax/argmax.hpp"
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/operations/reduction/prod/prod.hpp"
+#include "ttnn/operations/trace.hpp"
+#include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
@@ -62,7 +63,8 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static constexpr std::size_t l1SmallSize = 1 << 15;
+  static constexpr std::size_t l1SmallSize = 1 << 15;     // 32 kB
+  static constexpr std::size_t traceRegionSize = 1 << 20; // 1 MB
 
   static ttnn::MeshDevice *getInstance() {
     // If we have an external device, use it.
@@ -72,7 +74,7 @@ public:
     }
 
     static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
-        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize);
+        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, traceRegionSize);
     hasOwnedDevice = true;
     return ownedInstance.get();
   }

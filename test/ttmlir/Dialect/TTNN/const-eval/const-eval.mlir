@@ -149,7 +149,8 @@ module {
 
   // CHECK-LABEL: func.func @non_splat_constant_const_eval_0
   // CHECK: = "ttnn.get_device"
-  // CHECK: = "ttnn.constant"() <{value = dense<{{\[\[}}1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]> : tensor<2x2xbf16>}>
+  // CHECK: = "ttnn.constant"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, value = dense<{{\[\[}}1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]>
+  // CHECK: = "ttnn.neg"
 
   // CHECK: func.func @non_splat_constant(
   func.func @non_splat_constant(%arg0: tensor<2x2xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<2x2xbf16> {
@@ -157,9 +158,11 @@ module {
     // Create a non-splat constant with different values
     %0 = "ttir.constant"() <{value = dense<[[1.0, 2.0], [3.0, 4.0]]> : tensor<2x2xbf16>}> : () -> tensor<2x2xbf16>
     %1 = ttir.empty() : tensor<2x2xbf16>
+    %2 = "ttir.neg"(%0, %1) : (tensor<2x2xbf16>, tensor<2x2xbf16>) -> tensor<2x2xbf16>
+    %3 = ttir.empty() : tensor<2x2xbf16>
     // CHECK: = "ttnn.add"(%arg0, %{{.*}})
-    %2 = "ttir.add"(%arg0, %0, %1) : (tensor<2x2xbf16>, tensor<2x2xbf16>, tensor<2x2xbf16>) -> tensor<2x2xbf16>
-    return %2 : tensor<2x2xbf16>
+    %4 = "ttir.add"(%arg0, %2, %3) : (tensor<2x2xbf16>, tensor<2x2xbf16>, tensor<2x2xbf16>) -> tensor<2x2xbf16>
+    return %4 : tensor<2x2xbf16>
   }
 
   // CHECK-LABEL: func.func @creation_ops_const_eval_0

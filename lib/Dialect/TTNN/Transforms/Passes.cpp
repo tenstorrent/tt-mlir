@@ -186,10 +186,12 @@ public:
         rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
 
-      if (!funcOp->getUses().empty()) {
-        mlir::WalkResult::skip();
+      if (funcOp.isPrivate() || ttmlir::utils::isConstEvalFunc(funcOp)) {
+        return mlir::WalkResult::skip();
       }
+
       forwardFuncOps.push_back(funcOp);
+      return mlir::WalkResult::advance();
     });
 
     // Iterate over all func ops and add input tensor generator functions.
@@ -340,9 +342,9 @@ private:
 
     // Create a new tensor of ones.
     //
-    ttnn::OnesOp onesOp =
-        rewriter.create<ttnn::OnesOp>(loc, tensorType, shapeAttr, dTypeAttr,
-                                      tensorLayoutAttr, nullptr, nullptr);
+    ttnn::OnesOp onesOp = rewriter.create<ttnn::OnesOp>(
+        loc, tensorType, /*device=*/nullptr, shapeAttr, dTypeAttr,
+        tensorLayoutAttr, /*memory_config=*/nullptr);
 
     // If tensor is meant to be on device, add ToDevice op.
     //

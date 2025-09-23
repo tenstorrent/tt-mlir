@@ -24,6 +24,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttmlir/Version.h"
+#include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types_generated.h"
@@ -36,7 +37,6 @@
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
-using ::tt::tt_metal::DistributedTensorConfig;
 
 static tt::runtime::MemoryView
 createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
@@ -118,10 +118,6 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
   }
 }
 
-static ::tt::runtime::Tensor createNullTensor() {
-  return ::tt::runtime::Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
-}
-
 static ::tt::runtime::Tensor
 toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
                    bool untilize, bool blocking) {
@@ -139,7 +135,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
         hostTensor, /*meshEvent=*/std::nullopt, shouldRetain);
   }
 
-  ::ttnn::MeshDevice *meshDevice = inputTensor.mesh_device();
+  ::ttnn::MeshDevice *meshDevice = inputTensor.device();
   LOG_ASSERT(meshDevice, "Device tensor must live on a mesh device");
 
   // If untilize is true and the data type can be untilized on device
@@ -199,7 +195,12 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
                          const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType) {
-  LOG_ASSERT(data != nullptr, "Cannot create borrowed tensor with null data");
+  LOG_ASSERT(
+      data != nullptr ||
+          (shape.size() == 0 ||
+           std::accumulate(shape.begin(), shape.end(), 1,
+                           std::multiplies<std::uint32_t>()) == 0),
+      "Cannot create borrowed tensor with null data unless the volume is 0.");
   LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
              "Cannot create borrowed tensor with unsupported data type");
   ::ttnn::Shape ttnnShape(shape);
@@ -250,21 +251,8 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                    return utils::getTTNNTensorFromRuntimeTensor(tensorShard);
                  });
 
-  DistributedTensorConfig distributionStrategy =
-      ::tt::tt_metal::get_distributed_tensor_config(strategy);
-
   LOG_ASSERT(meshShape.size() == 2, "Only 2D mesh shape supported for now.");
   ::ttnn::MeshShape ttnnMeshShape(meshShape[0], meshShape[1]);
-
-  if (auto *shard2dConfig =
-          std::get_if<::tt::tt_metal::ShardTensor2D>(&distributionStrategy)) {
-    ::ttnn::MeshShape configMeshShape(shard2dConfig->shard_mesh.y,
-                                      shard2dConfig->shard_mesh.x);
-    LOG_ASSERT(
-        ttnnMeshShape == configMeshShape,
-        "Mesh shape mismatch between device mesh shape and config mesh shape",
-        ttnnMeshShape, " != ", configMeshShape);
-  }
 
   ::ttnn::Tensor multiDeviceHostTensor =
       ::ttnn::distributed::from_host_shards(ttnnTensorShards, ttnnMeshShape);
@@ -773,7 +761,8 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
 
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
                                Layout layout, std::optional<bool> retain) {
-  const LayoutDesc tensorLayoutDesc = LayoutDesc::fromTensor(tensor);
+  const std::shared_ptr<LayoutDesc> tensorLayoutDesc =
+      LayoutDesc::fromTensor(tensor);
 
   const LayoutDesc &desiredLayoutDesc =
       layout.as<LayoutDesc>(DeviceRuntime::TTNN);
@@ -787,7 +776,7 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   const ::ttnn::Tensor &ttnnTensor = tensorWrapper.getTensor();
   bool shouldRetain = retain.value_or(tensorWrapper.shouldRetain());
 
-  LayoutConverter converter(tensorLayoutDesc, desiredLayoutDesc);
+  LayoutConverter converter(*tensorLayoutDesc, desiredLayoutDesc);
   ::ttnn::Tensor out = converter.convertTensorLayout(ttnnTensor, meshDevice);
 
   ::tt::runtime::Tensor result = utils::createRuntimeTensorFromTTNN(
@@ -928,16 +917,48 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return std::string(opContext.loc_info()->c_str());
 }
 
-::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
-                                        CallbackContext programContextHandle) {
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
+  std::unordered_map<std::uint32_t, Tensor> perDeviceOutputTensors;
   std::optional<tt::runtime::TensorRef> tensorRef =
       getOpOutputRef(opContextHandle, programContextHandle);
   if (!tensorRef) {
-    return createNullTensor();
+    return perDeviceOutputTensors;
   }
-  auto tensor = ::tt::runtime::ttnn::retrieveTensorFromPool(
-      programContextHandle, *tensorRef, true);
-  return tensor ? *tensor : createNullTensor();
+
+  const auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+
+  const auto *tensorRefPtr =
+      &tensorRef->as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+
+  if (!tensorRefPtr) {
+    LOG_WARNING("Tensor ref pointer is null when retrieving tensor");
+    return perDeviceOutputTensors;
+  }
+
+  if (!tensorPool.contains(tensorRefPtr)) {
+    LOG_WARNING("Tensor not found in tensor pool when retrieving tensor");
+    return perDeviceOutputTensors;
+  }
+
+  // Assumption: get_device_tensors returns tensors in row major order so each
+  // index of the output list is the logical device id. If you print out the
+  // physical device ids of the TTNN::tensor object, they will be different from
+  // the logical device ids.
+  ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
+      tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
+  std::vector<tt::runtime::Tensor> hostTensors =
+      ::tt::runtime::ttnn::toHost(outTensor, true);
+
+  for (size_t i = 0; i < hostTensors.size(); ++i) {
+    perDeviceOutputTensors[i] = hostTensors[i];
+  }
+
+  return perDeviceOutputTensors;
 }
 
 std::optional<tt::runtime::TensorRef>
@@ -1161,6 +1182,22 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ConcatenateHeadsOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
+    tensorRef = opContext.type_as_RotaryEmbeddingLlamaOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
+    tensorRef = opContext.type_as_NLPConcatHeadsOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LoadTensorOp: {
+    tensorRef = opContext.type_as_LoadTensorOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
+    tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1169,11 +1206,17 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::WriteTensorOp:
   case ::tt::target::ttnn::OpType::EndTraceCaptureOp:
   case ::tt::target::ttnn::OpType::ExecuteTraceOp:
-  case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp: {
+  case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
+  case ::tt::target::ttnn::OpType::DumpTensorOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
     return std::nullopt;
+  }
+  case ::tt::target::ttnn::OpType::GenericOp: {
+    auto size = opContext.type_as_GenericOp()->io_tensors()->size();
+    tensorRef = opContext.type_as_GenericOp()->io_tensors()->Get(size - 1);
+    break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Invalid op type");
@@ -1468,6 +1511,34 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_ConcatenateHeadsOp()->in()};
     break;
   }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
+    tensorRefs = {opContext.type_as_NLPConcatHeadsOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
+    tensorRefs = {opContext.type_as_NLPConcatHeadsDecodeOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GenericOp: {
+    for (const auto *input : *opContext.type_as_GenericOp()->io_tensors()) {
+      tensorRefs.push_back(input);
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
+    tensorRefs = {opContext.type_as_RotaryEmbeddingLlamaOp()->input(),
+                  opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
+                  opContext.type_as_RotaryEmbeddingLlamaOp()->sin_cache(),
+                  opContext.type_as_RotaryEmbeddingLlamaOp()->trans_mat()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DumpTensorOp: {
+    tensorRefs = {opContext.type_as_DumpTensorOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LoadTensorOp: {
+    break;
+  }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Invalid op type");
     break;
@@ -1557,10 +1628,30 @@ void updateTensorInPool(CallbackContext programContextHandle,
   ::ttnn::Tensor &dstTensor = tensorPool.getTTNNTensorAndValidate(tensorRefPtr);
   srcTensor = ::ttnn::to_layout(srcTensor, dstTensor.layout());
   if (utils::isOnDevice(dstTensor.storage_type())) {
-    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.mesh_device(),
+    srcTensor = ::ttnn::to_device(srcTensor, dstTensor.device(),
                                   dstTensor.memory_config());
   }
   tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
 }
 
+void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
+  ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
+  ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);
+}
+
+::tt::runtime::Tensor loadTensor(const std::string &filePath,
+                                 std::optional<Device> device) {
+
+  ::ttnn::MeshDevice *devicePtr = nullptr;
+  if (device.has_value()) {
+    devicePtr = &device->as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  }
+
+  ::ttnn::Tensor metalTensor =
+      ::tt::tt_metal::load_tensor_flatbuffer(filePath, devicePtr);
+
+  auto tensor = utils::createRuntimeTensorFromTTNN(metalTensor);
+
+  return tensor;
+}
 } // namespace tt::runtime::ttnn

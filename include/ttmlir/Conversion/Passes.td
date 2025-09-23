@@ -109,7 +109,6 @@ def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect"];
   let constructor = "createTTIRToTTIRGenericPass()";
   let options = [
-      Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"true", "Use tile_matmul">,
       Option<"defaultInputMemSpace", "default-input-memspace", "ttcore::MemorySpace", /*default=*/"ttcore::MemorySpace::DeviceL1", "Set default memspace for input tensors",
           [{::llvm::cl::values(
             clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
@@ -135,6 +134,17 @@ def ConvertTTIRToTTMetal: Pass<"convert-ttir-to-ttmetal", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to TTMetal dialect.";
   let constructor = "createConvertTTIRToTTMetalPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect"];
+  let options = [
+    Option<"mathFidelity", "math-fidelity", "mlir::tt::ttmetal::MathFidelity",
+           /*default=*/"mlir::tt::ttmetal::MathFidelity::HiFi4",
+           "Set the math fidelity for compute kernels",
+           [{::llvm::cl::values(
+             clEnumValN(mlir::tt::ttmetal::MathFidelity::LoFi, "LoFi", "LoFi"),
+             clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi2, "HiFi2", "HiFi2"),
+             clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi3, "HiFi3", "HiFi3"),
+             clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi4, "HiFi4", "HiFi4")
+           )}]>
+  ];
 }
 
 def ConvertTTIRToTTKernel: Pass<"convert-ttir-to-ttkernel", "::mlir::ModuleOp"> {
@@ -206,5 +216,10 @@ def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect", "mlir::tosa::TosaDialect"];
 }
 
+def ConvertTTNNToTTIR : Pass<"convert-ttnn-to-ttir", "::mlir::ModuleOp"> {
+let summary = "Convert TTNN dialect to TTIR dialect.";
+  let constructor = "createConvertTTNNToTTIRPass()";
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect", "mlir::tt::ttir::TTIRDialect"];
+}
 
 #endif // TTMLIR_CONVERSION_PASSES

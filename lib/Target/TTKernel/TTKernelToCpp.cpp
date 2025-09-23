@@ -8,6 +8,7 @@
 
 #include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_tilize_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_untilize_llks_generated.h"
 
@@ -39,6 +40,9 @@ public:
     builder->create<emitc::IncludeOp>(loc, "cstdint",
                                       /*isStandard=*/true);
 
+    builder->create<emitc::IncludeOp>(loc, "tools/profiler/kernel_profiler.hpp",
+                                      /*isStandard=*/false);
+
     emitDebugPrint();
 
     if (threadType == ThreadType::Noc) {
@@ -54,9 +58,14 @@ public:
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/matmul.h",
                                         /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/bcast.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/tilize.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/untilize.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "compute_kernel_api/transpose_wh.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc,
                                         "compute_kernel_api/eltwise_binary.h",
@@ -100,7 +109,16 @@ public:
           loc, "compute_kernel_api/eltwise_unary/trigonometry.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/gelu.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/logical_not_noti.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/comp.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/rsqrt.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/typecast.h",
@@ -180,6 +198,13 @@ void dprint(Arg &&arg, ArgV&&... argv) {
           StringRef(experimental_dataflow_api_generated,
                     experimental_dataflow_api_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalDataflowLLKs);
+    }
+
+    if (hasCall("experimental::matmul_block")) {
+      auto experimentalMatmulLLKs =
+          StringRef(experimental_matmul_llks_generated,
+                    experimental_matmul_llks_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalMatmulLLKs);
     }
 
     if (hasVerbatim("experimental::invoke_sfpi")) {

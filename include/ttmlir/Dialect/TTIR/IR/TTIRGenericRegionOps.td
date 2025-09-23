@@ -45,11 +45,17 @@ def RegisterDstMemRef : Type<
 
 def DeviceOrRegisterMemRef : AnyTypeOf<[DeviceMemRef, RegisterDstMemRef]>;
 
+// Allow either device/register memrefs or ranked tensors for generic region block ops.
+def DeviceOrRegisterMemRefOrAnyRankedTensor : AnyTypeOf<[
+  DeviceOrRegisterMemRef,
+  AnyRankedTensor
+]>;
+
 class TTIR_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, [TTIR_GenericParent] # traits> {}
 
 class TTIR_GenericRegionComputeOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadRegisterOpInterface] # traits> {}
+    TTIR_GenericRegionOp<mnemonic, [TTIR_GenericRegionComputeOpTrait, TTIR_OperandLoadStoreRegisterOpInterface] # traits> {}
 
 class TTIR_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = []> :
     TTIR_GenericRegionComputeOp<mnemonic, traits> {
@@ -58,6 +64,7 @@ class TTIR_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = 
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       return {0};
     }
+     bool getDstRegInPlace() { return true; }
   }];
 }
 
@@ -233,6 +240,16 @@ def TTIR_TileSigmoidOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_sigmoid"> {
     let results = (outs TTCore_Tile:$result);
 }
 
+def TTIR_TileGeluOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gelu"> {
+    let summary = "TTIR Tile GELU Op";
+    let description = [{
+        The `tile_gelu` operation computes the GELU (Gaussian Error Linear Unit) of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def TTIR_TileCeilOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ceil"> {
     let summary = "TTIR Tile Ceil Op";
     let description = [{
@@ -267,6 +284,77 @@ def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_no
     let summary = "TTIR Tile Logical Not Op";
     let description = [{
         The `tile_logical_not` operation computes the logical negation of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileSubBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub_binary"> {
+    let summary = "TTIR Tile Subtract Binary Op";
+    let description = [{
+        The `tile_sub_binary` operation uses the SFPU to subtract two tiles element-wise.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs,
+                         TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileEqzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_eqz"> {
+    let summary = "TTIR Tile Eqz Op";
+    let description = [{
+        The `tile_eqz` operation checks if each element in the input tile == 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileNezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_nez"> {
+    let summary = "TTIR Tile Nez Op";
+    let description = [{
+        The `tile_nez` operation checks if each element in the input tile != 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileGtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gtz"> {
+    let summary = "TTIR Tile Gtz Op";
+    let description = [{
+        The `tile_gtz` operation checks if each element in the input tile > 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileGezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_gez"> {
+    let summary = "TTIR Tile Gez Op";
+    let description = [{
+        The `tile_gez` operation checks if each element in the input tile >= 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileLtzOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_ltz"> {
+    let summary = "TTIR Tile Ltz Op";
+    let description = [{
+        The `tile_ltz` operation checks if each element in the input tile < 0
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def TTIR_TileLezOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_lez"> {
+    let summary = "TTIR Tile Lez Op";
+    let description = [{
+        The `tile_lez` operation checks if each element in the input tile <= 0
     }];
 
     let arguments = (ins TTCore_Tile:$input);
@@ -320,36 +408,59 @@ def TTIR_TileMatmulOp : TTIR_GenericRegionComputeOp<"tile_matmul"> {
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
       return {2};
     }
+    bool getDstRegInPlace() {
+      return true;
+    }
   }];
 }
 
 def TTIR_TileMatmulBlockOp : TTIR_GenericRegionComputeOp<"tile_matmul_block",
-  [DestinationStyleOpInterface, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "TTIR Tile Matmul Block Op";
     let description = [{
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.
     }];
 
-    let arguments = (ins DeviceL1MemRef:$a,
-                         DeviceL1MemRef:$b,
-                         DeviceL1MemRef:$output);
+    let arguments = (ins AnyRankedTensorOrMemRef:$a,
+                         AnyRankedTensorOrMemRef:$b,
+                         AnyRankedTensorOrMemRef:$output,
+                         OptionalAttr<I64Attr>:$block_m,
+                         OptionalAttr<I64Attr>:$block_k,
+                         OptionalAttr<I64Attr>:$block_n,
+                         OptionalAttr<I64Attr>:$b_block_stride);
+
+    let builders = [
+      OpBuilder<(ins "Value": $a, "Value": $b, "Value": $output), [{
+        build($_builder, $_state, a, b, output, /*block_m=*/nullptr,
+              /*block_k=*/nullptr, /*block_n=*/nullptr,
+              /*b_block_stride=*/nullptr);
+      }]>
+    ];
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      bool hasBlockDims();
     }];
 
     let hasVerifier = 1;
 }
 
 def TTIR_TileTilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_tilize_block",
-  [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
     let summary = "TTIR Tile Tilize Block Op";
     let description = [{
         The `tile_tilize_block` operation tilizes the input row major memref block and outputs the memref containing the tilized data.
     }];
 
-    let arguments = (ins DeviceL1MemRef:$input,
-                         DeviceL1MemRef:$output);
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -359,14 +470,21 @@ def TTIR_TileTilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_tilize_block",
 }
 
 def TTIR_TileUntilizeBlockOp : TTIR_GenericRegionComputeOp<"tile_untilize_block",
-  [DestinationStyleOpInterface, MemoryEffects<[MemRead, MemWrite]>]> {
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
     let summary = "TTIR Tile Untilize Block Op";
     let description = [{
         The `tile_untilize_block` operation untilizes the input tilized memref block and outputs the memref contianing the row major data.
     }];
 
-    let arguments = (ins DeviceL1MemRef:$input,
-                         DeviceL1MemRef:$output);
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -406,6 +524,16 @@ def TTIR_AcquireDstOp : TTIR_GenericRegionComputeOp<"acquire_dst",
     let results = (outs RegisterDstMemRef:$result);
 
     let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
+}
+
+def TTIR_TileTransposeOp : TTIR_GenericRegionComputeOp<"tile_transpose"> {
+    let summary = "TTIR Tile Transpose Op";
+    let description = [{
+        The `tile_transpose` operation computes the transpose of the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
 }
 
 //===----------------------------------------------------------------------===//
@@ -495,6 +623,11 @@ def TTIR_DMAOp : TTIR_GenericRegionDatamovementOp<"dma",
       OpBuilder<(ins "Value": $src, "AffineMapAttr": $srcAffineMap, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
       [{
         build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcAffineMap, ValueRange(), dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape);
+      }]>,
+      // %tx = ttir.dma %src, %dst<#map> core[%c0, %c1] mcast[%c2, %c3]
+      OpBuilder<(ins "Value": $src, "Value": $dst, "AffineMapAttr": $dstAffineMap, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, ValueRange(), dst, dstAffineMap, ValueRange(), nullptr, mcastStartIndex, mcastShape);
       }]>,
       // %tx = ttir.dma %src, %dst<#map>
       OpBuilder<(ins "Value": $src, "Value": $dst, "AffineMapAttr": $dstAffineMap),
@@ -815,7 +948,16 @@ def TTIR_SemaphoreWaitOp : TTIR_GenericRegionOp<"semaphore_wait", [MemoryEffects
 // TTIR Generic Region Control Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [MemoryEffects<[MemRead, MemWrite]>]> {
+def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
     let summary = "Yield op.";
     let description = [{
       Yield operation, return control flow to another thread. Corresponds to a circular buffer push.
@@ -826,6 +968,35 @@ def TTIR_YieldOp : TTIR_GenericRegionOp<"yield", [MemoryEffects<[MemRead, MemWri
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
 
     let hasVerifier = 1;
+
+    let extraClassDefinition = [{
+      bool $cppClass::bufferizesToMemoryRead(
+          mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+        return false;
+      }
+      bool $cppClass::bufferizesToMemoryWrite(
+          mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+        return false;
+      }
+      mlir::bufferization::AliasingValueList $cppClass::getAliasingValues(
+          mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+        mlir::bufferization::AliasingValueList result;
+        return result;
+      }
+      mlir::FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+          mlir::Value, const mlir::bufferization::BufferizationOptions &,
+          const mlir::bufferization::BufferizationState &,
+          ::llvm::SmallVector<mlir::Value> &) {
+        return mlir::failure();
+      }
+      mlir::LogicalResult $cppClass::bufferize(
+          mlir::RewriterBase &rewriter,
+          const mlir::bufferization::BufferizationOptions &,
+          mlir::bufferization::BufferizationState &state) {
+        rewriter.eraseOp(*this);
+        return mlir::success();
+      }
+    }];
 }
 
 def TTIR_AwaitOp : TTIR_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWrite]>]> {
@@ -834,7 +1005,7 @@ def TTIR_AwaitOp : TTIR_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWri
       Await operation, await control flow from another thread. Corresponds to a circular buffer wait.
     }];
 
-    let arguments = (ins Variadic<DeviceL1MemRef>:$values);
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
 
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
 

@@ -51,7 +51,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def_ro("shape", &tt::runtime::TensorDesc::shape)
       .def_ro("stride", &tt::runtime::TensorDesc::stride)
       .def_ro("item_size", &tt::runtime::TensorDesc::itemsize)
-      .def_ro("dtype", &tt::runtime::TensorDesc::dataType);
+      .def_ro("dtype", &tt::runtime::TensorDesc::dataType)
+      .def_ro("physical_volume", &tt::runtime::TensorDesc::physicalVolume);
 
   nb::class_<tt::runtime::MeshDeviceOptions>(m, "MeshDeviceOptions")
       .def(nb::init<>())
@@ -355,11 +356,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       "get_op_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
-        tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
-            opContextHandle, programContextHandle);
-        return tensor.handle.get() == nullptr
-                   ? std::nullopt
-                   : std::optional<tt::runtime::Tensor>(tensor);
+        return tt::runtime::getOpOutputTensor(opContextHandle,
+                                              programContextHandle);
       },
       "Get the output tensor of the op");
   m.def(
@@ -484,6 +482,20 @@ void registerRuntimeBindings(nb::module_ &m) {
       "Copy the data from src tensor to dst tensor");
   m.def("deallocate_tensor", &tt::runtime::deallocateTensor, nb::arg("tensor"),
         nb::arg("force") = false, "Deallocate the tensor memory");
+  m.def(
+      "dump_tensor",
+      [](::tt::runtime::Tensor tensor, const std::string &filePath) {
+        ::tt::runtime::dumpTensor(tensor, filePath);
+      },
+      nb::arg("tensor"), nb::arg("file_path"), "Dump tensor to file");
+  m.def(
+      "load_tensor",
+      [](const std::string &filePath,
+         std::optional<::tt::runtime::Device> device) {
+        return ::tt::runtime::loadTensor(filePath, device);
+      },
+      nb::arg("file_path"), nb::arg("device") = nb::none(),
+      "Load tensor from file");
 
   nb::class_<tt::runtime::debug::Env>(m, "DebugEnv")
       .def_static("get", &tt::runtime::debug::Env::get)

@@ -12,6 +12,7 @@ This guide will cover the following steps:
   - [2. Define the Op in the TTNN backend dialect](#2-define-the-op-in-the-ttnn-backend-dialect)
       - [`TTNNOps.td`](#ttnnopstd)
       - [`TTNNOps.cpp`](#ttnnopscpp)
+      - [Adding constraint/runtime APIs](#adding-constraintruntime-apis)
   - [3. Convert / Implement the Op in the TTNN passes](#3-convert--implement-the-op-in-the-ttnn-passes)
   - [4. Add a compiler unit test for the Op](#4-add-a-compiler-unit-test-for-the-op)
       - [`test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir`](#testttmlirdialectttnnmatmulsimple_matmulmlir)
@@ -104,6 +105,11 @@ section for details, the process is the same.
 ```
 
 For more details on adding ops to the TTNN dialect, refer to [TTNN Dialect Contribution Guidelines](./ttnn-dialect-guidelines.md).
+
+#### Adding constraint/runtime APIs
+We need to implement two APIs when adding a TTNN Op, namely `getOpConstraints` and `getOpRuntime`.
+More details about this can be found [here](./ttnn-op-constraints.md).
+
 
 ## 3. Convert / Implement the Op in the TTNN passes
 

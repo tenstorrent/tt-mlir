@@ -67,7 +67,7 @@ bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
 }
 
 const ::tt::target::ttnn::TTNNBinary *
-getBinary(::tt::runtime::Flatbuffer binary) {
+getBinary(const ::tt::runtime::Flatbuffer &binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
       binary.handle.get());
   LOG_ASSERT(isTTNN, "Unsupported binary format");
@@ -174,6 +174,17 @@ MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
   }
 }
 
+::tt::target::TensorLayout fromTTNNLayout(::ttnn::Layout layout) {
+  switch (layout) {
+  case ::ttnn::Layout::TILE:
+    return ::tt::target::TensorLayout::Tile;
+  case ::ttnn::Layout::ROW_MAJOR:
+    return ::tt::target::TensorLayout::RowMajor;
+  default:
+    LOG_FATAL("Unsupported layout");
+  }
+}
+
 ::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
     ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout) {
 
@@ -186,6 +197,20 @@ MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
     return ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
   case ::tt::target::ttnn::TensorMemoryLayout::BlockSharded:
     return ::ttnn::TensorMemoryLayout::BLOCK_SHARDED;
+  }
+}
+
+::tt::target::ttnn::TensorMemoryLayout
+fromTTNNTensorMemoryLayout(::ttnn::TensorMemoryLayout tensorMemoryLayout) {
+  switch (tensorMemoryLayout) {
+  case ::ttnn::TensorMemoryLayout::INTERLEAVED:
+    return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
+  case ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED:
+    return ::tt::target::ttnn::TensorMemoryLayout::HeightSharded;
+  case ::ttnn::TensorMemoryLayout::WIDTH_SHARDED:
+    return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
+  case ::ttnn::TensorMemoryLayout::BLOCK_SHARDED:
+    return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
   }
 }
 
@@ -205,6 +230,22 @@ MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
   }
 };
 
+::tt::target::BufferType fromTTNNBufferType(::ttnn::BufferType bufferType) {
+
+  switch (bufferType) {
+  case ::ttnn::BufferType::DRAM:
+    return ::tt::target::BufferType::DRAM;
+  case ::ttnn::BufferType::L1:
+    return ::tt::target::BufferType::L1;
+  case ::ttnn::BufferType::SYSTEM_MEMORY:
+    return ::tt::target::BufferType::SystemMemory;
+  case ::ttnn::BufferType::L1_SMALL:
+    return ::tt::target::BufferType::L1Small;
+  case ::ttnn::BufferType::TRACE:
+    return ::tt::target::BufferType::Trace;
+  }
+};
+
 ::ttnn::StorageType
 toTTNNStorageType(::tt::target::ttnn::StorageType storageType) {
   switch (storageType) {
@@ -215,10 +256,17 @@ toTTNNStorageType(::tt::target::ttnn::StorageType storageType) {
   }
 }
 
-::ttnn::Layout
-inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef) {
-  const ::tt::target::Dim2d *tileShape =
-      tensorRef->desc()->layout()->memory_desc()->tile_shape();
+::tt::target::ttnn::StorageType
+fromTTNNStorageType(::ttnn::StorageType storageType) {
+  switch (storageType) {
+  case ::ttnn::StorageType::HOST:
+    return ::tt::target::ttnn::StorageType::Host;
+  case ::ttnn::StorageType::DEVICE:
+    return ::tt::target::ttnn::StorageType::Device;
+  }
+}
+
+::ttnn::Layout inferLayoutFromTileShape(const ::tt::target::Dim2d *tileShape) {
   LOG_ASSERT(isValidTileShape(tileShape));
   if (tileShape->x() == 1 && tileShape->y() == 1) {
     return ::ttnn::Layout::ROW_MAJOR;
@@ -226,14 +274,30 @@ inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef) {
   return ::ttnn::Layout::TILE;
 }
 
+::ttnn::Layout
+inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef) {
+  const ::tt::target::Dim2d *tileShape =
+      tensorRef->desc()->layout()->memory_desc()->tile_shape();
+  return inferLayoutFromTileShape(tileShape);
+}
+
 CoreCoord toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord) {
   return CoreCoord(coreCoord.x(), coreCoord.y());
+}
+
+::tt::target::ttnn::CoreCoord fromTTNNCoreCoord(const CoreCoord &coreCoord) {
+  return ::tt::target::ttnn::CoreCoord(coreCoord.x, coreCoord.y);
 }
 
 CoreRange toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange) {
   CoreCoord start = toTTNNCoreCoord(coreRange.start_coord());
   CoreCoord end = toTTNNCoreCoord(coreRange.end_coord());
   return CoreRange(start, end);
+}
+
+::tt::target::ttnn::CoreRange fromTTNNCoreRange(const CoreRange &coreRange) {
+  return tt::target::ttnn::CoreRange(fromTTNNCoreCoord(coreRange.start_coord),
+                                     fromTTNNCoreCoord(coreRange.end_coord));
 }
 
 CoreRangeSet
@@ -246,6 +310,16 @@ toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
   return CoreRangeSet(coreRanges);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
+fromTTNNCoreRangeSet(flatbuffers::FlatBufferBuilder &fbb,
+                     const CoreRangeSet &coreRangeSet) {
+  std::vector<tt::target::ttnn::CoreRange> coreRanges;
+  for (const CoreRange &coreRange : coreRangeSet.ranges()) {
+    coreRanges.emplace_back(fromTTNNCoreRange(coreRange));
+  }
+  return tt::target::ttnn::CreateCoreRangeSetDirect(fbb, &coreRanges);
+}
+
 ::ttnn::ShardOrientation
 toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation) {
   switch (orientation) {
@@ -256,12 +330,67 @@ toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation) {
   }
 }
 
+::tt::target::ttnn::ShardOrientation
+fromTTNNShardOrientation(::ttnn::ShardOrientation orientation) {
+  switch (orientation) {
+  case ::ttnn::ShardOrientation::ROW_MAJOR:
+    return tt::target::ttnn::ShardOrientation::RowMajor;
+  case ::ttnn::ShardOrientation::COL_MAJOR:
+    return tt::target::ttnn::ShardOrientation::ColMajor;
+  }
+}
+
 ::ttnn::ShardMode toTTNNShardMode(tt::target::ttnn::ShardMode mode) {
   switch (mode) {
   case tt::target::ttnn::ShardMode::Physical:
     return ::ttnn::ShardMode::PHYSICAL;
   case tt::target::ttnn::ShardMode::Logical:
     return ::ttnn::ShardMode::LOGICAL;
+  }
+}
+
+::tt::target::ttnn::ShardMode fromTTNNShardMode(::ttnn::ShardMode mode) {
+  switch (mode) {
+  case ::ttnn::ShardMode::PHYSICAL:
+    return tt::target::ttnn::ShardMode::Physical;
+  case ::ttnn::ShardMode::LOGICAL:
+    return tt::target::ttnn::ShardMode::Logical;
+  }
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
+fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
+                  const ::tt::tt_metal::ShardSpec &ttnnShardSpec) {
+  auto coreRangeSet =
+      ::tt::runtime::ttnn::utils::fromTTNNCoreRangeSet(fbb, ttnnShardSpec.grid);
+  std::vector<int32_t> shape(ttnnShardSpec.shape.begin(),
+                             ttnnShardSpec.shape.end());
+  ::tt::target::ttnn::ShardOrientation orientation =
+      ::tt::runtime::ttnn::utils::fromTTNNShardOrientation(
+          ttnnShardSpec.orientation);
+  ::tt::target::ttnn::ShardMode mode =
+      ::tt::runtime::ttnn::utils::fromTTNNShardMode(ttnnShardSpec.mode);
+
+  std::optional<std::vector<int32_t>> physicalShardShape;
+  if (ttnnShardSpec.physical_shard_shape.has_value()) {
+    physicalShardShape =
+        std::vector<int32_t>(ttnnShardSpec.physical_shard_shape.value().begin(),
+                             ttnnShardSpec.physical_shard_shape.value().end());
+  }
+
+  return ::tt::target::ttnn::CreateShardSpecDirect(
+      fbb, coreRangeSet, &shape, orientation, mode,
+      physicalShardShape.has_value() ? &(physicalShardShape.value()) : nullptr);
+}
+
+CoreType toCoreType(const ::tt::target::ttnn::CoreType &coreType) {
+  switch (coreType) {
+  case ::tt::target::ttnn::CoreType::WORKER: {
+    return ::CoreType::WORKER;
+  }
+  case ::tt::target::ttnn::CoreType::ETH: {
+    return ::CoreType::ETH;
+  }
   }
 }
 
@@ -321,6 +450,31 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
   ::ttnn::MemoryConfig memoryConfig{ttnnMemLayout, ttnnBufferType,
                                     metalShardSpec};
   return std::make_optional(memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
+fromTTNNMemoryConfig(::flatbuffers::FlatBufferBuilder &fbb,
+                     const ::ttnn::MemoryConfig &ttnnMemoryConfig) {
+
+  ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout =
+      ::tt::runtime::ttnn::utils::fromTTNNTensorMemoryLayout(
+          ttnnMemoryConfig.memory_layout());
+
+  ::tt::target::BufferType bufferType =
+      ::tt::runtime::ttnn::utils::fromTTNNBufferType(
+          ttnnMemoryConfig.buffer_type());
+
+  const std::optional<::tt::tt_metal::ShardSpec> &shardSpec =
+      ttnnMemoryConfig.shard_spec();
+  if (!shardSpec.has_value()) {
+    return ::tt::target::ttnn::CreateMemoryConfig(fbb, tensorMemoryLayout,
+                                                  bufferType, /*shard_spec=*/0);
+  }
+
+  auto fbShardSpec = fromTTNNShardSpec(fbb, shardSpec.value());
+
+  return ::tt::target::ttnn::CreateMemoryConfig(fbb, tensorMemoryLayout,
+                                                bufferType, fbShardSpec);
 }
 
 ::tt::runtime::Tensor

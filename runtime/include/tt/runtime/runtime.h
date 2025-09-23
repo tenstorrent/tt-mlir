@@ -15,6 +15,7 @@
 namespace tt::runtime {
 
 namespace system_desc {
+
 SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
@@ -196,8 +197,9 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle);
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
 
 // Returns the reference to the output tensor of the current operation.
 // In case that operation does not have an output tensor, returns nullopt
@@ -226,6 +228,13 @@ void updateTensorInPool(CallbackContext programContextHandle,
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs);
+
+// Dumps tensor data to a file in binary format
+void dumpTensor(Tensor tensor, const std::string &filePath);
+
+// Loads tensor data from a binary file
+Tensor loadTensor(const std::string &filePath,
+                  std::optional<Device> device = std::nullopt);
 
 } // namespace tt::runtime
 

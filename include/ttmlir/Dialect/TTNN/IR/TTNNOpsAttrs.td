@@ -7,6 +7,7 @@
 
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
+include "ttmlir/Dialect/TTNN/Interfaces/TTNNKernelInterface.td"
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
@@ -223,10 +224,9 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   let assemblyFormat = "`<` $bufferType (`,` $tensorMemoryLayout^ )? (`,` $shardSpec^ )? `>`";
 
   let extraClassDeclaration = [{
+    class Builder;
     static MemoryConfigAttr get(ttnn::TTNNLayoutAttr layout, ttcore::GridAttr deviceGrid);
     llvm::ArrayRef<int64_t> getShardShape(bool convertTileToScalar = true) const;
-    MemoryConfigAttr withBufferType(BufferType bufferType);
-    MemoryConfigAttr withMemoryLayout(TensorMemoryLayout memLayout);
   }];
 
   let genVerifyDecl = 1;
@@ -461,7 +461,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     - `output_layout`: Layout of output tensor - TILE_LAYOUT or ROW_MAJOR_LAYOUT (default: TILE_LAYOUT)
     - `enable_act_double_buffer`: Enable activation double buffering for increased performance at cost of higher L1 usage (default: false)
     - `enable_weights_double_buffer`: Enable weights double buffering when using block sharding for increased performance at cost of higher L1 usage (default: false)
-    - `enable_split_reader`: Enable dual concurrent reader kernels instead of one. Only for height sharding, requires act_block_h >= 64 (default: false)
     - `in_place`: Re-use input tensor storage when creating output tensor (default: false)
 
     Example:
@@ -481,14 +480,13 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
       output_layout = tile,
       enable_act_double_buffer = false,
       enable_weights_double_buffer = false,
-      enable_split_reader = false,
       in_place = false
     >
     ```
   }];
 
   let parameters = (ins OptionalParameter<"std::optional<ttcore::DataType>">:$weights_dtype,
-                        OptionalParameter<"StringAttr">:$activation,
+                        OptionalParameter<"UnaryWithParamAttr">:$activation,
                         OptionalParameter<"BoolAttr">:$deallocate_activation,
                         OptionalParameter<"BoolAttr">:$reallocate_halo_output,
                         OptionalParameter<"std::optional<uint32_t>">:$act_block_h_override,
@@ -501,7 +499,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         OptionalParameter<"std::optional<Layout>">:$output_layout,
                         OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
-                        OptionalParameter<"BoolAttr">:$enable_split_reader,
                         OptionalParameter<"BoolAttr">:$in_place);
 
   let builders = [
@@ -509,9 +506,9 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   ];
 
   let extraClassDeclaration = [{
-    static Conv2dConfigAttr getEmpty(::mlir::MLIRContext *context);
+    static Conv2dConfigAttr getDefault(::mlir::MLIRContext *context);
 
-    Conv2dConfigAttr withActivation(StringRef activation) const;
+    Conv2dConfigAttr withActivation(UnaryOpType activation) const;
     Conv2dConfigAttr withWeightsDtype(ttcore::DataType dtype) const;
     Conv2dConfigAttr withDeallocateActivation(bool value) const;
     Conv2dConfigAttr withReallocateHaloOutput(bool value) const;
@@ -525,7 +522,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     Conv2dConfigAttr withOutputLayout(Layout layout) const;
     Conv2dConfigAttr withEnableActDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
-    Conv2dConfigAttr withEnableSplitReader(bool value) const;
     Conv2dConfigAttr withInPlace(bool value) const;
     bool hasActivation() const;
     bool hasWeightsDtype() const;
@@ -543,7 +539,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     bool hasAlwaysPreprocessWeights() const;
     bool hasEnableActDoubleBuffer() const;
     bool hasEnableWeightsDoubleBuffer() const;
-    bool hasEnableSplitReader() const;
     bool hasInPlace() const;
   }];
 
@@ -663,6 +658,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     TTNNLayoutAttr withBufferType(BufferType bufferType);
     TTNNLayoutAttr withMemoryLayout(TensorMemoryLayoutAttr memLayoutAttr);
     TTNNLayoutAttr withMemoryLayout(TensorMemoryLayout memLayout);
+    TTNNLayoutAttr withLayout(Layout layout, ArrayRef<int64_t> tensorShape);
     TTNNLayoutAttr withShardShape(llvm::SmallVector<int64_t> shardShape);
     TTNNLayoutAttr withTensorShape(ArrayRef<int64_t> tensorShape);
     TTNNLayoutAttr withIgnorePhysicalLayout(bool ignorePhysicalLayout);
@@ -688,13 +684,156 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     static llvm::SmallVector<int64_t> calculateLogicalShardShapeForL1Interleaved(ArrayRef<int64_t> tensorShape, Type elementType, mlir::AffineMap linear, ttcore::GridAttr grid);
     llvm::SmallVector<int64_t> getShardShape() const;
     llvm::SmallVector<int64_t> getScalarShardShape() const;
-    AffineMap getIdentityTileLinearMap() const;
     llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
-    AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
     std::pair<std::int64_t, std::int64_t> getDefaultCollapseIntervals() const;
   }];
 
   let genVerifyDecl = 1;
+}
+
+def TTNN_KernelSemaphoreAttr: TTNN_Attr<"KernelSemaphore", "kernel_semaphore"> {
+  let summary = "Kernel semaphore descriptor";
+  let description = [{
+    Kernel semaphore descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "KernelCoreType":$core_type,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
+                        "uint32_t":$initial_value);
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_KernelCBFormatAttr: TTNN_Attr<"KernelCBFormat", "kernel_cb_format"> {
+  let summary = "Kernel CB format descriptor";
+  let description = [{
+    Kernel CB format descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "uint32_t":$buffer_index,
+                        "ttcore::DataType":$dtype,
+                        "uint32_t":$page_size);
+  let assemblyFormat = "`<` struct(params) `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
+  let summary = "Kernel CB descriptor";
+  let description = [{
+    Kernel CB descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "uint32_t":$total_size,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
+                        ArrayRefParameter<"KernelCBFormatAttr">:$formats);
+  let assemblyFormat = "`<` struct($total_size, $core_ranges) `,` `formats` `=` `[` $formats `]` `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_KernelArgCBBufferIndexAttr : TTNN_Attr<"KernelArgCBBufferIndex", "kernel_arg_cb_buffer_index"> {
+  let summary = "CB argument";
+  let description = [{
+    TTNN generic kernel argument for CB buffer index.
+  }];
+
+  let parameters = (ins "size_t":$buffer_index);
+  let assemblyFormat = "`<` $buffer_index `>`";
+}
+
+def TTNN_KernelArgAddressOfTensorAttr : TTNN_Attr<"KernelArgAddressOfTensor", "kernel_arg_address_of_tensor"> {
+  let summary = "Address of tensor argument";
+  let description = [{
+    TTNN generic kernel argument for address of tensor at postion in operation tensors array.
+  }];
+
+  let parameters = (ins "size_t":$tensor_index);
+  let assemblyFormat = "`<` $tensor_index `>`";
+}
+
+def TTNN_KernelArgSemaphoreAtAttr : TTNN_Attr<"KernelArgSemaphoreAt", "kernel_arg_semaphore_at"> {
+  let summary = "Semaphore argument";
+  let description = [{
+    TTNN generic kernel argument for semaphore at position in semaphores array in program.
+  }];
+
+  let parameters = (ins "size_t":$semaphore_index);
+  let assemblyFormat = "`<` $semaphore_index `>`";
+}
+
+def TTNN_ComputeKernelAttr: TTNN_Attr<"ComputeKernel", "compute_kernel", [TTNN_KernelInterface]> {
+  let summary = "Compute kernel";
+  let description = [{
+    Compute kernel descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "SymbolRefAttr":$symbol_ref,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
+                        "ComputeKernelMathFidelity":$math_fidelity,
+                        "bool":$fp32_dest_acc_en,
+                        "bool":$dst_full_sync_en,
+                        ArrayRefParameter<"ComputeKernelUnpackToDestMode">:$unpack_to_dest_modes,
+                        "bool":$bfp8_pack_precise,
+                        "bool":$math_approx_mode,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$ct_args
+                        );
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges, $math_fidelity, $fp32_dest_acc_en, $dst_full_sync_en)  `,` `unpack_to_dest_modes` `=` `[` $unpack_to_dest_modes `]` `,` struct($bfp8_pack_precise, $math_approx_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_ReadKernelAttr: TTNN_Attr<"ReadKernel", "read_kernel", [TTNN_KernelInterface]> {
+  let summary = "Read kernel";
+  let description = [{
+    Read kernel descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "SymbolRefAttr":$symbol_ref,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelInterface]> {
+  let summary = "Write kernel";
+  let description = [{
+    Write kernel descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "SymbolRefAttr":$symbol_ref,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
+  let summary = "Program";
+  let description = [{
+    Program descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins ArrayRefParameter<"mlir::Attribute">:$kernels,
+                        OptionalArrayRefParameter<"KernelCBAttr">:$cbs,
+                        OptionalArrayRefParameter<"KernelSemaphoreAttr">:$semaphores);
+  let assemblyFormat = "`<` `kernels` `=` `[` $kernels `]` `,` `cbs` `=` `[` (`]`) : ($cbs^ `]`)? `,` `semaphores` `=` `[` (`]`) : ($semaphores^ `]`)? `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_TraceIdAttr : TTNN_Attr<"TraceId", "trace_id"> {
+  let summary = "TTNN Trace ID attribute";
+  let description = [{
+    A unit attribute indicating that the tensor represents `trace_id`.
+  }];
 }
 
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD

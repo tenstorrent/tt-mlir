@@ -33,6 +33,10 @@ module @L1InterleavedTestForkJoin attributes {} {
     %12 = ttir.empty() : tensor<64x128xbf16>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[L1]]>
     %13 = "ttir.add"(%9, %11, %12) : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-    return %13 : tensor<64x128xbf16>
+    %14 = ttir.empty() : tensor<64x128xbf16>
+    // As output is the return value, not beneficial to move to L1, will always stay in DRAM.
+    // CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
+    %15 = "ttir.abs"(%13, %14) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+    return %15 : tensor<64x128xbf16>
   }
 }

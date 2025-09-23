@@ -10,6 +10,7 @@
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
 #include "llvm/Support/Casting.h"
 
@@ -206,6 +207,22 @@ llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape) {
   return tiledShape;
 }
 
+std::vector<TTNNLayoutAttr> extractInputLayouts(Operation *op) {
+  std::vector<TTNNLayoutAttr> inputLayouts;
+
+  for (auto operand : op->getOperands()) {
+    // Extract layout from tensor type.
+    if (auto tensorType = mlir::dyn_cast<RankedTensorType>(operand.getType())) {
+      if (auto layout =
+              mlir::dyn_cast<TTNNLayoutAttr>(tensorType.getEncoding())) {
+        inputLayouts.push_back(layout);
+      }
+    }
+  }
+
+  return inputLayouts;
+}
+
 // Helper method to create a ShardSpecAttr if needed.
 std::optional<ShardSpecAttr>
 createShardSpecIfNeeded(TTNNLayoutAttr layoutAttr,
@@ -238,13 +255,8 @@ bool isTTNNTraceFunc(func::FuncOp funcOp) {
   return funcOp->hasAttr(g_TTNNTraceAttrName);
 }
 
-// Converts TTNNLayoutAttr to RowMajor layout and returns new layout.
-TTNNLayoutAttr convertTTNNLayoutToRowMajor(MLIRContext *context,
-                                           TTNNLayoutAttr layout,
-                                           llvm::ArrayRef<int64_t> shape) {
-  Type elementType =
-      utils::getElementType(context, Layout::RowMajor, layout.getDataType());
-  return layout.withElementType(elementType, shape);
+bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op) {
+  return op->hasAttr(g_TTNNHoistGenericViaD2MAttrName);
 }
 
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
@@ -305,6 +317,13 @@ bool producesL1Layout(Operation *op) {
 bool producesTiledTensorLayout(Operation *op) {
   auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
   return ttnnLayout && ttnnLayout->isTiled();
+}
+
+mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
+  return ::mlir::RankedTensorType::get(
+      /*shape=*/{},
+      ::mlir::IntegerType::get(ctx, /*width=*/32, IntegerType::Unsigned),
+      ttnn::TraceIdAttr::get(ctx));
 }
 
 } // namespace mlir::tt::ttnn::utils

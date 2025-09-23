@@ -5,12 +5,21 @@
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple, Union
+from collections import OrderedDict
+from functools import reduce
+import operator
 from conftest import x86_only
 
 from builder.base.builder import Operand, Shape, TypeInfo
+from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
-from test_utils import Marks, shape_str
+from test_utils import (
+    Marks,
+    shape_str,
+    make_shard_shape,
+    shard_wrap_factory,
+)
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -48,14 +57,12 @@ def logical_not(
     input_tensor = input_tensor.to(dtype)
     # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype.
     golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
-    builder.set_graph_input_output(
-        [input_tensor], [golden_output_tensor], override=True
-    )
-    return builder.logical_not(in0, unit_attrs=unit_attrs)
+    logical_not_0 = builder.logical_not(in0, unit_attrs=unit_attrs)
+    builder.set_goldens({in0: input_tensor}, {logical_not_0: golden_output_tensor})
+    return logical_not_0
 
 
 # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4079")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -133,8 +140,9 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
             (-math.pi / 2 + 0.02), (math.pi / 2 - 0.02)
         )
         output_golden = torch.tan(input_golden)
-        builder.set_graph_input_output([input_golden], [output_golden], override=True)
-        return builder.tan(in0, unit_attrs=unit_attrs)
+        tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
+        builder.set_goldens({in0: input_golden}, {tan_0: output_golden})
+        return tan_0
 
     compile_ttir_to_flatbuffer(
         tan,
@@ -167,8 +175,9 @@ def test_log(shape: Shape, dtype: torch.dtype, target: str, request):
         error_margin = torch.full(randn_tensor.shape, 0.01)
         input_golden = torch.add(abs_tensor, error_margin)
         output_golden = torch.log(input_golden)
-        builder.set_graph_input_output([input_golden], [output_golden], override=True)
-        return builder.log(in0, unit_attrs=unit_attrs)
+        log_0 = builder.log(in0, unit_attrs=unit_attrs)
+        builder.set_goldens({in0: input_golden}, {log_0: output_golden})
+        return log_0
 
     compile_ttir_to_flatbuffer(
         log,
@@ -193,8 +202,9 @@ def test_log1p(shape: Shape, dtype: torch.dtype, request):
         error_margin = torch.full(randn_tensor.shape, -0.99)
         input_golden = torch.add(abs_tensor, error_margin)
         output_golden = torch.log1p(input_golden)
-        builder.set_graph_input_output([input_golden], [output_golden], override=True)
-        return builder.log1p(in0, unit_attrs=unit_attrs)
+        log1p_0 = builder.log1p(in0, unit_attrs=unit_attrs)
+        builder.set_goldens({in0: input_golden}, {log1p_0: output_golden})
+        return log1p_0
 
     compile_ttir_to_flatbuffer(
         log1p,
@@ -233,17 +243,16 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request):
     )
 
 
-@pytest.mark.parametrize("shapes", [[(32, 64), (32, 64), (32, 64), (32, 64)]])
+@pytest.mark.parametrize("shapes", [[(32, 64), (32, 64), (32, 64)]])
 def test_clamp_tensor(shapes: List[Shape], request):
     def clamp_tensor(
         in0: Operand,
         in1: Operand,
         in2: Operand,
-        in3: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return builder.clamp_tensor(in0, in1, in2, in3, unit_attrs=unit_attrs)
+        return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
         clamp_tensor,
@@ -260,7 +269,6 @@ def leaky_relu(
     return builder.leaky_relu(in0, unit_attrs=unit_attrs)
 
 
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4080")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -270,10 +278,9 @@ def test_sqrt(shape: Shape, dtype: torch.dtype, target: str, request):
     ):
         input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
         golden_output_tensor = torch.sqrt(input_tensor)
-        builder.set_graph_input_output(
-            [input_tensor], [golden_output_tensor], override=True
-        )
-        return builder.sqrt(in0, unit_attrs=unit_attrs)
+        sqrt_0 = builder.sqrt(in0, unit_attrs=unit_attrs)
+        builder.set_goldens({in0: input_tensor}, {sqrt_0: golden_output_tensor})
+        return sqrt_0
 
     compile_ttir_to_flatbuffer(
         sqrt,
@@ -290,7 +297,6 @@ def cbrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return builder.cbrt(in0, unit_attrs=unit_attrs)
 
 
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4081")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -300,10 +306,9 @@ def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request):
     ):
         input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
         golden_output_tensor = torch.rsqrt(input_tensor)
-        builder.set_graph_input_output(
-            [input_tensor], [golden_output_tensor], override=True
-        )
-        return builder.rsqrt(in0, unit_attrs=unit_attrs)
+        rsqrt_0 = builder.rsqrt(in0, unit_attrs=unit_attrs)
+        builder.set_goldens({in0: input_tensor}, {rsqrt_0: golden_output_tensor})
+        return rsqrt_0
 
     compile_ttir_to_flatbuffer(
         rsqrt,
@@ -528,20 +533,31 @@ def div(
 ):
     dividend_tensor = builder._get_golden_tensor(in0)
     divisor_tensor = builder._get_golden_tensor(in1)
-    if torch.is_floating_point(dividend_tensor) and torch.is_floating_point(
-        divisor_tensor
-    ):
-        dividend_tensor[torch.abs(dividend_tensor) < 0.01] = 0.03
-        divisor_tensor[torch.abs(divisor_tensor) < 0.01] = -0.03
-    output_golden = torch.div(dividend_tensor, divisor_tensor)
-    builder.set_graph_input_output(
-        [dividend_tensor, divisor_tensor], [output_golden], override=True
+
+    dividend_tensor = dividend_tensor.apply_shardwise(
+        lambda shard: (
+            shard.__setitem__(shard.abs() < 0.01, 0.03) or shard
+            if torch.is_floating_point(shard)
+            else shard
+        )
     )
-    return builder.div(in0, in1, unit_attrs=unit_attrs)
+
+    divisor_tensor = divisor_tensor.apply_shardwise(
+        lambda shard: (
+            shard.__setitem__(shard.abs() < 0.01, -0.03) or shard
+            if torch.is_floating_point(shard)
+            else shard
+        )
+    )
+
+    output_golden = torch.div(dividend_tensor, divisor_tensor)
+    div0 = builder.div(in0, in1, unit_attrs=unit_attrs)
+    builder.set_goldens_from_builder_tensor(
+        {in0: dividend_tensor, in1: divisor_tensor}, {div0: output_golden}
+    )
+    return div0
 
 
-# TODO (wenbinlyuTT): fix f32 accuracy issue for small values
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4082")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -568,7 +584,13 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request):
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return div(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+        golden_input_tensor = torch.randn(shape, dtype=dtype)
+        div0 = div(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+        builder.set_goldens(
+            {in0: golden_input_tensor, in1: golden_input_tensor},
+            {div0: torch.div(golden_input_tensor, golden_input_tensor)},
+        )
+        return div0
 
     compile_ttir_to_flatbuffer(
         hoisted_div_wrapper,
@@ -636,13 +658,21 @@ def pow(
 ):
     randn_base_tensor = builder._get_golden_tensor(in0)
     randn_exponent_tensor = builder._get_golden_tensor(in1)
+
+    randn_base_tensor = randn_base_tensor.apply_shardwise(
+        lambda shard: (
+            shard.abs() if torch.is_floating_point(randn_exponent_tensor) else shard
+        )
+    )
+
     if torch.is_floating_point(randn_exponent_tensor):
         randn_base_tensor = torch.abs(randn_base_tensor)
     output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
-    builder.set_graph_input_output(
-        [randn_base_tensor, randn_exponent_tensor], [output_golden], override=True
+    pow0 = builder.pow(in0, in1, unit_attrs=unit_attrs)
+    builder.set_goldens_from_builder_tensor(
+        {in0: randn_base_tensor, in1: randn_exponent_tensor}, {pow0: output_golden}
     )
-    return builder.pow(in0, in1, unit_attrs=unit_attrs)
+    return pow0
 
 
 @pytest.mark.fails_golden
@@ -930,14 +960,13 @@ def test_concat(shapes: List[Shape], dim: int, request):
             (1, 32, 32, 64),
             (64, 32, 3, 3),
             (1, 1, 1, 64),
-            (1, 16, 28, 64),
         ]
     ],
 )
 @pytest.mark.parametrize(
     "input_dtypes",
     [
-        [torch.float32, torch.float32, torch.float32, torch.float32],
+        [torch.float32, torch.float32, torch.float32],
         # skip quint8 for now. Issue: https://github.com/tenstorrent/tt-metal/issues/26568
         pytest.param(
             [
@@ -968,7 +997,6 @@ def test_conv2d(
         in0: Operand,
         weight: Operand,
         bias: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
@@ -976,7 +1004,6 @@ def test_conv2d(
             in0,
             weight,
             bias,
-            in1,
             stride=stride,
             padding=padding,
             dilation=dilation,
@@ -1001,7 +1028,6 @@ def test_conv2d(
             (1, 32, 32, 64),
             (64, 32, 3, 3),
             (1, 1, 1, 64),
-            (1, 16, 28, 64),
         ]
     ],
 )
@@ -1021,7 +1047,6 @@ def test_conv2d_consteval(
         in0: Operand,
         weight: Operand,
         bias: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
@@ -1029,7 +1054,6 @@ def test_conv2d_consteval(
             in0,
             weight,
             bias,
-            in1,
             stride=stride,
             padding=padding,
             dilation=dilation,
@@ -1040,7 +1064,7 @@ def test_conv2d_consteval(
     compile_ttir_to_flatbuffer(
         conv2d_consteval,
         shapes,
-        argument_types_string="conv2d_consteval=input,parameter,parameter,parameter",
+        argument_types_string="conv2d_consteval=input,parameter,parameter",
         test_base=request.node.name,
     )
 
@@ -1601,19 +1625,23 @@ def softmax(
     in0: Operand,
     builder: TTIRBuilder,
     dimension: int = -1,
+    numeric_stable: bool = False,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.softmax(in0, dimension=dimension, unit_attrs=unit_attrs)
+    return builder.softmax(
+        in0, dimension=dimension, numeric_stable=numeric_stable, unit_attrs=unit_attrs
+    )
 
 
 @pytest.mark.parametrize("shape", [(512, 1024)])
 @pytest.mark.parametrize("dimension", [-1])
-def test_softmax(shape: Shape, dimension: int, request):
+@pytest.mark.parametrize("numeric_stable", [False, True])
+def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request):
     # Create a wrapper function that captures dimension
     def softmax_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        return softmax(in0, builder, dimension, unit_attrs)
+        return softmax(in0, builder, dimension, numeric_stable, unit_attrs)
 
     # Set the name for better test identification
     softmax_wrapper.__name__ = "softmax"
@@ -2054,6 +2082,12 @@ def test_hoisted_permute(shapes, permutation, request, target: str):
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
+    if keep_dim is False:
+        pytest.skip(
+            "Known mismatch: TTIR keep_dim=False rank change unsupported by TOSA reduce op; "
+            "see issue #5061 - https://github.com/tenstorrent/tt-mlir/issues/5061"
+        )
+
     def max(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         return builder.max(
             in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=["ttir.should_hoist"]
@@ -2140,7 +2174,9 @@ def test_hoisted_where(shapes, request, target: str):
         [(32, 3, 224, 224), (32, 150528)],  # Large ML pattern: batch flatten
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.int32, torch.uint8], ids=["f32", "i32", "ui8"]
+)
 def test_reshape(shapes, dtype: torch.dtype, request):
     input_shape, output_shape = shapes
 
@@ -2218,22 +2254,21 @@ def test_hoisted_transpose(input_shape, dims, request, target: str):
 
 
 unary_ops = [
-    exp | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4078")),
+    exp,
     expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
     floor | Marks(pytest.mark.fails_golden),
     abs,
     neg,
     sign | Marks(pytest.mark.skip_config(["ttmetal"])),
-    cos | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4083")),
-    sin | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4083")),
+    cos,
+    sin,
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
     relu | Marks(pytest.mark.skip_config(["ttmetal"])),
-    gelu | Marks(pytest.mark.skip_config(["ttmetal"])),
+    gelu | Marks(pytest.mark.fails_golden),
     leaky_relu | Marks(pytest.mark.skip_config(["ttmetal"])),
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
     sigmoid | Marks(pytest.mark.fails_golden),
-    reciprocal,
     is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
     ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
     sum | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -2258,6 +2293,36 @@ def test_unary_ops(
     pipeline_options = []
     compile_ttir_to_flatbuffer(
         test_fn,
+        inputs_shapes=[shape],
+        inputs_types=[dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        pipeline_options=pipeline_options,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone"])
+def test_reciprocal(shape: Shape, dtype: torch.dtype, target: str, request):
+    def reciprocal(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        reciprocal_0 = builder.reciprocal(in0, unit_attrs=unit_attrs)
+
+        # Constrain values for reciprocal
+        input = torch.abs(torch.randn(shape, dtype=dtype))
+        input_safe = torch.clamp(input, min=-1e-6, max=None)
+        input_safe = torch.where(input_safe == 0, torch.tensor(1e-6), input_safe)
+        golden_output = torch.reciprocal(input_safe)
+        builder.set_goldens({in0: input_safe}, {reciprocal_0: golden_output})
+        return reciprocal_0
+
+    pipeline_options = []
+    compile_ttir_to_flatbuffer(
+        reciprocal,
         inputs_shapes=[shape],
         inputs_types=[dtype],
         test_base=request.node.name,
@@ -2326,23 +2391,28 @@ def test_unary_ops_int32(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize(
     "test_fn",
     [
         add,
         multiply,
         subtract,
-        eq | Marks(pytest.mark.skip_config(["ttmetal"])),
-        ne | Marks(pytest.mark.skip_config(["ttmetal"])),
-        le | Marks(pytest.mark.skip_config(["ttmetal"])),
-        lt | Marks(pytest.mark.skip_config(["ttmetal"])),
-        ge | Marks(pytest.mark.skip_config(["ttmetal"])),
-        gt | Marks(pytest.mark.skip_config(["ttmetal"])),
-        remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
+        remainder
+        | Marks(
+            pytest.mark.skip_config(["ttmetal"]), pytest.mark.skip_config(["emitpy"])
+        ),
         maximum
-        | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4084")),
-        minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
+        | Marks(
+            pytest.mark.skip_config(
+                ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
+            ),
+            pytest.mark.skip_config(["emitpy"]),
+        ),
+        minimum
+        | Marks(
+            pytest.mark.skip_config(["ttmetal"]), pytest.mark.skip_config(["emitpy"])
+        ),
         matmul | Marks(pytest.mark.skip_config(["ttmetal"])),
         logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
         logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -2381,6 +2451,62 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        eq,
+        ne,
+        le,
+        lt,
+        ge,
+        gt,
+    ],
+)
+def test_comparison_ops(
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+):
+    def comparison_ops(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        randn_tensor1 = torch.randn(shape, dtype=torch.float32)
+        randn_tensor2 = torch.randn(shape, dtype=torch.float32)
+
+        # Set some indices in randn_tensor2 to be the same as randn_tensor1
+        # This ensures we have both equal and unequal values for comprehensive testing
+        num_elements = torch.numel(randn_tensor1)
+        num_equal_indices = num_elements // 2
+
+        equal_indices = torch.randperm(num_elements)[:num_equal_indices]
+        randn_tensor2.view(-1)[equal_indices] = randn_tensor1.view(-1)[equal_indices]
+
+        input_tensor1 = randn_tensor1.to(dtype)
+        input_tensor2 = randn_tensor2.to(dtype)
+
+        builder.set_goldens(inputs={in0: input_tensor1, in1: input_tensor2})
+
+        return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
+
+    compile_ttir_to_flatbuffer(
+        comparison_ops,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
 
 
@@ -2488,28 +2614,121 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     )
 
 
+unaligned_shapes = [
+    (5, 3),
+    (32, 1),
+    (31, 7),
+    (1, 32),
+    (13, 29),
+    (64, 1),
+    (61, 3),
+    (61, 37),
+    (1, 64),
+    (5, 67),
+    (43, 67),
+    (2, 3, 5),
+    (3, 17, 37),
+    (9, 43, 7),
+    (5, 61, 49),
+    (51, 19, 23),
+    (677, 1, 1),
+    (2, 3, 5, 7),
+    (3, 37, 5, 53),
+    (37, 3, 5, 53),
+    (41, 7, 43, 11),
+    (7, 41, 43, 11),
+    (1, 23, 1, 1),
+    (23, 1, 1, 1),
+    (3, 5, 7, 11, 13),
+]
+
+
+@pytest.mark.skip_config(
+    ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5023"
+)
+@pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_unaligned_shapes_neg(shape: Shape, dtype: torch.dtype, target: str, request):
+    compile_ttir_to_flatbuffer(
+        neg,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.skip_config(
+    ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5023"
+)
+@pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_unaligned_shapes_add(shape: Shape, dtype: torch.dtype, target: str, request):
+    def add(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        # Magnitudes of the elements should be in [0.01, 1) to avoid FP accuracy issue.
+        tensor_lhs = torch.rand(shape) * 0.99 + 0.01
+        tensor_rhs = torch.rand(shape) * 0.99 + 0.01
+        signs_lhs = torch.randint(0, 2, shape) * 2 - 1
+        signs_rhs = torch.randint(0, 2, shape) * 2 - 1
+        tensor_lhs *= signs_lhs
+        tensor_rhs *= signs_rhs
+        tensor_out = torch.add(tensor_lhs, tensor_rhs)
+        builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
+        return builder.add(in0, in1, unit_attrs=unit_attrs)
+
+    compile_ttir_to_flatbuffer(
+        add,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
 @pytest.mark.parametrize(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
         (transpose, [(64, 32)], [torch.float32]),
-        (reshape, [(64, 32)], [torch.float32]),
+        pytest.param(
+            reshape,
+            [(64, 32)],
+            [torch.float32],
+            marks=[pytest.mark.skip_config(["ttmetal"])],
+        ),
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
             [torch.float32] * 2,
+            marks=[pytest.mark.skip_config(["ttmetal"])],
         ),
         pytest.param(
             where,
             [(64, 64)] * 3,
             [torch.float32, torch.float32, torch.float32],
-            marks=pytest.mark.fails_golden,
+            marks=[
+                pytest.mark.fails_golden,
+                pytest.mark.skip_config(["ttmetal"]),
+            ],
         ),
     ],
 )
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_unique_ops(
     test_fn: Callable,
     inputs_shapes: List[Shape],
     inputs_dtypes: List[torch.dtype],
+    target: str,
     request,
 ):
     compile_ttir_to_flatbuffer(
@@ -2519,6 +2738,7 @@ def test_unique_ops(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
 
 
@@ -2678,27 +2898,11 @@ def gather(
             [1],
             # Complex indices - f32.
             [1, 16, 1],
-            marks=pytest.mark.skip(
-                reason="Multi-dimensional gather has known issues, but the builder golden may also be incorrect: https://github.com/tenstorrent/tt-mlir/issues/3884"
-            ),
-        ),
-        pytest.param(
-            (8, 16, 32),
-            torch.bfloat16,
-            (4, 2, 2),
-            [0, 2],
-            [1],
-            # Complex indices - bf16.
-            [1, 16, 1],
-            marks=pytest.mark.skip(
-                reason="Multi-dimensional gather has known issues, but the builder golden may also be incorrect: https://github.com/tenstorrent/tt-mlir/issues/3884"
-            ),
         ),
     ],
     ids=[
         "simple_1d-f32",
         "complex_indices-f32",
-        "complex_indices-bf16",
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -2746,9 +2950,6 @@ def test_gather(
             [0, 2],
             [1],
             [1, 16, 1],
-            marks=pytest.mark.xfail(
-                reason="General gather not implemented; see issue #3849"
-            ),
         ),  # Complex indices
     ],
     ids=["simple_1d", "complex_indices"],
@@ -2895,6 +3096,409 @@ def test_rms_norm(
     compile_ttir_to_flatbuffer(
         rms_norm,
         shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "input_rank, shard_dims",
+    [
+        (5, (1, 4)),
+        (5, (4, 1)),
+        (5, (2, 4)),
+        (5, (1, 4)),
+        (5, (-1, 3)),
+        (5, (4, -1)),
+        (5, (-1, 4)),
+        (5, (-1, 0)),
+        (4, (1, 3)),
+        (4, (3, 1)),
+        (4, (2, 3)),
+        (4, (3, 2)),
+        (4, (0, 2)),
+        (4, (1, 0)),
+        (4, (-1, 3)),
+        (4, (3, -1)),
+        (4, (-1, 1)),
+        (4, (1, -1)),
+        (3, (1, 2)),
+        (3, (2, 1)),
+        (3, (0, 1)),
+        (3, (1, 0)),
+        (3, (-1, 2)),
+        (3, (2, -1)),
+        (3, (-1, 1)),
+        (3, (0, -1)),
+        (2, (0, 1)),
+        (2, (1, 0)),
+        (2, (-1, 1)),
+        (2, (1, -1)),
+        (2, (-1, 0)),
+        (2, (0, -1)),
+    ],
+)
+@pytest.mark.parametrize(
+    "mesh_shape", [(2, 4), (4, 2), (1, 8), (8, 1), (1, 2), (2, 1)], ids=shape_str
+)
+def test_mesh_shard_devices(
+    input_rank: int, shard_dims: Tuple[int, int], mesh_shape: Tuple[int, int], request
+):
+    shard_shape = make_shard_shape(input_rank, shard_dims, mesh_shape)
+    if all(x == 1 for x in shard_shape):
+        pytest.skip("sharding is meaningless, skipping test.")
+    input_shape = [n_shards for idx, n_shards in enumerate(shard_shape)]
+
+    def mesh_shard_devices(in0: Operand, builder: TTIRBuilder):
+        mesh_shard_in0 = builder.mesh_shard(
+            in0,
+            shard_direction="#ttcore.shard_direction<full_to_shard>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
+        )
+        neg_output = builder.neg(mesh_shard_in0)
+        return builder.mesh_shard(
+            neg_output,
+            shard_direction="#ttcore.shard_direction<shard_to_full>",
+            shard_type="#ttcore.shard_type<devices>",
+            shard_shape=shard_shape,
+            shard_dims=shard_dims,
+        )
+
+    compile_ttir_to_flatbuffer(
+        mesh_shard_devices,
+        [input_shape],
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        (1, 32, 32, 32),
+        (1, 32, 32, 40),
+        (1, 32, 32, 26),
+        (1, 32, 32, 1),
+        (32, 32, 1, 1),
+        (1, 32, 32),
+        (1, 32, 40),
+        (128, 256),
+        (32, 32),
+        (32, 40),
+        (40, 32),
+        pytest.param((1, 1, 32, 32, 32), marks=pytest.mark.run_error),
+        pytest.param((1, 1, 1, 1, 1, 1, 32, 32, 32), marks=pytest.mark.run_error),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
+@pytest.mark.parametrize("all_gather_dim", range(4))
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+def test_all_gather(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    all_gather_dim: int,
+    cluster_axis: int,
+    request,
+):
+    if all_gather_dim >= len(test_shape):
+        pytest.skip("all_gather_dim is out of range")
+    if mesh_shape[cluster_axis] == 1:
+        pytest.skip("all_gather across 1 device is meaningless")
+
+    def all_gather(mesh_shard_in: Operand, builder: TTIRBuilder):
+        return builder.all_gather(
+            mesh_shard_in,
+            all_gather_dim=all_gather_dim,
+            cluster_axis=cluster_axis,
+        )
+
+    test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_gather)
+
+    compile_ttir_to_flatbuffer(
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.run_error),
+        (1, 1, 256, 256),
+        (1, 1, 256, 257),
+        (1, 1, 256, 255),
+        (1, 256, 256, 1),
+        (256, 256, 1, 1),
+        (1, 1, 32, 64),
+        (1, 64, 64),
+        (64, 64),
+        (64, 65),
+        (32, 64),
+        pytest.param(
+            (33, 65), marks=pytest.mark.run_error
+        ),  # all_gather + local reduce case
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+def test_all_reduce(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    cluster_axis: int,
+    request,
+):
+    if mesh_shape[cluster_axis] == 1:
+        pytest.skip("CCL across 1 device is meaningless")
+
+    # test 'sum' only for now. Other reduce types are not supported yet.
+    def all_reduce(mesh_shard_in: Operand, builder: TTIRBuilder):
+        return builder.all_reduce(
+            mesh_shard_in,
+            reduce_type="#ttcore.reduce_type<sum>",
+            cluster_axis=cluster_axis,
+        )
+
+    test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_reduce)
+
+    compile_ttir_to_flatbuffer(
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.run_error),
+        (1, 1, 256, 256),
+        (1, 1, 256, 257),
+        (1, 1, 256, 255),
+        (1, 256, 256, 1),
+        (256, 256, 1, 1),
+        (1, 1, 32, 64),
+        (1, 128, 128),
+        (128, 128),
+        (128, 129),
+        (64, 128),
+        (64, 24),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
+@pytest.mark.parametrize("scatter_dim", [0, 1, 2, 3])
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+def test_reduce_scatter(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    scatter_dim: int,
+    cluster_axis: int,
+    request,
+):
+    if mesh_shape[cluster_axis] == 1:
+        pytest.skip("CCL across 1 device is meaningless")
+    if scatter_dim >= len(test_shape):
+        pytest.skip("scatter_dim is out of range")
+    if test_shape[scatter_dim] % mesh_shape[cluster_axis] != 0:
+        pytest.skip("scatter_dim is not divisible by mesh_shape[cluster_axis]")
+
+    # test 'sum' only for now. Other reduce types are not supported yet.
+    def reduce_scatter(mesh_shard_in: Operand, builder: TTIRBuilder):
+        return builder.reduce_scatter(
+            mesh_shard_in,
+            reduce_type="#ttcore.reduce_type<sum>",
+            scatter_dim=scatter_dim,
+            cluster_axis=cluster_axis,
+        )
+
+    test_bundle = shard_wrap_factory(test_shape, mesh_shape, reduce_scatter)
+
+    compile_ttir_to_flatbuffer(
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        (1, 1, 32, 64),
+        (1, 32, 64),
+        (32, 64, 1, 1),
+        (1, 32, 64, 1),
+        (32, 64),
+        (30, 60),
+        (5, 11),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
+@pytest.mark.parametrize(
+    "source_target_pairs",
+    [
+        pytest.param(
+            [(0, 1)], marks=pytest.mark.fails_golden
+        ),  # https://github.com/tenstorrent/tt-mlir/issues/4323
+        [(0, 1), (1, 0)],
+        [(0, 1), (1, 2), (2, 3), (3, 0)],
+        [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)],
+        [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 0)],
+        [(0, 4), (1, 5), (2, 6), (3, 7), (4, 0), (5, 1), (6, 2), (7, 3)],
+        [(0, 2), (1, 3), (4, 6), (5, 7), (2, 0), (3, 1), (6, 4), (7, 5)],
+        [(0, 7), (1, 6), (2, 5), (3, 4), (4, 3), (5, 2), (6, 1), (7, 0)],
+    ],
+)
+def test_collective_permute(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    source_target_pairs: List[Tuple[int, int]],
+    request,
+):
+    max_id = reduce(operator.mul, mesh_shape, 1)
+    if not all(pair[0] < max_id and pair[1] < max_id for pair in source_target_pairs):
+        pytest.skip("Source and target pairs are out of range")
+
+    def collective_permute(mesh_shard_in: Operand, builder: TTIRBuilder):
+        return builder.collective_permute(
+            mesh_shard_in,
+            source_target_pairs=source_target_pairs,
+        )
+
+    test_bundle = shard_wrap_factory(test_shape, mesh_shape, collective_permute)
+
+    compile_ttir_to_flatbuffer(
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        (32, 64),
+        (32, 64, 128),
+        (8, 8, 64, 64),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("split_dim", range(4))
+@pytest.mark.parametrize("concat_dim", range(4))
+@pytest.mark.parametrize(
+    "mesh_shape, replica_groups",
+    [
+        ((1, 8), ((0, 1, 2, 3, 4, 5, 6, 7),)),
+        ((2, 4), ((0, 4), (1, 5), (2, 6), (3, 7))),
+        ((2, 4), ((0, 1, 2, 3), (4, 5, 6, 7))),
+        ((4, 2), ((0, 2, 4, 6), (1, 3, 5, 7))),
+        ((4, 2), ((0, 1), (2, 3), (4, 5), (6, 7))),
+        ((1, 2), ((0, 1),)),
+        ((2, 1), ((0, 1),)),
+    ],
+)
+def test_all_to_all(
+    test_shape: Shape,
+    split_dim,
+    concat_dim,
+    mesh_shape,
+    replica_groups,
+    request,
+):
+    split_count = len(replica_groups[0])
+    if split_dim >= len(test_shape):
+        pytest.skip("Split dimension is out of range")
+    if concat_dim >= len(test_shape):
+        pytest.skip("Concat dimension is out of range")
+
+    def all_to_all(mesh_shard_in: Operand, builder: TTIRBuilder):
+        return builder.all_to_all(
+            mesh_shard_in,
+            split_dim=split_dim,
+            concat_dim=concat_dim,
+            split_count=split_count,
+            replica_groups=replica_groups,
+        )
+
+    test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_to_all)
+
+    compile_ttir_to_flatbuffer(
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        (64, 32),
+        (32, 128, 64),
+        (8, 8, 32, 64),
+        (10, 10, 30, 60),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize(
+    "mesh_shape, replica_groups",
+    [
+        ((2, 4), [(0, 1, 2, 3), (4, 5, 6, 7)]),
+        ((2, 4), [(0, 4), (1, 5), (2, 6), (3, 7)]),
+        ((4, 2), [(0, 1), (2, 3), (4, 5), (6, 7)]),
+        ((4, 2), [(0, 2, 4, 6), (1, 3, 5, 7)]),
+        ((1, 8), [(0, 1, 2, 3, 4, 5, 6, 7)]),
+        ((1, 2), ((0, 1),)),
+        ((2, 1), ((0, 1),)),
+    ],
+)
+def test_collective_broadcast(
+    test_shape: Shape,
+    mesh_shape: Tuple[int, int],
+    replica_groups,
+    request,
+):
+    def collective_broadcast(mesh_shard_in: Operand, builder: TTIRBuilder):
+        return builder.collective_broadcast(
+            mesh_shard_in,
+            replica_groups=replica_groups,
+        )
+
+    test_bundle = shard_wrap_factory(test_shape, mesh_shape, collective_broadcast)
+
+    compile_ttir_to_flatbuffer(
+        test_bundle.test_fn,
+        [test_bundle.input_shape],
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

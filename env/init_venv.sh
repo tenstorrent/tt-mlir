@@ -7,7 +7,7 @@ set -e
 
 export _ACTIVATE_SUPPRESS_INIT_WARNING=1
 ENV_DIR=${ENV_DIR:-$(git rev-parse --show-toplevel)/env}
-TTMLIR_PYTHON_VERSION="${TTMLIR_PYTHON_VERSION:-python3.10}"
+TTMLIR_PYTHON_VERSION="${TTMLIR_PYTHON_VERSION:-python3.11}"
 
 source $ENV_DIR/activate
 
@@ -28,4 +28,5 @@ fi
 python -m pip install --upgrade pip
 # Requirements for third party projects are installed during their build in `CMakeLists.txt`
 pip install -r $ENV_DIR/build-requirements.txt
+pip install -r $ENV_DIR/ttnn-requirements.txt
 pip install -r $ENV_DIR/../test/python/requirements.txt

@@ -12,14 +12,15 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 #include <cstdint>
-#include <utility>
 
 namespace mlir::tt::ttmetal {
 
 namespace {
 class TTIRGenericRewriter : public OpConversionPattern<ttir::GenericOp> {
 public:
-  using OpConversionPattern<ttir::GenericOp>::OpConversionPattern;
+  TTIRGenericRewriter(MLIRContext *ctx, ttmetal::MathFidelity mathFidelity)
+      : OpConversionPattern<ttir::GenericOp>(ctx), mathFidelity_(mathFidelity) {
+  }
 
   static KernelArgsAttr evalKernelArgsFromSpec(Builder &builder,
                                                const SymbolTable &symbolTable,
@@ -42,10 +43,26 @@ public:
     return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
   }
 
+  static Type getOperandInnerElementType(const mlir::Value operand) {
+    auto elemType = operand.getType();
+    if (auto memRefType = mlir::dyn_cast<MemRefType>(elemType);
+        memRefType != nullptr) {
+      elemType = memRefType.getElementType();
+    }
+    // We could have a memref of tiles, so this needs to be the second query.
+    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elemType);
+        tileType != nullptr) {
+      elemType = tileType.getElementType();
+    }
+    assert(elemType.isIntOrFloat());
+    return elemType;
+  }
+
   static ArrayAttr
   convertThreadsToKernelConfigs(Builder &builder, mlir::ValueRange operands,
                                 ArrayAttr threads, ttcore::GridAttr opGrid,
-                                const SymbolTable &symbolTable) {
+                                const SymbolTable &symbolTable,
+                                ttmetal::MathFidelity mathFidelity) {
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
     auto coreRange = builder.getAttr<ttmetal::CoreRangeAttr>(opGrid);
@@ -56,12 +73,17 @@ public:
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case ttir::ThreadType::Compute: {
-        // TODO (wenbinlyuTT): enable f32 accum & unpack mode
-        constexpr bool fp32DestAccum = false;
+        bool fp32DestAccum = false;
+        for (size_t i = 0; i < operands.size(); ++i) {
+          auto elemType = getOperandInnerElementType(operands[i]);
+          if (elemType.getIntOrFloatBitWidth() == 32) {
+            fp32DestAccum = true;
+          }
+        }
         std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs, fp32DestAccum,
-            unpackModes);
+            thread.getKernelSymbol(), coreRange, kernelArgs, mathFidelity,
+            fp32DestAccum, unpackModes);
         break;
       }
       case ttir::ThreadType::Datamovement: {
@@ -114,12 +136,16 @@ public:
     ArrayAttr threads = op.getThreads();
     ttcore::GridAttr opGrid = op.getGrid();
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
-    auto kernelConfigs = convertThreadsToKernelConfigs(
-        rewriter, adaptor.getOperands(), threads, opGrid, symbolTable);
+    auto kernelConfigs =
+        convertThreadsToKernelConfigs(rewriter, adaptor.getOperands(), threads,
+                                      opGrid, symbolTable, mathFidelity_);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, buffers, cbs, cbPorts, kernelConfigs);
     return success();
   };
+
+private:
+  ttmetal::MathFidelity mathFidelity_;
 };
 } // namespace
 
@@ -195,14 +221,18 @@ public:
     assert((inputMemorySpaceSet != outputMemorySpaceSet) &&
            "expected either input or output to have memory space");
 
-    // No memoryspace implicitly means host
+    // No memoryspace implicitly means host.
     if (inputMemorySpace) {
+      assert(!mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(
+          inputTy.getLayout()));
       rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(op, input,
                                                                 output);
       // Insert global barrier to ensure the read completes before subsequent
       // ops use it.
       rewriter.create<ttmetal::FinishOp>(op->getLoc());
     } else {
+      assert(!mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(
+          outputTy.getLayout()));
       rewriter.replaceOpWithNewOp<ttmetal::EnqueueWriteBufferOp>(op, input,
                                                                  output);
     }
@@ -217,10 +247,11 @@ namespace mlir::tt {
 
 void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
-                                   TypeConverter & /*typeConverter*/) {
-  patterns.add<ttmetal::TTIRGenericRewriter, ttmetal::MemrefAllocRewriter,
-               ttmetal::MemrefDeallocRewriter, ttmetal::TTIRToLayoutRewriter>(
-      ctx);
+                                   TypeConverter & /*typeConverter*/,
+                                   ttmetal::MathFidelity mathFidelity) {
+  patterns.add<ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
+               ttmetal::TTIRToLayoutRewriter>(ctx);
+  patterns.add<ttmetal::TTIRGenericRewriter>(ctx, mathFidelity);
 }
 
 } // namespace mlir::tt

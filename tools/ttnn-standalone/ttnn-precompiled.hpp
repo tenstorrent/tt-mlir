@@ -6,9 +6,7 @@
 #define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 
 // ANCHOR: standalone_includes
-#include "operations/ccl/all_gather/all_gather.hpp"
 #include "operations/ccl/ccl_host_types.hpp"
-#include "operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
@@ -27,6 +25,7 @@
 #include "operations/eltwise/unary/unary_composite.hpp"
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
+#include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "operations/matmul/matmul.hpp"
 #include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "operations/normalization/batch_norm/batch_norm.hpp"
@@ -38,11 +37,16 @@
 #include "operations/reduction/argmax/argmax.hpp"
 #include "operations/reduction/generic/generic_reductions.hpp"
 #include "operations/reduction/prod/prod.hpp"
+#include "operations/trace.hpp"
 #include "operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "tt-metalium/bfloat16.hpp"
+#include "ttnn/common/queue_id.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
+#include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
+#include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
@@ -68,7 +72,8 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static constexpr std::size_t l1SmallSize = 1 << 15;
+  static constexpr std::size_t l1SmallSize = 1 << 15;     // 32kB
+  static constexpr std::size_t traceRegionSize = 1 << 20; // 1MB
 
   static ttnn::MeshDevice *getInstance() {
     // If we have an external device, use it.
@@ -78,7 +83,7 @@ public:
     }
 
     static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
-        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize);
+        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, traceRegionSize);
     hasOwnedDevice = true;
     return ownedInstance.get();
   }

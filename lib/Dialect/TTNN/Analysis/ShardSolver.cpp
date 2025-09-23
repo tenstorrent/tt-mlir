@@ -299,8 +299,7 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(
                     .withMemoryLayout(TensorMemoryLayout::Interleaved);
 
   if (rowMajorInputOverride) {
-    inputLayout = utils::convertTTNNLayoutToRowMajor(op->getContext(),
-                                                     inputLayout, tensorShape);
+    inputLayout = inputLayout.withLayout(Layout::RowMajor, tensorShape);
   }
 
   llvm::Expected<TTNNLayoutAttr> shardCompatible =
@@ -895,8 +894,8 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
     return error;
   }
 
-  auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
-      l1UsageExp.get();
+  auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
+        outputLayout] = l1UsageExp.get();
 
   if (consumerConfig.outputLayout &&
       outputLayout != consumerConfig.outputLayout) {

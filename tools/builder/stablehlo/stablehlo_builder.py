@@ -10,6 +10,7 @@ from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 import torch
 from enum import Enum, auto
 import re
+from collections import OrderedDict
 
 from ttmlir.ir import *
 from ttmlir.dialects import stablehlo, sdy, mpmd
@@ -21,8 +22,17 @@ from builder.base import builder_golden
 class StableHLOBuilder(Builder):
     # ----- Methods -----
 
-    def __init__(self, ctx: Context, location: Location):
-        super().__init__(ctx, location)
+    def __init__(
+        self,
+        ctx: Context,
+        location: Location,
+        mesh_name: Union[List[str], str] = "mesh",
+        mesh_dict: Union[
+            List[OrderedDict[str, int]], OrderedDict[str, int]
+        ] = OrderedDict([("x", 1), ("y", 1)]),
+        disable_golden_check: bool = False,
+    ):
+        super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
     # ----- Private Methods ----
     def _create_mesh_attr_from_ordered_dict(
@@ -34,6 +44,22 @@ class StableHLOBuilder(Builder):
             for axis_name, size in mesh_dict.items()
         ]
         return self.mesh_attr(axes)
+
+    def _get_mesh_attr(self, mesh_name: str) -> sdy.MeshAttr:
+        if mesh_name not in self._meshes:
+            raise ValueError(
+                f"Mesh '{mesh_name}' not found. Available meshes: {list(self._meshes.keys())}"
+            )
+
+        mesh_dict = self._meshes[mesh_name]
+        axes = [
+            self.mesh_axis_attr(name=axis_name, size=size)
+            for axis_name, size in mesh_dict.items()
+        ]
+        return self.mesh_attr(axes)
+
+    def _get_mesh(self, mesh_name: str = "mesh") -> sdy.Mesh:
+        return self.mesh(mesh_name, self._get_mesh_attr(mesh_name))
 
     def _op_proxy(
         self,
@@ -48,51 +74,15 @@ class StableHLOBuilder(Builder):
         golden_kwargs: dict = {},
         stablehlo_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
+        skip_golden: bool = False,
     ) -> Any:
-        stack = inspect.stack()
-        cur_filename = stack[0].filename
-
-        while len(stack) > 0 and stack[0].filename == cur_filename:
-            stack = stack[1:]
-
-        if len(stack) == 0:
-            raise RuntimeError(
-                "Top of callstack to builder funcs must be outside this file"
-            )
+        if not golden_kwargs:
+            golden_kwargs = stablehlo_kwargs
 
         if organize_golden_args is None:
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            op_golden_function = builder_golden.get_golden_function(
-                op_stablehlo_function, **golden_kwargs
-            )
-
-            if (
-                not isinstance(organize_golden_args(inputs), torch.Tensor)
-                and organize_golden_args(inputs) == 0
-            ):
-                golden_output = op_golden_function(**golden_kwargs)
-            else:
-                golden_output = op_golden_function(
-                    *(organize_golden_args(inputs)),
-                    **golden_kwargs,
-                )
-
-            golden = (
-                Golden(golden_output[0])
-                if not isinstance(golden_output, torch.Tensor)
-                else Golden(golden_output)
-            )
-
-            output_shape = golden.tensor.shape if not output_shape else output_shape
-            if not output_type and inputs:
-                output_type = self._get_type_from_torch_dtype(
-                    self._get_golden_tensor(inputs[0]).dtype
-                )
-            elif not output_type:
-                output_type = self._default_type
-
             id = self._get_next_global_id()
             loc = (
                 self._get_loc_from_str(loc)
@@ -107,12 +97,19 @@ class StableHLOBuilder(Builder):
             )
 
             if unit_attrs is not None:
-                from ttmlir.ir import UnitAttr
-
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-            self._id_golden_map[str(loc)] = golden
-            self._store_golden(op, golden)
+
+            if not skip_golden and not self._disable_golden_check:
+                op_golden_function = builder_golden.get_golden_function(
+                    op_stablehlo_function, **golden_kwargs
+                )
+                if op_golden_function is not None:
+                    golden_output = op_golden_function(
+                        *(organize_golden_args(inputs)), **golden_kwargs
+                    )
+                    self._set_golden_tensor(op, golden_output)
+
             return op
 
     def _eltwise_proxy(

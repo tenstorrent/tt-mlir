@@ -143,7 +143,7 @@ point_to_point(const ::ttnn::Tensor &inputTensor,
     outputTensorsHost = inputTensorsHost;
   }
 
-  ::ttnn::MeshShape meshShape = inputTensor.mesh_device()->shape();
+  ::ttnn::MeshShape meshShape = inputTensor.device()->shape();
 
   auto calcIdFromCoords = [&](const ::ttnn::MeshCoordinate *coords) -> size_t {
     size_t id = 0;
@@ -156,10 +156,10 @@ point_to_point(const ::ttnn::Tensor &inputTensor,
   outputTensorsHost[calcIdFromCoords(&receiveCoord)] =
       inputTensorsHost[calcIdFromCoords(&sendCoord)];
 
-  ::ttnn::Tensor outputTensor = ::ttnn::to_device(
-      ::ttnn::distributed::from_host_shards(outputTensorsHost,
-                                            inputTensor.mesh_device()->shape()),
-      inputTensor.mesh_device(), inputTensor.memory_config());
+  ::ttnn::Tensor outputTensor =
+      ::ttnn::to_device(::ttnn::distributed::from_host_shards(
+                            outputTensorsHost, inputTensor.device()->shape()),
+                        inputTensor.device(), inputTensor.memory_config());
 
   return outputTensor;
 }

@@ -9,7 +9,12 @@
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
+
+namespace tt::tt_metal::distributed {
+class MeshDevice;
+} // namespace tt::tt_metal::distributed
 
 namespace mlir::tt::ttnn {
 // Options for the TTIR to TTNN backend pipeline.
@@ -93,7 +98,7 @@ struct TTIRToTTNNBackendPipelineOptions
   // optimizerPassEnabled (enable-optimizer) is true.
   //
   // Full Example:
-  // override-conv2d-config=conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false
+  // override-conv2d-config=conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false
   // Partial Example:
   // "conv2d_1=enable_weights_double_buffer#true:activation#none,conv2d_2=dtype#bf16"
   //
@@ -115,7 +120,6 @@ struct TTIRToTTNNBackendPipelineOptions
   // * output_layout: [row_major, tile]
   // * enable_act_double_buffer: [true, false]
   // * enable_weights_double_buffer: [true, false]
-  // * enable_split_reader: [true, false]
   //
   // For more details on parameter values see conv2d_op.hpp in tt-metal.
   //
@@ -293,22 +297,56 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-bfp8-conversion",
       llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
       llvm::cl::init(false)};
+
+  // Option to provide a pointer to an already opened device. When provided,
+  // the optimizer will use this device instead of opening a new one.
+  // This allows frontends to pass in an active device without closing it.
+  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
+};
+
+// TTNN Backend to EmitC PipelineOptions.
+//
+struct TTNNBackendToEmitCPipelineOptions
+    : public PassPipelineOptions<TTNNBackendToEmitCPipelineOptions> {
+  Option<bool> targetDylib{*this, "target-dylib",
+                           llvm::cl::desc("Tailor passes for dylib target."),
+                           llvm::cl::init(false)};
+
+  Option<bool> tuplifyInputIfEmpty{
+      *this, "tuplify-input-if-empty",
+      llvm::cl::desc("Whether to create an empty tuple if no inputs to forward "
+                     "function. This should only be used if the `target-dylib` "
+                     "option is set to `true`"),
+      llvm::cl::init(false)};
+};
+
+// TTNN Backend to EmitPy PipelineOptions.
+//
+struct TTNNBackendToEmitPyPipelineOptions
+    : public PassPipelineOptions<TTNNBackendToEmitPyPipelineOptions> {
+  // TTNNToEmitC pipeline options contain "target-dylib" and
+  // "tuplify-input-if-empty" options. There's no dylib (or equivalent) path in
+  // EmitPy yet, so these options are removed.
 };
 
 // TTIR to EmitC pipeline options.
-// Inherit from TTIRToTTNNBackendPipelineOptions to reuse the options.
+// Inherit from TTIRToTTNNBackendPipelineOptions and
+// TTNNBackendToEmitCPipelineOptions to reuse the options.
 //
-struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions {};
-
-// TTIR to EmitC SO pipeline options.
-// Inherit from TTIRToEmitCPipelineOptions to reuse the options.
-//
-struct TTIRToEmitCSOPipelineOptions : public TTIRToEmitCPipelineOptions {};
+struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
+                                    public TTNNBackendToEmitCPipelineOptions {};
 
 // TTIR to EmitPy pipeline options.
-// Inherit from TTIRToTTNNBackendPipelineOptions to reuse the options.
+// Inherit from TTIRToTTNNBackendPipelineOptions and
+// TTNNBackendToEmitPyPipelineOptions to reuse the options.
 //
-struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions {};
+struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
+                                     public TTNNBackendToEmitPyPipelineOptions {
+};
+
+//===----------------------------------------------------------------------===//
+// Passes and pipelines
+//===----------------------------------------------------------------------===//
 
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
@@ -328,11 +366,14 @@ void createTTNNPipelineDeallocPass(
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
+void createTTNNBackendToEmitCPipeline(
+    OpPassManager &pm, const TTNNBackendToEmitCPipelineOptions &options);
+
+void createTTNNBackendToEmitPyPipeline(
+    OpPassManager &pm, const TTNNBackendToEmitPyPipelineOptions &options);
+
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options);
-
-void createTTIRToEmitCSOPipeline(OpPassManager &pm,
-                                 const TTIRToEmitCSOPipelineOptions &options);
 
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options);

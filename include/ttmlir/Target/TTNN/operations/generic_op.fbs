@@ -1,0 +1,129 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+enum Noc : uint8 {
+  Noc0,
+  Noc1,
+}
+
+enum NocMode : uint8 {
+  DM_DEDICATED_NOC,
+  DM_DYNAMIC_NOC,
+}
+
+enum DataMovementType : uint8 {
+  RISCV_0,
+  RISCV_1,
+}
+
+enum CoreType : uint8{
+  WORKER,
+  ETH,
+}
+
+enum SourceType : uint8 {
+  FILE_PATH,
+  SOURCE_CODE,
+}
+
+table KernelCBFormat {
+  buffer_index: uint32;
+  dtype: DataType;
+  page_size: uint32;
+}
+
+table KernelCBDescriptor {
+  total_size: uint32;
+  core_range: tt.target.ttnn.CoreRangeSet;
+  formats: [KernelCBFormat];
+}
+
+table ComputeKernelConfig {
+  math_fidelity: MathFidelity = HiFi4;
+  fp32_dest_acc_en: bool = false;
+  dst_full_sync_en: bool = false;
+  unpack_to_dest_modes: [UnpackToDestMode];
+  bfp8_pack_precise: bool = false;
+  math_approx_mode: bool = false;
+}
+
+table DataMovementKernelConfig {
+  processor: DataMovementType = RISCV_0;
+  noc: Noc = Noc0;
+  noc_mode: NocMode = DM_DEDICATED_NOC;
+}
+
+table ReaderKernelConfig{}
+table WriterKernelConfig{}
+
+union KernelConfig {
+  ComputeKernelConfig,
+  DataMovementKernelConfig,
+  ReaderKernelConfig,
+  WriterKernelConfig
+}
+
+
+table KernelArgCBBufferIndex {
+  buffer_index: uint32;
+}
+
+table KernelArgBufferAddress {
+  address: uint32;
+}
+
+table KernelArgBufferAddressOfTensor {
+  tensor_index: uint32;
+}
+
+table KernelArgSemaphoreAt {
+  semaphore_index: uint32;
+}
+
+union KernelArgType {
+  KernelArgCBBufferIndex,
+  KernelArgBufferAddress,
+  KernelArgBufferAddressOfTensor,
+  KernelArgSemaphoreAt,
+}
+
+table KernelArg {
+  arg: KernelArgType;
+}
+
+table KernelCoreArgs {
+  args: [KernelArg];
+}
+
+table KernelCoreRTArgs {
+  args: [KernelCoreArgs];
+}
+
+table KernelDescriptor {
+  source: string;
+  source_type: SourceType = SOURCE_CODE;
+  config: KernelConfig;
+  core_ranges: tt.target.ttnn.CoreRangeSet;
+  ct_args: KernelCoreArgs;
+  rt_args: [KernelCoreRTArgs];
+  common_rt_args: KernelCoreArgs;
+}
+
+table SemaphoreDescriptor {
+  core_type: CoreType;
+  core_ranges: tt.target.ttnn.CoreRangeSet;
+  initial_value: uint32;
+}
+
+table ProgramDescriptor {
+  kernels: [KernelDescriptor];
+  semaphores: [SemaphoreDescriptor];
+  cbs: [KernelCBDescriptor];
+}
+
+table GenericOp {
+  io_tensors: [tt.target.ttnn.TensorRef];
+  program: ProgramDescriptor;
+}

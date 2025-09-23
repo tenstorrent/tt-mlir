@@ -34,6 +34,9 @@
 #include "ttnn/operations/eltwise/ternary/where/where.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
+#include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
+#include "ttnn/operations/generic/generic_op.hpp"
 #include "ttnn/operations/kv_cache/kv_cache.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
 #include "ttnn/operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
@@ -49,6 +52,7 @@
 #include "ttnn/operations/trace.hpp"
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "ttnn/tensor/host_buffer/functions.hpp"
+#include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
@@ -213,8 +217,9 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
-                                        CallbackContext programContextHandle);
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
 
 // Returns reference to the output tensor of the operation
 // if the operation does not have an output tensor, returns std::nullopt
@@ -242,6 +247,13 @@ void updateTensorInPool(CallbackContext programContextHandle,
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs);
+
+// Dumps tensor data to a file in binary format
+void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath);
+
+// Loads tensor data from a binary file
+::tt::runtime::Tensor loadTensor(const std::string &filePath,
+                                 std::optional<Device> device = std::nullopt);
 
 } // namespace tt::runtime::ttnn
 

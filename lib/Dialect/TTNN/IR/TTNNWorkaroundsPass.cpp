@@ -54,16 +54,10 @@ WorkaroundResults applyWorkarounds(const TTNNOperandWorkarounds &workaround,
   // nullopt if tensor is on host.
   results.tensorMemoryLayoutResult.targetValue =
       workaround.tensorMemoryLayoutWorkaround.has_value()
-          ? workaround.tensorMemoryLayoutWorkaround
-          : inputLayoutAttr.getMemLayoutOpt();
+          ? workaround.tensorMemoryLayoutWorkaround.value()
+          : inputLayoutAttr.getMemLayout();
   results.tensorMemoryLayoutResult.previousValue =
-      inputLayoutAttr.getMemLayoutOpt();
-  // TODO(#2103): This is a temporary fix to handle host tensors
-  // If the target buffer type is SystemMemory, set tensor memory layout to
-  // nullopt.
-  if (results.tensorBufferTypeResult.targetValue == BufferType::SystemMemory) {
-    results.tensorMemoryLayoutResult.targetValue = std::nullopt;
-  }
+      inputLayoutAttr.getMemLayout();
 
   results.tensorDataTypeResult.targetValue =
       workaround.tensorDataTypeWorkaround.value_or(
@@ -185,6 +179,7 @@ TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(
   wa::TTNNOperandWorkarounds sysMemWorkaround;
   if (shardType != mlir::tt::ttcore::MeshShardType::Identity) {
     sysMemWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+    sysMemWorkaround.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr();
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(sysMemWorkaround)
@@ -298,6 +293,8 @@ TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
   TTNNOperandWorkarounds hostRowMajorWorkaround = TTNNOperandWorkarounds();
   hostRowMajorWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+  hostRowMajorWorkaround.tensorMemoryLayoutWorkaround =
+      TensorMemoryLayoutAttr();
   hostRowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addOutputOperandWorkaround(hostRowMajorWorkaround);
@@ -350,6 +347,26 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
       .addInputOperandWorkaround(inputTypeWorkaround)
       .addInputOperandWorkaround(inputTypeWorkaround)
       .addOutputOperandWorkaround(outputTypeWorkaround);
+}
+
+// Factory method to create a set of workarounds for reshape operation operands.
+// Reshape op only does not work with ui8 - force to int32 then typecast
+// separately.
+// TT-metal issue: https://github.com/tenstorrent/tt-metal/issues/27843
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
+    RankedTensorType inputType) {
+  mlir::Type inputElementType = inputType.getElementType();
+  TTNNOperandWorkarounds typeWorkarounds;
+  mlir::tt::ttcore::DataType dataType =
+      mlir::tt::ttcore::elementTypeToDataType(inputElementType);
+  if (dataType == mlir::tt::ttcore::DataType::UInt8) {
+    typeWorkarounds.tensorDataTypeWorkaround =
+        mlir::tt::ttcore::DataType::Int32;
+  }
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(typeWorkarounds)
+      .addOutputOperandWorkaround(typeWorkarounds);
 }
 
 // Factory method to create a set of workarounds for UpdateCache operation
@@ -463,7 +480,7 @@ TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workarounds for ArgMax op operands.
-// Input tensor must have BFLOAT16 data type and ROW_MAJOR layout.
+// Input tensor must have ROW_MAJOR layout.
 // No need for data type workaround for output tensor; only layout workaround is
 // required to match original layout.
 // tt-metal specs:
@@ -472,10 +489,6 @@ TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds() {
   wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround;
   rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
-  wa::TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
-  rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
-  rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround =
-      mlir::tt::ttcore::DataType::BFloat16;
 
   wa::TTNNOperandWorkarounds rowMajorLayoutUint32Workaround;
   rowMajorLayoutUint32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
@@ -483,7 +496,7 @@ TTNNOperandsWorkaroundsFactory::createArgMaxOpOperandsWorkarounds() {
       mlir::tt::ttcore::DataType::UInt32;
 
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
+      .addInputOperandWorkaround(rowMajorLayoutWorkaround)
       .addOutputOperandWorkaround(rowMajorLayoutUint32Workaround);
 }
 
@@ -579,17 +592,6 @@ TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(T op) {
   }
 
   return workaround;
-}
-
-// TTNN Arange op only supports row-major output. Adding workaround to enforce
-// row-major layout on its output.
-// tt-metal issue to support tile layout for arange op:
-// https://github.com/tenstorrent/tt-metal/issues/20251
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createArangeOpOperandsWorkarounds() {
-  wa::TTNNOperandWorkarounds arangeOpOperandWorkaround(Layout::RowMajor);
-  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addOutputOperandWorkaround(arangeOpOperandWorkaround);
 }
 
 // Factory method to create a set of workaround for reduction ops operands.

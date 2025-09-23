@@ -10,6 +10,7 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 #include "ttmlir/RegisterAll.h"
+#include "ttmlir/Target/Python/PythonEmitter.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
@@ -150,56 +151,80 @@ void populatePassesModule(nb::module_ &m) {
       },
       nb::arg("module"), nb::arg("options") = "");
 
+  m.def(
+      "ttir_to_emitpy_pipeline",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        const auto *pipeline =
+            mlir::PassPipelineInfo::lookup("ttir-to-emitpy-pipeline");
+
+        std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+            [](const llvm::Twine &) { return mlir::failure(); };
+
+        if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      nb::arg("module"), nb::arg("options") = "");
+
   // This binds the vector into an interfaceable object in python and also an
   // opaquely passed one into other functions.
   nb::bind_vector<std::vector<std::pair<std::string, std::string>>>(
       m, "ModuleLog");
 
-  nb::bind_map<std::unordered_map<std::string, mlir::tt::GoldenTensor>>(
+  nb::bind_map<std::unordered_map<std::uint32_t, mlir::tt::GoldenTensor>>(
+      m, "InnerGoldenMap");
+
+  nb::bind_map<std::unordered_map<
+      std::string, std::unordered_map<unsigned int, mlir::tt::GoldenTensor>>>(
       m, "GoldenMap");
 
-  m.def(
-      "ttnn_to_flatbuffer_file",
-      [](MlirModule module, std::string &filepath,
-         const std::unordered_map<std::string, mlir::tt::GoldenTensor>
-             &goldenMap = {},
-         const std::vector<std::pair<std::string, std::string>> &moduleCache =
-             {}) {
-        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+  m.def("ttnn_to_flatbuffer_file",
+        [](MlirModule module, std::string &filepath,
+           const std::unordered_map<
+               std::string,
+               std::unordered_map<std::uint32_t, mlir::tt::GoldenTensor>>
+               &goldenMap = {},
+           const std::vector<std::pair<std::string, std::string>> &moduleCache =
+               {}) {
+          mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
 
-        // Create a dialect registry and register all necessary dialects and
-        // translations
-        mlir::DialectRegistry registry;
+          // Create a dialect registry and register all necessary dialects and
+          // translations
+          mlir::DialectRegistry registry;
 
-        // Register all LLVM IR translations
-        registerAllToLLVMIRTranslations(registry);
+          // Register all LLVM IR translations
+          registerAllToLLVMIRTranslations(registry);
 
-        // Apply the registry to the module's context
-        moduleOp->getContext()->appendDialectRegistry(registry);
+          // Apply the registry to the module's context
+          moduleOp->getContext()->appendDialectRegistry(registry);
 
-        std::error_code fileError;
-        llvm::raw_fd_ostream file(filepath, fileError);
+          std::error_code fileError;
+          llvm::raw_fd_ostream file(filepath, fileError);
 
-        if (fileError) {
-          throw std::runtime_error("Failed to open file: " + filepath +
-                                   ". Error: " + fileError.message());
-        }
+          if (fileError) {
+            throw std::runtime_error("Failed to open file: " + filepath +
+                                     ". Error: " + fileError.message());
+          }
 
-        if (mlir::failed(mlir::tt::ttnn::translateTTNNToFlatbuffer(
-                moduleOp, file, goldenMap, moduleCache))) {
-          throw std::runtime_error("Failed to write flatbuffer to file: " +
-                                   filepath);
-        }
-      },
-      nb::arg("module"), nb::arg("filepath"),
-      nb::arg("goldenMap") =
-          std::unordered_map<std::string, mlir::tt::GoldenTensor>(),
-      nb::arg("moduleCache") =
-          std::vector<std::pair<std::string, std::string>>());
+          if (mlir::failed(mlir::tt::ttnn::translateTTNNToFlatbuffer(
+                  moduleOp, file, goldenMap, moduleCache))) {
+            throw std::runtime_error("Failed to write flatbuffer to file: " +
+                                     filepath);
+          }
+        });
 
   m.def("ttmetal_to_flatbuffer_file",
         [](MlirModule module, std::string filepath,
-           const std::unordered_map<std::string, mlir::tt::GoldenTensor>
+           const std::unordered_map<
+               std::string,
+               std::unordered_map<std::uint32_t, mlir::tt::GoldenTensor>>
                &goldenMap = {},
            const std::vector<std::pair<std::string, std::string>> &moduleCache =
                {}) {
@@ -290,11 +315,28 @@ void populatePassesModule(nb::module_ &m) {
       },
       nb::arg("module"));
 
+  m.def(
+      "translate_to_python",
+      [](MlirModule module) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        // Translate to Python
+        std::string output;
+        llvm::raw_string_ostream output_stream(output);
+        if (mlir::failed(mlir::tt::emitpy::translateToPython(
+                mlir::cast<ModuleOp>(moduleOp), output_stream))) {
+          throw std::runtime_error("Failed to generate py");
+        }
+        output_stream.flush();
+        return output;
+      },
+      nb::arg("module"));
+
   nb::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)
       .value("Float16", ::tt::target::DataType::Float16)
       .value("BFloat16", ::tt::target::DataType::BFloat16)
-      .value("Int32", ::tt::target::DataType::Int32);
+      .value("Int32", ::tt::target::DataType::Int32)
+      .value("UInt8", ::tt::target::DataType::UInt8);
 
   m.def("lookup_dtype", [](std::string enumName) {
     // Function to return the enum value based on the name.

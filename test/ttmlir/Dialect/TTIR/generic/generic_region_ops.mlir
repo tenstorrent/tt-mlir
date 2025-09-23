@@ -29,7 +29,8 @@ func.func @reduce_max(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> t
                     %4 = "ttir.tile_reduce_max" (%a, %b) {reduce_dim = #ttir<reduce_dim R>} : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
                     linalg.yield %4: !ttcore.tile<32x32, f32>
             }
-        "ttir.yield"() : () -> ()
+        // Return the updated output shard from the region.
+        ttir.yield %arg4 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_alias>)
         }) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     return %1 : tensor<64x128xf32>
   }

@@ -1,3 +1,7 @@
+if (TTMLIR_ENABLE_OPMODEL)
+  add_definitions(-DTTMLIR_ENABLE_OPMODEL)
+endif()
+
 add_mlir_dialect_library(MLIRTTNNPipelines
   TTNNPipelines.cpp
 

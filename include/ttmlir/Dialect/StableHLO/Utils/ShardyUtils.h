@@ -27,6 +27,9 @@ using MeshMap =
 // Get all the meshOps from the module.
 llvm::SmallVector<mlir::sdy::MeshOp> getMeshOps(mlir::ModuleOp &module);
 
+// Get all mesh names from a function, returning empty vector if none found.
+llvm::SmallVector<std::string> getMeshNames(mlir::func::FuncOp &funcOp);
+
 // Remove all meshOps from the module.
 void removeMeshOps(mlir::ModuleOp &module);
 
@@ -52,6 +55,32 @@ createTTMeshAttrFromSdyMeshOp(mlir::sdy::MeshOp meshOp);
 
 // Check if the module has any sdy tensor sharding annotations.
 bool sdyAnnotationsExist(mlir::ModuleOp &module);
+
+// Parse dimension shardings from a string representation.
+llvm::SmallVector<mlir::sdy::DimensionShardingAttr>
+parseDimensionShardings(const std::string &dimsContent,
+                        mlir::MLIRContext *context);
+
+// Convert function argument from mhlo.frontend_attributes to sdy.sharding.
+mlir::LogicalResult convertArgumentSharding(mlir::func::FuncOp &funcOp,
+                                            mlir::BlockArgument &arg,
+                                            mlir::MLIRContext *context);
+
+// Convert dictionary with frontend attributes to dictionary with sdy.sharding.
+mlir::DictionaryAttr
+convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
+                             mlir::DictionaryAttr currentArgAttrDict);
+
+// Convert all function arguments from frontend attributes format to SDY format.
+mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
+                                                   mlir::MLIRContext *context);
+
+// Convert all stablehlo.custom_call @Sharding ops to sdy.sharding_constraint
+// ops.
+mlir::LogicalResult
+convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
+                                      mlir::MLIRContext *context,
+                                      mlir::OpBuilder &builder);
 
 // Check if the graph is solved.
 bool isGraphSolved(mlir::ModuleOp &module);
@@ -86,6 +115,11 @@ getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
                     mlir::sdy::MeshOp &globalMeshOp);
+
+// Get the sharding attribute for an operand.
+mlir::sdy::TensorShardingAttr
+getOperandShardingAttr(const mlir::OpOperand &operand,
+                       mlir::sdy::MeshOp globalMeshOp);
 
 // Calculate the updated shape based on the tensor sharding annotation.
 FailureOr<int64_t>
@@ -138,6 +172,9 @@ private:
   mlir::sdy::MeshAttr meshAttr;
   mlir::sdy::TensorShardingAttr sdySharding;
 };
+
+// Return true if every dimension has no axes -> replicated.
+bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh);
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 

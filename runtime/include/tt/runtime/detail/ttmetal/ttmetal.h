@@ -7,6 +7,7 @@
 
 #define FMT_HEADER_ONLY
 #include "tt-metalium/circular_buffer.hpp"
+#include "tt-metalium/distributed_host_buffer.hpp"
 #include "tt-metalium/event.hpp"
 #include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
@@ -24,31 +25,43 @@
 
 namespace tt::runtime::ttmetal {
 
+using HostBuffer = std::shared_ptr<::tt::tt_metal::HostBuffer>;
+using DistributedHostBuffer =
+    std::shared_ptr<::tt::tt_metal::DistributedHostBuffer>;
 using MeshBuffer = std::shared_ptr<::tt::tt_metal::distributed::MeshBuffer>;
-using MetalTensor = std::variant<TensorDesc, MeshBuffer>;
+using MetalTensor =
+    std::variant<TensorDesc, HostBuffer, DistributedHostBuffer, MeshBuffer>;
 
 Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc);
-
-inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {
-  LOG_ASSERT(utils::isSupportedDataType(desc.dataType),
-             "Creating owned tensor with unsupported data type: " +
-                 std::string(target::EnumNameDataType(desc.dataType)) +
-                 "is not implemented for the TTMetal runtime");
-  std::shared_ptr<void> owned = utils::malloc_shared(desc.sizeBytes());
-  std::memcpy(owned.get(), data, desc.sizeBytes());
-  return ttmetal::createBorrowedHostTensor(owned, desc);
-}
-
-inline Tensor createOwnedHostTensor(std::shared_ptr<void> data,
-                                    const TensorDesc &desc) {
-  return ttmetal::createOwnedHostTensor(data.get(), desc);
-}
 
 inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
   return ttmetal::createBorrowedHostTensor(utils::unsafe_borrow_shared(data),
                                            desc);
 }
+
+std::shared_ptr<::tt::tt_metal::HostBuffer>
+createMetalHostBuffer(const void *data, const std::vector<std::uint32_t> &shape,
+                      const ::tt::target::DataType dataType);
+
+Tensor createOwnedHostTensor(const void *data,
+                             const std::vector<std::uint32_t> &shape,
+                             const std::vector<std::uint32_t> &stride,
+                             std::uint32_t itemsize,
+                             ::tt::target::DataType dataType);
+
+Tensor createMultiDeviceHostTensor(
+    const std::vector<Tensor> &tensorShards,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
+
+Tensor createMultiDeviceHostTensor(
+    const std::vector<const void *> &data,
+    const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType,
+    const std::unordered_map<std::string, std::string> &strategy,
+    const std::vector<uint32_t> &meshShape);
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
@@ -62,6 +75,8 @@ std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor);
 TensorDesc getTensorDesc(::tt::runtime::Tensor tensor);
+HostBuffer getHostBuffer(::tt::runtime::Tensor tensor);
+DistributedHostBuffer getDistributedHostBuffer(::tt::runtime::Tensor tensor);
 bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
 
@@ -131,8 +146,9 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle);
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
 
 std::optional<tt::runtime::TensorRef>
 getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);

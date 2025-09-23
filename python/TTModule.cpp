@@ -2,21 +2,21 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cstdint>
-#include <vector>
-
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
+
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/CAPI/AffineMap.h"
 #include "mlir/CAPI/IR.h"
+#include "mlir/IR/AffineMap.h"
 
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Target/Common/Target.h"
-#include "ttmlir/Utils.h"
+#include <cstdint>
+#include <vector>
 
 namespace mlir::ttmlir::python {
 void populateTTModule(nb::module_ &m) {
   tt_attribute_class<tt::ttcore::MetalLayoutAttr>(m, "MetalLayoutAttr")
+      // 5-arg overload (no index_map provided)
       .def_static(
           "get",
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
@@ -28,6 +28,18 @@ void populateTTModule(nb::module_ &m) {
                 static_cast<tt::ttcore::OOBVal>(oobValValue),
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue)));
           })
+      // 6-arg overload (explicit index_map)
+      .def_static("get",
+                  [](MlirContext ctx, std::vector<int64_t> logicalShape,
+                     std::vector<int64_t> gridShape, uint32_t oobValValue,
+                     uint32_t memorySpaceValue, MlirAffineMap indexMap) {
+                    return wrap(tt::ttcore::MetalLayoutAttr::get(
+                        unwrap(ctx), ArrayRef<int64_t>(logicalShape),
+                        ArrayRef<int64_t>(gridShape),
+                        static_cast<tt::ttcore::OOBVal>(oobValValue),
+                        static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
+                        unwrap(indexMap)));
+                  })
       .def("getLayout",
            [](MlirType &type)
                -> std::variant<tt::ttcore::MetalLayoutAttr, nb::object> {
@@ -47,6 +59,12 @@ void populateTTModule(nb::module_ &m) {
            })
       .def("wrapped",
            [](const tt::ttcore::MetalLayoutAttr &self) { return wrap(self); })
+      .def("getDeviceShape",
+           [](const tt::ttcore::MetalLayoutAttr &self,
+              std::vector<int64_t> gridShape, std::vector<int64_t> tileShape) {
+             const auto shape = self.getDeviceShape(gridShape, tileShape);
+             return std::vector<int64_t>(shape.begin(), shape.end());
+           })
       // Properties
       .def_prop_ro("logical_shape",
                    [](const tt::ttcore::MetalLayoutAttr &self) {

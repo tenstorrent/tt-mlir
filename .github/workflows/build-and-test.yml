@@ -173,7 +173,7 @@ jobs:
 
   run-tests:
 
-    timeout-minutes: 45
+    timeout-minutes: 70
     needs:
       - build-image
       - build-ttmlir
@@ -197,7 +197,7 @@ jobs:
           {runs-on: llmbox,       sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/llmbox/perf"},
           # {runs-on: tg,           sh-run: false, name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch"},
           # {runs-on: tg,           sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch"},
-          {runs-on: n150,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "pytest",          path: "runtime/tools/ttrt/test"},
+          {runs-on: n150,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "pytest",          path: "tools/ttrt/test"},
           {runs-on: n150,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
           {runs-on: n300,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
           {runs-on: n300-llmbox,  sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
@@ -339,6 +339,9 @@ jobs:
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_generate_sys_desc
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_float_bfloat_buffer_cast
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_integer_buffer_cast
+        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/ttnn/gtest/test_runtime_client
+        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/ttnn/gtest/test_tensor_serialization
+
 
     - name: Run TTNN-Standalone test
       shell: bash
@@ -356,8 +359,8 @@ jobs:
         source env/activate
         pytest ${{ matrix.build.path }} ${{ matrix.build.flags }} -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
         if [[ "${{ matrix.build.run-ttrt }}" == "true" ]]; then
-          ttrt run ${{ matrix.build.ttrt-flags }} ttnn/
-          ttrt run ${{ matrix.build.ttrt-flags }} ttmetal/
+          ttrt run ${{ matrix.build.ttrt-flags }} ttir-builder-artifacts/
+          ttrt run ${{ matrix.build.ttrt-flags }} stablehlo-builder-artifacts/
         fi
 
 
@@ -416,6 +419,7 @@ jobs:
       if: matrix.build.type == 'pykernel'
       shell: bash
       run: |
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         source env/activate
         cmake --build build
         cmake --build build -- pykernel-demo

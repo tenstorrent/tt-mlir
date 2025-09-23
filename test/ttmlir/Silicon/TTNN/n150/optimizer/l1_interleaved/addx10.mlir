@@ -17,6 +17,7 @@ module @L1InterleavedAddx10 attributes {} {
                     %arg10: tensor<32x4096xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "param10"} loc("SimpleAddModel":0:0)) -> (tensor<32x4096xbf16> {ttir.name = "SimpleAddModel.output"}) {
 
     // CHECK-DAG: #[[L1_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#l1>{{.*}}<interleaved>>
+    // CHECK-DAG: #[[DRAM_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#dram>{{.*}}<interleaved>>
 
     // Add operations should be upgraded to L1 interleaved when beneficial
     %0 = ttir.empty() : tensor<32x4096xbf16>
@@ -53,8 +54,8 @@ module @L1InterleavedAddx10 attributes {} {
     %17 = "ttir.add"(%15, %arg9, %16) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
 
     %18 = ttir.empty() : tensor<32x4096xbf16>
-    // Final add - output may stay in DRAM since it's the return value
-    // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<32x4096xbf16, #[[L1_LAYOUT]]>
+    // As output is the return value, not beneficial to move to L1, will always stay in DRAM.
+    // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<32x4096xbf16, #[[DRAM_LAYOUT]]>
     %19 = "ttir.add"(%17, %arg10, %18) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
     return %19 : tensor<32x4096xbf16>
   }

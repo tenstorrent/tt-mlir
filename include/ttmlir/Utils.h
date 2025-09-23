@@ -32,14 +32,30 @@ constexpr inline llvm::StringLiteral g_cpuHoistFuncCallAttrName =
     "ttir.cpu_hoist_call";
 constexpr inline llvm::StringLiteral g_skipQdqCommuteAttrName =
     "ttir.skip_qdq_commute";
-constexpr inline llvm::StringLiteral g_decomposedFromAllReduceAttrName =
-    "ttir.decomposed_from_all_reduce";
-constexpr inline llvm::StringLiteral g_outputDtypeAttrName = "output_dtype";
+
+namespace transformer {
+enum InputDimensions {
+  INPUT_BATCH = 0,
+  INPUT_NUM_HEADS = 1,
+  INPUT_SEQ = 2,
+  INPUT_HEAD_SIZE = 3
+};
+
+enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+} // namespace transformer
 
 template <typename T>
-T alignUp(T ptr, T alignment) {
-  T distance = ptr % alignment;
-  return ptr + (distance == 0 ? 0 : (alignment - distance));
+T alignUp(const T val, const T alignment) {
+  assert(alignment > 0);
+  return ((val + alignment - 1) / alignment) * alignment;
+}
+
+template <typename Iter>
+auto product(const Iter begin, const Iter end) ->
+    typename std::iterator_traits<Iter>::value_type {
+  using ValueType = typename std::iterator_traits<Iter>::value_type;
+  return std::accumulate(begin, end, static_cast<ValueType>(1),
+                         std::multiplies<ValueType>());
 }
 
 template <typename T>

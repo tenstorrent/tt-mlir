@@ -24,17 +24,22 @@ module @L1InterleavedTestForkJoin attributes {} {
     %7 = "ttir.relu"(%5, %6) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
     // Fork: %7 used in two ops
     %8 = ttir.empty() : tensor<64x128xbf16>
-    // CHECK: %{{.*}} = "ttnn.neg"{{.*}} -> tensor<{{.*}}, #[[SHARDED]]>
+    // CHECK: %{{.*}} = "ttnn.neg"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
     %9 = "ttir.neg"(%7, %8) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16> loc(#loc)
     %10 = ttir.empty() : tensor<64x128xbf16>
-    // CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[SHARDED]]>
+    // CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
     %11 = "ttir.abs"(%7, %10) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16> loc(#loc)
     // Join: add the results
     %12 = ttir.empty() : tensor<64x128xbf16>
     // sharded inputs fit with the result in L1 -> L1
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<{{.*}}, #[[L1]]>
     %13 = "ttir.add"(%9, %11, %12) : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-    return %13 : tensor<64x128xbf16>
+    %14 = ttir.empty() : tensor<64x128xbf16>
+    // As output is the return value, not beneficial to move to L1, will always stay in DRAM.
+    // CHECK: %{{.*}} = "ttnn.abs"{{.*}} -> tensor<{{.*}}, #[[DRAM]]>
+    %15 = "ttir.abs"(%13, %14) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+
+    return %15 : tensor<64x128xbf16>
   }
 }
 #loc = loc("op")
