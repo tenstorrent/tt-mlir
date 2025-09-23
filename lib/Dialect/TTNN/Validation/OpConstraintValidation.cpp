@@ -21,10 +21,11 @@ namespace op_constraint_validation {
 
 llvm::Expected<ValidationResult>
 validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                  const OpConfig &config) {
+                  const OpConfig &config, float tensorL1UsageCap) {
 
   // Call core constraint validation.
-  auto constraintResult = validateConstraints(op, inputLayouts, config);
+  auto constraintResult =
+      validateConstraints(op, inputLayouts, config, tensorL1UsageCap);
 
   if (constraintResult) {
     TTNNLayoutAttr actualOutput = constraintResult.get();
@@ -33,16 +34,16 @@ validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   return constraintResult.takeError();
 }
 
-llvm::Expected<std::vector<ValidationResult>>
-validateWithMultipleAttributes(Operation *op,
-                               llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                               llvm::ArrayRef<OpConfig> opConfigs,
-                               llvm::ArrayRef<OpConfig> referenceConfigs) {
+llvm::Expected<std::vector<ValidationResult>> validateWithMultipleAttributes(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+    llvm::ArrayRef<OpConfig> opConfigs,
+    llvm::ArrayRef<OpConfig> referenceConfigs, float tensorL1UsageCap) {
 
   std::vector<ValidationResult> results;
   for (const auto &testConfig : opConfigs) {
     // 1. Call core constraint checking.
-    auto constraintResult = validateConstraints(op, inputLayouts, testConfig);
+    auto constraintResult =
+        validateConstraints(op, inputLayouts, testConfig, tensorL1UsageCap);
 
     if (constraintResult) {
       TTNNLayoutAttr actualOutput = constraintResult.get();
@@ -81,7 +82,7 @@ validateWithMultipleAttributes(Operation *op,
 
 llvm::Expected<TTNNLayoutAttr>
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                    const OpConfig &config) {
+                    const OpConfig &config, float tensorL1UsageCap) {
 
   // Check that operation supports OpModel interface.
   auto backend = mlir::dyn_cast<OpModel>(op);
@@ -136,11 +137,6 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
       op->getParentOfType<ModuleOp>()->getAttr(ttcore::SystemDescAttr::name));
   ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
   uint64_t usableL1CacheSize = chipDesc.getUsableL1Size();
-
-  // TODO(rpavlovicTT): pass tensorL1UsageCap as parameter. Use the one from
-  // PipelineOptions added in fe415d34d95a777f38e7864a84a618bd946b35ca. Update
-  // accordingly to it.
-  constexpr float tensorL1UsageCap = 1.0f;
 
   // Calculate total L1 usage from all input layouts.
   uint64_t totalInputL1Usage = 0;
