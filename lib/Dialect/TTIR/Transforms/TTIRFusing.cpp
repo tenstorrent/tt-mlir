@@ -1330,7 +1330,6 @@ public:
 
     rewriter.replaceOp(addOp, linearOp.getResult());
     rewriter.eraseOp(dotOp);
-    llvm::outs() << "Fusing DotGeneral with Bias Add\n";
 
     return mlir::success();
   }
