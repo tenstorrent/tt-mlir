@@ -73,9 +73,6 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
-# Use standardized include directories from third_party/CMakeLists.txt
-set(INCLUDE_DIRS ${TTMETAL_INCLUDE_DIRS})
-
 # Link directories - use standardized directory from third_party/CMakeLists.txt
 #
 set(LINK_DIRS
@@ -118,10 +115,10 @@ set(COMPILE_DEFS
 
 add_executable(ttnn-standalone ttnn-standalone.cpp)
 set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
-set_target_properties(ttnn-standalone PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_LIB_DIR}")
+set_target_properties(ttnn-standalone PROPERTIES INSTALL_RPATH "$ORIGIN:${TTMETAL_LIBRARY_DIR}")
 set_target_properties(ttnn-standalone PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
-target_include_directories(ttnn-standalone PRIVATE ${INCLUDE_DIRS})
+target_include_directories(ttnn-standalone SYSTEM PRIVATE "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 target_link_directories(ttnn-standalone PRIVATE ${LINK_DIRS})
 target_link_libraries(ttnn-standalone PRIVATE ${LINK_LIBS})
 target_compile_definitions(ttnn-standalone PRIVATE ${COMPILE_DEFS})
