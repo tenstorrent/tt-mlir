@@ -2868,6 +2868,62 @@ private:
 } // namespace
 
 namespace {
+class StableHLOToTTIRRngBitGeneratorOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::RngBitGeneratorOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::RngBitGeneratorOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::RngBitGeneratorOp srcOp,
+                  mlir::stablehlo::RngBitGeneratorOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    LogicalResult legalityResult = checkConversionLegality(srcOp, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getOutput().getType()));
+
+    llvm::SmallVector<int32_t> size(outputType.getShape());
+
+    auto floatElementType = rewriter.getF32Type();
+    auto floatOutputType = mlir::RankedTensorType::get(
+        outputType.getShape(), floatElementType, outputType.getEncoding());
+
+    auto fromFloat = rewriter.getF32FloatAttr(
+        static_cast<float>(std::numeric_limits<unsigned int>::min()));
+    auto toFloat = rewriter.getF32FloatAttr(
+        static_cast<float>(std::numeric_limits<unsigned int>::max()));
+
+    auto seed = rewriter.getUI32IntegerAttr(0);
+
+    auto randOp = rewriter.create<mlir::tt::ttir::RandOp>(
+        srcOp.getLoc(), floatOutputType, rewriter.getI32ArrayAttr(size),
+        mlir::TypeAttr::get(floatElementType), fromFloat, toFloat, seed);
+
+    auto typecastOp =
+        mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::TypecastOp>(
+            rewriter, srcOp.getLoc(), outputType, randOp.getResult());
+
+    rewriter.replaceOp(srcOp,
+                       {adaptor.getInitialState(), typecastOp.getResult()});
+
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkConversionLegality(mlir::stablehlo::RngBitGeneratorOp &srcOp,
+                          ConversionPatternRewriter &rewriter) const {
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // This pattern recognizes and converts stablehlo.custom_call @tt.fill_cache
 // to ttir.fill_cache.
 class StableHLOFillCacheConversionPattern
@@ -3331,6 +3387,14 @@ static void addRngOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRRngOpConversionPattern>(typeConverter, ctx);
 }
 
+static void
+addRngBitGeneratorOpConversionPattern(MLIRContext *ctx,
+                                      RewritePatternSet &patterns,
+                                      TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRRngBitGeneratorOpConversionPattern>(typeConverter,
+                                                                  ctx);
+}
+
 static void addErfOpConversionPattern(MLIRContext *ctx,
                                       RewritePatternSet &patterns,
                                       TypeConverter &typeConverter) {
@@ -3389,6 +3453,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addPadOpConversionPattern(ctx, patterns, typeConverter);
   addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
   addRngOpConversionPattern(ctx, patterns, typeConverter);
+  addRngBitGeneratorOpConversionPattern(ctx, patterns, typeConverter);
   addErfOpConversionPattern(ctx, patterns, typeConverter);
   addSortOpConversionPattern(ctx, patterns, typeConverter);
   addCacheOpsConversionPattern(ctx, patterns, typeConverter);
