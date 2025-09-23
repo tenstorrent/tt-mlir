@@ -26,8 +26,8 @@ public:
   using Adaptor = typename SourceOp::Adaptor;
 
 private:
-  std::string virtual getPrefixSearchPattern() const { return "ttnn."; }
-  std::string virtual getPrefixSwapPattern() const { return "ttnn."; }
+  virtual std::string getPrefixSearchPattern() const { return "ttnn."; }
+  virtual std::string getPrefixSwapPattern() const { return "ttnn."; }
 
 public:
   // Converts op name by removing the prefixSearchPattern with

@@ -1047,6 +1047,9 @@ struct EmitPyTypeConverter<::ttnn::MemoryConfig> {
   }
 
   static std::string convert(ttnn::MemoryConfigAttr attr) {
+    // If BufferType is SystemMemory, there is no need for a MemoryConfig as it
+    // is only used to represent memory of tensors on device.
+    //
     if (!attr ||
         attr.getBufferType().getValue() == ttnn::BufferType::SystemMemory) {
       return TypeNameV<std::nullopt_t>;

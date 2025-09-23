@@ -2,13 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/EmitPy/ConstantOp4DWorkaroundPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/EmitPy/ConstantOpDataTypeWorkaroundPattern.h"
-
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
