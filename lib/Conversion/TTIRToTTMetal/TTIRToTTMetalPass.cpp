@@ -38,6 +38,20 @@ namespace {
 
 struct ConvertTTIRToTTMetal
     : public ttir::impl::ConvertTTIRToTTMetalBase<ConvertTTIRToTTMetal> {
+
+  using Base = ttir::impl::ConvertTTIRToTTMetalBase<ConvertTTIRToTTMetal>;
+
+  ConvertTTIRToTTMetal() = default;
+  ConvertTTIRToTTMetal(
+      const mlir::tt::ttir::ConvertTTIRToTTMetalOptions &options)
+      : Base(options) {}
+
+  ConvertTTIRToTTMetal(const ConvertTTIRToTTMetal &rhs) : Base(rhs) {
+    // Workaround: Passes are required to be copy-constructible but autogen'ed
+    // base class copy constructors ignore Pass option fields.
+    this->mathFidelity = rhs.mathFidelity;
+  }
+
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
@@ -68,7 +82,8 @@ struct ConvertTTIRToTTMetal
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
-    populateTTIRToTTMetalPatterns(&getContext(), patterns, typeConverter);
+    populateTTIRToTTMetalPatterns(&getContext(), patterns, typeConverter,
+                                  mathFidelity);
 
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
@@ -84,6 +99,11 @@ namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToTTMetalPass() {
   return std::make_unique<ConvertTTIRToTTMetal>();
+}
+
+std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToTTMetalPass(
+    const ttir::ConvertTTIRToTTMetalOptions &options) {
+  return std::make_unique<ConvertTTIRToTTMetal>(options);
 }
 
 } // namespace mlir::tt
