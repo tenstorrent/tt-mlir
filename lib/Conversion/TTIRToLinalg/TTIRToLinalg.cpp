@@ -26,8 +26,8 @@
 
 #include <cstdint>
 
-#include <cstdint>
 #include "mlir/IR/OpDefinition.h"
+#include <cstdint>
 
 namespace mlir::tt {
 //===----------------------------------------------------------------------===//
