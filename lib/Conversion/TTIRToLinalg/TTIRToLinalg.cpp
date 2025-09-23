@@ -306,6 +306,18 @@ static Attribute createDenseElementsAttr(RankedTensorType resultType,
   return {};
 }
 
+// Helper function to calculate extra padding for MaxPool2dOp.
+// This function calculates the extra padding needed to make the output size
+// divisible by the stride.
+static int64_t calculateExtraPadding(int64_t dim, int64_t kernel,
+                                     int64_t stride, int64_t padding1,
+                                     int64_t padding2) {
+  if ((dim + padding1 + padding2 - kernel) % stride != 0) {
+    return (stride - (dim + padding1 + padding2 - kernel) % stride);
+  }
+  return 0;
+}
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -985,6 +997,7 @@ public:
   }
 };
 } // namespace
+
 namespace {
 class MaxPool2dOpConversionPattern
     : public OpConversionPattern<ttir::MaxPool2dOp> {
@@ -1002,53 +1015,40 @@ public:
     auto dilation = adaptor.getDilation();
 
     // Expand stride if it contains only one element.
-    SmallVector<int64_t> expandedStrides;
-    if (auto stridesArray = dyn_cast<DenseI32ArrayAttr>(strides)) {
-      expandedStrides = {stridesArray[0], stridesArray[1]};
-    } else if (auto singleStride = dyn_cast<IntegerAttr>(strides)) {
-      int64_t strideVal = singleStride.getInt();
-      expandedStrides = {strideVal, strideVal};
-    } else {
+    auto stridesResult = ttmlir::utils::getPairOfInteger<int64_t>(strides);
+    if (!stridesResult) {
       return rewriter.notifyMatchFailure(
           op, "stride must be an integer or array attribute");
     }
 
-    // Expand padding if it contains only one or two elements.
-    SmallVector<int64_t> expandedPadding;
-    if (auto paddingArray = dyn_cast<DenseI32ArrayAttr>(padding)) {
-      if (paddingArray.size() == 2) {
-        expandedPadding = {paddingArray[0], paddingArray[0], paddingArray[1],
-                           paddingArray[1]};
-      } else if (paddingArray.size() == 4) {
-        // TTIR uses (top, left, bottom, right) but TOSA uses (top, bottom,
-        // left, right).
-        expandedPadding = {paddingArray[0], paddingArray[2], paddingArray[1],
-                           paddingArray[3]};
-      } else {
-        return rewriter.notifyMatchFailure(
-            op, "padding array must have 2 or 4 elements");
-      }
-    } else if (auto singlePadding = dyn_cast<IntegerAttr>(padding)) {
-      int64_t paddingVal = singlePadding.getInt();
-      expandedPadding = {paddingVal, paddingVal, paddingVal, paddingVal};
-    } else {
+    auto paddingResult = ttmlir::utils::getQuadrupleOfInteger<int64_t>(padding);
+    if (!paddingResult) {
       return rewriter.notifyMatchFailure(
-          op, "padding must be an integer or array attribute");
+          op, "padding must be an integer, 2-element, or 4-element array "
+              "attribute");
     }
 
+    // If padding is a single integer, expand it to 4 elements.
+    // If padding is a 2-element array, it is (width, height) and expand it to 4
+    // elements (width, height, width, height). If padding is a 4-element array,
+    // TTIR uses (top, left, bottom, right) but TOSA uses (top, bottom, left,
+    // right). Permutation of indices 1 and 2 is needed to match the padding
+    // order. (width, height, width, height) -> (width, width, height, height)
+    // (top, left, bottom, right) -> (top, bottom, left, right)
+
+    SmallVector<int64_t> expandedPadding = {
+        std::get<0>(*paddingResult), std::get<2>(*paddingResult),
+        std::get<1>(*paddingResult), std::get<3>(*paddingResult)};
+
     // Expand kernel if it contains only one element.
-    SmallVector<int64_t> expandedKernel;
-    if (auto kernelArray = dyn_cast<DenseI32ArrayAttr>(kernel)) {
-      expandedKernel = {kernelArray[0], kernelArray[1]};
-    } else if (auto singleKernel = dyn_cast<IntegerAttr>(kernel)) {
-      int64_t kernelVal = singleKernel.getInt();
-      expandedKernel = {kernelVal, kernelVal};
-    } else {
+    auto kernelResult = ttmlir::utils::getPairOfInteger<int64_t>(kernel);
+    if (!kernelResult) {
       return rewriter.notifyMatchFailure(
           op, "kernel must be an integer or array attribute");
     }
 
     if (auto dilationArray = dyn_cast<DenseI32ArrayAttr>(dilation)) {
+      assert(dilationArray.size() == 2 && "dilation must be 2 elements");
       if (dilationArray[0] != 1 || dilationArray[1] != 1) {
         return rewriter.notifyMatchFailure(op, "dilation must be 1x1");
       }
@@ -1068,44 +1068,38 @@ public:
     // condition is met.
     int64_t inputHeight = cast<RankedTensorType>(input.getType()).getShape()[1];
     int64_t inputWidth = cast<RankedTensorType>(input.getType()).getShape()[2];
-    int64_t kernelHeight = expandedKernel[0];
-    int64_t kernelWidth = expandedKernel[1];
+    int64_t kernelHeight = kernelResult->first;
+    int64_t kernelWidth = kernelResult->second;
 
-    if ((inputHeight + expandedPadding[0] + expandedPadding[1] - kernelHeight) %
-            expandedStrides[0] !=
-        0) {
-      expandedPadding[1] +=
-          (expandedStrides[0] - (inputHeight + expandedPadding[0] +
-                                 expandedPadding[1] - kernelHeight) %
-                                    expandedStrides[0]);
-    }
-    if ((inputWidth + expandedPadding[2] + expandedPadding[3] - kernelWidth) %
-            expandedStrides[1] !=
-        0) {
-      expandedPadding[3] +=
-          (expandedStrides[1] - (inputWidth + expandedPadding[2] +
-                                 expandedPadding[3] - kernelWidth) %
-                                    expandedStrides[1]);
-    }
+    expandedPadding[1] +=
+        calculateExtraPadding(inputHeight, kernelHeight, stridesResult->first,
+                              expandedPadding[0], expandedPadding[1]);
+    expandedPadding[3] +=
+        calculateExtraPadding(inputWidth, kernelWidth, stridesResult->second,
+                              expandedPadding[2], expandedPadding[3]);
 
-    auto expandedStridesAttr = rewriter.getDenseI64ArrayAttr(expandedStrides);
+    auto expandedStridesAttr = rewriter.getDenseI64ArrayAttr(
+        {stridesResult->first, stridesResult->second});
     auto expandedPaddingAttr = rewriter.getDenseI64ArrayAttr(expandedPadding);
-    auto expandedKernelAttr = rewriter.getDenseI64ArrayAttr(expandedKernel);
+    auto expandedKernelAttr = rewriter.getDenseI64ArrayAttr(
+        {kernelResult->first, kernelResult->second});
 
     auto resultType = dyn_cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
     // Update return shape to be used in the TOSA MaxPool2dOp.
-    SmallVector<int64_t> resultShape = {
-        resultType.getShape()[0], resultType.getShape()[1],
-        resultType.getShape()[2], resultType.getShape()[3]};
+    // The output size is calculated as (inputSize + padding1 + padding2 -
+    // kernelSize) / stride + 1. This is because the output size is the number
+    // of elements separated by stride in a kernel window between the first and
+    // last element of the input after padding.
+    SmallVector<int64_t> resultShape(resultType.getShape());
     resultShape[1] =
         (inputHeight + expandedPadding[0] + expandedPadding[1] - kernelHeight) /
-            expandedStrides[0] +
+            stridesResult->first +
         1;
     resultShape[2] =
         (inputWidth + expandedPadding[2] + expandedPadding[3] - kernelWidth) /
-            expandedStrides[1] +
+            stridesResult->second +
         1;
 
     auto actualResultType =
@@ -1118,10 +1112,8 @@ public:
 
     // Slice the result back to the original expected shape if needed.
     Value result = maxPoolOp.getResult();
-    ArrayRef<int64_t> originalShape = resultType.getShape();
-    if (!std::equal(resultShape.begin(), resultShape.end(),
-                    originalShape.begin(), originalShape.end())) {
-      SmallVector<OpFoldResult> offsets, sizes, strides;
+    if (!llvm::equal(resultShape, resultType.getShape())) {
+      SmallVector<Attribute> offsets, sizes, strides;
       for (int64_t i = 0; i < resultType.getRank(); ++i) {
         offsets.push_back(rewriter.getI64IntegerAttr(0));
         sizes.push_back(rewriter.getI64IntegerAttr(resultType.getShape()[i]));
