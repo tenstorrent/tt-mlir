@@ -55,7 +55,7 @@ public:
     for (const auto [i, thread] : llvm::enumerate(threads)) {
       const ttir::ThreadAttr threadAttr = mlir::cast<ttir::ThreadAttr>(thread);
 
-      // Get kernel args
+      // Get kernel args.
       SymbolRefAttr kernelSymbol = threadAttr.getKernelSymbol();
       auto kernelFunc = symbolTable.lookup<mlir::func::FuncOp>(
           kernelSymbol.getRootReference());
@@ -72,7 +72,7 @@ public:
         kernelCTArgs[i] = convertKernelArg(builder, arg);
       }
 
-      // Create KernelDescriptor
+      // Create KernelDescriptor.
       switch (threadAttr.getThreadType()) {
       case ttir::ThreadType::Compute: {
         // TODO (vtangTT) #5032: support lowering to different compute configs.
@@ -89,7 +89,7 @@ public:
         break;
       }
       // TODO (vtangTT) #5033: fix this assumption that order is
-      // read->write->compute so nocIndex == 0 for read, nocIndex == 1 for write
+      // read->write->compute; nocIndex == 0 for read, nocIndex == 1 for write.
       case ttir::ThreadType::Datamovement: {
         TT_assert(nocIndex < 2);
         if (nocIndex == 0) {
@@ -167,7 +167,7 @@ public:
       llvm_unreachable("Expected circular buffers.");
     }
 
-    // Create CBDescriptor
+    // Create CBDescriptor.
     // TODO (vtangTT) #5031: support setting buffer ptr in CBDescriptor for
     // aliasing.
     for (auto [i, cb] : llvm::enumerate(cbs)) {
@@ -187,7 +187,7 @@ public:
       cbDescriptors[i] = cbDescriptor;
     }
 
-    // Create KernelDescriptors
+    // Create KernelDescriptors.
     SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
     llvm::SmallVector<mlir::Attribute> kernelDescriptors =
         convertThreadsToKernelConfigs(rewriter, op.getThreads(), coreRangeSet,
