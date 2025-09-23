@@ -899,7 +899,8 @@ def compile_ttir_module_to_flatbuffer(
                     "../../../../third_party/tt-metal/src/tt-metal",
                 )
             )
-            os.environ["TT_METAL_HOME"] = tt_metal_home
+            # Temporary comment for debugging CI, will be removed later
+            # os.environ["TT_METAL_HOME"] = tt_metal_home
 
             subprocess.run(
                 [
