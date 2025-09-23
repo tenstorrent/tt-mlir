@@ -200,6 +200,14 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             return mlir::failure();
           })
           .Case<mlir::stablehlo::ScatterOp>([&](auto scatterOp) {
+
+            // Scatter op does not require attribute updates for static cache case, it will be fused away.
+            auto scatterOpInputs = scatterOp.GetInputs();
+            auto scatterOpUpdates = scatterOp.GetUpdates();
+            auto scatterOpIndices = scatterOp.GetIndices();
+
+            
+
             scatterOp->emitError(
                 "Scatter operation is not supported in stablehlo-pipeline for "
                 "meshes not 1x1: "
