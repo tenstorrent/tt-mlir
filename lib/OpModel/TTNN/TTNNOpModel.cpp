@@ -2579,6 +2579,32 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+llvm::Expected<op_model::OpConstraints>
+OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
+    std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
+    std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
+    std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+#else
+  return OpConstraints{};
+#endif
+}
+
+llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
+    std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
+    std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
+    std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+#else
+  return llvm::createStringError("Not implemented");
+#endif
+}
+
 //===----------------------------------------------------------------------===//
 // NLPConcatHeadsOp
 //===----------------------------------------------------------------------===//

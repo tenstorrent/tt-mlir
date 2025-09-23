@@ -2464,6 +2464,25 @@ def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor"> {
   let hasVerifier = 1;
 }
 
+def NLPCreateQKVHeadsDecodeOp : TTNN_Op<"nlp_create_qkv_heads_decode", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "nlp_create_qkv_heads_decode op in TTNN dialect.";
+  let description = [{
+    "Shuffles [1, S=1, B, head_dim * (num_heads + 2*num_kv_heads)] fused qkv matrix into Q, K, and V heads with shape [S, B, num_heads, head_dim] for Q and [S, B, num_kv_heads, head_dim] for K and V, where num_heads and num_kv_heads will be padded to nearest 32. Input must be sharded, B=32 and S=1. If ttnn pads B from some number < 32 to 32, this op respects the unpadded B. overlap_qk_coregrid is a boolean flag that determines whether the output Q and K heads are on same core grid. If true, then Q, K, and V heads are on the same core grid. If false, the Q and K heads are on non-overlapping core-grid useful for processing Q and K in parallel."
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$batch_offset,
+                       UI32Attr:$num_heads,
+                       OptionalAttr<UI32Attr>:$num_kv_heads,
+                       OptionalAttr<BoolAttr>:$overlap_qk_coregrid,
+                       OptionalAttr<UI32Attr>:$slice_size,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
   let summary = "Loads a tensor from disk";
   let description = [{

@@ -723,6 +723,28 @@ struct OpModel<RotaryEmbeddingLlamaOp> {
                TTNNLayoutAttr outputLayout);
 };
 
+//===-----------------------------------------------------------------------===//
+// NLPCreateQKVHeadsDecodeOp
+// ===----------------------------------------------------------------------===//
+template <>
+struct OpModel<NLPCreateQKVHeadsDecodeOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
+      std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
+      std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
+      std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
+               std::optional<TTNNLayoutAttr> batchOffsetLayout,
+               uint32_t numHeads, std::optional<uint32_t> numKVHeads,
+               std::optional<bool> overlapQKCoregrid,
+               std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout);
+};
+
 //===----------------------------------------------------------------------===//
 // NLPConcatHeadsOp
 //===----------------------------------------------------------------------===//
