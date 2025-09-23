@@ -357,13 +357,6 @@ jobs:
       with:
         name: tt-alchemist-whl-speedy
 
-    - name: Install tt-alchemist wheel
-      shell: bash
-      run: |
-        source env/activate
-        pip install tt_alchemist-*.whl --force-reinstall
-        echo "tt-alchemist wheel installed successfully"
-
     - name: Builder Tests
       if: matrix.build.type == 'builder'
       shell: bash
@@ -375,6 +368,7 @@ jobs:
           ttrt run ${{ matrix.build.ttrt-flags }} stablehlo-builder-artifacts/
         fi
         if [[ "${{ matrix.build.run-emitpy }}" == "true" ]]; then
+          pip install tt_alchemist-*.whl --force-reinstall
           export PYTHONPATH="${GITHUB_WORKSPACE}/tools/tt-alchemist/templates/python/local:${PYTHONPATH}"
           export PYTHONPATH="${GITHUB_WORKSPACE}/third_party/tt-metal/src/tt-metal/ttnn:${PYTHONPATH}"
           export PYTHONPATH="${GITHUB_WORKSPACE}/third_party/tt-metal/src/tt-metal/ttnn/ttnn:${PYTHONPATH}"
