@@ -102,7 +102,18 @@ set_target_properties(ttnn-standalone PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 # Add dependency on tt-metal external project
 add_dependencies(ttnn-standalone tt-metal)
 
-target_include_directories(ttnn-standalone SYSTEM PRIVATE "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
+# Debug: Check if the required header file exists
+set(BFLOAT16_HEADER "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api/tt-metalium/bfloat16.hpp")
+if(EXISTS "${BFLOAT16_HEADER}")
+    message(STATUS "Found bfloat16.hpp at: ${BFLOAT16_HEADER}")
+else()
+    message(WARNING "bfloat16.hpp not found at: ${BFLOAT16_HEADER}")
+endif()
+
+target_include_directories(ttnn-standalone SYSTEM PRIVATE
+    "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>"
+    "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api"
+)
 target_link_directories(ttnn-standalone PRIVATE ${LINK_DIRS})
 target_link_libraries(ttnn-standalone PRIVATE ${TTNN_LIBS})
 target_compile_definitions(ttnn-standalone PRIVATE ${COMPILE_DEFS})
