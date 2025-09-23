@@ -186,7 +186,7 @@ protected:
       ::llvm::cl::desc(
           "Override tensor L1 usage cap in L1 Interleaved Fallback Analysis "
           "and Memory Layout Analysis. [0.0-1.0]"),
-      ::llvm::cl::init(0.8f)};
+      ::llvm::cl::init(1.0f)};
 
   // Calculate the usable L1 cache size with capacity scaling.
   // For analysis purposes, usableL1CacheSize is scaled by a cap value between

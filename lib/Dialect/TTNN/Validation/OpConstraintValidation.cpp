@@ -138,8 +138,9 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   uint64_t usableL1CacheSize = chipDesc.getUsableL1Size();
 
   // TODO(rpavlovicTT): pass tensorL1UsageCap as parameter. Use the one from
-  // PipelineOptions added in fe415d34d95a777f38e7864a84a618bd946b35ca.
-  constexpr float tensorL1UsageCap = 0.8;
+  // PipelineOptions added in fe415d34d95a777f38e7864a84a618bd946b35ca. Update
+  // accordingly to it.
+  constexpr float tensorL1UsageCap = 1.0f;
 
   // Calculate total L1 usage from all input layouts.
   uint64_t totalInputL1Usage = 0;
