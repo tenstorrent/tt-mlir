@@ -285,18 +285,6 @@ jobs:
           pip install pytest
         fi
 
-    - name: Download and install ttnn whl
-      shell: bash
-      run: |
-        source env/activate
-        wget -O ttnn-0.59.0rc57-cp310-cp310-manylinux_2_34_x86_64.whl \
-          https://github.com/tenstorrent/tt-metal/releases/download/v0.59.0/ttnn-0.59.0rc57-cp310-cp310-manylinux_2_34_x86_64.whl
-        mv ttnn-0.59.0rc57-cp310-cp310-manylinux_2_34_x86_64.whl ttnn-0.59.0rc57-cp311-cp311-manylinux_2_34_x86_64.whl
-        pip show ttnn && pip uninstall -y ttnn || true
-        pip install ttnn-0.59.0rc57-cp311-cp311-manylinux_2_34_x86_64.whl --force-reinstall
-        rm -f ttnn-0.59.0rc57-cp311-cp311-manylinux_2_34_x86_64.whl
-        mv ${TTMLIR_TOOLCHAIN_DIR}/venv/lib/python3.11/site-packages/ttnn/_ttnn.cpython-310-x86_64-linux-gnu.so ${TTMLIR_TOOLCHAIN_DIR}/venv/lib/python3.11/site-packages/ttnn/_ttnn.so
-
     - name: Download Build Artifacts
       uses: ./.github/actions/download-artifact
       with:
@@ -376,6 +364,8 @@ jobs:
         fi
         if [[ "${{ matrix.build.run-emitpy }}" == "true" ]]; then
           export PYTHONPATH="${GITHUB_WORKSPACE}/tools/tt-alchemist/templates/python/local:${PYTHONPATH}"
+          export PYTHONPATH="${GITHUB_WORKSPACE}/third_party/tt-metal/src/tt-metal/ttnn:${PYTHONPATH}"
+          export PYTHONPATH="${GITHUB_WORKSPACE}/third_party/tt-metal/src/tt-metal:${PYTHONPATH}"
           find ttir-builder-artifacts -name "*.py" -type f | while read -r py_file; do
             python "$py_file"
           done
