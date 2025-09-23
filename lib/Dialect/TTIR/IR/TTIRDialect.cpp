@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -108,6 +109,12 @@ void TTIRDialect::initialize() {
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.cpp.inc"
       >();
   registerTypes();
+
+  // Set up IR dumping when first TT dialect is initialized
+  mlir::tt::MLIRModuleLogger::enableGlobalIRDumping(getContext());
+
+  // Dump dialect creation if IR dumping is enabled
+  mlir::tt::MLIRModuleLogger::dumpDialectCreation("ttir", getContext());
 }
 
 //===----------------------------------------------------------------------===//
