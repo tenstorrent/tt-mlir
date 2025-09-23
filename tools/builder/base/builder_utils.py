@@ -470,7 +470,37 @@ def build_module(
                 builder._set_goldens(output_goldens)
                 builder._set_output_ordering(outputs)
 
-                return result
+                def convert_to_mlir_value(obj):
+                    """Convert OpView objects to their MLIR result values."""
+                    if hasattr(obj, 'operation') and hasattr(obj.operation, 'results'):
+                        # OpView object - return its first (and typically only) result
+                        results = obj.operation.results
+                        if len(results) == 1:
+                            return results[0]
+                        else:
+                            # Multiple results - return all of them
+                            return results
+                    elif hasattr(obj, 'type'):
+                        # Already a MLIR Value
+                        return obj
+                    else:
+                        # Some other type - return as-is and let MLIR handle it
+                        return obj
+
+                if hasattr(result, "__iter__") and not isinstance(result, str):
+                    # Multiple returns - convert each element
+                    converted_results = []
+                    for item in result:
+                        converted = convert_to_mlir_value(item)
+                        if hasattr(converted, '__iter__') and not hasattr(converted, 'type'):
+                            # If converted is a list of results, extend the list
+                            converted_results.extend(converted)
+                        else:
+                            converted_results.append(converted)
+                    return tuple(converted_results)
+                else:
+                    # Single return - convert the single item
+                    return convert_to_mlir_value(result)
 
         print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base

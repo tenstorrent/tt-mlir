@@ -2707,7 +2707,6 @@ def test_rms_norm(
         target=target,
     )
 
-
 @pytest.mark.parametrize(
     "input_rank, shard_dims",
     [
@@ -2787,7 +2786,6 @@ def test_mesh_shard_devices(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
-
 
 @pytest.mark.parametrize(
     "test_shape",
@@ -3196,6 +3194,46 @@ def test_collective_broadcast(
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+@pytest.mark.parametrize("shapes", [[(32, 32), (32, 32), (32, 32)]], ids=["32x32"])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
+def test_multi_return_support(shapes: List[Shape], dtypes: List[torch.dtype], request):
+    """Test that multi-return functionality works after the builder fix."""
+    def multi_return_model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+        add_result = builder.add(in0, in1)
+        exp_result = builder.exp(in2)
+        mult_result = builder.multiply(add_result, exp_result)
+        
+        return exp_result, mult_result
+    
+    compile_ttir_to_flatbuffer(
+        multi_return_model,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+    
+@pytest.mark.parametrize("shapes", [[(64, 64), (64, 64)]], ids=["64x64"])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 2], ids=["f32"])
+def test_triple_return_support(shapes: List[Shape], dtypes: List[torch.dtype], request):
+    """Test that returning three values works."""
+    def triple_return_model(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        add_result = builder.add(in0, in1)
+        exp_result = builder.exp(in0)
+        mult_result = builder.multiply(in0, in1)
+        
+        return add_result, exp_result, mult_result
+    
+    compile_ttir_to_flatbuffer(
+        triple_return_model,
+        shapes,
+        dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
