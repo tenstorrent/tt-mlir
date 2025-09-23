@@ -134,25 +134,25 @@ void ProgramExecutor::runCallback(
 
 void ProgramExecutor::execute() {
   // Check if Python interpreter is already initialized
-  bool python_initialized_here = false;
-  if (!Py_IsInitialized()) {
-    Py_Initialize();
-    python_initialized_here = true;
-  }
+  // bool python_initialized_here = false;
+  // if (!Py_IsInitialized()) {
+  //   Py_Initialize();
+  //   python_initialized_here = true;
+  // }
 
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
 
   // Use Python print instead of std::cout
-  PyRun_SimpleString("print('Dhruv is here')");
+  // PyRun_SimpleString("print('Dhruv is here')");
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
 
     // Use Python print instead of std::cout
-    std::string python_cmd = "print('Dhruv processing operation: " +
-                             std::string(op->debug_info()->c_str()) + "')";
-    PyRun_SimpleString(python_cmd.c_str());
+    // std::string python_cmd = "print('Dhruv processing operation: " +
+    //                          std::string(op->debug_info()->c_str()) + "')";
+    // PyRun_SimpleString(python_cmd.c_str());
     perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
@@ -169,9 +169,9 @@ void ProgramExecutor::execute() {
             "Finished execution of program: ", program->name()->c_str());
 
   // Finalize Python interpreter only if we initialized it
-  if (python_initialized_here) {
-    Py_Finalize();
-  }
+  // if (python_initialized_here) {
+  //   Py_Finalize();
+  // }
 }
 
 std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
