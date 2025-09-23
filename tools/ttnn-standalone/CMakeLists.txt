@@ -17,7 +17,6 @@ install(
 
 install(
   PROGRAMS
-    run
     ci_compile_dylib.py
   DESTINATION tools/ttnn-standalone
   COMPONENT TTNNStandalone
@@ -146,7 +145,6 @@ set(COMPILE_DEFS
 
 add_executable(ttnn-standalone ttnn-standalone.cpp)
 set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
-set_property(TARGET ttnn-standalone PROPERTY EXCLUDE_FROM_ALL TRUE)
 set_target_properties(ttnn-standalone PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_LIB_DIR}")
 set_target_properties(ttnn-standalone PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
@@ -156,6 +154,13 @@ target_link_libraries(ttnn-standalone PRIVATE ${LINK_LIBS})
 target_compile_definitions(ttnn-standalone PRIVATE ${COMPILE_DEFS})
 
 target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
+
+# Install the ttnn-standalone executable
+install(
+  TARGETS ttnn-standalone
+  DESTINATION tools/ttnn-standalone
+  COMPONENT TTNNStandalone
+)
 
 #      _         _  _  _
 #   __| | _   _ | |(_)| |__

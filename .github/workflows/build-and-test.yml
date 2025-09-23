@@ -350,7 +350,7 @@ jobs:
         export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
         export TT_METAL_LIB="${{ steps.strings.outputs.install-output-dir }}/lib"
         cd ${{ steps.strings.outputs.install-output-dir }}/${{ matrix.build.path }}
-        ./run
+        ./ttnn-standalone
 
     - name: Builder Tests
       if: matrix.build.type == 'builder'
@@ -433,6 +433,7 @@ jobs:
         echo "Running PyKernel tests..."
         cd ${{ steps.strings.outputs.build-output-dir }}/test/pykernel/demo
         pytest -v ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo/test.py
+        rm -rf third_party/tt-metal
 
     # pytest runner
     - name: Run pytest ttrt tests
