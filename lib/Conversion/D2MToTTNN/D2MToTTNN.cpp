@@ -177,8 +177,8 @@ public:
                  "Only TileType supported.");
       ttcore::DataType dtype =
           ttcore::elementTypeToDataType(cb_memref.getElementType());
-      auto pageSize = device.getMemrefCBPageSizeBytes(cb_memref);
-      auto numPages = device.getMemrefCBNumPages(cb_memref);
+      size_t pageSize = device.getMemrefCBPageSizeBytes(cb_memref);
+      size_t numPages = device.getMemrefCBNumPages(cb_memref);
 
       ttnn::KernelCBFormatAttr cbFormat =
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
@@ -263,11 +263,8 @@ public:
     auto dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
     auto layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
 
-    // Reuses the existing ttnn.get_device op if present, else create one
+    // Reuses the existing ttnn.get_device op if present, else create one.
     auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-    // TT_assert(device, "Expected a ttnn.get_device op in the block");
-
-    // Device grid neededfor shard spec:
     auto deviceAttr = ttcore::lookupDevice(op);
     auto memcfg =
         ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
@@ -288,4 +285,3 @@ void populateD2MToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 }
 
 } // namespace mlir::tt
-// ----------------------------------------------------------------------------

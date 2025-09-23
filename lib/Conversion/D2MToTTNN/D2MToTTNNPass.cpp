@@ -24,19 +24,19 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-// ----------------------------------------------------------------------------
+using namespace mlir;
+using namespace mlir::tt;
 namespace mlir::tt::ttir {
 
 #define GEN_PASS_DEF_CONVERTD2MTOTTNN
 #include "ttmlir/Conversion/Passes.h.inc" // impl::ConvertD2MToTTNNBase
 
-// ............................................................................
-using namespace llvm;
+} // namespace mlir::tt::ttir
 
 namespace {
 
 struct ConvertD2MToTTNNPass final
-    : impl::ConvertD2MToTTNNBase<ConvertD2MToTTNNPass> {
+    : ttir::impl::ConvertD2MToTTNNBase<ConvertD2MToTTNNPass> {
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
@@ -78,15 +78,12 @@ struct ConvertD2MToTTNNPass final
     }
   }
 };
-
 } // namespace
-} // namespace mlir::tt::ttir
-// ............................................................................
+
 namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTNNPass() {
-  return std::make_unique<ttir::ConvertD2MToTTNNPass>();
+  return std::make_unique<ConvertD2MToTTNNPass>();
 }
 
 } // namespace mlir::tt
-// ----------------------------------------------------------------------------

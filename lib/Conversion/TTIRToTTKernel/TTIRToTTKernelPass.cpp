@@ -61,6 +61,7 @@ struct ConvertTTIRToTTKernel
     target.addLegalOp<ttir::ViewLayoutOp>();
     target.addLegalOp<ttir::GenericOp>();
     target.addLegalOp<ttir::EmptyOp>();
+    target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
 
     // Inputs to matmul_block. Will be folded in this pass.
     target.addLegalOp<memref::CastOp>();
@@ -84,8 +85,6 @@ struct ConvertTTIRToTTKernel
       return !op->hasAttr(ttir::ThreadAttr::name) ||
              (op.getFunctionType().getNumInputs() == 0);
     });
-
-    target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
