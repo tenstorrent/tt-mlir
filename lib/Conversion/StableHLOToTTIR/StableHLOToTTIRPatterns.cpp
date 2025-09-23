@@ -2893,6 +2893,7 @@ public:
     auto floatOutputType = mlir::RankedTensorType::get(
         outputType.getShape(), floatElementType, outputType.getEncoding());
 
+    // Use min and max unsigned int value to cover most of the range of uint32.
     auto fromFloat = rewriter.getF32FloatAttr(
         static_cast<float>(std::numeric_limits<unsigned int>::min()));
     auto toFloat = rewriter.getF32FloatAttr(
@@ -2904,8 +2905,8 @@ public:
         srcOp.getLoc(), floatOutputType, rewriter.getI32ArrayAttr(size),
         mlir::TypeAttr::get(floatElementType), fromFloat, toFloat, seed);
 
-    // TODO: Change to bit cast once metal supports it or remove if rand starts
-    // supporting uint32.
+    // TODO (pglusac): Change to bit cast once metal supports it or remove if
+    // rand starts supporting uint32.
     auto typecastOp =
         mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::TypecastOp>(
             rewriter, srcOp.getLoc(), outputType, randOp.getResult());
