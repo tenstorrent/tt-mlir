@@ -121,10 +121,15 @@ void registerBinaryBindings(nb::module_ &m) {
                itemSize = sizeof(float);
                break;
 
+             case tt::target::DataType::BFloat16:
+               itemSize = 2;
+               break;
+
              default:
-               throw std::runtime_error("Only 32-bit floats and unsigned ints "
-                                        "are currently supported "
-                                        "for GoldenTensor bindings");
+               throw std::runtime_error(
+                   "Only 32-bit floats, unsigned ints, and bfloat16 "
+                   "are currently supported "
+                   "for GoldenTensor bindings");
              }
 
              const uint8_t *data = t->data()->data();
