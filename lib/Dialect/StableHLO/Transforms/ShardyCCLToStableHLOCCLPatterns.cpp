@@ -540,6 +540,8 @@ void populateShardyCCLToStableHLOCCLPatterns(MLIRContext *ctx,
   patterns.add<ShardyToStableHLOAllReduceOpRewritePattern>(ctx);
   patterns.add<ShardyToStableHLOReduceScatterOpRewritePattern>(ctx);
   patterns.add<ShardyToStableHLOAllToAllOpRewritePattern>(ctx);
+  patterns.add<ShardyToStableHLOAllSliceOpRewritePattern>(ctx);
+  patterns.add<ShardyToStableHLOCollectivePermuteOpRewritePattern>(ctx);
 }
 
 } // namespace mlir::tt::stablehlo

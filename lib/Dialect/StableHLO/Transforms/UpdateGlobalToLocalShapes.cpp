@@ -192,6 +192,20 @@ static FailureOr<mlir::OperationState> createNewOperationState(
 
             return mlir::success();
           })
+          .Case<mlir::stablehlo::CompareOp>([&](auto compareOp) {
+            compareOp->emitError(
+                "Compare operation is not supported in stablehlo-pipeline for "
+                "meshes not 1x1: "
+                "https://github.com/tenstorrent/tt-mlir/issues/3497.");
+            return mlir::failure();
+          })
+          .Case<mlir::stablehlo::ScatterOp>([&](auto scatterOp) {
+            scatterOp->emitError(
+                "Scatter operation is not supported in stablehlo-pipeline for "
+                "meshes not 1x1: "
+                "https://github.com/tenstorrent/tt-mlir/issues/3496.");
+            return mlir::failure();
+          })
           .Default([](mlir::Operation *op) { return mlir::success(); });
 
   if (failed(updatedAttributeResult)) {
