@@ -290,6 +290,23 @@ static Value createReductionOpChain(Value input, RankedTensorType resultType,
   return result;
 }
 
+// Helper function to create DenseElementsAttr with a specific value based on
+// element type.
+static Attribute createDenseElementsAttr(RankedTensorType resultType,
+                                         int64_t value) {
+  auto elementType = resultType.getElementType();
+  if (isa<FloatType>(elementType)) {
+    return DenseElementsAttr::get(
+        resultType,
+        APFloat(cast<FloatType>(elementType).getFloatSemantics(), value));
+  }
+  if (isa<IntegerType>(elementType)) {
+    return DenseElementsAttr::get(
+        resultType, APInt(cast<IntegerType>(elementType).getWidth(), value));
+  }
+  return {};
+}
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -1445,17 +1462,9 @@ public:
         this->getTypeConverter()->convertType(op.getType()));
 
     assert(resultType && "Result type must be a ranked tensor type.");
-    auto elementType = resultType.getElementType();
-    Attribute zeroAttr;
-    if (isa<FloatType>(elementType)) {
-      zeroAttr = DenseElementsAttr::get(
-          resultType,
-          APFloat::getZero(cast<FloatType>(elementType).getFloatSemantics()));
-    } else if (isa<IntegerType>(elementType)) {
-      zeroAttr = DenseElementsAttr::get(
-          resultType,
-          APInt::getZero(cast<IntegerType>(elementType).getWidth()));
-    } else {
+
+    Attribute zeroAttr = createDenseElementsAttr(resultType, 0);
+    if (!zeroAttr) {
       return rewriter.notifyMatchFailure(
           op, "Unsupported element type for ReLU zero constant");
     }
@@ -1695,23 +1704,10 @@ public:
     Value sum = createReductionOpChain<tosa::ReduceSumOp>(
         input, resultType, dims, keepDim, op.getLoc(), rewriter);
 
-    int64_t numElements = 1;
-    auto inputShape = inputType.getShape();
-    for (int64_t dim : dims) {
-      numElements *= inputShape[dim];
-    }
+    int64_t numElements = ttmlir::utils::volume(inputType.getShape());
 
-    auto elementType = resultType.getElementType();
-    Attribute divisorAttr;
-    if (isa<FloatType>(elementType)) {
-      divisorAttr = DenseElementsAttr::get(
-          resultType, APFloat(cast<FloatType>(elementType).getFloatSemantics(),
-                              numElements));
-    } else if (isa<IntegerType>(elementType)) {
-      divisorAttr = DenseElementsAttr::get(
-          resultType,
-          APInt(cast<IntegerType>(elementType).getWidth(), numElements));
-    } else {
+    Attribute divisorAttr = createDenseElementsAttr(resultType, numElements);
+    if (!divisorAttr) {
       return rewriter.notifyMatchFailure(op,
                                          "Unsupported element type for mean");
     }
