@@ -79,27 +79,8 @@ set(LINK_DIRS
     ${TTMETAL_LIBRARY_DIR}
 )
 
-# Libraries to link
-#
-set(LINK_LIBS
-    tt_metal
-    device
-    tt_stl
-)
-
-# Find and link _ttnncpp library if it exists
-find_library(TTNNCPP_LIB
-    NAMES _ttnncpp ttnncpp
-    PATHS ${TTMETAL_LIBRARY_DIR}
-    NO_DEFAULT_PATH
-)
-
-if(TTNNCPP_LIB)
-    message(STATUS "Found _ttnncpp library: ${TTNNCPP_LIB}")
-    list(APPEND LINK_LIBS ${TTNNCPP_LIB})
-else()
-    message(WARNING "_ttnncpp library not found in ${TTMETAL_LIBRARY_DIR}")
-endif()
+# Use standardized library targets from third_party/CMakeLists.txt
+set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY TT_STL_LIBRARY TRACY_LIBRARY)
 
 # Compile definitions
 #
@@ -118,9 +99,12 @@ set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
 set_target_properties(ttnn-standalone PROPERTIES INSTALL_RPATH "$ORIGIN:${TTMETAL_LIBRARY_DIR}")
 set_target_properties(ttnn-standalone PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
+# Add dependency on tt-metal external project
+add_dependencies(ttnn-standalone tt-metal)
+
 target_include_directories(ttnn-standalone SYSTEM PRIVATE "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 target_link_directories(ttnn-standalone PRIVATE ${LINK_DIRS})
-target_link_libraries(ttnn-standalone PRIVATE ${LINK_LIBS})
+target_link_libraries(ttnn-standalone PRIVATE ${TTNN_LIBS})
 target_compile_definitions(ttnn-standalone PRIVATE ${COMPILE_DEFS})
 
 target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
