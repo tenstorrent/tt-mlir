@@ -103,7 +103,7 @@ set_target_properties(ttnn-standalone PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 add_dependencies(ttnn-standalone tt-metal)
 
 # Debug: Check if the required header file exists
-set(BFLOAT16_HEADER "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api/tt-metalium/bfloat16.hpp")
+set(BFLOAT16_HEADER "${CMAKE_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api/tt-metalium/bfloat16.hpp")
 if(EXISTS "${BFLOAT16_HEADER}")
     message(STATUS "Found bfloat16.hpp at: ${BFLOAT16_HEADER}")
 else()
@@ -112,7 +112,7 @@ endif()
 
 target_include_directories(ttnn-standalone SYSTEM PRIVATE
     "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>"
-    "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api"
+    "${CMAKE_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api"
 )
 target_link_directories(ttnn-standalone PRIVATE ${LINK_DIRS})
 target_link_libraries(ttnn-standalone PRIVATE ${TTNN_LIBS})
@@ -141,11 +141,14 @@ add_library(ttnn-dylib SHARED ttnn-dylib.cpp)
 set_property(TARGET ttnn-dylib PROPERTY CXX_STANDARD 20)
 set_property(TARGET ttnn-dylib PROPERTY EXCLUDE_FROM_ALL TRUE)
 
-target_include_directories(ttnn-dylib PRIVATE ${INCLUDE_DIRS})
+target_include_directories(ttnn-dylib SYSTEM PRIVATE
+    "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>"
+    "${CMAKE_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api"
+)
 target_link_directories(ttnn-dylib PRIVATE ${LINK_DIRS})
-target_link_libraries(ttnn-dylib PRIVATE ${LINK_LIBS})
+target_link_libraries(ttnn-dylib PRIVATE ${TTNN_LIBS})
 set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
-set_target_properties(ttnn-dylib PROPERTIES INSTALL_RPATH "$ORIGIN:${METAL_LIB_DIR}")
+set_target_properties(ttnn-dylib PROPERTIES INSTALL_RPATH "$ORIGIN:${TTMETAL_LIBRARY_DIR}")
 set_target_properties(ttnn-dylib PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
   target_compile_options(ttnn-dylib PRIVATE -march=x86-64-v3)
