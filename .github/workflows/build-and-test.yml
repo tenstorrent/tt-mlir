@@ -365,6 +365,7 @@ jobs:
         if [[ "${{ matrix.build.run-emitpy }}" == "true" ]]; then
           export PYTHONPATH="${GITHUB_WORKSPACE}/tools/tt-alchemist/templates/python/local:${PYTHONPATH}"
           export PYTHONPATH="${GITHUB_WORKSPACE}/third_party/tt-metal/src/tt-metal/ttnn:${PYTHONPATH}"
+          export PYTHONPATH="${GITHUB_WORKSPACE}/third_party/tt-metal/src/tt-metal/ttnn/ttnn:${PYTHONPATH}"
           export PYTHONPATH="${GITHUB_WORKSPACE}/third_party/tt-metal/src/tt-metal:${PYTHONPATH}"
           find ttir-builder-artifacts -name "*.py" -type f | while read -r py_file; do
             python "$py_file"
