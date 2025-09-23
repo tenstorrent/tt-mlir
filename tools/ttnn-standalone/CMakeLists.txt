@@ -122,14 +122,27 @@ set(LINK_DIRS
     ${METAL_LIB_DIR}
 )
 
-# Libraries to link - using predefined paths from third_party/CMakeLists.txt
+# Libraries to link
 #
 set(LINK_LIBS
-    ${TTMETAL_LIBRARY_PATH}
-    ${DEVICE_LIBRARY_PATH}
-    ${TT_STL_LIBRARY_PATH}
-    ${TTNN_LIBRARY_PATH}
+    tt_metal
+    device
+    tt_stl
 )
+
+# Find and link _ttnncpp library if it exists
+find_library(TTNNCPP_LIB
+    NAMES _ttnncpp ttnncpp
+    PATHS ${METAL_LIB_DIR}
+    NO_DEFAULT_PATH
+)
+
+if(TTNNCPP_LIB)
+    message(STATUS "Found _ttnncpp library: ${TTNNCPP_LIB}")
+    list(APPEND LINK_LIBS ${TTNNCPP_LIB})
+else()
+    message(WARNING "_ttnncpp library not found in ${METAL_LIB_DIR}")
+endif()
 
 # Compile definitions
 #
