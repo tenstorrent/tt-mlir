@@ -335,25 +335,27 @@ public:
 
     bool modified = false;
     Value input = op.getOperand();
-    Value result = op.getResult();
     Location newLoc = appendInputSuffix(op.getLoc(), 0);
     std::optional<Value> inputLayout = createToLayoutOp(
-        rewriter, newLoc, input, BufferType::SystemMemory, false /* tiled */);
+        rewriter, newLoc, input, BufferType::SystemMemory, /* tiled */ false);
     if (inputLayout.has_value()) {
       rewriter.modifyOpInPlace(op, [&]() { op->setOperand(0, *inputLayout); });
       modified = true;
     }
-    std::optional<Value> resultLayout = createToLayoutOp(
-        rewriter, newLoc, result, BufferType::SystemMemory, false /* tiled */);
-    if (resultLayout.has_value()) {
+
+    RankedTensorType resultType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+    TTNNLayoutAttr newLayout =
+        createLayoutAttr(rewriter.getContext(), nullptr, resultType,
+                         BufferType::SystemMemory, /* isTiled */ false);
+    if (newLayout != resultType.getEncoding()) {
+      auto resultSystemMemoryType = RankedTensorType::get(
+          resultType.getShape(), resultType.getElementType(), newLayout);
       rewriter.modifyOpInPlace(
-          op, [&]() { op->getResult(0).setType(resultLayout->getType()); });
+          op, [&]() { op->getResult(0).setType(resultSystemMemoryType); });
       modified = true;
     }
-    if (modified) {
-      return success();
-    }
-    return failure();
+    return success(modified);
   }
 };
 } // namespace
