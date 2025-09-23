@@ -54,12 +54,9 @@ struct ConvertD2MToTTNNPass final
     target.addDynamicallyLegalOp<ttir::StreamLayoutOp>(
         [](ttir::StreamLayoutOp op) {
           // Keep legal while any user is ttir.generic; illegal otherwise.
-          for (Operation *u : op->getResult(0).getUsers()) {
-            if (mlir::isa<ttir::GenericOp>(u)) {
-              return true;
-            }
-          }
-          return false;
+          return llvm::any_of(op->getResult(0).getUsers(), [](Operation *op) {
+            return mlir::isa<ttir::GenericOp>(op);
+          });
         });
 
     target.addLegalOp<memref::AllocOp>();
