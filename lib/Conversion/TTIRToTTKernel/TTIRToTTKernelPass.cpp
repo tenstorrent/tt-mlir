@@ -55,6 +55,7 @@ struct ConvertTTIRToTTKernel
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
     target.addIllegalDialect<memref::MemRefDialect>();
+    target.addLegalDialect<ttnn::TTNNDialect>();
 
     target.addLegalOp<ttir::ToLayoutOp>();
     target.addLegalOp<ttir::StreamLayoutOp>();
@@ -62,7 +63,7 @@ struct ConvertTTIRToTTKernel
     target.addLegalOp<ttir::GenericOp>();
     target.addLegalOp<ttir::EmptyOp>();
     target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
-
+    target.addLegalOp<ttir::EmptyOp>();
     // Inputs to matmul_block. Will be folded in this pass.
     target.addLegalOp<memref::CastOp>();
     target.addLegalOp<memref::SubViewOp>();

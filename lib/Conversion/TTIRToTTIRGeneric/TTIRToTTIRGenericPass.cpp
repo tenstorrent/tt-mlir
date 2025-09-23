@@ -9,6 +9,8 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -59,6 +61,7 @@ struct TTIRToTTIRGenericPass final
       target.addLegalDialect<mlir::linalg::LinalgDialect>();
 
       target.addLegalDialect<ttcore::TTCoreDialect>();
+      target.addLegalDialect<ttnn::TTNNDialect>();
 
       // An explicit list of legal ttir.* ops.
 
@@ -70,6 +73,7 @@ struct TTIRToTTIRGenericPass final
       target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
       target.addLegalOp<ttir::ConstantOp>();
       target.addLegalOp<ttir::FullOp>();
+      
 
       target.addLegalOp<
 #define GET_OP_LIST
