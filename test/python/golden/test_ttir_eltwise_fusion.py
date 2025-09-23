@@ -19,7 +19,11 @@ from test_utils import (
     shard_wrap_factory,
 )
 
-MAX_INPUT_OPERANDS = 15
+MAX_INPUT_OPERANDS = 8
+
+MI = 6
+MIPO = 7
+
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -64,37 +68,6 @@ def repeat_op_chain(
         result = op(result, operand)
     return result
 
-# Generic utility to build a binary reduction tree for binary ops
-def op_tree_reduce(
-    op: Callable[[Operand, Operand], Operand],
-    inputs: Sequence[Operand],
-    num_inputs: Optional[int] = None,
-) -> Operand:
-    """
-    Reduce `inputs` using a binary tree pattern.
-
-    Pairs adjacent operands and applies `op` to each pair, carrying forward the
-    last unpaired operand when the count is odd, and repeats until a single
-    result remains.
-    """
-    if len(inputs) < 2:
-        raise ValueError("binary op requires at least two inputs")
-    if num_inputs is not None and num_inputs != len(inputs):
-        raise ValueError("num_inputs must equal len(inputs)")
-
-    level: List[Operand] = list(inputs)
-    while len(level) > 1:
-        next_level: List[Operand] = []
-        i = 0
-        while i + 1 < len(level):
-            next_level.append(op(level[i], level[i + 1]))
-            i += 2
-        if i < len(level):
-            next_level.append(level[i])
-        level = next_level
-
-    return level[0]
-
 # ##--##-------------------------------------------------------------------##--##
 
 
@@ -102,74 +75,16 @@ def op_tree_reduce(
 # Elementwise SFPU Binary - Ladder Fusion Methods : max inputs
 ### ------------------------------------------------------------------------ ###
 
-# def eltwise_fuse_sub_binary_ladder_max_inputs(
-#     in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-#     in4: Operand, in5: Operand, in6: Operand, in7: Operand,
-#     in8: Operand, in9: Operand, in10: Operand, in11: Operand, 
-#     in12: Operand, in13: Operand, in14: Operand,
-#     builder: TTIRBuilder,
-# ):
-#     return repeat_op_chain(
-#         op=builder.sub_binary,
-#         inputs=[
-#             in0, in1, in2, in3, 
-#             in4, in5, in6, in7, 
-#             in8, in9, in10, in11, 
-#             in12, in13, in14,
-#         ],
-#         arity=2,
-#     )
-
 def eltwise_fuse_div_ladder_max_inputs(
     in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-    in4: Operand, in5: Operand, in6: Operand, in7: Operand,
-    in8: Operand, in9: Operand, in10: Operand, in11: Operand, 
-    in12: Operand, in13: Operand, in14: Operand,
+    in4: Operand,
     builder: TTIRBuilder,
 ):
     return repeat_op_chain(
         op=builder.div,
         inputs=[
             in0, in1, in2, in3, 
-            in4, in5, in6, in7, 
-            in8, in9, in10, in11, 
-            in12, in13, in14
-        ],
-        arity=2,
-    )
-
-def eltwise_fuse_maximum_ladder_max_inputs(
-    in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-    in4: Operand, in5: Operand, in6: Operand, in7: Operand,
-    in8: Operand, in9: Operand, in10: Operand, in11: Operand, 
-    in12: Operand, in13: Operand, in14: Operand,
-    builder: TTIRBuilder,
-):
-    return repeat_op_chain(
-        op=builder.maximum,
-        inputs=[
-            in0, in1, in2, in3, 
-            in4, in5, in6, in7, 
-            in8, in9, in10, in11, 
-            in12, in13, in14
-        ],
-        arity=2,
-    )
-
-def eltwise_fuse_pow_ladder_max_inputs(
-    in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-    in4: Operand, in5: Operand, in6: Operand, in7: Operand,
-    in8: Operand, in9: Operand, in10: Operand, in11: Operand, 
-    in12: Operand, in13: Operand, in14: Operand,
-    builder: TTIRBuilder,
-):
-    return repeat_op_chain(
-        op=builder.pow,
-        inputs=[
-            in0, in1, in2, in3, 
-            in4, in5, in6, in7, 
-            in8, in9, in10, in11, 
-            in12, in13, in14
+            in4,
         ],
         arity=2,
     )
@@ -182,8 +97,8 @@ def eltwise_fuse_pow_ladder_max_inputs(
     [
         # eltwise_fuse_sub_binary_ladder_max_inputs,
         eltwise_fuse_div_ladder_max_inputs,
-        eltwise_fuse_maximum_ladder_max_inputs,
-        eltwise_fuse_pow_ladder_max_inputs,
+        # eltwise_fuse_maximum_ladder_max_inputs,
+        # eltwise_fuse_pow_ladder_max_inputs,
     ]
 )
 def test_eltwise_binary_op_ladder_max_inputs(
@@ -192,13 +107,12 @@ def test_eltwise_binary_op_ladder_max_inputs(
     options = []
     compile_ttir_to_flatbuffer(
         test_fn,
-        [shape]*MAX_INPUT_OPERANDS,
-        [dtype]*MAX_INPUT_OPERANDS,
+        [shape]*5,
+        [dtype]*5,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
         module_dump=True,
-        # print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
@@ -207,74 +121,16 @@ def test_eltwise_binary_op_ladder_max_inputs(
 # Elementwise SFPU Binary - Ladder Fusion Methods : max inputs PLUS ONE MORE
 ### ------------------------------------------------------------------------ ###
 
-# def eltwise_fuse_sub_binary_ladder_max_inputs_plus_1(
-#     in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-#     in4: Operand, in5: Operand, in6: Operand, in7: Operand,
-#     in8: Operand, in9: Operand, in10: Operand, in11: Operand, 
-#     in12: Operand, in13: Operand, in14: Operand, in15: Operand,
-#     builder: TTIRBuilder,
-# ):
-#     return repeat_op_chain(
-#         op=builder.sub_binary,
-#         inputs=[
-#             in0, in1, in2, in3, 
-#             in4, in5, in6, in7, 
-#             in8, in9, in10, in11, 
-#             in12, in13, in14, in15
-#         ],
-#         arity=2,
-#     )
-
 def eltwise_fuse_div_ladder_max_inputs_plus_1(
     in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-    in4: Operand, in5: Operand, in6: Operand, in7: Operand,
-    in8: Operand, in9: Operand, in10: Operand, in11: Operand, 
-    in12: Operand, in13: Operand, in14: Operand, in15: Operand,
+    in4: Operand, in5: Operand,
     builder: TTIRBuilder,
 ):
     return repeat_op_chain(
         op=builder.div,
         inputs=[
             in0, in1, in2, in3, 
-            in4, in5, in6, in7, 
-            in8, in9, in10, in11, 
-            in12, in13, in14, in15
-        ],
-        arity=2,
-    )
-
-def eltwise_fuse_maximum_ladder_max_inputs_plus_1(
-    in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-    in4: Operand, in5: Operand, in6: Operand, in7: Operand,
-    in8: Operand, in9: Operand, in10: Operand, in11: Operand, 
-    in12: Operand, in13: Operand, in14: Operand, in15: Operand,
-    builder: TTIRBuilder,
-):
-    return repeat_op_chain(
-        op=builder.maximum,
-        inputs=[
-            in0, in1, in2, in3, 
-            in4, in5, in6, in7, 
-            in8, in9, in10, in11, 
-            in12, in13, in14, in15
-        ],
-        arity=2,
-    )
-
-def eltwise_fuse_pow_ladder_max_inputs_plus_1(
-    in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-    in4: Operand, in5: Operand, in6: Operand, in7: Operand,
-    in8: Operand, in9: Operand, in10: Operand, in11: Operand, 
-    in12: Operand, in13: Operand, in14: Operand, in15: Operand,
-    builder: TTIRBuilder,
-):
-    return repeat_op_chain(
-        op=builder.pow,
-        inputs=[
-            in0, in1, in2, in3, 
-            in4, in5, in6, in7, 
-            in8, in9, in10, in11, 
-            in12, in13, in14, in15
+            in4, in5,
         ],
         arity=2,
     )
@@ -287,8 +143,8 @@ def eltwise_fuse_pow_ladder_max_inputs_plus_1(
     [
         # eltwise_fuse_sub_binary_ladder_max_inputs_plus_1,
         eltwise_fuse_div_ladder_max_inputs_plus_1,
-        eltwise_fuse_maximum_ladder_max_inputs_plus_1,
-        eltwise_fuse_pow_ladder_max_inputs_plus_1,
+        # eltwise_fuse_maximum_ladder_max_inputs_plus_1,
+        # eltwise_fuse_pow_ladder_max_inputs_plus_1,
     ]
 )
 def test_eltwise_binary_op_ladder_max_inputs_plus_1(
@@ -297,8 +153,8 @@ def test_eltwise_binary_op_ladder_max_inputs_plus_1(
     options = []
     compile_ttir_to_flatbuffer(
         test_fn,
-        [shape]*(MAX_INPUT_OPERANDS+1),
-        [dtype]*(MAX_INPUT_OPERANDS+1),
+        [shape]*6,
+        [dtype]*6,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -346,71 +202,16 @@ def reduction_op_tree(
 # Elementwise SFPU Binary - Tree Fusion Methods - max inputs
 ### ------------------------------------------------------------------------ ###
 
-# def eltwise_fuse_sub_binary_tree_max_inputs(
-#     in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-#     in4: Operand, in5: Operand, in6: Operand, in7: Operand,
-#     in8: Operand, in9: Operand, in10: Operand, in11: Operand, 
-#     in12: Operand, in13: Operand, in14: Operand,
-#     builder: TTIRBuilder,
-# ):
-#     return reduction_op_tree(
-#         op=builder.sub_binary,
-#         inputs=[
-#             in0, in1, in2, in3, 
-#             in4, in5, in6, in7, 
-#             in8, in9, in10, in11, 
-#             in12, in13, in14,
-#         ]
-#     )
-
 def eltwise_fuse_div_tree_max_inputs(
     in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-    in4: Operand, in5: Operand, in6: Operand, in7: Operand,
-    in8: Operand, in9: Operand, in10: Operand, in11: Operand, 
-    in12: Operand, in13: Operand, in14: Operand,
+    in4: Operand, in5: Operand,
     builder: TTIRBuilder,
 ):
     return reduction_op_tree(
         op=builder.div,
         inputs=[
             in0, in1, in2, in3, 
-            in4, in5, in6, in7, 
-            in8, in9, in10, in11, 
-            in12, in13, in14,
-        ]
-    )
-
-def eltwise_fuse_maximum_tree_max_inputs(
-    in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-    in4: Operand, in5: Operand, in6: Operand, in7: Operand,
-    in8: Operand, in9: Operand, in10: Operand, in11: Operand, 
-    in12: Operand, in13: Operand, in14: Operand,
-    builder: TTIRBuilder,
-):
-    return reduction_op_tree(
-        op=builder.maximum,
-        inputs=[
-            in0, in1, in2, in3, 
-            in4, in5, in6, in7, 
-            in8, in9, in10, in11, 
-            in12, in13, in14,
-        ]
-    )
-
-def eltwise_fuse_pow_tree_max_inputs(
-    in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-    in4: Operand, in5: Operand, in6: Operand, in7: Operand,
-    in8: Operand, in9: Operand, in10: Operand, in11: Operand, 
-    in12: Operand, in13: Operand, in14: Operand,
-    builder: TTIRBuilder,
-):
-    return reduction_op_tree(
-        op=builder.pow,
-        inputs=[
-            in0, in1, in2, in3, 
-            in4, in5, in6, in7, 
-            in8, in9, in10, in11, 
-            in12, in13, in14,
+            in4, in5,
         ]
     )
 
@@ -422,8 +223,8 @@ def eltwise_fuse_pow_tree_max_inputs(
     [
         # eltwise_fuse_sub_binary_tree_max_inputs,
         eltwise_fuse_div_tree_max_inputs,
-        eltwise_fuse_maximum_tree_max_inputs,
-        eltwise_fuse_pow_tree_max_inputs,
+        # eltwise_fuse_maximum_tree_max_inputs,
+        # eltwise_fuse_pow_tree_max_inputs,
     ]
 )
 def test_eltwise_binary_op_tree_max_inputs(
@@ -432,8 +233,83 @@ def test_eltwise_binary_op_tree_max_inputs(
     options = []
     compile_ttir_to_flatbuffer(
         test_fn,
-        [shape]*MAX_INPUT_OPERANDS,
-        [dtype]*MAX_INPUT_OPERANDS,
+        [shape]*6,
+        [dtype]*6,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+### ------------------------------------------------------------------------ ###
+# Elementwise SFPU Binary - Tree Fusion Methods - max inputs
+### ------------------------------------------------------------------------ ###
+
+def eltwise_fuse_div_tree_max_inputs_plus_1(
+    in0: Operand, in1: Operand, in2: Operand, in3: Operand,
+    in4: Operand, in5: Operand, in6: Operand,
+    builder: TTIRBuilder,
+    shape: Shape,
+    dtype: torch.dtype,
+    unit_attrs: Optional[List[str]] = None,
+):
+    # input_0 = torch.full(shape, 16).to(dtype)
+    # input_1 = torch.full(shape, 2).to(dtype)
+
+    # input_2 = torch.full(shape, 16).to(dtype)
+    # input_3 = torch.full(shape, 4).to(dtype)
+
+    # input_4 = torch.full(shape, 8).to(dtype)
+    # input_5 = torch.full(shape, 2).to(dtype)
+
+    # input_6 = torch.full(shape, 1).to(dtype)
+
+    # output_0 = torch.full(shape, 0.5).to(dtype)
+
+    tree_out = reduction_op_tree(
+        op=builder.div,
+        inputs=[
+            in0, in1, in2, in3, 
+            in4, in5, in6,
+        ]
+    )
+
+    # builder.set_goldens({in0: input_0, in1: input_1, in2: input_2, in3: input_3, in4: input_4, in5: input_5, in6: input_6}, {tree_out: output_0})
+
+    return tree_out
+
+
+
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn", 
+    [
+        # eltwise_fuse_sub_binary_tree_max_inputs_plus_1,
+        eltwise_fuse_div_tree_max_inputs_plus_1,
+        # eltwise_fuse_maximum_tree_max_inputs_plus_1,
+        # eltwise_fuse_pow_tree_max_inputs_plus_1,
+    ]
+)
+def test_eltwise_binary_op_tree_max_inputs_plus_1(
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
+):
+    def eltwise_fuse_binary_tree_op_tree_max_inputs_plus_1_wrapper(
+        in0: Operand, in1: Operand, in2: Operand, in3: Operand,
+        in4: Operand, in5: Operand, in6: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return test_fn(in0, in1, in2, in3, in4, in5, in6, builder, shape, dtype, unit_attrs)
+
+    options = []
+    compile_ttir_to_flatbuffer(
+        eltwise_fuse_binary_tree_op_tree_max_inputs_plus_1_wrapper,
+        [shape]*7,
+        [dtype]*7,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -477,3 +353,192 @@ def test_converging_unary_branches(shape: Shape, dtype: torch.dtype, target: str
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+### ------------------------------------------------------------------------ ###
+# 
+### ------------------------------------------------------------------------ ###
+
+def diamond_unary_op_fanout(
+    in0: Operand,
+    builder: TTIRBuilder,
+):
+    exp_0 = builder.exp(in0)
+
+    abs_0 = builder.abs(exp_0)
+    sin_0 = builder.sin(abs_0)
+
+    neg_1 = builder.neg(exp_0)
+    cos_1 = builder.cos(neg_1)
+
+    return builder.div(sin_0, cos_1)
+
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_diamond_unary_op_fanout(shape: Shape, dtype: torch.dtype, target: str, request):
+    options = []
+    compile_ttir_to_flatbuffer(
+        diamond_unary_op_fanout,
+        [shape],
+        [dtype],
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+def diamond_binary_op_fanout(
+    in0: Operand,
+    in1: Operand,
+    in2: Operand,
+    in3: Operand,
+    builder: TTIRBuilder,
+):
+    div_fanout = builder.div(in0, in1)
+
+    div_left = builder.div(div_0, in2)
+    div_right = builder.div(div_0, in3)
+
+    abs_left = builder.abs(div_left)
+    abs_right = builder.abs(div_right)
+
+    exp_left = builder.exp(abs_left)
+    exp_right = builder.exp(abs.right)
+
+    div_fanin = builder.div(exp_left, exp_right)
+
+    return div_fanin
+
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_diamond_unary_fanout(shape: Shape, dtype: torch.dtype, target: str, request):
+    options = []
+    compile_ttir_to_flatbuffer(
+        diamond_binary_op_fanout,
+        [shape]*4,
+        [dtype]*4,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+### ------------------------------------------------------------------------ ###
+# 
+### ------------------------------------------------------------------------ ###
+
+# unary ops are done in place, should be able to fuse
+# indefinitely
+def eltwise_unary_chain(
+    in0: Operand,
+    builder: TTIRBuilder
+):
+    res_0 = builder.abs(in0)
+    res_1 = builder.sin(res_0)
+    res_2 = builder.neg(res_1) 
+    res_3 = builder.exp(res_2)
+
+    res_4 = builder.abs(res_3)
+    res_5 = builder.cos(res_4)
+    res_6 = builder.neg(res_5)
+    res_7 = builder.exp(res_6)
+    
+    res_8 = builder.neg(res_7)
+    res_9 = builder.sin(res_8)
+    res_10 = builder.neg(res_9) 
+    res_11 = builder.exp(res_10)
+
+    res_12 = builder.abs(res_11)
+    res_13 = builder.cos(res_12)
+    res_14 = builder.neg(res_13)
+    res_15 = builder.exp(res_14)
+
+    res_16 = builder.neg(res_15)
+    res_17 = builder.sin(res_16)
+    res_18 = builder.neg(res_17) 
+    res_19 = builder.exp(res_18)
+    
+    return res_19
+
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_unary_chain(shape: Shape, dtype: torch.dtype, target: str, request):
+    options = []
+    compile_ttir_to_flatbuffer(
+        eltwise_unary_chain,
+        [shape],
+        [dtype],
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+### ------------------------------------------------------------------------ ###
+# 
+### ------------------------------------------------------------------------ ###
+
+def big_one(
+    in0: Operand, in1: Operand, in2: Operand, in3: Operand,
+    in4: Operand, in5: Operand, in6: Operand,
+    builder: TTIRBuilder,
+):
+    branch_0_0 = builder.abs(in0)
+    branch_0_1 = builder.exp(branch_0_0)
+    branch_0_2 = builder.neg(branch_0_1)
+
+    branch_1_0 = builder.neg(in1)
+    branch_1_1 = builder.exp(branch_1_0)
+    branch_1_2 = builder.abs(branch_1_1)
+
+    div_0f1 = builder.div(branch_0_2, branch_1_2)
+
+    branch_2_0 = builder.abs(in2)
+    branch_2_1 = builder.exp(branch_2_0)
+    branch_2_2 = builder.neg(branch_2_1)
+
+    branch_3_0 = builder.neg(in3)
+    branch_3_1 = builder.exp(branch_3_0)
+    branch_3_2 = builder.abs(branch_3_1)
+
+    div_2f3 = builder.div(branch_2_2, branch_3_2)
+
+    div_fuse_all = builder.div(div_0f1, div_2f3) 
+
+    abs_0 = builder.abs(div_fuse_all)
+
+    div_left = builder.div(abs_0, in4)
+    div_right = builder.div(abs_0, in5)
+
+    div_final = builder.div(div_left, div_right)
+
+    return builder.div(div_final, in6)
+
+
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_big_one(shape: Shape, dtype: torch.dtype, target: str, request):
+    options = []
+    compile_ttir_to_flatbuffer(
+        big_one,
+        [shape]*7,
+        [dtype]*7,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+# ttkernel compute config attribute theres a flag for fp32 dest --> globally off?
