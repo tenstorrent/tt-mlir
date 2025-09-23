@@ -279,11 +279,10 @@ static Value createReductionOpChain(Value input, RankedTensorType resultType,
     result = rewriter.create<ReductionOp>(loc, opResultType, result, axisAttr);
   }
   if (!keepDim) {
-    auto newShape = resultType.getShape();
-    SmallVector<int64_t> newShapeValues(newShape.begin(), newShape.end());
+    ArrayRef<int64_t> newShape = resultType.getShape();
     auto shapeType =
         tosa::shapeType::get(rewriter.getContext(), newShape.size());
-    auto attr = rewriter.getIndexTensorAttr(newShapeValues);
+    auto attr = rewriter.getIndexTensorAttr(newShape);
     auto shapeOp = rewriter.create<tosa::ConstShapeOp>(loc, shapeType, attr);
     result = rewriter.create<tosa::ReshapeOp>(loc, resultType, result, shapeOp);
   }
