@@ -1662,6 +1662,46 @@ TEST_F(OpModelBase, RotaryEmbeddingLlamaOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, NLPConcatHeadsOpInterface) {
+  int64_t batch_size = 1;
+  int64_t num_heads = 8;
+  int64_t sequence_size = 512;
+  int64_t head_size = 64;
+
+  llvm::SmallVector<int64_t> inputShape = {batch_size, num_heads, sequence_size,
+                                           head_size};
+  llvm::SmallVector<int64_t> outputShape = {batch_size, 1, sequence_size,
+                                            num_heads * head_size};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  auto nlpConcatHeads = builder.create<NLPConcatHeadsOp>(
+      builder.getUnknownLoc(), outputType, input);
+
+  auto constraintsExp = getOpConstraints(nlpConcatHeads.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 65536);
+    EXPECT_EQ(l1PeakSize, 8192);
+    EXPECT_EQ(outputSize, 8192);
+    EXPECT_TRUE(outputLayout != nullptr);
+  } else {
+    FAIL() << "Missing L1 constraints for NLPConcatHeadsOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(nlpConcatHeads.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for NLPConcatHeadsOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, repeatInterleaveOp) {
   // create RepeatInterleaveOp
   llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
@@ -2062,7 +2102,7 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   auto badConvConfig = Conv2dConfigAttr::get(
       &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
-      /*activation=*/StringAttr::get(&context, ""),
+      /*activation=*/nullptr,
       /*deallocate_activation=*/BoolAttr::get(&context, false),
       /*reallocate_halo_output=*/BoolAttr::get(&context, true),
       /*act_block_h_override=*/0, /*act_block_w_div=*/1,
@@ -2074,7 +2114,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*output_layout=*/Layout::Tile,
       /*enable_act_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, false),
-      /*enable_split_reader=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
@@ -2095,7 +2134,7 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   auto goodConvConfig = Conv2dConfigAttr::get(
       &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
-      /*activation=*/StringAttr::get(&context, ""),
+      /*activation=*/nullptr,
       /*deallocate_activation=*/BoolAttr::get(&context, false),
       /*reallocate_halo_output=*/BoolAttr::get(&context, true),
       /*act_block_h_override=*/0, /*act_block_w_div=*/1,
@@ -2107,7 +2146,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*output_layout=*/Layout::Tile,
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
-      /*enable_split_reader=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   constraintsExp = backend.getOpConstraints(
@@ -2230,7 +2268,7 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   auto goodConvConfig = Conv2dConfigAttr::get(
       &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
-      /*activation=*/StringAttr::get(&context, ""),
+      /*activation=*/nullptr,
       /*deallocate_activation=*/BoolAttr::get(&context, false),
       /*reallocate_halo_output=*/BoolAttr::get(&context, true),
       /*act_block_h_override=*/0, /*act_block_w_div=*/1,
@@ -2242,7 +2280,6 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*output_layout=*/Layout::Tile,
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
-      /*enable_split_reader=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());

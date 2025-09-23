@@ -63,7 +63,6 @@ def logical_not(
 
 
 # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4079")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -270,7 +269,6 @@ def leaky_relu(
     return builder.leaky_relu(in0, unit_attrs=unit_attrs)
 
 
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4080")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -299,7 +297,6 @@ def cbrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return builder.cbrt(in0, unit_attrs=unit_attrs)
 
 
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4081")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -561,8 +558,6 @@ def div(
     return div0
 
 
-# TODO (wenbinlyuTT): fix f32 accuracy issue for small values
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4082")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -665,9 +660,9 @@ def pow(
     randn_exponent_tensor = builder._get_golden_tensor(in1)
 
     randn_base_tensor = randn_base_tensor.apply_shardwise(
-        lambda shard: shard.abs()
-        if torch.is_floating_point(randn_exponent_tensor)
-        else shard
+        lambda shard: (
+            shard.abs() if torch.is_floating_point(randn_exponent_tensor) else shard
+        )
     )
 
     if torch.is_floating_point(randn_exponent_tensor):
@@ -2087,6 +2082,12 @@ def test_hoisted_permute(shapes, permutation, request, target: str):
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
+    if keep_dim is False:
+        pytest.skip(
+            "Known mismatch: TTIR keep_dim=False rank change unsupported by TOSA reduce op; "
+            "see issue #5061 - https://github.com/tenstorrent/tt-mlir/issues/5061"
+        )
+
     def max(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         return builder.max(
             in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=["ttir.should_hoist"]
@@ -2253,14 +2254,14 @@ def test_hoisted_transpose(input_shape, dims, request, target: str):
 
 
 unary_ops = [
-    exp | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4078")),
+    exp,
     expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
     floor | Marks(pytest.mark.fails_golden),
     abs,
     neg,
     sign | Marks(pytest.mark.skip_config(["ttmetal"])),
-    cos | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4083")),
-    sin | Marks(pytest.mark.skip_config(["ttmetal", "p150"], reason="Issue #4083")),
+    cos,
+    sin,
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
     relu | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -2403,7 +2404,9 @@ def test_unary_ops_int32(
         ),
         maximum
         | Marks(
-            pytest.mark.skip_config(["ttmetal"], reason="Issue #4084"),
+            pytest.mark.skip_config(
+                ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
+            ),
             pytest.mark.skip_config(["emitpy"]),
         ),
         minimum
@@ -2451,9 +2454,6 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
     )
 
 
-@pytest.mark.skip_config(
-    ["ttmetal", "p150"], reason="https://github.com/tenstorrent/tt-mlir/issues/4910"
-)
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -2643,6 +2643,9 @@ unaligned_shapes = [
 ]
 
 
+@pytest.mark.skip_config(
+    ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5023"
+)
 @pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -2658,6 +2661,9 @@ def test_unaligned_shapes_neg(shape: Shape, dtype: torch.dtype, target: str, req
     )
 
 
+@pytest.mark.skip_config(
+    ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5023"
+)
 @pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])

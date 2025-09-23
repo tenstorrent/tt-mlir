@@ -54,8 +54,6 @@ struct Conv2dConfigSearchSpaceFactory {
 
     // searchSpace.reshardIfNotOptimal = {false, true};
 
-    // searchSpace.enableSplitReader = {false, true};
-
     return searchSpace;
   }
 };

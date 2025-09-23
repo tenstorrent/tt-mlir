@@ -24,10 +24,6 @@
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
-#include "ttmlir/Target/TTNN/operations/conv_generated.h"
-#include "ttmlir/Target/TTNN/operations/creation_generated.h"
-#include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
-#include "ttmlir/Target/TTNN/operations/pool_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
@@ -1873,6 +1869,29 @@ createOp(FlatbufferObjectCache &cache, ConcatenateHeadsOp op) {
                                                       memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::NLPConcatHeadsOp>
+createOp(FlatbufferObjectCache &cache, NLPConcatHeadsOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateNLPConcatHeadsOp(*cache.fbb, in, out,
+                                                    memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::NLPConcatHeadsDecodeOp>
+createOp(FlatbufferObjectCache &cache, NLPConcatHeadsDecodeOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  uint32_t numHeads = op.getNumHeads();
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateNLPConcatHeadsDecodeOp(
+      *cache.fbb, in, out, numHeads, memoryConfig);
+}
+
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
 createKernelArgs(FlatbufferObjectCache &cache,
                  llvm::ArrayRef<mlir::Attribute> argsAttrs) {
@@ -2046,6 +2065,24 @@ createOp(FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op) {
   return ::tt::target::ttnn::CreateRotaryEmbeddingLlamaOp(
       *cache.fbb, in, cosCache, sinCache, transMat, op.getIsDecodeMode(), out,
       memoryConfig, computeConfig.value_or(0));
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::DumpTensorOp>
+createOp(FlatbufferObjectCache &cache, DumpTensorOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto filePath = toFlatbuffer(cache, op.getFilePath());
+  return ::tt::target::ttnn::CreateDumpTensorOp(*cache.fbb, filePath, input);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::LoadTensorOp>
+createOp(FlatbufferObjectCache &cache, LoadTensorOp op) {
+  auto filePath = toFlatbuffer(cache, op.getFilePath());
+  auto device =
+      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  return ::tt::target::ttnn::CreateLoadTensorOp(*cache.fbb, filePath, device,
+                                                output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
@@ -2565,14 +2602,31 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, concatenateHeadsOp),
                            debugString, locInfo);
   }
+  if (auto nlpConcatHeadsOp = dyn_cast<NLPConcatHeadsOp>(op)) {
+    return createOperation(cache, createOp(cache, nlpConcatHeadsOp),
+                           debugString, locInfo);
+  }
   if (auto genericOp = dyn_cast<GenericOp>(op); genericOp) {
     return createOperation(cache, createOp(cache, genericOp), debugString,
                            locInfo);
+  }
+  if (auto nlpConcatHeadsDecodeOp = dyn_cast<NLPConcatHeadsDecodeOp>(op);
+      nlpConcatHeadsDecodeOp) {
+    return createOperation(cache, createOp(cache, nlpConcatHeadsDecodeOp),
+                           debugString, locInfo);
   }
   if (auto rotaryEmbeddingLlamaOp = dyn_cast<RotaryEmbeddingLlamaOp>(op);
       rotaryEmbeddingLlamaOp) {
     return createOperation(cache, createOp(cache, rotaryEmbeddingLlamaOp),
                            debugString, locInfo);
+  }
+  if (auto dumpTensorOp = dyn_cast<DumpTensorOp>(op); dumpTensorOp) {
+    return createOperation(cache, createOp(cache, dumpTensorOp), debugString,
+                           locInfo);
+  }
+  if (auto loadTensorOp = dyn_cast<LoadTensorOp>(op); loadTensorOp) {
+    return createOperation(cache, createOp(cache, loadTensorOp), debugString,
+                           locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
