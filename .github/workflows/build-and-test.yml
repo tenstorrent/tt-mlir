@@ -349,6 +349,7 @@ jobs:
       run: |
         export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
         export TT_METAL_LIB="${{ steps.strings.outputs.install-output-dir }}/lib"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         cd ${{ steps.strings.outputs.install-output-dir }}/${{ matrix.build.path }}
         ./ttnn-standalone
 
