@@ -39,8 +39,7 @@ target_link_libraries(_ttmlir_runtime
 )
 add_dependencies(_ttmlir_runtime TTMLIRRuntime)
 
-# Utils bindings only needed for ttnn-jit.
-if (TTMLIR_ENABLE_RUNTIME AND TTMLIR_ENABLE_PYKERNEL)
+if (TTMLIR_ENABLE_RUNTIME)
   # Isolate utils.cpp to a separate TU to avoid pulling in pybinds.
   add_library(_mlir_runtime_utils OBJECT runtime/utils.cpp)
   target_include_directories(_mlir_runtime_utils
