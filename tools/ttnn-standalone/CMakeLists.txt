@@ -73,53 +73,13 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
-# Directories to search for headers
-#
-set(INCLUDE_DIRS
-    # TODO: Remove these when ttmetal removes the dependencies from public facing headers
-    ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
-    ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
-    ${CPM_SOURCE_CACHE}/enchantum/2fb7ab238e36c101b9848892ddb6382276b65837/enchantum/include
-    ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
-    ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
-    ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-    ${CPM_SOURCE_CACHE}/tt-logger/48ec77b63c35cf84c47678990aa3603b492d0c7c/include
+# Use standardized include directories from third_party/CMakeLists.txt
+set(INCLUDE_DIRS ${TTMETAL_INCLUDE_DIRS})
 
-    # Metalium
-    ${METAL_SRC_DIR}
-    ${METAL_SRC_DIR}/tt_metal
-    ${METAL_SRC_DIR}/tt_metal/api
-    ${METAL_SRC_DIR}/tt_metal/hostdevcommon/api
-    ${METAL_SRC_DIR}/tt_metal/hw/inc
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/grayskull
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole/wormhole_b0_defines
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/wormhole
-    ${METAL_SRC_DIR}/tt_metal/hw/inc/blackhole
-    ${METAL_SRC_DIR}/tt_metal/include
-    ${METAL_SRC_DIR}/tt_stl
-    ${METAL_SRC_DIR}/tt_stl/tt_stl
-    ${METAL_SRC_DIR}/tt_metal/third_party/fmt
-    ${METAL_SRC_DIR}/tt_metal/third_party/enchantum
-    ${METAL_SRC_DIR}/tt_metal/third_party/taskflow
-    ${METAL_SRC_DIR}/tt_metal/third_party/tracy/public
-    ${METAL_SRC_DIR}/tt_metal/third_party/umd
-    ${METAL_SRC_DIR}/tt_metal/third_party/umd/device/api
-    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/grayskull
-    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/wormhole
-    ${METAL_SRC_DIR}/tt_metal/third_party/umd/src/firmware/riscv/blackhole
-
-    # TTNN
-    ${METAL_SRC_DIR}/ttnn
-    ${METAL_SRC_DIR}/ttnn/api
-    ${METAL_SRC_DIR}/ttnn/core
-    ${METAL_SRC_DIR}/ttnn/cpp
-    ${METAL_SRC_DIR}/ttnn/cpp/ttnn
-)
-
-# Link directories
+# Link directories - use standardized directory from third_party/CMakeLists.txt
 #
 set(LINK_DIRS
-    ${METAL_LIB_DIR}
+    ${TTMETAL_LIBRARY_DIR}
 )
 
 # Libraries to link
@@ -133,7 +93,7 @@ set(LINK_LIBS
 # Find and link _ttnncpp library if it exists
 find_library(TTNNCPP_LIB
     NAMES _ttnncpp ttnncpp
-    PATHS ${METAL_LIB_DIR}
+    PATHS ${TTMETAL_LIBRARY_DIR}
     NO_DEFAULT_PATH
 )
 
@@ -141,7 +101,7 @@ if(TTNNCPP_LIB)
     message(STATUS "Found _ttnncpp library: ${TTNNCPP_LIB}")
     list(APPEND LINK_LIBS ${TTNNCPP_LIB})
 else()
-    message(WARNING "_ttnncpp library not found in ${METAL_LIB_DIR}")
+    message(WARNING "_ttnncpp library not found in ${TTMETAL_LIBRARY_DIR}")
 endif()
 
 # Compile definitions
