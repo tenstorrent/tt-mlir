@@ -893,13 +893,13 @@ def compile_ttir_module_to_flatbuffer(
         print(os.environ["TT_METAL_HOME"])
         # Set TT_METAL_HOME for the subprocess call, temporary until builder is decoupled from ttrt
         if "ttrt" in os.environ["TT_METAL_HOME"]:
-            os.environ["TT_METAL_HOME"] = tt_metal_home
             tt_metal_home = os.path.abspath(
                 os.path.join(
                     os.path.dirname(__file__),
                     "../../../../third_party/tt-metal/src/tt-metal",
                 )
             )
+            os.environ["TT_METAL_HOME"] = tt_metal_home
             print(os.environ["TT_METAL_HOME"])
 
         subprocess.run(
