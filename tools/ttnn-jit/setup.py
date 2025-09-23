@@ -174,6 +174,7 @@ def get_dynamic_dependencies():
         "tqdm",  # Progress bars (used by TTNN)
         "psutil",  # System info (used by TTNN)
         "graphviz",  # Visualization (for ttnn-jit)
+        "libnuma-dev",
     ]
 
     # Try to get additional runtime deps from tt-metal requirements
@@ -203,7 +204,6 @@ def get_dynamic_dependencies():
                 "pytest",
                 "sphinx",
                 "flake8",
-                "libnuma-dev",
             }
 
             with open(metal_req_path, "r") as f:
