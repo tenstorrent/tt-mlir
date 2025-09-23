@@ -14,7 +14,7 @@
 #include <queue>
 #include <sstream>
 
-// ----------------------------------------------------------------------------
+//===---------------------------------------------------------------------===//
 namespace mlir::tt::ttir::allocation {
 
 using std::int32_t;
@@ -63,9 +63,9 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
   Tools::write(obj, s);
   return os << s.str();
 }
-// ............................................................................
+//===---------------------------------------------------------------------===//
 // PlannerImpl.
-// ............................................................................
+//===---------------------------------------------------------------------===//
 //
 // A simple bumper allocator. It ignores live ranges and thus can't reuse
 // memory.
@@ -124,7 +124,7 @@ Planner::AllocateStats PlannerImpl::allocateImpl<Planner::Algorithm::Simple>(
 
   return stats;
 }
-// ............................................................................
+//===---------------------------------------------------------------------===//
 //
 // Greedy-by-size allocator:
 //  1. visit requests in decreasing memory size order;
@@ -219,7 +219,7 @@ Planner::AllocateStats PlannerImpl::allocateImpl<Planner::Algorithm::Greedy>(
 
   return stats;
 }
-// ............................................................................
+//===---------------------------------------------------------------------===//
 
 Planner::AnalysisStats PlannerImpl::analyze(const Problem &solution,
                                             const AllocSizeT watermark) {
@@ -274,9 +274,9 @@ Planner::AnalysisStats PlannerImpl::analyze(const Problem &solution,
 
   return analysis;
 }
-// ............................................................................
+//===---------------------------------------------------------------------===//
 // Planner.
-// ............................................................................
+//===---------------------------------------------------------------------===//
 
 Planner::AllocateStats Planner::allocate(Problem &problem,
                                          Algorithm algorithm) {
@@ -287,7 +287,7 @@ Planner::AllocateStats Planner::allocate(Problem &problem,
     return allocateImpl<Algorithm::Greedy>(problem);
   }
 }
-// ............................................................................
+//===---------------------------------------------------------------------===//
 
 Planner::SpillStats Planner::spillAllocate(Problem &problem,
                                            AllocSizeT memUsageLimit,
@@ -433,7 +433,7 @@ Planner::SpillStats Planner::spillAllocate(Problem &problem,
 
   return {stepCount, spilledCount, stats};
 }
-// ............................................................................
+//===---------------------------------------------------------------------===//
 
 Planner::AllocateStats Planner::verify(const Problem &solution) {
   // Use an interval tree to both verify interval conflicts and calculate max
@@ -525,4 +525,4 @@ Planner::AllocateStats Planner::verify(const Problem &solution) {
 }
 
 } // namespace mlir::tt::ttir::allocation
-// ----------------------------------------------------------------------------
+//===---------------------------------------------------------------------===//

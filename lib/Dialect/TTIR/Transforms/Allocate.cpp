@@ -22,7 +22,7 @@
 #include <algorithm>
 #include <optional>
 
-// ----------------------------------------------------------------------------
+//===---------------------------------------------------------------------===//
 namespace mlir::tt::ttir {
 
 #define GEN_PASS_DEF_TTIRALLOCATE
@@ -1024,4 +1024,4 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
 } // namespace
 
 } // namespace mlir::tt::ttir
-// ----------------------------------------------------------------------------
+//===---------------------------------------------------------------------===//
