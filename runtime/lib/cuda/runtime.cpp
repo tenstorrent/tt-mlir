@@ -39,6 +39,37 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
                 DeviceRuntime::CUDA);
 }
 
+::tt::runtime::Tensor
+createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
+                      const std::vector<std::uint32_t> &stride,
+                      std::uint32_t itemsize, ::tt::target::DataType dataType) {
+  LOG_ASSERT(data != nullptr, "Cannot create owned tensor with null data");
+  LOG_ASSERT(::tt::runtime::utils::isSupportedDataType(dataType),
+             "Cannot create owned tensor with unsupported data type");
+  LOG_ASSERT(itemsize > 0, "Item size must be greater than 0");
+
+  auto cudaHandle = std::make_shared<CudaTensorHandle>();
+  cudaHandle->shape = shape;
+  cudaHandle->stride = stride;
+  cudaHandle->dataType = dataType;
+  cudaHandle->itemsize = itemsize;
+
+  // Calculate total data size
+  size_t dataSize = 1;
+  for (size_t i = 0; i < shape.size(); i++) {
+    dataSize *= shape[i];
+  }
+  dataSize *= itemsize;
+
+  auto ownedData = std::shared_ptr<void>(std::malloc(dataSize), std::free);
+  LOG_ASSERT(ownedData != nullptr,
+             "Failed to allocate memory for owned tensor");
+  std::memcpy(ownedData.get(), data, dataSize);
+
+  return Tensor(std::static_pointer_cast<void>(cudaHandle), ownedData,
+                DeviceRuntime::CUDA);
+}
+
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize, bool blocking) {
   return {tensor};

@@ -39,6 +39,10 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize = false,
                                           bool blocking = true);
+::tt::runtime::Tensor
+createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
+                      const std::vector<std::uint32_t> &stride,
+                      std::uint32_t itemsize, ::tt::target::DataType dataType);
 std::vector<std::uint32_t> getTensorShape(Tensor tensor);
 std::vector<std::uint32_t> getTensorStride(Tensor tensor);
 

@@ -30,5 +30,6 @@ target_link_libraries(TTRuntimeCUDA PUBLIC coverage_config)
 target_link_libraries(TTRuntimeCUDA PUBLIC LLVMSupport)
 target_link_libraries(TTRuntimeCUDA PUBLIC CUDA::cudart)
 target_link_libraries(TTRuntimeCUDA PUBLIC CUDA::cuda_driver)
+target_link_libraries(TTRuntimeCUDA PUBLIC TTRuntimeTypes)
 
 add_dependencies(TTRuntimeCUDA FBS_GENERATION)
