@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 
 #include "mlir/IR/DialectImplementation.h"
@@ -90,4 +91,7 @@ void TTNNDialect::initialize() {
       >();
   registerTypes();
   addInterfaces<TTNNOpAsmDialectInterface>();
+
+  // Dump dialect creation if IR dumping is enabled
+  mlir::tt::MLIRModuleLogger::dumpDialectCreation("ttnn", getContext());
 }
