@@ -2878,12 +2878,6 @@ public:
   matchAndRewrite(mlir::stablehlo::RngBitGeneratorOp srcOp,
                   mlir::stablehlo::RngBitGeneratorOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    LogicalResult legalityResult = checkConversionLegality(srcOp, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
-    }
-
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getOutput().getType()));
 
@@ -2914,13 +2908,6 @@ public:
     rewriter.replaceOp(srcOp,
                        {adaptor.getInitialState(), typecastOp.getResult()});
 
-    return success();
-  }
-
-private:
-  LogicalResult
-  checkConversionLegality(mlir::stablehlo::RngBitGeneratorOp &srcOp,
-                          ConversionPatternRewriter &rewriter) const {
     return success();
   }
 };
