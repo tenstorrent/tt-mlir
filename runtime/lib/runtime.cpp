@@ -363,7 +363,8 @@ Tensor createOwnedHostTensor(const void *data,
             data, shape, stride, itemsize, dataType);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
+        return ::tt::runtime::cuda::createOwnedHostTensor(data, shape, stride,
+          itemsize, dataType);
       },
       [&]() -> RetType {
         return ::tt::runtime::distributed::createOwnedHostTensor(

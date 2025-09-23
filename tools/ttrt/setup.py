@@ -25,6 +25,8 @@ ttmlir_build_dir = os.environ.get(
 
 metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal/build"
 ttmetalhome = os.environ.get("TT_METAL_HOME", "")
+cudadir = os.environ.get("CUDA_PATH", "")
+cudartdir = os.environ.get("CUDART_PATH", "")
 
 os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
 enable_runtime = os.environ.get("TTMLIR_ENABLE_RUNTIME", "OFF") == "ON"
@@ -39,6 +41,7 @@ arch = os.environ.get("CMAKE_SYSTEM_PROCESSOR", "x86_64")
 runtime_module = f"_ttmlir_runtime.cpython-311-{arch}-linux-gnu.so"
 dylibs = []
 runlibs = []
+cuda_libs = []
 perflibs = []
 metallibs = []
 install_requires = []
@@ -56,7 +59,7 @@ if enable_ttnn or enable_ttmetal or enable_cuda:
     runlibs += ["libtracy.so.0.10.0"]
 
 if enable_cuda:
-    runlibs += ["libcuda.so", "libcudart.so"]
+    cuda_libs += ["libcuda.so", "libcudart.so"]
 
 if enable_perf:
     perflibs += ["capture-release"]
@@ -81,6 +84,17 @@ if enable_runtime:
         shutil.copy(
             f"{metaldir}/lib/{runlib}",
             f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
+        )
+
+    if "libcuda.so" in cuda_libs:
+        shutil.copy(
+            f"{cudadir}/libcuda.so",
+            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+        )
+    if "libcudart.so" in cuda_libs:
+        shutil.copy(
+            f"{cudartdir}/libcudart.so",
+            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
         )
 
     for dylib in perflibs:
@@ -201,6 +215,7 @@ dylibs += ["libTTMLIRRuntime.so", runtime_module]
 dylibs += runlibs
 dylibs += perflibs
 dylibs += metallibs
+dylibs += cuda_libs
 
 packages = ["ttrt", "ttrt.common", "ttrt.binary", "ttrt.runtime"]
 package_dir = {
