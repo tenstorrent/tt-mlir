@@ -1802,8 +1802,7 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   // Clang tidy falsley determines that the underling float data in the
   // llvm::APFloat is freed more than once as APFloat is passed by value and
-  // then destroyed at the end of this function. This is not the case as the
-  // data is copied in the copy constructor. So we suppress the warning here.
+  // then destroyed at the end of this function.
   //
   // The compiler explorer session at the below link shows what occurs when an
   // optional value is set and passed by value in this manner
