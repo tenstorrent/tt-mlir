@@ -9,4 +9,5 @@ add_mlir_conversion_library(TTMLIRTTIRToTTIRGeneric
   MLIRIR
   MLIRPass
   MLIRLinalgDialect
+  MLIRTTNNDialect
 )

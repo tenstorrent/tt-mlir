@@ -28,10 +28,8 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         MLIRTTIROpsIncGen
         MLIRTTIRPassesIncGen
         MLIRTTCoreOpsIncGen
-        MLIRTTNNOpsIncGen
 
         LINK_LIBS PUBLIC
         MLIRTTIREraseInverseOps
         MLIRTTIRAnalysis
-        MLIRTTNNDialect
         )
