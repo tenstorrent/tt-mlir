@@ -70,6 +70,7 @@
 #include "operations/transformer/concatenate_heads.h"
 #include "operations/transformer/nlp_concat_heads.h"
 #include "operations/transformer/nlp_concat_heads_decode.h"
+#include "operations/transformer/nlp_create_qkv_heads_decode.h"
 #include "operations/transformer/rotary_embedding_llama.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
@@ -262,6 +263,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
     return operations::transformer::run(op->type_as_RotaryEmbeddingLlamaOp(),
+                                        getContext());
+  }
+  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {
+    return operations::transformer::run(op->type_as_NLPCreateQKVHeadsDecodeOp(),
                                         getContext());
   }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
