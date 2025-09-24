@@ -6,25 +6,6 @@ from utils import assert_pcc
 import torch
 
 
-@template("dma_mcast")
-def dma_mcast(mcast_pred, src, dst, start, shape):
-    if mcast_pred:
-        tx = dma(src, dst)
-        tx.wait()
-        rhs_receiver_ready.wait(GK - 1, reset=0)
-        tx = dma(
-            rhs_shard,
-            rhs_shard,
-            core=(1, cx),
-            mcast=(GY - 1, 1),
-        )
-        tx.wait()
-        rhs_sender_sent.set(1, core=(1, cx), mcast=(GY - 1, 1))
-    else:
-        rhs_receiver_ready.inc(1, core=(0, cx))
-        rhs_sender_sent.wait(1, reset=0)
-
-
 @pykernel_gen(
     block_factors=[
         (1, 1),
@@ -61,10 +42,6 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
         lhs_shard: Tensor,
         rhs_shard: Tensor,
         out_shard: Tensor,
-        lhs_receiver_ready: Semaphore,
-        lhs_sender_sent: Semaphore,
-        rhs_receiver_ready: Semaphore,
-        rhs_sender_sent: Semaphore,
     ):
         for k in range(K):
             for m in range(M):
@@ -80,21 +57,16 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
         lhs_shard: Tensor,
         rhs_shard: Tensor,
         out_shard: Tensor,
-        lhs_receiver_ready: Semaphore,
-        lhs_sender_sent: Semaphore,
-        rhs_receiver_ready: Semaphore,
-        rhs_sender_sent: Semaphore,
     ):
         cy = core_index(0)
         cx = core_index(1)
         for k in range(K):
             for m in range(M):
-                dma_mcast(
-                    cx == 0,
+                mcast(
                     lhs_stream[cy * M + m, k],
                     lhs_shard,
-                    start=(cy, 1),
-                    shape=(1, GX - 1),
+                    start=(cy, 0),
+                    shape=(1, GX),
                 )
                 yield lhs_shard
 

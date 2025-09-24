@@ -1348,6 +1348,57 @@ def dma(src, dst, core=None, mcast=None) -> MemTx:
     )
 
 
+_g_mcast_sema_unique = 0
+
+
+@syntax("mcast")
+def mcast(src, dst, start=None, shape=None) -> MemTx:
+    global _g_mcast_sema_unique
+    assert start is not None
+    assert shape is not None
+    assert isinstance(start, tuple)
+    assert isinstance(shape, tuple)
+    assert len(start) == 2
+    assert len(shape) == 2
+
+    # Upper left always performs the mcast
+    cy = ttir.core_index(IntegerAttr.get(IntegerType.get_signed(32), 0))
+    cx = ttir.core_index(IntegerAttr.get(IntegerType.get_signed(32), 1))
+
+    cmp_y = arith.cmpi(arith.CmpIPredicate.eq, cy, _asindex(start[0]))
+    cmp_x = arith.cmpi(arith.CmpIPredicate.eq, cx, _asindex(start[1]))
+    cmp = arith.andi(cmp_y, cmp_x)
+
+    if_exp = scf.IfOp(cond=cmp, hasElse=True)
+
+    receiver_ready_name = f"_mcast_receiver_ready_{_g_mcast_sema_unique}"
+    _g_mcast_sema_unique += 1
+    sender_sent_name = f"_mcast_sender_sent_{_g_mcast_sema_unique}"
+    _g_mcast_sema_unique += 1
+
+    module = if_exp
+    while isinstance(module, ModuleOp):
+        module = module.parent
+    module_symbol_table = SymbolTable(module)
+    sem_ty = ttir.ir.SemaphoreType.get()
+    with InsertionPoint.at_block_begin(module):
+        global_receiver_ready = ttcore.GlobalOp(receiver_ready_name, sem_ty)
+        global_sender_sent = ttcore.GlobalOp(sender_sent_name, sem_ty)
+        module_symbol_table.insert(global_receiver_ready.operation)
+        module_symbol_table.insert(global_sender_sent.operation)
+    receiver_ready = ttcore.get_global(sem_ty, receiver_ready_name)
+    sender_sent = ttcore.get_global(sem_ty, sender_sent_name)
+
+    with InsertionPoint(if_exp.then_block), Location.unknown():
+        tx = dma(src, dst)
+        MemTx.wait(tx)
+        scf.YieldOp([])
+
+    with InsertionPoint(if_exp.else_block), Location.unknown():
+        scf.YieldOp([])
+
+
+
 @syntax("!ttir.semaphore")
 class Semaphore:
     def set(this, value, core=None, mcast=None):

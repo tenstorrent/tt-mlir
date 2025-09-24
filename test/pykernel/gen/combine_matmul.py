@@ -51,38 +51,16 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
         cx = core_index(1)
         for k in range(K):
             for m in range(M):
-                if cx == 0:
-                    lhs_shard = load(lhs_stream[cy * M + m, k])
-                    lhs_receiver_ready.wait(GK - 1, reset=0)
-                    mcast(lhs_shard, core=(cy, 1), mcast=(1, GX - 1))
-                    tx.wait()
-                    lhs_sender_sent.set(1, core=(cy, 1), mcast=(1, GX - 1))
-                else:
-                    lhs_receiver_ready.inc(1, core=(cy, 0))
-                    lhs_sender_sent.wait(1, reset=0)
+                tx = mcast(
+                    lhs_stream[cy * M + m, k],
+                    lhs_shard,
+                    core=(cy, 0),
+                    mcast=(1, GX - 1),
+                )
+                tx.wait()
 
-                yield lhs_shard
+                barrier(lhs_shard)
 
-                for n in range(N):
-                    await rhs_shard
-                    out_shard = lhs_shard @ rhs_shard
-                    yield out_shard
-                    # await out_shard # this is hacky for now
-
-    @datamovement()
-    async def dm1(
-        lhs_shard: Tensor,
-        rhs_shard: Tensor,
-        out_shard: Tensor,
-        lhs_receiver_ready: Semaphore,
-        lhs_sender_sent: Semaphore,
-        rhs_receiver_ready: Semaphore,
-        rhs_sender_sent: Semaphore,
-    ):
-        cy = core_index(0)
-        cx = core_index(1)
-        for k in range(K):
-            for m in range(M):
                 for n in range(N):
                     if cy == 0:
                         tx = dma(rhs_stream[k, cx * N + n], rhs_shard)
@@ -99,9 +77,13 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
                     else:
                         rhs_receiver_ready.inc(1, core=(0, cx))
                         rhs_sender_sent.wait(1, reset=0)
-                    yield rhs_shard
 
-    return Program(mm, dm0)(lhs, rhs, out)
+                    barrier(rhs_shard)
+
+                    out_shard = lhs_shard @ rhs_shard
+                    yield out_shard
+
+    return Program(mm)(lhs, rhs, out)
 
 
 lhs = torch.randn(128, 128)
