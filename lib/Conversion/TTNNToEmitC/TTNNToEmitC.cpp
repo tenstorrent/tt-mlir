@@ -2448,10 +2448,10 @@ public:
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
     // ttnn::transformer::scaled_dot_product_attention_decode requires current
-    // position information per batch. This can eiher be passed as a tensor or
+    // position information per batch. This can either be passed as a tensor or
     // as a uint vector. We will use the tensor argument as this is a runtime
-    // input. Since the uint vector is now wrapped in a std::optional, we must
-    // pass an empty uint vector for that arg.
+    // input. Since the uint vector is not wrapped in a std::optional, we must
+    // pass an empty uint vector for that argument.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
