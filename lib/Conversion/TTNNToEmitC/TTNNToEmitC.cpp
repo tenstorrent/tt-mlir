@@ -2441,11 +2441,9 @@ public:
         emitter(srcOp, adaptor, rewriter);
 
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-    std::optional<std::string> scale =
+    std::optional<float> scale =
         srcOp.getScale()
-            ? std::make_optional(
-                  ttnn_to_emitc::EmitCTypeConverter<float>::convert(
-                      srcOp.getScale().value()))
+            ? std::make_optional(srcOp.getScale().value().convertToFloat())
             : std::nullopt;
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
