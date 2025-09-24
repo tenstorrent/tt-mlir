@@ -22,7 +22,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
-#include <algorithm>
 #include <array>
 
 namespace mlir::tt {
@@ -321,7 +320,7 @@ private:
 
               if constexpr (isComparisonOp) {
                 // For comparison ops, first subtract then compare with zero
-                mlir::Value subResult = bbBuilder.create<ttir::TileSubBinaryOp>(
+                mlir::Value subResult = bbBuilder.create<ttir::TileSubOp>(
                     loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
                     /*operands=*/bbArgs.take_front(numInputs));
                 yield = bbBuilder.create<TileOp>(

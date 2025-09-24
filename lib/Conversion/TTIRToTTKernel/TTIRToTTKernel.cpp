@@ -15,12 +15,11 @@
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include <type_traits>
 
+#include <type_traits>
 #include <utility>
 
 namespace mlir::tt::ttkernel {
@@ -208,7 +207,14 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
   }
 
   assert(latestDefOp != nullptr);
-  rewriter.setInsertionPointAfter(latestDefOp);
+
+  // Only move the insertion point if we're pushing it downward in the
+  // topological order.
+  auto currentInsertionPoint = rewriter.getInsertionPoint();
+  if (latestDefOp->getBlock() != currentInsertionPoint->getBlock() ||
+      currentInsertionPoint->isBeforeInBlock(latestDefOp)) {
+    rewriter.setInsertionPointAfter(latestDefOp);
+  }
 }
 
 } // namespace
@@ -310,12 +316,9 @@ struct OpMap {};
 
 // clang-format off
 using ComputeOpMap = OpMap<
-  // Elementwise FPU.
-  std::pair<ttir::TileAddOp,         std::pair<ttkernel::AddTilesInitOp,            ttkernel::AddTilesOp>>,
+  // FPU.
   std::pair<ttir::TileMatmulOp,      std::pair<ttkernel::MatmulInitOp,              ttkernel::MatmulTilesOp>>,
   std::pair<ttir::TileMatmulBlockOp, std::pair<ttkernel::MatmulBlockInitOp,         ttkernel::ExperimentalMatmulBlockOp>>,
-  std::pair<ttir::TileMulOp,         std::pair<ttkernel::MulTilesInitOp,            ttkernel::MulTilesOp>>,
-  std::pair<ttir::TileSubOp,         std::pair<ttkernel::SubTilesInitOp,            ttkernel::SubTilesOp>>,
 
   // Elementwise SFPU Unary.
   std::pair<ttir::TileAbsOp,         std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
@@ -341,10 +344,12 @@ using ComputeOpMap = OpMap<
   std::pair<ttir::TileLezOp,         std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>,
 
   // Elementwise SFPU Binary.
-  std::pair<ttir::TileSubBinaryOp,   std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
+  std::pair<ttir::TileAddOp,         std::pair<ttkernel::AddBinaryTilesInitOp,      ttkernel::AddBinaryTilesOp>>,
   std::pair<ttir::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
   std::pair<ttir::TileMaximumOp,     std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
-  std::pair<ttir::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>
+  std::pair<ttir::TileMulOp,         std::pair<ttkernel::MulBinaryTilesInitOp,      ttkernel::MulBinaryTilesOp>>,
+  std::pair<ttir::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>,
+  std::pair<ttir::TileSubOp,         std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>
 >;
 // clang-format on
 
@@ -480,14 +485,6 @@ public:
       tryEraseDeadCBReinterpret(op.getA());
       tryEraseDeadCBReinterpret(op.getB());
       tryEraseDeadCBReinterpret(op.getOutput());
-
-    } else if constexpr (arity == 2) {
-      auto dstIdx = getDstIdxFromResult(op.getResult());
-      rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
-                              getCB(rewriter, op.getRhs()));
-      rewriter.create<FPUOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
-                             getCB(rewriter, op.getRhs()), adaptor.getLhs(),
-                             adaptor.getRhs(), dstIdx);
     } else {
       return llvm::failure();
     }
@@ -523,13 +520,9 @@ public:
     auto insertionPoint = rewriter.getInsertionPoint();
     auto inCB = getInCB(rewriter, op);
     auto outCB = getOutCB(rewriter, op);
+    rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
     setInsertionPointAfterOperands(rewriter, {inCB, outCB});
-    // Don't init_sfpu for tile sub binary op because it's only used in
-    // conjuction with a comparison op that calls init_sfpu and we only need one
-    // per compute kernel.
-    if constexpr (!std::is_same_v<ConcreteOp, ttir::TileSubBinaryOp>) {
-      rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
-    }
+    rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     rewriter.create<InitOp>(op->getLoc());
@@ -614,7 +607,10 @@ public:
     } else if constexpr (std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs());
     } else {
+      OpBuilder::InsertionGuard guard(rewriter);
       const auto dstIdx = getDstIdxFromResult(op.getResult());
+      setInsertionPointAfterOperands(
+          rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx});
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs(),
                               dstIdx);
     }
@@ -1373,12 +1369,9 @@ void populateTTIRToTTKernelPatterns(
   // clang-format off
   patterns.add<ttkernel::TTIRKernelFunctionArgsRewriter,
 
-               // Elementwise FPU.
-               ttkernel::TTIRFPUOpsRewriter<ttir::TileAddOp>,
+               // FPU.
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulOp>,
                ttkernel::TTIRFPUOpsRewriter<ttir::TileMatmulBlockOp>,
-               ttkernel::TTIRFPUOpsRewriter<ttir::TileMulOp>,
-               ttkernel::TTIRFPUOpsRewriter<ttir::TileSubOp>,
 
                // Elementwise SFPU Unary.
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileAbsOp>,
@@ -1404,10 +1397,12 @@ void populateTTIRToTTKernelPatterns(
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileLezOp>,
 
                // Elementwise SFPU Binary.
-               ttkernel::TTIRSFPUOpsRewriter<ttir::TileSubBinaryOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileAddOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileDivOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TileMaximumOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileMulOp>,
                ttkernel::TTIRSFPUOpsRewriter<ttir::TilePowOp>,
+               ttkernel::TTIRSFPUOpsRewriter<ttir::TileSubOp>,
 
                ttkernel::TTIRTilizeUntilizeRewriter,
                ttkernel::TTIRTileTransposeRewriter,

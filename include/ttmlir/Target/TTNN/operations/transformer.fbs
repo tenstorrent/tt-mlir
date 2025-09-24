@@ -26,3 +26,10 @@ table NLPConcatHeadsOp {
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
 }
+
+table NLPConcatHeadsDecodeOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  num_heads: uint32;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}

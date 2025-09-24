@@ -1196,6 +1196,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_LoadTensorOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
+    tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1511,6 +1515,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
     tensorRefs = {opContext.type_as_NLPConcatHeadsOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
+    tensorRefs = {opContext.type_as_NLPConcatHeadsDecodeOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::GenericOp: {
