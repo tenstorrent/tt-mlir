@@ -1,16 +1,18 @@
+add_subdirectory(Allocation)
+
 add_mlir_dialect_library(MLIRTTIRAnalysis
-  AllocationPlanner.cpp
   AssociatedDMAWaits.cpp
   CBProducerConsumer.cpp
   GenericInterchangeAnalysis.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${PROJECT_SOURCE_DIR}/include/ttmlir
+    ${PROJECT_SOURCE_DIR}/include/ttmlir
 
   DEPENDS
-  MLIRTTIROpsIncGen
-  MLIRTTCoreOpsIncGen
+    MLIRTTIROpsIncGen
+    MLIRTTCoreOpsIncGen
 
   LINK_LIBS PUBLIC
-  MLIRAnalysis
-  )
+    MLIRAnalysis
+    MLIRTTIRAllocation
+)

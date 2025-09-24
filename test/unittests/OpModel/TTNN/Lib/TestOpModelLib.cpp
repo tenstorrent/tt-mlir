@@ -1108,6 +1108,50 @@ const std::initializer_list<
 INSTANTIATE_TEST_SUITE_P(ConcatenateHeadsTests, OpModelConcatenateHeadsParam,
                          ::testing::ValuesIn(concatenateHeadsParams));
 
+TEST_F(OpModelTest, NLPConcatHeadsDecodeOp) {
+  const int64_t batchSizeUnpadded = 2;
+  const int64_t batchSizePadded = 32;
+  const int64_t seqLen = 1;
+  const int64_t numHeadsPadded = 32;
+  const int64_t headDim = 128;
+  const uint32_t numHeadsUnpadded = 8;
+
+  const llvm::SmallVector<int64_t> inputShape = {seqLen, batchSizeUnpadded,
+                                                 numHeadsPadded, headDim};
+  const llvm::SmallVector<int64_t> outputShape = {seqLen, 1, batchSizePadded,
+                                                  numHeadsUnpadded * headDim};
+  const llvm::SmallVector<int64_t> virtualGridHeightSharded = {
+      batchSizeUnpadded, 1};
+  const llvm::SmallVector<int64_t> virtualGridWidthSharded = {
+      1, batchSizeUnpadded};
+
+  ttcore::GridAttr workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::HeightSharded,
+      virtualGridHeightSharded);
+  TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, BufferType::L1, TensorMemoryLayout::WidthSharded,
+      virtualGridWidthSharded);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp =
+      op_model::OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, numHeadsUnpadded,
+          outputLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 8192);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 8192);
+
+  auto runtimeExp = op_model::OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
+      inputShape, inputLayout, numHeadsUnpadded, outputLayout);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+}
+
 TEST_F(OpModelTest, RepeatInterleave) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);

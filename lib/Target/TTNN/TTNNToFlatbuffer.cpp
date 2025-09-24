@@ -24,10 +24,6 @@
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
-#include "ttmlir/Target/TTNN/operations/conv_generated.h"
-#include "ttmlir/Target/TTNN/operations/creation_generated.h"
-#include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
-#include "ttmlir/Target/TTNN/operations/pool_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
@@ -1873,6 +1869,29 @@ createOp(FlatbufferObjectCache &cache, ConcatenateHeadsOp op) {
                                                       memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::NLPConcatHeadsOp>
+createOp(FlatbufferObjectCache &cache, NLPConcatHeadsOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateNLPConcatHeadsOp(*cache.fbb, in, out,
+                                                    memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::NLPConcatHeadsDecodeOp>
+createOp(FlatbufferObjectCache &cache, NLPConcatHeadsDecodeOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  uint32_t numHeads = op.getNumHeads();
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreateNLPConcatHeadsDecodeOp(
+      *cache.fbb, in, out, numHeads, memoryConfig);
+}
+
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
 createKernelArgs(FlatbufferObjectCache &cache,
                  llvm::ArrayRef<mlir::Attribute> argsAttrs) {
@@ -2583,9 +2602,18 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, concatenateHeadsOp),
                            debugString, locInfo);
   }
+  if (auto nlpConcatHeadsOp = dyn_cast<NLPConcatHeadsOp>(op)) {
+    return createOperation(cache, createOp(cache, nlpConcatHeadsOp),
+                           debugString, locInfo);
+  }
   if (auto genericOp = dyn_cast<GenericOp>(op); genericOp) {
     return createOperation(cache, createOp(cache, genericOp), debugString,
                            locInfo);
+  }
+  if (auto nlpConcatHeadsDecodeOp = dyn_cast<NLPConcatHeadsDecodeOp>(op);
+      nlpConcatHeadsDecodeOp) {
+    return createOperation(cache, createOp(cache, nlpConcatHeadsDecodeOp),
+                           debugString, locInfo);
   }
   if (auto rotaryEmbeddingLlamaOp = dyn_cast<RotaryEmbeddingLlamaOp>(op);
       rotaryEmbeddingLlamaOp) {

@@ -1,0 +1,6 @@
+# Packages needed to run TT-NN Python lib (i.e. `import ttnn`)
+
+graphviz
+loguru
+pandas
+seaborn
