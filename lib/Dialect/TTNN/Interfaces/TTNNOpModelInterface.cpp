@@ -1900,6 +1900,75 @@ llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+ScaledDotProductAttentionOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "ttnn::scaled_dot_product_attention_decode can have 3 or 5 operands "
+         "input tensors");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto queryShape = getQuery().getType().getShape();
+  const auto keyShape = getKey().getType().getShape();
+  const auto valueShape = getValue().getType().getShape();
+  const std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape =
+      getAttentionMask()
+          ? std::make_optional(getAttentionMask().getType().getShape())
+          : std::nullopt;
+  const std::optional<TTNNLayoutAttr> attentionMaskLayout =
+      getAttentionMask() ? std::make_optional(inputs[3]) : std::nullopt;
+  bool isCausal = getIsCausal();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ScaledDotProductAttentionOp>::getOpConstraints, *this,
+      deviceGrid, queryShape, inputs[0], keyShape, inputs[1], valueShape,
+      inputs[2], attentionMaskShape, attentionMaskLayout, isCausal, getScale(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t> ScaledDotProductAttentionOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "ttnn::scaled_dot_product_attention_decode can have 3 or 4 "
+         "input tensors");
+
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "ttnn::scaled_dot_product_attention_decode can have 3 or 4 "
+         "input tensors");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  const auto queryShape = getQuery().getType().getShape();
+  const auto keyShape = getKey().getType().getShape();
+  const auto valueShape = getValue().getType().getShape();
+  const std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape =
+      getAttentionMask()
+          ? std::make_optional(getAttentionMask().getType().getShape())
+          : std::nullopt;
+  const std::optional<TTNNLayoutAttr> attentionMaskLayout =
+      getAttentionMask() ? std::make_optional(inputs[3]) : std::nullopt;
+  bool isCausal = getIsCausal();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<ScaledDotProductAttentionOp>::getOpRuntime, *this,
+      queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
+      attentionMaskShape, attentionMaskLayout, isCausal, getScale(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 
