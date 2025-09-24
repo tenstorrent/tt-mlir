@@ -30,12 +30,40 @@ public:
         op, op.getSymNameAttr());
     assert(global);
 
-    std::optional<int32_t> index = global.getIndex();
-    assert(index);
+    if (mlir::isa<RankedTensorType>(op.getResult().getType())) {
+      std::optional<int32_t> index = global.getIndex();
+      assert(index);
 
-    Value operand = generic.getOperand(*index);
-    rewriter.replaceAllUsesWith(op, operand);
-    rewriter.eraseOp(op);
+      Value operand = generic.getOperand(*index);
+      rewriter.replaceAllUsesWith(op, operand);
+      rewriter.eraseOp(op);
+    } else if (mlir::isa<ttir::SemaphoreType>(op.getResult().getType())) {
+      std::optional<int32_t> index = global.getIndex();
+      Block* block = op->getBlock();
+      while (block->getParentOp() != generic) {
+        block = &block->getParent()->getParentRegion()->front();
+      }
+
+      if (!index) {
+        index = static_cast<int32_t>(block->getNumArguments());
+        rewriter.modifyOpInPlace(global, [&]() {
+          global.setIndex(index);
+        });
+
+        rewriter.modifyOpInPlace(generic, [&]() {
+          for (Region& region : generic.getRegions()) {
+            llvm::errs() << "asdf " << block->getNumArguments() << " " << (block == &region.front()) << "\n";
+            region.addArgument(op.getResult().getType(), op.getLoc());
+          }
+        });
+      }
+
+      Value operand = block->getArgument(*index);
+      rewriter.replaceAllUsesWith(op, operand);
+      rewriter.eraseOp(op);
+    } else {
+      llvm_unreachable("unsupported GetGlobalOp result type");
+    }
 
     return success();
   }

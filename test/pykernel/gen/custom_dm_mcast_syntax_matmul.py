@@ -14,6 +14,7 @@ import torch
     ],
     grid=(2, 2),
     kernel_source_mode="store",
+    verbose=True,
 )
 def matmul(lhs, rhs, out, block_factors=None, grid=None):
     assert block_factors is not None
@@ -75,31 +76,18 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
         lhs_shard: Tensor,
         rhs_shard: Tensor,
         out_shard: Tensor,
-        lhs_receiver_ready: Semaphore,
-        lhs_sender_sent: Semaphore,
-        rhs_receiver_ready: Semaphore,
-        rhs_sender_sent: Semaphore,
     ):
         cy = core_index(0)
         cx = core_index(1)
         for k in range(K):
             for m in range(M):
                 for n in range(N):
-                    if cy == 0:
-                        tx = dma(rhs_stream[k, cx * N + n], rhs_shard)
-                        tx.wait()
-                        rhs_receiver_ready.wait(GK - 1, reset=0)
-                        tx = dma(
-                            rhs_shard,
-                            rhs_shard,
-                            core=(1, cx),
-                            mcast=(GY - 1, 1),
-                        )
-                        tx.wait()
-                        rhs_sender_sent.set(1, core=(1, cx), mcast=(GY - 1, 1))
-                    else:
-                        rhs_receiver_ready.inc(1, core=(0, cx))
-                        rhs_sender_sent.wait(1, reset=0)
+                    mcast(
+                        rhs_stream[k, cx * N + n],
+                        rhs_shard,
+                        start=(0, cx),
+                        shape=(GY, 1),
+                    )
                     yield rhs_shard
 
     return Program(mm, dm0, dm1)(lhs, rhs, out)
