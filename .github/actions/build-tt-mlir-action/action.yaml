@@ -85,6 +85,12 @@ runs:
         cmake --build ${{ inputs.build-output-dir }} -- ttrt
         cmake --build ${{ inputs.build-output-dir }} -- compile-ttmlir-tests
 
+    - name: Build ttnn-jit target
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ inputs.build-output-dir }} -- ttnn-jit
+
     - name: Build ttnn-jit wheel
       shell: bash
       run: |
@@ -142,6 +148,7 @@ runs:
 
     - name: Upload ttnn-jit .whl
       uses: actions/upload-artifact@v4
+      if: inputs.enable-ttnn-jit == 'ON'
       with:
         name: ttnn-jit-whl-${{ inputs.build-name }}
         path: build/tools/ttnn-jit/dist/ttnn-jit*.whl
