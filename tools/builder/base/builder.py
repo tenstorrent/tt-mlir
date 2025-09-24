@@ -12,8 +12,19 @@ import re
 from collections import OrderedDict
 
 from ttmlir.ir import (
-    Context, Location, Value, OpView, Operation, RankedTensorType, Type, Attribute,
-    BF16Type, F16Type, F32Type, F64Type, IntegerType
+    Context,
+    Location,
+    Value,
+    OpView,
+    Operation,
+    RankedTensorType,
+    Type,
+    Attribute,
+    BF16Type,
+    F16Type,
+    F32Type,
+    F64Type,
+    IntegerType,
 )
 from ttmlir.dialects import tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
@@ -384,9 +395,13 @@ class Builder:
                 try:
                     generated_tensor = tensor_or_shard_map_or_callable(operand_shape)
                     if not isinstance(generated_tensor, torch.Tensor):
-                        raise TypeError(f"Callable must return a torch.Tensor, got {type(generated_tensor)}")
+                        raise TypeError(
+                            f"Callable must return a torch.Tensor, got {type(generated_tensor)}"
+                        )
                 except Exception as e:
-                    raise RuntimeError(f"Error calling initialization function for operand {operand}: {e}")
+                    raise RuntimeError(
+                        f"Error calling initialization function for operand {operand}: {e}"
+                    )
                 golden_tensor = BuilderGoldenTensor(
                     {0: generated_tensor}, mesh_shape=self._mesh_shape
                 )
