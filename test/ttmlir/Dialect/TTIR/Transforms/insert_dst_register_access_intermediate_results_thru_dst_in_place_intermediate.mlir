@@ -48,8 +48,8 @@ module {
           %subview_16 = memref.subview %cb2[%arg2, %arg3] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #ttcore.memory_space<l1>>
           linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%subview, %subview_15 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #ttcore.memory_space<l1>>, memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #ttcore.memory_space<l1>>) outs(%subview_16 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #ttcore.memory_space<l1>>) {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %in_17: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
-            %0 = "ttir.tile_sub_binary"(%in, %in_17) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: %[[SUB_RESULT:.*]] = "ttir.tile_sub_binary"(%[[DST0_VAL:.*]], %[[DST1_VAL:.*]]) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+            %0 = "ttir.tile_sub"(%in, %in_17) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+            // CHECK: %[[SUB_RESULT:.*]] = "ttir.tile_sub"(%[[DST0_VAL:.*]], %[[DST1_VAL:.*]]) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: affine.store %[[SUB_RESULT]], %[[DST:.*]][2, %arg2, %arg3] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             // CHECK: %[[DST_SUB:.*]] = affine.load %[[DST]][2, %arg2, %arg3] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             %1 = "ttir.tile_eqz"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
