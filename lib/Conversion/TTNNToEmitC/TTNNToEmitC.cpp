@@ -2440,13 +2440,18 @@ public:
         mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>
         emitter(srcOp, adaptor, rewriter);
 
-    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-    std::optional<float> scale =
+    std::optional<std::string> scale =
         srcOp.getScale()
-            ? std::make_optional(srcOp.getScale().value().convertToFloat())
+            ? std::make_optional(
+                  ttnn_to_emitc::EmitCTypeConverter<float>::convert(
+                      srcOp.getScale().value()))
             : std::nullopt;
-    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
+    // ttnn::transformer::scaled_dot_product_attention_decode requires current
+    // position information per batch. This can eiher be passed as a tensor or
+    // as a uint vector. We will use the tensor argument as this is a runtime
+    // input. Since the uint vector is now wrapped in a std::optional, we must
+    // pass an empty uint vector for that arg.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
