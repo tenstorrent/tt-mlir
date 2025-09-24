@@ -85,10 +85,10 @@ class TTIR_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []>
 // TTIR Generic Region Math Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def TTIR_TileAddOp : TTIR_GenericRegionComputeOp<"tile_add"> {
+def TTIR_TileAddOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_add"> {
     let summary = "TTIR Tile Add Op";
     let description = [{
-        The `tile_add` operation adds two tiles element-wise.
+        The `tile_add` operation adds two tiles element-wise on the SFPU.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
@@ -96,10 +96,10 @@ def TTIR_TileAddOp : TTIR_GenericRegionComputeOp<"tile_add"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileSubOp : TTIR_GenericRegionComputeOp<"tile_sub"> {
+def TTIR_TileSubOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub"> {
     let summary = "TTIR Tile Sub Op";
     let description = [{
-        The `tile_sub` operation subtracts two tiles element-wise.
+        The `tile_sub` operation subtracts two tiles element-wise on the SFPU.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
@@ -107,10 +107,10 @@ def TTIR_TileSubOp : TTIR_GenericRegionComputeOp<"tile_sub"> {
     let results = (outs TTCore_Tile:$result);
 }
 
-def TTIR_TileMulOp : TTIR_GenericRegionComputeOp<"tile_mul"> {
+def TTIR_TileMulOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_mul"> {
     let summary = "TTIR Tile Mul Op";
     let description = [{
-        The `tile_mul` operation multiplies two tiles element-wise.
+        The `tile_mul` operation multiplies two tiles element-wise on the SFPU.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
@@ -287,17 +287,6 @@ def TTIR_TileLogicalNotOp : TTIR_GenericRegionComputeUnaryDstOp<"tile_logical_no
     }];
 
     let arguments = (ins TTCore_Tile:$input);
-    let results = (outs TTCore_Tile:$result);
-}
-
-def TTIR_TileSubBinaryOp : TTIR_GenericRegionComputeBinaryDstOp<"tile_sub_binary"> {
-    let summary = "TTIR Tile Subtract Binary Op";
-    let description = [{
-        The `tile_sub_binary` operation uses the SFPU to subtract two tiles element-wise.
-    }];
-
-    let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
