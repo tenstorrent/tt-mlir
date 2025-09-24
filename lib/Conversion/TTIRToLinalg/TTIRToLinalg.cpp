@@ -1703,7 +1703,10 @@ public:
     Value sum = createReductionOpChain<tosa::ReduceSumOp>(
         input, resultType, dims, keepDim, op.getLoc(), rewriter);
 
-    int64_t numElements = ttmlir::utils::volume(inputType.getShape());
+    int64_t numElements = 1;
+    for (int64_t dim : dims) {
+      numElements *= inputType.getShape()[dim];
+    }
 
     Attribute divisorAttr = createDenseElementsAttr(resultType, numElements);
     if (!divisorAttr) {
@@ -1761,7 +1764,12 @@ public:
     auto reshapeOp = rewriter.create<tosa::ReshapeOp>(op.getLoc(), resultType,
                                                       input, shapeOp);
 
-    rewriter.replaceOp(op, reshapeOp);
+    // Handle DPS semantics - directly copy to output.
+    Value output = adaptor.getOutput();
+    auto copyOp = rewriter.create<linalg::CopyOp>(
+        op.getLoc(), ValueRange{reshapeOp}, output);
+    rewriter.replaceOp(op, copyOp.getResult(0));
+
     return success();
   }
 };
