@@ -249,34 +249,76 @@ def test_eltwise_binary_op_tree_max_inputs(
 
 def eltwise_fuse_div_tree_max_inputs_plus_1(
     in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-    in4: Operand, in5: Operand, in6: Operand,
+    in4: Operand, in5: Operand, in6: Operand, in7: Operand,
+    # in8: Operand, in9: Operand, in10: Operand, in11: Operand,
+    # in12: Operand, in13: Operand, in14: Operand, in15: Operand,
     builder: TTIRBuilder,
     shape: Shape,
     dtype: torch.dtype,
     unit_attrs: Optional[List[str]] = None,
 ):
-    # input_0 = torch.full(shape, 16).to(dtype)
-    # input_1 = torch.full(shape, 2).to(dtype)
+    input_0 = torch.full(shape, 16).to(dtype)
+    input_1 = torch.full(shape, 2).to(dtype)
 
-    # input_2 = torch.full(shape, 16).to(dtype)
-    # input_3 = torch.full(shape, 4).to(dtype)
+    input_2 = torch.full(shape, 4).to(dtype)
+    input_3 = torch.full(shape, 2).to(dtype)
 
-    # input_4 = torch.full(shape, 8).to(dtype)
-    # input_5 = torch.full(shape, 2).to(dtype)
+    input_4 = torch.full(shape, 2).to(dtype)
+    input_5 = torch.full(shape, 1).to(dtype)
 
-    # input_6 = torch.full(shape, 1).to(dtype)
+    input_6 = torch.full(shape, 16).to(dtype)
+    input_7 = torch.full(shape, 16).to(dtype)
 
-    # output_0 = torch.full(shape, 0.5).to(dtype)
+    # input_8 = torch.full(shape, 16).to(dtype)
+    # input_9 = torch.full(shape, 2).to(dtype)
+
+    # input_10 = torch.full(shape, 1).to(dtype)
+    # input_11 = torch.full(shape, 1).to(dtype)
+
+    # input_12 = torch.full(shape, 1).to(dtype)
+    # input_13 = torch.full(shape, 1).to(dtype)
+
+    # input_14 = torch.full(shape, 1).to(dtype)
+    # input_15 = torch.full(shape, 1).to(dtype)
+
+
+    output_0 = torch.full(shape, 2).to(dtype)
+
+    # l_0_0 = builder.div(in0, in1)
+    # l_0_1 = builder.div(in2, in3)
+    # l_0_2 = builder.div(in4, in5)
+    # l_0_3 = builder.div(in6, in7)
+    # # l_0_4 = builder.div(in8, in9)
+    # # l_0_5 = builder.div(in10, in11)
+    # # l_0_6 = builder.div(in12, in13)
+    # # l_0_7 = builder.div(in14, in15)
+
+    # l_1_0 = builder.div(l_0_0, l_0_1)
+    # l_1_1 = builder.div(l_0_2, l_0_3)
+    # # l_1_2 = builder.div(l_0_4, l_0_5)
+    # # l_1_3 = builder.div(l_0_6, l_0_7)
+
+    # l_2_0 = builder.div(l_1_0, l_1_1)
+    # l_2_1 = builder.div(l_1_2, l_1_3)
+
+    # tree_out = builder.div(l_2_0, l_2_1)
 
     tree_out = reduction_op_tree(
         op=builder.div,
         inputs=[
             in0, in1, in2, in3, 
-            in4, in5, in6,
+            in4, in5, in6, in7,
+            # in8, in9, in10, in11,
+            # in12, in13, in14, in15
         ]
     )
 
-    # builder.set_goldens({in0: input_0, in1: input_1, in2: input_2, in3: input_3, in4: input_4, in5: input_5, in6: input_6}, {tree_out: output_0})
+    builder.set_goldens(
+        {in0: input_0, in1: input_1, in2: input_2, in3: input_3,
+        in4: input_4, in5: input_5, in6: input_6, in7: input_7,
+        # in8: input_8, in9: input_9, in10: input_10, in11: input_11,
+        # in12: input_12, in13: input_13, in14: input_14, in15: input_15
+        }, {tree_out: output_0})
 
     return tree_out
 
@@ -299,17 +341,24 @@ def test_eltwise_binary_op_tree_max_inputs_plus_1(
 ):
     def eltwise_fuse_binary_tree_op_tree_max_inputs_plus_1_wrapper(
         in0: Operand, in1: Operand, in2: Operand, in3: Operand,
-        in4: Operand, in5: Operand, in6: Operand,
+        in4: Operand, in5: Operand, in6: Operand, in7: Operand,
+        # in8: Operand, in9: Operand, in10: Operand, in11: Operand,
+        # in12: Operand, in13: Operand, in14: Operand, in15: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return test_fn(in0, in1, in2, in3, in4, in5, in6, builder, shape, dtype, unit_attrs)
+        return test_fn(
+            in0, in1, in2, in3,
+            in4, in5, in6, in7,
+            # in8, in9, in10, in11,
+            # in12, in13, in14, in15, 
+            builder, shape, dtype, unit_attrs)
 
     options = []
     compile_ttir_to_flatbuffer(
         eltwise_fuse_binary_tree_op_tree_max_inputs_plus_1_wrapper,
-        [shape]*7,
-        [dtype]*7,
+        [shape]*8,
+        [dtype]*8,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -541,4 +590,89 @@ def test_big_one(shape: Shape, dtype: torch.dtype, target: str, request):
         system_desc_path=request.config.getoption("--sys-desc"),
     )
 
-# ttkernel compute config attribute theres a flag for fp32 dest --> globally off?
+# ttkernel compute config attribute theres a flag for fp32 dest --> globally off?  
+
+def eltwise_fuse_cosh(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    shape: Shape,
+    dtype: torch.dtype,
+    unit_attrs: Optional[List[str]] = None,
+):
+    # input_0 = torch.full(shape, 1).to(dtype)
+    # half = torch.full(shape, 0.5).to(dtype)
+
+    # gold_e_pos_x = torch.exp(input_0)
+    # gold_e_neg_x = torch.exp(-1*input_0)
+    # gold_nr_term = torch.add(gold_e_pos_x, gold_e_neg_x)
+    # gold_ret_val = torch.multiply(gold_nr_term, 0.5)
+
+    neg_x = builder.neg(in0)
+    
+    e_neg_x = builder.exp(neg_x)
+    e_pos_x = builder.exp(in0)
+    
+    nr_term = builder.add(e_pos_x, e_neg_x)
+    ret_val = builder.multiply(nr_term, in1)
+
+    # builder.set_goldens({in0: input_0, in1: half}, {ret_val: gold_ret_val})
+
+    return ret_val
+
+
+# @pytest.mark.parametrize("shape", [(128, 128)])
+# @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+# @pytest.mark.parametrize("target", ["ttmetal"])
+# def test_eltwise_fuse_cosh(shape: Shape, dtype: torch.dtype, target: str, request):
+#     def eltwise_fuse_cosh_wrapper(
+#         in0: Operand,
+#         in1: Operand,
+#         builder: TTIRBuilder,
+#         unit_attrs: Optional[List[str]] = None,
+#     ):
+#         return eltwise_fuse_cosh(in0, in1, builder, shape, dtype, unit_attrs)
+
+#     options = []
+#     compile_ttir_to_flatbuffer(
+#         eltwise_fuse_cosh_wrapper,
+#         [shape]*2,
+#         [dtype]*2,
+#         target=target,
+#         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+#         test_base=request.node.name,
+#         module_dump=True,
+#         output_root=request.config.getoption("--path"),
+#         system_desc_path=request.config.getoption("--sys-desc"),
+#     )
+
+
+def eltwise_unary_chain_multi_tile(
+    in0: Operand,
+    builder: TTIRBuilder
+):
+    res_0 = builder.abs(in0)
+    res_1 = builder.sin(res_0)
+    res_2 = builder.neg(res_1) 
+    res_3 = builder.exp(res_2)
+    
+    return res_3
+
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_unary_chain_multi_tile(shape: Shape, dtype: torch.dtype, target: str, request):
+    options = ["override-device-shape=1,1"]
+
+    compile_ttir_to_flatbuffer(
+        eltwise_unary_chain_multi_tile,
+        [shape],
+        [dtype],
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        print_ir=True,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
