@@ -132,10 +132,9 @@ protected:
   // Create a ToLayout op for a value using the provided layout info and grid.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled,
-                              mlir::ConversionPatternRewriter &rewriter,
-                              bool translateTTNNLayouts) const {
+                              mlir::ConversionPatternRewriter &rewriter) const {
     if (isTTNNTensor(value.getType())) {
-      assert(translateTTNNLayouts && "Unexpected TTNN tensor as op operand");
+      assert(ttnnMode && "Unexpected TTNN tensor as op operand");
       return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
           value.getLoc(), getMetalTensorFromTTNNTensor(rewriter, value), value);
     }
@@ -182,27 +181,26 @@ protected:
   // as well.
   std::array<mlir::SmallVector<Value>, 2> toLayoutOperandsAndResults(
       mlir::ConversionPatternRewriter &rewriter,
-      std::array<mlir::SmallVector<Value>, 2> operandsAndResults, bool tiled,
-      bool translateTTNNLayouts) const {
+      std::array<mlir::SmallVector<Value>, 2> operandsAndResults,
+      bool tiled) const {
     std::array<mlir::SmallVector<Value>, 2> result;
 
     for (Value operand : operandsAndResults[0]) {
-      result[0].push_back(createOptimalLayoutOp(
-          operand, memorySpaces[0], tiled, rewriter, translateTTNNLayouts));
+      result[0].push_back(
+          createOptimalLayoutOp(operand, memorySpaces[0], tiled, rewriter));
     }
     for (Value operand : operandsAndResults[1]) {
-      result[1].push_back(createOptimalLayoutOp(
-          operand, memorySpaces[1], tiled, rewriter, translateTTNNLayouts));
+      result[1].push_back(
+          createOptimalLayoutOp(operand, memorySpaces[1], tiled, rewriter));
     }
 
     return result;
   }
 
-  static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
-                                   Value fromValue, Type toResultType,
-                                   bool translateTTNNLayouts) {
+  Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
+                            Value fromValue, Type toResultType) const {
     if (isTTNNTensor(toResultType)) {
-      assert(translateTTNNLayouts && "Unexpected TTNN tensor as op result");
+      assert(ttnnMode && "Unexpected TTNN tensor as op result");
       return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
           fromValue.getLoc(), toResultType, fromValue);
     }
@@ -345,7 +343,7 @@ private:
         splitDpsSignature(adaptor, op.getDpsInits().size());
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
-                                   /*tiled*/ true, ttnnMode);
+                                   /*tiled*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -422,9 +420,8 @@ private:
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
 
-    rewriter.replaceOp(op,
-                       unLayoutResult(rewriter, generic->getResult(0),
-                                      op->getResult(0).getType(), ttnnMode));
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
     return llvm::success();
   }
 
@@ -483,7 +480,7 @@ private:
             .getElementType()));
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {newInputs, origOutputs},
-                                   /*tiled*/ true, ttnnMode);
+                                   /*tiled*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -558,9 +555,8 @@ private:
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
 
-    rewriter.replaceOp(op,
-                       unLayoutResult(rewriter, generic->getResult(0),
-                                      op->getResult(0).getType(), ttnnMode));
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
     return llvm::success();
   }
 
@@ -718,7 +714,7 @@ private:
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
     auto [inputs, outputs] = toLayoutOperandsAndResults(
-        rewriter, {origInputs, origOutputs}, /*tiled*/ true, ttnnMode);
+        rewriter, {origInputs, origOutputs}, /*tiled*/ true);
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -797,9 +793,8 @@ private:
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
 
-    rewriter.replaceOp(op,
-                       unLayoutResult(rewriter, generic->getResult(0),
-                                      op->getResult(0).getType(), ttnnMode));
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
     return llvm::success();
   }
 
@@ -891,7 +886,7 @@ public:
 
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
-                                   /*tiled*/ true, ttnnMode);
+                                   /*tiled*/ true);
 
     auto inputTensorType =
         mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
@@ -949,9 +944,8 @@ public:
           builder.create<ttir::YieldOp>(bodyLoc, linalgGeneric->getResults());
         });
 
-    rewriter.replaceOp(op,
-                       unLayoutResult(rewriter, generic->getResult(0),
-                                      op->getResult(0).getType(), ttnnMode));
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
     return success();
   }
 
