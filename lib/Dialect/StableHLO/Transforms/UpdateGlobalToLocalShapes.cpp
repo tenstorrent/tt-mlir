@@ -16,6 +16,119 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_UPDATEGLOBALTOLOCALSHAPESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
+// Helper function to determine if a ScatterOp represents a safe cache update
+// that doesn't require the full scatter operation error handling.
+// This requires the scatter to have inputs that are either unsharded,
+//  or jointly sharded along the same axis, which must differ from the
+//  scatter axis
+// i.e. both insertedWindowDims and scatterDimsToOperandDims must be orthogonal
+// to the update/input sharding dims
+static bool isSafeCacheUpdate(mlir::stablehlo::ScatterOp scatterOp,
+                              mlir::sdy::MeshOp &globalMeshOp) {
+  mlir::stablehlo::ScatterDimensionNumbersAttr scatterDimensionNumbers =
+      scatterOp.getScatterDimensionNumbers();
+  auto updateWindowDims = scatterDimensionNumbers.getUpdateWindowDims();
+  auto insertedWindowDims = scatterDimensionNumbers.getInsertedWindowDims();
+  auto scatterDimsToOperandDims =
+      scatterDimensionNumbers.getScatterDimsToOperandDims();
+
+  // Get sharding info for inputs
+  llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> inputDimShardings =
+      shardy_utils::getOperandShardingAttr(
+          scatterOp.getOperation()->getOpOperand(0), globalMeshOp)
+          .getDimShardings();
+
+  // Get sharding info for updates (assuming first update operand)
+  llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> updateDimShardings =
+      shardy_utils::getOperandShardingAttr(
+          scatterOp.getOperation()->getOpOperand(2), globalMeshOp)
+          .getDimShardings();
+
+  // Early exit conditions - return false if we can't analyze safely
+  if (inputDimShardings.empty() || updateDimShardings.empty()) {
+    return false;
+  }
+
+  // Debug output for analysis
+  llvm::errs() << "ScatterOp debug info:\n";
+  llvm::errs() << "  UpdateWindowDims: ";
+  llvm::interleaveComma(updateWindowDims, llvm::errs());
+  llvm::errs() << "\n";
+  llvm::errs() << "  InsertedWindowDims: ";
+  llvm::interleaveComma(insertedWindowDims, llvm::errs());
+  llvm::errs() << "\n";
+  llvm::errs() << "  ScatterDimsToOperandDims: ";
+  llvm::interleaveComma(scatterDimsToOperandDims, llvm::errs());
+  llvm::errs() << "\n";
+
+  llvm::errs() << "  Input sharding dims: ";
+  int ctr = 0;
+  for (mlir::sdy::DimensionShardingAttr sharding : inputDimShardings) {
+    ctr++;
+    llvm::errs() << "inputDimShardings #" << ctr << "\n";
+    llvm::ArrayRef<mlir::sdy::AxisRefAttr> sharding_axes = sharding.getAxes();
+    for (mlir::sdy::AxisRefAttr axisref : sharding_axes) {
+      llvm::errs() << axisref.toString() << ",";
+    }
+    llvm::errs() << "\n";
+  }
+
+  auto scatterInputs = scatterOp.getInputs();
+  auto scatterUpdates = scatterOp.getUpdates();
+
+  // shlo scatter accepts a variadic number of inputs / updates tensors, we
+  // expect only 1
+  if (scatterInputs.size() != 1 || scatterUpdates.size() != 1) {
+    return false;
+  }
+
+  mlir::RankedTensorType scatterInput =
+      mlir::dyn_cast<mlir::RankedTensorType>(scatterInputs.front().getType());
+  auto scatterUpdate =
+      mlir::dyn_cast<mlir::RankedTensorType>(scatterUpdates.front().getType());
+
+  // expect the inputs and updates to have the same size
+  if (scatterInput.getShape().size() != scatterUpdate.getShape().size()) {
+    return false;
+  }
+
+  // insertedWindowDims / scatterDimsToOperandDims must be a single dim and
+  // equal for a cache update
+  if (insertedWindowDims.size() != 1 || scatterDimsToOperandDims.size() != 1 ||
+      (insertedWindowDims.front() != scatterDimsToOperandDims.front())) {
+    return false;
+  }
+
+  auto scatterAxis = insertedWindowDims.front();
+  llvm::errs() << "Scatter axis is " << scatterAxis << "\n";
+
+  // figure out sharding axis
+
+  // input and updates must be sharded equivalently
+  if (!inputDimShardings.equals(updateDimShardings)) {
+    return false;
+  }
+
+  llvm::SmallVector<uint8_t> shardingAxes = {};
+
+  for (auto [dimIndex, sharding] : llvm::enumerate(inputDimShardings)) {
+    if (!sharding.getAxes().empty()) {
+      shardingAxes.push_back(dimIndex);
+    }
+  }
+
+  // We expect the sharding axes and scatter axes to be disjoint
+  if (llvm::is_contained(shardingAxes, scatterAxis)) {
+    llvm::errs() << "Scatter axis " << scatterAxis
+                 << " conflicts with sharding axes - unsafe\n";
+    return false; // Not safe - scatter axis is sharded
+  }
+
+  llvm::errs() << "Scatter axis " << scatterAxis
+               << " is orthogonal to sharding axes - safe cache update!\n";
+  return true; // Safe cache update detected
+}
+
 // This function creates a new operation state with updated shapes and
 // attributes based on the provided operation, global mesh, new types, and
 // tensor shardings. It handles special cases for certain operations like
@@ -200,6 +313,12 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             return mlir::failure();
           })
           .Case<mlir::stablehlo::ScatterOp>([&](auto scatterOp) {
+            // Check if this is a safe cache update that can be handled
+            if (isSafeCacheUpdate(scatterOp, globalMeshOp)) {
+              return mlir::success();
+            }
+
+            // If not a safe cache update, emit the error as before
             scatterOp->emitError(
                 "Scatter operation is not supported in stablehlo-pipeline for "
                 "meshes not 1x1: "
