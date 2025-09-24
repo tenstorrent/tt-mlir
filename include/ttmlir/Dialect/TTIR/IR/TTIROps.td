@@ -5569,18 +5569,18 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
         The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
 
         Args:
-            input_tensor_q (AnyRankedTensor): the input tensor [1 x b x nh x dh]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
-            input_tensor_k (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
-            input_tensor_v (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
-            is_causal (bool, optional): whether the attention is is_causal. Defaults to `true`.
-            attention_mask (AnyRankedTensor, optional): the attention mask [b x 1 x s x s].
+            query (AnyRankedTensor): the input tensor [1 x b x nh x dh]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
+            key (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
+            value (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
+            is_causal (bool, optional): whether the attention is is causal. Defaults to `true`.
+            attention_mask (AnyRankedTensor, optional): the attention mask [b x 1 x nh x s].
             cur_pos_tensor (AnyRankedTensor): [b] tensor of integers of length b.
             attention_sink (AnyRankedTensor, optional): the attention sink [nh, 32] (must be a single tile wide).
+            output (AnyRankedTensor): the output DPS operand [1 x b x nh x dh].
             scale (float, optional): Defaults to `None`.
-            memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
 
         Returns:
-            AnyRankedTensor: the output tensor [1 x b x pnh x dh].
+            AnyRankedTensor: the output tensor [1 x b x nh x dh].
     }];
 
     let arguments = (ins AnyRankedTensor:$query,

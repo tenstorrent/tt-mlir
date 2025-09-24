@@ -3704,8 +3704,8 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
       return emitOpError("Attention mask num heads must match query num heads");
     }
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
-      return emitOpError(
-          "Attention mask sequence length must key/value sequence length");
+      return emitOpError("Attention mask sequence length must match key/value "
+                         "sequence length");
     }
   } else {
     if (!getIsCausal()) {

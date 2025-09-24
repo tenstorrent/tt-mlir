@@ -25,17 +25,18 @@ static void runScaledDotProductAttentionDecodeOp(
       tensorPool.getTTNNTensorAndValidate(op->cur_pos_tensor());
   bool isCausal = op->is_causal();
 
-  const std::optional<::ttnn::Tensor> &attentionMask =
-      op->attention_mask()
-          ? std::make_optional(
-                tensorPool.getTTNNTensorAndValidate(op->attention_mask()))
-          : std::nullopt;
+  std::optional<::ttnn::Tensor> attentionMask = std::nullopt;
+  if (op->attention_mask()) {
+    attentionMask.emplace(
+        tensorPool.getTTNNTensorAndValidate(op->attention_mask()));
+  }
 
-  const std::optional<::ttnn::Tensor> &attentionSink =
-      op->attention_sink()
-          ? std::make_optional(
-                tensorPool.getTTNNTensorAndValidate(op->attention_sink()))
-          : std::nullopt;
+  std::optional<::ttnn::Tensor> attentionSink = std::nullopt;
+  if (op->attention_sink()) {
+    attentionSink.emplace(
+        tensorPool.getTTNNTensorAndValidate(op->attention_sink()));
+  }
+
   std::optional<float> scale = op->scale();
 
   // The current position information is required for this op. It can either be

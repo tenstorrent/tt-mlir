@@ -3061,22 +3061,23 @@ public:
             srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
     if (!frontendAttributes) {
       return rewriter.notifyMatchFailure(
-          srcOp, "FillCache op must have mhlo.frontend_attributes attribute.");
+          srcOp, "ScaledDotProductAttentionDecode op must have "
+                 "mhlo.frontend_attributes attribute.");
     }
 
-    auto isCausalSringAttr =
+    auto isCausalStringAttr =
         frontendAttributes.getAs<mlir::StringAttr>("is_causal");
     bool isCausal = true;
-    if (isCausalSringAttr) {
+    if (isCausalStringAttr) {
 
-      if (isCausalSringAttr.getValue().lower() == "true") {
+      if (isCausalStringAttr.getValue().lower() == "true") {
         isCausal = true;
-      } else if (isCausalSringAttr.getValue().lower() == "false") {
+      } else if (isCausalStringAttr.getValue().lower() == "false") {
         isCausal = false;
       } else {
         return rewriter.notifyMatchFailure(
             srcOp, "is_causal attribute must be true or false. Received \"" +
-                       isCausalSringAttr.getValue() + "\".");
+                       isCausalStringAttr.getValue() + "\".");
       }
     }
 
@@ -3140,7 +3141,6 @@ public:
     Value key = adaptor.getOperands()[1];
     Value value = adaptor.getOperands()[2];
     Value curPosTensor = adaptor.getOperands()[3];
-    SmallVector<Value> operands = {query, key, value};
 
     RankedTensorType outputType = cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
@@ -3171,6 +3171,14 @@ public:
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, isCausalAttr, nullptr, curPosTensor,
           adaptor.getOperands()[4], outputTensor, scaleAttr);
+    } else if (!hasAttentionMask && !hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, nullptr, curPosTensor, nullptr,
+          outputTensor, scaleAttr);
     } else {
       if (hasAttentionMask || hasAttentionSink) {
         llvm_unreachable("All combinations of attention mask "

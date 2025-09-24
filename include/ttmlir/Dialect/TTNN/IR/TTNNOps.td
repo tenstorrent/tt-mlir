@@ -2489,7 +2489,7 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
             input_tensor_q (AnyRankedTensor): the input tensor [1 x b x nh x dh]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
             input_tensor_k (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
             input_tensor_v (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
-            is_causal (bool, optional): whether the attention is is_causal. Defaults to `true`.
+            is_causal (bool, optional): whether the attention is is causal. Defaults to `true`.
             attention_mask (AnyRankedTensor, optional): the attention mask [b x 1 x s x s].
             cur_pos_tensor (AnyRankedTensor): [b] tensor of integers of length b.
             attention_sink (AnyRankedTensor, optional): the attention sink [nh, 32] (must be a single tile wide).
