@@ -3585,6 +3585,70 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult NLPCreateQKVHeadsDecodeOp::verify() {
+  ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  ArrayRef<int64_t> queryShape = getQuery().getType().getShape();
+  ArrayRef<int64_t> keyShape = getKey().getType().getShape();
+  ArrayRef<int64_t> valueShape = getValue().getType().getShape();
+
+  auto shapePredicate = [](ArrayRef<int64_t> shape) {
+    return shape.size() == 4;
+  };
+
+  if (!shapePredicate(inputShape)) {
+    return emitOpError() << "input tensor must be a 4D tensor";
+  }
+
+  if (!shapePredicate(queryShape)) {
+    return emitOpError() << "query tensor must be a 4D tensor";
+  }
+
+  if (!shapePredicate(keyShape)) {
+    return emitOpError() << "key tensor must be a 4D tensor";
+  }
+
+  if (!shapePredicate(valueShape)) {
+    return emitOpError() << "value tensor must be a 4D tensor";
+  }
+
+  constexpr uint32_t INPUT_SEQ_DIM = 1;
+  constexpr uint32_t INPUT_BATCH_DIM = 2;
+  constexpr uint32_t INPUT_HIDDEN_DIM = 3;
+
+  if (inputShape[0] != 1) {
+    return emitOpError() << "input tensor dimension 0 must be 1, got "
+                         << inputShape[0];
+  }
+
+  if (inputShape[INPUT_SEQ_DIM] != 1) {
+    return emitOpError() << "input tensor dimension 1 must be 1, got "
+                         << inputShape[1];
+  }
+
+  uint32_t numHeads = getNumHeads();
+  uint32_t numKVHeads = getNumKvHeads() ? *getNumKvHeads() : numHeads;
+  int64_t batchSize = inputShape[INPUT_BATCH_DIM];
+  int64_t inputHiddenSize = inputShape[INPUT_HIDDEN_DIM];
+
+  int64_t outputHeadDim = inputHiddenSize / (numHeads + 2 * numKVHeads);
+
+  llvm::SmallVector<int64_t> expectedQueryShape = {1, batchSize, numHeads,
+                                                   outputHeadDim};
+  if (!llvm::equal(queryShape, expectedQueryShape)) {
+    return emitOpError() << "expected query shape ("
+                         << ttmlir::utils::join(expectedQueryShape, ", ")
+                         << "), got (" << ttmlir::utils::join(queryShape, ", ")
+                         << ")";
+  }
+
+  llvm::SmallVector<int64_t> expectedKVShape = {1, batchSize, numKVHeads,
+                                                outputHeadDim};
+  if (!llvm::equal(keyShape, expectedKVShape)) {
+    return emitOpError() << "expected key shape ("
+                         << ttmlir::utils::join(expectedKVShape, ", ") << "), "
+                         << "got (" << ttmlir::utils::join(keyShape, ", ")
+                         << ")";
+  }
+
   return mlir::success();
 }
 
