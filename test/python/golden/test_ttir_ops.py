@@ -1466,7 +1466,15 @@ def test_callable_initialization_eye(
     def test_with_eye_init(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        builder.set_goldens({in0: torch.eye})
+        def eye_init(s):
+            if len(s) == 2 and s[0] == s[1]:
+                return torch.eye(s[0])
+            elif len(s) == 2:
+                return torch.eye(s[0], s[1])
+            else:
+                raise ValueError(f"torch.eye only supports 2D shapes, got {s}")
+
+        builder.set_goldens({in0: eye_init})
         eye_result = builder.abs(in0, unit_attrs=unit_attrs)
         return eye_result
 
