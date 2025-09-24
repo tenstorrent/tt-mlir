@@ -216,10 +216,10 @@ public:
   // loads and stores to copy into hoisted loop nests.
 
   // Maps each TTIRGenericRegionComputeOpTrait operation result to a dest
-  // register offset and its containing loop induction variables.
+  // register offset and its containing loop nest.
   struct DstRegisterInfo {
     int64_t dstIndex;
-    SmallVector<Value> loopInductionVars;
+    Operation *outermostLoop;
   };
   using DstRegisterAllocation = DenseMap<Operation *, DstRegisterInfo>;
 
@@ -303,18 +303,8 @@ public:
                   ? dstRegisterAllocationState.getCurrDstIndex()
                   : dstRegisterAllocationState.allocate();
 
-          // Collect induction variables from containing loops
-          SmallVector<Value> loopInductionVars;
-          for (Operation *ancestor = op->getParentOp(); ancestor != nullptr;
-               ancestor = ancestor->getParentOp()) {
-            if (auto affineFor = dyn_cast<affine::AffineForOp>(ancestor)) {
-              loopInductionVars.push_back(affineFor.getBody()->getArgument(0));
-            }
-          }
-          // Reverse to get innermost loops first
-          std::reverse(loopInductionVars.begin(), loopInductionVars.end());
-
-          dstRegisterAllocation[op] = {allocatedIndex, loopInductionVars};
+          dstRegisterAllocation[op] = {allocatedIndex,
+                                       outermostInnerComputeLoop};
         }
       }
     });
@@ -558,6 +548,24 @@ public:
     }
   }
 
+  // Extract loop induction variables from the outermost loop operation.
+  // This collects induction variables from all nested loops in the nest.
+  static SmallVector<Value> extractLoopInductionVars(Operation *outermostLoop) {
+    SmallVector<Value> loopInductionVars;
+    if (!outermostLoop) {
+      return loopInductionVars;
+    }
+
+    // Collect induction variables from all loops in the nest.
+    outermostLoop->walk([&](affine::AffineForOp loop) {
+      loopInductionVars.push_back(loop.getBody()->getArgument(0));
+    });
+
+    // Reverse to get innermost loops first.
+    std::reverse(loopInductionVars.begin(), loopInductionVars.end());
+    return loopInductionVars;
+  }
+
   // Rewrite stores to use dst register based on allocation map.
   static void insertDstRegisterAllocation(
       PatternRewriter &rewriter, Location loc, Value dst,
@@ -571,7 +579,8 @@ public:
     // Iterate directly through dst register allocation entries.
     for (const auto &[op, dstInfo] : dstRegisterAllocation) {
       int64_t dstIndex = dstInfo.dstIndex;
-      const SmallVector<Value> &loopInductionVars = dstInfo.loopInductionVars;
+      SmallVector<Value> loopInductionVars =
+          extractLoopInductionVars(dstInfo.outermostLoop);
 
       // Store the result of this operation to dst register.
       rewriter.setInsertionPoint(op);
