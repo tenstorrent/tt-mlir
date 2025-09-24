@@ -93,7 +93,7 @@ runs:
         cd ${{ inputs.work-dir }}/tools/ttnn-jit
         mkdir -p dist
         pip install build setuptools wheel
-        python -m build --wheel
+        python3 -m build --wheel
         cd $CURRENT_DIR
 
     - name: Build tt-alchemist
