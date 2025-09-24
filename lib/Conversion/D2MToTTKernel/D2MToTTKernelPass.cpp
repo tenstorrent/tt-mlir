@@ -41,7 +41,21 @@ namespace mlir::tt::d2m {
 
 namespace {
 struct ConvertD2MToTTKernel
-    : public d2m::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel> {
+    : public ttir::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel> {
+
+  using Base = ttir::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel>;
+
+  ConvertD2MToTTKernel() = default;
+  ConvertD2MToTTKernel(
+      const mlir::tt::d2m::ConvertD2MToTTKernelOptions &options)
+      : Base(options) {}
+
+  ConvertD2MToTTKernel(const ConvertD2MToTTKernel &rhs) : Base(rhs) {
+    // Workaround: Passes are required to be copy-constructible but autogen'ed
+    // base class copy constructors ignore Pass option fields.
+    this->ttnnMode = rhs.ttnnMode;
+  }
+
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
@@ -69,6 +83,10 @@ struct ConvertD2MToTTKernel
     // Inputs to matmul_block. Will be folded in this pass.
     target.addLegalOp<memref::CastOp>();
     target.addLegalOp<memref::SubViewOp>();
+
+    if (ttnnMode) {
+      target.addLegalDialect<ttnn::TTNNDialect>();
+    }
 
     // Allow loads and stores to integer element types.
     //   i.e. riscv accesses to L1.
@@ -129,7 +147,8 @@ struct ConvertD2MToTTKernel
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateD2MToTTKernelPatterns(&getContext(), patterns, typeConverter,
-                                  associatedDMAWaits, cbProducerConsumer);
+                                  associatedDMAWaits, cbProducerConsumer,
+                                   ttnnMode);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 
@@ -146,6 +165,11 @@ namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass() {
   return std::make_unique<ConvertD2MToTTKernel>();
+}
+
+std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass(
+    const d2m::ConvertD2MToTTKernelOptions &options) {
+  return std::make_unique<ConvertD2MToTTKernel>(options);
 }
 
 } // namespace mlir::tt
