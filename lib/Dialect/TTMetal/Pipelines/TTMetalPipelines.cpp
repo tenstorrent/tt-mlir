@@ -142,9 +142,14 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);
-  ttir::ConvertTTIRToTTMetalOptions ttirToTTMetalOptions;
-  { ttirToTTMetalOptions.mathFidelity = options.mathFidelity; }
-  pm.addPass(tt::createConvertTTIRToTTMetalPass(ttirToTTMetalOptions));
+  if (options.ttnnMode) {
+    // TODO(#5075): set MathFidelity of ttnn generic op.
+    pm.addPass(tt::createConvertD2MToTTNNPass());
+  } else {
+    ttir::ConvertTTIRToTTMetalOptions ttirToTTMetalOptions;
+    { ttirToTTMetalOptions.mathFidelity = options.mathFidelity; }
+    pm.addPass(tt::createConvertTTIRToTTMetalPass(ttirToTTMetalOptions));
+  }
   // Insert DeviceZone scopes around selected ttkernel ops before EmitC
   // lowering.
   if (options.insertProfilerTraces) {
