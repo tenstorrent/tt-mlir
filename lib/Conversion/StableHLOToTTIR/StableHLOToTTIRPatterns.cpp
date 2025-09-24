@@ -2899,8 +2899,9 @@ public:
         srcOp.getLoc(), floatOutputType, rewriter.getI32ArrayAttr(size),
         mlir::TypeAttr::get(floatElementType), fromFloat, toFloat, seed);
 
-    // TODO (pglusac): Change to bit cast once metal supports it or remove if
+    // TODO (pglusac): Change to bit cast once we support it or remove if
     // rand starts supporting uint32.
+    // See https://github.com/tenstorrent/tt-mlir/issues/5078
     auto typecastOp =
         mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::TypecastOp>(
             rewriter, srcOp.getLoc(), outputType, randOp.getResult());
