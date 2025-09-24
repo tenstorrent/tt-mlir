@@ -639,26 +639,4 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
   ];
 }
 
-def TTNNLayoutTranslation : Pass<"ttnn-layout-translation", "::mlir::ModuleOp"> {
-  let summary = "Translate tensor operands of TTIR ops with TTNNLayoutAttr encoding to equivalent tensors with MetalLayoutAttr";
-  let description = [{
-    This pass translates RankedTensorType values with TTTNLayoutAttr encoding to RankedTensorType values with MetalLayoutAttr encoding if:
-    - the tensor is an operand or resultof a TTIR op, and
-    - the tensor layout can be represented and used in the TTMetalPipeline
-
-    The translation is represented by inserting a ttir.ttnn_metal_layout_cast op.
-    This pass can only cast existing tensors to tensors representing the same underlying data. This pass does not generate new temporaries
-    that would require allocation and/or layout conversion the way ToLayoutOp does.
-  }];
-  let dependentDialects = [
-    "::mlir::tt::ttir::TTIRDialect",
-    "::mlir::tt::ttcore::TTCoreDialect",
-    "::mlir::tt::ttnn::TTNNDialect"
-  ];
-  let options = [
-    ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
-          "Override the device shape.">
-  ];
-}
-
 #endif
