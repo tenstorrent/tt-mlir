@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-layout-translation -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttir-generic="ttnn-mode=true" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #l1 = #ttnn.buffer_type<l1>
@@ -25,7 +25,10 @@ func.func @test_lower_block_sharded_l1(
 
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x32xf32, #ttnn_layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %arg1 : tensor<32x32xf32, #ttnn_layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
-  // CHECK: %[[RESULT:.*]] = "ttir.abs"(%[[CAST0]], %[[CAST1]]) : (tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+  // CHECK: %[[RESULT:.*]] = ttir.generic{{.*}}
+  // CHECK: ins(%[[CAST0]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
+  // CHECK: outs(%[[CAST1]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
+  // CHECK-DAG: ttir.tile_abs
   // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[RESULT]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> -> tensor<32x32xf32, #ttnn_layout>
   %1 = "ttir.abs"(%arg0, %out)  : (tensor<32x32xf32, #ttnn_layout>, tensor<32x32xf32, #ttnn_layout>) -> (tensor<32x32xf32, #ttnn_layout>)
   // CHECK: return %[[CAST2]] : tensor<32x32xf32, #ttnn_layout>
@@ -40,7 +43,10 @@ func.func @test_lower_block_sharded_l1_1(
 
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<256x256xf32, #ttnn_layout1> -> tensor<8x8x1x1x!ttcore.tile<32x32, f32>, #layout1>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %arg1 : tensor<256x256xf32, #ttnn_layout1> -> tensor<8x8x1x1x!ttcore.tile<32x32, f32>, #layout1>
-  // CHECK: %[[RESULT:.*]] = "ttir.abs"(%[[CAST0]], %[[CAST1]]) : (tensor<8x8x1x1x!ttcore.tile<32x32, f32>, #layout1>, tensor<8x8x1x1x!ttcore.tile<32x32, f32>, #layout1>) -> tensor<8x8x1x1x!ttcore.tile<32x32, f32>, #layout1>
+  // CHECK: %[[RESULT:.*]] = ttir.generic{{.*}}
+  // CHECK: ins(%[[CAST0]] : tensor<8x8x1x1x!ttcore.tile<32x32, f32>, #layout1>)
+  // CHECK: outs(%[[CAST1]] : tensor<8x8x1x1x!ttcore.tile<32x32, f32>, #layout1>)
+  // CHECK-DAG: ttir.tile_abs
   // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[RESULT]] : tensor<8x8x1x1x!ttcore.tile<32x32, f32>, #layout1> -> tensor<256x256xf32, #ttnn_layout1>
   %1 = "ttir.abs"(%arg0, %out)  : (tensor<256x256xf32, #ttnn_layout1>, tensor<256x256xf32, #ttnn_layout1>) -> (tensor<256x256xf32, #ttnn_layout1>)
   // CHECK: return %[[CAST2]] : tensor<256x256xf32, #ttnn_layout1>
@@ -54,7 +60,10 @@ func.func @test_lower_block_sharded_l1_2(
 
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<256x256xf32, #ttnn_layout2> -> tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout1>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %arg1 : tensor<256x256xf32, #ttnn_layout2> -> tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout1>
-  // CHECK: %[[RESULT:.*]] = "ttir.abs"(%[[CAST0]], %[[CAST1]]) : (tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout1>, tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout1>) -> tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout1>
+  // CHECK: %[[RESULT:.*]] = ttir.generic{{.*}}
+  // CHECK: ins(%[[CAST0]] : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout1>)
+  // CHECK: outs(%[[CAST1]] : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout1>)
+  // CHECK-DAG: ttir.tile_abs
   // CHECK: = ttir.ttnn_metal_layout_cast %[[RESULT]] : tensor<1x1x8x8x!ttcore.tile<32x32, f32>, #layout1> -> tensor<256x256xf32, #ttnn_layout2>
   %1 = "ttir.abs"(%arg0, %out)  : (tensor<256x256xf32, #ttnn_layout2>, tensor<256x256xf32, #ttnn_layout2>) -> (tensor<256x256xf32, #ttnn_layout2>)
   // CHECK: return %[[CAST2]] : tensor<256x256xf32, #ttnn_layout2>
@@ -68,7 +77,10 @@ func.func @test_lower_block_sharded_l1_3(
 
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<256x256xf32, #ttnn_layout3> -> tensor<1x4x8x2x!ttcore.tile<32x32, f32>, #layout1>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %arg1 : tensor<256x256xf32, #ttnn_layout3> -> tensor<1x4x8x2x!ttcore.tile<32x32, f32>, #layout1>
-  // CHECK: %[[RESULT:.*]] = "ttir.abs"(%[[CAST0]], %[[CAST1]]) : (tensor<1x4x8x2x!ttcore.tile<32x32, f32>, #layout1>, tensor<1x4x8x2x!ttcore.tile<32x32, f32>, #layout1>) -> tensor<1x4x8x2x!ttcore.tile<32x32, f32>, #layout1>
+  // CHECK: %[[RESULT:.*]] = ttir.generic{{.*}}
+  // CHECK: ins(%[[CAST0]] : tensor<1x4x8x2x!ttcore.tile<32x32, f32>, #layout1>)
+  // CHECK: outs(%[[CAST1]] : tensor<1x4x8x2x!ttcore.tile<32x32, f32>, #layout1>)
+  // CHECK-DAG: ttir.tile_abs
   // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[RESULT]] : tensor<1x4x8x2x!ttcore.tile<32x32, f32>, #layout1> -> tensor<256x256xf32, #ttnn_layout3>
   %1 = "ttir.abs"(%arg0, %out)  : (tensor<256x256xf32, #ttnn_layout3>, tensor<256x256xf32, #ttnn_layout3>) -> (tensor<256x256xf32, #ttnn_layout3>)
   // CHECK: return %[[CAST2]] : tensor<256x256xf32, #ttnn_layout3>
@@ -82,7 +94,10 @@ func.func @test_lower_block_sharded_l1_4(
 
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<256x256xf32, #ttnn_layout4> -> tensor<4x1x2x8x!ttcore.tile<32x32, f32>, #layout1>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %arg1 : tensor<256x256xf32, #ttnn_layout4> -> tensor<4x1x2x8x!ttcore.tile<32x32, f32>, #layout1>
-  // CHECK: %[[RESULT:.*]] = "ttir.abs"(%[[CAST0]], %[[CAST1]]) : (tensor<4x1x2x8x!ttcore.tile<32x32, f32>, #layout1>, tensor<4x1x2x8x!ttcore.tile<32x32, f32>, #layout1>) -> tensor<4x1x2x8x!ttcore.tile<32x32, f32>, #layout1>
+  // CHECK: %[[RESULT:.*]] = ttir.generic{{.*}}
+  // CHECK: ins(%[[CAST0]] : tensor<4x1x2x8x!ttcore.tile<32x32, f32>, #layout1>)
+  // CHECK: outs(%[[CAST1]] : tensor<4x1x2x8x!ttcore.tile<32x32, f32>, #layout1>)
+  // CHECK-DAG: ttir.tile_abs
   // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[RESULT]] : tensor<4x1x2x8x!ttcore.tile<32x32, f32>, #layout1> -> tensor<256x256xf32, #ttnn_layout4>
   %1 = "ttir.abs"(%arg0, %out)  : (tensor<256x256xf32, #ttnn_layout4>, tensor<256x256xf32, #ttnn_layout4>) -> (tensor<256x256xf32, #ttnn_layout4>)
   // CHECK: return %[[CAST2]] : tensor<256x256xf32, #ttnn_layout4>

@@ -121,6 +121,7 @@ def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
           )}]>,
       ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
           "Override the device shape.">,
+      Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable translation of TTNN Tensors">,
   ];
 }
 

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-ttnn-to-ttir --ttcore-register-device --ttnn-layout-translation -o %t.mlir %s
+// RUN: ttmlir-opt --convert-ttnn-to-ttir --ttcore-register-device --ttir-to-ttir-generic="ttnn-mode=true" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 #dram = #ttnn.buffer_type<dram>
@@ -23,7 +23,10 @@ module {
         // CHECK: %[[cast1:.*]] = ttir.ttnn_metal_layout_cast %[[memConfig1]] : tensor<32x32xf32, #ttnn_layout1> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
         // CHECK: %[[cast2:.*]] = ttir.ttnn_metal_layout_cast %[[memConfig2]] : tensor<32x32xf32, #ttnn_layout1> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
         // CHECK: %[[cast3:.*]] = ttir.ttnn_metal_layout_cast %[[TTNNResult]] : tensor<32x32xf32, #ttnn_layout1> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
-        // CHECK: %[[MetalResult:.*]] = "ttir.add"(%[[cast1]], %[[cast2]], %[[cast3]]) : (tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>) -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>
+        // CHECK: %[[MetalResult:.*]] = ttir.generic{{.*}}
+        // CHECK: ins(%[[cast1]], %[[cast2]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
+        // CHECK: outs(%[[cast3]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
+        // CHECK-DAG: ttir.tile_add
         %3 = "ttnn.add"(%1, %2) {ttnn.hoist_generic_via_d2m, dtype = #ttcore.supportedDataTypes<f32>} : (tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
         // CHECK: %[[cast4:.*]] = ttir.ttnn_metal_layout_cast %[[MetalResult]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> -> tensor<32x32xf32, #ttnn_layout1>
         // CHECK: %[[memConfig3:.*]] = "ttnn.to_memory_config"(%[[cast4]]) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout>
