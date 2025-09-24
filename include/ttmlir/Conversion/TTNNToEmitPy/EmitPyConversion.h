@@ -16,6 +16,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <iomanip>
+#include <type_traits>
 
 // This namespace contains mock definitions of TTNN types for the purpose of
 // conversion.
@@ -871,25 +872,13 @@ private:
   }
 };
 
-template <>
-struct EmitPyTypeConverter<float> {
-  static std::optional<std::string> convert(mlir::Attribute attr) {
-    if (auto floatAttr = mlir::dyn_cast_if_present<mlir::FloatAttr>(attr)) {
-      return convert(floatAttr);
-    }
-    return {};
-  }
-
-  static std::string convert(mlir::FloatAttr attr) {
-    return convert(attr.getValueAsDouble());
-  }
-
-  static std::string convert(float value) { return std::to_string(value); }
-
-  static std::string convert(mlir::APFloat attr) {
-    return convert(static_cast<float>(attr.convertToDouble()));
-  }
-};
+// Python's builtin float is actually double precision, so we always convert
+// floating point types to double. This disables conversion to single precision
+// float on purpose.
+//
+template <typename T>
+struct EmitPyTypeConverter<T,
+                           std::enable_if_t<std::is_same_v<T, float>, void>> {};
 
 template <>
 struct EmitPyTypeConverter<mlir::ElementsAttr> {
@@ -934,7 +923,9 @@ struct EmitPyTypeConverter<mlir::ElementsAttr> {
               // converter
               auto elementType = denseFPAttr.getElementType();
               if (elementType.isF32()) {
-                return EmitPyTypeConverter<std::vector<float>>::convert(
+                // Note: Python's builtin float has 64-bit precision by default
+                // so we convert to double here
+                return EmitPyTypeConverter<std::vector<double>>::convert(
                     denseFPAttr);
               }
               if (elementType.isF64()) {

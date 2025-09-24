@@ -5,6 +5,8 @@
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
@@ -35,9 +37,9 @@ public:
   //
   std::string convertOpName(SourceOp op) const {
     auto name = op.getOperationName();
-    assert(
-        name.starts_with(getPrefixSearchPattern()) &&
-        "DefaultOpConversionPattern only supports ops from the TTNN dialect");
+    assert(name.starts_with(getPrefixSearchPattern()) &&
+           "TTNNToEmitPyBaseOpConversionPattern only supports ops from the "
+           "TTNN dialect");
 
     if (getPrefixSearchPattern() == getPrefixSwapPattern()) {
       return name.str();
@@ -47,46 +49,6 @@ public:
     //
     return name.str().replace(0, getPrefixSearchPattern().size(),
                               getPrefixSwapPattern());
-  }
-};
-} // namespace
-
-// Default op conversion pattern, used to convert most ops.
-//
-namespace {
-template <typename SourceOp>
-class DefaultOpConversionPattern
-    : public TTNNToEmitPyBaseOpConversionPattern<SourceOp> {
-
-public:
-  using TTNNToEmitPyBaseOpConversionPattern<
-      SourceOp>::TTNNToEmitPyBaseOpConversionPattern;
-  using Adaptor = typename SourceOp::Adaptor;
-
-  LogicalResult
-  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    int numReturnTypes = srcOp->getResultTypes().size();
-    assert(numReturnTypes <= 1 &&
-           "DefaultOpConversionPattern does not support multiple return types");
-
-    // If srcOp has a return type, cast it before converting.
-    //
-    if (numReturnTypes == 1) {
-      auto resultTy = cast<emitpy::OpaqueType>(
-          this->getTypeConverter()->convertType(srcOp->getResult(0).getType()));
-      rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-          srcOp, resultTy, this->convertOpName(srcOp), adaptor.getOperands(),
-          nullptr, nullptr);
-    } else {
-      // No return type, only convert the op.
-      //
-      rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-          srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp),
-          adaptor.getOperands(), nullptr, nullptr);
-    }
-
-    return success();
   }
 };
 } // namespace
@@ -1134,6 +1096,73 @@ public:
 };
 } // namespace
 
+// FillCacheOp
+//
+namespace {
+class FillCacheOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::FillCacheOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::FillCacheOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::FillCacheOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::FillCacheOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getCache()), emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getBatchOffset())};
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// UpdateCacheOp
+//
+namespace {
+class UpdateCacheOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::UpdateCacheOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::UpdateCacheOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::UpdateCacheOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // update_index param is a uint32_t in TTNN lib but we model it as a tensor
+    // due to runtime constraints - TODO: Fix this hack
+    //
+    // Runtime code:
+    // const ::ttnn::Tensor indexOnHost = ::ttnn::from_device(updateIndex);
+    // const ::tt::tt_metal::HostBuffer buffer =
+    //     ::tt::tt_metal::host_buffer::get_host_buffer(indexOnHost);
+    // const auto &buf = buffer.view_as<uint32_t>();
+    // uint32_t upIdx = *buf.begin();
+    assert(false && "not implemented");
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::UpdateCacheOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getCache()), emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getUpdateIndex()),
+        emitter.emit(srcOp.getBatchOffset(), "batch_offset")};
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // GetTupleElementOp conversion pattern
 //
 namespace {
@@ -1554,8 +1583,15 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format on
 
   // Constant op
+  //
   patterns.add<ConstantOpConversionPattern>(typeConverter, ctx);
 
+  // KV Cache ops
+  //
+  patterns.add<FillCacheOpConversionPattern>(typeConverter, ctx);
+  patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
+
+  // Consteval ops
   patterns.add<LoadCachedOpConversionPattern>(typeConverter, ctx);
 
   // Module op
