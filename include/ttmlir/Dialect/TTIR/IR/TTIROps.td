@@ -5598,5 +5598,23 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
     let hasVerifier = 1;
 }
 
+def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention"> {
+  let summary = "Scaled dot product attention operation.";
+  let description = [{
+    The scaled_dot_product_attention operation applies scaled dot product attention to the input tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       AnyRankedTensor:$value,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       AnyRankedTensor:$output,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       OptionalAttr<F32Attr>:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 0;
+}
 
 #endif

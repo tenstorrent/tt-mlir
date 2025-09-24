@@ -1198,6 +1198,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ScaledDotProductAttentionDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
+    tensorRef = opContext.type_as_ScaledDotProductAttentionOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
@@ -1538,6 +1542,14 @@ getOpInputRefs(OpContext opContextHandle,
         opContext.type_as_ScaledDotProductAttentionDecodeOp()->cur_pos_tensor(),
         opContext.type_as_ScaledDotProductAttentionDecodeOp()
             ->attention_sink()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
+    tensorRefs = {
+        opContext.type_as_ScaledDotProductAttentionOp()->query(),
+        opContext.type_as_ScaledDotProductAttentionOp()->key(),
+        opContext.type_as_ScaledDotProductAttentionOp()->value(),
+        opContext.type_as_ScaledDotProductAttentionOp()->attention_mask()};
     break;
   }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
