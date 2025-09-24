@@ -13,6 +13,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/IR/AsmState.h"
 #include "llvm/Support/raw_ostream.h"
+#include <optional>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRELEMENTWISEFUSION
@@ -24,6 +25,24 @@ using namespace mlir::tt::ttir;
 
 namespace {
 
+static std::optional<Operation*> getTilizeOpIfPresent(Operation *op) {
+  if(isa<mlir::tt::ttir::TileUntilizeBlockOp>(op)) {
+    return op;
+  }
+
+  for (Region &region : op->getRegions()) {
+    for (Operation &opInner : region.getOps()) {
+      auto tilizeOp = getTilizeOpIfPresent(&opInner);
+
+      if (tilizeOp) {
+        return tilizeOp.value();
+      }
+    }
+  }
+
+  return std::nullopt;
+}
+
 static bool hasMultiUseOperand(GenericOp gOp) {
   // TODO(mbagherbeikTT) create issue for this
   // make sure all producer inputs are also single use
@@ -32,6 +51,16 @@ static bool hasMultiUseOperand(GenericOp gOp) {
   for (OpOperand *input : gOp.getDpsInputOperands()) {
     if (llvm::range_size(input->get().getUsers()) > 1) {
       return true;
+    }
+
+    // Function arguments go through a tilize for each unique use.
+    // Need to check if operands are coming from a tilize generic to
+    // see if its input argument feeds multiple tilize generics.
+    auto tilizeOp = getTilizeOpIfPresent(input->getOwner());
+    if (tilizeOp) {
+      if (llvm::range_size(tilizeOp.value()->getOperand(0).getUsers()) > 1) {
+        return true;
+      }
     }
   }
   return false;
