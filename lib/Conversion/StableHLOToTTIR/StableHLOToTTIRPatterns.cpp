@@ -2893,6 +2893,8 @@ public:
     auto toFloat = rewriter.getF32FloatAttr(
         static_cast<float>(std::numeric_limits<unsigned int>::max()));
 
+    // Seed set to 0 is a special case that is equivalent to no seed.
+    // Using any other value would make every flatbuffer run deterministic.
     auto seed = rewriter.getUI32IntegerAttr(0);
 
     auto randOp = rewriter.create<mlir::tt::ttir::RandOp>(
