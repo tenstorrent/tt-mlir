@@ -1800,6 +1800,16 @@ unpackScaledDotProductAttentionDecodeOptionalArgs(
 llvm::Expected<op_model::OpConstraints>
 ScaledDotProductAttentionDecodeOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  // Clang tidy falsley determines that the underling float data in the
+  // llvm::APFloat is freed more than once as APFloat is passed by value and
+  // then destroyed at the end of this function. This is not the case as the
+  // data is copied in the copy constructor. So we suppress the warning here.
+  //
+  // The compiler explorer session at the below link shows what occurs when an
+  // optional value is set and passed by value in this manner
+  // https://godbolt.org/z/sa9ojqqov
+  //
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
   assert(inputs.size() >= 4 && inputs.size() <= 6 &&
          "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
          "5, or 6 "
@@ -1828,10 +1838,14 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
       optionalArgs.attentionMaskLayout, optionalArgs.attentionSinkShape,
       optionalArgs.attentionSinkLayout, getIsCausal(), scale,
       opConfig.outputLayout);
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
 llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  // See the comment in caledDotProductAttentionDecodeOp::getOpConstraints for
+  // an explanation of this lint suppression.
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
   assert(inputs.size() >= 4 && inputs.size() <= 6 &&
          "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
          "5, or 6 "
@@ -1858,6 +1872,7 @@ llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
       optionalArgs.attentionMaskLayout, optionalArgs.attentionSinkShape,
       optionalArgs.attentionSinkLayout, getIsCausal(), scale,
       opConfig.outputLayout);
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
 //===----------------------------------------------------------------------===//
