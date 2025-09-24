@@ -263,7 +263,7 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
   }];
 }
 
-def TTCore_HostLayoutAttr : TTCore_Attr<"HostLayout", "host_layout", [TTCore_DeviceLayoutInterface, MemRefLayoutAttrInterface]> {
+def TTCore_HostLayoutAttr : TTCore_Attr<"HostLayout", "host_layout", [MemRefLayoutAttrInterface]> {
   let summary = "Host-side memref layout attribute with padding support.";
   let description = [{
     Describes a host-side memref layout with a logical shape where each
