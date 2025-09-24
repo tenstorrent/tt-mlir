@@ -4570,7 +4570,7 @@ struct ScaledDotProductAttentionDecodeOpParam {
   std::optional<detail::TestTensor> attentionMask;
   std::optional<detail::TestTensor> attentionSink;
   bool isCausal;
-  std::optional<llvm::APFloat> scale;
+  bool withScale;
   detail::TestTensor output;
   detail::ExpectedResult expectedResult;
 };
@@ -4581,6 +4581,7 @@ class OpModelScaledDotProductAttentionDecodeParam
           ScaledDotProductAttentionDecodeOpParam> {
 protected:
   void RunTest() {
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     const auto [queryShape, queryTensorLayout, queryBufferType,
                 queryVirtualGrid] = GetParam().query;
     const auto [keyShape, keyTensorLayout, keyBufferType, keyVirtualGrid] =
@@ -4616,7 +4617,6 @@ protected:
     }
 
     const auto isCausal = GetParam().isCausal;
-    const auto scale = GetParam().scale;
 
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = GetParam().output;
@@ -4652,6 +4652,12 @@ protected:
     const TTNNLayoutAttr outputLayout = CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
+    const llvm::APFloat scaleAPFloat(1.0f);
+    std::optional<llvm::APFloat> scale = std::nullopt;
+    if (GetParam().withScale) {
+      scale.emplace(scaleAPFloat);
+    }
+
     auto constraintsExp =
         OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
             CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
@@ -4671,12 +4677,15 @@ protected:
     } else {
       llvm::consumeError(constraintsExp.takeError());
     }
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
   }
 };
 
 TEST_P(OpModelScaledDotProductAttentionDecodeParam,
        ScaledDotProductAttentionDecodeOp) {
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
   RunTest();
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
 const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
@@ -4691,7 +4700,7 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
                            BufferType::DRAM},
         detail::TestTensor{
             {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-        std::nullopt, std::nullopt, true, std::nullopt,
+        std::nullopt, std::nullopt, true, false,
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true, 78848, 0, 78848, 0}},
@@ -4707,8 +4716,7 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
                            BufferType::DRAM},
         detail::TestTensor{
             {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-        std::nullopt, std::nullopt, true,
-        std::optional<llvm::APFloat>(llvm::APFloat(1.0f)),
+        std::nullopt, std::nullopt, true, true,
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true, 78848, 0, 78848, 0}},
@@ -4727,7 +4735,7 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
         std::make_optional(detail::TestTensor{{1, 1, 12, 128},
                                               TensorMemoryLayout::Interleaved,
                                               BufferType::DRAM}),
-        std::nullopt, false, std::nullopt,
+        std::nullopt, false, false,
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true, 118784, 0, 118784, 0}},
@@ -4746,7 +4754,7 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
         std::make_optional(detail::TestTensor{{1, 1, 12, 128},
                                               TensorMemoryLayout::Interleaved,
                                               BufferType::DRAM}),
-        std::nullopt, false, std::optional<llvm::APFloat>(llvm::APFloat(1.0f)),
+        std::nullopt, false, true,
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true, 118784, 0, 118784, 0}},
@@ -4765,7 +4773,7 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
         std::nullopt,
         std::make_optional(detail::TestTensor{
             {12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
-        true, std::nullopt,
+        true, false,
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true, 79872, 0, 79872, 0}},
@@ -4784,7 +4792,7 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
         std::nullopt,
         std::make_optional(detail::TestTensor{
             {12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
-        true, std::optional<llvm::APFloat>(llvm::APFloat(1.0f)),
+        true, true,
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true, 79872, 0, 79872, 0}},
@@ -4805,7 +4813,7 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
                                               BufferType::DRAM}),
         std::make_optional(detail::TestTensor{
             {12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
-        false, std::nullopt,
+        false, false,
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true, 120832, 0, 120832, 0}},
@@ -4826,7 +4834,7 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
                                               BufferType::DRAM}),
         std::make_optional(detail::TestTensor{
             {12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
-        false, std::optional<llvm::APFloat>(llvm::APFloat(1.0f)),
+        false, true,
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true, 120832, 0, 120832, 0}});

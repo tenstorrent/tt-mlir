@@ -2440,12 +2440,14 @@ public:
         mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>
         emitter(srcOp, adaptor, rewriter);
 
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     std::optional<std::string> scale =
         srcOp.getScale()
             ? std::make_optional(
                   ttnn_to_emitc::EmitCTypeConverter<float>::convert(
                       srcOp.getScale().value()))
             : std::nullopt;
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
     // ttnn::transformer::scaled_dot_product_attention_decode requires current
     // position information per batch. This can eiher be passed as a tensor or
