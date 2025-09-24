@@ -126,9 +126,10 @@ struct ModuleAnalysisData {
 namespace {
 class TTIRAllocateStreams final : public OpRewritePattern<ttir::GenericOp> {
 public:
-  TTIRAllocateStreams(MLIRContext *context, unsigned numStreamBuffers)
+  TTIRAllocateStreams(MLIRContext *context, unsigned numStreamBuffers,
+                      bool ttnnMode)
       : OpRewritePattern<ttir::GenericOp>(context),
-        numStreamBuffers(numStreamBuffers) {}
+        numStreamBuffers(numStreamBuffers), ttnnMode(ttnnMode) {}
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
@@ -143,7 +144,7 @@ public:
               .getValue();
 
       if (!needsStream(operand.get(), isOutput, operandIndexingMap,
-                       iteratorTypes)) {
+                       iteratorTypes, ttnnMode)) {
         continue;
       }
 
@@ -155,8 +156,8 @@ public:
   }
 
   static bool needsStream(Value operand, bool isOutput,
-                          AffineMap operandIndexingMap,
-                          ArrayAttr iteratorTypes) {
+                          AffineMap operandIndexingMap, ArrayAttr iteratorTypes,
+                          bool ttnnMode) {
 
     Operation *definingOp = operand.getDefiningOp();
 
@@ -171,6 +172,20 @@ public:
     if (isOutput) {
       return false;
     }
+
+    if (auto genericOp = mlir::dyn_cast_or_null<ttir::GenericOp>(definingOp)) {
+      // lack of a compute thread implies this is in special DMA-only form,
+      // which should not have streams inferred
+      if (not llvm::any_of(genericOp.getThreads(), [](Attribute attr) {
+            return mlir::cast<ttir::ThreadAttr>(attr).getThreadType() ==
+                   ttir::ThreadType::Compute;
+          })) {
+        return false;
+      }
+    }
+
+    // if we get here, a stream is needed
+    return true;
 
     // A core participating in a reduction dim necessarily requires
     // non-local data movement unless it is the only core involved
@@ -224,6 +239,7 @@ public:
   }
 
   unsigned numStreamBuffers;
+  bool ttnnMode;
 };
 } // namespace
 
@@ -259,7 +275,8 @@ class TTIRAllocate final : public impl::TTIRAllocateBase<TTIRAllocate> {
   // Create/allocate streams within a module.
   LogicalResult runAllocateStreams(ModuleOp moduleOp) {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRAllocateStreams>(&getContext(), numStreamBuffers);
+    patterns.add<TTIRAllocateStreams>(&getContext(), numStreamBuffers,
+                                      ttnnMode);
     return mlir::applyPatternsGreedily(getOperation(), std::move(patterns));
   }
 

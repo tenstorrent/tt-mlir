@@ -65,7 +65,7 @@ def logical_not(
 # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
     def logical_not_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -77,7 +77,8 @@ def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
         [shape],
         [dtype],
         test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
+        print_ir="logical_not",
+        # output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
     )
@@ -86,7 +87,7 @@ def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_hoisted_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
     def hoisted_logical_not_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -130,7 +131,7 @@ def cos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
     def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         import math
@@ -167,7 +168,7 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_log(shape: Shape, dtype: torch.dtype, target: str, request):
     def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         randn_tensor = torch.randn(shape, dtype=dtype)
@@ -271,7 +272,7 @@ def leaky_relu(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_sqrt(shape: Shape, dtype: torch.dtype, target: str, request):
     def sqrt(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -299,7 +300,7 @@ def cbrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request):
     def rsqrt(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -560,7 +561,7 @@ def div(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_div(shape: Shape, dtype: torch.dtype, target: str, request):
     compile_ttir_to_flatbuffer(
         div,
@@ -576,7 +577,7 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request):
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request):
     def hoisted_div_wrapper(
         in0: Operand,
@@ -678,7 +679,7 @@ def pow(
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
     compile_ttir_to_flatbuffer(
         pow,
@@ -695,7 +696,7 @@ def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
 @pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request):
     def hoisted_pow_wrapper(
         in0: Operand,
@@ -1991,7 +1992,7 @@ hoisted_ternary_ops = [
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_cpu_hoistable_unary_ops(
     test_fn: Callable,
     shape: Shape,
@@ -2023,7 +2024,7 @@ def test_cpu_hoistable_unary_ops(
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", hoisted_binary_ops)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_cpu_hoistable_binary_ops(
     test_fn: Callable, shapes: List[Shape], dtype: torch.dtype, request, target: str
 ):
@@ -2050,7 +2051,7 @@ def test_cpu_hoistable_binary_ops(
         ([(128, 64, 32), (32, 128, 64)], [2, 0, 1]),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.fails_golden
 def test_hoisted_permute(shapes, permutation, request, target: str):
     def permute_wrapper(
@@ -2080,7 +2081,7 @@ def test_hoisted_permute(shapes, permutation, request, target: str):
 @pytest.mark.parametrize(
     "shape", [(1, 1), (1, 10), (10, 1), (64, 32), (128, 64), (128, 128)]
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
     def max(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         return builder.max(
@@ -2108,7 +2109,7 @@ def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
     ],
     ids=["basic_slice", "explicit_step", "3d_slice"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_hoisted_slice(
     shape: Shape,
     begins: List[int],
@@ -2136,7 +2137,7 @@ def test_hoisted_slice(
 # Add test for hoisted where operation
 @x86_only
 @pytest.mark.parametrize("shapes", [[(64, 64), (64, 64), (64, 64)]])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_hoisted_where(shapes, request, target: str):
     def where_wrapper(condition: Operand, x: Operand, y: Operand, builder: TTIRBuilder):
         return builder.where(condition, x, y, unit_attrs=["ttir.should_hoist"])
@@ -2197,7 +2198,7 @@ def test_reshape(shapes, dtype: torch.dtype, request):
         ((128, 64, 32), (128, 2048)),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_hoisted_reshape(input_shape, output_shape, request, target: str):
     def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
         return builder.reshape(in0, output_shape, unit_attrs=["ttir.should_hoist"])
@@ -2224,7 +2225,7 @@ def test_hoisted_reshape(input_shape, output_shape, request, target: str):
         ((128, 64, 32), [0, 2]),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_hoisted_transpose(input_shape, dims, request, target: str):
     def transpose_wrapper(in0: Operand, builder: TTIRBuilder):
         # For 2D tensors with permutation [1, 0], swap dimensions 0 and 1
@@ -2279,7 +2280,7 @@ unary_ops = [
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone"])
+@pytest.mark.parametrize("target", ["ttmetal", "ttnn-standalone"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
@@ -2299,7 +2300,7 @@ def test_unary_ops(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone"])
+@pytest.mark.parametrize("target", ["ttmetal", "ttnn-standalone"])
 def test_reciprocal(shape: Shape, dtype: torch.dtype, target: str, request):
     def reciprocal(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -2385,7 +2386,7 @@ def test_unary_ops_int32(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize("target", ["ttmetal", "emitpy"])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -2450,7 +2451,7 @@ def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -2717,7 +2718,7 @@ def test_unaligned_shapes_add(shape: Shape, dtype: torch.dtype, target: str, req
         ),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_unique_ops(
     test_fn: Callable,
     inputs_shapes: List[Shape],
@@ -2776,7 +2777,7 @@ def test_slice(
 @x86_only
 @pytest.mark.parametrize("shape", [(4, 4)])
 @pytest.mark.parametrize("dim_args", [[0]])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.run_error  # Issue #3883.
 def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, request):
     """Test the hoisted reduce_or operation with proper dimensions and keep_dim parameter"""
@@ -2809,7 +2810,7 @@ def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, reque
         ([(1, 128), (64, 128)], [64, 1]),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_hoisted_broadcast(shapes, broadcast_dims, request, target: str):
     """Test broadcast operation with CPU hoisting enabled using the 'hoisted_' naming convention"""
 

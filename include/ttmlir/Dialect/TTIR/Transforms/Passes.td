@@ -448,6 +448,10 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
            "num-stream-buffers",
            "unsigned", /*default=*/"2",
            "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
+    Option<"ttnnMode",
+           "ttnn-mode",
+           "bool", /*default=*/"false",
+           "D2M/TTNN integration mode.">,
   ];
 }
 
