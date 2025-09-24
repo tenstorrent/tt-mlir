@@ -216,8 +216,12 @@ public:
   // loads and stores to copy into hoisted loop nests.
 
   // Maps each TTIRGenericRegionComputeOpTrait operation result to a dest
-  // register offset.
-  using DstRegisterAllocation = DenseMap<Operation *, int64_t>;
+  // register offset and its containing loop induction variables.
+  struct DstRegisterInfo {
+    int64_t dstIndex;
+    SmallVector<Value> loopInductionVars;
+  };
+  using DstRegisterAllocation = DenseMap<Operation *, DstRegisterInfo>;
 
   // Struct to hold the results of dst access collection.
   struct DstAccessCollection {
@@ -298,7 +302,19 @@ public:
               op.getDstRegInPlace()
                   ? dstRegisterAllocationState.getCurrDstIndex()
                   : dstRegisterAllocationState.allocate();
-          dstRegisterAllocation[op] = allocatedIndex;
+
+          // Collect induction variables from containing loops
+          SmallVector<Value> loopInductionVars;
+          for (Operation *ancestor = op->getParentOp(); ancestor != nullptr;
+               ancestor = ancestor->getParentOp()) {
+            if (auto affineFor = dyn_cast<affine::AffineForOp>(ancestor)) {
+              loopInductionVars.push_back(affineFor.getBody()->getArgument(0));
+            }
+          }
+          // Reverse to get innermost loops first
+          std::reverse(loopInductionVars.begin(), loopInductionVars.end());
+
+          dstRegisterAllocation[op] = {allocatedIndex, loopInductionVars};
         }
       }
     });
@@ -553,17 +569,24 @@ public:
     const unsigned dstRank = dstType.getRank();
 
     // Iterate directly through dst register allocation entries.
-    for (const auto &[op, dstIndex] : dstRegisterAllocation) {
+    for (const auto &[op, dstInfo] : dstRegisterAllocation) {
+      int64_t dstIndex = dstInfo.dstIndex;
+      const SmallVector<Value> &loopInductionVars = dstInfo.loopInductionVars;
 
       // Store the result of this operation to dst register.
       rewriter.setInsertionPoint(op);
 
       SmallVector<Value> storeIndices;
 
-      // Build store indices: [dstIndex, 0, 0, ...] to store at the specified
-      // register index with zero-padding for remaining dimensions.
+      // Build store indices: [dstIndex, loop_vars..., 0, 0, ...] using loop
+      // induction variables for the dimensions that correspond to loops.
       storeIndices.push_back(
           rewriter.create<arith::ConstantIndexOp>(loc, dstIndex));
+
+      // Use induction variables from the allocation.
+      storeIndices.append(loopInductionVars);
+
+      // Pad with zeros for remaining dimensions.
       while (storeIndices.size() < dstRank) {
         storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
       }
