@@ -352,11 +352,6 @@ jobs:
         cd ${{ steps.strings.outputs.install-output-dir }}/${{ matrix.build.path }}
         ./run
 
-    - name: Download tt-alchemist wheel
-      uses: actions/download-artifact@v4
-      with:
-        name: tt-alchemist-whl-speedy
-
     - name: Builder Tests
       if: matrix.build.type == 'builder'
       shell: bash
@@ -372,7 +367,9 @@ jobs:
           echo $TT_METAL_HOME
           echo $TT_METAL_LIB
           pwd
-          pip install graphviz
+          cd third_party/tt-metal/src/tt-metal
+          ./build_metal.sh --cxx-compiler-path g++-12 --c-compiler-path gcc-12
+          cd -
           export PYTHONPATH="${GITHUB_WORKSPACE}/tools/tt-alchemist/templates/python/local:${PYTHONPATH}"
           find ttir-builder-artifacts -name "*.py" -type f | while read -r py_file; do
             python "$py_file"
