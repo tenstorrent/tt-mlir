@@ -4661,9 +4661,9 @@ protected:
     auto constraintsExp =
         OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
             CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
-            valueShape, valueLayout, curPosTensorShape, curPosTensorLayout,
-            attentionMaskShape, attentionMaskLayout, attentionSinkShape,
-            attentionSinkLayout, isCausal, scale, outputLayout);
+            valueShape, valueLayout, isCausal, attentionMaskShape,
+            attentionMaskLayout, curPosTensorShape, curPosTensorLayout,
+            attentionSinkShape, attentionSinkLayout, scale, outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {

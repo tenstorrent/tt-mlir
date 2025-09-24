@@ -652,24 +652,26 @@ struct OpModel<ScaledDotProductAttentionDecodeOp> {
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
       TTNNLayoutAttr queryLayout, llvm::ArrayRef<int64_t> keyShape,
       TTNNLayoutAttr keyLayout, llvm::ArrayRef<int64_t> valueShape,
-      TTNNLayoutAttr valueLayout, llvm::ArrayRef<int64_t> curPosTensorShape,
-      TTNNLayoutAttr curPosTensorLayout,
+      TTNNLayoutAttr valueLayout, bool isCausal,
       std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
       std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      llvm::ArrayRef<int64_t> curPosTensorShape,
+      TTNNLayoutAttr curPosTensorLayout,
       std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
-      std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
+      std::optional<TTNNLayoutAttr> attentionSinkLayout,
       std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
                llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
                llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
-               llvm::ArrayRef<int64_t> curPosTensorShape,
-               TTNNLayoutAttr curPosTensorLayout,
+               bool isCausal,
                std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
                std::optional<TTNNLayoutAttr> attentionMaskLayout,
+               llvm::ArrayRef<int64_t> curPosTensorShape,
+               TTNNLayoutAttr curPosTensorLayout,
                std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
-               std::optional<TTNNLayoutAttr> attentionSinkLayout, bool isCausal,
+               std::optional<TTNNLayoutAttr> attentionSinkLayout,
                std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
 };
 

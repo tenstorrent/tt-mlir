@@ -1762,32 +1762,65 @@ ConcatenateHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ScaledDotProductAttentionDecodeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-struct ScaledDotProductAttentionDecodeOptionalArgs {
-  std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape = std::nullopt;
+struct ScaledDotProductAttentionDecodeArgs {
+  llvm::SmallVector<int64_t> queryShape;
+  TTNNLayoutAttr queryLayout;
+  llvm::SmallVector<int64_t> keyShape;
+  TTNNLayoutAttr keyLayout;
+  llvm::SmallVector<int64_t> valueShape;
+  TTNNLayoutAttr valueLayout;
+  bool isCausal;
+  llvm::SmallVector<int64_t> curPosTensorShape;
+  TTNNLayoutAttr curPosTensorLayout;
+  std::optional<llvm::SmallVector<int64_t>> attentionMaskShape = std::nullopt;
   std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
-  std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape = std::nullopt;
+  std::optional<llvm::SmallVector<int64_t>> attentionSinkShape = std::nullopt;
   std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
+  std::optional<llvm::APFloat> scale = std::nullopt;
 };
 
-static ScaledDotProductAttentionDecodeOptionalArgs
-unpackScaledDotProductAttentionDecodeOptionalArgs(
+static ScaledDotProductAttentionDecodeArgs
+unpackScaledDotProductAttentionDecodeArgs(
     const std::vector<TTNNLayoutAttr> &inputs,
     ScaledDotProductAttentionDecodeOp op) {
-  ScaledDotProductAttentionDecodeOptionalArgs ret;
+  ScaledDotProductAttentionDecodeArgs ret;
+  ret.queryShape =
+      llvm::SmallVector<int64_t>(op.getQuery().getType().getShape());
+  ret.queryLayout = inputs[0];
+  ret.keyShape = llvm::SmallVector<int64_t>(op.getKey().getType().getShape());
+  ret.keyLayout = inputs[1];
+  ret.valueShape =
+      llvm::SmallVector<int64_t>(op.getValue().getType().getShape());
+  ret.valueLayout = inputs[2];
+  ret.isCausal = op.getIsCausal();
+  ret.scale = op.getScale();
 
   TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
   TypedValue<RankedTensorType> attentionSink = op.getAttentionSink();
 
   if (attentionMask && attentionSink) {
-    ret.attentionMaskShape = attentionMask.getType().getShape();
-    ret.attentionMaskLayout = inputs[4];
-    ret.attentionSinkShape = attentionSink.getType().getShape();
+    ret.attentionMaskShape =
+        llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
+    ret.attentionMaskLayout = inputs[3];
+    ret.curPosTensorShape =
+        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
+    ret.curPosTensorLayout = inputs[4];
+    ret.attentionSinkShape =
+        llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
     ret.attentionSinkLayout = inputs[5];
   } else if (attentionMask) {
-    ret.attentionMaskShape = attentionMask.getType().getShape();
-    ret.attentionMaskLayout = inputs[4];
+    ret.attentionMaskShape =
+        llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
+    ret.attentionMaskLayout = inputs[3];
+    ret.curPosTensorShape =
+        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
+    ret.curPosTensorLayout = inputs[4];
   } else if (attentionSink) {
-    ret.attentionSinkShape = attentionSink.getType().getShape();
+    ret.curPosTensorShape =
+        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
+    ret.curPosTensorLayout = inputs[3];
+    ret.attentionSinkShape =
+        llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
     ret.attentionSinkLayout = inputs[4];
   } else {
     llvm_unreachable("All combinations of attention mask and attention sink "
@@ -1821,22 +1854,18 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
-  const auto queryShape = getQuery().getType().getShape();
-  const auto keyShape = getKey().getType().getShape();
-  const auto valueShape = getValue().getType().getShape();
-  const auto curPosTensorShape = getCurPosTensor().getType().getShape();
-
-  ScaledDotProductAttentionDecodeOptionalArgs optionalArgs =
-      unpackScaledDotProductAttentionDecodeOptionalArgs(inputs, *this);
+  ScaledDotProductAttentionDecodeArgs sdpaArgs =
+      unpackScaledDotProductAttentionDecodeArgs(inputs, *this);
 
   auto scale = getScale();
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints,
-      *this, deviceGrid, queryShape, inputs[0], keyShape, inputs[1], valueShape,
-      inputs[2], curPosTensorShape, inputs[3], optionalArgs.attentionMaskShape,
-      optionalArgs.attentionMaskLayout, optionalArgs.attentionSinkShape,
-      optionalArgs.attentionSinkLayout, getIsCausal(), scale,
-      opConfig.outputLayout);
+      *this, deviceGrid, sdpaArgs.queryShape, sdpaArgs.queryLayout,
+      sdpaArgs.keyShape, sdpaArgs.keyLayout, sdpaArgs.valueShape,
+      sdpaArgs.valueLayout, sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
+      sdpaArgs.attentionMaskLayout, sdpaArgs.curPosTensorShape,
+      sdpaArgs.curPosTensorLayout, sdpaArgs.attentionSinkShape,
+      sdpaArgs.attentionSinkLayout, sdpaArgs.scale, opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
@@ -1855,22 +1884,18 @@ llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
     return check.takeError();
   }
 
-  const auto queryShape = getQuery().getType().getShape();
-  const auto keyShape = getKey().getType().getShape();
-  const auto valueShape = getValue().getType().getShape();
-  const auto curPosTensorShape = getCurPosTensor().getType().getShape();
-
-  ScaledDotProductAttentionDecodeOptionalArgs optionalArgs =
-      unpackScaledDotProductAttentionDecodeOptionalArgs(inputs, *this);
+  ScaledDotProductAttentionDecodeArgs sdpaArgs =
+      unpackScaledDotProductAttentionDecodeArgs(inputs, *this);
 
   auto scale = getScale();
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime, *this,
-      queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
-      curPosTensorShape, inputs[3], optionalArgs.attentionMaskShape,
-      optionalArgs.attentionMaskLayout, optionalArgs.attentionSinkShape,
-      optionalArgs.attentionSinkLayout, getIsCausal(), scale,
-      opConfig.outputLayout);
+      sdpaArgs.queryShape, sdpaArgs.queryLayout, sdpaArgs.keyShape,
+      sdpaArgs.keyLayout, sdpaArgs.valueShape, sdpaArgs.valueLayout,
+      sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
+      sdpaArgs.attentionMaskLayout, sdpaArgs.curPosTensorShape,
+      sdpaArgs.curPosTensorLayout, sdpaArgs.attentionSinkShape,
+      sdpaArgs.attentionSinkLayout, sdpaArgs.scale, opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 

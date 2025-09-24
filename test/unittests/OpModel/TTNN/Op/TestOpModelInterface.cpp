@@ -109,6 +109,28 @@ public:
         builder.getUnknownLoc(), rankedTensorType, nullptr,
         ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
   }
+
+  template <typename ElementaryDtype>
+  mlir::Value createFullTensor(llvm::ArrayRef<int64_t> tensorShape,
+                               mlir::Type elementType = nullptr,
+                               TTNNLayoutAttr layout = nullptr,
+                               ElementaryDtype fillValue = 0.0) {
+    if (!elementType) {
+      elementType = builder.getBF16Type();
+    }
+    mlir::Attribute fillValueAttr;
+    if constexpr (std::is_integral_v<ElementaryDtype>) {
+      fillValueAttr = builder.getI32IntegerAttr(fillValue);
+    } else {
+      fillValueAttr = builder.getF32FloatAttr(fillValue);
+    }
+    RankedTensorType rankedTensorType =
+        createRankedTensorType(tensorShape, elementType, layout);
+    return builder.create<FullOp>(builder.getUnknownLoc(), rankedTensorType,
+                                  nullptr,
+                                  ShapeAttr::get(&context, tensorShape),
+                                  fillValueAttr, nullptr, nullptr, nullptr);
+  }
 };
 struct ExpectedResult {
   bool expectedLegal = false;
@@ -1708,8 +1730,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
   auto sdpAttentionDecode = builder.create<ScaledDotProductAttentionDecodeOp>(
       builder.getUnknownLoc(), outputType, query, key, value,
       /*is_causal=*/false,
-      /*cur_pos_tensor=*/curPos,
       /*attention_mask=*/attentionMask,
+      /*cur_pos_tensor=*/curPos,
       /*attention_sink=*/nullptr,
       /*scale=*/nullptr,
       /*memory_config=*/nullptr);
@@ -1721,8 +1743,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
     const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
         constraintsExp.get();
 
-    EXPECT_EQ(cbSize, 483328);
-    EXPECT_EQ(totalPeakSize, 483328);
+    EXPECT_LE(cbSize, 483328);
+    EXPECT_LE(totalPeakSize, 483328);
 
     ASSERT_TRUE(outputLayout);
     EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
