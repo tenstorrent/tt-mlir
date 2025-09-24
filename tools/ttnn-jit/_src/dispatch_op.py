@@ -5,7 +5,7 @@
 import ttnn
 import torch
 
-from _ttmlir_runtime import runtime, binary, utils
+from ttnn_jit.runtime._ttmlir_runtime import runtime, binary, utils
 
 
 def _run_binary(binary_path, input_tensors):

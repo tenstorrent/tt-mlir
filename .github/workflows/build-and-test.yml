@@ -285,6 +285,18 @@ jobs:
           pip install pytest
         fi
 
+    - name: Download ttnn-jit whl
+      uses: actions/download-artifact@v4
+      with:
+        name: ttnn-jit-whl-${{ matrix.build.image }}
+
+    - name: Install ttnn-jit whl
+      shell: bash
+      run: |
+        source env/activate
+        pip install ttnn-jit-*.whl --force-reinstall
+        python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
+
     - name: Download Build Artifacts
       uses: ./.github/actions/download-artifact
       with:

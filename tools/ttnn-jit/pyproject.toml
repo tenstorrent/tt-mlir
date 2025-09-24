@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "cmake", "wheel", "pip", "ninja"]
+requires = ["setuptools>=61.0", "wheel", "pip"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 # Dynamic fields populated by setup.py
-dynamic = ["dependencies", "version", "readme"]
+dynamic = ["dependencies", "version", "readme", "scripts"]
 
 [project.urls]
 Homepage = "https://docs.tenstorrent.com/tt-mlir/"
