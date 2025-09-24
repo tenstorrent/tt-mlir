@@ -14,6 +14,14 @@
 
 namespace mlir::tt::testing {
 
+// "TT_TESTING_DEBUG" is meant to be defined in build variants compiled
+// without optimization. This is useful for scaling test parameters such
+// that randomized sampling/coverage can be kept high in release builds
+// while keeping unit testing snappy in dev workcycles.
+#ifndef __OPTIMIZE__
+#define TT_TESTING_DEBUG
+#endif
+
 // Return a 64-bit random seed that can be used by randomized tests. This value
 // is a sigleton in the current process and it generated according to the
 // following rules:

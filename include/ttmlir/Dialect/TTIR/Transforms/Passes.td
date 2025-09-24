@@ -442,12 +442,15 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
     ```
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
-
-  list<Option> options = [
+  let options = [
     Option<"numStreamBuffers",
            "num-stream-buffers",
            "unsigned", /*default=*/"2",
            "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
+    Option<"allowOutputSpilling",
+           "allow-output-spilling",
+          "bool", /*default=*/"false",
+          "Make generic outputs eligible for spilling to DRAM.">,
   ];
 }
 

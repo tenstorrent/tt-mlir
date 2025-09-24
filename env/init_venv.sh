@@ -28,4 +28,5 @@ fi
 python -m pip install --upgrade pip
 # Requirements for third party projects are installed during their build in `CMakeLists.txt`
 pip install -r $ENV_DIR/build-requirements.txt
+pip install -r $ENV_DIR/ttnn-requirements.txt
 pip install -r $ENV_DIR/../test/python/requirements.txt

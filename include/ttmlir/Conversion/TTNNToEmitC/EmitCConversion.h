@@ -1559,6 +1559,9 @@ public:
   mlir::Attribute
   emit(::mlir::TypedValue<::mlir::tt::ttnn::DeviceType> device) {
     if (!device) {
+      if constexpr (std::is_pointer_v<TargetTy>) {
+        return rewriter.getType<emitc::OpaqueAttr>("nullptr");
+      }
       return emit(std::nullopt);
     }
 

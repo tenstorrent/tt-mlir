@@ -661,9 +661,9 @@ def pow(
     randn_exponent_tensor = builder._get_golden_tensor(in1)
 
     randn_base_tensor = randn_base_tensor.apply_shardwise(
-        lambda shard: shard.abs()
-        if torch.is_floating_point(randn_exponent_tensor)
-        else shard
+        lambda shard: (
+            shard.abs() if torch.is_floating_point(randn_exponent_tensor) else shard
+        )
     )
 
     if torch.is_floating_point(randn_exponent_tensor):
@@ -2252,6 +2252,12 @@ def test_hoisted_permute(shapes, permutation, request, target: str):
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
+    if keep_dim is False:
+        pytest.skip(
+            "Known mismatch: TTIR keep_dim=False rank change unsupported by TOSA reduce op; "
+            "see issue #5061 - https://github.com/tenstorrent/tt-mlir/issues/5061"
+        )
+
     def max(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         return builder.max(
             in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=["ttir.should_hoist"]
