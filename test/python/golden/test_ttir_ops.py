@@ -3075,6 +3075,42 @@ def test_hoisted_dot_general(
     )
 
 
+@x86_only
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(128, 64), (64, 32)],  # Standard 2D matmul
+        [(32, 128), (128, 256)],  # Different dimensions
+        [(10, 20), (20, 30)],  # Same as your dot_general test
+    ],
+    ids=["128x64_64x32", "32x128_128x256", "10x20_20x30"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_matmul(shapes: List[Shape], dtype: torch.dtype, target: str, request):
+    """Test matrix multiplication with CPU hoisting enabled"""
+
+    def hoisted_matmul_wrapper(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return matmul(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+
+    hoisted_matmul_wrapper.__name__ = "hoisted_matmul"
+
+    compile_ttir_to_flatbuffer(
+        hoisted_matmul_wrapper,
+        shapes,
+        [dtype] * len(shapes),
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @pytest.mark.parametrize(
     "shape,normalized_shape",
     [

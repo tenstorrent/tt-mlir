@@ -88,3 +88,6 @@ cmake -G Ninja \
 
 cmake --build build
 cmake --build build -- ttrt
+
+#
+python -m pytest test/python/golden/test_ttir_ops.py --path=output --sys-desc=ttrt-artifacts/system_desc.ttsys -vv
