@@ -98,11 +98,11 @@ runs:
         python3 -m build --wheel
         cd $CURRENT_DIR
 
-    - name: Build tt-alchemist
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ inputs.build-output-dir }} -- tt-alchemist
+    # - name: Build tt-alchemist
+    #   shell: bash
+    #   run: |
+    #     source env/activate
+    #     cmake --build ${{ inputs.build-output-dir }} -- tt-alchemist
 
     - name: Install chisel
       shell: bash
@@ -119,12 +119,12 @@ runs:
         llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
         ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
-    - name: Build tt-explorer
-      if: inputs.enable-explorer == 'ON'
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ inputs.build-output-dir }} -- explorer
+    # - name: Build tt-explorer
+    #   if: inputs.enable-explorer == 'ON'
+    #   shell: bash
+    #   run: |
+    #     source env/activate
+    #     cmake --build ${{ inputs.build-output-dir }} -- explorer
 
     # Install needs to run after the "Compile dylibs" step
     #
@@ -150,12 +150,12 @@ runs:
         path: build/tools/ttnn-jit/dist/ttnn-jit*.whl
         if-no-files-found: error
 
-    - name: Upload tt-alchemist .whl
-      uses: actions/upload-artifact@v4
-      with:
-        name: tt-alchemist-whl-${{ inputs.build-name }}
-        path: build/tools/tt-alchemist/csrc/dist/tt_alchemist*.whl
-        if-no-files-found: error
+    # - name: Upload tt-alchemist .whl
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: tt-alchemist-whl-${{ inputs.build-name }}
+    #     path: build/tools/tt-alchemist/csrc/dist/tt_alchemist*.whl
+    #     if-no-files-found: error
 
     - name: Archive Install Directory
       shell: bash
