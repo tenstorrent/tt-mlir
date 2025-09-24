@@ -88,6 +88,7 @@ runs:
     - name: Build ttnn-jit wheel
       shell: bash
       run: |
+        source env/activate
         export CURRENT_DIR=$(pwd)
         cd ${{ inputs.work-dir }}/tools/ttnn-jit
         mkdir -p dist
