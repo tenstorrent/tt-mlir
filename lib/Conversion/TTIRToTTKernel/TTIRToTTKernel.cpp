@@ -141,8 +141,7 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   llvm_unreachable("Expected load or subview op");
 }
 
-static Value getDstIdxFromResult(Value ttirOpResult,
-                                 PatternRewriter &rewriter) {
+static Value getDstIdxFromResult(Value ttirOpResult) {
   memref::StoreOp storeOp;
   for (Operation *op : ttirOpResult.getUsers()) {
     auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
@@ -155,29 +154,7 @@ static Value getDstIdxFromResult(Value ttirOpResult,
   assert(storeOp && "Expected store op.");
   assert(storeOp.getIndices().size() == 1 &&
          "Expected single index in store op");
-
-  Value dstIndex = storeOp.getIndices().front();
-
-  // The DST index could be defined by an operation that comes after the current
-  // operation (e.g. loop variables), we need to move the index to before the
-  // current operation to ensure proper SSA ordering.
-  if (Operation *idxDefOp = dstIndex.getDefiningOp()) {
-    // If defined in the same block, check ordering.
-    Block *currentBlock = rewriter.getInsertionBlock();
-    if (currentBlock == idxDefOp->getBlock()) {
-      auto insertionPoint = rewriter.getInsertionPoint();
-
-      // Move if the definition comes after the insertion point.
-      for (auto it = insertionPoint; it != currentBlock->end(); it++) {
-        if (&(*it) == idxDefOp) {
-          rewriter.moveOpBefore(idxDefOp, ttirOpResult.getDefiningOp());
-          break;
-        }
-      }
-    }
-  }
-
-  return dstIndex;
+  return storeOp.getIndices().front();
 }
 
 // This is a workaround special case for getting an in/out CB. This whole
@@ -230,7 +207,14 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
   }
 
   assert(latestDefOp != nullptr);
-  rewriter.setInsertionPointAfter(latestDefOp);
+
+  // Only move the insertion point if we're pushing it downward in the
+  // topological order.
+  auto currentInsertionPoint = rewriter.getInsertionPoint();
+  if (latestDefOp->getBlock() != currentInsertionPoint->getBlock() ||
+      currentInsertionPoint->isBeforeInBlock(latestDefOp)) {
+    rewriter.setInsertionPointAfter(latestDefOp);
+  }
 }
 
 } // namespace
@@ -536,6 +520,7 @@ public:
     auto insertionPoint = rewriter.getInsertionPoint();
     auto inCB = getInCB(rewriter, op);
     auto outCB = getOutCB(rewriter, op);
+    rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
     setInsertionPointAfterOperands(rewriter, {inCB, outCB});
     rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
@@ -622,7 +607,10 @@ public:
     } else if constexpr (std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs());
     } else {
-      const auto dstIdx = getDstIdxFromResult(op.getResult(), rewriter);
+      OpBuilder::InsertionGuard guard(rewriter);
+      const auto dstIdx = getDstIdxFromResult(op.getResult());
+      setInsertionPointAfterOperands(
+          rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx});
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs(),
                               dstIdx);
     }
@@ -725,7 +713,7 @@ public:
     Value tileIndex = adaptor.getInput();
 
     // Get the destination index where the result will be stored.
-    Value dstIdx = getDstIdxFromResult(op.getResult(), rewriter);
+    Value dstIdx = getDstIdxFromResult(op.getResult());
 
     rewriter.create<ttkernel::TransposeTileOp>(op->getLoc(), inCB, tileIndex,
                                                dstIdx);
