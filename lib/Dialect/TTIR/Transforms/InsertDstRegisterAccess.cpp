@@ -600,6 +600,14 @@ public:
         storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
       }
 
+      // Ensure storeIndices matches the destination memref rank.
+      assert(storeIndices.size() == dstRank &&
+             "storeIndices size must match destination memref rank. If it's "
+             "greater, probably need to use getNonParticipatingLoopDims to "
+             "skip loop dimensions: "
+             "https://github.com/tenstorrent/tt-mlir/pull/"
+             "5081#discussion_r2376709558");
+
       auto storeMap =
           AffineMap::getMultiDimIdentityMap(dstRank, rewriter.getContext());
 
