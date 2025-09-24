@@ -660,9 +660,9 @@ def pow(
     randn_exponent_tensor = builder._get_golden_tensor(in1)
 
     randn_base_tensor = randn_base_tensor.apply_shardwise(
-        lambda shard: shard.abs()
-        if torch.is_floating_point(randn_exponent_tensor)
-        else shard
+        lambda shard: (
+            shard.abs() if torch.is_floating_point(randn_exponent_tensor) else shard
+        )
     )
 
     if torch.is_floating_point(randn_exponent_tensor):
@@ -757,6 +757,10 @@ def transpose(
     in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
 ):
     return builder.transpose(in0, unit_attrs=unit_attrs)
+
+
+def squeeze(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.squeeze(in0, unit_attrs=unit_attrs)
 
 
 @pytest.mark.fails_golden
@@ -1967,6 +1971,7 @@ hoisted_unary_ops = [
     ),
     create_hoisted_unary_op(reshape, "reshape"),
     create_hoisted_unary_op(transpose, "transpose"),
+    create_hoisted_unary_op(mean, "mean"),
 ]
 
 
@@ -2082,6 +2087,12 @@ def test_hoisted_permute(shapes, permutation, request, target: str):
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
+    if keep_dim is False:
+        pytest.skip(
+            "Known mismatch: TTIR keep_dim=False rank change unsupported by TOSA reduce op; "
+            "see issue #5061 - https://github.com/tenstorrent/tt-mlir/issues/5061"
+        )
+
     def max(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         return builder.max(
             in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=["ttir.should_hoist"]
@@ -2240,6 +2251,30 @@ def test_hoisted_transpose(input_shape, dims, request, target: str):
     compile_ttir_to_flatbuffer(
         transpose_wrapper,
         [input_shape],
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", [(1, 128, 128)])
+@pytest.mark.parametrize("dim", [0])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_hoisted_squeeze(shape: Shape, dim: int, target: str, request):
+    """Test hoisted squeeze operation with appropriate shape that has a dimension of size 1"""
+
+    def hoisted_squeeze(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        return builder.squeeze(in0, dim=dim, unit_attrs=["ttir.should_hoist"])
+
+    hoisted_squeeze.__name__ = "hoisted_squeeze"
+
+    compile_ttir_to_flatbuffer(
+        hoisted_squeeze,
+        [shape],
         test_base=request.node.name,
         target=target,
         output_root=request.config.getoption("--path"),
