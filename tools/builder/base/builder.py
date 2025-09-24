@@ -167,7 +167,7 @@ class Builder:
             self._set_goldens(outputs)
 
     def set_operand_goldens(
-        self, operands: Dict[Operand, Union[Callable, torch.tensor, Dict[int : torch.tensor]]]
+        self, operands: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]]
     ):
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())

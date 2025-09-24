@@ -1391,8 +1391,8 @@ def test_callable_initialization_basic(shape: Shape, dtype: torch.dtype, target:
         builder: TTIRBuilder, 
         unit_attrs: Optional[List[str]] = None
     ):
-        result = builder.add(in0, in1, unit_attrs=unit_attrs)
         builder.set_goldens({in0: torch.zeros, in1: torch.ones})
+        result = builder.add(in0, in1, unit_attrs=unit_attrs)
         return result
 
     compile_ttir_to_flatbuffer(
@@ -1413,8 +1413,8 @@ def test_callable_initialization_zeros(shape: Shape, dtype: torch.dtype, target:
     def test_with_zeros_init(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
+        builder.set_goldens({in0: torch.zeros})
         zeros_result = builder.neg(in0, unit_attrs=unit_attrs)
-        builder.set_goldens({in0: torch.zeros}, {zeros_result: torch.zeros(shape)})
         return zeros_result
 
     compile_ttir_to_flatbuffer(
@@ -1435,8 +1435,8 @@ def test_callable_initialization_ones(shape: Shape, dtype: torch.dtype, target: 
     def test_with_ones_init(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
+        builder.set_goldens({in0: torch.ones})
         ones_result = builder.neg(in0, unit_attrs=unit_attrs)
-        builder.set_goldens({in0: torch.ones}, {ones_result: torch.neg(torch.ones(shape))})
         return ones_result
 
     compile_ttir_to_flatbuffer(
@@ -1457,8 +1457,8 @@ def test_callable_initialization_eye(shape: Shape, dtype: torch.dtype, target: s
     def test_with_eye_init(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
+        builder.set_goldens({in0: torch.eye})
         eye_result = builder.abs(in0, unit_attrs=unit_attrs)
-        builder.set_goldens({in0: torch.eye}, {eye_result: torch.abs(torch.eye(shape[0]))})
         return eye_result
 
     compile_ttir_to_flatbuffer(
@@ -1482,11 +1482,8 @@ def test_callable_initialization_mixed(shape: Shape, dtype: torch.dtype, target:
         builder: TTIRBuilder, 
         unit_attrs: Optional[List[str]] = None
     ):
+        builder.set_goldens({in0: torch.zeros, in1: torch.ones})
         add_result = builder.add(in0, in1, unit_attrs=unit_attrs)
-        builder.set_goldens(
-            {in0: torch.zeros, in1: torch.ones}, 
-            {add_result: torch.add(torch.zeros(shape), torch.ones(shape))}
-        )
         return add_result
 
     compile_ttir_to_flatbuffer(
@@ -1508,10 +1505,8 @@ def test_callable_initialization_custom_lambda(shape: Shape, dtype: torch.dtype,
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
         custom_init = lambda s: torch.full(s, 2.0)
-        result = builder.multiply(in0, in0, unit_attrs=unit_attrs)  # square the tensor
-        expected_input = torch.full(shape, 2.0)
-        expected_output = torch.multiply(expected_input, expected_input)
-        builder.set_goldens({in0: custom_init}, {result: expected_output})
+        builder.set_goldens({in0: custom_init})
+        result = builder.multiply(in0, in0, unit_attrs=unit_attrs)
         return result
 
     compile_ttir_to_flatbuffer(
