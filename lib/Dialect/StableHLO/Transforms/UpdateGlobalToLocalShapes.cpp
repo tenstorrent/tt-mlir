@@ -27,7 +27,6 @@ static bool isSafeCacheUpdate(mlir::stablehlo::ScatterOp scatterOp,
                               mlir::sdy::MeshOp &globalMeshOp) {
   mlir::stablehlo::ScatterDimensionNumbersAttr scatterDimensionNumbers =
       scatterOp.getScatterDimensionNumbers();
-  auto updateWindowDims = scatterDimensionNumbers.getUpdateWindowDims();
   auto insertedWindowDims = scatterDimensionNumbers.getInsertedWindowDims();
   auto scatterDimsToOperandDims =
       scatterDimensionNumbers.getScatterDimsToOperandDims();
@@ -47,30 +46,6 @@ static bool isSafeCacheUpdate(mlir::stablehlo::ScatterOp scatterOp,
   // Early exit conditions - return false if we can't analyze safely
   if (inputDimShardings.empty() || updateDimShardings.empty()) {
     return false;
-  }
-
-  // Debug output for analysis
-  llvm::errs() << "ScatterOp debug info:\n";
-  llvm::errs() << "  UpdateWindowDims: ";
-  llvm::interleaveComma(updateWindowDims, llvm::errs());
-  llvm::errs() << "\n";
-  llvm::errs() << "  InsertedWindowDims: ";
-  llvm::interleaveComma(insertedWindowDims, llvm::errs());
-  llvm::errs() << "\n";
-  llvm::errs() << "  ScatterDimsToOperandDims: ";
-  llvm::interleaveComma(scatterDimsToOperandDims, llvm::errs());
-  llvm::errs() << "\n";
-
-  llvm::errs() << "  Input sharding dims: ";
-  int ctr = 0;
-  for (mlir::sdy::DimensionShardingAttr sharding : inputDimShardings) {
-    ctr++;
-    llvm::errs() << "inputDimShardings #" << ctr << "\n";
-    llvm::ArrayRef<mlir::sdy::AxisRefAttr> sharding_axes = sharding.getAxes();
-    for (mlir::sdy::AxisRefAttr axisref : sharding_axes) {
-      llvm::errs() << axisref.toString() << ",";
-    }
-    llvm::errs() << "\n";
   }
 
   auto scatterInputs = scatterOp.getInputs();
@@ -100,7 +75,6 @@ static bool isSafeCacheUpdate(mlir::stablehlo::ScatterOp scatterOp,
   }
 
   auto scatterAxis = insertedWindowDims.front();
-  llvm::errs() << "Scatter axis is " << scatterAxis << "\n";
 
   // figure out sharding axis
 
@@ -119,8 +93,6 @@ static bool isSafeCacheUpdate(mlir::stablehlo::ScatterOp scatterOp,
 
   // We expect the sharding axes and scatter axes to be disjoint
   if (llvm::is_contained(shardingAxes, scatterAxis)) {
-    llvm::errs() << "Scatter axis " << scatterAxis
-                 << " conflicts with sharding axes - unsafe\n";
     return false; // Not safe - scatter axis is sharded
   }
 
