@@ -2579,15 +2579,51 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// NLPCreateQKVHeadsDecodeOp
+//===----------------------------------------------------------------------===//
 llvm::Expected<op_model::OpConstraints>
 OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
     std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
-    std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
-    std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
+    std::optional<const uint32_t> numKVHeads,
+    std::optional<const bool> overlapQKCoregrid,
+    std::optional<const uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  std::optional<::ttnn::TensorSpec> batchOffsetSpec = std::nullopt;
+  if (batchOffsetShape && batchOffsetLayout) {
+    auto batchOffsetSpecExp = detail::convertToTensorSpec(
+        device, batchOffsetShape.value(), batchOffsetLayout.value());
+    if (!batchOffsetSpecExp) {
+      return batchOffsetSpecExp.takeError();
+    }
+    batchOffsetSpec = batchOffsetSpecExp.get();
+  }
+
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto nlpCreateQKVHeadsDecode = [&]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::experimental::nlp_create_qkv_heads_decode, device, inputSpec,
+        numHeads, numKVHeads, overlapQKCoregrid, batchOffsetSpec, sliceSize,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     nlpCreateQKVHeadsDecode);
+
 #else
   return OpConstraints{};
 #endif
@@ -2597,9 +2633,40 @@ llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
     std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
-    std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
-    std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
+    std::optional<const uint32_t> numKVHeads,
+    std::optional<const bool> overlapQKCoregrid,
+    std::optional<const uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  std::optional<::ttnn::TensorSpec> batchOffsetSpec = std::nullopt;
+  if (batchOffsetShape && batchOffsetLayout) {
+    auto batchOffsetSpecExp = detail::convertToTensorSpec(
+        device, batchOffsetShape.value(), batchOffsetLayout.value());
+    if (!batchOffsetSpecExp) {
+      return batchOffsetSpecExp.takeError();
+    }
+    batchOffsetSpec = batchOffsetSpecExp.get();
+  }
+
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto nlpCreateQKVHeadsDecode = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::experimental::nlp_create_qkv_heads_decode, device, inputSpec,
+        numHeads, numKVHeads, overlapQKCoregrid, batchOffsetSpec, sliceSize,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(nlpCreateQKVHeadsDecode);
 #else
   return llvm::createStringError("Not implemented");
 #endif

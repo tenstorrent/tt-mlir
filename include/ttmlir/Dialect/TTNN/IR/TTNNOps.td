@@ -2478,7 +2478,9 @@ def NLPCreateQKVHeadsDecodeOp : TTNN_Op<"nlp_create_qkv_heads_decode", [TTNN_Mem
                        OptionalAttr<UI32Attr>:$slice_size,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-  let results = (outs AnyRankedTensor:$result);
+  let results = (outs AnyRankedTensor:$query,
+                      AnyRankedTensor:$key,
+                      AnyRankedTensor:$value);
 
   let hasVerifier = 1;
 }

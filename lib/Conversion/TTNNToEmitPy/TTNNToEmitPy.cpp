@@ -382,14 +382,10 @@ public:
         emitter.emit(maxPool2dOp.getInputHeight()),
         emitter.emit(maxPool2dOp.getInputWidth()),
         emitter.emit(maxPool2dOp.getChannels()),
-        emitter.template emit<std::vector<uint32_t>>(
-            maxPool2dOp.getKernelSizeAttr()),
-        emitter.template emit<std::vector<uint32_t>>(
-            maxPool2dOp.getStrideAttr()),
-        emitter.template emit<std::vector<uint32_t>>(
-            maxPool2dOp.getPaddingAttr()),
-        emitter.template emit<std::vector<uint32_t>>(
-            maxPool2dOp.getDilationAttr()),
+        emitter.emit<std::vector<uint32_t>>(maxPool2dOp.getKernelSizeAttr()),
+        emitter.emit<std::vector<uint32_t>>(maxPool2dOp.getStrideAttr()),
+        emitter.emit<std::vector<uint32_t>>(maxPool2dOp.getPaddingAttr()),
+        emitter.emit<std::vector<uint32_t>>(maxPool2dOp.getDilationAttr()),
         emitter.emit(emitter.getMemoryConfig(maxPool2dOp.getResult()),
                      "memory_config"),
         emitter.emit(maxPool2dOp.getAppliedShardScheme(),
@@ -1421,6 +1417,38 @@ public:
 };
 } // namespace
 
+// NLPCreateQKVHeadsDecodeOp conversion pattern
+namespace {
+class NLPCreateQKVHeadsDecodeOpConversionPattern
+    : public OpConversionPattern<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp> {
+public:
+  using OpConversionPattern<
+      mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getNumHeads(), "num_heads"),
+        emitter.emit(srcOp.getNumKvHeads(), "num_kv_heads"),
+        emitter.emit(srcOp.getOverlapQkCoregrid(), "overlap_qk_coregrid"),
+        emitter.emit(srcOp.getBatchOffset(), "batch_offset"),
+        emitter.emit(srcOp.getSliceSize(), "slice_size"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config")};
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -1602,6 +1630,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   patterns.add<NLPConcatHeadsOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
+  patterns.add<NLPCreateQKVHeadsDecodeOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

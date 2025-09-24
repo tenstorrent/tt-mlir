@@ -2050,15 +2050,14 @@ NLPCreateQKVHeadsDecodeOp::getOpConstraints(
     batchOffsetEncoding = inputs[1];
   }
 
-  uint32_t numHeads = getNumHeads();
-  std::optional<uint32_t> numKVHeads = getNumKvHeads();
-  std::optional<bool> overlapQKCoregrid = getOverlapQkCoregrid();
-  std::optional<uint32_t> sliceSize = getSliceSize();
+  std::optional<const uint32_t> numKVHeads(getNumKvHeads());
+  std::optional<const bool> overlapQkCoregrid(getOverlapQkCoregrid());
+  std::optional<const uint32_t> sliceSize(getSliceSize());
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints, *this,
       deviceGrid, inputShape, inputs[0], batchOffsetShape, batchOffsetEncoding,
-      numHeads, numKVHeads, overlapQKCoregrid, sliceSize,
+      getNumHeads(), numKVHeads, overlapQkCoregrid, sliceSize,
       opConfig.outputLayout);
 }
 
@@ -2075,15 +2074,15 @@ llvm::Expected<size_t> NLPCreateQKVHeadsDecodeOp::getOpRuntime(
     batchOffsetEncoding = inputs[1];
   }
 
-  uint32_t numHeads = getNumHeads();
-  std::optional<uint32_t> numKVHeads = getNumKvHeads();
-  std::optional<bool> overlapQKCoregrid = getOverlapQkCoregrid();
-  std::optional<uint32_t> sliceSize = getSliceSize();
+  std::optional<const uint32_t> numKVHeads(getNumKvHeads());
+  std::optional<const bool> overlapQkCoregrid(getOverlapQkCoregrid());
+  std::optional<const uint32_t> sliceSize(getSliceSize());
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime, *this,
-      inputShape, inputs[0], batchOffsetShape, batchOffsetEncoding, numHeads,
-      numKVHeads, overlapQKCoregrid, sliceSize, opConfig.outputLayout);
+      inputShape, inputs[0], batchOffsetShape, batchOffsetEncoding,
+      getNumHeads(), numKVHeads, overlapQkCoregrid, sliceSize,
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

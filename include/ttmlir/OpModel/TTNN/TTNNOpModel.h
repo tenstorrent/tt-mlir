@@ -704,6 +704,7 @@ struct OpModel<ScaledDotProductAttentionOp> {
 //===-----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp
 // ===----------------------------------------------------------------------===//
+
 template <>
 struct OpModel<RotaryEmbeddingLlamaOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
@@ -726,6 +727,7 @@ struct OpModel<RotaryEmbeddingLlamaOp> {
 //===-----------------------------------------------------------------------===//
 // NLPCreateQKVHeadsDecodeOp
 // ===----------------------------------------------------------------------===//
+
 template <>
 struct OpModel<NLPCreateQKVHeadsDecodeOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
@@ -733,16 +735,18 @@ struct OpModel<NLPCreateQKVHeadsDecodeOp> {
       TTNNLayoutAttr inputLayout,
       std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
       std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
-      std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
-      std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout);
+      std::optional<const uint32_t> numKVHeads,
+      std::optional<const bool> overlapQKCoregrid,
+      std::optional<const uint32_t> sliceSize, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
                std::optional<TTNNLayoutAttr> batchOffsetLayout,
-               uint32_t numHeads, std::optional<uint32_t> numKVHeads,
-               std::optional<bool> overlapQKCoregrid,
-               std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout);
+               uint32_t numHeads, std::optional<const uint32_t> numKVHeads,
+               std::optional<const bool> overlapQKCoregrid,
+               std::optional<const uint32_t> sliceSize,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
