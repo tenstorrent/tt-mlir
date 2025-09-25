@@ -112,7 +112,9 @@ jobs:
     steps:
     - name: Test array
       run: |
-        echo ${{ toJson(matrix.build.run) }} > test.json
+        cat << 'EOF' > test.json
+         ${{ toJson(matrix.build.run) }}
+        EOF
         cat test.json
         exit 1
 
