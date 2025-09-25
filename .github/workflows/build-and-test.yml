@@ -294,7 +294,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        pip install ttnn-jit-*.whl --force-reinstall
+        pip install ttnn_jit-*.whl --force-reinstall
         python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
 
     - name: Download Build Artifacts
