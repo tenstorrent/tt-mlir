@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -40,6 +41,7 @@ struct TTIRToTTIRGenericPass final
     // base class copy constructors ignore Pass option fields.
     this->defaultInputMemSpace = rhs.defaultInputMemSpace;
     this->defaultOutputMemSpace = rhs.defaultOutputMemSpace;
+    this->ttnnMode = rhs.ttnnMode;
   };
 
   void runOnOperation() final {
@@ -60,6 +62,11 @@ struct TTIRToTTIRGenericPass final
 
       target.addLegalDialect<ttcore::TTCoreDialect>();
 
+      if (ttnnMode) {
+        target.addLegalDialect<ttnn::TTNNDialect>();
+        target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
+      }
+
       // An explicit list of legal ttir.* ops.
 
       target.addLegalOp<ttir::GenericOp>();
@@ -69,6 +76,7 @@ struct TTIRToTTIRGenericPass final
       target.addLegalOp<ttir::EmptyOp>();
       target.addLegalOp<ttir::ConstantOp>();
       target.addLegalOp<ttir::FullOp>();
+      target.addLegalOp<ttir::MeshShardOp>();
 
       target.addLegalOp<
 #define GET_OP_LIST
@@ -87,7 +95,7 @@ struct TTIRToTTIRGenericPass final
     mlir::RewritePatternSet patterns{&ctx};
     populateTTIRToTTIRGenericPatterns(
         &ctx, patterns, typeConverter, defaultInputMemSpace,
-        defaultOutputMemSpace, getTargetGridShape());
+        defaultOutputMemSpace, getTargetGridShape(), ttnnMode);
 
     if (failed(
             mlir::applyFullConversion(moduleOp, target, std::move(patterns)))) {

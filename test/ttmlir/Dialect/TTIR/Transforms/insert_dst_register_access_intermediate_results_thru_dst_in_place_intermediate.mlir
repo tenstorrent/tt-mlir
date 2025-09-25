@@ -50,12 +50,12 @@ module {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %in_17: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %0 = "ttir.tile_sub"(%in, %in_17) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[SUB_RESULT:.*]] = "ttir.tile_sub"(%[[DST0_VAL:.*]], %[[DST1_VAL:.*]]) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[SUB_RESULT]], %[[DST:.*]][2, 0, 0] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[DST_SUB:.*]] = affine.load %[[DST]][2, 0, 0] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: affine.store %[[SUB_RESULT]], %[[DST:.*]][2, %arg2, %arg3] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: %[[DST_SUB:.*]] = affine.load %[[DST]][2, %arg2, %arg3] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             %1 = "ttir.tile_eqz"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[EQZ1_RESULT:.*]] = "ttir.tile_eqz"(%[[DST_SUB]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[EQZ1_RESULT]], %[[DST]][2, 0, 0] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[DST_EQZ1:.*]] = affine.load %[[DST]][2, 0, 0] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: affine.store %[[EQZ1_RESULT]], %[[DST]][2, %arg2, %arg3] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: %[[DST_EQZ1:.*]] = affine.load %[[DST]][2, %arg2, %arg3] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             %2 = "ttir.tile_eqz"(%1) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[EQZ2_RESULT:.*]] = "ttir.tile_eqz"(%[[DST_EQZ1]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: affine.store %[[EQZ2_RESULT]], %[[DST]][2, %arg2, %arg3] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>

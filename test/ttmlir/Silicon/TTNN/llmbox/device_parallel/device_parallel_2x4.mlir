@@ -3,11 +3,9 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 func.func public @jit_data_tensor_parallel_t3000(%arg0: tensor<64x1x1024x2048xf32>, %arg1: tensor<1x1x2048x512xf32>) -> (tensor<64x1x1024x512xf32> {jax.result_info = ""}) {
-  %0 = ttir.empty() : tensor<32x1x1024x512xf32>
-  %1 = "ttir.mesh_shard"(%arg0, %0) <{shard_dims = array<i64: 0, 3>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 2, 1, 1, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<64x1x1024x2048xf32>, tensor<32x1x1024x512xf32>) -> tensor<32x1x1024x512xf32>
+  %1 = "ttir.mesh_shard"(%arg0) <{shard_dims = array<i64: 0, 3>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 2, 1, 1, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<64x1x1024x2048xf32>) -> tensor<32x1x1024x512xf32>
   // CHECK: "ttnn.mesh_shard"
-  %2 = ttir.empty() : tensor<1x1x512x512xf32>
-  %3 = "ttir.mesh_shard"(%arg1, %2) <{shard_dims = array<i64: -1, 2>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 1, 4, 1>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x2048x512xf32>, tensor<1x1x512x512xf32>) -> tensor<1x1x512x512xf32>
+  %3 = "ttir.mesh_shard"(%arg1) <{shard_dims = array<i64: -1, 2>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1, 1, 4, 1>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1x1x2048x512xf32>) -> tensor<1x1x512x512xf32>
   // CHECK: "ttnn.mesh_shard"
   %4 = ttir.empty() : tensor<32x1024x512xf32>
   %5 = "ttir.reshape"(%1, %4) <{shape = [32 : i32, 1024 : i32, 512 : i32]}> : (tensor<32x1x1024x512xf32>, tensor<32x1024x512xf32>) -> tensor<32x1024x512xf32>
@@ -23,8 +21,7 @@ func.func public @jit_data_tensor_parallel_t3000(%arg0: tensor<64x1x1024x2048xf3
   %11 = ttir.empty() : tensor<32x1x256x512xf32>
   %12 = "ttir.reduce_scatter"(%10, %11) <{cluster_axis = 1 : ui32, reduce_type = #ttcore.reduce_type<sum>, scatter_dim = 2 : si32}> : (tensor<32x1x1024x512xf32>, tensor<32x1x256x512xf32>) -> tensor<32x1x256x512xf32>
   // CHECK: "ttnn.reduce_scatter"
-  %13 = ttir.empty() : tensor<64x1x1024x512xf32>
-  %14 = "ttir.mesh_shard"(%12, %13) <{shard_dims = array<i64: 0, 2>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 2, 1, 4, 1>, shard_type = #ttcore.shard_type<devices>}> : (tensor<32x1x256x512xf32>, tensor<64x1x1024x512xf32>) -> tensor<64x1x1024x512xf32>
+  %14 = "ttir.mesh_shard"(%12) <{shard_dims = array<i64: 0, 2>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 2, 1, 4, 1>, shard_type = #ttcore.shard_type<devices>}> : (tensor<32x1x256x512xf32>) -> tensor<64x1x1024x512xf32>
   // CHECK: "ttnn.mesh_shard"
   return %14 : tensor<64x1x1024x512xf32>
 }

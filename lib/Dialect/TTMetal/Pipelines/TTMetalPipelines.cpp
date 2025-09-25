@@ -73,6 +73,8 @@ void createOptimizationPasses(OpPassManager &pm,
 
 void createTTIRToTTMetalFrontendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  // Create multi-device tensor annotation for graph with mesh.
+  pm.addPass(ttir::createTTIRMultiDeviceTensorAnnotation());
   ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
   {
     registerDeviceOptions.systemDescPath = options.systemDescPath;
@@ -82,12 +84,14 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
+
   ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;
   {
     toTTIRGenericOptions.defaultInputMemSpace = options.defaultInputMemSpace;
     toTTIRGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
     toTTIRGenericOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
+    toTTIRGenericOptions.ttnnMode = options.ttnnMode;
   }
   pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
