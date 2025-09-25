@@ -38,7 +38,7 @@ struct ValidationResult {
 // Returns: ValidationResult if valid, error otherwise.
 llvm::Expected<ValidationResult>
 validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                  const OpConfig &config);
+                  const OpConfig &config, float tensorL1UsageCap);
 
 // Test multiple attributes with all layouts.
 // op: Operation to validate.
@@ -48,11 +48,10 @@ validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
 // referenceConfigs: Reference configurations to search for matches. If empty,
 //                   only validation is performed without matching to reference.
 // Returns: Vector of ValidationResults, one per op config tested.
-llvm::Expected<std::vector<ValidationResult>>
-validateWithMultipleAttributes(Operation *op,
-                               llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                               llvm::ArrayRef<OpConfig> opConfigs,
-                               llvm::ArrayRef<OpConfig> referenceConfigs);
+llvm::Expected<std::vector<ValidationResult>> validateWithMultipleAttributes(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+    llvm::ArrayRef<OpConfig> opConfigs,
+    llvm::ArrayRef<OpConfig> referenceConfigs, float tensorL1UsageCap);
 
 // Core constraint validation using OpModel interface.
 // op: The operation to validate.
@@ -61,7 +60,7 @@ validateWithMultipleAttributes(Operation *op,
 // Returns: Expected output layout if valid, error otherwise.
 llvm::Expected<TTNNLayoutAttr>
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                    const OpConfig &config);
+                    const OpConfig &config, float tensorL1UsageCap);
 
 } // namespace op_constraint_validation
 
