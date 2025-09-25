@@ -110,7 +110,6 @@ if (TTMLIR_ENABLE_CUDA)
     TTBinary
     TTRuntimeTypes
     TTRuntimeUtils
-    TTMLIRRuntime
     GTest::gtest_main
   )
 

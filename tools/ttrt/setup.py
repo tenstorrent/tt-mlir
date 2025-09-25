@@ -89,12 +89,12 @@ if enable_runtime:
     if "libcuda.so" in cuda_libs:
         shutil.copy(
             f"{cudadir}/libcuda.so",
-            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+            f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
         )
     if "libcudart.so" in cuda_libs:
         shutil.copy(
             f"{cudartdir}/libcudart.so",
-            f"{ttmlir_build_dir}/runtime/tools/ttrt/ttrt/runtime",
+            f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
         )
 
     for dylib in perflibs:

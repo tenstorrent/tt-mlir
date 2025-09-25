@@ -581,7 +581,7 @@ std::shared_ptr<void> cudaToFlatbuffer(Operation *op) {
   auto finalProgram = ::tt::target::cuda::CreateProgram(
       fbb, actionTypesVector, actionObjectsVector, memrefsVector,
       constantsVector, returnVariableOffset);
-  fbb.FinishSizePrefixed(finalProgram);
+  fbb.FinishSizePrefixed(finalProgram, "TTCU");
 
   uint8_t *buf = fbb.GetBufferPointer();
   std::size_t size = fbb.GetSize();

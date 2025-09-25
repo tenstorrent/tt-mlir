@@ -177,4 +177,56 @@ void deallocateTensor(Tensor &tensor, bool force) {
   // execution.
 }
 
+Tensor toLayout(Tensor tensor, Device device, Layout layout,
+                std::optional<bool> retain) {
+  // CUDA program executor handles all memory transfers.
+  return tensor;
+}
+
+Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
+                 std::uint32_t inputIndex) {
+  // CUDA program executor handles all memory transfers.
+  std::shared_ptr<CudaLayoutDesc> layoutDesc = std::make_shared<CudaLayoutDesc>(
+      StorageType::HOST, Layout::ROW_MAJOR, DataType::Float32, std::nullopt);
+
+  return Layout(layoutDesc, DeviceRuntime::CUDA);
+}
+
+SystemDesc
+getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
+                     std::optional<Device> meshDevice) {
+  ::flatbuffers::FlatBufferBuilder fbb;
+
+  // Minimal CPU descriptor
+  std::vector<::flatbuffers::Offset<tt::target::CPUDesc>> cpuDescs;
+  cpuDescs.emplace_back(
+      ::tt::target::CreateCPUDesc(fbb, ::tt::target::CPURole::Host,
+                                  fbb.CreateString("x86_64-pc-linux-gnu")));
+
+  // Minimal single CUDA device
+  std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs;
+  std::vector<uint32_t> chipDescIndices = {0};
+  std::vector<::tt::target::ChipCapability> chipCapabilities = {
+      ::tt::target::ChipCapability::HostMMIO};
+  std::vector<::tt::target::ChipCoord> chipCoords = {
+      ::tt::target::ChipCoord(0, 0, 0, 0)};
+  std::vector<::tt::target::ChipChannel> allConnections;
+
+  // Create minimal system descriptor
+  auto systemDesc = ::tt::target::CreateSystemDescDirect(
+      fbb, &cpuDescs, &chipDescs, &chipDescIndices, &chipCapabilities,
+      &chipCoords, &allConnections);
+
+  ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
+  ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
+                                ttmlirVersion.patch);
+
+  auto root = ::tt::target::CreateSystemDescRootDirect(
+      fbb, &version, "cuda_hash", "cuda_git", "CUDA", systemDesc);
+
+  fbb.Finish(::tt::target::CreateSizePrefixedSystemDescRoot(fbb, root));
+
+  return ::tt::runtime::SystemDesc(std::shared_ptr<void>(
+      fbb.GetBufferPointer(), [fbb = std::move(fbb)](void *) mutable {}));
+}
 } // namespace tt::runtime::cuda

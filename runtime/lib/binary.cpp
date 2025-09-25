@@ -17,6 +17,10 @@
 #include "ttmlir/Target/TTMetal/binary_bfbs_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_bfbs_generated.h"
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
+#include "ttmlir/Target/CUDA/program_generated.h"
+#pragma clang diagnostic pop
 
 namespace tt::runtime {
 
@@ -478,6 +482,11 @@ std::string Flatbuffer::getFileIdentifier() const {
   if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
           handle.get())) {
     return ::tt::target::SystemDescRootIdentifier();
+  }
+
+  if (::tt::target::cuda::SizePrefixedProgramBufferHasIdentifier(
+          handle.get())) {
+    return ::tt::target::cuda::ProgramIdentifier();
   }
 
   LOG_FATAL("Unsupported binary format");

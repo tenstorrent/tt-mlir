@@ -268,10 +268,12 @@ SystemDesc
 getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
                      std::optional<Device> meshDevice) {
 #if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \
-    (defined(TT_RUNTIME_ENABLE_TTMETAL) &&                                     \
-     (TT_RUNTIME_ENABLE_TTMETAL == 1)) ||                                      \
-    (defined(TTMLIR_ENABLE_CUDA) && (TTMLIR_ENABLE_CUDA == 1))
+    (defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1))
   return system_desc::getCurrentSystemDesc(dispatchCoreType, meshDevice);
+#endif
+#if defined(TTMLIR_ENABLE_CUDA) && (TTMLIR_ENABLE_CUDA == 1)
+  return ::tt::runtime::cuda::getCurrentSystemDesc(dispatchCoreType,
+                                                   meshDevice);
 #endif
   LOG_FATAL("runtime is not enabled");
 }
