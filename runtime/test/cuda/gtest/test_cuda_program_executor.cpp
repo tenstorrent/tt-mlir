@@ -8,7 +8,6 @@
 #ifdef TTMLIR_ENABLE_CUDA
 
 #include "tt/runtime/detail/cuda/program_executor.h"
-#include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
@@ -37,6 +36,7 @@ protected:
     if (error != cudaSuccess || deviceCount == 0) {
       GTEST_SKIP() << "CUDA not available, skipping CUDA tests";
     }
+    // tt::runtime::setCurrentRuntime(DeviceRuntime::CUDA);
   }
 
   // Helper to compile MLIR file to CUDA flatbuffer using compiler pipeline.
@@ -139,10 +139,9 @@ protected:
         data.push_back(i + std::min(element, 10.0f));
         ctr += 1.0f;
       }
-      ::tt::runtime::Tensor input =
-          ::tt::runtime::cuda::createBorrowedHostTensor(
-              data.data(), dimensions, dimensions, sizeof(float),
-              ::tt::target::DataType::Float32);
+      ::tt::runtime::Tensor input = ::tt::runtime::cuda::createOwnedHostTensor(
+          data.data(), dimensions, dimensions, sizeof(float),
+          ::tt::target::DataType::Float32);
       inputs.push_back(input);
     }
 
@@ -154,9 +153,10 @@ TEST_F(CudaProgramExecutorTest, ConstructorInitialization) {
   // Test that constructor doesn't crash and initializes properly.
   auto programBuffer = createMockEmptyProgram();
   ::tt::runtime::Binary binary(programBuffer);
-  ::tt::runtime::Device device = ::tt::runtime::openMeshDevice({});
+  ::tt::runtime::Device device = ::tt::runtime::cuda::openMeshDevice({});
   std::vector<::tt::runtime::Tensor> inputs;
   EXPECT_NO_THROW({ ProgramExecutor executor(device, binary, inputs); });
+  ::tt::runtime::cuda::closeMeshDevice(device);
 }
 
 TEST_F(CudaProgramExecutorTest, CompileAndExecuteRealMlir) {
@@ -170,18 +170,18 @@ TEST_F(CudaProgramExecutorTest, CompileAndExecuteRealMlir) {
   std::vector<::tt::runtime::Tensor> inputs;
 
   std::vector<float> data1 = {1.0f, -2.0f};
-  ::tt::runtime::Tensor input = ::tt::runtime::cuda::createBorrowedHostTensor(
+  ::tt::runtime::Tensor input = ::tt::runtime::cuda::createOwnedHostTensor(
       data1.data(), {2}, {0}, sizeof(float), ::tt::target::DataType::Float32);
 
   inputs.push_back(input);
 
-  ::tt::runtime::Device device = ::tt::runtime::openMeshDevice({});
+  ::tt::runtime::Device device = ::tt::runtime::cuda::openMeshDevice({});
   ProgramExecutor executor(device, binary, inputs);
   ::tt::runtime::Tensor resultTensor = executor.execute();
   float *result = reinterpret_cast<float *>(resultTensor.data.get());
   EXPECT_FLOAT_EQ(result[0], 1.0f);
   EXPECT_FLOAT_EQ(result[1], 0.0f);
-  ::tt::runtime::closeMeshDevice(device);
+  ::tt::runtime::cuda::closeMeshDevice(device);
 }
 
 TEST_F(CudaProgramExecutorTest, CompileAndExecuteVectorAdd) {
@@ -197,7 +197,7 @@ TEST_F(CudaProgramExecutorTest, CompileAndExecuteVectorAdd) {
   inputSizes.push_back(40);
   auto inputs = createTestInputs(inputSizes);
 
-  ::tt::runtime::Device device = ::tt::runtime::openMeshDevice({});
+  ::tt::runtime::Device device = ::tt::runtime::cuda::openMeshDevice({});
   ProgramExecutor executor(device, binary, inputs);
   ::tt::runtime::Tensor resultTensor = executor.execute();
   float *result = reinterpret_cast<float *>(resultTensor.data.get());
@@ -205,7 +205,7 @@ TEST_F(CudaProgramExecutorTest, CompileAndExecuteVectorAdd) {
     float element = (-0.2f + i / 100.f) * 2.0f + 1.0f;
     EXPECT_FLOAT_EQ(result[i], element);
   }
-  ::tt::runtime::closeMeshDevice(device);
+  ::tt::runtime::cuda::closeMeshDevice(device);
 }
 
 TEST_F(CudaProgramExecutorTest, CompileAndExecuteMultipleOperations) {
@@ -225,10 +225,10 @@ TEST_F(CudaProgramExecutorTest, CompileAndExecuteMultipleOperations) {
   inputSizes.push_back(10);
   auto inputs = createTestInputs(inputSizes);
   EXPECT_NO_THROW({
-    ::tt::runtime::Device device = ::tt::runtime::openMeshDevice({});
+    ::tt::runtime::Device device = ::tt::runtime::cuda::openMeshDevice({});
     ProgramExecutor executor(device, binary, inputs);
     executor.execute();
-    ::tt::runtime::closeMeshDevice(device);
+    ::tt::runtime::cuda::closeMeshDevice(device);
   });
 }
 
@@ -239,10 +239,10 @@ TEST_F(CudaProgramExecutorTest, ExecuteEmptyProgram) {
   ::tt::runtime::Binary binary(programBuffer);
   std::vector<::tt::runtime::Tensor> inputs;
 
-  ::tt::runtime::Device device = ::tt::runtime::openMeshDevice({});
+  ::tt::runtime::Device device = ::tt::runtime::cuda::openMeshDevice({});
   ProgramExecutor executor(device, binary, inputs);
   EXPECT_NO_THROW({ executor.execute(); });
-  ::tt::runtime::closeMeshDevice(device);
+  ::tt::runtime::cuda::closeMeshDevice(device);
 }
 
 TEST_F(CudaProgramExecutorTest, HandleEmptyFlatbuffer) {
@@ -252,9 +252,9 @@ TEST_F(CudaProgramExecutorTest, HandleEmptyFlatbuffer) {
   EXPECT_NO_THROW({
     ::tt::runtime::Binary binary(emptyBuffer);
     std::vector<::tt::runtime::Tensor> inputs;
-    ::tt::runtime::Device device = ::tt::runtime::openMeshDevice({});
+    ::tt::runtime::Device device = ::tt::runtime::cuda::openMeshDevice({});
     ProgramExecutor executor(device, binary, inputs);
-    ::tt::runtime::closeMeshDevice(device);
+    ::tt::runtime::cuda::closeMeshDevice(device);
   });
 }
 
@@ -268,10 +268,10 @@ TEST_F(CudaProgramExecutorTest, HandleInvalidInput) {
   ::tt::runtime::Binary binary(programBuffer);
   std::vector<::tt::runtime::Tensor> inputs;
 
-  ::tt::runtime::Device device = ::tt::runtime::openMeshDevice({});
+  ::tt::runtime::Device device = ::tt::runtime::cuda::openMeshDevice({});
   ProgramExecutor executor(device, binary, inputs);
   EXPECT_NO_THROW({ executor.execute(); });
-  ::tt::runtime::closeMeshDevice(device);
+  ::tt::runtime::cuda::closeMeshDevice(device);
 }
 
 } // namespace tt::runtime::cuda

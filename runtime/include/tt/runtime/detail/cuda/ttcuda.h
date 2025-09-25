@@ -59,6 +59,15 @@ void memcpy(Tensor dst, Tensor src);
 
 void deallocateTensor(Tensor &tensor, bool force = false);
 
+Tensor toLayout(Tensor tensor, Device device, Layout layout,
+                std::optional<bool> retain);
+
+Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
+                 std::uint32_t inputIndex);
+
+SystemDesc getCurrentSystemDesc(
+    std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
+    std::optional<Device> meshDevice = std::nullopt);
 } // namespace tt::runtime::cuda
 
 #endif
