@@ -2523,8 +2523,8 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
 
       Args:
           query (ttnn.Tensor): the input tensor.          [b x nh x s x dh]
-          key (ttnn.Tensor): the input tensor.            [b x nkv x s x dh]
-          value (ttnn.Tensor): the input tensor.          [b x nkv x s x dh]
+          key (ttnn.Tensor): the input tensor.            [b x nkv x max_seq_len x dh]
+          value (ttnn.Tensor): the input tensor.          [b x nkv x max_seq_len x dh]
 
       Keyword args:
           attn_mask (ttnn.Tensor, optional): Defaults to `None`. [b x 1 x s x s]. Head broadcasting is implied.
