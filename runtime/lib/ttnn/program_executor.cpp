@@ -79,6 +79,8 @@
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
+#include <Python.h>
+
 namespace tt::runtime::ttnn {
 
 using LogType = ::tt::runtime::logger::LogType;
