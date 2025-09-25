@@ -1759,22 +1759,22 @@ ConcatenateHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// SplitQueryKeyValuesAndSplitHeadsOp - TTNN Op Model Interface
+// SplitQueryKeyValueAndSplitHeadsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 llvm::Expected<op_model::OpConstraints>
-SplitQueryKeyValuesAndSplitHeadsOp::getOpConstraints(
+SplitQueryKeyValueAndSplitHeadsOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   return issueErrorForGetOpConstraints(
       getOperation(), detail::ReasonForLackOfSupport::ArchitecturalMismatch);
 }
 
-llvm::Expected<size_t> SplitQueryKeyValuesAndSplitHeadsOp::getOpRuntime(
+llvm::Expected<size_t> SplitQueryKeyValueAndSplitHeadsOp::getOpRuntime(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::ArchitecturalMismatch);
 }
 // llvm::Expected<op_model::OpConstraints>
-// SplitQueryKeyValuesAndSplitHeadsOp::getOpConstraints(const
+// SplitQueryKeyValueAndSplitHeadsOp::getOpConstraints(const
 // std::vector<TTNNLayoutAttr> &inputs,
 //                          const OpConfig &opConfig) {
 
@@ -1808,13 +1808,13 @@ llvm::Expected<size_t> SplitQueryKeyValuesAndSplitHeadsOp::getOpRuntime(
 //   TTNNLayoutAttr valueLayout = opConfig.getOutputLayout(2);
 
 //   return opConstraintsCache().getOrCompute(
-//     op_model::OpModel<SplitQueryKeyValuesAndSplitHeadsOp>::getOpConstraints,
+//     op_model::OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints,
 //     *this, deviceGrid, inputShape, inputs[0], kvInputShape, kvInputLayout,
 //     numHeads, numKvHeads, transposeKey, queryLayout, keyLayout, valueLayout);
 // }
 
 // llvm::Expected<size_t>
-// SplitQueryKeyValuesAndSplitHeadsOp::getOpRuntime(const
+// SplitQueryKeyValueAndSplitHeadsOp::getOpRuntime(const
 // std::vector<TTNNLayoutAttr> &inputs,
 //                      const OpConfig &opConfig) {
 //   // Similar to the previous function.

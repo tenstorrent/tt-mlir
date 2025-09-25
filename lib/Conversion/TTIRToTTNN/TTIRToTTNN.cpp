@@ -1765,15 +1765,14 @@ public:
   }
 };
 
-class SplitQueryKeyValuesAndSplitHeadsOpConversionPattern
-    : public OpConversionPattern<ttir::SplitQueryKeyValuesAndSplitHeadsOp> {
+class SplitQueryKeyValueAndSplitHeadsOpConversionPattern
+    : public OpConversionPattern<ttir::SplitQueryKeyValueAndSplitHeadsOp> {
 public:
   using OpConversionPattern<
-      ttir::SplitQueryKeyValuesAndSplitHeadsOp>::OpConversionPattern;
+      ttir::SplitQueryKeyValueAndSplitHeadsOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::SplitQueryKeyValuesAndSplitHeadsOp op,
-                  OpAdaptor adaptor,
+  matchAndRewrite(ttir::SplitQueryKeyValueAndSplitHeadsOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Convert result types
     auto queryType =
@@ -1783,7 +1782,7 @@ public:
         this->getTypeConverter()->convertType(op.getValue().getType());
 
     // Create the TTNN op with 3 results
-    auto ttnnOp = rewriter.create<ttnn::SplitQueryKeyValuesAndSplitHeadsOp>(
+    auto ttnnOp = rewriter.create<ttnn::SplitQueryKeyValueAndSplitHeadsOp>(
         op.getLoc(), TypeRange{queryType, keyType, valueType},
         adaptor.getInputTensor(),
         adaptor.getKvInputTensor(), // This is optional, will be nullptr if not
@@ -2007,7 +2006,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllToAllOpConversionPattern,
            CollectiveBroadcastOpConversionPattern,
            ConcatenateHeadsOpConversionPattern,
-           SplitQueryKeyValuesAndSplitHeadsOpConversionPattern
+           SplitQueryKeyValueAndSplitHeadsOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

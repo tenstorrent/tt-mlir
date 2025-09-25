@@ -2522,9 +2522,9 @@ public:
 } // namespace
 
 namespace {
-class SplitQueryKeyValuesAndSplitHeadsOpConversionPattern
+class SplitQueryKeyValueAndSplitHeadsOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
-          mlir::tt::ttnn::SplitQueryKeyValuesAndSplitHeadsOp> {
+          mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp> {
 private:
   std::string getPrefixSearchPattern() const override {
     return "ttnn.split_query_key_value_and_split_heads";
@@ -2535,16 +2535,16 @@ private:
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::SplitQueryKeyValuesAndSplitHeadsOp>::
+      mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>::
       TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::SplitQueryKeyValuesAndSplitHeadsOp srcOp,
+  matchAndRewrite(mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp srcOp,
                   OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitc::EmitCTTNNEmitter<
-        mlir::tt::ttnn::SplitQueryKeyValuesAndSplitHeadsOp>
+        mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
         emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{

@@ -5512,7 +5512,7 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
   let hasVerifier = 1;
 }
 
-def TTIR_SplitQueryKeyValuesAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_values_and_split_heads"> {
+def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_values_and_split_heads"> {
     let summary = "Split query, key, values and split heads op used in attention layer.";
     let description = [{
       Splits input_tensor of shape [batch_size, sequence_size, 3 * hidden_size] into 3 tensors (Query, Key, Value) of shape [batch_size, sequence_size, hidden_size]. Then, reshapes and permutes the output tensors, to make them ready for computing attention scores.
