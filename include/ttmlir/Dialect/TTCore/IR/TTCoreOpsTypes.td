@@ -163,6 +163,21 @@ def TTCore_CPUDescAttr : TTCore_Attr<"CPUDesc", "cpu_desc"> {
                              `target_triple` `=` $target_triple `}`}];
 }
 
+def TTCore_TensorMeshAttr : TTCore_Attr<"TensorMesh", "tensor_mesh", []> {
+  let summary = "Tensor mesh in TT dialect.";
+  let description = [{
+    Describes what mesh a tensor lives on.
+  }];
+  let parameters = (ins "StringAttr":$name);
+  let assemblyFormat = "`<` $name `>`";
+  let extraClassDeclaration = [{
+      static TensorMeshAttr get(::mlir::MLIRContext *context, StringRef name) {
+        auto meshNameStrAttr = mlir::StringAttr::get(context, name);
+        return TensorMeshAttr::get(context, meshNameStrAttr);
+      }
+  }];
+}
+
 def TTCore_ChipCoordAttr : TTCore_Attr<"ChipCoord", "chip_coord"> {
   let summary = "TT chip_coord attribute";
   let description = [{
@@ -281,13 +296,15 @@ def TTCore_HostLayoutAttr : TTCore_Attr<"HostLayout", "host_layout", [TTCore_Dev
     - logical_shape: The unpadded logical shape in elements.
     - host_strides: Per-dimension alignment in elements used to compute aligned shapes for stride calculation.
     - host_volume: The (potentially padded) volume in elements.
+    - optional(mesh): The mesh that a memref lives on. No mesh indicates single device.
   }];
 
   let parameters = (ins ArrayRefParameter<"int64_t">:$logical_shape,
                         ArrayRefParameter<"int64_t">:$host_strides,
-                        "int64_t":$host_volume);
+                        "int64_t":$host_volume,
+                        OptionalParameter<"TensorMeshAttr">:$mesh);
 
-  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `host_strides` `=` custom<DimensionList>($host_strides) `,` `host_volume` `=` $host_volume `>`";
+  let assemblyFormat = "`<` `logical_shape` `=` custom<DimensionList>($logical_shape) `,` `host_strides` `=` custom<DimensionList>($host_strides) `,` `host_volume` `=` $host_volume (`,` $mesh^)? `>`";
 
   let extraClassDeclaration = [{
     LogicalResult getStridesAndOffset(ArrayRef<int64_t> shape,
@@ -544,22 +561,6 @@ def TTCore_MeshShardTypeAttr : EnumAttr<TTCore_Dialect, TTCore_MeshShardType, "s
     - Devices: all or part of the devices has sharded (partial) tensor (different data).
   }];
   let assemblyFormat = "`<` $value `>`";
-}
-
-def TTCore_TensorMeshAttr : TTCore_Attr<"TensorMesh", "tensor_mesh", []> {
-  let summary = "Tensor mesh in TT dialect.";
-  let description = [{
-    Describes what mesh a tensor lives on.
-  }];
-  let parameters = (ins "StringAttr":$name);
-  let assemblyFormat = "`<` $name `>`";
-
-  let extraClassDeclaration = [{
-      static TensorMeshAttr get(::mlir::MLIRContext *context, StringRef name) {
-        auto meshNameStrAttr = mlir::StringAttr::get(context, name);
-        return TensorMeshAttr::get(context, meshNameStrAttr);
-      }
-  }];
 }
 
 def TTCore_MeshAttr : TTCore_Attr<"Mesh", "mesh", []> {
