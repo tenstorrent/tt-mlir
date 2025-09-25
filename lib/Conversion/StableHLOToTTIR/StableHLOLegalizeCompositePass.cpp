@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
@@ -93,18 +94,12 @@ public:
 
     auto outputType =
         mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
-    auto compositeAttrs = srcOp.getCompositeAttributes();
 
-    // Extract shape and convert to I32ArrayAttr.
-    auto arrayShapeAttr =
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    // Extract shape attribute.
+    auto sizeAttr =
         mlir::dyn_cast_or_null<ArrayAttr>(compositeAttrs.get("shape"));
-    SmallVector<int32_t> shapeI32;
-    for (auto attr : arrayShapeAttr) {
-      if (auto intAttr = mlir::dyn_cast<IntegerAttr>(attr)) {
-        shapeI32.push_back(static_cast<int32_t>(intAttr.getInt()));
-      }
-    }
-    auto sizeAttr = rewriter.getI32ArrayAttr(shapeI32);
 
     // Extract low and high from constant operands.
     auto lowOp =
@@ -112,8 +107,16 @@ public:
     auto highOp =
         adaptor.getOperands()[2].getDefiningOp<mlir::stablehlo::ConstantOp>();
 
-    auto lowValue = mlir::dyn_cast<DenseFPElementsAttr>(lowOp.getValue());
-    auto highValue = mlir::dyn_cast<DenseFPElementsAttr>(highOp.getValue());
+    assert(lowOp && "low operand must be a ConstantOp");
+    assert(highOp && "high operand must be a ConstantOp");
+
+    auto lowValue = mlir::cast<DenseFPElementsAttr>(lowOp.getValue());
+    auto highValue = mlir::cast<DenseFPElementsAttr>(highOp.getValue());
+
+    assert(lowValue.getNumElements() == 1 &&
+           "Expected low operand to be a scalar constant");
+    assert(highValue.getNumElements() == 1 &&
+           "Expected high operand to be a scalar constant");
 
     auto lowAttr = rewriter.getF32FloatAttr(lowValue.getValues<float>()[0]);
     auto highAttr = rewriter.getF32FloatAttr(highValue.getValues<float>()[0]);

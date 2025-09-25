@@ -32,9 +32,9 @@ module @jit__normal attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas
     %cst_23 = stablehlo.constant dense<1.000000e+00> : tensor<50xf32>
     %cst_24 = stablehlo.constant dense<0x7F800000> : tensor<50xf32>
     // CHECK: ttir.rand
-    // CHECK-NOT: stablehlo.bitcast_convert
-    // CHECK-SAME: <{dtype = f32, high = 1.000000e+00 : f32, low = -0.99999994 : f32, seed = 0 : ui32, size = [50 : i32]}>
-    %0 = stablehlo.composite "tenstorrent.uniform" %arg0, %cst_0, %cst {composite_attributes = {dtype = f32, shape = [50]}, decomposition = @tenstorrent.uniform} : (tensor<2xui32>, tensor<f32>, tensor<f32>) -> tensor<50xf32>
+    // CHECK-SAME: dtype = f32, high = 1.000000e+00 : f32, low = -0.99999994 : f32, seed = 0 : ui32, size = [50 : i32]
+    // CHECK-NOT: ttir.logical_right_shift
+    %0 = stablehlo.composite "tenstorrent.uniform" %arg0, %cst_0, %cst {composite_attributes = {dtype = f32, shape = [50 : i32]}, decomposition = @tenstorrent.uniform} : (tensor<2xui32>, tensor<f32>, tensor<f32>) -> tensor<50xf32>
     %1 = stablehlo.negate %0 : tensor<50xf32>
     %2 = stablehlo.multiply %0, %1 : tensor<50xf32>
     %3 = stablehlo.log_plus_one %2 : tensor<50xf32>
