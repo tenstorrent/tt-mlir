@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/cuda/ttcuda.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
+#include "ttmlir/Target/Common/types_generated.h"
 
 namespace tt::runtime::cuda {
 
@@ -187,7 +188,7 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex) {
   // CUDA program executor handles all memory transfers.
   std::shared_ptr<CudaLayoutDesc> layoutDesc = std::make_shared<CudaLayoutDesc>(
-      StorageType::HOST, Layout::ROW_MAJOR, DataType::Float32, std::nullopt);
+      StorageType::HOST, Layout::ROW_MAJOR, DataType::Float32);
 
   return Layout(layoutDesc, DeviceRuntime::CUDA);
 }
@@ -197,13 +198,11 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
                      std::optional<Device> meshDevice) {
   ::flatbuffers::FlatBufferBuilder fbb;
 
-  // Minimal CPU descriptor
   std::vector<::flatbuffers::Offset<tt::target::CPUDesc>> cpuDescs;
   cpuDescs.emplace_back(
       ::tt::target::CreateCPUDesc(fbb, ::tt::target::CPURole::Host,
                                   fbb.CreateString("x86_64-pc-linux-gnu")));
 
-  // Minimal single CUDA device
   std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs;
   std::vector<uint32_t> chipDescIndices = {0};
   std::vector<::tt::target::ChipCapability> chipCapabilities = {
@@ -212,7 +211,6 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
       ::tt::target::ChipCoord(0, 0, 0, 0)};
   std::vector<::tt::target::ChipChannel> allConnections;
 
-  // Create minimal system descriptor
   auto systemDesc = ::tt::target::CreateSystemDescDirect(
       fbb, &cpuDescs, &chipDescs, &chipDescIndices, &chipCapabilities,
       &chipCoords, &allConnections);

@@ -28,6 +28,28 @@ struct CudaDeviceHandle {
   CUcontext context;
 };
 
+struct CudaLayoutDesc {
+  enum class StorageType { HOST, DEVICE };
+
+  enum class Layout { ROW_MAJOR };
+
+  StorageType storageType;
+  Layout layout;
+  ::tt::target::DataType dataType;
+
+  CudaLayoutDesc(StorageType storageType, Layout layout,
+                 ::tt::target::DataType dataType)
+      : storageType(storageType), layout(layout), dataType(dataType) {}
+
+  bool isOnHost() const { return storageType == StorageType::HOST; }
+  bool isOnDevice() const { return storageType == StorageType::DEVICE; }
+
+  bool operator==(const CudaLayoutDesc &other) const {
+    return storageType == other.storageType && layout == other.layout &&
+           dataType == other.dataType;
+  }
+};
+
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs);
