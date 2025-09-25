@@ -14,27 +14,21 @@
 
 namespace mlir::tt::ttir {
 
-#define GEN_PASS_DEF_TTIRALWAYSINSERTSTREAMS
+#define GEN_PASS_DEF_TTIRINSERTSTREAMS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-class TTIRInsertStreams final : public OpRewritePattern<ttir::GenericOp> {
+class TTIRInsertStreamsRewriter final
+    : public OpRewritePattern<ttir::GenericOp> {
 public:
-  TTIRInsertStreams(MLIRContext *context)
-      : OpRewritePattern<ttir::GenericOp>(context) {}
+  TTIRInsertStreamsRewriter(MLIRContext *context, unsigned numStreamBuffers)
+      : OpRewritePattern<ttir::GenericOp>(context),
+        numStreamBuffers(numStreamBuffers) {}
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    // unsigned inputCount = op.getInputs().size();
-    // unsigned outputCount = op.getOutputs().size();
-    // llvm::outs() << "TTIRAlwaysInsertStreams: Inputs: " << inputCount << ",
-    // Outputs: " << outputCount << "\n";
-
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
-      // unsigned operandNum = operand.getOperandNumber();
-      // bool isOutput = operandNum >= inputCount;
-
       if (!needsStream(operand.get())) {
         continue;
       }
@@ -47,13 +41,12 @@ public:
 
   static bool needsStream(Value operand) {
     auto *definingOp = operand.getDefiningOp();
-    // operand is already a stream, abort
     if (mlir::isa_and_nonnull<ttir::StreamLayoutOp>(definingOp)) {
       return false;
     }
 
-    // skip special DMA-only form of generic; stream insertion will break
-    // semantics
+    // Skip special DMA-only form of generic; stream insertion will break
+    // semantics.
     if (auto genericOp = mlir::dyn_cast_or_null<ttir::GenericOp>(definingOp)) {
       // Lack of a compute thread implies this is in special DMA-only form,
       // which should not have streams inferred.
@@ -65,7 +58,7 @@ public:
       }
     }
 
-    // for everything else, it needs a stream!
+    // For everything else, it needs a stream!
     return true;
   }
 
@@ -77,7 +70,8 @@ public:
     auto streamMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), streamAttr,
                         memref.getMemorySpace());
-    auto storageAttr = ttcore::ShardLayoutAttr::get(memref, /*buffers=*/1);
+    auto storageAttr =
+        ttcore::ShardLayoutAttr::get(memref, /*buffers=*/numStreamBuffers);
     auto storageMemref =
         MemRefType::get(memref.getShape(), memref.getElementType(), storageAttr,
                         memref.getMemorySpace());
@@ -87,19 +81,19 @@ public:
     rewriter.modifyOpInPlace(
         op, [&]() { operand.assign(streamLayout.getResult()); });
   }
+  unsigned numStreamBuffers;
 };
 } // namespace
 
 namespace {
-class TTIRAlwaysInsertStreams final
-    : public impl::TTIRAlwaysInsertStreamsBase<TTIRAlwaysInsertStreams> {
+class TTIRInsertStreams final
+    : public impl::TTIRInsertStreamsBase<TTIRInsertStreams> {
 public:
-  using impl::TTIRAlwaysInsertStreamsBase<
-      TTIRAlwaysInsertStreams>::TTIRAlwaysInsertStreamsBase;
+  using impl::TTIRInsertStreamsBase<TTIRInsertStreams>::TTIRInsertStreamsBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRInsertStreams>(&getContext());
+    patterns.add<TTIRInsertStreamsRewriter>(&getContext(), numStreamBuffers);
     if (failed(
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

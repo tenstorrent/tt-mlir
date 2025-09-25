@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-always-insert-streams -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-insert-streams -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #l1 = #ttnn.buffer_type<l1>
@@ -9,12 +9,12 @@
 module {
   // CHECK-LABEL: func @test_allocate_cast
   func.func @test_allocate_cast(%arg0: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout> {
-    // CHECK: %[[CAST:.*]] = ttir.ttnn_metal_layout_cast {{.*}} -> [[MEMREF_LAYOUT:.*]]
+    // CHECK: %[[CAST:.*]] = ttir.ttnn_metal_layout_cast {{.*}}
     // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast
-    // CHECK: %[[ALLOC:.*]] = memref.alloc() : [[MEMREF_LAYOUT]]
-    // CHECK: %[[STREAM:.*]] = "ttir.stream_layout"(%[[CAST]], %[[ALLOC]]) : ([[MEMREF_LAYOUT]], [[MEMREF_LAYOUT]])
-    // CHECK: %[[ALLOC0:.*]] = memref.alloc() : [[MEMREF_LAYOUT]]
-    // CHECK: %[[STREAM0:.*]] = "ttir.stream_layout"(%[[CAST0]], %[[ALLOC0]]) : ([[MEMREF_LAYOUT]], [[MEMREF_LAYOUT]])
+    // CHECK: %[[ALLOC:.*]] = memref.alloc()
+    // CHECK: %[[STREAM:.*]] = "ttir.stream_layout"(%[[CAST]], %[[ALLOC]])
+    // CHECK: %[[ALLOC0:.*]] = memref.alloc()
+    // CHECK: %[[STREAM0:.*]] = "ttir.stream_layout"(%[[CAST0]], %[[ALLOC0]])
     %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x32xf32, #ttnn_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>
     %0 = ttir.empty() : tensor<32x32xf32, #ttnn_layout>
     %cast_0 = ttir.ttnn_metal_layout_cast %0 : tensor<32x32xf32, #ttnn_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>
