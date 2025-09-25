@@ -2518,7 +2518,23 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
 def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Scaled dot product attention operation.";
     let description = [{
-      Applies scaled dot product attention to the input tensor.
+      Scaled dot product attention.
+      The implementation is FlashAttention-2."
+
+      Args:
+          query (ttnn.Tensor): the input tensor.          [b x nh x s x dh]
+          key (ttnn.Tensor): the input tensor.            [b x nkv x s x dh]
+          value (ttnn.Tensor): the input tensor.          [b x nkv x s x dh]
+
+      Keyword args:
+          attn_mask (ttnn.Tensor, optional): Defaults to `None`. [b x 1 x s x s]. Head broadcasting is implied.
+          is_causal (bool): Defaults to `true`.
+          scale (float, optional): Defaults to `None`.
+          memory_config (ttnn.MemoryConfig, optional): Memory configuration for the operation. Defaults to `None`.
+
+
+      Returns:
+          ttnn.Tensor: the output tensor [b x nh x s x dh].
     }];
 
     let arguments = (ins AnyRankedTensor:$query,

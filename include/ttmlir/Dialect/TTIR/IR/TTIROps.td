@@ -5624,7 +5624,23 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
 def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention"> {
   let summary = "Scaled dot product attention operation.";
   let description = [{
-    The scaled_dot_product_attention operation applies scaled dot product attention to the input tensor.
+    Scaled dot product attention.
+    The implementation is FlashAttention-2."
+
+    Args:
+        query (ttnn.Tensor): the input tensor.          [b x nh x s x dh]
+        key (ttnn.Tensor): the input tensor.            [b x nkv x max_seq_len x dh]
+        value (ttnn.Tensor): the input tensor.          [b x nkv x max_seq_len x dh]
+
+    Keyword args:
+        attn_mask (ttnn.Tensor, optional): Defaults to `None`. [b x 1 x s x s]. Head broadcasting is implied.
+        is_causal (bool): Defaults to `true`.
+        scale (float, optional): Defaults to `None`.
+        memory_config (ttnn.MemoryConfig, optional): Memory configuration for the operation. Defaults to `None`.
+
+
+    Returns:
+        ttnn.Tensor: the output tensor [b x nh x s x dh].
   }];
 
   let arguments = (ins AnyRankedTensor:$query,
