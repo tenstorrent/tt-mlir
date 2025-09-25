@@ -1122,7 +1122,7 @@ public:
       rewriter.modifyOpInPlace(entry, [&]() {
         argIndex = ArgSpecAttr::appendRuntimeArg(entry, arg);
       });
-      rewriter.replaceOpWithNewOp<ttkernel::GetArgValOp>(
+      rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
           op, rewriter.getI32Type(), index(rewriter, op->getLoc(), argIndex));
     } else {
       rewriter.modifyOpInPlace(entry, [&]() {
