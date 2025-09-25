@@ -5344,9 +5344,9 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
         The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
 
         Args:
-            query (AnyRankedTensor): the input tensor [1 x b x nh x dh]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
-            key (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
-            value (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
+            query (AnyRankedTensor): the query tensor [1 x b x nh x dh]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
+            key (AnyRankedTensor): the key tensor [b x nkv x   s x dh].
+            value (AnyRankedTensor): the value tensor [b x nkv x   s x dh].
             is_causal (bool, optional): whether the attention is is causal. Defaults to `true`.
             attention_mask (AnyRankedTensor, optional): the attention mask [b x 1 x nh x s].
             cur_pos_tensor (AnyRankedTensor): [b] tensor of integers of length b.
@@ -5380,9 +5380,9 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
     The implementation is FlashAttention-2."
 
     Args:
-        query (ttnn.Tensor): the input tensor.          [b x nh x s x dh]
-        key (ttnn.Tensor): the input tensor.            [b x nkv x max_seq_len x dh]
-        value (ttnn.Tensor): the input tensor.          [b x nkv x max_seq_len x dh]
+        query (ttnn.Tensor): the query tensor.          [b x nh x s x dh]
+        key (ttnn.Tensor): the key tensor.            [b x nkv x max_seq_len x dh]
+        value (ttnn.Tensor): the value tensor.          [b x nkv x max_seq_len x dh]
 
     Keyword args:
         attn_mask (ttnn.Tensor, optional): Defaults to `None`. [b x 1 x s x max_seq_len]. Head broadcasting is implied.
