@@ -4,11 +4,11 @@
 import subprocess
 import os
 import logging
-import importlib.util
+import importlib
 
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
-from ttrt import API as ttrt
+# from ttrt import API as ttrt
 from ttmlir import passes
 from . import utils, mlir
 import pandas as pd
@@ -58,6 +58,9 @@ class ModelRunner:
     This is necessary because the adaptor class is reinitialized on every request from the frontend, so it cannot keep state.
     """
 
+    # TTRT module. dynamically imported to enable or disable module execution.
+    _ttrt = None
+
     # Global static runner state. Initialized once.
     _instance = None
     _explorer_artifacts_dir = None
@@ -72,19 +75,27 @@ class ModelRunner:
 
     # State for models that have been executed.
     # Contains a mapping from model path to ModelState.
-    model_state: dict[ModelState] = dict()
+    model_state: dict[str, ModelState] = dict()
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             logging.info("Creating a new ModelRunner instance.")
             cls._instance = super(ModelRunner, cls).__new__(cls, *args, **kwargs)
+            cls._instance.load_ttrt()
             cls._instance.initialize()
         return cls._instance
+
+    def load_ttrt(self):
+        try:
+            if self._ttrt is None:
+                # Attempt to import the module dynamically
+                self._ttrt = importlib.import_module('ttrt')
+        except ModuleNotFoundError:
+            logging.info("TTRT not available. Models will not be compiled.")
 
     def initialize(self):
         # Initialize machine to generate SystemDesc and load up functionality to begin
         logging.info("Running ttrt initialization.")
-        ttrt.initialize_apis()
 
         if "TT_MLIR_HOME" not in os.environ:
             raise RuntimeError("TT_MLIR_HOME not set. Did you run source env/activate?")
@@ -95,14 +106,18 @@ class ModelRunner:
         self._build_dir = os.environ["TT_MLIR_HOME"] + "/build"
         os.makedirs(self._explorer_artifacts_dir, exist_ok=True)
 
-        # Save the system descriptor.
-        ttrt.Query(
-            args={
-                "--save-artifacts": True,
-                "--artifact-dir": self._explorer_artifacts_dir,
-                "--quiet": True,
-            }
-        )()
+
+        if self._ttrt is not None:
+            self._ttrt.API.initialize_apis()
+
+            # Save the system descriptor.
+            self._ttrt.API.Query(
+                args={
+                    "--save-artifacts": True,
+                    "--artifact-dir": self._explorer_artifacts_dir,
+                    "--quiet": True,
+                }
+            )()
 
         logging.info("ModelRunner initialized.")
 
@@ -241,6 +256,9 @@ class ModelRunner:
 
     def compile_and_run_wrapper(self, model_path, overrides_string):
         try:
+            if self._ttrt is None:
+                raise Exception('TTRT not available. Model execution is disabled.')
+
             self.compile_and_run(model_path, overrides_string)
         except ExplorerRunException as e:
             self.runner_error = str(e)
