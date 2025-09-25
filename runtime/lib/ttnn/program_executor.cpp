@@ -138,7 +138,9 @@ void ProgramExecutor::execute() {
             "Starting execution of program: ", program->name()->c_str());
 
   // Initialize Python interpreter and print hello world
-  Py_Initialize();
+  if (!Py_IsInitialized()) {
+    Py_Initialize();
+  }
   PyRun_SimpleString("print('Hello World from Python interpreter!')");
 
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
