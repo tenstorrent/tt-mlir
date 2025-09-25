@@ -1371,12 +1371,15 @@ _g_mcast_sema_unique = 0
 
 
 @syntax("mcast")
-def mcast(src, dst, start=None, shape=None) -> MemTx:
+def mcast(src, dst, sender=None, start=None, shape=None) -> MemTx:
     global _g_mcast_sema_unique
+    assert sender is not None
     assert start is not None
     assert shape is not None
+    assert isinstance(sender, tuple)
     assert isinstance(start, tuple)
     assert isinstance(shape, tuple)
+    assert len(sender) == 2
     assert len(start) == 2
     assert len(shape) == 2
 
@@ -1407,8 +1410,8 @@ def mcast(src, dst, start=None, shape=None) -> MemTx:
     cy = ttir.core_index(IntegerAttr.get(IntegerType.get_signless(64), 0))
     cx = ttir.core_index(IntegerAttr.get(IntegerType.get_signless(64), 1))
 
-    cmp_y = arith.cmpi(arith.CmpIPredicate.eq, cy, _asindex(start[0]))
-    cmp_x = arith.cmpi(arith.CmpIPredicate.eq, cx, _asindex(start[1]))
+    cmp_y = arith.cmpi(arith.CmpIPredicate.eq, cy, _asindex(sender[0]))
+    cmp_x = arith.cmpi(arith.CmpIPredicate.eq, cx, _asindex(sender[1]))
     cmp = arith.andi(cmp_y, cmp_x)
 
     if_exp = scf.IfOp(cond=cmp, hasElse=True)
@@ -1818,7 +1821,7 @@ def pykernel_gen(
                     True,  # use_loc_for_kernel_name
                     kernel_source_dir,
                     False,  # disable_device_address_validation
-                    False,  # blocking_cq
+                    True,  # blocking_cq
                 )
                 if verbose:
                     print(f"setting tt runtime debug env={debug_env}")

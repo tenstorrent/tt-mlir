@@ -66,8 +66,9 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
                 mcast(
                     lhs_stream[cy * M + m, k],
                     lhs_shard,
-                    start=(cy, 0),
-                    shape=(1, GX),
+                    sender=(cy, 0), # tmp workaround
+                    start=(cy, 1),
+                    shape=(1, GX - 1),
                 )
                 yield lhs_shard
 
@@ -85,8 +86,9 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
                     mcast(
                         rhs_stream[k, cx * N + n],
                         rhs_shard,
-                        start=(0, cx),
-                        shape=(GY, 1),
+                        sender=(0, cx), # tmp workaround
+                        start=(1, cx),
+                        shape=(GY - 1, 1),
                     )
                     yield rhs_shard
 
