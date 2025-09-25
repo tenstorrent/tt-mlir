@@ -348,7 +348,7 @@ def get_dimension_size(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [
         (
-            [(4, 10, 3, 5, 7), (4, 10, 5, 7, 3), (4, 10, 3, 7, 10, 7, 3)],
+            [(4, 10, 3, 5, 7), (4, 10, 5, 7, 3)],
             [0],
             [3],
             [0],
@@ -367,14 +367,12 @@ def test_dot_general(
     def dot_general(
         in0: Operand,
         in1: Operand,
-        out0: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         return builder.dot_general(
             in0,
             in1,
-            out0,
             batch_dims_lhs,
             contract_dims_lhs,
             batch_dims_rhs,
