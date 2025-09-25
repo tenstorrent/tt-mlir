@@ -32,4 +32,5 @@ target_include_directories(TTRuntimeTTNN SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTME
 target_link_libraries(TTRuntimeTTNN PUBLIC TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
 target_link_libraries(TTRuntimeTTNN PUBLIC coverage_config)
 target_link_libraries(TTRuntimeTTNN PUBLIC ${Python3_LIBRARIES})
+target_compile_definitions(TTRuntimeTTNN PRIVATE TTMLIR_RUNTIME_SOURCE_DIR="${PROJECT_SOURCE_DIR}/runtime")
 add_dependencies(TTRuntimeTTNN TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
