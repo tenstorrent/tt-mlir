@@ -247,9 +247,16 @@ set_target_properties(protobuf::libprotoc PROPERTIES
 )
 add_dependencies(protobuf::libprotoc tt-metal)
 
+# Note: protoc binary is handled separately in install commands
+# Cannot create IMPORTED EXECUTABLE targets with :: in name
+
 # Set protobuf variables for downstream projects
 set(TTMETAL_PROTOBUF_INCLUDE_DIR ${TTMETAL_PROTOBUF_INCLUDE_DIR} PARENT_SCOPE)
 set(TTMETAL_PROTOBUF_LIBRARY_DIR ${TTMETAL_PROTOBUF_LIBRARY_DIR} PARENT_SCOPE)
+
+# Export protobuf library targets for downstream projects (like tt-xla)
+# Note: These targets are created at build time after tt-metal is built
+# The install will happen during the build process via the install(CODE ...) below
 
 install(CODE
     "
@@ -283,8 +290,26 @@ install(CODE
             PATTERN \"*.inc\"
         )
       endif()
-      # Install protoc binary
-      if(EXISTS \"${TTMETAL_BUILD_DIR}/_deps/protobuf-build/protoc\")
+      # Install protoc binary - check for versioned protoc first
+      if(EXISTS \"${TTMETAL_BUILD_DIR}/_deps/protobuf-build/protoc-3.21.12.0\")
+        MESSAGE(STATUS \"Installing protoc binary (versioned) to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
+        file(
+            INSTALL
+            ${TTMETAL_BUILD_DIR}/_deps/protobuf-build/protoc-3.21.12.0
+            DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}
+            PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+            RENAME protoc
+        )
+      elseif(EXISTS \"${TTMETAL_BUILD_DIR}/bin/protoc-3.21.12.0\")
+        MESSAGE(STATUS \"Installing protoc binary from bin directory to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
+        file(
+            INSTALL
+            ${TTMETAL_BUILD_DIR}/bin/protoc-3.21.12.0
+            DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}
+            PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+            RENAME protoc
+        )
+      elseif(EXISTS \"${TTMETAL_BUILD_DIR}/_deps/protobuf-build/protoc\")
         MESSAGE(STATUS \"Installing protoc binary to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
         file(
             INSTALL
@@ -292,6 +317,8 @@ install(CODE
             DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}
             PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
         )
+      else()
+        MESSAGE(WARNING \"protoc binary not found in expected locations, skipping protoc installation\")
       endif()
     endif()
     "
