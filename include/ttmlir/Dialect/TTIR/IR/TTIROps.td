@@ -5230,7 +5230,16 @@ def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
     let hasVerifier = 1;
 }
 
-def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
+def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
+  [ Pure
+  , TTIROpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
     let summary = "Mesh shard operation.";
     let description = [{
       MeshShard op shards the inputs (FullToShard) or concatnates the outputs (ShardToFull) for ccl ops.
@@ -5248,7 +5257,7 @@ def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
       For example, on 2x4 mesh hardware, following op shards arg0 to 8 slices, row divided by 2
       and col divided by 4.
 
-        %1 = "ttir.mesh_shard"(%arg0, %0) <
+        %1 = "ttir.mesh_shard"(%arg0) <
           {... shard_direction = #ttcore.shard_direction<full_to_shard>,
                shard_shape = array<i64: 2, 4>,
                shard_dims = array<i64: 0, 1>,
@@ -5257,22 +5266,36 @@ def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
       On the other hand, this op concatnates %4 to single tensor by concatnating
       one of the top row tensor with one of the bottom row tensor.
 
-        %6 = "ttir.mesh_shard"(%4, %5) <
+        %6 = "ttir.mesh_shard"(%4) <
           {..., shard_direction = #ttcore.shard_direction<shard_to_full>,
                 shard_shape = array<i64: 2, 1>,
                 shard_dims = arrray<i64: 1, -1>,
                 shard_type = #ttcore.shard_type<devices>}> : (tensor<4096x16384xf32>, ...) -> tensor<8192x16384xf32>
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
                          TTCore_MeshShardTypeAttr:$shard_type,
                          TTCore_MeshShardDirectionAttr:$shard_direction,
                          DenseI64ArrayAttr:$shard_shape,
                          DenseI64ArrayAttr:$shard_dims
     );
+    let results = (outs AnyRankedTensorOrMemRef:$result);
 
-    let results = (outs AnyRankedTensor:$result);
+    let extraClassDefinition = [{
+      bool $cppClass::bufferizesToMemoryRead(
+          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+        return true;
+      }
+      bool $cppClass::bufferizesToMemoryWrite(
+          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+        return false;
+      }
+      bufferization::AliasingValueList $cppClass::getAliasingValues(
+          OpOperand &, const bufferization::AnalysisState &) {
+        bufferization::AliasingValueList result;
+        return result;
+      }
+    }];
 
     let hasVerifier = 1;
 }
@@ -5561,5 +5584,42 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
 
   let hasVerifier = 1;
 }
+
+def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
+    let summary = "A version of scaled dot product attention specifically for decode.";
+    let description = [{
+      A version of scaled dot product attention specifically for decode.
+        The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
+
+        Args:
+            query (AnyRankedTensor): the input tensor [1 x b x nh x dh]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
+            key (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
+            value (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
+            is_causal (bool, optional): whether the attention is is causal. Defaults to `true`.
+            attention_mask (AnyRankedTensor, optional): the attention mask [b x 1 x nh x s].
+            cur_pos_tensor (AnyRankedTensor): [b] tensor of integers of length b.
+            attention_sink (AnyRankedTensor, optional): the attention sink [nh, 32] (must be a single tile wide).
+            output (AnyRankedTensor): the output DPS operand [1 x b x nh x dh].
+            scale (float, optional): Defaults to `None`.
+
+        Returns:
+            AnyRankedTensor: the output tensor [1 x b x nh x dh].
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                         Optional<AnyRankedTensor>:$attention_mask,
+                         AnyRankedTensor:$cur_pos_tensor,
+                         Optional<AnyRankedTensor>:$attention_sink,
+                         AnyRankedTensor:$output,
+                         OptionalAttr<F32Attr>:$scale);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 
 #endif

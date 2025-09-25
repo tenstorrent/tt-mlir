@@ -18,6 +18,10 @@
 #include "runtime/test.h"
 #endif
 
+#if defined(RUNTIME_UTILS_ENABLED)
+#include "runtime/utils.h"
+#endif
+
 #include "tt/runtime/detail/python/nanobind_headers.h"
 
 namespace nb = nanobind;

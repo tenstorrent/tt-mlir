@@ -241,6 +241,25 @@ public:
 };
 } // namespace
 
+namespace {
+class TTIRMeshShardRewriter : public OpConversionPattern<ttir::MeshShardOp> {
+public:
+  using OpConversionPattern<ttir::MeshShardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MeshShardOp op, ttir::MeshShardOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value input = adaptor.getInput();
+    Value result = op.getResult();
+
+    rewriter.replaceOpWithNewOp<ttmetal::MeshShardOp>(
+        op, result.getType(), input, op.getShardType(), op.getShardDirection(),
+        op.getShardShape(), op.getShardDims());
+    return success();
+  };
+};
+} // namespace
+
 } // namespace mlir::tt::ttmetal
 
 namespace mlir::tt {
@@ -250,7 +269,8 @@ void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                                    TypeConverter & /*typeConverter*/,
                                    ttmetal::MathFidelity mathFidelity) {
   patterns.add<ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
-               ttmetal::TTIRToLayoutRewriter>(ctx);
+               ttmetal::TTIRToLayoutRewriter, ttmetal::TTIRMeshShardRewriter>(
+      ctx);
   patterns.add<ttmetal::TTIRGenericRewriter>(ctx, mathFidelity);
 }
 

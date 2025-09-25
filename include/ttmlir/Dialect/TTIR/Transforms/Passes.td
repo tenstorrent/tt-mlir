@@ -639,4 +639,31 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
   ];
 }
 
+def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation", "::mlir::ModuleOp">
+{
+  let summary = "TTIR multi-device tensor annotation pass.";
+  let description = [{
+    This pass walks through the graph with mesh and add multi-device tensor annotations to tensor encoding.
+
+    Example:
+      Before:
+         %0 = "ttir.mesh_shard"(%arg0) <{shard_dims = array<i64: 0, 1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1024x2048xf32>) -> tensor<512x512xf32>
+        %1 = "ttir.mesh_shard"(%arg1) <{shard_dims = array<i64: 0, 1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1024x2048xf32>) -> tensor<512x512xf32>
+        %2 = ttir.empty() : tensor<512x512xf32>
+        %3 = "ttir.add"(%0, %1, %2) : (tensor<512x512xf32>, tensor<512x512xf32>, tensor<512x512xf32>) -> tensor<512x512xf32>
+        %4 = "ttir.mesh_shard"(%3) <{shard_dims = array<i64: 0, 1>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<512x512xf32>) -> tensor<1024x2048xf32>
+        return %4 : tensor<1024x2048xf32>
+
+      After:
+        %0 = "ttir.mesh_shard"(%arg0) <{shard_dims = array<i64: 0, 1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1024x2048xf32>) -> tensor<512x512xf32, #ttcore.tensor_mesh<"mesh">>
+        %1 = "ttir.mesh_shard"(%arg1) <{shard_dims = array<i64: 0, 1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<1024x2048xf32>) -> tensor<512x512xf32, #ttcore.tensor_mesh<"mesh">>
+        %2 = ttir.empty() : tensor<512x512xf32, #ttcore.tensor_mesh<"mesh">>
+        %3 = "ttir.add"(%0, %1, %2) : (tensor<512x512xf32, #ttcore.tensor_mesh<"mesh">>, tensor<512x512xf32, #ttcore.tensor_mesh<"mesh">>, tensor<512x512xf32, #ttcore.tensor_mesh<"mesh">>) -> tensor<512x512xf32, #ttcore.tensor_mesh<"mesh">>
+        %4 = "ttir.mesh_shard"(%3) <{shard_dims = array<i64: 0, 1>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 2, 4>, shard_type = #ttcore.shard_type<devices>}> : (tensor<512x512xf32, #ttcore.tensor_mesh<"mesh">>) -> tensor<1024x2048xf32>
+        return %4 : tensor<1024x2048xf32>
+  }];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
 #endif
