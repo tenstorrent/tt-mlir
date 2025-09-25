@@ -112,7 +112,8 @@ jobs:
     steps:
     - name: Test array
       run: |
-        echo "$(printf '%q' '${{ toJson(matrix.build.run) }}')"
+        echo ${{ toJson(matrix.build.run) }} > test.json
+        cat test.json
         exit 1
 
     - name: Maximize space
