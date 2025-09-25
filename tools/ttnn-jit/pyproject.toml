@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "pip"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ttnn-jit"
+description = "TTNN Just-In-Time Compilation Interface for TT-MLIR"
+authors = [
+  { name = "Tenstorrent", email = "info@tenstorrent.com" }
+]
+requires-python = ">=3.8"
+keywords = ["ttnn-jit", "tt-mlir", "ttnn", "compiler", "jit", "machine learning", "tenstorrent"]
+license = "Apache-2.0"
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+
+# Dynamic fields populated by setup.py
+dynamic = ["dependencies", "version", "readme", "scripts"]
+
+[project.urls]
+Homepage = "https://docs.tenstorrent.com/tt-mlir/"
+Documentation = "https://docs.tenstorrent.com/tt-mlir/"
+Repository = "https://github.com/tenstorrent/tt-mlir"
+Issues = "https://github.com/tenstorrent/tt-mlir/issues"
+
+[tool.cibuildwheel]
+build = "cp311-manylinux_x86_64*"
+skip = "*-musllinux_*"
+build-verbosity = 2
