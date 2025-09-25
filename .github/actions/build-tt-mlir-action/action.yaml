@@ -136,6 +136,17 @@ runs:
         cmake --install ${{ inputs.build-output-dir }} --component SharedLib
         cmake --install ${{ inputs.build-output-dir }} --component TTNNStandalone
 
+    - name: Build ttnn-standalone
+      shell: bash
+      run: |
+        source env/activate
+        export TT_METAL_HOME="${{ inputs.work-dir }}/third_party/tt-metal/src/tt-metal"
+        export TT_METAL_LIB="${{ inputs.install-output-dir }}/lib"
+        cd tools/ttnn-standalone
+        cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
+        cmake --build build -- ttnn-standalone
+        cp build/ttnn-standalone ${{ inputs.install-output-dir }}/tools/ttnn-standalone
+
     - name: Upload ttrt .whl
       uses: actions/upload-artifact@v4
       with:
@@ -159,7 +170,7 @@ runs:
     - name: Archive Install Directory
       shell: bash
       working-directory: ${{ inputs.install-output-dir }}
-      run: tar cf artifact.tar .
+      run: tar cf artifact.tar lib tt-metal bin tools
 
     - name: Upload Install Folder
       uses: actions/upload-artifact@v4
@@ -174,7 +185,7 @@ runs:
     - name: Archive Build Directory
       shell: bash
       working-directory: ${{ inputs.build-output-dir }}
-      run: tar cf artifact.tar .
+      run: tar cf artifact.tar test runtime bin python_packages python stablehlo shardy
 
     - name: Upload Build Folder
       uses: actions/upload-artifact@v4

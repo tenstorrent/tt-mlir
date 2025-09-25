@@ -263,34 +263,47 @@ static Value createReductionOpChain(Value input, RankedTensorType resultType,
   Value result = input;
   auto inputType = cast<RankedTensorType>(input.getType());
 
+  SmallVector<int64_t> shape(inputType.getShape().begin(),
+                             inputType.getShape().end());
   // For each dimension, create a reduction operation
   for (size_t i = 0; i < sortedDims.size(); ++i) {
     int64_t dim = sortedDims[i];
 
     // Create the axis attribute for this dimension
     auto axisAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(dim));
-
-    // For the last dimension in our chain, use the final result type
-    // For intermediate dimensions, calculate the intermediate shape
     RankedTensorType opResultType;
-    if (i == sortedDims.size() - 1) {
-      opResultType = resultType;
-    } else {
-      SmallVector<int64_t> shape(inputType.getShape().begin(),
-                                 inputType.getShape().end());
-      if (keepDim) {
-        shape[dim] = 1;
-      } else {
-        shape.erase(shape.begin() + dim);
-      }
-      opResultType = RankedTensorType::get(shape, inputType.getElementType());
-    }
+    shape[dim] = 1;
+    opResultType = RankedTensorType::get(shape, inputType.getElementType());
 
     // Create the reduction operation
     result = rewriter.create<ReductionOp>(loc, opResultType, result, axisAttr);
   }
-
+  if (!keepDim) {
+    ArrayRef<int64_t> newShape = resultType.getShape();
+    auto shapeType =
+        tosa::shapeType::get(rewriter.getContext(), newShape.size());
+    auto attr = rewriter.getIndexTensorAttr(newShape);
+    auto shapeOp = rewriter.create<tosa::ConstShapeOp>(loc, shapeType, attr);
+    result = rewriter.create<tosa::ReshapeOp>(loc, resultType, result, shapeOp);
+  }
   return result;
+}
+
+// Helper function to create DenseElementsAttr with a specific value based on
+// element type.
+static Attribute createDenseElementsAttr(RankedTensorType resultType,
+                                         int64_t value) {
+  auto elementType = resultType.getElementType();
+  if (isa<FloatType>(elementType)) {
+    return DenseElementsAttr::get(
+        resultType,
+        APFloat(cast<FloatType>(elementType).getFloatSemantics(), value));
+  }
+  if (isa<IntegerType>(elementType)) {
+    return DenseElementsAttr::get(
+        resultType, APInt(cast<IntegerType>(elementType).getWidth(), value));
+  }
+  return {};
 }
 
 } // namespace
@@ -1448,10 +1461,15 @@ public:
         this->getTypeConverter()->convertType(op.getType()));
 
     assert(resultType && "Result type must be a ranked tensor type.");
-    DenseElementsAttr zerosAttr =
-        DenseElementsAttr::get(resultType, /*value=*/0.0f);
-    auto zeroes =
-        rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, zerosAttr);
+
+    Attribute zeroAttr = createDenseElementsAttr(resultType, 0);
+    if (!zeroAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "Unsupported element type for ReLU zero constant");
+    }
+
+    auto zeroes = rewriter.create<arith::ConstantOp>(
+        op.getLoc(), resultType, cast<DenseElementsAttr>(zeroAttr));
 
     rewriter.replaceOpWithNewOp<linalg::MaxOp>(
         op, resultType, ValueRange{input, zeroes.getResult()},
@@ -1654,6 +1672,109 @@ public:
 };
 } // namespace
 
+namespace {
+class MeanOpConversionPattern : public OpConversionPattern<ttir::MeanOp> {
+public:
+  using OpConversionPattern<ttir::MeanOp>::OpConversionPattern;
+
+  // Mean op is a reduction operation that calculates the average value of a
+  // tensor along a specified dimension. Tosa has reduction ops to calculate the
+  // sum of a tensor along a specified dimension. Sum reduction op can be
+  // divided by the number of elements being reduced to get the average.
+  LogicalResult
+  matchAndRewrite(ttir::MeanOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    auto inputType = cast<RankedTensorType>(input.getType());
+    int64_t rank = inputType.getRank();
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    SmallVector<int64_t> dims = getDimsFromAttribute(op, rank);
+    for (size_t i = 0; i < dims.size(); i++) {
+      if (dims[i] < 0) {
+        dims[i] += inputType.getRank();
+      }
+    }
+    bool keepDim = getKeepDimFromAttribute(op);
+
+    Value sum = createReductionOpChain<tosa::ReduceSumOp>(
+        input, resultType, dims, keepDim, op.getLoc(), rewriter);
+
+    int64_t numElements = 1;
+    for (int64_t dim : dims) {
+      numElements *= inputType.getShape()[dim];
+    }
+
+    Attribute divisorAttr = createDenseElementsAttr(resultType, numElements);
+    if (!divisorAttr) {
+      return rewriter.notifyMatchFailure(op,
+                                         "Unsupported element type for mean");
+    }
+
+    auto divisor = rewriter.create<tosa::ConstOp>(
+        op.getLoc(), resultType, cast<DenseElementsAttr>(divisorAttr));
+
+    auto divOp = rewriter.create<linalg::DivOp>(
+        op.getLoc(), resultType, ValueRange{sum, divisor},
+        ValueRange{adaptor.getOutput()});
+
+    rewriter.replaceOp(op, divOp.getResult(0));
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class SqueezeOpConversionPattern : public OpConversionPattern<ttir::SqueezeOp> {
+public:
+  using OpConversionPattern<ttir::SqueezeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SqueezeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    auto inputType = cast<RankedTensorType>(input.getType());
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    int32_t dim = op.getDim();
+    if (dim < 0) {
+      dim += inputType.getRank();
+    }
+
+    auto inputShape = inputType.getShape();
+    SmallVector<int64_t> newShape;
+    for (int64_t i = 0; i < inputType.getRank(); ++i) {
+      if (i != dim) {
+        newShape.push_back(inputShape[i]);
+      }
+    }
+
+    auto shapeType =
+        tosa::shapeType::get(rewriter.getContext(), newShape.size());
+    auto attr = rewriter.getIndexTensorAttr(newShape);
+    auto shapeOp =
+        rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+
+    auto reshapeOp = rewriter.create<tosa::ReshapeOp>(op.getLoc(), resultType,
+                                                      input, shapeOp);
+
+    // Handle DPS semantics - directly copy to output.
+    Value output = adaptor.getOutput();
+    auto copyOp = rewriter.create<linalg::CopyOp>(
+        op.getLoc(), ValueRange{reshapeOp}, output);
+    rewriter.replaceOp(op, copyOp.getResult(0));
+
+    return success();
+  }
+};
+} // namespace
+
 //===----------------------------------------------------------------------===//
 // Pattern Population
 //===----------------------------------------------------------------------===//
@@ -1706,7 +1827,8 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                CosOpConversionPattern, MatmulOpConversionPattern,
                GatherOpConversionPattern, LogicalNotOpConversionPattern,
                MaxOpConversionPattern, SumOpConversionPattern,
-               ReduceOrOpConversionPattern>(typeConverter, ctx);
+               ReduceOrOpConversionPattern, MeanOpConversionPattern,
+               SqueezeOpConversionPattern>(typeConverter, ctx);
 
   // Special operations
   patterns.add<WhereOpConversionPattern, ReshapeOpConversionPattern,

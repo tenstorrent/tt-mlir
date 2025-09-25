@@ -23,7 +23,7 @@ void populateTTIRToTTIRGenericPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     ttcore::MemorySpace defaultInputMemSpace,
     ttcore::MemorySpace defaultOutputMemSpace,
-    const llvm::SmallVector<int64_t> &targetGridShape);
+    const llvm::SmallVector<int64_t> &targetGridShape, bool ttnnMode);
 
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToTTIRGenericPass();
 std::unique_ptr<OperationPass<ModuleOp>>

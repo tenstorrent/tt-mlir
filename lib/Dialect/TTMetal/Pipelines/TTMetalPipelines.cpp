@@ -82,12 +82,14 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
+
   ttir::TTIRToTTIRGenericOptions toTTIRGenericOptions;
   {
     toTTIRGenericOptions.defaultInputMemSpace = options.defaultInputMemSpace;
     toTTIRGenericOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
     toTTIRGenericOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
+    toTTIRGenericOptions.ttnnMode = options.ttnnMode;
   }
   pm.addPass(tt::createTTIRToTTIRGenericPass(toTTIRGenericOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
@@ -142,9 +144,14 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);
-  ttir::ConvertTTIRToTTMetalOptions ttirToTTMetalOptions;
-  { ttirToTTMetalOptions.mathFidelity = options.mathFidelity; }
-  pm.addPass(tt::createConvertTTIRToTTMetalPass(ttirToTTMetalOptions));
+  if (options.ttnnMode) {
+    // TODO(#5075): set MathFidelity of ttnn generic op.
+    pm.addPass(tt::createConvertD2MToTTNNPass());
+  } else {
+    ttir::ConvertTTIRToTTMetalOptions ttirToTTMetalOptions;
+    { ttirToTTMetalOptions.mathFidelity = options.mathFidelity; }
+    pm.addPass(tt::createConvertTTIRToTTMetalPass(ttirToTTMetalOptions));
+  }
   // Insert DeviceZone scopes around selected ttkernel ops before EmitC
   // lowering.
   if (options.insertProfilerTraces) {

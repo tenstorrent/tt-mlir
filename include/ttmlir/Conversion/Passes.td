@@ -121,6 +121,7 @@ def TTIRToTTIRGeneric: Pass<"ttir-to-ttir-generic", "::mlir::ModuleOp"> {
           )}]>,
       ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
           "Override the device shape.">,
+      Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable translation of TTNN Tensors">,
   ];
 }
 
@@ -221,5 +222,39 @@ let summary = "Convert TTNN dialect to TTIR dialect.";
   let constructor = "createConvertTTNNToTTIRPass()";
   let dependentDialects = ["mlir::tt::ttnn::TTNNDialect", "mlir::tt::ttir::TTIRDialect"];
 }
+
+def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
+  let summary = "Conversion to exit D2M flow into TTNN";
+  let description = [{
+    Conversion pass to convert from TTIR to TTNN by constructing a TTNN Generic op using the TTIRGeneric op.
+    For now assume, input into the TTIRGeneric will always be a stream layout, output is `ttnn_metal_layout_cast`.
+    The input to said stream is also from a cast op. This pass also lifts any ttir.empty with attached ttnn_layout
+    back into a ttnn.empty. The current version does not support intermediate tensor allocations.
+
+    Example:
+    Input IR:
+      %ttnn_input_l1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #l1_memory_config}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
+      %ttnn_output_l1 = ttir.empty() : tensor<32x32xf32, #l1_layout>
+      %metal_input_l1 = ttir.ttnn_metal_layout_cast %ttnn_input_l1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>
+      %metal_output_l1 = ttir.ttnn_metal_layout_cast %ttnn_output_l1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>
+      %storage = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>
+      %stream  = "ttir.stream_layout" (%metal_input_l1, %storage)
+            : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>,
+              memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>)
+            -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #ttcore.memory_space<l1>>
+      ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#ttir.thread<datamovement, @read_kernel>, #ttir.thread<datamovement, @write_kernel>, #ttir.thread<compute, @compute_kernel0>]}
+          ins(%stream : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #ttcore.memory_space<l1>>)
+          outs(%metal_output_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>)
+      %output_l1 = ttir.ttnn_metal_layout_cast
+
+    Output IR (post canonicalization):
+      %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>, <physical>>>}> : (tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout1>
+      %2 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>, <physical>>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout1>
+      "ttnn.generic"(%1, %2) ...
+  }];
+  let constructor = "createConvertD2MToTTNNPass()";
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttnn::TTNNDialect"];
+}
+
 
 #endif // TTMLIR_CONVERSION_PASSES
