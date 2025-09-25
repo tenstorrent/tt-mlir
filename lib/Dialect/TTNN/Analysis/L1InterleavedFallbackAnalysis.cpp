@@ -31,6 +31,8 @@ static size_t failedConsumerBackend = 0;
 static size_t failedConsumerOpConstraints = 0;
 static size_t failedConsumerOutputLayoutMismatch = 0;
 static size_t failedConsumerL1Memory = 0;
+static size_t skippedReshapeNoOp = 0;
+static size_t skippedUserReshapeNoOp = 0;
 
 void L1InterleavedFallbackAnalysis::analysisImplementation() {
   // Counters for statistics
@@ -59,6 +61,8 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   failedConsumerOpConstraints = 0;
   failedConsumerOutputLayoutMismatch = 0;
   failedConsumerL1Memory = 0;
+  skippedReshapeNoOp = 0;
+  skippedUserReshapeNoOp = 0;
   size_t failedUpgrade = 0;
   size_t upgraded = 0;
 
@@ -262,6 +266,11 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   llvm::outs() << "[L1IFA]  Skipped (output is returnOp input): "
                << skippedReturnOp << " (" << percent(skippedReturnOp, totalOps)
                << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (reshape no-op): " << skippedReshapeNoOp
+               << " (" << percent(skippedReshapeNoOp, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (user reshape no-op): "
+               << skippedUserReshapeNoOp << " ("
+               << percent(skippedUserReshapeNoOp, totalOps) << "%)\n";
   llvm::outs() << "[L1IFA]  Attempted upgrades: " << attemptedUpgrade << " ("
                << percent(attemptedUpgrade, totalOps) << "%)\n";
   llvm::outs() << "[L1IFA]  Successful upgrades: " << upgraded << " ("
@@ -447,16 +456,21 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
 
   if (canBeView) {
     if (isUserOp) {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
-                   "can be optimized to view.",
-                   contextOp->getName());
+      ++skippedUserReshapeNoOp;
+      llvm::outs() << "[L1IFA] Skipped op (user reshape can be view): "
+                   << reshapeOp->getOperand(0).getDefiningOp()->getName()
+                   << "\n";
     } else {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
-                   "can be optimized to view.",
-                   contextOp->getName());
+      ++skippedReshapeNoOp;
+      llvm::outs() << "[L1IFA] Skipped op (reshape can be view): "
+                   << reshapeOp->getName() << "\n";
     }
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "L1InterleavedFallbackAnalysis: Skipping {0} or its input "
+                 "producer {1} - reshape "
+                 "can be optimized to view.",
+                 reshapeOp->getName(),
+                 reshapeOp->getOperand(0).getDefiningOp()->getName());
     return true;
   }
 
