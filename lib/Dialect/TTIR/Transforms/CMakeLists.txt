@@ -11,6 +11,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         GenericLowerDMAs.cpp
         GenericRegionsToFuncs.cpp
         InsertDstRegisterAccess.cpp
+        LinAlgLoopFission.cpp
         GenericApplyInterchange.cpp
         GenericTileComputeLoops.cpp
         HoistCPUOps.cpp
