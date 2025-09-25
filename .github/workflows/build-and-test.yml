@@ -98,8 +98,8 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          { enable_op_model: ON, enable_emitc: ON, name: "speedy"},
-          { enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy"},
+          { enable_op_model: ON, enable_emitc: ON, name: "speedy", run: [ {type: "unit"},{type: "ttnn_standalone"} ] },
+          { enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy", run: [ {type: "unit"},{type: "ttnn_standalone"} ]},
         ]
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
@@ -110,6 +110,10 @@ jobs:
       image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
+    - name: Test array
+      run: |
+        echo "${{ toJson(matrix.build.run) }}"
+        exit 1
 
     - name: Maximize space
       if: ${{ needs.build-image.outputs.runner }} == 'ubuntu-latest'
