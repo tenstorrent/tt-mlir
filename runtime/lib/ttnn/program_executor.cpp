@@ -146,6 +146,8 @@ void ProgramExecutor::execute() {
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
+    std::cout << "Operation executed: " << op->debug_info()->c_str()
+              << std::endl;
     dumpPerfCountersIfNeeded();
   }
   LOG_DEBUG(LogType::LogRuntimeTTNN,
