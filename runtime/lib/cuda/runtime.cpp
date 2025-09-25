@@ -2,11 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/cuda/program_executor.h"
 #include "tt/runtime/detail/cuda/ttcuda.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
-#include "ttmlir/Target/Common/types_generated.h"
+#include "ttmlir/Version.h"
+#include "types_generated.h"
 
 namespace tt::runtime::cuda {
 
@@ -188,7 +190,8 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex) {
   // CUDA program executor handles all memory transfers.
   std::shared_ptr<CudaLayoutDesc> layoutDesc = std::make_shared<CudaLayoutDesc>(
-      StorageType::HOST, Layout::ROW_MAJOR, DataType::Float32);
+      CudaLayoutDesc::StorageType::HOST, CudaLayoutDesc::Layout::ROW_MAJOR,
+      target::DataType::Float32);
 
   return Layout(layoutDesc, DeviceRuntime::CUDA);
 }
@@ -198,17 +201,15 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
                      std::optional<Device> meshDevice) {
   ::flatbuffers::FlatBufferBuilder fbb;
 
-  std::vector<::flatbuffers::Offset<tt::target::CPUDesc>> cpuDescs;
+  std::vector<::flatbuffers::Offset<::tt::target::CPUDesc>> cpuDescs;
   cpuDescs.emplace_back(
       ::tt::target::CreateCPUDesc(fbb, ::tt::target::CPURole::Host,
                                   fbb.CreateString("x86_64-pc-linux-gnu")));
 
-  std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs;
-  std::vector<uint32_t> chipDescIndices = {0};
-  std::vector<::tt::target::ChipCapability> chipCapabilities = {
-      ::tt::target::ChipCapability::HostMMIO};
-  std::vector<::tt::target::ChipCoord> chipCoords = {
-      ::tt::target::ChipCoord(0, 0, 0, 0)};
+  std::vector<::flatbuffers::Offset<::tt::target::ChipDesc>> chipDescs;
+  std::vector<uint32_t> chipDescIndices;
+  std::vector<::tt::target::ChipCapability> chipCapabilities;
+  std::vector<::tt::target::ChipCoord> chipCoords;
   std::vector<::tt::target::ChipChannel> allConnections;
 
   auto systemDesc = ::tt::target::CreateSystemDescDirect(
@@ -222,9 +223,15 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
   auto root = ::tt::target::CreateSystemDescRootDirect(
       fbb, &version, "cuda_hash", "cuda_git", "CUDA", systemDesc);
 
-  fbb.Finish(::tt::target::CreateSizePrefixedSystemDescRoot(fbb, root));
+  // Use the correct finish function like the working implementation
+  ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
 
-  return ::tt::runtime::SystemDesc(std::shared_ptr<void>(
-      fbb.GetBufferPointer(), [fbb = std::move(fbb)](void *) mutable {}));
+  // Copy buffer data like the working implementation
+  uint8_t *buf = fbb.GetBufferPointer();
+  auto size = fbb.GetSize();
+  auto handle = ::tt::runtime::utils::mallocShared(size);
+  std::memcpy(handle.get(), buf, size);
+
+  return ::tt::runtime::SystemDesc(handle);
 }
 } // namespace tt::runtime::cuda
