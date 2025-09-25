@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-allocate -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-always-insert-streams -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #l1 = #ttnn.buffer_type<l1>
@@ -13,42 +13,20 @@ module {
     // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast
     // CHECK: %[[ALLOC:.*]] = memref.alloc() : [[MEMREF_LAYOUT]]
     // CHECK: %[[STREAM:.*]] = "ttir.stream_layout"(%[[CAST]], %[[ALLOC]]) : ([[MEMREF_LAYOUT]], [[MEMREF_LAYOUT]])
-    // CHECK-NOT: "ttir.stream_layout"(%[[CAST0]], {{.*}})
+    // CHECK: %[[ALLOC0:.*]] = memref.alloc() : [[MEMREF_LAYOUT]]
+    // CHECK: %[[STREAM0:.*]] = "ttir.stream_layout"(%[[CAST0]], %[[ALLOC0]]) : ([[MEMREF_LAYOUT]], [[MEMREF_LAYOUT]])
     %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x32xf32, #ttnn_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>
     %0 = ttir.empty() : tensor<32x32xf32, #ttnn_layout>
     %cast_0 = ttir.ttnn_metal_layout_cast %0 : tensor<32x32xf32, #ttnn_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>
 
     // CHECK: ins(%[[STREAM]] : {{.*}})
-    // CHECK: outs(%[[CAST0]] : {{.*}})
+    // CHECK: outs(%[[STREAM0]] : {{.*}})
     ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#ttir.thread<compute>]}
       ins(%cast : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>)
       outs(%cast_0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>)  {
     ^compute0(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>, %cb1: memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>):
     }
     %cast_1 = ttir.ttnn_metal_layout_cast %cast_0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1> -> tensor<32x32xf32, #ttnn_layout>
-    return %cast_1 : tensor<32x32xf32, #ttnn_layout>
-  }
-
-  // CHECK-LABEL: func @test_allocate_cast_w_no_cast
-  func.func @test_allocate_cast_w_no_cast(%arg0: tensor<32x32xf32, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout>{
-    // CHECK: %[[CAST:.*]] = ttir.ttnn_metal_layout_cast {{.*}} -> [[MEMREF_LAYOUT:.*]]
-    // CHECK: %[[ALLOC:.*]] = memref.alloc() {address = {{[0-9]+}} : i64, alignment = {{[0-9]+}} : i64} : [[MEMREF_LAYOUT]]
-    // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast
-    // CHECK: %[[ALLOC1:.*]] = memref.alloc() : [[MEMREF_LAYOUT]]
-    // CHECK: %[[STREAM:.*]] = "ttir.stream_layout"(%[[CAST]], %[[ALLOC1]]) : ([[MEMREF_LAYOUT]], [[MEMREF_LAYOUT]])
-    %input0 = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x32xf32, #ttnn_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>
-    %input1 = memref.alloc() :  memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>
-    %0 = ttir.empty() : tensor<32x32xf32, #ttnn_layout>
-    %output = ttir.ttnn_metal_layout_cast %0 : tensor<32x32xf32, #ttnn_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>
-
-    // CHECK: ins(%[[STREAM]], %[[ALLOC]] : {{.*}})
-    // CHECK: outs(%[[CAST0]] : {{.*}})
-    ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#ttir.thread<compute>]}
-      ins(%input0, %input1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>)
-      outs(%output : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>)  {
-    ^compute0(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>, %cb1: memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>, %cb2: memref<1x1x!ttcore.tile<32x32, f32>, #l1_1>):
-    }
-    %cast_1 = ttir.ttnn_metal_layout_cast %output : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1> -> tensor<32x32xf32, #ttnn_layout>
     return %cast_1 : tensor<32x32xf32, #ttnn_layout>
   }
 }

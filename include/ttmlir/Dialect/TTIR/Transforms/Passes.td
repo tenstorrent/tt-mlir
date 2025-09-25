@@ -8,6 +8,18 @@
 include "mlir/Pass/PassBase.td"
 
 
+
+def TTIRAlwaysInsertStreams: Pass<"ttir-always-insert-streams", "::mlir::ModuleOp"> {
+  let summary = "Always create streams for TTIR generic ops.";
+  let description = [{
+    This pass is only available for D2M/TTNN integration (i.e.: when ttnn-mode is on). This pass will aggressively
+    insert a stream for all inputs/outputs of the TTIR generic op.
+
+    Example:
+  }];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
+}
+
 def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {
   let summary = "Broadcast operation is folded to all the consumers.";
   let description = [{
