@@ -24,7 +24,7 @@ namespace mlir::tt::ttir {
 
 namespace {
 
-// Recursively search for tilize/untilize ops.
+/// Recursively search for tilize/untilize ops.
 static bool containsTilizeOrUntilize(Operation *op) {
   if (isa<TileTilizeBlockOp, TileUntilizeBlockOp>(op)) {
     return true;
@@ -39,18 +39,30 @@ static bool containsTilizeOrUntilize(Operation *op) {
   return false;
 }
 
-// Identify if op is a TTIR compute op inside generic region
-static bool isTileComputeOp(Operation *op) {
-  return op->hasTrait<TTIRGenericRegionComputeOpTrait>();
+/// Recursively search for Generic Compute Ops.
+static bool containsTTIRGenericComputeOp(Operation *op) {
+  if (op->hasTrait<TTIRGenericRegionComputeOpTrait>()) {
+    return true;
+  }
+
+  for (Region &region : op->getRegions()) {
+    for (Operation &nestedOp : region.getOps()) {
+      if (containsTTIRGenericComputeOp(&nestedOp)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
-// Find pattern affine.load -> tile_compute -> affine.store within a block.
+/// Stores pattern affine.load -> tile_compute -> affine.store within a block.
 struct LoadComputeStoreTriplet {
   affine::AffineLoadOp load;
   Operation *compute{nullptr};
   affine::AffineStoreOp store;
 };
 
+///
 static std::optional<LoadComputeStoreTriplet> findTripletInBlock(Block &block) {
   affine::AffineLoadOp load = nullptr;
   Operation *compute = nullptr;
@@ -63,10 +75,10 @@ static std::optional<LoadComputeStoreTriplet> findTripletInBlock(Block &block) {
         continue;
       }
     } else if (!compute) {
-      // TODO
+      // TODO(mbagherbeikTT)
       // probably need to reset the status if what's after the load isn't a compute
       // and same if what's after compute isn't store
-      if (isTileComputeOp(&op)) {
+      if (op.hasTrait<TTIRGenericRegionComputeOpTrait>()) {
         compute = &op;
         continue;
       }
@@ -130,8 +142,6 @@ static bool fissionInnermostTriplet(affine::AffineForOp outerFor, RewriterBase &
   // Find the innermost loop to search for triplets.
   affine::AffineForOp innermost = findInnermostLoop(outerFor);
 
-  llvm::errs() << "innermost " << innermost << "\n";
-
   auto maybeTriplet = findTripletInBlock(*innermost.getBody());
   if (!maybeTriplet) {
     return false;
@@ -156,21 +166,23 @@ static bool fissionInnermostTriplet(affine::AffineForOp outerFor, RewriterBase &
     return false;
   }
 
-  llvm::errs() << "load " << triplet.load << " compute " << triplet.compute << " store " << triplet.store << "\n";
+  // Avoids creating an extra loop nest during the last call to this function,
+  // where the loop nest is not populated with any ops as there's nothing after the
+  // store op.
+  if (isa<affine::AffineYieldOp>(triplet.store.getOperation()->getNextNode())) {
+    return false;
+  }
 
   OpBuilder::InsertionGuard g(rewriter);
 
-  // Create three sibling loop nests: pre, middle, post.
+  // Create a deep copy of the affine loop nest
   IRMapping map;
   rewriter.setInsertionPointAfter(outerFor);
-  // auto preNest = cast<affine::AffineForOp>(rewriter.clone(*outerFor.getOperation(), map));
-  // rewriter.setInsertionPointAfter(preNest);
-  // map.clear();
-  // auto midNest = cast<affine::AffineForOp>(rewriter.clone(*outerFor.getOperation(), map));
-  // rewriter.setInsertionPointAfter(midNest);
-  // map.clear();
   auto postNest = cast<affine::AffineForOp>(rewriter.clone(*outerFor.getOperation(), map));
 
+  // Erase operations in original loop nest in a bottom up manner until
+  // we reach the store op. Bottom up order guarantees we don't attempt
+  // to erase ops that have results that have users.
   // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> //
   SmallVector<Operation *> preOps ;
   for (Operation &op : *innermost.getBody()) {
@@ -179,28 +191,24 @@ static bool fissionInnermostTriplet(affine::AffineForOp outerFor, RewriterBase &
   
   int count = preOps.size() - 1;
 
-  // erase operations in a bottom up manner until
-  // we reach the store op
   while (!preOps.empty()) {
-    llvm::errs() << "PRE " << count << "\n";
-
     Operation *lastOp = preOps.pop_back_val();
     if (isa<affine::AffineYieldOp>(lastOp)) {
-      llvm::errs() << ". . . PRE YIELD" << "\n";
       --count;
       continue;
     }
     if (count == storeIdx) {
-      llvm::errs() << ". . . hit storeIdx" << "\n";
       break;
     }
 
-    llvm::errs() << ". . . erasing op" << *lastOp << "\n";
     --count;
     rewriter.eraseOp(lastOp);
   }
   // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< //
 
+
+  // Erase the triplet, starting with the store and moving up, within the
+  // cloned loop nest.
   // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> //
   affine::AffineForOp postNestInnermost = findInnermostLoop(postNest);
   SmallVector<Operation *> postOps ;
@@ -214,10 +222,8 @@ static bool fissionInnermostTriplet(affine::AffineForOp outerFor, RewriterBase &
   // we reach the store op
   while (!postOps.empty()) {
     Operation *lastOp = postOps.pop_back_val();
-    llvm::errs() << "POST " << count << "\n";
 
     if (count <= storeIdx) {
-      llvm::errs() << ". . . erasing op" << *lastOp << "\n";
       rewriter.eraseOp(lastOp);
     }
 
@@ -228,7 +234,7 @@ static bool fissionInnermostTriplet(affine::AffineForOp outerFor, RewriterBase &
 
   return true;
 }
-
+//TODO final loop creates an empty nest because it has nothing after the store to copy
 struct TTIRLinAlgLoopFission
     : public tt::ttir::impl::TTIRLinAlgLoopFissionBase<TTIRLinAlgLoopFission> {
   using TTIRLinAlgLoopFissionBase::TTIRLinAlgLoopFissionBase;
@@ -239,7 +245,6 @@ struct TTIRLinAlgLoopFission
 
     bool changed = false;
     module.walk([&](GenericOp gop) {
-      llvm::errs() << "GOP " << gop << "\n";
       
       // Only compute-only region form.
       if (!gop.isComputeOnlyForm()) {
@@ -249,13 +254,16 @@ struct TTIRLinAlgLoopFission
       if (containsTilizeOrUntilize(gop)) {
         return WalkResult::advance();
       }
-
-      llvm::errs() << "    . . . checking loops . . .\n";
+      // Skip the book-ending load/store loops
+      if (!containsTTIRGenericComputeOp(gop)) {
+        return WalkResult::advance();
+      }
 
       // Find top-level nested affine.for in the compute region and try to fission.
+      // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> //
       Block &computeBlock = gop.getRegion(0).front();
-      llvm::errs() << "    . . . Compute Block " << computeBlock << "\n";
 
+      // Get the innermost scf.for loop first
       scf::ForOp scfInnermost;
 
       for (Operation &op : computeBlock) {
@@ -266,18 +274,17 @@ struct TTIRLinAlgLoopFission
 
       if (scfInnermost) {
         for (Operation &op : *scfInnermost.getBody()) {
-            llvm::errs() << "    . . . . . . Op is: " << op << "\n";
             if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
-                IRRewriter rewriter(ctx);
-                rewriter.setInsertionPoint(forOp);
-                llvm::errs() << "    . . . . . . forOp is: " << forOp << "\n";
-                if (fissionInnermostTriplet(forOp, rewriter)) {
-                    changed = true;
-                    // Continue scanning; multiple triplets may exist.
-                }
+              IRRewriter rewriter(ctx);
+              rewriter.setInsertionPoint(forOp);
+
+              if (fissionInnermostTriplet(forOp, rewriter)) {
+                  changed = true;
+              }
             }
         }
-    }
+      }
+      // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< //
       return WalkResult::advance();
     });
 
