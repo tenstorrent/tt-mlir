@@ -16,13 +16,13 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_UPDATEGLOBALTOLOCALSHAPESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
-// Helper function to determine if a ScatterOp represents a safe cache update
-// that doesn't require the full scatter operation error handling.
-// This requires the scatter to have inputs that are either unsharded,
-//  or jointly sharded along the same axis, which must differ from the
-//  scatter axis
+// Helper function to determine if a ScatterOp represents a safe sharded scatter
+//  that doesn't require attr rewriting when running
+//  UpdateGlobalToLocalShapesPass This requires the scatter to have inputs that
+//  are either unsharded, or jointly sharded along the same axis, which must
+//  differ from the scatter axis
 // i.e. both insertedWindowDims and scatterDimsToOperandDims must be orthogonal
-// to the update/input sharding dims
+//  to the update/input sharding dims
 static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
                                  mlir::sdy::MeshOp &globalMeshOp) {
   mlir::stablehlo::ScatterDimensionNumbersAttr scatterDimensionNumbers =
@@ -37,7 +37,7 @@ static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
           scatterOp.getOperation()->getOpOperand(0), globalMeshOp)
           .getDimShardings();
 
-  // Get sharding info for updates (assuming first update operand)
+  // Get sharding info for updates
   llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> updateDimShardings =
       shardy_utils::getOperandShardingAttr(
           scatterOp.getOperation()->getOpOperand(2), globalMeshOp)
@@ -57,12 +57,11 @@ static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
     return false;
   }
 
+  // expect the inputs and updates to have the same size
   mlir::RankedTensorType scatterInput =
       mlir::dyn_cast<mlir::RankedTensorType>(scatterInputs.front().getType());
   auto scatterUpdate =
       mlir::dyn_cast<mlir::RankedTensorType>(scatterUpdates.front().getType());
-
-  // expect the inputs and updates to have the same size
   if (scatterInput.getShape().size() != scatterUpdate.getShape().size()) {
     return false;
   }
@@ -77,7 +76,6 @@ static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
   auto scatterAxis = insertedWindowDims.front();
 
   // figure out sharding axis
-
   // input and updates must be sharded equivalently
   if (!inputDimShardings.equals(updateDimShardings)) {
     return false;
