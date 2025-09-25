@@ -12,7 +12,6 @@
 
 #include "binary/binary.h"
 #include "runtime/runtime.h"
-#include "runtime/utils.h"
 
 #if defined(RUNTIME_TEST_ENABLED)
 #include "runtime/test.h"

@@ -6,9 +6,6 @@ if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
 
   if (TTMLIR_ENABLE_PYKERNEL)
     add_subdirectory(pykernel)
-  endif()
-
-  if (TTMLIR_ENABLE_TTNN_JIT)
     add_subdirectory(ttnn-jit)
   endif()
 
