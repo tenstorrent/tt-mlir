@@ -315,8 +315,15 @@ ToLayoutOp::CompoundComponents ToLayoutOp::compoundComponents() {
   auto inputTensor = mlir::cast<mlir::RankedTensorType>(inputType);
   auto outputTensor = mlir::cast<mlir::RankedTensorType>(outputType);
 
-  const bool hasInputLayout = inputTensor.getEncoding() != nullptr;
-  const bool hasOutputLayout = outputTensor.getEncoding() != nullptr;
+  ttcore::MetalLayoutAttr inputLayout =
+      mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+          inputTensor.getEncoding());
+  ttcore::MetalLayoutAttr outputLayout =
+      mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+          outputTensor.getEncoding());
+
+  const bool hasInputLayout = inputLayout != nullptr;
+  const bool hasOutputLayout = outputLayout != nullptr;
 
   // Layout versus no layout special case.
   if (hasInputLayout != hasOutputLayout) {
@@ -340,11 +347,6 @@ ToLayoutOp::CompoundComponents ToLayoutOp::compoundComponents() {
   }
 
   // Both have layouts--do a full comparison.
-  ttcore::MetalLayoutAttr inputLayout =
-      mlir::cast<ttcore::MetalLayoutAttr>(inputTensor.getEncoding());
-  ttcore::MetalLayoutAttr outputLayout =
-      mlir::cast<ttcore::MetalLayoutAttr>(outputTensor.getEncoding());
-
   components.isMemorySpaceChange =
       inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
 
@@ -381,20 +383,32 @@ ToLayoutOp::fold(FoldAdaptor,
 bool ToLayoutOp::isHostToDevice() {
   const bool hostInput =
       mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding() ==
-      nullptr;
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getInput().getType())
+              .getEncoding());
   const bool hostOutput =
       mlir::cast<mlir::RankedTensorType>(getOutput().getType()).getEncoding() ==
-      nullptr;
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getOutput().getType())
+              .getEncoding());
   return hostInput && !hostOutput;
 }
 
 bool ToLayoutOp::isDeviceToHost() {
   const bool hostInput =
       mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding() ==
-      nullptr;
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getInput().getType())
+              .getEncoding());
   const bool hostOutput =
       mlir::cast<mlir::RankedTensorType>(getOutput().getType()).getEncoding() ==
-      nullptr;
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getOutput().getType())
+              .getEncoding());
   return !hostInput && hostOutput;
 }
 
