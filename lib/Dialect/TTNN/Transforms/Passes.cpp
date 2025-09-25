@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -539,30 +540,35 @@ public:
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
-    llvm::outs() << "this is a test\n";
-
-    ttnn::AddOp addOp;
+    // ttir::AddOp addOp;
 
     moduleOp.walk([&](Operation *op) {
-      if (auto target = mlir::dyn_cast<ttnn::AddOp>(op)) {
-        addOp = target;
-        // llvm::outs() << "Found add op: " << target << "\n";
-      }
+      // llvm::outs() << op->getName() << "\n";
+      // if (auto target = mlir::dyn_cast<ttir::AddOp>(op)) {
+      //   addOp = target;
+      //   // llvm::outs() << "Found add op: " << target << "\n";
+      // }
+
+      llvm::outs() << "Printing location for op " << op->getName() << "\n";
+      printLocationStack(op->getLoc(), llvm::outs());
+      llvm::outs() << "\n\n\n\n";
     });
 
-    llvm::outs() << "finished search\n";
+    // llvm::outs() << "\n\nSTART\n\n";
+    // printLocationStack(addOp.getLoc(), llvm::outs());
+    // llvm::outs() << "\nEND\n\n";
 
-    mlir::OpPrintingFlags flags;
-    flags.enableDebugInfo(
-        /*prettyForm=*/true); // show locations, expand callsite locs
-    llvm::outs() << "\n\n\n\n\n";
-    addOp->print(llvm::outs(), flags);
-    llvm::outs() << "\n\n\n\n\n";
-    // addOp.dump();
+    // mlir::OpPrintingFlags flags;
+    // flags.enableDebugInfo(
+    //     /*prettyForm=*/true); // show locations, expand callsite locs
+    // llvm::outs() << "\n\n\n\n\n";
+    // addOp->print(llvm::outs(), flags);
+    // llvm::outs() << "\n\n\n\n\n";
+    // // addOp.dump();
 
-    // Print loc on last add op
-    printExpandedLoc(addOp->getLoc());
-    llvm::outs() << "\n\n\n\n\n";
+    // // Print loc on last add op
+    // printExpandedLoc(addOp->getLoc());
+    // llvm::outs() << "\n\n\n\n\n";
   }
 
   void printExpandedLoc(mlir::Location loc) {
@@ -578,6 +584,46 @@ public:
       loc.print(llvm::outs());
       llvm::outs() << "\n";
     }
+  }
+
+  void printLocationStack(Location loc, raw_ostream &os, int indent = 0) {
+    if (auto callLoc = dyn_cast<CallSiteLoc>(loc)) {
+      os.indent(indent) << "CallSite:\n";
+      os.indent(indent + 2) << "Callee:\n";
+      printLocationStack(callLoc.getCallee(), os, indent + 4);
+      os.indent(indent + 2) << "Caller:\n";
+      printLocationStack(callLoc.getCaller(), os, indent + 4);
+      return;
+    }
+
+    if (auto nameLoc = dyn_cast<NameLoc>(loc)) {
+      os.indent(indent) << "NameLoc: " << nameLoc.getName() << "\n";
+      printLocationStack(nameLoc.getChildLoc(), os, indent + 2);
+      return;
+    }
+
+    if (auto fileLoc = dyn_cast<FileLineColLoc>(loc)) {
+      os.indent(indent) << fileLoc.getFilename().str() << ":"
+                        << fileLoc.getLine() << ":" << fileLoc.getColumn()
+                        << "\n";
+      return;
+    }
+
+    if (auto fused = dyn_cast<FusedLoc>(loc)) {
+      os.indent(indent) << "FusedLoc:\n";
+      for (Location sub : fused.getLocations()) {
+        printLocationStack(sub, os, indent + 2);
+      }
+      return;
+    }
+
+    if (isa<UnknownLoc>(loc)) {
+      os.indent(indent) << "<unknown>\n";
+      return;
+    }
+
+    // Generic fallback (covers other future Location kinds).
+    os.indent(indent) << loc << "\n";
   }
 };
 
