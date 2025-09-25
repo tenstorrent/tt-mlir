@@ -1357,115 +1357,112 @@ private:
 };
 } // namespace
 
-// namespace {
-// class SplitQueryKeyValueAndSplitHeadsUpdatePattern
-//     : public mlir::OpRewritePattern<ReshapeOp> {
-//   using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
+namespace {
+class SplitQueryKeyValueAndSplitHeadsUpdatePattern
+    : public mlir::OpRewritePattern<ReshapeOp> {
+  using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
 
-//   enum InputDimensions {
-//     BATCH_SIZE = 0,
-//     SEQUENCE_LENGTH = 1,
-//     HIDDEN_DIMENSIONS = 2,
-//   };
+  enum InputDimensions {
+    BATCH_SIZE = 0,
+    SEQUENCE_LENGTH = 1,
+    HIDDEN_DIMENSIONS = 2,
+  };
 
-//   mutable std::vector<Operation *> fusableDotOps;
+  mutable std::vector<Operation *> fusableDotOps;
 
-// public:
-//   mlir::LogicalResult
-//   matchAndRewrite(ReshapeOp reshapeOp,
-//                   mlir::PatternRewriter &rewriter) const final {
-//     if (!isFusable(reshapeOp)) {
-//       return mlir::failure();
-//     }
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ReshapeOp reshapeOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    if (!isFusable(reshapeOp)) {
+      return mlir::failure();
+    }
 
-//     // We need to replace 3 dot_general operations with a concat and
-//     dot_general op Value reshapeInput = reshapeOp.getInput();
-//     std::vector<Value> dotOpRhs;
-//     for (Operation *op : fusableDotOps) {
-//       DotGeneralOp dotOp = mlir::cast<DotGeneralOp>(op);
-//       dotOpRhs.push_back(dotOp.getRhs());
-//     }
-//     assert(dotOpRhs.size() == 3 && "Expected 3 dot general ops to fuse");
+    // // We need to replace 3 dot_general operations with a concat and
+    // dot_general op Value reshapeInput = reshapeOp.getInput();
+    // std::vector<Value> dotOpRhs;
+    // for (Operation *op : fusableDotOps) {
+    //   DotGeneralOp dotOp = mlir::cast<DotGeneralOp>(op);
+    //   dotOpRhs.push_back(dotOp.getRhs());
+    // }
+    // assert(dotOpRhs.size() == 3 && "Expected 3 dot general ops to fuse");
 
-//     Value concatOp = utils::createDPSOp<ConcatOp>(rewriter,
-//     reshapeOp.getLoc(),
-//                                       reshapeOp.getResult().getType(),
-//                                       dotOpRhs[0], dotOpRhs[1], dotOpRhs[2]);
+    // Value concatOp = utils::createDPSOp<ConcatOp>(rewriter,
+    // reshapeOp.getLoc(),
+    //                                   reshapeOp.getResult().getType(),
+    //                                   dotOpRhs[0], dotOpRhs[1], dotOpRhs[2]);
 
-//     Value dotOp = utils::createDPSOp<DotGeneralOp>(rewriter,
-//     reshapeOp.getLoc(),
-//                                       reshapeOp.getResult().getType(),
-//                                       reshapeInput, concatOp);
-//     Value splitQKVSplitHeadsOp =
-//     utils::createDPSOp<SplitQueryKeyValueAndSplitHeadsOp>(
-//         rewriter, reshapeOp.getLoc(), reshapeOp.getResult().getType(),
-//         dotOp);
+    // Value dotOp = utils::createDPSOp<DotGeneralOp>(rewriter,
+    // reshapeOp.getLoc(),
+    //                                   reshapeOp.getResult().getType(),
+    //                                   reshapeInput, concatOp);
+    // Value splitQKVSplitHeadsOp =
+    // utils::createDPSOp<SplitQueryKeyValueAndSplitHeadsOp>(
+    //     rewriter, reshapeOp.getLoc(), reshapeOp.getResult().getType(),
+    //     dotOp);
 
-//     re
-//     return mlir::success();
-//   }
+    return mlir::success();
+  }
 
-// private:
+private:
+  bool isValidDotGeneralOp(DotGeneralOp dotOp, Value reshapeResult,
+                           int64_t hiddenSize) const {
+    if (dotOp.getLhs() == reshapeResult) {
+      auto rhsShape = dotOp.getRhs().getType().getShape();
+      if (rhsShape.size() != 2 || rhsShape[0] != hiddenSize ||
+          rhsShape[1] != hiddenSize) {
+        return false;
+      }
+    }
+    Value dotOpResult = dotOp.getResult(); // [sequence_length, hidden_size]
+    auto dotOpResultType = mlir::cast<RankedTensorType>(dotOpResult.getType());
+    if (dotOpResultType.getRank() != 2 ||
+        dotOpResultType.getShape()[0] != hiddenSize ||
+        dotOpResultType.getShape()[1] != hiddenSize) {
+      return false;
+    }
+    return true;
+  }
 
-//   bool isValidDotGeneralOp(DotGeneralOp dotOp, Value reshapeResult,
-//                            int64_t hiddenSize) const {
-//     if (dotOp.getLhs() == reshapeResult) {
-//       auto rhsShape = dotOp.getRhs().getType().getShape();
-//       if (rhsShape.size() != 2 || rhsShape[0] != hiddenSize ||
-//           rhsShape[1] != hiddenSize) {
-//         return false;
-//       }
-//     }
-//     Value dotOpResult = dotOp.getResult(); // [sequence_length, hidden_size]
-//     auto dotOpResultType =
-//     mlir::cast<RankedTensorType>(dotOpResult.getType()); if
-//     (dotOpResultType.getRank() != 2 ||
-//         dotOpResultType.getShape()[0] != hiddenSize ||
-//         dotOpResultType.getShape()[1] != hiddenSize) {
-//       return false;
-//     }
-//     return true;
-//   }
+  bool isFusable(ReshapeOp reshapeOp) const {
+    // reshape input is [batch_size, sequence_length, hidden_size]
+    // then reshape feeds into 3 different dot general ops as lhs
+    // the rhs argument of dot general is always [hidden_size, hidden_size]
+    fusableDotOps.clear();
+    ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
+    if (inputShape.size() != 3) {
+      return false;
+    }
+    Value reshapeResult = reshapeOp.getResult();
+    auto users = reshapeResult.getUsers();
 
-//   bool isFusable(ReshapeOp reshapeOp) const {
-//     // reshape input is [batch_size, sequence_length, hidden_size]
-//     // then reshape feeds into 3 different dot general ops as lhs
-//     // the rhs argument of dot general is always [hidden_size, hidden_size]
-//     fusableDotOps.clear();
-//     ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
-//     if (inputShape.size() != 3) {
-//       return false;
-//     }
-//     Value reshapeResult = reshapeOp.getResult();
-//     auto users = reshapeResult.getUsers();
+    if (llvm::range_size(users) < 3) { // at least 3 users - Q, K, V
+      return false;
+    }
 
-//     if (llvm::range_size(users) < 3) { // at least 3 users - Q, K, V
-//       return false;
-//     }
+    // auto batchSize = inputShape[BATCH_SIZE];
+    // auto sequenceLength = inputShape[SEQUENCE_LENGTH];
+    auto hiddenSize = inputShape[HIDDEN_DIMENSIONS];
 
-//     // auto batchSize = inputShape[BATCH_SIZE];
-//     // auto sequenceLength = inputShape[SEQUENCE_LENGTH];
-//     auto hiddenSize = inputShape[HIDDEN_DIMENSIONS];
+    int32_t validDotGeneralCount = 0;
 
-//     int32_t validDotGeneralCount = 0;
+    for (mlir::Operation *user : users) {
+      if (auto dotOp = mlir::dyn_cast<DotGeneralOp>(user)) {
+        if (isValidDotGeneralOp(dotOp, reshapeResult, hiddenSize)) {
+          validDotGeneralCount++;
+          fusableDotOps.push_back(dotOp.getOperation());
+        }
+      }
+    }
 
-//     for (mlir::Operation *user : users) {
-//       if (auto dotOp = mlir::dyn_cast<DotGeneralOp>(user)) {
-//         if (isValidDotGeneralOp(dotOp, reshapeResult, hiddenSize)) {
-//           validDotGeneralCount++;
-//           fusableDotOps.push_back(dotOp.getOperation());
-//         }
-//       }
-//     }
+    if (validDotGeneralCount != 3) {
+      return false;
+    }
 
-//     if (validDotGeneralCount != 3) {
-//       return false;
-//     }
-
-//     return true;
-//   }
-// };
-// } // namespace
+    return true;
+  }
+};
+} // namespace
 
 namespace {
 class ConcatenateHeadsUpdatePattern : public mlir::OpRewritePattern<ReshapeOp> {

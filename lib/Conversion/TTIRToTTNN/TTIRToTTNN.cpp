@@ -1764,6 +1764,40 @@ public:
     return success();
   }
 };
+
+class SplitQueryKeyValuesAndSplitHeadsOpConversionPattern
+    : public OpConversionPattern<ttir::SplitQueryKeyValuesAndSplitHeadsOp> {
+public:
+  using OpConversionPattern<
+      ttir::SplitQueryKeyValuesAndSplitHeadsOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SplitQueryKeyValuesAndSplitHeadsOp op,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Convert result types
+    auto queryType =
+        this->getTypeConverter()->convertType(op.getQuery().getType());
+    auto keyType = this->getTypeConverter()->convertType(op.getKey().getType());
+    auto valueType =
+        this->getTypeConverter()->convertType(op.getValue().getType());
+
+    // Create the TTNN op with 3 results
+    auto ttnnOp = rewriter.create<ttnn::SplitQueryKeyValuesAndSplitHeadsOp>(
+        op.getLoc(), TypeRange{queryType, keyType, valueType},
+        adaptor.getInputTensor(),
+        adaptor.getKvInputTensor(), // This is optional, will be nullptr if not
+                                    // present
+        adaptor.getNumHeadsAttr(),
+        adaptor.getNumKvHeadsAttr(), // This is optional
+        adaptor.getTransposeKeyAttr(),
+        /*memory_config=*/nullptr);
+
+    // Replace the original op with the three results
+    rewriter.replaceOp(op, ttnnOp.getResults());
+    return success();
+  }
+};
 } // namespace
 
 // This rewrite pattern lowers a ttir.all_to_all op into a sequence of
@@ -1972,7 +2006,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,
            CollectiveBroadcastOpConversionPattern,
-           ConcatenateHeadsOpConversionPattern
+           ConcatenateHeadsOpConversionPattern,
+           SplitQueryKeyValuesAndSplitHeadsOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
