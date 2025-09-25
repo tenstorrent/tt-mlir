@@ -90,13 +90,21 @@ private:
 
   // Check if a reshape operation should be skipped based on tt-metal TTNN
   // optimization rules. Returns true if the operation should be skipped, false
-  // otherwise. reference:
+  // otherwise.
+  //
+  // This check is performed in two contexts:
+  // 1. When checking the reshape operation itself - upgrading its output tensor
+  //    would change buffer type, potentially breaking tt-metal's view
+  //    optimization
+  // 2. Before that, alongside checking reshape's predecessor, producer of its
+  //    input tensor - upgrading the producer would change the
+  //    buffer type of reshape's input tensor, again potentially breaking
+  //    tt-metal's view optimization.
+  //
+  // reference:
   // ttnn::operations::data_movement::ReshapeViewOperation::invoke
-  // Parameters:
-  // - reshapeOp: The reshape operation to analyze
-  // - isUserOp: true if this is a user reshape check, false for direct reshape
   // TODO(bmalesevic,#5086): replace to dynamic check when tt-metal fixed
-  bool checkReshapeSkip(Operation *reshapeOperation, bool isUserOp) const;
+  bool checkReshapeSkip(Operation *reshapeOperation) const;
 
   // Try to upgrade an operation to L1 interleaved layout by testing available
   // L1 configurations and selecting the first one that passes validation.
