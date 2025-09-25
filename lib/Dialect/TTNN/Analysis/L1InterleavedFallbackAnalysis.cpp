@@ -104,12 +104,21 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       return;
     }
 
-    if (isa<ttnn::ReshapeOp>(op) && checkReshapeSkip(op, false)) {
-      return;
+    if (isa<ttnn::ReshapeOp>(op)) {
+      // Output of reshape op is considered for keeping in DRAM, only if its
+      // input is still in DRAM.
+      auto inputType =
+          mlir::dyn_cast<mlir::RankedTensorType>(op->getOperand(0).getType());
+      auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
+      if (ttnnLayout.hasDRAMBufferType() && checkReshapeSkip(op)) {
+        return;
+      }
     }
     for (auto *user : op->getUsers()) {
+      // Input of reshape user is considered for keeping in DRAM, only if its
+      // output is still in DRAM.
       if (isa<ttnn::ReshapeOp>(user) && utils::producesDRAMLayout(user) &&
-          checkReshapeSkip(user, true)) {
+          checkReshapeSkip(user)) {
         return;
       }
     }
@@ -196,11 +205,10 @@ bool L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(Operation *op) {
 }
 
 bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
-    Operation *reshapeOperation, bool isUserOp) const {
+    Operation *reshapeOperation) const {
 
   auto reshapeOp = cast<ttnn::ReshapeOp>(reshapeOperation);
 
-  // Get input and output shapes
   auto inputType = mlir::dyn_cast<mlir::RankedTensorType>(
       reshapeOp->getOperand(0).getType());
   auto outputType =
@@ -209,53 +217,31 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
   auto outputShape = outputType.getShape();
 
   assert(inputShape != outputShape &&
-         "No-op identity reshape should have been removed in TTIR "
-         "canonicalization passes.");
+         "Identity reshapes should have been removed by TTIR canonicalization");
 
-  // Check if this reshape can be optimized to a view (TTNN-style check)
-  if (inputShape.size() < 1 && outputShape.size() < 1) {
+  // Early return for rank=0 reshapes - special case, don't need view
+  // optimization checks
+  if (inputShape.size() < 1 || outputShape.size() < 1) {
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                 "L1InterleavedFallbackAnalysis: Skipping {0} - {1} reshape "
-                 "to/from rank 0 tensor.",
-                 isUserOp ? reshapeOp->getOperand(0).getDefiningOp()->getName()
-                          : reshapeOp->getName(),
-                 isUserOp ? "user" : "");
+                 "L1InterleavedFallbackAnalysis: Skipping {0} or its input "
+                 "producer {1} - reshape rank=0 - "
+                 "tt-metal handles scalar reshapes independently of layout.",
+                 reshapeOp->getName(),
+                 reshapeOp->getOperand(0).getDefiningOp()->getName());
     return false;
   }
   // Get last dimensions
   int64_t inputLastDim = inputShape.back();
   int64_t outputLastDim = outputShape.back();
 
-  // Get second-to-last dimensions (or 1 if rank < 2)
+  // Get second-to-last dimensions (or 1 if rank == 1)
   int64_t inputSecondLastDim =
       inputShape.size() >= 2 ? inputShape[inputShape.size() - 2] : 1;
   int64_t outputSecondLastDim =
       outputShape.size() >= 2 ? outputShape[outputShape.size() - 2] : 1;
 
-  // TTNN view conditions adapted for MLIR:
-  // 1. Last dimension must be the same
-  // 2. Either second-to-last dimension is the same OR no tile padding OR
-  // row-major input
-  // 3. Sharded/Interleaved must match for output and input
-  // 4. L1/DRAM must match for output and input
   const int64_t tileHeight = 32; // tt::constants::TILE_HEIGHT
   const int64_t tileWidth = 32;  // tt::constants::TILE_WIDTH
-
-  // Checking if the other tensor is sharded/interleaved:
-  // Input if we are checking the output of the op
-  // Output if we are checking the input of the op
-  bool otherTensorSharded = false;
-  if (isUserOp) {
-    if (auto ttnnLayout =
-            mlir::dyn_cast<TTNNLayoutAttr>(outputType.getEncoding())) {
-      otherTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
-    }
-  } else {
-    if (auto ttnnLayout =
-            mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding())) {
-      otherTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
-    }
-  }
 
   bool inputTensorTiled = false;
   if (auto ttnnLayout =
@@ -263,26 +249,30 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
     inputTensorTiled = ttnnLayout.isTiled();
   }
 
+  // Conditions reshape can be optimized to a view operation (based on tt-metal
+  // logic):
+  // 1. Last dimension must be the same
+  // 2. Either second-to-last dimension is the same OR no tile padding OR
+  // row-major input
+  // 3. Sharded/Interleaved must match for output and input
+  // 4. L1/DRAM must match for output and input
   bool canBeView =
-      // 1. Sharded/Interleaved must match for output and input for metal
-      // optimization (always false for tensor checked for upgrade since in
-      // DRAM -> never sharded) so there is no point to keep the tensor in
-      // DRAM if the other is L1 sharded.
-      // 2. Since sharding is the only way any of these can already be in
-      // L1, and the other must be in DRAM to be considered for upgrade,
-      // checking sharding covers the input.isL1() == output.isL1() as well.
-      !otherTensorSharded && (inputLastDim == outputLastDim) &&
+      // 1. Sharded/Interleaved and L1/DRAM match for output and input is
+      // already checked, as the tensor being considered for upgrade is DRAM
+      // Interleaved, and the other one is checked to be DRAM as well before
+      // this function.
+      (inputLastDim == outputLastDim) &&
       (!inputTensorTiled || (inputSecondLastDim == outputSecondLastDim) ||
        (outputSecondLastDim % tileHeight == 0 &&
         inputSecondLastDim % tileWidth == 0));
 
   if (canBeView) {
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                 "L1InterleavedFallbackAnalysis: Skipping {0} - {1} reshape "
+                 "L1InterleavedFallbackAnalysis: Skipping {0} or its input "
+                 "producer {1} - reshape "
                  "can be optimized to view.",
-                 isUserOp ? reshapeOp->getOperand(0).getDefiningOp()->getName()
-                          : reshapeOp->getName(),
-                 isUserOp ? "user" : "");
+                 reshapeOp->getName(),
+                 reshapeOp->getOperand(0).getDefiningOp()->getName());
     return true;
   }
 
