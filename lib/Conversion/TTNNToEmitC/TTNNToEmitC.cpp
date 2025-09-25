@@ -2441,12 +2441,6 @@ public:
         emitter(srcOp, adaptor, rewriter);
 
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-    std::optional<float> scale =
-        srcOp.getScale()
-            ? std::make_optional(srcOp.getScale().value().convertToFloat())
-            : std::nullopt;
-    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
-
     // ttnn::transformer::scaled_dot_product_attention_decode requires current
     // position information per batch. This can either be passed as a tensor or
     // as a uint vector. We will use the tensor argument as this is a runtime
@@ -2462,9 +2456,10 @@ public:
                                "std::vector<uint32_t>()"),
         emitter.emit(srcOp.getCurPosTensor()),
         emitter.emit(srcOp.getAttentionSink()),
-        emitter.emit(scale),
+        emitter.emit(srcOp.getScale()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
     emitter.replaceOp(*this, args);
 
