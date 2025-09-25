@@ -39,6 +39,16 @@ target_link_libraries(_ttmlir_runtime
 )
 add_dependencies(_ttmlir_runtime TTMLIRRuntime)
 
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  target_compile_options(nanobind-static PRIVATE
+      -Wno-cast-qual
+      -Wno-zero-length-array
+      -Wno-nested-anon-types
+      -Wno-c++98-compat-extra-semi
+      -Wno-covered-switch-default
+  )
+endif()
+
 if (TTMLIR_ENABLE_RUNTIME)
   # Isolate utils.cpp to a separate TU to avoid pulling in pybinds.
   add_library(_mlir_runtime_utils OBJECT runtime/utils.cpp)
