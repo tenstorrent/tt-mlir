@@ -13,6 +13,7 @@
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/DenseMap.h"
 
+#include <cstddef>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -104,7 +105,9 @@ private:
   // reference:
   // ttnn::operations::data_movement::ReshapeViewOperation::invoke
   // TODO(bmalesevic,#5086): replace to dynamic check when tt-metal fixed
-  bool checkReshapeSkip(Operation *reshapeOperation) const;
+  bool checkReshapeSkip(Operation *reshapeOperation, bool isUserOp,
+                        size_t &skippedReshapeNoOp,
+                        size_t &skippedUserReshapeNoOp) const;
 
   // Try to upgrade an operation to L1 interleaved layout by testing available
   // L1 configurations and selecting the first one that passes validation.

@@ -46,6 +46,8 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   size_t skippedNotOneUser = 0;
   size_t skippedNotImmediate = 0;
   size_t skippedReturnOp = 0;
+  size_t skippedReshapeNoOp = 0;
+  size_t skippedUserReshapeNoOp = 0;
   size_t attemptedUpgrade = 0;
   // Failure reason counters for checkUpgradeToL1Interleaved
   failedBackend = 0;
@@ -202,7 +204,9 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       auto inputType =
           mlir::dyn_cast<mlir::RankedTensorType>(op->getOperand(0).getType());
       auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
-      if (ttnnLayout.hasDRAMBufferType() && checkReshapeSkip(op)) {
+      if (ttnnLayout.hasDRAMBufferType() &&
+          checkReshapeSkip(op, false, skippedReshapeNoOp,
+                           skippedUserReshapeNoOp)) {
         return;
       }
     }
@@ -210,7 +214,8 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       // Input of reshape user is considered for keeping in DRAM, only if its
       // output is still in DRAM.
       if (isa<ttnn::ReshapeOp>(user) && utils::producesDRAMLayout(user) &&
-          checkReshapeSkip(user)) {
+          checkReshapeSkip(user, true, skippedReshapeNoOp,
+                           skippedUserReshapeNoOp)) {
         return;
       }
     }
@@ -274,6 +279,11 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   llvm::outs() << "[L1IFA]  Skipped (output is returnOp input): "
                << skippedReturnOp << " (" << percent(skippedReturnOp, totalOps)
                << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (reshape no-op): " << skippedReshapeNoOp
+               << " (" << percent(skippedReshapeNoOp, totalOps) << "%)\n";
+  llvm::outs() << "[L1IFA]  Skipped (user reshape no-op): "
+               << skippedUserReshapeNoOp << " ("
+               << percent(skippedUserReshapeNoOp, totalOps) << "%)\n";
   llvm::outs() << "[L1IFA]  Attempted upgrades: " << attemptedUpgrade << " ("
                << percent(attemptedUpgrade, totalOps) << "%)\n";
   llvm::outs() << "[L1IFA]  Successful upgrades: " << upgraded << " ("
@@ -394,7 +404,8 @@ bool L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(Operation *op) {
 }
 
 bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
-    Operation *reshapeOperation) const {
+    Operation *reshapeOperation, bool isUserOp, size_t &skippedReshapeNoOp,
+    size_t &skippedUserReshapeNoOp) const {
 
   auto reshapeOp = cast<ttnn::ReshapeOp>(reshapeOperation);
 
@@ -456,6 +467,16 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
         inputSecondLastDim % tileWidth == 0));
 
   if (canBeView) {
+    if (isUserOp) {
+      ++skippedUserReshapeNoOp;
+      llvm::outs() << "[L1IFA] Skipped op (user reshape can be view): "
+                   << reshapeOp->getOperand(0).getDefiningOp()->getName()
+                   << "\n";
+    } else {
+      ++skippedReshapeNoOp;
+      llvm::outs() << "[L1IFA] Skipped op (reshape can be view): "
+                   << reshapeOp->getName() << "\n";
+    }
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                  "L1InterleavedFallbackAnalysis: Skipping {0} or its input "
                  "producer {1} - reshape "
