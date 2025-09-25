@@ -2547,7 +2547,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
 
     let results = (outs AnyRankedTensor:$result);
 
-    let hasVerifier = 0;
+    let hasVerifier = 1;
 }
 
 #endif
