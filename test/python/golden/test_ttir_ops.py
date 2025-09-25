@@ -1179,7 +1179,7 @@ def test_max_pool2d(
     [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
 )
 @pytest.mark.parametrize("shapes", [[(1, 128, 128, 32), (1, 64, 64, 32)]])
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 2])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_max_pool2d(
     shapes: List[Shape],
