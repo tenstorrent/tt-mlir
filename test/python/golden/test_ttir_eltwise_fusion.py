@@ -90,7 +90,7 @@ def eltwise_fuse_div_ladder_max_inputs(
     )
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "test_fn", 
@@ -115,6 +115,7 @@ def test_eltwise_binary_op_ladder_max_inputs(
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
     )
 
 ### ------------------------------------------------------------------------ ###
@@ -136,7 +137,7 @@ def eltwise_fuse_div_ladder_max_inputs_plus_1(
     )
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "test_fn", 
@@ -161,6 +162,7 @@ def test_eltwise_binary_op_ladder_max_inputs_plus_1(
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
     )
 
 ### ------------------------------------------------------------------------ ###
@@ -216,7 +218,7 @@ def eltwise_fuse_div_tree_max_inputs(
     )
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "test_fn", 
@@ -241,6 +243,7 @@ def test_eltwise_binary_op_tree_max_inputs(
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
     )
 
 ### ------------------------------------------------------------------------ ###
@@ -365,6 +368,7 @@ def test_eltwise_binary_op_tree_max_inputs_plus_1(
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
     )
 
 ### ------------------------------------------------------------------------ ###
@@ -387,10 +391,10 @@ def converging_unary_branches(
     return builder.div(branch_0_2, branch_1_2)
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_converging_unary_branches(shape: Shape, dtype: torch.dtype, target: str, request):
-    options = []
+    options = ["override-device-shape=4,4"]
     compile_ttir_to_flatbuffer(
         converging_unary_branches,
         [shape]*2,
@@ -401,6 +405,7 @@ def test_converging_unary_branches(shape: Shape, dtype: torch.dtype, target: str
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
     )
 
 ### ------------------------------------------------------------------------ ###
@@ -422,7 +427,7 @@ def diamond_unary_op_fanout(
     return builder.div(sin_0, cos_1)
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_diamond_unary_op_fanout(shape: Shape, dtype: torch.dtype, target: str, request):
     options = []
@@ -436,6 +441,7 @@ def test_diamond_unary_op_fanout(shape: Shape, dtype: torch.dtype, target: str, 
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
     )
 
 def diamond_binary_op_fanout(
@@ -461,7 +467,7 @@ def diamond_binary_op_fanout(
     return div_fanin
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_diamond_unary_fanout(shape: Shape, dtype: torch.dtype, target: str, request):
     options = []
@@ -475,6 +481,7 @@ def test_diamond_unary_fanout(shape: Shape, dtype: torch.dtype, target: str, req
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
     )
 
 ### ------------------------------------------------------------------------ ###
@@ -515,7 +522,7 @@ def eltwise_unary_chain(
     return res_19
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_unary_chain(shape: Shape, dtype: torch.dtype, target: str, request):
     options = []
@@ -529,6 +536,7 @@ def test_eltwise_unary_chain(shape: Shape, dtype: torch.dtype, target: str, requ
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
     )
 
 
@@ -574,7 +582,7 @@ def big_one(
 
 
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_big_one(shape: Shape, dtype: torch.dtype, target: str, request):
     options = []
@@ -588,6 +596,7 @@ def test_big_one(shape: Shape, dtype: torch.dtype, target: str, request):
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
     )
 
 # ttkernel compute config attribute theres a flag for fp32 dest --> globally off?  
@@ -658,6 +667,7 @@ def eltwise_unary_chain_multi_tile(
     
     return res_3
 
+# @pytest.mark.parametrize("option")
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])

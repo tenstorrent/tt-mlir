@@ -3,6 +3,16 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Broadcast.cpp
         ExplicateTMs.cpp
         FlattenSlidingWindow.cpp
+        GenericLinearizeMemref.cpp
+        GenericGenerateDatamovement.cpp
+        GenericGenerateLoops.cpp
+        GenericHWThreadSelection.cpp
+        GenericLowerDMAs.cpp
+        GenericRegionsToFuncs.cpp
+        InsertDstRegisterAccess.cpp
+        LinAlgLoopFission.cpp
+        GenericApplyInterchange.cpp
+        GenericTileComputeLoops.cpp
         HoistCPUOps.cpp
         ElementTypeNormalization.cpp
         Quantization.cpp

@@ -24,6 +24,21 @@ def TTIRElementwiseFusion : Pass<"ttir-elementwise-fusion", "::mlir::ModuleOp"> 
   ];
 }
 
+def TTIRLinAlgLoopFission : Pass<"ttir-linalg-loop-fission", "::mlir::ModuleOp"> {
+  let summary = "Perform loop fission inside ttir.generic compute regions for load→compute→store triplets";
+  let description = [{
+    This pass scans `ttir.generic` compute regions that do not contain any tilize/untilize ops,
+    finds nested affine loop nests, and performs loop fission (distribution) by extracting
+    sequences of the form `affine.load → ttir tile compute op → affine.store` into separate
+    loop nests, preserving the original loop bounds and indices.
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::ttir::TTIRDialect",
+    "::mlir::affine::AffineDialect"
+  ];
+}
+
 def TTIRGenericTileComputeLoops : Pass<"ttir-generic-tile-compute-loops", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{

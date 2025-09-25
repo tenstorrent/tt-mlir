@@ -139,6 +139,9 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
+  // Perform loop fission inside compute regions when applicable
+  pm.addPass(ttir::createTTIRLinAlgLoopFission());
+
   OpPassManager &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(affine::createAffineLoopInvariantCodeMotionPass());
 
