@@ -111,6 +111,12 @@ protected:
     DenseIntElementsAttr collapsedIntervals =
         DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
 
+    ttcore::TensorMemoryLayout memLayout =
+        (ttnnLayout.getMemLayout().getValue() ==
+         ttnn::TensorMemoryLayout::Interleaved)
+            ? ttcore::TensorMemoryLayout::Interleaved
+            : ttcore::TensorMemoryLayout::Sharded;
+
     // The index map in TTNNLayoutAttr is for collapsing an N-D tensor on to
     // the grid. It has no relevance to the index map in MetalLayoutAttr.
     // Hardcode collapse intervals to [[0, -1]].
@@ -118,7 +124,7 @@ protected:
     // the tensor is sharded
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), targetSquareGridShape,
-        ttcore::OOBVal::Undef, memSpace, collapsedIntervals);
+        ttcore::OOBVal::Undef, memSpace, memLayout, collapsedIntervals);
 
     llvm::SmallVector<int64_t> unshardedShape =
         metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
@@ -153,7 +159,7 @@ protected:
 
     auto layout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), logicalShape, targetSquareGridShape,
-        ttcore::OOBVal::Undef, memSpace);
+        ttcore::OOBVal::Undef, memSpace, ttcore::TensorMemoryLayout::Sharded);
 
     // Get raw, unsharded physical shape.
     llvm::SmallVector<int64_t> unshardedShape =
@@ -906,7 +912,8 @@ public:
     auto resultLayout = ttcore::MetalLayoutAttr::get(
         ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
         inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
-        inputLayout.getMemorySpace(), composedMap);
+        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+        composedMap);
 
     auto viewType = mlir::RankedTensorType::get(
         resultShape, inputTensorType.getElementType(), resultLayout);
