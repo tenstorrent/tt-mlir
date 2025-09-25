@@ -104,16 +104,13 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       return;
     }
 
-    if (isa<ttnn::ReshapeOp>(op)) {
-      if (checkReshapeSkip(op, op, false)) {
-        return;
-      }
+    if (isa<ttnn::ReshapeOp>(op) && checkReshapeSkip(op, false)) {
+      return;
     }
     for (auto *user : op->getUsers()) {
-      if (isa<ttnn::ReshapeOp>(user) && utils::producesDRAMLayout(user)) {
-        if (checkReshapeSkip(user, op, true)) {
-          return;
-        }
+      if (isa<ttnn::ReshapeOp>(user) && utils::producesDRAMLayout(user) &&
+          checkReshapeSkip(user, true)) {
+        return;
       }
     }
     tryUpgradeToL1Interleaved(op);
@@ -199,7 +196,7 @@ bool L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(Operation *op) {
 }
 
 bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
-    Operation *reshapeOperation, Operation *contextOp, bool isUserOp) const {
+    Operation *reshapeOperation, bool isUserOp) const {
 
   auto reshapeOp = cast<ttnn::ReshapeOp>(reshapeOperation);
 
@@ -211,93 +208,81 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
   auto inputShape = inputType.getShape();
   auto outputShape = outputType.getShape();
 
-  // Skip if reshape is a no-op (same shape in and out).
-  if (inputShape == outputShape) {
-    if (isUserOp) {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
-                   "no-op.",
-                   contextOp->getName());
-    } else {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
-                   "no-op.",
-                   contextOp->getName());
-    }
-    return true;
-  }
+  assert(inputShape != outputShape &&
+         "No-op identity reshape should have been removed in TTIR "
+         "canonicalization passes.");
 
   // Check if this reshape can be optimized to a view (TTNN-style check)
-  bool canBeView = false;
-  if (inputShape.size() >= 1 && outputShape.size() >= 1) {
-    // Get last dimensions
-    int64_t inputLastDim = inputShape.back();
-    int64_t outputLastDim = outputShape.back();
+  if (inputShape.size() < 1 && outputShape.size() < 1) {
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "L1InterleavedFallbackAnalysis: Skipping {0} - {1} reshape "
+                 "to/from rank 0 tensor.",
+                 isUserOp ? reshapeOp->getOperand(0).getDefiningOp()->getName()
+                          : reshapeOp->getName(),
+                 isUserOp ? "user" : "");
+    return false;
+  }
+  // Get last dimensions
+  int64_t inputLastDim = inputShape.back();
+  int64_t outputLastDim = outputShape.back();
 
-    // Get second-to-last dimensions (or 1 if rank < 2)
-    int64_t inputSecondLastDim =
-        inputShape.size() >= 2 ? inputShape[inputShape.size() - 2] : 1;
-    int64_t outputSecondLastDim =
-        outputShape.size() >= 2 ? outputShape[outputShape.size() - 2] : 1;
+  // Get second-to-last dimensions (or 1 if rank < 2)
+  int64_t inputSecondLastDim =
+      inputShape.size() >= 2 ? inputShape[inputShape.size() - 2] : 1;
+  int64_t outputSecondLastDim =
+      outputShape.size() >= 2 ? outputShape[outputShape.size() - 2] : 1;
 
-    // TTNN view conditions adapted for MLIR:
-    // 1. Last dimension must be the same
-    // 2. Either second-to-last dimension is the same OR no tile padding OR
-    // row-major input
-    // 3. Sharded/Interleaved must match for output and input
-    // 4. L1/DRAM must match for output and input
-    const int64_t tileHeight = 32; // tt::constants::TILE_HEIGHT
-    const int64_t tileWidth = 32;  // tt::constants::TILE_WIDTH
+  // TTNN view conditions adapted for MLIR:
+  // 1. Last dimension must be the same
+  // 2. Either second-to-last dimension is the same OR no tile padding OR
+  // row-major input
+  // 3. Sharded/Interleaved must match for output and input
+  // 4. L1/DRAM must match for output and input
+  const int64_t tileHeight = 32; // tt::constants::TILE_HEIGHT
+  const int64_t tileWidth = 32;  // tt::constants::TILE_WIDTH
 
-    // Checking if the other tensor is sharded/interleaved:
-    // Input if we are checking the output of the op (this reshape is contextOp)
-    // Output if we are checking the input of the op (this reshape is user of
-    // contextOp)
-    bool otherTensorSharded = false;
-    if (isUserOp) {
-      if (auto ttnnLayout =
-              mlir::dyn_cast<TTNNLayoutAttr>(outputType.getEncoding())) {
-        otherTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
-      }
-    } else {
-      if (auto ttnnLayout =
-              mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding())) {
-        otherTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
-      }
+  // Checking if the other tensor is sharded/interleaved:
+  // Input if we are checking the output of the op
+  // Output if we are checking the input of the op
+  bool otherTensorSharded = false;
+  if (isUserOp) {
+    if (auto ttnnLayout =
+            mlir::dyn_cast<TTNNLayoutAttr>(outputType.getEncoding())) {
+      otherTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
     }
-
-    bool inputTensorTiled = false;
+  } else {
     if (auto ttnnLayout =
             mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding())) {
-      inputTensorTiled = ttnnLayout.isTiled();
+      otherTensorSharded = ttnnLayout.hasShardedL1TensorMemoryLayout();
     }
-
-    canBeView =
-        // 1. Sharded/Interleaved must match for output and input for metal
-        // optimization (always false for tensor checked for upgrade since in
-        // DRAM -> never sharded) so there is no point to keep the tensor in
-        // DRAM if the other is L1 sharded.
-        // 2. Since sharding is the only way any of these can already be in
-        // L1, and the other must be in DRAM to be considered for upgrade,
-        // checking sharding covers the input.isL1() == output.isL1() as well.
-        !otherTensorSharded && (inputLastDim == outputLastDim) &&
-        (!inputTensorTiled || (inputSecondLastDim == outputSecondLastDim) ||
-         (outputSecondLastDim % tileHeight == 0 &&
-          inputSecondLastDim % tileWidth == 0));
   }
 
+  bool inputTensorTiled = false;
+  if (auto ttnnLayout =
+          mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding())) {
+    inputTensorTiled = ttnnLayout.isTiled();
+  }
+
+  bool canBeView =
+      // 1. Sharded/Interleaved must match for output and input for metal
+      // optimization (always false for tensor checked for upgrade since in
+      // DRAM -> never sharded) so there is no point to keep the tensor in
+      // DRAM if the other is L1 sharded.
+      // 2. Since sharding is the only way any of these can already be in
+      // L1, and the other must be in DRAM to be considered for upgrade,
+      // checking sharding covers the input.isL1() == output.isL1() as well.
+      !otherTensorSharded && (inputLastDim == outputLastDim) &&
+      (!inputTensorTiled || (inputSecondLastDim == outputSecondLastDim) ||
+       (outputSecondLastDim % tileHeight == 0 &&
+        inputSecondLastDim % tileWidth == 0));
+
   if (canBeView) {
-    if (isUserOp) {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "L1InterleavedFallbackAnalysis: Skipping {} - user reshape "
-                   "can be optimized to view.",
-                   contextOp->getName());
-    } else {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "L1InterleavedFallbackAnalysis: Skipping {} - reshape "
-                   "can be optimized to view.",
-                   contextOp->getName());
-    }
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "L1InterleavedFallbackAnalysis: Skipping {0} - {1} reshape "
+                 "can be optimized to view.",
+                 isUserOp ? reshapeOp->getOperand(0).getDefiningOp()->getName()
+                          : reshapeOp->getName(),
+                 isUserOp ? "user" : "");
     return true;
   }
 
@@ -488,7 +473,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       llvm::Error error = nextConsumerOpL1Layout.takeError();
       std::string errorStr = llvm::toString(std::move(error));
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                   "L1 upgrade blocked for {} - for consumer {}: {}",
+                   "L1 upgrade blocked for {0} - for consumer {1}: {2}",
                    consumerOp->getName().getStringRef().data(),
                    nextConsumerOp->getName().getStringRef().data(), errorStr);
       return llvm::createStringError(

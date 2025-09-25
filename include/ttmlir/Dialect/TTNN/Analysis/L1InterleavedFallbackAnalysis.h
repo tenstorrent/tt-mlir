@@ -91,13 +91,12 @@ private:
   // Check if a reshape operation should be skipped based on tt-metal TTNN
   // optimization rules. Returns true if the operation should be skipped, false
   // otherwise. reference:
-  // ttnn::operations::data_movement::ReshapeViewOperation::invoke Parameters:
+  // ttnn::operations::data_movement::ReshapeViewOperation::invoke
+  // Parameters:
   // - reshapeOp: The reshape operation to analyze
-  // - contextOp: The operation context for logging (producer op for user
-  // reshapes)
   // - isUserOp: true if this is a user reshape check, false for direct reshape
-  bool checkReshapeSkip(Operation *reshapeOperation, Operation *contextOp,
-                        bool isUserOp) const;
+  // TODO(bmalesevic,#5086): replace to dynamic check when tt-metal fixed
+  bool checkReshapeSkip(Operation *reshapeOperation, bool isUserOp) const;
 
   // Try to upgrade an operation to L1 interleaved layout by testing available
   // L1 configurations and selecting the first one that passes validation.
