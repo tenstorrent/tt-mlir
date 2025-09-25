@@ -268,9 +268,10 @@ struct EmitPyTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {
 };
 
 // Converter for floating point types. Double is the only type that makes sense
-// to convert to in Python.
-template <>
-struct EmitPyTypeConverter<double> {
+// to convert to in Python so we always convert to double.
+template <typename T>
+struct EmitPyTypeConverter<
+    T, std::enable_if_t<std::is_floating_point_v<T>, void>> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto floatAttr = mlir::dyn_cast_if_present<mlir::FloatAttr>(attr)) {
       return convert(floatAttr);
@@ -871,14 +872,6 @@ private:
     return buf;
   }
 };
-
-// Python's builtin float is actually double precision, so we always convert
-// floating point types to double. This disables conversion to single precision
-// float on purpose.
-//
-template <typename T>
-struct EmitPyTypeConverter<T,
-                           std::enable_if_t<std::is_same_v<T, float>, void>> {};
 
 template <>
 struct EmitPyTypeConverter<mlir::ElementsAttr> {
