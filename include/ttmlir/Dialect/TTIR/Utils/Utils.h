@@ -117,12 +117,6 @@ auto splitAndCall(mlir::OpBuilder &builder, mlir::Location loc,
       builder, loc, output, std::forward<ArgsTy>(args)...);
 }
 } // namespace detail
-// Calculate a reblocking affine map from inputShape to outputShape. Shapes are
-// expressed as [grid..., shard...], and the returned map is defined over the
-// combined device rank (grid rank + shard rank).
-mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
-                                    mlir::ArrayRef<int64_t> outputShape,
-                                    mlir::MLIRContext *ctx);
 
 // Check if the given OpTy has the DestinationStyleOpInterface trait.
 template <typename OpTy>
@@ -263,11 +257,6 @@ mlir::ValueRange getDpsOutputsFromAdaptor(AdaptorT adaptor,
          "not enough operands for numDpsInits");
   return operands.take_back(numDpsInits);
 }
-
-// Helper to find largest square grid inside given targetGridShape. E.g. 13x10
-// => 10x10.
-llvm::SmallVector<int64_t, 2>
-getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape);
 
 } // namespace mlir::tt::ttir::utils
 
