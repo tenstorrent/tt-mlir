@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -33,11 +34,13 @@ protected:
 
   TTIRNamedRewriterCommon(ttcore::MemorySpace defaultInputMemSpace,
                           ttcore::MemorySpace defaultOutputMemSpace,
-                          const llvm::SmallVector<int64_t> &targetGridShape)
+                          const llvm::SmallVector<int64_t> &targetGridShape,
+                          bool ttnnMode)
       : memorySpaces{defaultInputMemSpace, defaultOutputMemSpace},
         targetGridShape(targetGridShape),
         targetSquareGridShape(
-            ttir::utils::getSquareTargetGrid(targetGridShape)) {
+            ttir::utils::getSquareTargetGrid(targetGridShape)),
+        ttnnMode(ttnnMode) {
     assert(!targetGridShape.empty());
   }
 
@@ -65,10 +68,77 @@ protected:
     return grid;
   }
 
+  static bool isTTNNTensor(Type type) {
+    auto tensor = mlir::dyn_cast<RankedTensorType>(type);
+    return tensor &&
+           mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(tensor.getEncoding());
+  }
+
+  void assertTTNNLayoutSupported(ttnn::TTNNLayoutAttr ttnnLayout) const {
+    assert(ttnnLayout.isDeviceBufferType() && "Must be a device tensor");
+
+    // With these assumptions we can use the default alignment and dim
+    // collapsing behaviour in the MetalLayoutAttr
+    assert(ttnnLayout.isTiled() &&
+           "Row major TTNN layouts are not supported yet");
+    assert(
+        mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getHeight() ==
+            ttcore::TileType::getDefaultShape()[0] &&
+        "Only default tile shape is supported");
+    assert(ttnnLayout.hasL1BufferType() &&
+           ttnnLayout.getMemLayout().getValue() ==
+               ttnn::TensorMemoryLayout::BlockSharded &&
+           "Only block sharded L1 tensor memory layout is supported");
+  }
+
+  RankedTensorType
+  getMetalTensorFromTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
+                               Value value) const {
+    auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+    auto ttnnLayout =
+        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+
+    assertTTNNLayoutSupported(ttnnLayout);
+
+    ttcore::MemorySpace memSpace =
+        ttnnLayout.getBufferType() == ttnn::BufferType::DRAM
+            ? ttcore::MemorySpace::DeviceDRAM
+            : ttcore::MemorySpace::DeviceL1;
+
+    Type elementType = ttnnLayout.getElementType();
+    auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
+    auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
+    DenseIntElementsAttr collapsedIntervals =
+        DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
+
+    // The index map in TTNNLayoutAttr is for collapsing an N-D tensor on to
+    // the grid. It has no relevance to the index map in MetalLayoutAttr.
+    // Hardcode collapse intervals to [[0, -1]].
+    // MetalLayoutAttr takes the grid shape of the device, not the grid on which
+    // the tensor is sharded
+    auto metalLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), tensorType.getShape(), targetSquareGridShape,
+        ttcore::OOBVal::Undef, memSpace, collapsedIntervals);
+
+    llvm::SmallVector<int64_t> unshardedShape =
+        metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
+
+    llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
+        ttnnLayout.getGrid().getShape(), ttcore::TileType::getDefaultShape());
+
+    return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
+  }
+
   // Create a ToLayout op for a value using the provided layout info and grid.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled,
                               mlir::ConversionPatternRewriter &rewriter) const {
+    if (isTTNNTensor(value.getType())) {
+      assert(ttnnMode && "Unexpected TTNN tensor as op operand");
+      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+          value.getLoc(), getMetalTensorFromTTNNTensor(rewriter, value), value);
+    }
+
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
     ArrayRef<int64_t> logicalShape = tensorType.getShape();
 
@@ -127,8 +197,13 @@ protected:
     return result;
   }
 
-  static Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
-                                   Value fromValue, Type toResultType) {
+  Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
+                            Value fromValue, Type toResultType) const {
+    if (isTTNNTensor(toResultType)) {
+      assert(ttnnMode && "Unexpected TTNN tensor as op result");
+      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+          fromValue.getLoc(), toResultType, fromValue);
+    }
     auto output =
         rewriter.create<tt::ttir::EmptyOp>(fromValue.getLoc(), toResultType);
     return rewriter.create<tt::ttir::ToLayoutOp>(fromValue.getLoc(), fromValue,
@@ -223,6 +298,9 @@ protected:
   // tranpose.  This will treat e.g. 13x10 grid as 10x10 (take minimum element
   // in targetGridShape, and extend it to all indexes).
   llvm::SmallVector<int64_t> targetSquareGridShape;
+
+  // Translate TTNN Tensors to Metal Tensors
+  bool ttnnMode;
 };
 } // namespace
 
@@ -241,10 +319,10 @@ public:
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       ttcore::MemorySpace defaultInputMemSpace,
       ttcore::MemorySpace defaultOutputMemSpace,
-      const llvm::SmallVector<int64_t> &targetGridShape)
+      const llvm::SmallVector<int64_t> &targetGridShape, bool ttnnMode)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                                targetGridShape) {}
+                                targetGridShape, ttnnMode) {}
 
 private:
   static constexpr bool isComparisonOp =
@@ -379,10 +457,10 @@ public:
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       ttcore::MemorySpace defaultInputMemSpace,
       ttcore::MemorySpace defaultOutputMemSpace,
-      const llvm::SmallVector<int64_t> &targetGridShape)
+      const llvm::SmallVector<int64_t> &targetGridShape, bool ttnnMode)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                                targetGridShape) {}
+                                targetGridShape, ttnnMode) {}
 
 private:
   LogicalResult
@@ -618,10 +696,11 @@ public:
   TTIRMatmulRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
                      ttcore::MemorySpace defaultInputMemSpace,
                      ttcore::MemorySpace defaultOutputMemSpace,
-                     const llvm::SmallVector<int64_t> &targetGridShape)
+                     const llvm::SmallVector<int64_t> &targetGridShape,
+                     bool ttnnMode)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                                targetGridShape) {}
+                                targetGridShape, ttnnMode) {}
 
 private:
   LogicalResult
@@ -770,10 +849,11 @@ public:
                       mlir::MLIRContext *ctx,
                       ttcore::MemorySpace defaultInputMemSpace,
                       ttcore::MemorySpace defaultOutputMemSpace,
-                      const llvm::SmallVector<int64_t> &targetGridShape)
+                      const llvm::SmallVector<int64_t> &targetGridShape,
+                      bool ttnnMode)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         TTIRNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                                targetGridShape) {}
+                                targetGridShape, ttnnMode) {}
 
   LogicalResult
   matchAndRewrite(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
@@ -907,7 +987,7 @@ void populateTTIRToTTIRGenericPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     ttcore::MemorySpace defaultInputMemSpace,
     ttcore::MemorySpace defaultOutputMemSpace,
-    const llvm::SmallVector<int64_t> &targetGridShape) {
+    const llvm::SmallVector<int64_t> &targetGridShape, bool ttnnMode) {
   // clang-format off
   patterns.add<
 
@@ -949,11 +1029,11 @@ void populateTTIRToTTIRGenericPatterns(
     TTIRNamedElementwiseRewriter<ttir::TypecastOp,     ttir::TileTypecastOp>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
     TTIRPermuteRewriter
-  >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
+  >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape, ttnnMode);
 
 
   // Matmul.
-  patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape);
+  patterns.add<TTIRMatmulRewriter<ttir::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape, ttnnMode);
   // clang-format on
 }
 
