@@ -74,11 +74,15 @@ def device(pytestconfig):
     # Use maximum available mesh shape to support all test cases
     # Individual tests will validate their mesh requirements against available devices
     mesh_options = ttrt.runtime.MeshDeviceOptions()
-    mesh_options.dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
+
+    if pytestconfig.getoption("--disable-eth-dispatch"):
+        mesh_options.dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
+    else:
+        mesh_options.dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
 
     # Start with a small mesh shape that should work for most tests
     # Tests requiring larger meshes will be handled appropriately
-    mesh_options.mesh_shape = [2, 1]  # Support up to 2 devices in x dimension
+    mesh_options.mesh_shape = [1, 1]  # Support up to 2 devices in x dimension
 
     opened_device = ttrt.runtime.open_mesh_device(mesh_options)
     print(f"Device opened for test session with mesh shape {mesh_options.mesh_shape}.")
@@ -112,6 +116,11 @@ def pytest_addoption(parser):
         "--require-opmodel",
         action="store_true",
         help="Require tests to run only if build has opmodel enabled",
+    )
+    parser.addoption(
+        "--disable-eth-dispatch",
+        action="store_true",
+        help="disable putting dispatch on ethernet cores - place it on worker cores instead; necessary on blackhole",
     )
 
 

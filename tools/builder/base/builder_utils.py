@@ -1306,7 +1306,10 @@ def compile_ttir_module_to_flatbuffer(
         raise TTBuilderCompileException(e)
 
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
-    execute_fb(output_file_fbb, device=device)
+
+    # Only execute `ttnn` and `ttmetal` flatbuffers; `emitpy` needs to be handled differently
+    if target in ["ttnn", "ttmetal"]:
+        execute_fb(output_file_fbb, device=device)
     return output_file_mlir
 
 
