@@ -118,6 +118,9 @@ set(Python3_EXECUTABLE $ENV{TTMLIR_VENV_DIR}/bin/python3)
 include(FindMLIR)
 include(TTMLIRVersion)
 
+# Set PROJECT_VERSION for package configuration
+set(PROJECT_VERSION "${TTMLIR_VERSION_MAJOR}.${TTMLIR_VERSION_MINOR}.${TTMLIR_VERSION_PATCH}")
+
 add_library(coverage_config INTERFACE)
 if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   # Add required flags (GCC & LLVM/Clang)
@@ -190,3 +193,28 @@ add_subdirectory(docs)
 add_subdirectory(cmake/modules)
 
 include(LintTools)
+
+# Export targets are handled via cmake/modules/CMakeLists.txt
+# Individual targets install their own export sets as needed
+
+# Package configuration for downstream projects
+include(CMakePackageConfigHelpers)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/TTMLIRConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/TTMLIRConfig.cmake"
+    INSTALL_DESTINATION lib/cmake/TTMLIR
+)
+
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/TTMLIRConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY AnyNewerVersion
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/TTMLIRConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/TTMLIRConfigVersion.cmake"
+    DESTINATION lib/cmake/TTMLIR
+    COMPONENT SharedLib
+)

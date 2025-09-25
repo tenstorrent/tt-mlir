@@ -1,6 +1,9 @@
 set(ttmlir_cmake_builddir "${CMAKE_BINARY_DIR}/lib/cmake/ttmlir")
 
 set_property(GLOBAL APPEND PROPERTY TTMLIR_EXPORTS "TTMLIRTTKernelToEmitC;MLIRTTTransforms;MLIRTTCoreDialect;MLIRTTNNDialect;TTMLIRTTNNUtils;MLIRTTKernelDialect;MLIRTTMetalDialect;TTNNOpModelLib;MLIRTTNNInterfaces;coverage_config")
+
+# Note: Protobuf targets are handled separately via TTMLIRConfig.cmake.in
+# since they are external project dependencies that are not available during CMake configuration
 get_property(TTMLIR_EXPORTS GLOBAL PROPERTY TTMLIR_EXPORTS)
 export(TARGETS ${TTMLIR_EXPORTS} FILE ${ttmlir_cmake_builddir}/TTMLIRTargets.cmake)
 
@@ -12,6 +15,15 @@ set(TTMLIR_CONFIG_INCLUDE_DIRS
   "${TTMLIR_SOURCE_DIR}/include"
   )
 
+# Set protobuf paths for config template (when available)
+if (DEFINED TTMETAL_PROTOBUF_INCLUDE_DIR)
+  set(TTMLIR_CONFIG_PROTOBUF_INCLUDE_DIR "${TTMETAL_PROTOBUF_INCLUDE_DIR}")
+  set(TTMLIR_CONFIG_PROTOBUF_LIBRARY_DIR "${TTMETAL_PROTOBUF_LIBRARY_DIR}")
+else()
+  set(TTMLIR_CONFIG_PROTOBUF_INCLUDE_DIR "")
+  set(TTMLIR_CONFIG_PROTOBUF_LIBRARY_DIR "")
+endif()
+
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/TTMLIRConfig.cmake.in
   ${ttmlir_cmake_builddir}/TTMLIRConfig.cmake
@@ -20,3 +32,5 @@ set(TTMLIR_CONFIG_CMAKE_DIR)
 set(TTMLIR_CONFIG_LIBRARY_DIRS)
 set(TTMLIR_CONFIG_INCLUDE_EXPORTS)
 set(TTMLIR_CONFIG_INCLUDE_DIRS)
+set(TTMLIR_CONFIG_PROTOBUF_INCLUDE_DIR)
+set(TTMLIR_CONFIG_PROTOBUF_LIBRARY_DIR)

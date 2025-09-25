@@ -117,10 +117,13 @@ ExternalProject_Add(
     -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
     -DENABLE_LIBCXX=OFF
     -DENABLE_DISTRIBUTED=${ENABLE_DISTRIBUTED}
+    -DBUILD_SHARED_LIBS=ON
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
   GIT_TAG ${TT_METAL_VERSION}
   GIT_PROGRESS OFF
   BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTNN_PY_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH} ${TT_STL_LIBRARY_PATH}
+  INSTALL_COMMAND ${CMAKE_COMMAND} --build ${METAL_BUILD_DIR} --target install
 )
 
 ExternalProject_Add_StepTargets(tt-metal download update configure)
@@ -215,6 +218,46 @@ foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
   add_dependencies(${lib_name} tt-metal)
 endforeach()
 
+# Expose protobuf targets from tt-metal build to downstream projects
+set(TTMETAL_PROTOBUF_LIBRARY_DIR ${TTMETAL_BUILD_DIR}/_deps/protobuf-build)
+set(TTMETAL_PROTOBUF_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/protobuf/015fab22471269b76cc86d83a230da3c050068ba/src)
+
+# Create imported protobuf targets that point to tt-metal's protobuf build
+add_library(protobuf::libprotobuf STATIC IMPORTED GLOBAL)
+set_target_properties(protobuf::libprotobuf PROPERTIES
+  EXCLUDE_FROM_ALL TRUE
+  IMPORTED_LOCATION ${TTMETAL_PROTOBUF_LIBRARY_DIR}/libprotobuf.a
+  INTERFACE_INCLUDE_DIRECTORIES ${TTMETAL_PROTOBUF_INCLUDE_DIR}
+)
+add_dependencies(protobuf::libprotobuf tt-metal)
+
+add_library(protobuf::libprotobuf-lite STATIC IMPORTED GLOBAL)
+set_target_properties(protobuf::libprotobuf-lite PROPERTIES
+  EXCLUDE_FROM_ALL TRUE
+  IMPORTED_LOCATION ${TTMETAL_PROTOBUF_LIBRARY_DIR}/libprotobuf-lite.a
+  INTERFACE_INCLUDE_DIRECTORIES ${TTMETAL_PROTOBUF_INCLUDE_DIR}
+)
+add_dependencies(protobuf::libprotobuf-lite tt-metal)
+
+add_library(protobuf::libprotoc STATIC IMPORTED GLOBAL)
+set_target_properties(protobuf::libprotoc PROPERTIES
+  EXCLUDE_FROM_ALL TRUE
+  IMPORTED_LOCATION ${TTMETAL_PROTOBUF_LIBRARY_DIR}/libprotoc.a
+  INTERFACE_INCLUDE_DIRECTORIES ${TTMETAL_PROTOBUF_INCLUDE_DIR}
+)
+add_dependencies(protobuf::libprotoc tt-metal)
+
+# Note: protoc binary is handled separately in install commands
+# Cannot create IMPORTED EXECUTABLE targets with :: in name
+
+# Set protobuf variables for downstream projects
+set(TTMETAL_PROTOBUF_INCLUDE_DIR ${TTMETAL_PROTOBUF_INCLUDE_DIR} PARENT_SCOPE)
+set(TTMETAL_PROTOBUF_LIBRARY_DIR ${TTMETAL_PROTOBUF_LIBRARY_DIR} PARENT_SCOPE)
+
+# Export protobuf library targets for downstream projects (like tt-xla)
+# Note: These targets are created at build time after tt-metal is built
+# The install will happen during the build process via the install(CODE ...) below
+
 install(CODE
     "
     MESSAGE(STATUS \"Installing tt-metal shared lib dependencies (${library_paths}) to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")
@@ -224,7 +267,41 @@ install(CODE
         DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
         TYPE SHARED_LIBRARY
         FOLLOW_SYMLINK_CHAIN
-    )"
+    )
+    # Install protobuf libraries from tt-metal build
+    if(EXISTS \"${TTMETAL_PROTOBUF_LIBRARY_DIR}\")
+      MESSAGE(STATUS \"Installing protobuf libraries from ${TTMETAL_PROTOBUF_LIBRARY_DIR} to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")
+      file(
+          INSTALL
+          ${TTMETAL_PROTOBUF_LIBRARY_DIR}/libprotobuf.a
+          ${TTMETAL_PROTOBUF_LIBRARY_DIR}/libprotobuf-lite.a
+          ${TTMETAL_PROTOBUF_LIBRARY_DIR}/libprotoc.a
+          DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
+      )
+      # Install protobuf headers
+      if(EXISTS \"${TTMETAL_PROTOBUF_INCLUDE_DIR}\")
+        MESSAGE(STATUS \"Installing protobuf headers from ${TTMETAL_PROTOBUF_INCLUDE_DIR} to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}\")
+        file(
+            INSTALL
+            ${TTMETAL_PROTOBUF_INCLUDE_DIR}/
+            DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}
+            FILES_MATCHING
+            PATTERN \"*.h\"
+            PATTERN \"*.inc\"
+        )
+      endif()
+      # Install protoc binary
+      if(EXISTS \"${TTMETAL_BUILD_DIR}/_deps/protobuf-build/protoc\")
+        MESSAGE(STATUS \"Installing protoc binary to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
+        file(
+            INSTALL
+            ${TTMETAL_BUILD_DIR}/_deps/protobuf-build/protoc
+            DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}
+            PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+        )
+      endif()
+    endif()
+    "
     COMPONENT SharedLib
 )
 else() # TTMLIR_ENABLE_RUNTIME OR TTMLIR_ENABLE_OPMODEL

@@ -8,6 +8,44 @@ set(TTMLIR_INCLUDE_DIRS "@TTMLIR_CONFIG_INCLUDE_DIRS@")
 set(TTMLIR_LIBRARY_DIRS "@TTMLIR_CONFIG_LIBRARY_DIRS@")
 set(TTMLIR_TOOLS_DIR "@TTMLIR_CONFIG_TOOLS_DIR@")
 
+# Protobuf paths from tt-metal build (when runtime is enabled)
+set(TTMLIR_PROTOBUF_INCLUDE_DIR "@TTMLIR_CONFIG_PROTOBUF_INCLUDE_DIR@")
+set(TTMLIR_PROTOBUF_LIBRARY_DIR "@TTMLIR_CONFIG_PROTOBUF_LIBRARY_DIR@")
+
+# Set up protobuf variables and targets for downstream consumers
+if(TTMLIR_PROTOBUF_LIBRARY_DIR AND EXISTS "${TTMLIR_PROTOBUF_LIBRARY_DIR}")
+    set(TTMLIR_HAS_PROTOBUF TRUE)
+
+    # Create protobuf targets if they don't exist
+    if(NOT TARGET protobuf::libprotobuf AND EXISTS "${TTMLIR_PROTOBUF_LIBRARY_DIR}/libprotobuf.a")
+        add_library(protobuf::libprotobuf STATIC IMPORTED GLOBAL)
+        set_target_properties(protobuf::libprotobuf PROPERTIES
+            IMPORTED_LOCATION "${TTMLIR_PROTOBUF_LIBRARY_DIR}/libprotobuf.a"
+            INTERFACE_INCLUDE_DIRECTORIES "${TTMLIR_PROTOBUF_INCLUDE_DIR}"
+        )
+    endif()
+
+    if(NOT TARGET protobuf::libprotobuf-lite AND EXISTS "${TTMLIR_PROTOBUF_LIBRARY_DIR}/libprotobuf-lite.a")
+        add_library(protobuf::libprotobuf-lite STATIC IMPORTED GLOBAL)
+        set_target_properties(protobuf::libprotobuf-lite PROPERTIES
+            IMPORTED_LOCATION "${TTMLIR_PROTOBUF_LIBRARY_DIR}/libprotobuf-lite.a"
+            INTERFACE_INCLUDE_DIRECTORIES "${TTMLIR_PROTOBUF_INCLUDE_DIR}"
+        )
+    endif()
+
+    if(NOT TARGET protobuf::libprotoc AND EXISTS "${TTMLIR_PROTOBUF_LIBRARY_DIR}/libprotoc.a")
+        add_library(protobuf::libprotoc STATIC IMPORTED GLOBAL)
+        set_target_properties(protobuf::libprotoc PROPERTIES
+            IMPORTED_LOCATION "${TTMLIR_PROTOBUF_LIBRARY_DIR}/libprotoc.a"
+            INTERFACE_INCLUDE_DIRECTORIES "${TTMLIR_PROTOBUF_INCLUDE_DIR}"
+        )
+    endif()
+
+    set(TTMLIR_PROTOBUF_TARGET protobuf::libprotobuf)
+else()
+    set(TTMLIR_HAS_PROTOBUF FALSE)
+endif()
+
 # Provide all our library targets to users.
 if(NOT TARGET TTMLIRSupport)
   @TTMLIR_CONFIG_INCLUDE_EXPORTS@
