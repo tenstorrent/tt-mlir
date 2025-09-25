@@ -50,8 +50,8 @@ module {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %in_17: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %0 = "ttir.tile_div"(%in, %in_17) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[DIV_RESULT:.*]] = "ttir.tile_div"(%[[DST0_VAL:.*]], %[[DST1_VAL:.*]]) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[DIV_RESULT]], %[[DST:.*]][2, 0, 0] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[DST_DIV:.*]] = affine.load %[[DST]][2, 0, 0] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: affine.store %[[DIV_RESULT]], %[[DST:.*]][2, %arg2, %arg3] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: %[[DST_DIV:.*]] = affine.load %[[DST]][2, %arg2, %arg3] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             %1 = "ttir.tile_recip"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
              // CHECK: %[[RECIP_RESULT:.*]] = "ttir.tile_recip"(%[[DST_DIV]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: affine.store %[[RECIP_RESULT]], %[[DST]][2, %arg2, %arg3] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
