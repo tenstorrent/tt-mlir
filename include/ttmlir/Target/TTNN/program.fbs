@@ -86,6 +86,7 @@ union OpType {
   RepeatOp,
   RMSNormOp,
   ReshapeOp,
+  ScaledDotProductAttentionDecodeOp,
   SliceOp,
   SoftmaxOp,
   SortOp,
