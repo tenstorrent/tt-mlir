@@ -42,6 +42,7 @@ def jit(
             for i, arg in enumerate(args):
                 tensor_args[param_names[i]] = arg
             kwargs["_tensor_args"] = tensor_args
+            kwargs["_backend"] = backend
 
             # Parse and compile
             m = ast.parse(source_code)

@@ -16,7 +16,6 @@ from .utils import _discover_dialect_ops
 
 
 class TTIRCompiler(ast.NodeVisitor):
-    _fn_map = _discover_dialect_ops(ttir)
     supported_nodes = [
         ### Control-flow (NOT SUPPORTED)
         # ast.If,
@@ -49,6 +48,8 @@ class TTIRCompiler(ast.NodeVisitor):
         self.func_entry = None
         self.symbol_tables = []
         self.tensor_args = kwargs.get("_tensor_args", {})
+        self.backend = kwargs.get("_backend")
+        self._fn_map = _discover_dialect_ops(self.backend)
 
     def _mlir_dtype_from_ttnn_dtype(self, dtype):
         match int(dtype):
@@ -130,12 +131,14 @@ class TTIRCompiler(ast.NodeVisitor):
         assert node.func.id in self._fn_map, f"Function {node.func.id} not supported"
         arg = self.visit(node.args[0])
         result_type = arg.type
-        output = ttir.empty(result_type)
 
         func_args = [result_type]
         for arg in node.args:
             func_args.append(self.visit(arg))
-        func_args.append(output)
+
+        if self.backend == "metal":
+            output = ttir.empty(result_type)
+            func_args.append(output)
 
         func = self._fn_map[node.func.id]
         return func(*func_args)
