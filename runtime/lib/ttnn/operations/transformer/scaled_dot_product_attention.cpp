@@ -31,10 +31,6 @@ static void runScaledDotProductAttentionOp(
 
   std::optional<float> scale = op->scale();
 
-  // The current position information is required for this op. It can either be
-  // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
-  // std::optional so we must pass an empty vector.
-  constexpr std::vector<uint32_t> curPosEmpty = {};
   ::ttnn::Tensor out = ::ttnn::transformer::scaled_dot_product_attention(
       query, key, value, attentionMask, isCausal, scale, outputMemoryConfig,
       std::nullopt, std::nullopt);

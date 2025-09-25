@@ -2446,10 +2446,7 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
 
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
-  // The current position information is required for this op. It can either be
-  // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
-  // std::optional so we must pass an empty vector.
-  constexpr std::vector<uint32_t> curPosEmpty = {};
+
   auto scaledDotProductAttentionOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
