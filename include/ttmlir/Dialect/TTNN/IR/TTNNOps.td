@@ -2527,7 +2527,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
           value (ttnn.Tensor): the input tensor.          [b x nkv x max_seq_len x dh]
 
       Keyword args:
-          attn_mask (ttnn.Tensor, optional): Defaults to `None`. [b x 1 x s x s]. Head broadcasting is implied.
+          attn_mask (ttnn.Tensor, optional): Defaults to `None`. [b x 1 x s x max_seq_len]. Head broadcasting is implied.
           is_causal (bool): Defaults to `true`.
           scale (float, optional): Defaults to `None`.
           memory_config (ttnn.MemoryConfig, optional): Memory configuration for the operation. Defaults to `None`.
