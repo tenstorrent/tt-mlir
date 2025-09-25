@@ -133,11 +133,12 @@ void ProgramExecutor::runCallback(
   }
 }
 
-void safe_python_call() {
+void safe_python_call(const char *message) {
   PyGILState_STATE gstate = PyGILState_Ensure(); // Acquire GIL
 
   // Now you can safely call Python functions
-  PyRun_SimpleString("print('Hello from C++!')");
+  std::string python_code = "print('" + std::string(message) + "')";
+  PyRun_SimpleString(python_code.c_str());
 
   PyGILState_Release(gstate); // Release GIL
 }
@@ -150,8 +151,7 @@ void ProgramExecutor::execute() {
   if (!Py_IsInitialized()) {
     Py_Initialize();
   }
-  // PyRun_SimpleString("print('Hello World from Python interpreter!')");
-  safe_python_call();
+  safe_python_call("Hello world from python interpreter in runtime!");
 
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
@@ -165,8 +165,9 @@ void ProgramExecutor::execute() {
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
-    std::cout << "Operation executed: " << op->debug_info()->c_str()
-              << std::endl;
+    safe_python_call(
+        ("Operation executed: " + std::string(op->debug_info()->c_str()))
+            .c_str());
     dumpPerfCountersIfNeeded();
   }
   LOG_DEBUG(LogType::LogRuntimeTTNN,
