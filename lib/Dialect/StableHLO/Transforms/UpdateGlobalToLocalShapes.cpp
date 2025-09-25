@@ -23,8 +23,8 @@ namespace mlir::tt::stablehlo {
 //  scatter axis
 // i.e. both insertedWindowDims and scatterDimsToOperandDims must be orthogonal
 // to the update/input sharding dims
-static bool isSafeCacheUpdate(mlir::stablehlo::ScatterOp scatterOp,
-                              mlir::sdy::MeshOp &globalMeshOp) {
+static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
+                                 mlir::sdy::MeshOp &globalMeshOp) {
   mlir::stablehlo::ScatterDimensionNumbersAttr scatterDimensionNumbers =
       scatterOp.getScatterDimensionNumbers();
   auto insertedWindowDims = scatterDimensionNumbers.getInsertedWindowDims();
@@ -286,7 +286,7 @@ static FailureOr<mlir::OperationState> createNewOperationState(
           })
           .Case<mlir::stablehlo::ScatterOp>([&](auto scatterOp) {
             // Check if this is a safe cache update that can be handled
-            if (isSafeCacheUpdate(scatterOp, globalMeshOp)) {
+            if (isSafeShardedScatter(scatterOp, globalMeshOp)) {
               return mlir::success();
             }
 
