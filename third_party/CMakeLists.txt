@@ -247,16 +247,9 @@ set_target_properties(protobuf::libprotoc PROPERTIES
 )
 add_dependencies(protobuf::libprotoc tt-metal)
 
-# Note: protoc binary is handled separately in install commands
-# Cannot create IMPORTED EXECUTABLE targets with :: in name
-
 # Set protobuf variables for downstream projects
 set(TTMETAL_PROTOBUF_INCLUDE_DIR ${TTMETAL_PROTOBUF_INCLUDE_DIR} PARENT_SCOPE)
 set(TTMETAL_PROTOBUF_LIBRARY_DIR ${TTMETAL_PROTOBUF_LIBRARY_DIR} PARENT_SCOPE)
-
-# Export protobuf library targets for downstream projects (like tt-xla)
-# Note: These targets are created at build time after tt-metal is built
-# The install will happen during the build process via the install(CODE ...) below
 
 install(CODE
     "

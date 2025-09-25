@@ -194,9 +194,6 @@ add_subdirectory(cmake/modules)
 
 include(LintTools)
 
-# Export targets are handled via cmake/modules/CMakeLists.txt
-# Individual targets install their own export sets as needed
-
 # Package configuration for downstream projects
 include(CMakePackageConfigHelpers)
 
