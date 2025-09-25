@@ -14,6 +14,8 @@ if (NOT TTNN_RUNTIME_ENABLED)
   return()
 endif()
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+
 add_library(TTRuntimeTTNN
   STATIC
   runtime.cpp
@@ -24,8 +26,10 @@ set_property(TARGET TTRuntimeTTNN PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeTTNN PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+  ${Python3_INCLUDE_DIRS}
 )
 target_include_directories(TTRuntimeTTNN SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 target_link_libraries(TTRuntimeTTNN PUBLIC TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
 target_link_libraries(TTRuntimeTTNN PUBLIC coverage_config)
+target_link_libraries(TTRuntimeTTNN PUBLIC ${Python3_LIBRARIES})
 add_dependencies(TTRuntimeTTNN TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
