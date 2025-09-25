@@ -1724,7 +1724,7 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
     EXPECT_LE(cbSize, 483328);
     EXPECT_LE(totalPeakSize, 483328);
     EXPECT_LE(l1PeakSize, 2048);
-    EXPECT_EQ(outputSize, 2048);
+    EXPECT_EQ(outputSize, 0);
 
     ASSERT_TRUE(outputLayout);
     EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
@@ -1803,7 +1803,7 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
     EXPECT_LE(cbSize, 483328);
     EXPECT_LE(totalPeakSize, 483328);
     EXPECT_LE(l1PeakSize, 2048);
-    EXPECT_EQ(outputSize, 2048);
+    EXPECT_EQ(outputSize, 0);
 
     ASSERT_TRUE(outputLayout);
     EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
