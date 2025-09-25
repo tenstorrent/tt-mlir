@@ -5653,7 +5653,7 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
 
   let results = (outs AnyRankedTensor:$result);
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 #endif
