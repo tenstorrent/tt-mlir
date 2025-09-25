@@ -156,7 +156,7 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: ttnn-jit-whl-${{ inputs.build-name }}
-        path: build/tools/ttnn-jit/dist/ttnn-jit*.whl
+        path: ${{ inputs.work-dir }}/tools/ttnn-jit/dist/ttnn_jit*.whl
         if-no-files-found: error
 
     # - name: Upload tt-alchemist .whl
