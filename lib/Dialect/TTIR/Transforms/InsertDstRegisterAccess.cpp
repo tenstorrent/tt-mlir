@@ -216,8 +216,12 @@ public:
   // loads and stores to copy into hoisted loop nests.
 
   // Maps each TTIRGenericRegionComputeOpTrait operation result to a dest
-  // register offset.
-  using DstRegisterAllocation = DenseMap<Operation *, int64_t>;
+  // register offset and its containing loop nest.
+  struct DstRegisterInfo {
+    int64_t dstIndex;
+    Operation *outermostLoop;
+  };
+  using DstRegisterAllocation = DenseMap<Operation *, DstRegisterInfo>;
 
   // Struct to hold the results of dst access collection.
   struct DstAccessCollection {
@@ -298,7 +302,9 @@ public:
               op.getDstRegInPlace()
                   ? dstRegisterAllocationState.getCurrDstIndex()
                   : dstRegisterAllocationState.allocate();
-          dstRegisterAllocation[op] = allocatedIndex;
+
+          dstRegisterAllocation[op] = {allocatedIndex,
+                                       outermostInnerComputeLoop};
         }
       }
     });
@@ -542,6 +548,24 @@ public:
     }
   }
 
+  // Extract loop induction variables from the outermost loop operation.
+  // This collects induction variables from all nested loops in the nest.
+  static SmallVector<Value> extractLoopInductionVars(Operation *outermostLoop) {
+    SmallVector<Value> loopInductionVars;
+    if (!outermostLoop) {
+      return loopInductionVars;
+    }
+
+    // Collect induction variables from all loops in the nest.
+    outermostLoop->walk([&](affine::AffineForOp loop) {
+      loopInductionVars.push_back(loop.getBody()->getArgument(0));
+    });
+
+    // Reverse to get innermost loops first.
+    std::reverse(loopInductionVars.begin(), loopInductionVars.end());
+    return loopInductionVars;
+  }
+
   // Rewrite stores to use dst register based on allocation map.
   static void insertDstRegisterAllocation(
       PatternRewriter &rewriter, Location loc, Value dst,
@@ -553,20 +577,36 @@ public:
     const unsigned dstRank = dstType.getRank();
 
     // Iterate directly through dst register allocation entries.
-    for (const auto &[op, dstIndex] : dstRegisterAllocation) {
+    for (const auto &[op, dstInfo] : dstRegisterAllocation) {
+      int64_t dstIndex = dstInfo.dstIndex;
+      SmallVector<Value> loopInductionVars =
+          extractLoopInductionVars(dstInfo.outermostLoop);
 
       // Store the result of this operation to dst register.
       rewriter.setInsertionPoint(op);
 
       SmallVector<Value> storeIndices;
 
-      // Build store indices: [dstIndex, 0, 0, ...] to store at the specified
-      // register index with zero-padding for remaining dimensions.
+      // Build store indices: [dstIndex, loop_vars..., 0, 0, ...] using loop
+      // induction variables for the dimensions that correspond to loops.
       storeIndices.push_back(
           rewriter.create<arith::ConstantIndexOp>(loc, dstIndex));
+
+      // Use induction variables from the allocation.
+      storeIndices.append(loopInductionVars);
+
+      // Pad with zeros for remaining dimensions.
       while (storeIndices.size() < dstRank) {
         storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
       }
+
+      // Ensure storeIndices matches the destination memref rank.
+      assert(storeIndices.size() == dstRank &&
+             "storeIndices size must match destination memref rank. If it's "
+             "greater, probably need to use getNonParticipatingLoopDims to "
+             "skip loop dimensions: "
+             "https://github.com/tenstorrent/tt-mlir/pull/"
+             "5081#discussion_r2376709558");
 
       auto storeMap =
           AffineMap::getMultiDimIdentityMap(dstRank, rewriter.getContext());

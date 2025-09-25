@@ -2,13 +2,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/utils.h"
+#include <memory>
+
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
+#include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/types.h"
+#include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::utils {
@@ -486,6 +489,21 @@ createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
 
   return ::tt::runtime::Tensor(std::static_pointer_cast<void>(tensorPtr),
                                /*data=*/nullptr, DeviceRuntime::TTNN);
+}
+
+::tt::runtime::Device
+createRuntimeDeviceFromTTNN(::ttnn::MeshDevice *meshDevice) {
+  // Create a non-owning shared_ptr to the provided MeshDevice with no-op
+  // deleter.
+  std::shared_ptr<void> unsafeMeshDeviceSharedPtr =
+      ::tt::runtime::utils::unsafe_borrow_shared(meshDevice);
+  // Wrap the the device in the runtime device.
+  auto ttnnTraceCache = std::make_shared<::tt::runtime::ttnn::TraceCache>(
+      std::static_pointer_cast<::ttnn::MeshDevice>(unsafeMeshDeviceSharedPtr));
+  auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
+      std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
+
+  return Device(unsafeMeshDeviceSharedPtr, traceCache, DeviceRuntime::TTNN);
 }
 
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor) {

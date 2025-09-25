@@ -18,12 +18,13 @@ from ttmlir.passes import (
 
 from ttnn_jit._src.ttir_ast import TTIRCompiler
 from ttnn_jit._src.utils import _cleanup_source_code
+from ttnn_jit._src.dispatch_op import _run_binary
 
 
 def jit(
     backend: Literal["ttnn", "metal"] = "ttnn",
     perf: bool = False,
-    dump_flatbuffer: bool = False,
+    compile_only: bool = False,
     debug: bool = False,
 ):
     def _decorator(f):
@@ -31,7 +32,7 @@ def jit(
         def _wrapper(*args, **kwargs):
             source_code = _cleanup_source_code(f)
 
-            # Pass the actual tensors as kwargs
+            # Pass the actual tensors through as kwargs
             tensor_args = {}
             sig = inspect.signature(f)
             param_names = list(sig.parameters.keys())
@@ -46,6 +47,8 @@ def jit(
             m = ast.parse(source_code)
             if debug:
                 print(ast.dump(m, indent=2) + "\n")
+
+            # TODO (#5043): emit ttnn IR instead of TTIR, TTIR should be fallback.
             b = TTIRCompiler(None, *args, **kwargs)
             b.visit(m)
 
@@ -57,7 +60,11 @@ def jit(
 
             system_desc_path = os.getenv("SYSTEM_DESC_PATH")
             assert system_desc_path, "SYSTEM_DESC_PATH must be set."
+            if debug:
+                os.environ["TTRT_LOGGER_LEVEL"] = "DEBUG"
 
+            out_dir = os.path.join("generated", "pykernels")
+            os.makedirs(out_dir, exist_ok=True)
             if backend == "metal":
                 ttir_to_ttmetal_backend_pipeline(
                     ir, f"system-desc-path={system_desc_path} override-device-shape=1,1"
@@ -66,12 +73,13 @@ def jit(
                     print("---- After ttir_to_ttmetal_backend_pipeline ----")
                     print(ir)
 
-                if dump_flatbuffer:
-                    out_dir = os.path.join("generated", "pykernels")
-                    os.makedirs(out_dir, exist_ok=True)
-                    ttmetal_to_flatbuffer_file(
-                        ir, os.path.join(out_dir, f.__name__ + ".ttm"), {}, []
-                    )
+                flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttm")
+                if compile_only:
+                    ttmetal_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+                    return ir
+                else:
+                    # TODO: hook up metal runtime here
+                    raise NotImplementedError("Metal runtime is not implemented yet")
             elif backend == "ttnn":
                 ttir_to_ttnn_backend_pipeline(
                     ir, f"system-desc-path={system_desc_path}"
@@ -80,14 +88,17 @@ def jit(
                     print("---- After ttir_to_ttnn_backend_pipeline ----")
                     print(ir)
 
-                if dump_flatbuffer:
-                    out_dir = os.path.join("generated", "pykernels")
-                    os.makedirs(out_dir, exist_ok=True)
-                    ttnn_to_flatbuffer_file(
-                        ir, os.path.join(out_dir, f.__name__ + ".ttnn"), {}, []
-                    )
+                flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttnn")
+                if compile_only:
+                    ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+                    return ir
+                else:
+                    # TODO (#5055): always dump flatbuffer to disk for now, in the future we want to run flatbuffer from memory and only dump to disk if debug=True.
+                    ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
 
-            return ir
+                    return _run_binary(flatbuffer_bin, args)
+            else:
+                raise ValueError(f"Unsupported backend: {backend}")
 
         if inspect.ismethod(f):
             return staticmethod(_wrapper)

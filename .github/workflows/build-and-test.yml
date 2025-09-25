@@ -415,8 +415,8 @@ jobs:
         source env/activate
         python -m pip install -e runtime/tools/chisel/
 
-    # PyKernel Test Runner
-    - name: PyKernel test runner
+    # PyKernel & ttnn-jitTest Runner
+    - name: PyKernel & ttnn-jit test runner
       if: matrix.build.type == 'pykernel'
       shell: bash
       run: |
@@ -432,8 +432,8 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }}/tt-metal third_party/tt-metal/src/tt-metal
 
         echo "Running PyKernel tests..."
-        cd ${{ steps.strings.outputs.build-output-dir }}/test/pykernel/demo
         pytest -v ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo/test.py
+        pytest -v ${{ steps.strings.outputs.work-dir }}/test/ttnn-jit/test_unary_composite.py
         rm -rf third_party/tt-metal
 
     # pytest runner
