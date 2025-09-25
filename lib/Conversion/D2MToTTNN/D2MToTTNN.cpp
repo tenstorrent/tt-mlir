@@ -128,9 +128,8 @@ public:
     llvm::SmallVector<Value> cbs(size);
     llvm::SmallVector<int64_t> cbPorts(size);
     int64_t cbPort = 0;
-    const size_t numInputs = op.getInputs().size();
-    for (auto [i, operand] : llvm::enumerate(op.getInputs())) {
-      if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
+    for (auto [i, operand] : llvm::enumerate(op->getOperands())) {
+      if (auto streamLayoutOp = mlir::dyn_cast_if_present<ttir::StreamLayoutOp>(
               operand.getDefiningOp());
           streamLayoutOp) {
         if (auto castOp =
@@ -147,20 +146,6 @@ public:
         llvm_unreachable("Expected stream_layout op for the input.");
       }
       cbPorts[i] = cbPort++;
-    }
-    for (const auto [i, operand] : llvm::enumerate(op.getOutputs())) {
-      const size_t idx = numInputs + i;
-      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-              operand.getDefiningOp());
-          castOp) {
-        // Use the TTNN tensor operand of the cast as the output for
-        // ttnn.generic, Use the memref result for CB descriptor creation.
-        ios[idx] = castOp->getOperands()[0];
-        cbs[idx] = castOp->getResult(0);
-      } else {
-        llvm_unreachable("Expected TTNNToMetalLayoutCastOp");
-      }
-      cbPorts[idx] = cbPort++;
     }
 
     llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors(cbPort);
