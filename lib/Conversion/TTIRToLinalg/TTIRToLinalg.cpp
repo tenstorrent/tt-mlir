@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
@@ -24,9 +25,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <cstdint>
-
-#include "mlir/IR/OpDefinition.h"
 #include <cstdint>
 
 namespace mlir::tt {
@@ -1037,9 +1035,8 @@ public:
     // order. (width, height, width, height) -> (width, width, height, height)
     // (top, left, bottom, right) -> (top, bottom, left, right)
 
-    SmallVector<int64_t> expandedPadding = {
-        std::get<0>(*paddingResult), std::get<2>(*paddingResult),
-        std::get<1>(*paddingResult), std::get<3>(*paddingResult)};
+    auto [paddingTop, paddingLeft, paddingBottom, paddingRight] =
+        *paddingResult;
 
     // Expand kernel if it contains only one element.
     auto kernelResult = ttmlir::utils::getPairOfInteger<int32_t>(kernel);
@@ -1048,19 +1045,13 @@ public:
           op, "kernel must be an integer or array attribute");
     }
 
-    if (auto dilationArray = dyn_cast<DenseI32ArrayAttr>(dilation)) {
-      assert(dilationArray.size() == 2 && "dilation must be 2 elements");
-      if (dilationArray[0] != 1 || dilationArray[1] != 1) {
-        return rewriter.notifyMatchFailure(op, "dilation must be 1x1");
-      }
-    } else if (auto singleDilation = dyn_cast<IntegerAttr>(dilation)) {
-      if (singleDilation.getInt() != 1) {
-        return rewriter.notifyMatchFailure(op, "dilation must be 1");
-      }
-    } else {
+    auto dilationResult = ttmlir::utils::getPairOfInteger<int32_t>(dilation);
+    if (!dilationResult) {
       return rewriter.notifyMatchFailure(
           op, "dilation must be an integer or array attribute");
     }
+    assert(dilationResult->first == 1 && dilationResult->second == 1 &&
+           "dilation must be 1x1");
 
     // Update padding and return shape to be used in the TOSA MaxPool2dOp.
     // input_height + pad_top + pad_bottom - kernel_height must be divisible by
@@ -1069,19 +1060,19 @@ public:
     // condition is met.
     int64_t inputHeight = cast<RankedTensorType>(input.getType()).getShape()[1];
     int64_t inputWidth = cast<RankedTensorType>(input.getType()).getShape()[2];
-    int64_t kernelHeight = kernelResult->first;
-    int64_t kernelWidth = kernelResult->second;
+    auto [kernelHeight, kernelWidth] = *kernelResult;
 
-    expandedPadding[1] +=
+    paddingBottom +=
         calculateExtraPadding(inputHeight, kernelHeight, stridesResult->first,
-                              expandedPadding[0], expandedPadding[1]);
-    expandedPadding[3] +=
+                              paddingTop, paddingBottom);
+    paddingRight +=
         calculateExtraPadding(inputWidth, kernelWidth, stridesResult->second,
-                              expandedPadding[2], expandedPadding[3]);
+                              paddingLeft, paddingRight);
 
     auto expandedStridesAttr = rewriter.getDenseI64ArrayAttr(
         {stridesResult->first, stridesResult->second});
-    auto expandedPaddingAttr = rewriter.getDenseI64ArrayAttr(expandedPadding);
+    auto expandedPaddingAttr = rewriter.getDenseI64ArrayAttr(
+        {paddingTop, paddingBottom, paddingLeft, paddingRight});
     auto expandedKernelAttr = rewriter.getDenseI64ArrayAttr(
         {kernelResult->first, kernelResult->second});
 
@@ -1094,14 +1085,12 @@ public:
     // of elements separated by stride in a kernel window between the first and
     // last element of the input after padding.
     SmallVector<int64_t> resultShape(resultType.getShape());
-    resultShape[1] =
-        (inputHeight + expandedPadding[0] + expandedPadding[1] - kernelHeight) /
-            stridesResult->first +
-        1;
-    resultShape[2] =
-        (inputWidth + expandedPadding[2] + expandedPadding[3] - kernelWidth) /
-            stridesResult->second +
-        1;
+    resultShape[1] = (inputHeight + paddingTop + paddingBottom - kernelHeight) /
+                         stridesResult->first +
+                     1;
+    resultShape[2] = (inputWidth + paddingLeft + paddingRight - kernelWidth) /
+                         stridesResult->second +
+                     1;
 
     auto actualResultType =
         RankedTensorType::get(resultShape, resultType.getElementType());
@@ -1971,8 +1960,8 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                GatherOpConversionPattern, LogicalNotOpConversionPattern,
                MaxOpConversionPattern, SumOpConversionPattern,
                ReduceOrOpConversionPattern, MeanOpConversionPattern,
-               SqueezeOpConversionPattern, MaxPool2dOpConversionPattern>(typeConverter, ctx);
-               
+               SqueezeOpConversionPattern, MaxPool2dOpConversionPattern>(
+      typeConverter, ctx);
 
   // Special operations
   patterns.add<WhereOpConversionPattern, ReshapeOpConversionPattern,
