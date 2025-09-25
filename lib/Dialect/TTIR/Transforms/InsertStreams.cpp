@@ -29,7 +29,11 @@ public:
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
-      if (!needsStream(operand.get())) {
+      // If input is not already a stream, insert one.
+      // For DMA-only form, stream insertion will break semantics.
+      bool opIsStream = mlir::isa_and_nonnull<ttir::StreamLayoutOp>(
+          operand.get().getDefiningOp());
+      if (opIsStream || op.isDMAOnlyForm()) {
         continue;
       }
       insertStream(rewriter, operand, op);
@@ -38,30 +42,6 @@ public:
 
     return success(modified);
   }
-
-  static bool needsStream(Value operand) {
-    auto *definingOp = operand.getDefiningOp();
-    if (mlir::isa_and_nonnull<ttir::StreamLayoutOp>(definingOp)) {
-      return false;
-    }
-
-    // Skip special DMA-only form of generic; stream insertion will break
-    // semantics.
-    if (auto genericOp = mlir::dyn_cast_or_null<ttir::GenericOp>(definingOp)) {
-      // Lack of a compute thread implies this is in special DMA-only form,
-      // which should not have streams inferred.
-      if (not llvm::any_of(genericOp.getThreads(), [](Attribute attr) {
-            return mlir::cast<ttir::ThreadAttr>(attr).getThreadType() ==
-                   ttir::ThreadType::Compute;
-          })) {
-        return false;
-      }
-    }
-
-    // For everything else, it needs a stream!
-    return true;
-  }
-
   void insertStream(PatternRewriter &rewriter, OpOperand &operand,
                     ttir::GenericOp op) const {
     auto memref = mlir::cast<MemRefType>(operand.get().getType());

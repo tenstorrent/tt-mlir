@@ -447,11 +447,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // Detect generic ops in "DMA-only" form, they must not
       // insert operand streams and therefore have no memory allocation
       // needs possibly associated with those.
-      genericCtx.isDMAOnly =
-          llvm::all_of(genericOp.getThreads(), [](Attribute attr) {
-            return (mlir::cast<d2m::ThreadAttr>(attr).getThreadType() !=
-                    d2m::ThreadType::Compute);
-          });
+      genericCtx.isDMAOnly = genericOp.isDMAOnlyForm();
       genericsInDMAOnlyForm += genericCtx.isDMAOnly;
 
       // Decide which operands might/must have streams. Note that
