@@ -136,9 +136,81 @@ void ProgramExecutor::runCallback(
 void safe_python_call(const char *message) {
   PyGILState_STATE gstate = PyGILState_Ensure(); // Acquire GIL
 
-  // Now you can safely call Python functions
-  std::string python_code = "print('" + std::string(message) + "')";
-  PyRun_SimpleString(python_code.c_str());
+  // Add the runtime directory to Python path
+  PyObject *sys_path = PySys_GetObject("path");
+  PyObject *runtime_path = PyUnicode_FromString("./runtime");
+  PyList_Append(sys_path, runtime_path);
+  Py_DECREF(runtime_path);
+
+  // Import the logger module
+  PyObject *logger_module = PyImport_ImportModule("python.scripts.logger");
+  if (logger_module == nullptr) {
+    PyErr_Print();
+    PyGILState_Release(gstate);
+    return;
+  }
+
+  // Get the log_message function
+  PyObject *log_func = PyObject_GetAttrString(logger_module, "log_message");
+  if (log_func == nullptr || !PyCallable_Check(log_func)) {
+    PyErr_Print();
+    Py_DECREF(logger_module);
+    PyGILState_Release(gstate);
+    return;
+  }
+
+  // Call the function with the message
+  PyObject *result = PyObject_CallFunction(log_func, "s", message);
+  if (result == nullptr) {
+    PyErr_Print();
+  } else {
+    Py_DECREF(result);
+  }
+
+  // Clean up
+  Py_DECREF(log_func);
+  Py_DECREF(logger_module);
+
+  PyGILState_Release(gstate); // Release GIL
+}
+
+void safe_python_log_operation(const char *operation_info) {
+  PyGILState_STATE gstate = PyGILState_Ensure(); // Acquire GIL
+
+  // Add the runtime directory to Python path
+  PyObject *sys_path = PySys_GetObject("path");
+  PyObject *runtime_path = PyUnicode_FromString("./runtime");
+  PyList_Append(sys_path, runtime_path);
+  Py_DECREF(runtime_path);
+
+  // Import the logger module
+  PyObject *logger_module = PyImport_ImportModule("python.scripts.logger");
+  if (logger_module == nullptr) {
+    PyErr_Print();
+    PyGILState_Release(gstate);
+    return;
+  }
+
+  // Get the log_operation function
+  PyObject *log_func = PyObject_GetAttrString(logger_module, "log_operation");
+  if (log_func == nullptr || !PyCallable_Check(log_func)) {
+    PyErr_Print();
+    Py_DECREF(logger_module);
+    PyGILState_Release(gstate);
+    return;
+  }
+
+  // Call the function with the operation info
+  PyObject *result = PyObject_CallFunction(log_func, "s", operation_info);
+  if (result == nullptr) {
+    PyErr_Print();
+  } else {
+    Py_DECREF(result);
+  }
+
+  // Clean up
+  Py_DECREF(log_func);
+  Py_DECREF(logger_module);
 
   PyGILState_Release(gstate); // Release GIL
 }
@@ -165,9 +237,7 @@ void ProgramExecutor::execute() {
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
-    safe_python_call(
-        ("Operation executed: " + std::string(op->debug_info()->c_str()))
-            .c_str());
+    safe_python_log_operation(op->debug_info()->c_str());
     dumpPerfCountersIfNeeded();
   }
   LOG_DEBUG(LogType::LogRuntimeTTNN,
