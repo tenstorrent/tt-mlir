@@ -1907,7 +1907,7 @@ llvm::Expected<op_model::OpConstraints>
 ScaledDotProductAttentionOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   assert(inputs.size() >= 3 && inputs.size() <= 4 &&
-         "ttnn::scaled_dot_product_attention_decode can have 3 or 5 operands "
+         "ttnn::scaled_dot_product_attention can have 3 or 4 operands "
          "input tensors");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
@@ -1938,11 +1938,7 @@ ScaledDotProductAttentionOp::getOpConstraints(
 llvm::Expected<size_t> ScaledDotProductAttentionOp::getOpRuntime(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   assert(inputs.size() >= 3 && inputs.size() <= 4 &&
-         "ttnn::scaled_dot_product_attention_decode can have 3 or 4 "
-         "input tensors");
-
-  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
-         "ttnn::scaled_dot_product_attention_decode can have 3 or 4 "
+         "ttnn::scaled_dot_product_attention can have 3 or 4 "
          "input tensors");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());

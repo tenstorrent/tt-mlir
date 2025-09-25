@@ -2495,7 +2495,7 @@ public:
 
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ScaledDotProductAttentionOp>
         emitter(srcOp, adaptor, rewriter);
-
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
@@ -2505,6 +2505,7 @@ public:
         emitter.emit(srcOp.getScale()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
     emitter.replaceOp(*this, args);
 
