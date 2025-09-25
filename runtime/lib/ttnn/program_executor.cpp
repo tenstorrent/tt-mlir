@@ -133,6 +133,15 @@ void ProgramExecutor::runCallback(
   }
 }
 
+void safe_python_call() {
+  PyGILState_STATE gstate = PyGILState_Ensure(); // Acquire GIL
+
+  // Now you can safely call Python functions
+  PyRun_SimpleString("print('Hello from C++!')");
+
+  PyGILState_Release(gstate); // Release GIL
+}
+
 void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
@@ -141,7 +150,8 @@ void ProgramExecutor::execute() {
   if (!Py_IsInitialized()) {
     Py_Initialize();
   }
-  PyRun_SimpleString("print('Hello World from Python interpreter!')");
+  // PyRun_SimpleString("print('Hello World from Python interpreter!')");
+  safe_python_call();
 
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
