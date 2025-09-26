@@ -117,9 +117,12 @@ if enable_runtime:
 
     # Copy TTMLIR libraries from _mlir_libs directory
     ttmlir_libs_src_dir = f"{ttmlir_build_dir}/python_packages/ttmlir/_mlir_libs"
-    # Keep the ttmlir libs in their original structure under ttmlir package
     ttmlir_libs_dst_dir = f"{ttmlir_build_dir}/python_packages/ttmlir/_mlir_libs"
-    # No need to copy since they're already in the right location for packaging
+    # Copy TT-Metal libraries to ttmlir/_mlir_libs/ so MLIR libraries can find them
+    for runlib in runlibs:
+        src_path = f"{metaldir}/lib/{runlib}"
+        if os.path.exists(src_path):
+            shutil.copy(src_path, ttmlir_libs_dst_dir)
 
     # Copy TT-Metal/TTNN libraries
     for runlib in runlibs:
@@ -296,7 +299,7 @@ setup(
     package_data={
         "ttnn_jit.runtime": dylibs,
         "ttmlir": ["*.py"],
-        "ttmlir._mlir_libs": ["*.so", "*.py", "*.pyi"],
+        "ttmlir._mlir_libs": ["*.so", "*.py", "*.pyi"] + runlibs,
         "ttmlir.dialects": ["*.py"],
         "ttmlir.dialects.linalg": ["*.py"],
         "ttmlir.dialects.linalg.opdsl": ["*.py"],
