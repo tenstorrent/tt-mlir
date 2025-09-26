@@ -129,7 +129,7 @@ public:
     llvm::SmallVector<int64_t> cbPorts(size);
     int64_t cbPort = 0;
     for (auto [i, operand] : llvm::enumerate(op->getOperands())) {
-      if (auto streamLayoutOp = mlir::dyn_cast_if_present<ttir::StreamLayoutOp>(
+      if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
               operand.getDefiningOp());
           streamLayoutOp) {
         if (auto castOp =

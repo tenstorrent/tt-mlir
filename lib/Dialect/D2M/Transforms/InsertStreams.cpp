@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -12,26 +12,25 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::d2m {
 
-#define GEN_PASS_DEF_TTIRINSERTSTREAMS
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
+#define GEN_PASS_DEF_D2MINSERTSTREAMS
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
-class TTIRInsertStreamsRewriter final
-    : public OpRewritePattern<ttir::GenericOp> {
+class D2MInsertStreamsRewriter final : public OpRewritePattern<d2m::GenericOp> {
 public:
-  TTIRInsertStreamsRewriter(MLIRContext *context, unsigned numStreamBuffers)
-      : OpRewritePattern<ttir::GenericOp>(context),
+  D2MInsertStreamsRewriter(MLIRContext *context, unsigned numStreamBuffers)
+      : OpRewritePattern<d2m::GenericOp>(context),
         numStreamBuffers(numStreamBuffers) {}
 
-  LogicalResult matchAndRewrite(ttir::GenericOp op,
+  LogicalResult matchAndRewrite(d2m::GenericOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
       // If input is not already a stream, insert one.
       // For DMA-only form, stream insertion will break semantics.
-      bool opIsStream = mlir::isa_and_nonnull<ttir::StreamLayoutOp>(
+      bool opIsStream = mlir::isa_and_nonnull<d2m::StreamLayoutOp>(
           operand.get().getDefiningOp());
       if (opIsStream || op.isDMAOnlyForm()) {
         continue;
@@ -43,7 +42,7 @@ public:
     return success(modified);
   }
   void insertStream(PatternRewriter &rewriter, OpOperand &operand,
-                    ttir::GenericOp op) const {
+                    d2m::GenericOp op) const {
     auto memref = mlir::cast<MemRefType>(operand.get().getType());
     auto streamAttr = rewriter.getAttr<ttcore::ViewLayoutAttr>(
         rewriter.getMultiDimIdentityMap(memref.getRank()));
@@ -56,7 +55,7 @@ public:
         MemRefType::get(memref.getShape(), memref.getElementType(), storageAttr,
                         memref.getMemorySpace());
     auto storage = rewriter.create<memref::AllocOp>(op.getLoc(), storageMemref);
-    auto streamLayout = rewriter.create<ttir::StreamLayoutOp>(
+    auto streamLayout = rewriter.create<d2m::StreamLayoutOp>(
         op.getLoc(), streamMemref, operand.get(), storage);
     rewriter.modifyOpInPlace(
         op, [&]() { operand.assign(streamLayout.getResult()); });
@@ -66,14 +65,14 @@ public:
 } // namespace
 
 namespace {
-class TTIRInsertStreams final
-    : public impl::TTIRInsertStreamsBase<TTIRInsertStreams> {
+class D2MInsertStreams final
+    : public impl::D2MInsertStreamsBase<D2MInsertStreams> {
 public:
-  using impl::TTIRInsertStreamsBase<TTIRInsertStreams>::TTIRInsertStreamsBase;
+  using impl::D2MInsertStreamsBase<D2MInsertStreams>::D2MInsertStreamsBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRInsertStreamsRewriter>(&getContext(), numStreamBuffers);
+    patterns.add<D2MInsertStreamsRewriter>(&getContext(), numStreamBuffers);
     if (failed(
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
@@ -82,4 +81,4 @@ public:
 };
 } // namespace
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::d2m

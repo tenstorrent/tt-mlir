@@ -4,7 +4,6 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         ExplicateTMs.cpp
         FlattenSlidingWindow.cpp
         HoistCPUOps.cpp
-        InsertStreams.cpp
         ElementTypeNormalization.cpp
         Quantization.cpp
         QuantDequantConversion.cpp

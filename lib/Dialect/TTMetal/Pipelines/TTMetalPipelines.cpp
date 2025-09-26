@@ -104,16 +104,16 @@ void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   createTTIRBufferizationPipeline(pm, options);
   if (options.ttnnMode) {
-    ttir::TTIRInsertStreamsOptions insertStreamsOptions;
+    d2m::D2MInsertStreamsOptions insertStreamsOptions;
     { insertStreamsOptions.numStreamBuffers = options.numStreamBuffers; }
-    pm.addPass(ttir::createTTIRInsertStreams(insertStreamsOptions));
+    pm.addPass(d2m::createD2MInsertStreams(insertStreamsOptions));
   } else {
-    d2m::TTIRAllocateOptions allocateOptions;
+    d2m::D2MAllocateOptions allocateOptions;
     {
       allocateOptions.numStreamBuffers = options.numStreamBuffers;
       allocateOptions.allowOutputSpilling = options.allowOutputSpilling;
     }
-    pm.addPass(d2m::createTTIRAllocate(allocateOptions));
+    pm.addPass(d2m::createD2MAllocate(allocateOptions));
   }
 
   pm.addPass(createCanonicalizerPassWithOptions(options));
