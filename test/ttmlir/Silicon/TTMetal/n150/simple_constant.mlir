@@ -18,7 +18,7 @@ module {
   }
 
   // CHECK-LABEL: func.func public @add5_unaligned
-  func.func public @add5_unaligned(%arg0: tensor<9x43x7xf32>) -> tensor<9x43x7xf32> {
+  func.func public @add5_unaligned(%arg0: tensor<43x7xf32>) -> tensor<43x7xf32> {
     // CHECK: memref.get_global
     // CHECK: memref.alloc
     // CHECK-SAME: #ttcore.host_layout
@@ -34,9 +34,9 @@ module {
     // CHECK-SAME: #ttcore.host_layout
     // CHECK: "ttmetal.enqueue_read_buffer"
     // CHECK: memref.copy
-    %0 = "ttir.constant"() <{value = dense<5.0> : tensor<9x43x7xf32>}> : () -> tensor<9x43x7xf32>
-    %1 = ttir.empty() : tensor<9x43x7xf32>
-    %2 = "ttir.add"(%arg0, %0, %1) : (tensor<9x43x7xf32>, tensor<9x43x7xf32>, tensor<9x43x7xf32>) -> tensor<9x43x7xf32>
-    return %2 : tensor<9x43x7xf32>
+    %0 = "ttir.constant"() <{value = dense<5.0> : tensor<43x7xf32>}> : () -> tensor<43x7xf32>
+    %1 = ttir.empty() : tensor<43x7xf32>
+    %2 = "ttir.add"(%arg0, %0, %1) : (tensor<43x7xf32>, tensor<43x7xf32>, tensor<43x7xf32>) -> tensor<43x7xf32>
+    return %2 : tensor<43x7xf32>
   }
 }

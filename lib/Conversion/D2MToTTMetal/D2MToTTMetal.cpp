@@ -44,21 +44,6 @@ public:
     return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
   }
 
-  static Type getOperandInnerElementType(const mlir::Value operand) {
-    auto elemType = operand.getType();
-    if (auto memRefType = mlir::dyn_cast<MemRefType>(elemType);
-        memRefType != nullptr) {
-      elemType = memRefType.getElementType();
-    }
-    // We could have a memref of tiles, so this needs to be the second query.
-    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elemType);
-        tileType != nullptr) {
-      elemType = tileType.getElementType();
-    }
-    assert(elemType.isIntOrFloat());
-    return elemType;
-  }
-
   static ArrayAttr
   convertThreadsToKernelConfigs(Builder &builder, mlir::ValueRange operands,
                                 ArrayAttr threads, ttcore::GridAttr opGrid,
@@ -78,15 +63,20 @@ public:
       case d2m::ThreadType::Compute: {
         bool fp32DestAccum = false;
         for (size_t i = 0; i < operands.size(); ++i) {
-          auto elemType = getOperandInnerElementType(operands[i]);
+          auto elemType = ttcore::getOperandInnerElementType(operands[i]);
           if (elemType.getIntOrFloatBitWidth() == 32) {
             fp32DestAccum = true;
           }
         }
+        // This setting is a perfomance optimization closely related to all the
+        // hard-coded dstRegisterSizeTiles/dst_register_size_tiles = 8 scattered
+        // across our code base. Should this becomes a variable, the max DST
+        // size needs to change to 16 and halfed when this setting is false.
+        constexpr bool dstFullSyncEn = false;
         std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs, mathFidelity,
-            fp32DestAccum, unpackModes);
+            fp32DestAccum, dstFullSyncEn, unpackModes);
         break;
       }
       case d2m::ThreadType::Datamovement: {
