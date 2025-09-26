@@ -2489,7 +2489,7 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
             input_tensor_q (AnyRankedTensor): the input tensor [1 x b x nh x dh]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
             input_tensor_k (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
             input_tensor_v (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
-            is_causal (bool, optional): whether the attention is is causal. Defaults to `true`.
+            is_causal (bool, optional): Whether the attention is causal. Defaults to `true`.
             attention_mask (AnyRankedTensor, optional): the attention mask [b x 1 x s x s].
             cur_pos_tensor (AnyRankedTensor): [b] tensor of integers of length b.
             attention_sink (AnyRankedTensor, optional): the attention sink [nh, 32] (must be a single tile wide).
@@ -2522,19 +2522,17 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
       The implementation is FlashAttention-2."
 
       Args:
-          query (ttnn.Tensor): the input tensor.          [b x nh x s x dh]
-          key (ttnn.Tensor): the input tensor.            [b x nkv x max_seq_len x dh]
-          value (ttnn.Tensor): the input tensor.          [b x nkv x max_seq_len x dh]
-
-      Keyword args:
-          attn_mask (ttnn.Tensor, optional): Defaults to `None`. [b x 1 x s x max_seq_len]. Head broadcasting is implied.
-          is_causal (bool): Defaults to `true`.
+          query (AnyRankedTensor): the query tensor.          [b x nh x s x dh]
+          key (AnyRankedTensor): the key tensor.              [b x nkv x max_seq_len x dh]
+          value (AnyRankedTensor): the value tensor.          [b x nkv x max_seq_len x dh]
+          attention_mask (AnyRankedTensor, optional): Defaults to `None`. [b x 1 x s x max_seq_len]. Head broadcasting is implied.
+          is_causal (bool): Whether the attention is causal. Defaults to `true`.
           scale (float, optional): Defaults to `None`.
-          memory_config (ttnn.MemoryConfig, optional): Memory configuration for the operation. Defaults to `None`.
+          memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
 
 
       Returns:
-          ttnn.Tensor: the output tensor [b x nh x s x dh].
+          AnyRankedTensor: the output tensor [b x nh x s x dh].
     }];
 
     let arguments = (ins AnyRankedTensor:$query,

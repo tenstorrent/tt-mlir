@@ -4662,7 +4662,7 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
   int64_t maxSeqLen = keyType.getShape()[2];
 
   // NOTE: The q_chunk_size is 32 by default in ttnn. This is configurable via
-  // the program config. However, this is not modelled in the ttnn dialect.
+  // the program config. However, this is not modeled in the ttnn dialect.
   if (seqLen % 32 != 0) {
     return emitOpError(
         "Sequence length must be divisible by q_chunk_size (32)");

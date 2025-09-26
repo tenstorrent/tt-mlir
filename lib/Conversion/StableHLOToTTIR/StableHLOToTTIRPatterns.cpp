@@ -3286,7 +3286,8 @@ public:
             srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
     if (!frontendAttributes) {
       return rewriter.notifyMatchFailure(
-          srcOp, "FillCache op must have mhlo.frontend_attributes attribute.");
+          srcOp, "ScaledDotProductAttention op must have "
+                 "mhlo.frontend_attributes attribute.");
     }
 
     auto isCausalSringAttr =
