@@ -220,7 +220,14 @@ endforeach()
 
 # Expose protobuf targets from tt-metal build to downstream projects
 set(TTMETAL_PROTOBUF_LIBRARY_DIR ${TTMETAL_BUILD_DIR}/_deps/protobuf-build)
-set(TTMETAL_PROTOBUF_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/protobuf/015fab22471269b76cc86d83a230da3c050068ba/src)
+# Find the protobuf directory dynamically (regardless of hash)
+file(GLOB TTMETAL_PROTOBUF_DIR_PATTERN "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/protobuf/*/src")
+if(TTMETAL_PROTOBUF_DIR_PATTERN)
+  list(GET TTMETAL_PROTOBUF_DIR_PATTERN 0 TTMETAL_PROTOBUF_INCLUDE_DIR)
+  message(STATUS "Found protobuf include directory: ${TTMETAL_PROTOBUF_INCLUDE_DIR}")
+else()
+  message(FATAL_ERROR "Could not find protobuf include directory in .cpmcache")
+endif()
 
 # Create imported protobuf targets that point to tt-metal's protobuf build
 add_library(protobuf::libprotobuf STATIC IMPORTED GLOBAL)
