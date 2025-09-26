@@ -1,0 +1,17 @@
+[
+    {"name": "task1", "duration": 10.5},
+    {"name": "task2", "duration": 8.2},
+    {"name": "task3", "duration": 15.7},
+    {"name": "task4", "duration": 6.3},
+    {"name": "task5", "duration": 12.1},
+    {"name": "task6", "duration": 9.8},
+    {"name": "task7", "duration": 4.5},
+    {"name": "task8", "duration": 11.2},
+    {"name": "task9", "duration": 7.9},
+    {"name": "task10", "duration": 13.4},
+    {"name": "task11", "duration": 5.6},
+    {"name": "task12", "duration": 16.8},
+    {"name": "task13", "duration": 3.2},
+    {"name": "task14", "duration": 14.9},
+    {"name": "task15", "duration": 2.7}
+]

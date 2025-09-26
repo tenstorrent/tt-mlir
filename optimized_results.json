@@ -1,0 +1,104 @@
+[
+  {
+    "group_id": 1,
+    "total_duration": 25.0,
+    "task_count": 2,
+    "tasks": [
+      {
+        "name": "task12",
+        "duration": 16.8
+      },
+      {
+        "name": "task2",
+        "duration": 8.2
+      }
+    ]
+  },
+  {
+    "group_id": 2,
+    "total_duration": 23.6,
+    "task_count": 2,
+    "tasks": [
+      {
+        "name": "task3",
+        "duration": 15.7
+      },
+      {
+        "name": "task9",
+        "duration": 7.9
+      }
+    ]
+  },
+  {
+    "group_id": 3,
+    "total_duration": 24.700000000000003,
+    "task_count": 2,
+    "tasks": [
+      {
+        "name": "task14",
+        "duration": 14.9
+      },
+      {
+        "name": "task6",
+        "duration": 9.8
+      }
+    ]
+  },
+  {
+    "group_id": 4,
+    "total_duration": 24.6,
+    "task_count": 2,
+    "tasks": [
+      {
+        "name": "task10",
+        "duration": 13.4
+      },
+      {
+        "name": "task8",
+        "duration": 11.2
+      }
+    ]
+  },
+  {
+    "group_id": 5,
+    "total_duration": 22.6,
+    "task_count": 2,
+    "tasks": [
+      {
+        "name": "task5",
+        "duration": 12.1
+      },
+      {
+        "name": "task1",
+        "duration": 10.5
+      }
+    ]
+  },
+  {
+    "group_id": 6,
+    "total_duration": 22.299999999999997,
+    "task_count": 5,
+    "tasks": [
+      {
+        "name": "task4",
+        "duration": 6.3
+      },
+      {
+        "name": "task11",
+        "duration": 5.6
+      },
+      {
+        "name": "task7",
+        "duration": 4.5
+      },
+      {
+        "name": "task13",
+        "duration": 3.2
+      },
+      {
+        "name": "task15",
+        "duration": 2.7
+      }
+    ]
+  }
+]
