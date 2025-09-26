@@ -266,6 +266,12 @@ def D2M_GenericOp : D2M_Op<"generic",
         auto threads = getThreads();
         return threads.size() == 1 && mlir::cast<ThreadAttr>(threads[0]).getThreadType() == ThreadType::Compute;
       }
+      bool isDMAOnlyForm() {
+        return llvm::none_of(getThreads(), [](Attribute attr) {
+          return mlir::cast<d2m::ThreadAttr>(attr).getThreadType() ==
+                d2m::ThreadType::Compute;
+        });
+      }
       bool isAffineMapForm() { return !getIndexingMaps().empty(); }
       bool isLoweredLoopForm() { return !isAffineMapForm(); }
       bool isExternalSymbolForm() { return getRegions().empty(); }
