@@ -14,6 +14,7 @@ from ttmlir.passes import (
     ttmetal_to_flatbuffer_file,
     ttir_to_ttnn_backend_pipeline,
     ttnn_to_flatbuffer_file,
+    ttnn_to_ttmetal_pipeline,
 )
 
 from ttnn_jit._src.ttir_ast import TTIRCompiler
@@ -82,8 +83,8 @@ def jit(
                     # TODO: hook up metal runtime here
                     raise NotImplementedError("Metal runtime is not implemented yet")
             elif backend == "ttnn":
-                ttir_to_ttnn_backend_pipeline(
-                    ir, f"system-desc-path={system_desc_path}"
+                ttnn_to_ttmetal_pipeline(
+                    ir, f"system-desc-path={system_desc_path} ttnn-mode=true"
                 )
                 if debug:
                     print("---- After ttir_to_ttnn_backend_pipeline ----")
