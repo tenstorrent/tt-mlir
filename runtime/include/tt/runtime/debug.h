@@ -19,7 +19,7 @@ struct Env {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static const Env &
 #else
-  constexpr static Env
+  static Env
 #endif
   get(bool dumpKernelsToDisk = false, bool loadKernelsFromDisk = false,
       bool useLocForKernelName = false, std::string kernelSourceDir = {},
