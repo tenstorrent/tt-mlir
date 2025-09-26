@@ -3467,7 +3467,6 @@ class TTIRBuilder(Builder):
     def permute(
         self,
         in0: Operand,
-        in1: Operand,
         permutation: List[int],
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -3494,10 +3493,9 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.PermuteOp,
-            [in0, in1],
+            [in0],
             ttir_kwargs={"permutation": DenseI64ArrayAttr.get(permutation)},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
-            organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
             unit_attrs=unit_attrs,
         )
 
