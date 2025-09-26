@@ -107,29 +107,13 @@ def D2M_GenericParent : OpInterface<"GenericParent"> {
 
 // Interface denoting which operands of an op must be sourced from dst register
 
-def D2M_OperandLoadRegisterOpInterface : OpInterface<"OperandLoadRegisterOpInterface"> {
-  let cppNamespace = "::mlir::tt::d2m";
-  let methods = [
-    InterfaceMethod<
-      /*desc=*/[{This interface denotes which op operand indices require their operands to be
-        sourced from the destination register. It is used by the insert-dst-register-access
-        pass to autogenerate copynests to and from dst.}],
-      /*retTy=*/"::mlir::SmallVector<int64_t>",
-      /*methodName=*/"getOperandsLoadFromDstRegister",
-      /*args=*/(ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/"return ::mlir::SmallVector<int64_t>{};"
-    >,
-  ];
-}
-
 def D2M_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegisterOpInterface"> {
   let cppNamespace = "::mlir::tt::d2m";
   let methods = [
     InterfaceMethod<
       /*desc=*/[{
         This interface denotes which op operand indices require their operands to be
-        sourced from the destination register.  It is primarily used by the
+        sourced from the destination register. It is primarily used by the
         insert-dst-register-access pass to autogenerate copynests to and from dst.
       }],
       /*retTy=*/"::mlir::SmallVector<int64_t>",

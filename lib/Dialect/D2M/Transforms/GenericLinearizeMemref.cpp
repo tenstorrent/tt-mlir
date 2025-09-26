@@ -4,18 +4,12 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-
-#include <numeric>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERICLINEARIZEMEMREF
@@ -116,7 +110,7 @@ public:
       : OpRewritePattern<TileMatmulBlockOp>(context),
         collapseOps(&collapseOps) {}
 
-  static memref::CollapseShapeOp
+  static std::optional<memref::CollapseShapeOp>
   linearize(Value val, PatternRewriter &rewriter,
             DenseMap<Value, memref::CollapseShapeOp> *cache) {
     auto memrefTy = mlir::cast<MemRefType>(val.getType());
@@ -125,9 +119,10 @@ public:
       rewriter.setInsertionPointAfterValue(val);
       SmallVector<ReassociationIndices, 4> collapsedDims = {
           llvm::to_vector(llvm::seq<int64_t>(0, memrefTy.getRank()))};
-      assert(memref::CollapseShapeOp::isGuaranteedCollapsible(memrefTy,
-                                                              collapsedDims) &&
-             "Expected collapsible memref layout");
+      if (!memref::CollapseShapeOp::isGuaranteedCollapsible(memrefTy,
+                                                            collapsedDims)) {
+        return std::nullopt;
+      }
       linearized = rewriter.create<memref::CollapseShapeOp>(val.getLoc(), val,
                                                             collapsedDims);
       cache->insert({val, linearized});
@@ -155,9 +150,10 @@ public:
       return failure();
     }
 
-    assert(!op.hasBlockDims() &&
-           "Unexpected block dimensions present for matmul_block. Proceeding "
-           "would override the present attributes");
+    // If block dimensions are already set, this op has already been processed.
+    if (op.hasBlockDims()) {
+      return failure();
+    }
 
     int64_t rtDim = typeA.getShape()[0];
     int64_t ktDim = typeA.getShape()[1];
@@ -169,10 +165,19 @@ public:
     auto linO = linearize(op.getOutput(), rewriter, collapseOps);
 
     rewriter.setInsertionPoint(op);
-    rewriter.replaceOpWithNewOp<TileMatmulBlockOp>(
-        op, linA.getResult(), linB.getResult(), linO.getResult(),
-        rewriter.getI64IntegerAttr(rtDim), rewriter.getI64IntegerAttr(ktDim),
-        rewriter.getI64IntegerAttr(ctDim), rewriter.getI64IntegerAttr(ntDim));
+    // For memrefs that are not collapsible (e.g., strided subviews), set the
+    // block dimensions but keep the original operands.
+    if (!linA || !linB || !linO) {
+      rewriter.replaceOpWithNewOp<TileMatmulBlockOp>(
+          op, op.getA(), op.getB(), op.getOutput(),
+          rewriter.getI64IntegerAttr(rtDim), rewriter.getI64IntegerAttr(ktDim),
+          rewriter.getI64IntegerAttr(ctDim), rewriter.getI64IntegerAttr(ntDim));
+    } else {
+      rewriter.replaceOpWithNewOp<TileMatmulBlockOp>(
+          op, linA->getResult(), linB->getResult(), linO->getResult(),
+          rewriter.getI64IntegerAttr(rtDim), rewriter.getI64IntegerAttr(ktDim),
+          rewriter.getI64IntegerAttr(ctDim), rewriter.getI64IntegerAttr(ntDim));
+    }
 
     return success();
   }
