@@ -5344,18 +5344,18 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
         The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
 
         Args:
-            query (AnyRankedTensor): the query tensor [1 x batch x num_heads x head_size]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
-            key (AnyRankedTensor): the key tensor [batch x num_kv_heads x seq_len x head_size].
-            value (AnyRankedTensor): the value tensor [batch x num_kv_heads x seq_len x head_size].
+            query (AnyRankedTensor): The query tensor [1 x batch x num_heads x head_size]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
+            key (AnyRankedTensor): The key tensor [batch x num_kv_heads x seq_len x head_size].
+            value (AnyRankedTensor): The value tensor [batch x num_kv_heads x seq_len x head_size].
             is_causal (bool, optional): Whether the attention is causal. Defaults to `true`.
-            attention_mask (AnyRankedTensor, optional): the attention mask [batch x 1 x num_heads x seq_len].
-            cur_pos_tensor (AnyRankedTensor): [batch] tensor of integers of length batch.
-            attention_sink (AnyRankedTensor, optional): the attention sink [num_heads, 32] (must be a single tile wide).
-            output (AnyRankedTensor): the output DPS operand [1 x batch x num_heads x head_size].
+            attention_mask (AnyRankedTensor, optional): The attention mask [batch x 1 x num_heads x seq_len].
+            cur_pos_tensor (AnyRankedTensor): [batch] Tensor of integers of length batch.
+            attention_sink (AnyRankedTensor, optional): The attention sink [num_heads, 32] (must be a single tile wide).
+            output (AnyRankedTensor): The output DPS operand [1 x batch x num_heads x head_size].
             scale (float, optional): Defaults to `None`.
 
         Returns:
-            AnyRankedTensor: the output tensor [1 x batch x num_heads x head_size].
+            AnyRankedTensor: The output tensor [1 x batch x num_heads x head_size].
     }];
 
     let arguments = (ins AnyRankedTensor:$query,
@@ -5380,16 +5380,16 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
     The implementation is FlashAttention-2."
 
     Args:
-        query (AnyRankedTensor): the query tensor.          [batch x num_heads x query_seq_len x head_size]
-        key (AnyRankedTensor): the key tensor.              [batch x num_kv_heads x kv_seq_len x head_size]
-        value (AnyRankedTensor): the value tensor.          [batch x num_kv_heads x kv_seq_len x head_size]
+        query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]
+        key (AnyRankedTensor): The key tensor.              [batch x num_kv_heads x kv_seq_len x head_size]
+        value (AnyRankedTensor): The value tensor.          [batch x num_kv_heads x kv_seq_len x head_size]
         attention_mask (AnyRankedTensor, optional): Defaults to `None`. [batch x 1 x query_seq_len x kv_seq_len]. Head broadcasting is implied.
-        output (AnyRankedTensor): the output DPS operand [batch x num_heads x query_seq_len x head_size].
-        is_causal (bool): Whether the attention is causal. Defaults to `true`.
+        output (AnyRankedTensor): The output DPS operand [batch x num_heads x query_seq_len x head_size].
+        is_causal (bool): Whether The attention is causal. Defaults to `true`.
         scale (float, optional): Defaults to `None`.
 
     Returns:
-        AnyRankedTensor: the output tensor [batch x num_heads x seq_len x head_size].
+        AnyRankedTensor: The output tensor [batch x num_heads x seq_len x head_size].
   }];
 
   let arguments = (ins AnyRankedTensor:$query,
