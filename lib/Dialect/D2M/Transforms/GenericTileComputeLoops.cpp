@@ -7,6 +7,8 @@
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
+#include <dbg.h>
+
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERICTILECOMPUTELOOPS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -114,11 +116,19 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
 
   LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
+    fprintf(stderr, "-- D2MGenericComputeRewriter: op ");
+    op.dump();
+    fprintf(stderr,
+            "-- D2MGenericComputeRewriter: nOperands %u nIn %zu nOut %zu\n",
+            op.getNumOperands(), op.getInputs().size(), op.getOutputs().size());
+
     assert(op.getRegion().hasOneBlock());
     assert(op.getOutputs().size() == 1 &&
            "Only one output tensor is supported");
     auto outputTensor =
         mlir::cast<MemRefType>(op.getOutputs().front().getType());
+    fprintf(stderr, "-- D2MGenericComputeRewriter: outputTensor ");
+    outputTensor.dump();
 
     auto *region = ttmlir::utils::getRegionWithParentOfType<d2m::GenericOp>(op);
     auto d2mGenericOp = mlir::cast<d2m::GenericOp>(region->getParentOp());
@@ -127,6 +137,9 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
     SmallVector<int64_t> subblockSizes = calculateOptimalSubblockSizes(
         op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
         dstRegisterSizeTiles);
+
+    fprintf(stderr, "-- D2MGenericComputeRewriter: ");
+    [[maybe_unused]] auto foo = dbg(subblockSizes);
 
     linalg::LinalgTilingOptions tilingOptions;
     tilingOptions.setTileSizes(subblockSizes);
