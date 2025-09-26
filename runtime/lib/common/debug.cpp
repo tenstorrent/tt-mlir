@@ -13,9 +13,10 @@
 namespace tt::runtime::debug {
 
 const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
+                    bool useLocForKernelName, std::string kernelSourceDir,
                     bool deviceAddressValidation, bool blockingCQ) {
-  static Env config(dumpKernelsToDisk, loadKernelsFromDisk,
-                    deviceAddressValidation, blockingCQ);
+  static Env config(dumpKernelsToDisk, loadKernelsFromDisk, useLocForKernelName,
+                    kernelSourceDir, deviceAddressValidation, blockingCQ);
   return config;
 }
 

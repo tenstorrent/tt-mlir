@@ -149,6 +149,13 @@ class Run:
             help="pickup the kernels from disk (/tmp) instead of the flatbuffer, must have previously run with --dump-kernels-to-disk",
         )
         Run.register_arg(
+            name="--use-loc-for-kernel-name",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Use the location information to derive the kernel's filename when dumping to disk",
+        )
+        Run.register_arg(
             name="--disable-device-address-validation",
             type=bool,
             default=False,
@@ -566,6 +573,8 @@ class Run:
             debug_env = ttrt.runtime.DebugEnv.get(
                 self["--dump-kernels-to-disk"],
                 self["--load-kernels-from-disk"],
+                self["--use-loc-for-kernel-name"],
+                self["--kernel-source-dir"],
                 not self["--disable-device-address-validation"],
                 self["--blocking-cq"],
             )
