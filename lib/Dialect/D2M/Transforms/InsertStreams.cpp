@@ -26,13 +26,16 @@ public:
 
   LogicalResult matchAndRewrite(d2m::GenericOp op,
                                 PatternRewriter &rewriter) const final {
+    // For DMA-only form, stream insertion will break semantics.
+    if (op.isDMAOnlyForm()) {
+      return failure();
+    }
+
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
       // If input is not already a stream, insert one.
-      // For DMA-only form, stream insertion will break semantics.
-      bool opIsStream = mlir::isa_and_nonnull<d2m::StreamLayoutOp>(
-          operand.get().getDefiningOp());
-      if (opIsStream || op.isDMAOnlyForm()) {
+      if (mlir::isa_and_nonnull<d2m::StreamLayoutOp>(
+              operand.get().getDefiningOp())) {
         continue;
       }
       insertStream(rewriter, operand, op);
@@ -41,6 +44,7 @@ public:
 
     return success(modified);
   }
+
   void insertStream(PatternRewriter &rewriter, OpOperand &operand,
                     d2m::GenericOp op) const {
     auto memref = mlir::cast<MemRefType>(operand.get().getType());
@@ -60,6 +64,8 @@ public:
     rewriter.modifyOpInPlace(
         op, [&]() { operand.assign(streamLayout.getResult()); });
   }
+
+private:
   unsigned numStreamBuffers;
 };
 } // namespace
