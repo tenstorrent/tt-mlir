@@ -125,7 +125,8 @@ llvm::SmallVector<mlir::Operation *> Scheduler::getSchedulableOps() {
 
 bool Scheduler::canSchedule(mlir::Operation *op) {
   for (mlir::Operation *dep : dependencies[op]) {
-    if (!scheduledOpsMap.count(dep)) {
+    if (!scheduledOpsMap.count(dep) || isa<ttnn::UpdateCacheOp>(dep) ||
+        isa<ttir::FillCacheOp>(dep)) {
       return false;
     }
   }
