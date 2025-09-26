@@ -2908,6 +2908,8 @@ public:
         mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::TypecastOp>(
             rewriter, srcOp.getLoc(), outputType, randOp.getResult());
 
+    // HACK (pglusac): Output state is discarded, initial state is returned as
+    // a result. https://github.com/tenstorrent/tt-mlir/issues/5101
     rewriter.replaceOp(srcOp,
                        {adaptor.getInitialState(), typecastOp.getResult()});
 
