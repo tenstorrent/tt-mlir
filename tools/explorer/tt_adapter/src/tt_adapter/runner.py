@@ -80,17 +80,13 @@ class ModelRunner:
         if not cls._instance:
             logging.info("Creating a new ModelRunner instance.")
             cls._instance = super(ModelRunner, cls).__new__(cls, *args, **kwargs)
-            cls._instance.load_ttrt()
+            cls._instance._load_ttrt()
             cls._instance.initialize()
         return cls._instance
 
-    def load_ttrt(self):
-        try:
-            if self._ttrt is None:
-                # Attempt to import the module dynamically
-                self._ttrt = importlib.import_module('ttrt')
-        except (ModuleNotFoundError, ImportError):
-            logging.info("TTRT not available. Models will not be compiled.")
+    def _load_ttrt(self):
+        self._ttrt = ttrt.load_ttrt()
+        pass
 
     def initialize(self):
         # Initialize machine to generate SystemDesc and load up functionality to begin
@@ -255,7 +251,7 @@ class ModelRunner:
 
     def compile_and_run_wrapper(self, model_path, overrides_string):
         try:
-            if self._ttrt is None:
+            if not ttrt.get_is_ttrt_available():
                 raise Exception('TTRT not available. Model execution is disabled.')
 
             self.compile_and_run(model_path, overrides_string)
