@@ -12,7 +12,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/Mesh.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -36,6 +35,7 @@
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include "llvm/ADT/StringExtras.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -2117,8 +2117,8 @@ public:
     // Insert the new MeshShardOp with the generated GSPMDMeshSharding.
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp->getResult(0).getType()));
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
-        rewriter, srcOp, outputType, definingOp.getInputs().front(),
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
+        srcOp, outputType, definingOp.getInputs().front(),
         gspmdMeshSharding->getShardType(),
         gspmdMeshSharding->getShardDirection(),
         gspmdMeshSharding->getShardShape(), gspmdMeshSharding->getShardDims());
@@ -3041,6 +3041,156 @@ public:
 } // namespace
 
 namespace {
+class StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.scaled_dot_product_attention_decode") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ScaledDotProductAttentionDecode op must have "
+                 "mhlo.frontend_attributes attribute.");
+    }
+
+    auto isCausalStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_causal");
+    bool isCausal = true;
+    if (isCausalStringAttr) {
+
+      if (isCausalStringAttr.getValue().lower() == "true") {
+        isCausal = true;
+      } else if (isCausalStringAttr.getValue().lower() == "false") {
+        isCausal = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "is_causal attribute must be true or false. Received \"" +
+                       isCausalStringAttr.getValue() + "\".");
+      }
+    }
+
+    BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
+
+    auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
+    std::optional<float> scale = std::nullopt;
+    if (scaleStringAttr) {
+      float _scale;
+      if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "scale attribute string must be convertible to float. Received \"" +
+                scaleStringAttr.getValue() + "\".");
+      }
+      scale = _scale;
+    }
+
+    FloatAttr scaleAttr =
+        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
+
+    auto hasAttentionMaskStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
+    bool hasAttentionMask = false;
+    if (!hasAttentionMaskStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_attention_mask attribute must be present.");
+    }
+
+    if (hasAttentionMaskStringAttr.getValue().lower() == "true") {
+      hasAttentionMask = true;
+    } else if (hasAttentionMaskStringAttr.getValue().lower() == "false") {
+      hasAttentionMask = false;
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "has_attention_mask attribute must be true or false. Received \"" +
+              hasAttentionMaskStringAttr.getValue() + "\".");
+    }
+
+    auto hasAttentionSinkStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_sink");
+    bool hasAttentionSink = false;
+    if (!hasAttentionSinkStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_attention_sink attribute must be present.");
+    }
+
+    if (hasAttentionSinkStringAttr.getValue().lower() == "true") {
+      hasAttentionSink = true;
+    } else if (hasAttentionSinkStringAttr.getValue().lower() == "false") {
+      hasAttentionSink = false;
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "has_attention_sink attribute must be true or false. Received \"" +
+              hasAttentionSinkStringAttr.getValue() + "\".");
+    }
+
+    Value query = adaptor.getOperands()[0];
+    Value key = adaptor.getOperands()[1];
+    Value value = adaptor.getOperands()[2];
+    Value curPosTensor = adaptor.getOperands()[3];
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    if (hasAttentionMask && hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, adaptor.getOperands()[4],
+          curPosTensor, adaptor.getOperands()[5], outputTensor, scaleAttr);
+    } else if (hasAttentionMask) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, adaptor.getOperands()[4],
+          curPosTensor, nullptr, outputTensor, scaleAttr);
+    } else if (hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, nullptr, curPosTensor,
+          adaptor.getOperands()[4], outputTensor, scaleAttr);
+    } else if (!hasAttentionMask && !hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, nullptr, curPosTensor, nullptr,
+          outputTensor, scaleAttr);
+    } else {
+      if (hasAttentionMask || hasAttentionSink) {
+        llvm_unreachable("All combinations of attention mask "
+                         "and attention sink should have been handled");
+      }
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIROpOptimizationBarrierOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::OptimizationBarrierOp> {
   using OpConversionPattern<
@@ -3358,6 +3508,14 @@ addOptimizationBarrierOpConversionPattern(MLIRContext *ctx,
       typeConverter, ctx);
 }
 
+static void addScaledDotProductAttentionDecodeOpConversionPattern(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    TypeConverter &typeConverter) {
+  patterns
+      .add<StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern>(
+          typeConverter, ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -3393,6 +3551,8 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addSortOpConversionPattern(ctx, patterns, typeConverter);
   addCacheOpsConversionPattern(ctx, patterns, typeConverter);
   addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);
+  addScaledDotProductAttentionDecodeOpConversionPattern(ctx, patterns,
+                                                        typeConverter);
 }
 
 } // namespace mlir::tt
