@@ -14,6 +14,7 @@ from ttmlir.passes import (
     ttmetal_to_flatbuffer_file,
     ttir_to_ttnn_backend_pipeline,
     ttnn_to_flatbuffer_file,
+    ttnn_to_ttmetal_pipeline,
 )
 
 from ttnn_jit._src.ttir_ast import TTIRCompiler
@@ -23,6 +24,8 @@ from ttnn_jit._src.dispatch_op import _run_binary
 
 def jit(
     backend: Literal["ttnn", "metal"] = "ttnn",
+    max_grid: tuple[int, int] = (8, 8),
+    # max_dest_size: int = 1,
     perf: bool = False,
     compile_only: bool = False,
     debug: bool = False,
@@ -42,6 +45,8 @@ def jit(
             for i, arg in enumerate(args):
                 tensor_args[param_names[i]] = arg
             kwargs["_tensor_args"] = tensor_args
+            kwargs["_backend"] = backend
+            kwargs["_max_grid"] = max_grid
 
             # Parse and compile
             m = ast.parse(source_code)
@@ -81,8 +86,8 @@ def jit(
                     # TODO: hook up metal runtime here
                     raise NotImplementedError("Metal runtime is not implemented yet")
             elif backend == "ttnn":
-                ttir_to_ttnn_backend_pipeline(
-                    ir, f"system-desc-path={system_desc_path}"
+                ttnn_to_ttmetal_pipeline(
+                    ir, f"system-desc-path={system_desc_path} ttnn-mode=true"
                 )
                 if debug:
                     print("---- After ttir_to_ttnn_backend_pipeline ----")

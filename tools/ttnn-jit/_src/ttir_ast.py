@@ -9,14 +9,15 @@ from ttmlir.ir import *
 from ttmlir.dialects import (
     ttir,
     func,
+    ttnn,
     tensor,
+    ttcore,
 )
 
 from .utils import _discover_dialect_ops
 
 
 class TTIRCompiler(ast.NodeVisitor):
-    _fn_map = _discover_dialect_ops(ttir)
     supported_nodes = [
         ### Control-flow (NOT SUPPORTED)
         # ast.If,
@@ -29,6 +30,7 @@ class TTIRCompiler(ast.NodeVisitor):
         ### Expressions
         ast.Expr,
         ast.Call,
+        ast.Attribute,
         ast.UnaryOp,
         ast.BinOp,
         # ast.BoolOp,
@@ -49,6 +51,9 @@ class TTIRCompiler(ast.NodeVisitor):
         self.func_entry = None
         self.symbol_tables = []
         self.tensor_args = kwargs.get("_tensor_args", {})
+        self.backend = kwargs.get("_backend")
+        self.max_grid = kwargs.get("_max_grid")
+        self._fn_map = _discover_dialect_ops(self.backend)
 
     def _mlir_dtype_from_ttnn_dtype(self, dtype):
         match int(dtype):
@@ -72,6 +77,50 @@ class TTIRCompiler(ast.NodeVisitor):
             if var_name in sym_table:
                 return sym_table
         return {}
+
+    def _create_tensor_layout(self, tensor_arg):
+        # Only rank 2 tensors supported
+        assert len(tensor_arg.shape) == 2
+        # print("tensor arg shape: ", tensor_arg.shape)
+        shape_h = tensor_arg.shape[0]
+        shape_w = tensor_arg.shape[1]
+
+        shard_spec = tensor_arg.memory_config().shard_spec
+        shard_shape = shard_spec.shape
+        # print(f"shape_h: {shape_h}")
+        # print(f"shape_w: {shape_w}")
+        # print(f"shard_shape: {shard_shape}")
+
+        # Create identity affine map, should be based of tensor shape
+        # default to rank 2, don't support shape collapse.
+        # Note: ttnn.tensor.shape is always rank 4
+        identity_map = AffineMap.get_identity(2, self.ctx)
+
+        # Create ttcore grid atttr; only single core for now
+        grid_size_x = self.max_grid[0] + 1
+        grid_size_y = self.max_grid[1] + 1
+        grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_x, grid_size_y])
+
+        # Create memref, tile type only, only f32 support for now.
+        # Only L1 buffer supported. NO DRAM.
+        shard_shape_tile_x = shard_shape[0] // 32
+        shard_shape_tile_y = shard_shape[1] // 32
+        tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, ttcore.DataType.Float32)
+        buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.L1)
+        memref = MemRefType.get(
+            [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
+        )
+
+        # Either L1 block sharded or DRAM interleaved. (No DRAM for now)
+        ttnn_layout = ttnn.ir.TTNNLayoutAttr.get(
+            self.ctx,
+            identity_map,
+            grid,
+            memref,
+            ttnn.TensorMemoryLayout.BlockSharded,
+            None,
+        )
+        return ttnn_layout
 
     def visit_Module(self, node):
         # Set default basic block
@@ -102,8 +151,9 @@ class TTIRCompiler(ast.NodeVisitor):
             if name in self.tensor_args:
                 tensor_arg = self.tensor_args[name]
                 shape = list(tensor_arg.shape)
+                layout = self._create_tensor_layout(tensor_arg)
                 dtype = self._mlir_dtype_from_ttnn_dtype(tensor_arg.dtype)
-                tensor_type = RankedTensorType.get(shape, dtype)
+                tensor_type = RankedTensorType.get(shape, dtype, layout)
                 input_types.append(tensor_type)
 
         # TODO: how to dynamically figure out output shape?
@@ -124,21 +174,66 @@ class TTIRCompiler(ast.NodeVisitor):
         self.symbol_tables.pop()
 
     def visit_Call(self, node):
+        # If function is an attribute, it's a ttnn op call (eg: ttnn.exp(tensor))
+        if isinstance(node.func, ast.Attribute):
+            return self.visit(node.func, args=node.args)
+
         # Assumption: first arg is always a tensor, and shape is same for input/output
-        # input params usually look like (result_type, input1, input2, output, *other_args)
-        # edge of of passing *other_args does not work (yet) -> eg: max and min have a keep_dim arg
+        # input params usually look like (result_type, input1, input2, output, *other_args) for ttir,
+        # for ttnn, don't need to specify output.
+        # edge case of of passing *other_args does not work (yet) -> eg: max and min have a keep_dim arg
         assert node.func.id in self._fn_map, f"Function {node.func.id} not supported"
         arg = self.visit(node.args[0])
         result_type = arg.type
-        output = ttir.empty(result_type)
 
         func_args = [result_type]
         for arg in node.args:
             func_args.append(self.visit(arg))
-        func_args.append(output)
+
+        if self.backend == "metal":
+            output = ttir.empty(result_type)
+            func_args.append(output)
 
         func = self._fn_map[node.func.id]
-        return func(*func_args)
+        op = func(*func_args)
+        if self.backend == "ttnn":
+            op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
+        return op
+
+    def visit_Attribute(self, node, args=[]):
+        assert self.backend == "ttnn", "Attributes are only supported for ttnn backend"
+        assert len(args) >= 1, "Must pass at least one argument (tensor)"
+        assert node.attr in self._fn_map, f"Function {node.attr} not supported"
+
+        arg = self.visit(args[0])
+        result_type = arg.type
+
+        func_args = [result_type, arg]
+        for func_arg in args[1:]:
+            func_args.append(self.visit(func_arg))
+
+        func = self._fn_map[node.attr]
+        op = func(*func_args)
+        if self.backend == "ttnn":
+            op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
+        return op
+
+    def visit_Attribute(self, node, args=[]):
+        assert self.backend == "ttnn", "Attributes are only supported for ttnn backend"
+        assert len(args) >= 1, "Must pass at least one argument (tensor)"
+        assert node.attr in self._fn_map, f"Function {node.attr} not supported"
+
+        arg = self.visit(args[0])
+        result_type = arg.type
+
+        func_args = [result_type, arg]
+        for func_arg in args[1:]:
+            func_args.append(self.visit(func_arg))
+
+        func = self._fn_map[node.attr]
+        op = func(*func_args)
+        op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
+        return op
 
     # Expressions
     # I don't think this respects BEDMAS..
