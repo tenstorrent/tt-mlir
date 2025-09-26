@@ -6,6 +6,7 @@
 
 import model_explorer
 import argparse
+from . import ttrt
 
 parser = argparse.ArgumentParser(prog="tt-explorer")
 parser.add_argument(
@@ -44,6 +45,6 @@ model_explorer.visualize_from_config(
     no_open_in_browser=args.no_browser,
     port=args.port,
     host=args.url,
-    enable_execution=not args.no_model_execution,
+    enable_execution=ttrt.get_is_ttrt_available() and not args.no_model_execution,
     cors_host=args.cors_host,
 )
