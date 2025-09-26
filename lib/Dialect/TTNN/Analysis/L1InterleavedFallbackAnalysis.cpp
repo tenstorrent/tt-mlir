@@ -14,6 +14,8 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
 
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
+
 #include <algorithm>
 #include <cassert>
 #include <vector>
@@ -103,24 +105,11 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
                    op->getName());
       return;
     }
-
-    if (isa<ttnn::ReshapeOp>(op)) {
-      // Output of reshape op is considered for keeping in DRAM, only if its
-      // input is still in DRAM.
-      auto inputType =
-          mlir::dyn_cast<mlir::RankedTensorType>(op->getOperand(0).getType());
-      auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
-      if (ttnnLayout.hasDRAMBufferType() && checkReshapeSkip(op)) {
-        return;
-      }
-    }
-    for (auto *user : op->getUsers()) {
-      // Input of reshape user is considered for keeping in DRAM, only if its
-      // output is still in DRAM.
-      if (isa<ttnn::ReshapeOp>(user) && utils::producesDRAMLayout(user) &&
-          checkReshapeSkip(user)) {
-        return;
-      }
+    // Skip reshapes which can be optimized to views by tt-metal.
+    // TODO(bmalesevic,#5086): replace with dynamic runtime check when tt-metal
+    // provides API to query view optimization eligibility at compile time
+    if (handleReshapeOps(op)) {
+      return;
     }
     tryUpgradeToL1Interleaved(op);
   });
@@ -204,10 +193,29 @@ bool L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(Operation *op) {
   return true;
 }
 
+bool L1InterleavedFallbackAnalysis::handleReshapeOps(Operation *op) const {
+  // Output of reshape op is considered for keeping in DRAM, only if its
+  // input is still in DRAM.
+  if (isa<ttnn::ReshapeOp>(op) && utils::hasFirstOperandInDRAM(op) &&
+      checkReshapeSkip(op)) {
+    return true;
+  }
+  for (auto *user : op->getUsers()) {
+    // Input of reshape user is considered for keeping in DRAM, only if its
+    // output is still in DRAM.
+    if (isa<ttnn::ReshapeOp>(user) && utils::producesDRAMLayout(user) &&
+        checkReshapeSkip(user)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
     Operation *reshapeOperation) const {
 
-  auto reshapeOp = cast<ttnn::ReshapeOp>(reshapeOperation);
+  auto reshapeOp = dyn_cast<ttnn::ReshapeOp>(reshapeOperation);
+  assert(reshapeOp && "Expected a ReshapeOp");
 
   auto inputType = mlir::dyn_cast<mlir::RankedTensorType>(
       reshapeOp->getOperand(0).getType());
@@ -240,31 +248,19 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
   int64_t outputSecondLastDim =
       outputShape.size() >= 2 ? outputShape[outputShape.size() - 2] : 1;
 
-  const int64_t tileHeight = 32; // tt::constants::TILE_HEIGHT
-  const int64_t tileWidth = 32;  // tt::constants::TILE_WIDTH
-
   bool inputTensorTiled = false;
-  if (auto ttnnLayout =
-          mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding())) {
-    inputTensorTiled = ttnnLayout.isTiled();
-  }
+  auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
+  assert(ttnnLayout && "Expected input tensor to have TTNN layout attribute");
+  inputTensorTiled = ttnnLayout.isTiled();
 
-  // Conditions reshape can be optimized to a view operation (based on tt-metal
-  // logic):
-  // 1. Last dimension must be the same
-  // 2. Either second-to-last dimension is the same OR no tile padding OR
-  // row-major input
-  // 3. Sharded/Interleaved must match for output and input
-  // 4. L1/DRAM must match for output and input
+  // Check tt-metal view optimization: same last dim + tile alignment
+  // (conditions 1&2) Buffer type matching (conditions 3&4) already guaranteed
+  // by DRAM context
   bool canBeView =
-      // 1. Sharded/Interleaved and L1/DRAM match for output and input is
-      // already checked, as the tensor being considered for upgrade is DRAM
-      // Interleaved, and the other one is checked to be DRAM as well before
-      // this function.
       (inputLastDim == outputLastDim) &&
       (!inputTensorTiled || (inputSecondLastDim == outputSecondLastDim) ||
-       (outputSecondLastDim % tileHeight == 0 &&
-        inputSecondLastDim % tileWidth == 0));
+       (outputSecondLastDim % TILE_HEIGHT == 0 &&
+        inputSecondLastDim % TILE_WIDTH == 0));
 
   if (canBeView) {
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
