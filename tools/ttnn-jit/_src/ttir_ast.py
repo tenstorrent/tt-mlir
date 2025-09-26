@@ -188,13 +188,11 @@ class TTIRCompiler(ast.NodeVisitor):
 
         func_args = [result_type, arg]
         for func_arg in args[1:]:
-            print("func_arg: ", func_arg)
             func_args.append(self.visit(func_arg))
 
         func = self._fn_map[node.attr]
         op = func(*func_args)
-        # help(RankedTensorType)
-        # op.operation.attributes[ttnn.g_TTNNHoistGenericViaD2MAttrName] = BoolAttr.get(True)
+        op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
         return op
 
     # Expressions
