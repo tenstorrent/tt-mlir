@@ -1025,6 +1025,25 @@ def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads", [TTNN_MemoryConfigOpIn
     let hasVerifier = 1;
 }
 
+def TTNN_NLPConcatHeadsDecodeOp: TTNN_Op<"nlp_concat_heads_decode", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Concatenate heads op used in attention layer.";
+    let description = [{
+      Shuffles [S=1, B=32, 32(num_heads), head_dim] tensor into tensor with shape [S=1, 1, B=32, num_heads * head_dim].
+      This operation assumes that input num_heads is padded to at most 32. When invoking this op,
+      we specify the actual num_heads via the attribute `num_heads` and it should be less than input padded num_heads.
+      Operation will unpad the input num_heads to the actual num_heads.
+      The output is default width sharded by num heads.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         UI32Attr:$num_heads,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
 
     let summary = "Softmax op.";
@@ -2409,6 +2428,21 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Memory
     let hasVerifier = 1;
 }
 
+def TTNN_NLPConcatHeadsOp : TTNN_Op<"nlp_concat_heads", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "nlp_concat_heads op in TTNN dialect.";
+  let description = [{
+    "This op targets specific case of concatenate heads operation where input tensor
+    [B, num_heads, S, head_dim] is permuted and reshaped into [B, 1, S, num_heads * head_dim]."
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                   OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor"> {
   let summary = "Saves a tensor to disk in the TTNN binary format";
   let description = [{
@@ -2443,6 +2477,42 @@ def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+}
+
+def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attention_decode", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
+    let summary = "A version of scaled dot product attention specifically for decode.";
+    let description = [{
+      A version of scaled dot product attention specifically for decode.
+        The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
+
+        Args:
+            input_tensor_q (AnyRankedTensor): the input tensor [1 x b x nh x dh]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
+            input_tensor_k (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
+            input_tensor_v (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
+            is_causal (bool, optional): whether the attention is is causal. Defaults to `true`.
+            attention_mask (AnyRankedTensor, optional): the attention mask [b x 1 x s x s].
+            cur_pos_tensor (AnyRankedTensor): [b] tensor of integers of length b.
+            attention_sink (AnyRankedTensor, optional): the attention sink [nh, 32] (must be a single tile wide).
+            scale (float, optional): Defaults to `None`.
+            memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
+
+        Returns:
+            AnyRankedTensor: the output tensor [1 x b x pnh x dh].
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                         Optional<AnyRankedTensor>:$attention_mask,
+                         AnyRankedTensor:$cur_pos_tensor,
+                         Optional<AnyRankedTensor>:$attention_sink,
+                         OptionalAttr<F32Attr>:$scale,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 #endif

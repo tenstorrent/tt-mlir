@@ -154,8 +154,7 @@ module {
     // CHECK-NOT: ttir.update_cache
     // CHECK: %[[RET:[0-9]+]] = "ttir.fill_cache"(%arg0, %arg2) <{batch_offset = 0 : i32}> : (tensor<1x8x64x128xbf16>, tensor<1x8x14x128xbf16>) -> tensor<1x8x64x128xbf16>
     // CHECK: return %[[RET]] : tensor<1x8x64x128xbf16>
-    %0 = ttir.empty() : tensor<14xi64>
-    %1 = "ttir.mesh_shard"(%arg1, %0) <{shard_dims = array<i64: -1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1>, shard_type = #ttcore.shard_type<identity>}> : (tensor<14xi64>, tensor<14xi64>) -> tensor<14xi64>
+    %1 = "ttir.mesh_shard"(%arg1) <{shard_dims = array<i64: -1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 1>, shard_type = #ttcore.shard_type<identity>}> : (tensor<14xi64>) -> tensor<14xi64>
     %2 = ttir.empty() : tensor<1x8x64x128xbf16>
     %3 = "ttir.scatter"(%arg0, %1, %arg2, %2) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 2>, scatter_dims_to_operand_dims = array<i32: 2>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 0, 1, 3>}> : (tensor<1x8x64x128xbf16>, tensor<14xi64>, tensor<1x8x14x128xbf16>, tensor<1x8x64x128xbf16>) -> tensor<1x8x64x128xbf16>
     return %3 : tensor<1x8x64x128xbf16>

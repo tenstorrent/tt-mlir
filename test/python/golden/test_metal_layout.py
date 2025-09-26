@@ -10,8 +10,8 @@ from ttmlir.dialects import ttcore
 from ttmlir.ir import *
 
 from builder.base.builder import Operand
-from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.d2m.d2m_builder import D2MBuilder
+from builder.base.builder_utils import compile_d2m_to_flatbuffer
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -45,7 +45,7 @@ def test_to_layout(
 
     def to_layout(
         in0: Operand,
-        builder: TTIRBuilder,
+        builder: D2MBuilder,
         unit_attrs: List[str] = None,
     ):
         to_device = builder.to_layout(
@@ -68,11 +68,11 @@ def test_to_layout(
         )
         return from_device
 
-    compile_ttir_to_flatbuffer(
+    compile_d2m_to_flatbuffer(
         to_layout,
         [shape],
         target=target,
-        custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

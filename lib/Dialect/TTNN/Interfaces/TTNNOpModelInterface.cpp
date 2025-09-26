@@ -1759,6 +1759,147 @@ ConcatenateHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionDecodeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct ScaledDotProductAttentionDecodeArgs {
+  llvm::SmallVector<int64_t> queryShape;
+  TTNNLayoutAttr queryLayout;
+  llvm::SmallVector<int64_t> keyShape;
+  TTNNLayoutAttr keyLayout;
+  llvm::SmallVector<int64_t> valueShape;
+  TTNNLayoutAttr valueLayout;
+  bool isCausal;
+  llvm::SmallVector<int64_t> curPosTensorShape;
+  TTNNLayoutAttr curPosTensorLayout;
+  std::optional<llvm::SmallVector<int64_t>> attentionMaskShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
+  std::optional<llvm::SmallVector<int64_t>> attentionSinkShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
+  std::optional<llvm::APFloat> scale = std::nullopt;
+};
+
+static ScaledDotProductAttentionDecodeArgs
+unpackScaledDotProductAttentionDecodeArgs(
+    const std::vector<TTNNLayoutAttr> &inputs,
+    ScaledDotProductAttentionDecodeOp op) {
+  ScaledDotProductAttentionDecodeArgs ret;
+  ret.queryShape =
+      llvm::SmallVector<int64_t>(op.getQuery().getType().getShape());
+  ret.queryLayout = inputs[0];
+  ret.keyShape = llvm::SmallVector<int64_t>(op.getKey().getType().getShape());
+  ret.keyLayout = inputs[1];
+  ret.valueShape =
+      llvm::SmallVector<int64_t>(op.getValue().getType().getShape());
+  ret.valueLayout = inputs[2];
+  ret.isCausal = op.getIsCausal();
+  ret.scale = op.getScale();
+
+  TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
+  TypedValue<RankedTensorType> attentionSink = op.getAttentionSink();
+
+  if (attentionMask && attentionSink) {
+    ret.attentionMaskShape =
+        llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
+    ret.attentionMaskLayout = inputs[3];
+    ret.curPosTensorShape =
+        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
+    ret.curPosTensorLayout = inputs[4];
+    ret.attentionSinkShape =
+        llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
+    ret.attentionSinkLayout = inputs[5];
+  } else if (attentionMask) {
+    ret.attentionMaskShape =
+        llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
+    ret.attentionMaskLayout = inputs[3];
+    ret.curPosTensorShape =
+        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
+    ret.curPosTensorLayout = inputs[4];
+  } else if (attentionSink) {
+    ret.curPosTensorShape =
+        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
+    ret.curPosTensorLayout = inputs[3];
+    ret.attentionSinkShape =
+        llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
+    ret.attentionSinkLayout = inputs[4];
+  } else {
+    llvm_unreachable("All combinations of attention mask and attention sink "
+                     "should have been handled");
+  }
+
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+ScaledDotProductAttentionDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  // Clang tidy falsley determines that the underling float data in the
+  // llvm::APFloat is freed more than once as APFloat is passed by value and
+  // then destroyed at the end of this function.
+  //
+  // The compiler explorer session at the below link shows what occurs when an
+  // optional value is set and passed by value in this manner
+  // https://godbolt.org/z/sa9ojqqov
+  //
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
+         "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
+         "5, or 6 "
+         "input tensors");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  ScaledDotProductAttentionDecodeArgs sdpaArgs =
+      unpackScaledDotProductAttentionDecodeArgs(inputs, *this);
+
+  auto scale = getScale();
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints,
+      *this, deviceGrid, sdpaArgs.queryShape, sdpaArgs.queryLayout,
+      sdpaArgs.keyShape, sdpaArgs.keyLayout, sdpaArgs.valueShape,
+      sdpaArgs.valueLayout, sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
+      sdpaArgs.attentionMaskLayout, sdpaArgs.curPosTensorShape,
+      sdpaArgs.curPosTensorLayout, sdpaArgs.attentionSinkShape,
+      sdpaArgs.attentionSinkLayout, sdpaArgs.scale, opConfig.outputLayout);
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+}
+
+llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  // See the comment in caledDotProductAttentionDecodeOp::getOpConstraints for
+  // an explanation of this lint suppression.
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
+         "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
+         "5, or 6 "
+         "input tensors");
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  ScaledDotProductAttentionDecodeArgs sdpaArgs =
+      unpackScaledDotProductAttentionDecodeArgs(inputs, *this);
+
+  auto scale = getScale();
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime, *this,
+      sdpaArgs.queryShape, sdpaArgs.queryLayout, sdpaArgs.keyShape,
+      sdpaArgs.keyLayout, sdpaArgs.valueShape, sdpaArgs.valueLayout,
+      sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
+      sdpaArgs.attentionMaskLayout, sdpaArgs.curPosTensorShape,
+      sdpaArgs.curPosTensorLayout, sdpaArgs.attentionSinkShape,
+      sdpaArgs.attentionSinkLayout, sdpaArgs.scale, opConfig.outputLayout);
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+}
+
+//===----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 
@@ -1766,6 +1907,7 @@ llvm::Expected<op_model::OpConstraints>
 RotaryEmbeddingLlamaOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   assert(inputs.size() == 4);
+
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
@@ -1795,10 +1937,83 @@ RotaryEmbeddingLlamaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   auto sinShape = getSinCache().getType().getShape();
   auto transMatShape = getTransMat().getType().getShape();
   bool isDecodeMode = getIsDecodeMode();
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime, *this,
       inputShape, inputs[0], cosShape, inputs[1], sinShape, inputs[2],
       transMatShape, inputs[3], isDecodeMode, opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// NLPConcatHeadsOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+NLPConcatHeadsOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+  auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<NLPConcatHeadsOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+NLPConcatHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<NLPConcatHeadsOp>::getOpRuntime, *this, inputShape,
+      inputs[0], opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// NLPConcatHeadsDecodeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+llvm::Expected<op_model::OpConstraints>
+NLPConcatHeadsDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+  uint32_t numHeads = getNumHeads();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], numHeads, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+NLPConcatHeadsDecodeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+  uint32_t numHeads = getNumHeads();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime, *this,
+      inputShape, inputs[0], numHeads, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

@@ -224,6 +224,12 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
     fallback strategies by transforming input operand layouts and data types
     to find working configurations.
   }];
+  let options = [
+    Option<"tensorL1UsageCap",
+           "tensor-l1-usage-cap",
+           "float", /*default=*/"1.0",
+           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">
+  ];
 }
 
 #endif

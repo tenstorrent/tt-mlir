@@ -3348,6 +3348,38 @@ void CaptureOrExecuteTraceOp::getEffects(
   return success();
 }
 
+//===-----------------------------------------------------------------------===//
+// NLPConcatHeadsOp
+// ===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::NLPConcatHeadsOp::verify() {
+  ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  ArrayRef<int64_t> outputShape = getResult().getType().getShape();
+
+  if (outputShape.size() != 4) {
+    return emitOpError() << "output tensor must be a 4D tensor";
+  }
+
+  if (inputShape.size() != 4) {
+    return emitOpError() << "input tensor must be a 4D tensor";
+  }
+
+  using namespace ttmlir::utils::transformer;
+
+  llvm::SmallVector<int64_t> expectedOutputShape = {
+      inputShape[INPUT_BATCH], 1, inputShape[INPUT_SEQ],
+      inputShape[INPUT_NUM_HEADS] * inputShape[INPUT_HEAD_SIZE]};
+
+  if (!llvm::equal(expectedOutputShape, outputShape)) {
+    return emitOpError() << "expected output shape ("
+                         << ttmlir::utils::join(expectedOutputShape, ", ")
+                         << "), got (" << ttmlir::utils::join(outputShape, ", ")
+                         << ")";
+  }
+
+  return mlir::success();
+}
+
 //===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//
@@ -3387,6 +3419,75 @@ void CaptureOrExecuteTraceOp::getEffects(
   }
 
   return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// NLPConcatHeadsDecodeOp
+//===----------------------------------------------------------------------===//
+
+// NLPConcatHeadsDecodeOp verification
+::mlir::LogicalResult NLPConcatHeadsDecodeOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError() << "input tensor must be a 4D tensor";
+  }
+
+  if (outputType.getRank() != 4) {
+    return emitOpError() << "output tensor must be a 4D tensor";
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  // Input tensor dimensions [sequence_size, batch_size, num_heads, head_size]
+  // Output tensor dimensions [sequence_size, 1, batch_size, num_heads *
+  // head_size]
+  enum InputDimensions {
+    INPUT_SEQ = 0,
+    INPUT_BATCH = 1,
+    INPUT_NUM_HEADS = 2,
+    INPUT_HEAD_SIZE = 3
+  };
+
+  enum OutputDimensions { OUTPUT_SEQ = 0, OUTPUT_BATCH = 2, OUTPUT_HIDDEN = 3 };
+
+  uint32_t numHeads = getNumHeads();
+
+  if (outputShape[1] != 1) {
+    return emitOpError() << "output dimension 1 must be 1, got "
+                         << outputShape[1];
+  }
+
+  if (inputShape[INPUT_NUM_HEADS] < numHeads) {
+    return emitOpError() << "num_heads attribute must be less than or equal to "
+                            "input num_heads "
+                            "dimension, got num_heads = "
+                         << numHeads << ", input num_heads dimension = "
+                         << inputShape[INPUT_NUM_HEADS];
+  }
+
+  if (inputShape[INPUT_SEQ] != outputShape[OUTPUT_SEQ]) {
+    return emitOpError()
+           << "input sequence dimension must match output sequence dimension, "
+              "got input sequence size = "
+           << inputShape[INPUT_SEQ]
+           << ", output sequence size = " << outputShape[OUTPUT_SEQ];
+  }
+
+  // Verify that num_heads * head_size equals the output hidden dimension
+  int64_t expectedHiddenSize = numHeads * inputShape[INPUT_HEAD_SIZE];
+  if (expectedHiddenSize != outputShape[OUTPUT_HIDDEN]) {
+    return emitOpError()
+           << "Output hidden dimension must equal num_heads * head_size, "
+              "got num_heads = "
+           << inputShape[INPUT_NUM_HEADS] << ", head_size = " << numHeads
+           << ", expected hidden size = " << expectedHiddenSize
+           << ", actual output hidden size = " << outputShape[OUTPUT_HIDDEN];
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -3516,6 +3617,103 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
   }
 
   return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult
+mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
+
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+  RankedTensorType curPosTensorType = getCurPosTensor().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  if (queryType != resultType) {
+    return emitOpError("Query and result must have the same type");
+  }
+
+  if (!curPosTensorType.getElementType().isInteger()) {
+    return emitOpError("Cur pos tensor must be a tensor of integers");
+  }
+
+  if (curPosTensorType.getShape().size() != 1) {
+    return emitOpError("Cur pos tensor must be a 1D tensor");
+  }
+
+  if (keyType != valueType) {
+    return emitOpError("Key and value must have the same type");
+  }
+  if (queryType.getShape().size() != 4) {
+    return emitOpError("Query must be a 4D tensor");
+  }
+  if (keyType.getShape().size() != 4) {
+    return emitOpError("Key/Value must be a 4D tensor");
+  }
+  if (resultType.getShape().size() != 4) {
+    return emitOpError("Output must be a 4D tensor");
+  }
+
+  if (queryType.getShape()[0] != 1) {
+    return emitOpError("Query dim 0 must be 1");
+  }
+
+  int64_t batchSize = queryType.getShape()[1];
+  int64_t nQueryHeads = queryType.getShape()[2];
+  int64_t nKVHeads = keyType.getShape()[1];
+  int64_t headSize = queryType.getShape()[3];
+  int64_t maxSeqLen = keyType.getShape()[2];
+
+  if (curPosTensorType.getShape()[0] != batchSize) {
+    return emitOpError("Cur pos tensor batch size must match query batch size");
+  }
+
+  if (keyType.getShape()[0] != batchSize) {
+    return emitOpError("Key/Value batch size must match query batch size");
+  }
+
+  if (keyType.getShape()[3] != headSize) {
+    return emitOpError("Key/Value head size must match query head size");
+  }
+
+  if (nQueryHeads % nKVHeads != 0) {
+    return emitOpError(
+        "Query num heads must be divisible by key/value num heads");
+  }
+
+  if (getAttentionMask()) {
+    if (getIsCausal()) {
+      return emitOpError(
+          "Attention mask is not allowed when is_causal is true");
+    }
+    RankedTensorType attentionMaskType = getAttentionMask().getType();
+    if (attentionMaskType.getShape().size() != 4) {
+      return emitOpError("Attention mask must be a 4D tensor");
+    }
+    if (attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError(
+          "Attention mask batch size must match query batch size");
+    }
+    if (attentionMaskType.getShape()[1] != 1) {
+      return emitOpError("Attention mask dim 1 must be 1");
+    }
+    if (attentionMaskType.getShape()[2] != nQueryHeads) {
+      return emitOpError("Attention mask num heads must match query num heads");
+    }
+    if (attentionMaskType.getShape()[3] != maxSeqLen) {
+      return emitOpError("Attention mask sequence length must match key/value "
+                         "sequence length");
+    }
+  } else {
+    if (!getIsCausal()) {
+      return emitOpError("Attention mask is required when is_causal is false");
+    }
+  }
+
+  return success();
 }
 
 } // namespace mlir::tt::ttnn

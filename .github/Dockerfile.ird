@@ -23,14 +23,14 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \
     chmod -R 777 $TTMLIR_TOOLCHAIN_DIR
 
-# Install GDB 14.2
+# Install GDB 16.3
 RUN apt install libmpfr-dev -y && \
-    wget https://ftp.gnu.org/gnu/gdb/gdb-14.2.tar.gz && \
-    tar -xvf gdb-14.2.tar.gz && \
-    cd gdb-14.2 && \
+    wget https://ftpmirror.gnu.org/gnu/gdb/gdb-16.3.tar.gz && \
+    tar -xvf gdb-16.3.tar.gz && \
+    cd gdb-16.3 && \
     ./configure && \
     make -j$(nproc) && \
     make install && \
     cd ..  && \
-    rm -rf gdb-14.2 gdb-14.2.tar.gz  && \
+    rm -rf gdb-16.3 gdb-16.3.tar.gz  && \
     gdb --version

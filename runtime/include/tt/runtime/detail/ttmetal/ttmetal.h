@@ -42,6 +42,7 @@ inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
 
 std::shared_ptr<::tt::tt_metal::HostBuffer>
 createMetalHostBuffer(const void *data, const std::vector<std::uint32_t> &shape,
+                      const size_t sizeBytes,
                       const ::tt::target::DataType dataType);
 
 Tensor createOwnedHostTensor(const void *data,
@@ -135,6 +136,8 @@ void memcpy(void *dst, Tensor src,
             std::optional<tt::target::DataType> dstDataType = std::nullopt);
 
 void memcpy(Tensor dst, Tensor src);
+
+void memcpy(Tensor dst, TensorDesc dstDesc, Tensor src, TensorDesc srcDesc);
 
 void deallocateTensor(Tensor &tensor, bool force);
 
