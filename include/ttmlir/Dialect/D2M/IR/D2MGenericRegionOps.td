@@ -361,28 +361,56 @@ def D2M_TileMaximumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_maximum">{
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum">{
-    let summary = "D2M Tile Reduce Sum Op";
-    let description = [{
-        The `tile_reduce_sum` operation computes the weighted sum of all elements in the input tile over the specified reduction dim(s).
+def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum"> {
+  let summary = "D2M Tile Reduce Sum Op";
+  let description = [{
+        The `tile_reduce_sum` operation computes the sum of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- sum<dims>(A * B, C)
     }];
 
-    let arguments = (ins TTCore_Tile:$input,
-                         TTCore_Tile:$weight,
-                         D2M_ReduceDimAttr:$reduce_dim);
-    let results = (outs TTCore_Tile:$result);
+  let arguments = (ins TTCore_Tile:$a,
+                       TTCore_Tile:$b,
+                       TTCore_Tile:$c,
+                       D2M_ReduceDimAttr:$reduce_dim);
+  let results = (outs TTCore_Tile:$result);
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {2};
+    }
+    bool getDstRegInPlace() {
+      return true;
+    }
+  }];
 }
 
 def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max"> {
-    let summary = "D2M Tile Reduce Max Op";
-    let description = [{
-        The `tile_reduce_max` operation computes the max of all elements in the input tile over the specified reduction dim(s).
+  let summary = "D2M Tile Reduce Max Op";
+  let description = [{
+        The `tile_reduce_max` operation computes the max of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- max<dims>(A * B, C)
     }];
 
-    let arguments = (ins TTCore_Tile:$a,
-                         TTCore_Tile:$b,
-                         D2M_ReduceDimAttr:$reduce_dim);
-    let results = (outs TTCore_Tile:$result);
+  let arguments = (ins TTCore_Tile:$a,
+                       TTCore_Tile:$b,
+                       TTCore_Tile:$c,
+                       D2M_ReduceDimAttr:$reduce_dim);
+  let results = (outs TTCore_Tile:$result);
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {2};
+    }
+    bool getDstRegInPlace() {
+      return true;
+    }
+  }];
+}
+
+def D2M_PackerMaskResetOp : D2M_GenericRegionComputeOp<"packer_mask_reset"> {
+  let summary = "D2M Packer Mask Reset Op";
+  let description = [{
+        The `packer_mask_reset` operation resets the packer mask. This should be removed once LLK refactors the reduce API.
+        See tt-metal#22904 and tt-metal -> reduce.h.
+    }];
 }
 
 def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul"> {
