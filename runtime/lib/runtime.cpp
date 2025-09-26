@@ -336,7 +336,7 @@ bool isTensorAllocated(Tensor tensor) {
         return ::tt::runtime::ttmetal::isTensorAllocated(tensor);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
+        return ::tt::runtime::cuda::isTensorAllocated(tensor);
       });
 }
 
@@ -351,7 +351,7 @@ bool isTensorAllocated(Tensor tensor) {
         return ::tt::runtime::ttmetal::getTensorDataType(tensor);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
+        return ::tt::runtime::cuda::getTensorDataType(tensor);
       });
 }
 
@@ -708,9 +708,7 @@ void wait(Event event) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::wait(event); },
       [&]() { ::tt::runtime::ttmetal::wait(event); },
-      [&]() {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-      });
+      [&]() { ::tt::runtime::cuda::wait(event); });
 }
 
 void wait(Tensor tensor, std::optional<uint8_t> cqId) {
@@ -718,9 +716,7 @@ void wait(Tensor tensor, std::optional<uint8_t> cqId) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::wait(tensor, cqId); },
       [&]() { ::tt::runtime::ttmetal::wait(tensor, cqId); },
-      [&]() {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-      });
+      [&]() { ::tt::runtime::cuda::wait(tensor, cqId); });
 }
 
 void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
@@ -728,9 +724,7 @@ void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::wait(tensors, cqId); },
       [&]() { ::tt::runtime::ttmetal::wait(tensors, cqId); },
-      [&]() {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-      });
+      [&]() { ::tt::runtime::cuda::wait(tensors, cqId); });
 }
 
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
@@ -760,7 +754,7 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout,
         return ::tt::runtime::ttmetal::toLayout(tensor, device, layout, retain);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
+        return ::tt::runtime::cuda::toLayout(tensor, device, layout, retain);
       });
 }
 
@@ -778,7 +772,8 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                                                  inputIndex);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
+        return ::tt::runtime::cuda::getLayout(executableHandle, programIndex,
+                                              inputIndex);
       });
 }
 

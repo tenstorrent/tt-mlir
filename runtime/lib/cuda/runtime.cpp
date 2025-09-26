@@ -9,8 +9,81 @@
 #include "tt/runtime/utils.h"
 #include "ttmlir/Version.h"
 #include "types_generated.h"
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
+#include "ttmlir/Target/CUDA/program_generated.h"
+#pragma clang diagnostic pop
 
+#include "llvm/Support/raw_ostream.h"
+
+#include "llvm/Support/Error.h"
 namespace tt::runtime::cuda {
+
+// Helper function to convert CUDA DataType enum to common DataType enum
+static ::tt::target::DataType
+cudaDataTypeToCommon(::tt::target::cuda::DataType cudaType) {
+  switch (cudaType) {
+  case ::tt::target::cuda::DataType::Float64:
+    return ::tt::target::DataType::Float64;
+  case ::tt::target::cuda::DataType::UInt64:
+    return ::tt::target::DataType::UInt64;
+  case ::tt::target::cuda::DataType::Int64:
+    return ::tt::target::DataType::Int64;
+  case ::tt::target::cuda::DataType::Float32:
+    return ::tt::target::DataType::Float32;
+  case ::tt::target::cuda::DataType::UInt32:
+    return ::tt::target::DataType::UInt32;
+  case ::tt::target::cuda::DataType::Int32:
+    return ::tt::target::DataType::Int32;
+  case ::tt::target::cuda::DataType::Float16:
+    return ::tt::target::DataType::Float16;
+  case ::tt::target::cuda::DataType::BFloat16:
+    return ::tt::target::DataType::BFloat16;
+  case ::tt::target::cuda::DataType::UInt16:
+    return ::tt::target::DataType::UInt16;
+  case ::tt::target::cuda::DataType::Int16:
+    return ::tt::target::DataType::Int16;
+  default:
+    return ::tt::target::DataType::Float32; // fallback
+  }
+}
+
+// Helper function to convert common DataType enum to CUDA DataType enum
+static ::tt::target::cuda::DataType
+commonDataTypeToCuda(::tt::target::DataType commonType) {
+  switch (commonType) {
+  case ::tt::target::DataType::Float64:
+    return ::tt::target::cuda::DataType::Float64;
+  case ::tt::target::DataType::UInt64:
+    return ::tt::target::cuda::DataType::UInt64;
+  case ::tt::target::DataType::Int64:
+    return ::tt::target::cuda::DataType::Int64;
+  case ::tt::target::DataType::Float32:
+    return ::tt::target::cuda::DataType::Float32;
+  case ::tt::target::DataType::UInt32:
+    return ::tt::target::cuda::DataType::UInt32;
+  case ::tt::target::DataType::Int32:
+    return ::tt::target::cuda::DataType::Int32;
+  case ::tt::target::DataType::Float16:
+    return ::tt::target::cuda::DataType::Float16;
+  case ::tt::target::DataType::BFloat16:
+    return ::tt::target::cuda::DataType::BFloat16;
+  case ::tt::target::DataType::UInt16:
+    return ::tt::target::cuda::DataType::UInt16;
+  case ::tt::target::DataType::Int16:
+    return ::tt::target::cuda::DataType::Int16;
+  default:
+    return ::tt::target::cuda::DataType::Float32; // fallback
+  }
+}
+
+// Helper function to get CUDA binary from handle
+static const ::tt::target::cuda::Program *getBinary(Binary binary) {
+  bool isCUDA = ::tt::target::cuda::SizePrefixedProgramBufferHasIdentifier(
+      binary.handle.get());
+  LOG_ASSERT(isCUDA, "Unsupported binary format");
+  return ::tt::target::cuda::GetSizePrefixedProgram(binary.handle.get());
+}
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
@@ -33,7 +106,7 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
   auto cudaHandle = std::make_shared<CudaTensorHandle>();
   cudaHandle->shape = shape;
   cudaHandle->stride = stride;
-  cudaHandle->dataType = dataType;
+  cudaHandle->dataType = commonDataTypeToCuda(dataType);
   cudaHandle->itemsize = itemsize;
 
   std::shared_ptr<void> borrowedData = utils::unsafe_borrow_shared(data);
@@ -54,7 +127,7 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   auto cudaHandle = std::make_shared<CudaTensorHandle>();
   cudaHandle->shape = shape;
   cudaHandle->stride = stride;
-  cudaHandle->dataType = dataType;
+  cudaHandle->dataType = commonDataTypeToCuda(dataType);
   cudaHandle->itemsize = itemsize;
 
   // Calculate total data size
@@ -161,6 +234,13 @@ void memcpy(Tensor dst, Tensor src) {
   LOG_ASSERT(src.data.get() != nullptr, "Source tensor data cannot be null");
   auto srcCudaHandle = std::static_pointer_cast<CudaTensorHandle>(src.handle);
   auto dstCudaHandle = std::static_pointer_cast<CudaTensorHandle>(dst.handle);
+  llvm::errs()
+      << ::tt::target::cuda::EnumNameDataType(
+             static_cast<::tt::target::cuda::DataType>(srcCudaHandle->dataType))
+      << " - "
+      << ::tt::target::cuda::EnumNameDataType(
+             static_cast<::tt::target::cuda::DataType>(dstCudaHandle->dataType))
+      << "\n";
   LOG_ASSERT(srcCudaHandle->dataType == dstCudaHandle->dataType,
              "Source and destination tensor data types must match");
   LOG_ASSERT(srcCudaHandle->shape.size() == dstCudaHandle->shape.size(),
@@ -188,12 +268,45 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout,
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex) {
-  // CUDA program executor handles all memory transfers.
+  // Get the CUDA binary and access the program
+  const target::cuda::Program *program = getBinary(executableHandle);
+  LOG_ASSERT(inputIndex < program->memrefs()->size(), "Invalid input index");
+
+  // Get the input memref and its data type
+  const target::cuda::MemRefDesc *inputMemref =
+      program->memrefs()->Get(inputIndex);
+  // Use CUDA enum directly, convert to common enum for CudaLayoutDesc
+  ::tt::target::DataType inputDataType =
+      cudaDataTypeToCommon(inputMemref->type()->data_type());
+
   std::shared_ptr<CudaLayoutDesc> layoutDesc = std::make_shared<CudaLayoutDesc>(
       CudaLayoutDesc::StorageType::HOST, CudaLayoutDesc::Layout::ROW_MAJOR,
-      target::DataType::Float32);
+      inputDataType);
 
   return Layout(layoutDesc, DeviceRuntime::CUDA);
+}
+
+::tt::target::DataType getTensorDataType(Tensor tensor) {
+  // Extract data type from CUDA tensor handle and convert to common enum
+  auto cudaHandle = std::static_pointer_cast<CudaTensorHandle>(tensor.data);
+  return cudaDataTypeToCommon(cudaHandle->dataType);
+}
+
+bool isTensorAllocated(Tensor tensor) {
+  // CUDA tensors are considered allocated if they have valid data
+  return tensor.data != nullptr;
+}
+
+void wait(Event event) {
+  // CUDA execution is synchronous, so no-op
+}
+
+void wait(Tensor tensor, std::optional<uint8_t> cqId) {
+  // CUDA execution is synchronous, so no-op
+}
+
+void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
+  // CUDA execution is synchronous, so no-op
 }
 
 SystemDesc
