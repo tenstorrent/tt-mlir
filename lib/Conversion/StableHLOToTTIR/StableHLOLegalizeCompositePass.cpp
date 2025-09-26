@@ -98,8 +98,7 @@ public:
     DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
 
     // Extract shape attribute.
-    auto sizeAttr =
-        mlir::dyn_cast_or_null<ArrayAttr>(compositeAttrs.get("shape"));
+    auto sizeAttr = mlir::cast<ArrayAttr>(compositeAttrs.get("shape"));
 
     // Extract low and high from constant operands.
     auto lowOp =
