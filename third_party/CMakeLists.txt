@@ -175,15 +175,47 @@ install(
 # TTNN Standalone install commands
 #
 # Copy .cpmcache libs
+# Each is listed separately to maintain proper relative path
+#
 install(
   DIRECTORY
-    ${CPM_SOURCE_CACHE}/fmt/include
-    ${CPM_SOURCE_CACHE}/enchantum/include
-    ${CPM_SOURCE_CACHE}/nlohmann_json/include
+    ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
+  DESTINATION tt-metal/.cpmcache/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+install(
+  DIRECTORY
+    ${CPM_SOURCE_CACHE}/enchantum/2fb7ab238e36c101b9848892ddb6382276b65837/enchantum/include
+  DESTINATION tt-metal/.cpmcache/enchantum/2fb7ab238e36c101b9848892ddb6382276b65837/enchantum
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+install(
+  DIRECTORY
+    ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
+  DESTINATION tt-metal/.cpmcache/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+install(
+  DIRECTORY
     ${CPM_SOURCE_CACHE}/reflect
-    ${CPM_SOURCE_CACHE}/spdlog/include
-    ${CPM_SOURCE_CACHE}/tt-logger/include
   DESTINATION tt-metal/.cpmcache
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+install(
+  DIRECTORY
+    ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
+  DESTINATION tt-metal/.cpmcache/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+install(
+  DIRECTORY
+    ${CPM_SOURCE_CACHE}/tt-logger/48ec77b63c35cf84c47678990aa3603b492d0c7c/include
+  DESTINATION tt-metal/.cpmcache/tt-logger/48ec77b63c35cf84c47678990aa3603b492d0c7c
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
 )
