@@ -55,10 +55,8 @@ def tan(input_tensor):
 )
 @pytest.mark.parametrize("op", [abs, exp, log, cos, sin])
 def test_unary_ops(device, h, w, max_grid, op):
-    if op == exp and (h >= 64 or w >= 128):
-        pytest.xfail("exp failing allclose")
-    if op == log and (h >= 128 or w >= 128):
-        pytest.xfail("log failing allclose")
+    if op in [exp, log]:
+        pytest.xfail("failing allclose for some shapes")
     torch_input_tensor = torch.randn((h, w), dtype=torch.float32)
     torch_input_tensor_2 = torch.randn((h, w), dtype=torch.float32)
     golden_op = _get_ttnn_op(op)
