@@ -33,7 +33,8 @@ static void runScaledDotProductAttentionOp(
 
   ::ttnn::Tensor out = ::ttnn::transformer::scaled_dot_product_attention(
       query, key, value, attentionMask, isCausal, scale, outputMemoryConfig,
-      std::nullopt, std::nullopt);
+      /*program_config=*/std::nullopt,
+      /*compute_kernel_config=*/std::nullopt);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
