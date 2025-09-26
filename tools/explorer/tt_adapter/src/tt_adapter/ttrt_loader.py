@@ -9,7 +9,10 @@ import importlib
 ttrt = None
 
 def get_is_ttrt_available():
-  return importlib.util.find_spec("ttrt") is not None
+  is_ttrt_available = importlib.util.find_spec("ttrt") is not None
+  print(f"TTRT status: {is_ttrt_available}")
+
+  return is_ttrt_available
 
 def load_ttrt():
   global ttrt

@@ -9,7 +9,7 @@ from ttmlir.compile_and_run_utils import ModuleDialect
 import logging
 import torch
 
-from . import ttrt
+from . import ttrt_loader
 
 
 def parse_mlir_str(module_str):
@@ -19,7 +19,7 @@ def parse_mlir_str(module_str):
 
 
 def parse_flatbuffer_file(fb_path, at_pass=None, program=0):
-    if not ttrt.get_is_ttrt_available():
+    if not ttrt_loader.get_is_ttrt_available():
         logging.error(
             "TTRT is not installed in Python Environment, unable to parse Flatbuffer"
         )
@@ -60,7 +60,7 @@ def parse_flatbuffer_file(fb_path, at_pass=None, program=0):
 
 def golden_map_from_flatbuffer(fb_path, program=0):
     # Get the golden_map from flatbuffer corresponding to the Program # provided
-    if not ttrt.get_is_ttrt_available():
+    if not ttrt_loader.get_is_ttrt_available():
         logging.error(
             "TTRT is not installed in Python Environment, unable to parse Flatbuffer."
         )

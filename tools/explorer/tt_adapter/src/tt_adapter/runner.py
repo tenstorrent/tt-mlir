@@ -4,12 +4,11 @@
 import subprocess
 import os
 import logging
-import importlib
 
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
 from ttmlir import passes
-from . import utils, mlir, ttrt
+from . import utils, mlir, ttrt_loader
 import pandas as pd
 from datetime import datetime, timezone
 import threading
@@ -85,7 +84,7 @@ class ModelRunner:
         return cls._instance
 
     def _load_ttrt(self):
-        self._ttrt = ttrt.load_ttrt()
+        self._ttrt = ttrt_loader.load_ttrt()
         pass
 
     def initialize(self):
@@ -251,7 +250,7 @@ class ModelRunner:
 
     def compile_and_run_wrapper(self, model_path, overrides_string):
         try:
-            if not ttrt.get_is_ttrt_available():
+            if not ttrt_loader.get_is_ttrt_available():
                 raise Exception('TTRT not available. Model execution is disabled.')
 
             self.compile_and_run(model_path, overrides_string)
