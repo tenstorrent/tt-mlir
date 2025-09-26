@@ -1253,14 +1253,6 @@ def TTNN_SliceStaticOp: TTNN_Op<"slice_static"> {
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::ArrayAttr step = getStep();
-        return wa::TTNNOperandsWorkaroundsFactory::
-            createSliceStaticOpOperandsWorkarounds(step);
-      }
-    }];
-
     let hasVerifier = 1;
 }
 
@@ -1280,9 +1272,8 @@ def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::ArrayAttr step = getStepAttr();
         return wa::TTNNOperandsWorkaroundsFactory::
-            createSliceDynamicOpOperandsWorkarounds(step);
+            createSliceDynamicOpOperandsWorkarounds(*this);
       }
     }];
 

@@ -33,8 +33,6 @@ getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr);
 ::tt::tt_metal::ShardOrientation
 getShardOrientation(const ShardOrientationAttr &shardOrientationAttr);
 
-::tt::tt_metal::ShardMode getShardMode(const ShardModeAttr &shardModeAttr);
-
 std::optional<::tt::tt_metal::ShardSpec>
 getShardSpec(const TTNNLayoutAttr &layout);
 

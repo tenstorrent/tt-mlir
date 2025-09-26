@@ -24,7 +24,7 @@ func.func @mnist_fwd(%arg0: tensor<1x784xf32, #ttnn_layout>, %arg1: tensor<1x10x
   %2 = "ttnn.add"(%1, %arg3) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<1x256xf32, #ttnn_layout5>, tensor<1x256xf32, #ttnn_layout3>) -> tensor<1x256xf32, #ttnn_layout5>
   "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x256xf32, #ttnn_layout5>) -> ()
   "ttnn.deallocate"(%arg3) <{force = false}> : (tensor<1x256xf32, #ttnn_layout3>) -> ()
-  %3 = "ttnn.to_memory_config"(%2) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (7,0)>]>, <32x32>, <row_major>, <physical>>>}> : (tensor<1x256xf32, #ttnn_layout5>) -> tensor<1x256xf32, #ttnn_layout6>
+  %3 = "ttnn.to_memory_config"(%2) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (7,0)>]>, <32x32>, <row_major>>>}> : (tensor<1x256xf32, #ttnn_layout5>) -> tensor<1x256xf32, #ttnn_layout6>
   "ttnn.deallocate"(%2) <{force = false}> : (tensor<1x256xf32, #ttnn_layout5>) -> ()
   %4 = "ttnn.relu"(%3) : (tensor<1x256xf32, #ttnn_layout6>) -> tensor<1x256xf32, #ttnn_layout6>
   "ttnn.deallocate"(%3) <{force = false}> : (tensor<1x256xf32, #ttnn_layout6>) -> ()

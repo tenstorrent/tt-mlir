@@ -52,7 +52,7 @@ module {
 
 #height_sharded_encoding = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <8x1, (d0, d1) -> (0, d0 floordiv 8, d0 mod 8)>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>>
 #result_encoding = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 30 + d1 * 30 + d2, d3), <8x1, (d0, d1) -> (0, d0 floordiv 8, d0 mod 8)>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>>
-#height_sharded_mem_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0, 0), (7, 0)>]>, <32x32>, <row_major>, <physical>>>
+#height_sharded_mem_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0, 0), (7, 0)>]>, <32x32>, <row_major>>>
 
 func.func @decode(%input: tensor<1x1x32x32xbf16, #dram_interleaved_encoding>, %cos: tensor<1x1x32x32xbf16, #dram_interleaved_encoding>, %sin: tensor<1x1x32x32xbf16, #dram_interleaved_encoding>, %trans_mat: tensor<1x1x32x32xbf16, #dram_interleaved_encoding>) -> tensor<1x1x30x32xbf16, #result_encoding> {
   // CHECK: error: 'ttnn.rotary_embedding_llama' op output shape must match input shape.
