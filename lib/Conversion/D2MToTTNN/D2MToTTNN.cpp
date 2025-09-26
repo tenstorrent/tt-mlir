@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/D2MToTTNN/D2MToTTNN.h"
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -24,9 +25,9 @@
 namespace mlir::tt {
 
 namespace {
-class TTIRGenericRewriter : public OpConversionPattern<ttir::GenericOp> {
+class D2MGenericRewriter : public OpConversionPattern<d2m::GenericOp> {
 public:
-  using OpConversionPattern<ttir::GenericOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::GenericOp>::OpConversionPattern;
 
   static mlir::Attribute convertKernelArg(Builder &builder,
                                           const ttkernel::ArgAttr &arg) {
@@ -53,7 +54,7 @@ public:
     SmallVector<mlir::Attribute> kernelConfigs(threads.size());
     int nocIndex = 0;
     for (const auto [i, thread] : llvm::enumerate(threads)) {
-      const ttir::ThreadAttr threadAttr = mlir::cast<ttir::ThreadAttr>(thread);
+      const d2m::ThreadAttr threadAttr = mlir::cast<d2m::ThreadAttr>(thread);
 
       // Get kernel args.
       SymbolRefAttr kernelSymbol = threadAttr.getKernelSymbol();
@@ -74,7 +75,7 @@ public:
 
       // Create KernelDescriptor.
       switch (threadAttr.getThreadType()) {
-      case ttir::ThreadType::Compute: {
+      case d2m::ThreadType::Compute: {
         // TODO (vtangTT) #5032: support lowering to different compute configs.
         kernelConfigs[i] = builder.getAttr<ttnn::ComputeKernelAttr>(
             kernelSymbol, coreRangeSet,
@@ -90,7 +91,7 @@ public:
       }
       // TODO (vtangTT) #5033: fix this assumption that order is
       // read->write->compute; nocIndex == 0 for read, nocIndex == 1 for write.
-      case ttir::ThreadType::Datamovement: {
+      case d2m::ThreadType::Datamovement: {
         TT_assert(nocIndex < 2);
         if (nocIndex == 0) {
           kernelConfigs[i] = builder.getAttr<ttnn::ReadKernelAttr>(
@@ -108,7 +109,7 @@ public:
   }
 
   LogicalResult
-  matchAndRewrite(ttir::GenericOp op, ttir::GenericOpAdaptor adaptor,
+  matchAndRewrite(d2m::GenericOp op, d2m::GenericOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
     MLIRContext *ctx = rewriter.getContext();
@@ -129,7 +130,7 @@ public:
     int64_t cbPort = 0;
     const size_t numInputs = op.getInputs().size();
     for (auto [i, operand] : llvm::enumerate(op.getInputs())) {
-      if (auto streamLayoutOp = mlir::dyn_cast_if_present<ttir::StreamLayoutOp>(
+      if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
               operand.getDefiningOp());
           streamLayoutOp) {
         if (auto castOp =
@@ -225,12 +226,12 @@ public:
 } // namespace
 
 namespace {
-class StreamLayoutRewriter : public OpConversionPattern<ttir::StreamLayoutOp> {
+class StreamLayoutRewriter : public OpConversionPattern<d2m::StreamLayoutOp> {
 public:
-  using OpConversionPattern<ttir::StreamLayoutOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::StreamLayoutOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::StreamLayoutOp op, ttir::StreamLayoutOpAdaptor adaptor,
+  matchAndRewrite(d2m::StreamLayoutOp op, d2m::StreamLayoutOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
     if (auto castOp =
@@ -249,12 +250,12 @@ public:
 } // namespace
 
 namespace {
-class TTIREmptyRewriter : public OpConversionPattern<ttir::EmptyOp> {
+class D2MEmptyRewriter : public OpConversionPattern<d2m::EmptyOp> {
 public:
-  using OpConversionPattern<ttir::EmptyOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::EmptyOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::EmptyOp op, ttir::EmptyOpAdaptor adaptor,
+  matchAndRewrite(d2m::EmptyOp op, d2m::EmptyOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     MLIRContext *ctx = rewriter.getContext();
     auto tensorType = cast<RankedTensorType>(op.getResult().getType());
@@ -280,8 +281,8 @@ public:
 namespace mlir::tt {
 void populateD2MToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                TypeConverter &typeConverter) {
-  patterns.add<TTIRGenericRewriter, TTNNMetalLayoutCastRewriter,
-               TTIREmptyRewriter, StreamLayoutRewriter>(ctx);
+  patterns.add<D2MGenericRewriter, TTNNMetalLayoutCastRewriter,
+               D2MEmptyRewriter, StreamLayoutRewriter>(ctx);
 }
 
 } // namespace mlir::tt

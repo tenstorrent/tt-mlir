@@ -449,3 +449,49 @@ class Builder:
 
     def _set_output_ordering(self, outputs: List[Operand]):
         self._ordered_outputs = outputs
+
+    # ----- Shared Empty Operations -----
+
+    def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
+        """Create an empty operation using the dialect-specific EmptyOp."""
+        dtype = data_type if data_type is not None else F32Type.get(self._ctx)
+        return self._create_empty_from_tensor_type(
+            shape, self._create_ranked_tensor_type(shape, dtype)
+        )
+
+    def _create_empty_from_tensor_type(
+        self, shape: Shape, tensor_type: RankedTensorType
+    ) -> OpView:
+        """Create empty operation from tensor type using dialect-specific EmptyOp."""
+        with self._ctx, self._loc:
+            op = self._get_empty_op(tensor_type)
+            return op
+
+    def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
+        """Get dialect-specific empty operation. Must be implemented by subclasses."""
+        raise NotImplementedError("Subclasses must implement _get_empty_op")
+
+    # ----- Shared Metal Tensor Layout -----
+
+    def get_metal_tensor_layout(
+        self,
+        logical_shape: Shape,
+        tiled=False,
+        oobVal=None,  # Will default to ttcore.OOBVal.Undef in the utility
+        memorySpace=None,  # Will default to ttcore.MemorySpace.DeviceL1 in the utility
+        grid: Optional[Tuple[int, int]] = None,
+        index_map: Optional[AffineMap] = None,
+    ):
+        """Create a metal tensor layout using the shared implementation."""
+        from builder.base.builder_utils import get_metal_tensor_layout
+        from ttmlir.dialects import ttcore
+
+        # Set defaults if not provided
+        if oobVal is None:
+            oobVal = ttcore.OOBVal.Undef
+        if memorySpace is None:
+            memorySpace = ttcore.MemorySpace.DeviceL1
+
+        return get_metal_tensor_layout(
+            self._ctx, logical_shape, tiled, oobVal, memorySpace, grid, index_map
+        )

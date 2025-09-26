@@ -92,9 +92,10 @@ TEST_F(OpConstraintValidationTest, ValidateOperationRealAddOp) {
   auto addOp = createMockAddOp();
   auto layouts = ttnn::utils::extractInputLayouts(addOp);
   OpConfig config = createTestConfig();
+  float tensorL1UsageCap = 1.0f;
 
-  auto result =
-      op_constraint_validation::validateOperation(addOp, layouts, config);
+  auto result = op_constraint_validation::validateOperation(
+      addOp, layouts, config, tensorL1UsageCap);
 
   // This should either succeed or fail gracefully (not crash)
   // The exact result depends on OpModel implementation
@@ -114,10 +115,11 @@ TEST_F(OpConstraintValidationTest, ValidateWithMultipleAttributesRealAddOp) {
 
   // Create 10 empty attributes
   std::vector<OpConfig> configs(10);
+  float tensorL1UsageCap = 1.0f;
 
   // Test with null reference configs (should succeed if validation passes)
   auto results = op_constraint_validation::validateWithMultipleAttributes(
-      addOp, layouts, configs, /*referenceConfigs=*/{});
+      addOp, layouts, configs, /*referenceConfigs=*/{}, tensorL1UsageCap);
 
   if (results) {
     EXPECT_EQ(results->size(), 10);

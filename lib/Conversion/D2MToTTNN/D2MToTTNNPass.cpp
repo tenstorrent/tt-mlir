@@ -4,10 +4,11 @@
 
 #include "ttmlir/Conversion/D2MToTTNN/D2MToTTNN.h"
 
+#include "ttmlir/Dialect/D2M/IR/D2M.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 
@@ -26,17 +27,17 @@
 
 using namespace mlir;
 using namespace mlir::tt;
-namespace mlir::tt::ttir {
+namespace mlir::tt::d2m {
 
 #define GEN_PASS_DEF_CONVERTD2MTOTTNN
 #include "ttmlir/Conversion/Passes.h.inc" // impl::ConvertD2MToTTNNBase
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::d2m
 
 namespace {
 
 struct ConvertD2MToTTNNPass final
-    : ttir::impl::ConvertD2MToTTNNBase<ConvertD2MToTTNNPass> {
+    : d2m::impl::ConvertD2MToTTNNBase<ConvertD2MToTTNNPass> {
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
@@ -49,13 +50,13 @@ struct ConvertD2MToTTNNPass final
     target.addLegalDialect<scf::SCFDialect>();
     target.addLegalDialect<emitc::EmitCDialect>();
     target.addIllegalDialect<math::MathDialect>();
-    target.addIllegalDialect<ttir::TTIRDialect>();
+    target.addIllegalDialect<d2m::D2MDialect>();
 
-    target.addDynamicallyLegalOp<ttir::StreamLayoutOp>(
-        [](ttir::StreamLayoutOp op) {
-          // Keep legal while any user is ttir.generic; illegal otherwise.
+    target.addDynamicallyLegalOp<d2m::StreamLayoutOp>(
+        [](d2m::StreamLayoutOp op) {
+          // Keep legal while any user is d2m.generic; illegal otherwise.
           return llvm::any_of(op->getResult(0).getUsers(), [](Operation *op) {
-            return mlir::isa<ttir::GenericOp>(op);
+            return mlir::isa<d2m::GenericOp>(op);
           });
         });
 

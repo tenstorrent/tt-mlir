@@ -17,7 +17,7 @@ import itertools
 import operator
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo
+from ttmlir.dialects import ttir, stablehlo, d2m
 from ttmlir.ir import (
     Attribute,
     ArrayAttr,
@@ -2651,7 +2651,9 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
     """
 
     # Handle special cases with parameters
-    if ttir_op_class == ttir.ToLayoutOp and "tilize" in kwargs:
+    if (
+        ttir_op_class == ttir.ToLayoutOp or ttir_op_class == d2m.ToLayoutOp
+    ) and "tilize" in kwargs:
         if kwargs["tilize"]:
             return tilize_golden
         else:
@@ -2796,7 +2798,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.DotGeneralOp: dot_general_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: (lambda x, **kwargs: x),
-    ttir.ViewLayoutOp: (lambda x, **kwargs: x),
+    # D2M Layout operations (identity functions)
+    d2m.ToLayoutOp: (lambda x, **kwargs: x),
+    d2m.ViewLayoutOp: (lambda x, **kwargs: x),
     # Cache operations
     ttir.FillCacheOp: fill_cache_golden,
     ttir.UpdateCacheOp: update_cache_golden,
