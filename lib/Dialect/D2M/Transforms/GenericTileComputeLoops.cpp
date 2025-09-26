@@ -109,16 +109,21 @@ static SmallVector<int64_t> calculateOptimalSubblockSizes(
 
 namespace {
 struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
-  D2MGenericComputeRewriter(MLIRContext *context, unsigned dstRegisterSizeTiles)
-      : OpRewritePattern<linalg::GenericOp>(context),
-        dstRegisterSizeTiles(dstRegisterSizeTiles) {}
+  D2MGenericComputeRewriter(MLIRContext *context)
+      : OpRewritePattern<linalg::GenericOp>(context) {}
 
   LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
+    assert(op.getRegion().hasOneBlock());
     assert(op.getOutputs().size() == 1 &&
            "Only one output tensor is supported");
     auto outputTensor =
         mlir::cast<MemRefType>(op.getOutputs().front().getType());
+
+    auto *region = ttmlir::utils::getRegionWithParentOfType<d2m::GenericOp>(op);
+    auto d2mGenericOp = mlir::cast<d2m::GenericOp>(region->getParentOp());
+    const unsigned dstRegisterSizeTiles = d2mGenericOp.getDstTileCapacity();
+
     SmallVector<int64_t> subblockSizes = calculateOptimalSubblockSizes(
         op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
         dstRegisterSizeTiles);
@@ -139,8 +144,6 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
     rewriter.replaceOp(op, tiledGeneric.value().op);
     return success();
   }
-
-  unsigned dstRegisterSizeTiles;
 };
 } // namespace
 
@@ -152,21 +155,8 @@ public:
       D2MGenericTileComputeLoops>::D2MGenericTileComputeLoopsBase;
 
   void runOnOperation() final {
-    auto device = ttcore::lookupDevice(getOperation());
-    assert(device && "Device not found");
-    auto systemDesc = ttcore::getCurrentScopeSystemDesc(getOperation());
-    auto chipIds = device.getChipIds();
-    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
-
-    unsigned dstRegisterSizeTiles = chipDesc.getDstRegisterSizeTiles();
-    if (maxDstRegisterSizeTiles.getValue() > 0) {
-      dstRegisterSizeTiles =
-          std::min(dstRegisterSizeTiles, maxDstRegisterSizeTiles.getValue());
-    }
-
     RewritePatternSet patterns(&getContext());
-    patterns.add<D2MGenericComputeRewriter>(&getContext(),
-                                            dstRegisterSizeTiles);
+    patterns.add<D2MGenericComputeRewriter>(&getContext());
     walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };

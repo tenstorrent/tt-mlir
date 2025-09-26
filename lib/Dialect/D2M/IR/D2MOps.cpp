@@ -1360,4 +1360,11 @@ d2m::GenericOp::getBufferType(mlir::Value value,
   return d2m::getBufferType(tensorType, /*isView=*/false);
 }
 
+// TODO(wenbinlyuTT): reduce the capacity by half if output is 32b, depends on
+// proper handling of the DST capacity.
+unsigned d2m::GenericOp::getDstTileCapacity() {
+  unsigned nDstTiles = ttcore::getDstRegisterSizeTiles(getOperation());
+  return nDstTiles;
+}
+
 } // namespace mlir::tt::d2m

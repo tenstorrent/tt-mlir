@@ -2,9 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Utils.h"
+
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
-#include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -13,10 +16,6 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Utils.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTDSTREGISTERACCESS
@@ -76,6 +75,7 @@ public:
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     if constexpr (std::is_same_v<GenericOrFuncOp, GenericOp>) {
+      const unsigned dstRegisterSizeTiles = op.getDstTileCapacity();
       for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
            regionIndex++) {
         if (op.getRegionThreadType(regionIndex) != ThreadType::Compute) {
@@ -89,7 +89,8 @@ public:
         block.walk([&](linalg::GenericOp linalgGenericOp) {
           if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
             linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
-                rewriter, op, region, linalgGenericOp, modified);
+                rewriter, op, region, linalgGenericOp, dstRegisterSizeTiles,
+                modified);
             return;
           }
 
@@ -103,7 +104,7 @@ public:
           }
           rewriter.eraseOp(linalgGenericOp);
           modified |= insertDstRegisterAccess(
-              rewriter, op.getLoc(), region,
+              rewriter, op.getLoc(), region, dstRegisterSizeTiles,
               !linalgLoops.value().empty() ? linalgLoops.value().front()
                                            : nullptr,
               [&](int64_t index) {
@@ -116,11 +117,13 @@ public:
       }
     } else {
       static_assert(std::is_same_v<GenericOrFuncOp, func::FuncOp>);
+      // This branch is for lit tests only, use a fixed DST size.
+      const unsigned dstRegisterSizeTiles = 8;
       d2m::ThreadAttr threadAttr =
           op->template getAttrOfType<d2m::ThreadAttr>(d2m::ThreadAttr::name);
       if (threadAttr && threadAttr.getThreadType() == ThreadType::Compute) {
-        modified |=
-            insertDstRegisterAccess(rewriter, op.getLoc(), op.getBody());
+        modified |= insertDstRegisterAccess(rewriter, op.getLoc(), op.getBody(),
+                                            dstRegisterSizeTiles);
       }
     }
     return success(modified);
@@ -128,6 +131,7 @@ public:
 
   static bool insertDstRegisterAccess(
       PatternRewriter &rewriter, Location loc, Region &region,
+      unsigned dstRegisterSizeTiles,
       Operation *outermostInnerComputeLoop = nullptr,
       llvm::function_ref<SmallVector<int64_t>(int64_t)>
           getNonParticipatingLoopDims =
@@ -145,8 +149,9 @@ public:
     }
 
     // 2. Insert acquire dst.
-    AcquireDstOp acquireDst = insertAcquireDst(rewriter, loc, region, copyNests,
-                                               outermostInnerComputeLoop);
+    AcquireDstOp acquireDst =
+        insertAcquireDst(rewriter, loc, region, copyNests,
+                         outermostInnerComputeLoop, dstRegisterSizeTiles);
     Value dst = acquireDst.getResult();
 
     // 3. Generate data copy loops to/from dst and output cb.
@@ -162,20 +167,11 @@ public:
     return !region.getOps<AcquireDstOp>().empty();
   }
 
-  static unsigned getDstRegisterSizeTiles(Operation *op) {
-    auto device = ttcore::lookupDevice(op);
-    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
-    auto chipIds = device.getChipIds();
-    auto chipDescs = systemDesc.getChipDescs();
-    auto chipDescIndices = systemDesc.getChipDescIndices();
-    auto chipDesc = chipDescs[chipDescIndices[chipIds[0]]];
-    return chipDesc.getDstRegisterSizeTiles();
-  }
-
   static AcquireDstOp
   insertAcquireDst(PatternRewriter &rewriter, Location loc, Region &region,
                    const DenseMap<Operation *, CopyInfo> &copyInfos,
-                   Operation *outermostInnerComputeLoop) {
+                   Operation *outermostInnerComputeLoop,
+                   unsigned dstRegisterSizeTiles) {
     assert(!copyInfos.empty());
     if (outermostInnerComputeLoop) {
       rewriter.setInsertionPoint(outermostInnerComputeLoop);
@@ -184,7 +180,6 @@ public:
     }
 
     auto [firstLoopNest, firstCopyInfo] = *copyInfos.begin();
-    unsigned dstRegisterSizeTiles = getDstRegisterSizeTiles(firstLoopNest);
     MemRefType cbType = firstCopyInfo.getCbType();
     // Calculate dst shape as N slices of cb shape.
     int64_t volume = ttmlir::utils::volume(cbType.getShape());
@@ -373,7 +368,8 @@ public:
   */
   static bool rewriteTileMatmulAsTileMatmulBlock(
       PatternRewriter &rewriter, GenericOp op, Region &region,
-      linalg::GenericOp linalgGenericOp, bool &modified) {
+      linalg::GenericOp linalgGenericOp, unsigned dstRegisterSizeTiles,
+      bool &modified) {
     assert(linalgGenericOp.getInputs().size() == 2 &&
            "Expected exactly 2 input for tile matmul");
     assert(linalgGenericOp.getOutputs().size() == 1 &&
@@ -391,7 +387,7 @@ public:
     }
     rewriter.eraseOp(linalgGenericOp);
     modified |= insertDstRegisterAccess(
-        rewriter, op.getLoc(), region,
+        rewriter, op.getLoc(), region, dstRegisterSizeTiles,
         !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr,
         [&](int64_t index) { return op.getNonParticipatingLoopDims(index); });
 

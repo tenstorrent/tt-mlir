@@ -2860,9 +2860,8 @@ unaligned_shapes = [
 ]
 
 
-@pytest.mark.skip_config(
-    ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5023"
-)
+# TODO(wenbinlyuTT): https://github.com/tenstorrent/tt-mlir/issues/5023
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -2878,9 +2877,7 @@ def test_unaligned_shapes_neg(shape: Shape, dtype: torch.dtype, target: str, req
     )
 
 
-@pytest.mark.skip_config(
-    ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5023"
-)
+@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -2892,13 +2889,12 @@ def test_unaligned_shapes_add(shape: Shape, dtype: torch.dtype, target: str, req
         unit_attrs: Optional[List[str]] = None,
     ):
         # Magnitudes of the elements should be in [0.01, 1) to avoid FP accuracy issue.
-        tensor_lhs = torch.rand(shape) * 0.99 + 0.01
-        tensor_rhs = torch.rand(shape) * 0.99 + 0.01
+        tensor_lhs = torch.rand(shape, dtype=dtype) * 0.99 + 0.01
+        tensor_rhs = torch.rand(shape, dtype=dtype) * 0.99 + 0.01
         signs_lhs = torch.randint(0, 2, shape) * 2 - 1
         signs_rhs = torch.randint(0, 2, shape) * 2 - 1
         tensor_lhs *= signs_lhs
         tensor_rhs *= signs_rhs
-        tensor_out = torch.add(tensor_lhs, tensor_rhs)
         builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
         return builder.add(in0, in1, unit_attrs=unit_attrs)
 

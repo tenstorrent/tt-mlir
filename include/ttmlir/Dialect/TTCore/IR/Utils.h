@@ -33,6 +33,8 @@ DeviceAttr lookupDevice(Operation *op, SymbolRefAttr deviceName);
 DeviceAttr lookupDevice(Operation *op,
                         llvm::StringRef deviceName = getDefaultDeviceName());
 
+unsigned getDstRegisterSizeTiles(Operation *op);
+
 // Create a global memref in the top-level module's symbol table.
 mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, StringRef name,
                                     MemRefType type, ElementsAttr value,
@@ -99,11 +101,14 @@ inline bool valueTracesToConstantArgs(const mlir::Value &value) {
 
   return true;
 }
+
 bool isTiled(RankedTensorType tensorType);
 
 ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType);
 
 ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
+
+Type getOperandInnerElementType(const mlir::Value operand);
 
 } // namespace mlir::tt::ttcore
 

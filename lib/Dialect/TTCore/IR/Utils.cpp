@@ -43,6 +43,16 @@ DeviceAttr lookupDevice(Operation *op, llvm::StringRef deviceName) {
   return deviceOp.getDeviceAttr();
 }
 
+unsigned getDstRegisterSizeTiles(Operation *op) {
+  auto device = ttcore::lookupDevice(op);
+  auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
+  auto chipIds = device.getChipIds();
+  auto chipDescs = systemDesc.getChipDescs();
+  auto chipDescIndices = systemDesc.getChipDescIndices();
+  auto chipDesc = chipDescs[chipDescIndices[chipIds[0]]];
+  return chipDesc.getDstRegisterSizeTiles();
+}
+
 mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, StringRef name,
                                     mlir::MemRefType type, ElementsAttr value,
                                     bool constant, bool privateVisibility,
@@ -130,6 +140,21 @@ ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType) {
 ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType) {
   return isTiled(tensorType) ? getTensorTileShape(tensorType)
                              : ArrayRef<int64_t>{};
+}
+
+Type getOperandInnerElementType(const mlir::Value operand) {
+  auto elemType = operand.getType();
+  if (auto memRefType = mlir::dyn_cast<MemRefType>(elemType);
+      memRefType != nullptr) {
+    elemType = memRefType.getElementType();
+  }
+  // We could have a memref of tiles, so this needs to be the second query.
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elemType);
+      tileType != nullptr) {
+    elemType = tileType.getElementType();
+  }
+  assert(elemType.isIntOrFloat());
+  return elemType;
 }
 
 } // namespace mlir::tt::ttcore

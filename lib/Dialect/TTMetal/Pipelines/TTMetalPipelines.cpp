@@ -116,12 +116,7 @@ void createTTIRToTTMetalMiddleendPipeline(
         llvm::to_vector(options.matmulInterchange);
   }
   pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
-  d2m::D2MGenericTileComputeLoopsOptions tileComputeLoopsOptions;
-  {
-    tileComputeLoopsOptions.maxDstRegisterSizeTiles =
-        options.maxDstRegisterSizeTiles;
-  }
-  pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
+  pm.addPass(d2m::createD2MGenericTileComputeLoops());
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   { insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul; }
   pm.addPass(
