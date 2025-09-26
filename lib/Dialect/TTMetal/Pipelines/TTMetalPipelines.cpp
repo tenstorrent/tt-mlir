@@ -144,7 +144,9 @@ void createTTIRToTTMetalMiddleendPipeline(
 
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  pm.addPass(tt::createConvertD2MToTTKernelPass());
+  d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
+  { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
+  pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);
