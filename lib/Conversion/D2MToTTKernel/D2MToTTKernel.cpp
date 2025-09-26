@@ -1105,8 +1105,8 @@ namespace {
 class D2MGetGlobalOperandRewriter
     : public OpConversionPattern<d2m::GetGlobalOperandOp> {
 public:
-  TTIRGetGlobalOperandRewriter(TypeConverter &typeConverter,
-                               MLIRContext *context, bool ttnnMode)
+  D2MGetGlobalOperandRewriter(TypeConverter &typeConverter,
+                              MLIRContext *context, bool ttnnMode)
       : OpConversionPattern<d2m::GetGlobalOperandOp>(typeConverter, context),
         ttnnMode(ttnnMode) {}
 
@@ -1419,12 +1419,12 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MAwaitYieldRewriter<d2m::YieldOp>,
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
-               ttkernel::D2MGetGlobalOperandRewriter,
                ttkernel::D2MNullTxRewriter,
                ttkernel::MemRefCollapseRewriter,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,
                ttkernel::D2MSemaphoreWaitRewriter>(typeConverter, ctx);
+
   patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx, ttnnMode);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);

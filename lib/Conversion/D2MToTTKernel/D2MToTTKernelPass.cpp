@@ -41,9 +41,9 @@ namespace mlir::tt::d2m {
 
 namespace {
 struct ConvertD2MToTTKernel
-    : public ttir::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel> {
+    : public d2m::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel> {
 
-  using Base = ttir::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel>;
+  using Base = d2m::impl::ConvertD2MToTTKernelBase<ConvertD2MToTTKernel>;
 
   ConvertD2MToTTKernel() = default;
   ConvertD2MToTTKernel(
@@ -148,7 +148,7 @@ struct ConvertD2MToTTKernel
         patterns, typeConverter);
     populateD2MToTTKernelPatterns(&getContext(), patterns, typeConverter,
                                   associatedDMAWaits, cbProducerConsumer,
-                                   ttnnMode);
+                                  ttnnMode);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 
