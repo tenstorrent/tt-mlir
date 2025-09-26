@@ -77,7 +77,7 @@ void generateAllCombinations(
     const std::vector<std::vector<TTNNLayoutAttr>> &operandFallbacks,
     const std::vector<TTNNLayoutAttr> &originalInputLayouts, size_t operandIdx,
     std::vector<TTNNLayoutAttr> &currentCombination, double currentDistance,
-    std::vector<CombinationCandidate> &allCombinations, float tensorL1UsageCap);
+    std::vector<CombinationCandidate> &allCombinations);
 
 llvm::Expected<op_constraint_validation::ValidationResult>
 testFallbackCombination(Operation *op, const OpConfig &originalConfig,
@@ -327,8 +327,7 @@ bool tryFallbacks(Operation *operation,
   std::vector<TTNNLayoutAttr> currentCombination(originalInputLayouts.size());
   generateAllCombinations(operandFallbacks, originalInputLayouts,
                           /*operandIdx*/ 0, currentCombination,
-                          /*currentDistance*/ 0.0, allCombinations,
-                          tensorL1UsageCap);
+                          /*currentDistance*/ 0.0, allCombinations);
 
   // Sort combinations by total distance (ascending)
   std::sort(allCombinations.begin(), allCombinations.end(),
@@ -508,8 +507,7 @@ void generateAllCombinations(
     const std::vector<std::vector<TTNNLayoutAttr>> &operandFallbacks,
     const std::vector<TTNNLayoutAttr> &originalInputLayouts, size_t operandIdx,
     std::vector<TTNNLayoutAttr> &currentCombination, double currentDistance,
-    std::vector<CombinationCandidate> &allCombinations,
-    float tensorL1UsageCap) {
+    std::vector<CombinationCandidate> &allCombinations) {
 
   if (operandIdx == operandFallbacks.size()) {
     // Reached the end, store the current combination if it has changes.
@@ -529,8 +527,7 @@ void generateAllCombinations(
     // Go to the next operand, accumulating distance along the way.
     generateAllCombinations(operandFallbacks, originalInputLayouts,
                             operandIdx + 1, currentCombination,
-                            currentDistance + addedDistance, allCombinations,
-                            tensorL1UsageCap);
+                            currentDistance + addedDistance, allCombinations);
   }
 }
 
