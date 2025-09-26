@@ -6,11 +6,10 @@ from dataclasses import make_dataclass, is_dataclass, asdict
 from collections import defaultdict
 from ttmlir.compile_and_run_utils import ModuleDialect
 
-import importlib
 import logging
 import torch
 
-TTRT_INSTALLED = importlib.util.find_spec("ttrt") is not None
+from . import ttrt
 
 
 def parse_mlir_str(module_str):
@@ -20,7 +19,7 @@ def parse_mlir_str(module_str):
 
 
 def parse_flatbuffer_file(fb_path, at_pass=None, program=0):
-    if not TTRT_INSTALLED:
+    if not ttrt.get_is_ttrt_available():
         logging.error(
             "TTRT is not installed in Python Environment, unable to parse Flatbuffer"
         )
@@ -61,7 +60,7 @@ def parse_flatbuffer_file(fb_path, at_pass=None, program=0):
 
 def golden_map_from_flatbuffer(fb_path, program=0):
     # Get the golden_map from flatbuffer corresponding to the Program # provided
-    if not TTRT_INSTALLED:
+    if not ttrt.get_is_ttrt_available():
         logging.error(
             "TTRT is not installed in Python Environment, unable to parse Flatbuffer."
         )

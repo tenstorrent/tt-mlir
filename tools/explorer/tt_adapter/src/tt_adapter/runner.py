@@ -9,7 +9,7 @@ import importlib
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
 from ttmlir import passes
-from . import utils, mlir
+from . import utils, mlir, ttrt
 import pandas as pd
 from datetime import datetime, timezone
 import threading
