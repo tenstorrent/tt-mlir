@@ -1839,6 +1839,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     }
 
     auto tensorSpecOp = mlir::cast<TTNNTensorSpecInterface>(creationOp);
+
     rewriter.startOpModification(tensorSpecOp);
 
     tensorSpecOp.setDtypeAttr(targetDataTypeAttr);
