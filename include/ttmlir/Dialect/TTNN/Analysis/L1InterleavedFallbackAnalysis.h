@@ -88,22 +88,42 @@ private:
   // (1x1 kernel, stride=1, padding=0, dilation=1)
   bool isConv2DConvertibleToMatMul(Operation *op);
 
-  // Check if a reshape operation should be skipped based on tt-metal TTNN
-  // optimization rules. Returns true if the operation should be skipped, false
-  // otherwise.
+  // Check if a reshape operation should be skipped to
+  // preserve tt-metal's view optimization. Returns true if the operation should
+  // be skipped.
   //
-  // This check is performed in two contexts:
-  // 1. When checking the reshape operation itself - upgrading its output tensor
+  // Checks two scenarios:
+  // 1. Checking the reshape operation itself - upgrading its output tensor
   //    would change buffer type, potentially breaking tt-metal's view
   //    optimization
-  // 2. Before that, alongside checking reshape's predecessor, producer of its
-  //    input tensor - upgrading the producer would change the
-  //    buffer type of reshape's input tensor, again potentially breaking
-  //    tt-metal's view optimization.
+  // 2. Checking if the operation has a reshape consumer - upgrading the
+  //    producer would change the buffer type of reshape's input tensor,
+  //    again potentially breaking tt-metal's view optimization.
+  //
+  // Conditions reshape can be optimized to a view operation (based on tt-metal
+  // logic):
+  // 1. Last dimension must be the same
+  // 2. Either second-to-last dimension is the same OR no tile padding OR
+  // row-major input
+  // 3. Sharded/Interleaved must match for output and input
+  // 4. L1/DRAM must match for output and input
   //
   // reference:
   // ttnn::operations::data_movement::ReshapeViewOperation::invoke
-  // TODO(bmalesevic,#5086): replace to dynamic check when tt-metal fixed
+  // TODO(bmalesevic,#5086): replace with dynamic runtime check when tt-metal
+  // provides API to query view optimization eligibility at compile time
+  bool handleReshapeOps(Operation *op) const;
+
+  // Check if a reshape operation should be skipped based on remaining tt-metal
+  // TTNN optimization rules. Returns true if the operation should be skipped,
+  // false otherwise.
+  //
+  // Tests the geometric conditions for view optimization:
+  // 1. Last dimension must be the same
+  // 2. Either second-to-last dimension is the same OR no tile padding OR
+  // row-major input
+  //
+  // Called by handleReshapeOps() if conditions 3&4 are met.
   bool checkReshapeSkip(Operation *reshapeOperation) const;
 
   // Try to upgrade an operation to L1 interleaved layout by testing available
