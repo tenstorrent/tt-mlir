@@ -478,15 +478,14 @@ bool isTensorAllocated(Tensor tensor) {
         return ::tt::runtime::ttmetal::isTensorAllocated(tensor);
       },
       [&]() -> RetType {
-
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
+        return ::tt::runtime::cuda::isTensorAllocated(tensor);
       },
 
       [&]() -> RetType {
 
         detail::fatalNotImplemented("isTensorAllocated",
                                     HostRuntime::Distributed);
+        
       });
 }
 
@@ -501,13 +500,10 @@ bool isTensorAllocated(Tensor tensor) {
         return ::tt::runtime::ttmetal::getTensorDataType(tensor);
       },
       [&]() -> RetType {
-
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
+        return ::tt::runtime::cuda::getTensorDataType(tensor);
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getTensorDataType",
                                     HostRuntime::Distributed);
       });
@@ -1054,9 +1050,7 @@ void wait(Event event) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::wait(event); },
       [&]() { ::tt::runtime::ttmetal::wait(event); },
-      [&]() {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-      },
+      [&]() { ::tt::runtime::cuda::wait(event); },
       [&]() { detail::fatalNotImplemented("wait", HostRuntime::Distributed); });
 }
 
@@ -1065,10 +1059,9 @@ void wait(Tensor tensor, std::optional<uint8_t> cqId) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::wait(tensor, cqId); },
       [&]() { ::tt::runtime::ttmetal::wait(tensor, cqId); },
-      [&]() {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-      },
+      [&]() { ::tt::runtime::cuda::wait(tensor, cqId); },
       [&]() { detail::fatalNotImplemented("wait", HostRuntime::Distributed); });
+      
 }
 
 void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
@@ -1076,11 +1069,9 @@ void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::wait(tensors, cqId); },
       [&]() { ::tt::runtime::ttmetal::wait(tensors, cqId); },
-      [&]() {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-      },
+      [&]() { ::tt::runtime::cuda::wait(tensors, cqId); },
       [&]() { detail::fatalNotImplemented("wait", HostRuntime::Distributed); });
-}
+     }
 
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   using RetType = std::vector<Tensor>;
@@ -1116,9 +1107,7 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout,
         return ::tt::runtime::ttmetal::toLayout(tensor, device, layout, retain);
       },
       [&]() -> RetType {
-
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
+        return ::tt::runtime::cuda::toLayout(tensor, device, layout, retain);
       },
 
       [&]() -> RetType {
@@ -1166,7 +1155,7 @@ bool hasLayout(Tensor tensor, Layout layout) {
         detail::fatalNotImplemented("hasLayout", DeviceRuntime::TTMetal);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("hasLayout", DeviceRuntime::CUDA);
+        return ::tt::runtime::cuda::hasLayout(tensor, layout);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("hasLayout", HostRuntime::Distributed);

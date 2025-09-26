@@ -48,6 +48,17 @@ static int64_t getDim(::tt::target::cuda::DataType dataType) {
   }
 }
 
+// Helper function to create empty CUDA tensor for error cases
+static ::tt::runtime::Tensor createEmptyErrorTensor() {
+  auto cudaHandle = std::make_shared<CudaTensorHandle>();
+  cudaHandle->shape = {};
+  cudaHandle->stride = {};
+  cudaHandle->dataType = ::tt::target::cuda::DataType::Float32;
+  cudaHandle->itemsize = 4;
+  return ::tt::runtime::Tensor(std::static_pointer_cast<void>(cudaHandle),
+                               nullptr, ::tt::runtime::DeviceRuntime::CUDA);
+}
+
 void ProgramExecutor::finishing() {
   for (const auto &pair : tensorMap) {
     cuMemFree(pair.second);
@@ -60,36 +71,27 @@ void ProgramExecutor::finishing() {
 
   if (!program) {
     llvm::errs() << "No program found\n";
-    return ::tt::runtime::Tensor(nullptr, nullptr,
-                                 ::tt::runtime::DeviceRuntime::CUDA);
+    return createEmptyErrorTensor();
   }
 
   if (!program->memrefs()) {
     llvm::errs() << "No memrefs found in program\n";
-    return ::tt::runtime::Tensor(nullptr, nullptr,
-                                 ::tt::runtime::DeviceRuntime::CUDA);
-    ;
+    return createEmptyErrorTensor();
   }
 
   if (!program->constants()) {
     llvm::errs() << "No constants found in program\n";
-    return ::tt::runtime::Tensor(nullptr, nullptr,
-                                 ::tt::runtime::DeviceRuntime::CUDA);
-    ;
+    return createEmptyErrorTensor();
   }
 
   if (!program->actions()) {
     llvm::errs() << "No actions found in program\n";
-    return ::tt::runtime::Tensor(nullptr, nullptr,
-                                 ::tt::runtime::DeviceRuntime::CUDA);
-    ;
+    return createEmptyErrorTensor();
   }
 
   if (program->return_variable()->str().size() == 0) {
     llvm::errs() << "No return variable found in program\n";
-    return ::tt::runtime::Tensor(nullptr, nullptr,
-                                 ::tt::runtime::DeviceRuntime::CUDA);
-    ;
+    return createEmptyErrorTensor();
   }
   // Declare tensors.
   for (auto *memref : *program->memrefs()) {
@@ -151,8 +153,7 @@ void ProgramExecutor::finishing() {
             llvm::errs() << "Failed to get size of tensor: " << name->str()
                          << "\n";
             finishing();
-            return ::tt::runtime::Tensor(nullptr, nullptr,
-                                         ::tt::runtime::DeviceRuntime::CUDA);
+            return createEmptyErrorTensor();
           }
           CUdeviceptr devicePtr;
 
@@ -168,9 +169,7 @@ void ProgramExecutor::finishing() {
             if (programInputs.size() <= i) {
               llvm::errs() << "Not enough arguments provided\n";
               finishing();
-              return ::tt::runtime::Tensor(nullptr, nullptr,
-                                           ::tt::runtime::DeviceRuntime::CUDA);
-              ;
+              return createEmptyErrorTensor();
             }
             cuMemcpyHtoD(devicePtr, programInputs[i].data.get(), size);
           }
@@ -299,20 +298,50 @@ void ProgramExecutor::finishing() {
 
   // Copy return value to host.
   CUdeviceptr returnVariable = tensorMap[program->return_variable()->str()];
+
+  // Get return tensor metadata
+  const auto *returnMemref = memrefDescMap[program->return_variable()->str()];
+  const auto *returnType = returnMemref->type();
+
+  // Extract shape
+  std::vector<std::uint32_t> shape;
   int64_t returnDim = 1;
-  for (auto shapeDim :
-       *memrefDescMap[program->return_variable()->str()]->type()->shape()) {
+  for (auto shapeDim : *returnType->shape()) {
+    shape.push_back(static_cast<std::uint32_t>(shapeDim));
     returnDim *= shapeDim;
   }
-  size_t returnSize = getDim(memrefDescMap[program->return_variable()->str()]
-                                 ->type()
-                                 ->data_type()) *
-                      returnDim;
+
+  // Calculate size and itemsize
+  std::uint32_t itemsize =
+      static_cast<std::uint32_t>(getDim(returnType->data_type()));
+  size_t returnSize = itemsize * returnDim;
+
+  // Create stride (assume row-major layout)
+  std::vector<std::uint32_t> stride;
+  if (!shape.empty()) {
+    stride.resize(shape.size());
+    stride[shape.size() - 1] = 1;
+    for (int i = shape.size() - 2; i >= 0; --i) {
+      stride[i] = stride[i + 1] * shape[i + 1];
+    }
+  }
+
+  // Allocate host memory and copy from device
   auto returnPtr = std::shared_ptr<void>(std::malloc(returnSize), std::free);
   cuMemcpyDtoH(returnPtr.get(), returnVariable, returnSize);
 
+  // Create proper CUDA tensor handle with metadata
+  auto cudaHandle = std::make_shared<CudaTensorHandle>();
+  cudaHandle->shape = shape;
+  cudaHandle->stride = stride;
+  cudaHandle->dataType = returnType->data_type();
+  cudaHandle->itemsize = itemsize;
+
   finishing();
-  ::tt::runtime::Tensor returnTensor(nullptr, returnPtr,
+
+  // Create tensor with proper handle
+  ::tt::runtime::Tensor returnTensor(std::static_pointer_cast<void>(cudaHandle),
+                                     returnPtr,
                                      ::tt::runtime::DeviceRuntime::CUDA);
 
   return returnTensor;

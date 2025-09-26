@@ -19,7 +19,7 @@ namespace tt::runtime::cuda {
 struct CudaTensorHandle {
   std::vector<std::uint32_t> shape;
   std::vector<std::uint32_t> stride;
-  ::tt::target::DataType dataType;
+  ::tt::target::cuda::DataType dataType;
   std::uint32_t itemsize;
 };
 
@@ -90,6 +90,17 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
 SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
+
+::tt::target::DataType getTensorDataType(Tensor tensor);
+
+bool isTensorAllocated(Tensor tensor);
+
+void wait(Event event);
+
+void wait(Tensor tensor, std::optional<uint8_t> cqId = std::nullopt);
+
+void wait(const std::vector<Tensor> &tensors,
+          std::optional<uint8_t> cqId = std::nullopt);
 } // namespace tt::runtime::cuda
 
 #endif

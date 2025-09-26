@@ -569,6 +569,38 @@ class FileManager:
         ttsys_files.sort()
         return ttsys_files
 
+    def find_cuda_binary_paths(self, path):
+        self.logging.debug(f"finding all cuda files from={path}")
+        cuda_files = []
+
+        if self.is_file(path):
+            if self.check_file_exists(path):
+                if (
+                    self.get_file_extension(path)
+                    == Flatbuffer.get_cuda_file_extension()
+                ):
+                    cuda_files.append(path)
+                    self.logging.debug(f"found file={path}")
+            else:
+                self.logging.info(f"file '{path}' not found - skipping")
+        else:
+            self.check_directory_exists(path)
+            try:
+                for root, _, files in os.walk(path):
+                    for file in files:
+                        if (
+                            self.get_file_extension(file)
+                            == Flatbuffer.get_cuda_file_extension()
+                        ):
+                            cuda_files.append(os.path.join(root, file))
+                            self.logging.debug(f"found file={os.path.join(root, file)}")
+            except Exception as e:
+                raise Exception(f"an unexpected error occurred: {e}")
+
+        # Sort files alphabetically to ensure consistent ordering.
+        cuda_files.sort()
+        return cuda_files
+
 
 class Artifacts:
     def __init__(self, logger, file_manager=None, artifacts_folder_path=""):
@@ -679,6 +711,7 @@ class Flatbuffer:
     ttnn_file_extension = ".ttnn"
     ttmetal_file_extension = ".ttm"
     ttsys_file_extension = ".ttsys"
+    cuda_file_extension = ".ttc"
 
     def __init__(self, logger, file_manager, file_path, capsule=None):
         import ttrt.binary
@@ -708,6 +741,10 @@ class Flatbuffer:
     @staticmethod
     def get_ttsys_file_extension():
         return Flatbuffer.ttsys_file_extension
+
+    @staticmethod
+    def get_cuda_file_extension():
+        return Flatbuffer.cuda_file_extension
 
 
 class Binary(Flatbuffer):
