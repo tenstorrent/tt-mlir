@@ -174,6 +174,19 @@ install(
 
 # TTNN Standalone install commands
 #
+# Copy .cpmcache libs
+install(
+  DIRECTORY
+    ${CPM_SOURCE_CACHE}/fmt/include
+    ${CPM_SOURCE_CACHE}/enchantum/include
+    ${CPM_SOURCE_CACHE}/nlohmann_json/include
+    ${CPM_SOURCE_CACHE}/reflect
+    ${CPM_SOURCE_CACHE}/spdlog/include
+    ${CPM_SOURCE_CACHE}/tt-logger/include
+  DESTINATION tt-metal/.cpmcache
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
 # Copy third_party
 install(
   DIRECTORY
