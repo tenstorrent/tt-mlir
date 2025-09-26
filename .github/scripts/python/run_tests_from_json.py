@@ -47,6 +47,8 @@ def main(machine, image, jobid):
             print(
                 f"\033[1;96m====================================\nRunning test {test_no}-{hash}: {cmd}\n====================================\n\n\n\n\033[0m"
             )
+            sys.stdout.flush()
+            sys.stderr.flush()
             result = subprocess.run(cmd, check=True, env=env)
             print(f"\033[92m SUCCESS running {script_path} \033[0m")
             test["result"] = "SUCCESS"
@@ -59,6 +61,7 @@ def main(machine, image, jobid):
 
         end_time = time.time()
         test["duration"] = end_time - start_time
+        test["returncode"] = result.returncode
         print("\n\n\n\n\n")
         test_no = test_no + 1
 
@@ -74,6 +77,14 @@ def main(machine, image, jobid):
             duration = test.get("duration", 0)
             f.write(f"{result} {hash_val} {duration:.2f}\n")
             print(f"{result} {hash_val} {duration:.2f}")
+
+    allpassed = all(test.get("returncode") == 0 for test in tests)
+    if allpassed:
+        print("\033[92m ALL TESTS PASSED \033[0m")
+        sys.exit(0)
+    else:
+        print("\033[91m SOME TESTS FAILED \033[0m")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

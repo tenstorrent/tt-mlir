@@ -331,15 +331,13 @@ jobs:
 
         python .github/scripts/python/run_tests_from_json.py "${{ matrix.build.runs-on }}" "${{ matrix.build.image }}" "${{ steps.fetch-job-id.outputs.job_id }}"
 
-    # pytest runner
-    - name: Run pytest ttrt tests
-      if: matrix.build.type == 'pytest'
-      shell: bash
-      run: |
-        source env/activate
-        export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
-        export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
-        pytest -ssv ${{ matrix.build.path }} ${{ matrix.build.flags }} --junit-xml=${{ steps.strings.outputs.test_report_path }}
+    - name: Upload Test Durations
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-durations-${{ matrix.build.runs-on }}-${{ matrix.build.image }}-${{ steps.fetch-job-id.outputs.job_id }}
+        path: _test_duration
+        if-no-files-found: 'ignore'
 
     - name: Collect and Upload Perf Reports
       if: matrix.build.name == 'perf'
