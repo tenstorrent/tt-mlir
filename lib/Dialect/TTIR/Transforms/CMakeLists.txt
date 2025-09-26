@@ -18,6 +18,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         LowerToLayout.cpp
         Quantization.cpp
         QuantDequantConversion.cpp
+        RemoveRedundantCastOps.cpp
         Transforms.cpp
         TTIRFusing.cpp
         MultiDeviceTensorAnnotation.cpp
