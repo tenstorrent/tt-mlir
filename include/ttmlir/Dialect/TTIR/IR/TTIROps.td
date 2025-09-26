@@ -113,28 +113,8 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
 
-<<<<<<< HEAD
-      ttcore::MetalLayoutAttr getOrCreateInputLayout();
-      ttcore::MetalLayoutAttr getOrCreateOutputLayout();
-
       bool isHostToDevice();
       bool isDeviceToHost();
-=======
-      struct CompoundComponents {
-        bool isLayoutChange = false;
-        bool isGridChange = false;
-        bool isFormatChange = false;
-        bool isMemorySpaceChange = false;
-
-        bool isCompound() {
-          return isLayoutChange + isFormatChange + (isGridChange || isMemorySpaceChange) > 1;
-        }
-      };
-
-      // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
-      CompoundComponents compoundComponents();
-      bool isCompound() { return compoundComponents().isCompound(); }
->>>>>>> 3af47b956 (a lot of debug changes to undo, but this compiles e2e now)
     }];
 
     let hasVerifier = 1;
