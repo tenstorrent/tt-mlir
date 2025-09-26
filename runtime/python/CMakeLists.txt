@@ -57,3 +57,13 @@ if (TTMLIR_ENABLE_RUNTIME)
   target_sources(_ttmlir_runtime PRIVATE $<TARGET_OBJECTS:_mlir_runtime_utils>)
   set_property(TARGET _mlir_runtime_utils PROPERTY CXX_STANDARD 20)
 endif()
+
+if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  target_compile_options("nanobind-static" PRIVATE
+      -Wno-cast-qual
+      -Wno-zero-length-array
+      -Wno-nested-anon-types
+      -Wno-c++98-compat-extra-semi
+      -Wno-covered-switch-default
+  )
+endif()
