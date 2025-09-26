@@ -151,6 +151,7 @@ void createTTNNPipelineTTIRImplicitBroadcastFoldPass(
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::tt::ttir::createTTIRRemoveRedundantCastOps());
   pm.addPass(mlir::createCanonicalizerPass());
   // Element type normalization should be the first pass in the pipeline.
   ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;

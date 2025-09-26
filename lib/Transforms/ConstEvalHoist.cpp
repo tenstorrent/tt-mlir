@@ -496,9 +496,13 @@ public:
   void runOnOperation() final {
     mlir::ModuleOp module = this->getOperation();
     llvm::SmallVector<func::FuncOp, 4> functionsToProcess;
+    llvm::errs() << "module";
+    module->dump();
 
     bool hasExistingConstEvalFuncs = false;
     module.walk([&](func::FuncOp funcOp) {
+      llvm::errs() << "function\n";
+      funcOp->dump();
       if (ttmlir::utils::isConstEvalFunc(funcOp)) {
         hasExistingConstEvalFuncs = true;
         return WalkResult::interrupt();
@@ -518,7 +522,9 @@ public:
 private:
   // Process a single function for const-eval hoisting
   void processFunction(func::FuncOp funcOp) {
+    llvm::errs() << "processFunction\n";
     if (ttmlir::utils::isConstEvalFunc(funcOp)) {
+      llvm::errs() << "processFunction-return\n";
       return;
     }
     // Run the analysis to identify const-eval subgraphs

@@ -666,4 +666,11 @@ def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation",
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+
+def TTIRRemoveRedundantCastOps : Pass<"remove-redundant-cast-ops", "::mlir::ModuleOp"> {
+let summary = "Remove unused args.";
+  // let constructor = "createRemoveRedundantCastOps()";
+  // let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 #endif
