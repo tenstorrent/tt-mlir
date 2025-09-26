@@ -3333,21 +3333,14 @@ public:
     ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
+    Value attentionMask = nullptr;
     if (adaptor.getOperands().size() == 4) {
-      Value attentionMask = adaptor.getOperands()[3];
-      rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
-          srcOp,
-          cast<RankedTensorType>(
-              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, attentionMask, outputTensor, isCausalAttr,
-          scaleAttr);
-    } else {
-      rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
-          srcOp,
-          cast<RankedTensorType>(
-              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
-          query, key, value, nullptr, outputTensor, isCausalAttr, scaleAttr);
+      attentionMask = adaptor.getOperands()[3];
     }
+
+    rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+        srcOp, outputType, query, key, value, attentionMask, outputTensor,
+        isCausalAttr, scaleAttr);
 
     return success();
   }

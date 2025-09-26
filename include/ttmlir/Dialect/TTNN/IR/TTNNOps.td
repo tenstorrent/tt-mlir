@@ -2522,17 +2522,17 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
       The implementation is FlashAttention-2."
 
       Args:
-          query (AnyRankedTensor): the query tensor.          [b x nh x s x dh]
-          key (AnyRankedTensor): the key tensor.              [b x nkv x max_seq_len x dh]
-          value (AnyRankedTensor): the value tensor.          [b x nkv x max_seq_len x dh]
-          attention_mask (AnyRankedTensor, optional): Defaults to `None`. [b x 1 x s x max_seq_len]. Head broadcasting is implied.
+          query (AnyRankedTensor): the query tensor.          [batch x num_heads x query_seq_len x head_size]
+          key (AnyRankedTensor): the key tensor.              [batch x num_kv_heads x kv_seq_len x head_size]
+          value (AnyRankedTensor): the value tensor.          [batch x num_kv_heads x kv_seq_len x head_size]
+          attention_mask (AnyRankedTensor, optional): Defaults to `None`. [batch x 1 x query_seq_len x kv_seq_len]. Head broadcasting is implied.
           is_causal (bool): Whether the attention is causal. Defaults to `true`.
           scale (float, optional): Defaults to `None`.
           memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
 
 
       Returns:
-          AnyRankedTensor: the output tensor [b x nh x s x dh].
+          AnyRankedTensor: the output tensor [batch x num_heads x query_seq_len x head_size].
     }];
 
     let arguments = (ins AnyRankedTensor:$query,
