@@ -90,7 +90,7 @@ class ModelRunner:
             if self._ttrt is None:
                 # Attempt to import the module dynamically
                 self._ttrt = importlib.import_module('ttrt')
-        except ModuleNotFoundError:
+        except (ModuleNotFoundError, ImportError):
             logging.info("TTRT not available. Models will not be compiled.")
 
     def initialize(self):
