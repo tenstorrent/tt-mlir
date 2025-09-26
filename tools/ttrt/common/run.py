@@ -392,7 +392,26 @@ class Run:
 
     def preprocess(self):
         self.logging.debug(f"------preprocessing run API")
-        self.query()
+
+        # Check if a CUDA binary is being used. Skip query to avoid TT-Metal initialization if so.
+        try:
+            from ttrt.common.util import Binary
+
+            binary = Binary(self.logger, self.file_manager, self["binary"])
+            if (
+                hasattr(binary, "fbb") and binary.fbb.getFileIdentifier() == b"TTCU"
+            ):  # CUDA identifier
+                self.logging.debug(
+                    "CUDA binary detected, skipping query to avoid TT-Metal initialization"
+                )
+                self.query.device_ids = [0]
+            else:
+                self.query()
+        except Exception as e:
+            self.logging.debug(
+                f"Could not detect binary type, running query anyway: {e}"
+            )
+            self.query()
 
         if self["--clean-artifacts"]:
             self.artifacts.clean_artifacts()
