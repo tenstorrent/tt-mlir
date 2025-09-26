@@ -21,8 +21,7 @@ module attributes {} {
 
   func.func @gather_1(%operand: tensor<448x384xbf16>, %start_indices: tensor<1x2x1xi32>) -> tensor<1x2x384xbf16> {
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: : (tensor<2xui32, {{.+}}>, tensor<448x384xbf16, {{.+}}>) -> tensor<2x384xbf16, {{.+}}>
-    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: : (tensor<1x2xui32, {{.+}}>, tensor<448x384xbf16, {{.+}}>) -> tensor<1x2x384xbf16, {{.+}}>
     %0 = ttir.empty() : tensor<1x2x384xbf16>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         offset_dims = array<i64: 2>,
@@ -74,7 +73,7 @@ module attributes {} {
 
   func.func @gather_4(%operand: tensor<2048x1x200xf32>, %start_indices: tensor<1x2x1xi32>) -> tensor<1x2x1x200xf32> {
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: (tensor<2xui32, {{.+}}>, tensor<2048x200xbf16, {{.+}}>) -> tensor<2x200xbf16, {{.+}}>
+    // CHECK-SAME: (tensor<1x2xui32, {{.+}}>, tensor<2048x200xbf16, {{.+}}>) -> tensor<1x2x200xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
     %0 = ttir.empty() : tensor<1x2x1x200xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
@@ -114,7 +113,7 @@ module attributes {} {
   // Examples 6 to 9 test different rank combinations for input, start indices and output.
   func.func @gather_6(%operand: tensor<1xbf16>, %start_indices: tensor<1xi32>) -> (tensor<1xbf16> {jax.result_info = "result"}) {
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: (tensor<1xui32, {{.+}}>, tensor<1x1xbf16, {{.+}}>) -> tensor<1x1xbf16, {{.+}}>
+    // CHECK-SAME: (tensor<1x1xui32, {{.+}}>, tensor<1x1xbf16, {{.+}}>) -> tensor<1x1x1xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
     %0 = ttir.empty() : tensor<1xbf16>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
@@ -132,7 +131,7 @@ module attributes {} {
 
   func.func @gather_7(%operand: tensor<6xbf16>, %start_indices: tensor<1xi32>) -> (tensor<1xbf16> {jax.result_info = "result"}) {
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: (tensor<1xui32, {{.+}}>, tensor<6x1xbf16, {{.+}}>) -> tensor<1x1xbf16, {{.+}}>
+    // CHECK-SAME: (tensor<1x1xui32, {{.+}}>, tensor<6x1xbf16, {{.+}}>) -> tensor<1x1x1xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
     %0 = ttir.empty() : tensor<1xbf16>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
@@ -210,7 +209,7 @@ module attributes {} {
     // CHECK: "ttnn.typecast"
     // CHECK: "ttnn.matmul"
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: (tensor<4xui32, {{.+}}>, tensor<56x2xbf16, {{.+}}>) -> tensor<4x2xbf16, {{.+}}>
+    // CHECK-SAME: (tensor<1x4xui32, {{.+}}>, tensor<56x2xbf16, {{.+}}>) -> tensor<1x4x2xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
     %0 = ttir.empty() : tensor<2x2x2xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
@@ -231,7 +230,7 @@ module attributes {} {
     // CHECK: "ttnn.typecast"
     // CHECK: "ttnn.matmul"
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: (tensor<9xui32, {{.+}}>, tensor<306x2xbf16, {{.+}}>) -> tensor<9x2xbf16, {{.+}}>
+    // CHECK-SAME: (tensor<1x9xui32, {{.+}}>, tensor<306x2xbf16, {{.+}}>) -> tensor<1x9x2xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
     %0 = ttir.empty() : tensor<3x1x3x2xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
@@ -252,7 +251,7 @@ module attributes {} {
     // CHECK: "ttnn.typecast"
     // CHECK: "ttnn.matmul"
     // CHECK: "ttnn.embedding"
-    // CHECK-SAME: (tensor<2xui32, {{.+}}>, tensor<20x4xbf16, {{.+}}>) -> tensor<2x4xbf16, {{.+}}>
+    // CHECK-SAME: (tensor<1x2xui32, {{.+}}>, tensor<20x4xbf16, {{.+}}>) -> tensor<1x2x4xbf16, {{.+}}>
     // CHECK: "ttnn.reshape"
     %0 = ttir.empty() : tensor<2x1x1x2x2xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
