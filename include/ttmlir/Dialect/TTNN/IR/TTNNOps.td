@@ -2486,13 +2486,13 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
         The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
 
         Args:
-            input_tensor_q (AnyRankedTensor): the input tensor [1 x b x nh x dh]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
-            input_tensor_k (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
-            input_tensor_v (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
+            input_tensor_q (AnyRankedTensor): the input tensor [1 x batch x num_heads x head_size]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
+            input_tensor_k (AnyRankedTensor): the input tensor [batch x num_kv_heads x   seq_len x head_size].
+            input_tensor_v (AnyRankedTensor): the input tensor [b x num_kv_heads x   seq_len x head_size].
             is_causal (bool, optional): Whether the attention is causal. Defaults to `true`.
-            attention_mask (AnyRankedTensor, optional): the attention mask [b x 1 x s x s].
-            cur_pos_tensor (AnyRankedTensor): [b] tensor of integers of length b.
-            attention_sink (AnyRankedTensor, optional): the attention sink [nh, 32] (must be a single tile wide).
+            attention_mask (AnyRankedTensor, optional): the attention mask [batch x 1 x query_seq_len x kv_seq_len].
+            cur_pos_tensor (AnyRankedTensor): [batch] tensor of integers of length batch.
+            attention_sink (AnyRankedTensor, optional): the attention sink [num_heads, 32] (must be a single tile wide).
             scale (float, optional): Defaults to `None`.
             memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
 

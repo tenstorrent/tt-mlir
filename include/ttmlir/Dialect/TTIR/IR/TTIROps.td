@@ -5389,7 +5389,7 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
         scale (float, optional): Defaults to `None`.
 
     Returns:
-        ttnn.Tensor: the output tensor [batch x num_heads x seq_len x head_size].
+        AnyRankedTensor: the output tensor [batch x num_heads x seq_len x head_size].
   }];
 
   let arguments = (ins AnyRankedTensor:$query,
