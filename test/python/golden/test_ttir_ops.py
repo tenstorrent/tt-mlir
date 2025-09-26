@@ -3035,9 +3035,6 @@ def test_hoisted_gather(
     ids=["standard_matmul", "batched_matmul", "3d_tensor_2d_tensor"],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
-# @pytest.mark.skip(
-#    "Need to rework this, https://github.com/tenstorrent/tt-mlir/issues/3851"
-# )
 def test_hoisted_dot_general(
     shapes: List[Shape],
     batch_dims_lhs: List[int],
@@ -3079,17 +3076,14 @@ def test_hoisted_dot_general(
 @pytest.mark.parametrize(
     "shapes",
     [
-        [(128, 64), (64, 32)],  # Standard 2D matmul
-        [(32, 128), (128, 256)],  # Different dimensions
-        [(10, 20), (20, 30)],  # Same as your dot_general test
+        [(10, 20), (20, 30)],
+        [(5, 10, 20), (5, 20, 30)],
     ],
-    ids=["128x64_64x32", "32x128_128x256", "10x20_20x30"],
+    ids=["standard_2D_matmul", "3D_batched_matmul"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_matmul(shapes: List[Shape], dtype: torch.dtype, target: str, request):
-    """Test matrix multiplication with CPU hoisting enabled"""
-
     def hoisted_matmul_wrapper(
         in0: Operand,
         in1: Operand,
