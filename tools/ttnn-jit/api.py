@@ -24,6 +24,8 @@ from ttnn_jit._src.dispatch_op import _run_binary
 
 def jit(
     backend: Literal["ttnn", "metal"] = "ttnn",
+    max_grid: tuple[int, int] = (8, 8),
+    # max_dest_size: int = 1,
     perf: bool = False,
     compile_only: bool = False,
     debug: bool = False,
@@ -44,6 +46,7 @@ def jit(
                 tensor_args[param_names[i]] = arg
             kwargs["_tensor_args"] = tensor_args
             kwargs["_backend"] = backend
+            kwargs["_max_grid"] = max_grid
 
             # Parse and compile
             m = ast.parse(source_code)

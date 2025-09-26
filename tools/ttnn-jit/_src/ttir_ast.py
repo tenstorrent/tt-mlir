@@ -52,6 +52,7 @@ class TTIRCompiler(ast.NodeVisitor):
         self.symbol_tables = []
         self.tensor_args = kwargs.get("_tensor_args", {})
         self.backend = kwargs.get("_backend")
+        self.max_grid = kwargs.get("_max_grid")
         self._fn_map = _discover_dialect_ops(self.backend)
 
     def _mlir_dtype_from_ttnn_dtype(self, dtype):
@@ -78,19 +79,37 @@ class TTIRCompiler(ast.NodeVisitor):
         return {}
 
     def _create_tensor_layout(self, tensor_arg):
+        # Only rank 2 tensors supported
+        assert len(tensor_arg.shape) == 2
+        # print("tensor arg shape: ", tensor_arg.shape)
+        shape_h = tensor_arg.shape[0]
+        shape_w = tensor_arg.shape[1]
+
+        shard_spec = tensor_arg.memory_config().shard_spec
+        shard_shape = shard_spec.shape
+        # print(f"shape_h: {shape_h}")
+        # print(f"shape_w: {shape_w}")
+        # print(f"shard_shape: {shard_shape}")
+
         # Create identity affine map, should be based of tensor shape
         # default to rank 2, don't support shape collapse.
         # Note: ttnn.tensor.shape is always rank 4
         identity_map = AffineMap.get_identity(2, self.ctx)
 
         # Create ttcore grid atttr; only single core for now
-        grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
+        grid_size_x = self.max_grid[0] + 1
+        grid_size_y = self.max_grid[1] + 1
+        grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_x, grid_size_y])
 
         # Create memref, tile type only, only f32 support for now.
-        # Only L1 buffer supported.
+        # Only L1 buffer supported. NO DRAM.
+        shard_shape_tile_x = shard_shape[0] // 32
+        shard_shape_tile_y = shard_shape[1] // 32
         tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, ttcore.DataType.Float32)
         buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.L1)
-        memref = MemRefType.get([1, 1], tile_type, None, buffer_type)
+        memref = MemRefType.get(
+            [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
+        )
 
         # Either L1 block sharded or DRAM interleaved. (No DRAM for now)
         ttnn_layout = ttnn.ir.TTNNLayoutAttr.get(
@@ -176,7 +195,28 @@ class TTIRCompiler(ast.NodeVisitor):
             func_args.append(output)
 
         func = self._fn_map[node.func.id]
-        return func(*func_args)
+        op = func(*func_args)
+        if self.backend == "ttnn":
+            op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
+        return op
+
+    def visit_Attribute(self, node, args=[]):
+        assert self.backend == "ttnn", "Attributes are only supported for ttnn backend"
+        assert len(args) >= 1, "Must pass at least one argument (tensor)"
+        assert node.attr in self._fn_map, f"Function {node.attr} not supported"
+
+        arg = self.visit(args[0])
+        result_type = arg.type
+
+        func_args = [result_type, arg]
+        for func_arg in args[1:]:
+            func_args.append(self.visit(func_arg))
+
+        func = self._fn_map[node.attr]
+        op = func(*func_args)
+        if self.backend == "ttnn":
+            op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
+        return op
 
     def visit_Attribute(self, node, args=[]):
         assert self.backend == "ttnn", "Attributes are only supported for ttnn backend"
