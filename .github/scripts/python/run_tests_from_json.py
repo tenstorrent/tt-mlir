@@ -28,14 +28,15 @@ def main(machine, image, jobid):
     test_no = 1
     for test in tests:
         test_type = test.get("type", "")
+        path = test.get("path", "")
         args = test.get("args", "")
         flags = test.get("flags", "")
-        hash_string = f"{machine}-{image}-{test_type}-{args}-{flags}"
+        hash_string = f"{machine}-{image}-{test_type}-{path}-{args}-{flags}"
         hash = hashlib.md5(hash_string.encode()).hexdigest()
         test["hash"] = hash
 
         script_path = f".github/test_scripts/{test_type}.sh"
-        cmd = [script_path, args, flags]
+        cmd = [script_path, path, args, flags]
 
         start_time = time.time()
         try:
@@ -45,7 +46,7 @@ def main(machine, image, jobid):
             env["PERF_REPORT_PATH"] = perf_report_path
             env["TEST_REPORT_PATH"] = test_report_path
             print(
-                f"\033[1;96m====================================\nRunning test {test_no}-{hash}: {cmd}\n====================================\n\n\n\n\033[0m"
+                f"\033[1;96m====================================\n\033[1;96mRunning test {test_no}-{hash}:\n\033[1;96m{hash_string}\n\033[1;96m{cmd}\n\033[1;96m====================================\n\n\n\n\033[0m"
             )
             sys.stdout.flush()
             sys.stderr.flush()
@@ -66,7 +67,7 @@ def main(machine, image, jobid):
         test_no = test_no + 1
 
     print(
-        f"\033[1;96m====================================\ TEST SUMMARY \n====================================\n\n\033[0m"
+        "\033[1;96m====================================\n\033[1;96m TEST SUMMARY \n\033[1;96m====================================\033[0m"
     )
     # Create _test_duration file with test results summary
     duration_file = "_test_duration"
@@ -78,6 +79,7 @@ def main(machine, image, jobid):
             f.write(f"{result} {hash_val} {duration:.2f}\n")
             print(f"{result} {hash_val} {duration:.2f}")
 
+    print("\033[1;96m====================================")
     allpassed = all(test.get("returncode") == 0 for test in tests)
     if allpassed:
         print("\033[92m ALL TESTS PASSED \033[0m")
