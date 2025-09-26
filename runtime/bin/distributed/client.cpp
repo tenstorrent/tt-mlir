@@ -46,7 +46,7 @@ uint16_t parsePort(const std::string &portStr) {
   LOG_ASSERT(!portStr.empty(), "Unexpected empty port number");
 
   int portNum = std::stoi(portStr);
-  LOG_ASSERT(portNum > 0 && portNum <= 65535,
+  LOG_ASSERT(portNum >= 1 && portNum <= 65535,
              "Port must be between 1 and 65535");
 
   return static_cast<uint16_t>(portNum);

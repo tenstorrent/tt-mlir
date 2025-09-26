@@ -44,6 +44,10 @@ public:
   static void buildSubmitResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                   uint64_t commandId);
 
+  static void buildGetNumShardsResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                        uint64_t commandId,
+                                        uint32_t numBuffers);
+
   static void buildToHostResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                   uint64_t commandId);
 

@@ -36,7 +36,7 @@ static std::string getMangledName(std::string_view funcName) {
 }
 
 void *openSo(const std::string &path) {
-  LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
+  LOG_ASSERT(getCurrentDeviceRuntime() == DeviceRuntime::TTNN);
 
   void *handle = dlopen(path.data(), RTLD_LAZY);
   if (!handle) {
@@ -60,7 +60,7 @@ void closeSo(void *handle) {
 std::vector<::tt::runtime::Tensor>
 runSoProgram(void *so, const std::string &funcName,
              std::vector<::tt::runtime::Tensor> inputs, Device device) {
-  LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
+  LOG_ASSERT(getCurrentDeviceRuntime() == DeviceRuntime::TTNN);
 
   ::ttnn::MeshDevice &ttnnMeshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
@@ -216,7 +216,7 @@ static std::string toString(const IndexTy &v) {
 
 bool compareOuts(std::vector<::tt::runtime::Tensor> &lhs,
                  std::vector<::tt::runtime::Tensor> &rhs) {
-  LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
+  LOG_ASSERT(getCurrentDeviceRuntime() == DeviceRuntime::TTNN);
 
   std::vector<::ttnn::Tensor *> lhsTensors;
   std::vector<::ttnn::Tensor *> rhsTensors;

@@ -1,4 +1,4 @@
-if (NOT TT_RUNTIME_ENABLED)
+if (NOT DISTRIBUTED_RUNTIME_ENABLED)
   add_library(TTRuntimeDistributedClient INTERFACE)
   return()
 endif()
@@ -19,4 +19,4 @@ target_include_directories(TTRuntimeDistributedClient PRIVATE
 target_include_directories(TTRuntimeDistributedClient SYSTEM PRIVATE "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 
 add_dependencies(TTRuntimeDistributedClient RUNTIME_FBS_GENERATION)
-target_link_libraries(TTRuntimeDistributedClient PRIVATE TTMLIRRuntime TTRuntimeSocket)
+target_link_libraries(TTRuntimeDistributedClient PRIVATE TTMLIRRuntime TTRuntimeSocket TTRuntimeDistributedUtils)

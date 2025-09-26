@@ -188,22 +188,21 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
   LOG_ASSERT(meshDevice.allocator()->get_config().trace_region_size > 0,
              "Trace region size must be greater than 0");
 
-  auto traceCache =
-      deviceHandle.getTraceCache()
-          ->asSharedPtr<::tt::runtime::ttnn::TraceCache>(DeviceRuntime::TTNN);
-  LOG_ASSERT(traceCache, "TraceCache must be initialized in DeviceHandle");
+  ::tt::runtime::ttnn::TraceCache &traceCache =
+      deviceHandle.getTraceCacheHandle(DeviceRuntime::TTNN)
+          .as<::tt::runtime::ttnn::TraceCache>();
 
   auto [mainProgramKey, captureExecuteKey] = getTraceCacheKeys(op, context);
 
-  if (!traceCache->contains(mainProgramKey, captureExecuteKey)) {
+  if (!traceCache.contains(mainProgramKey, captureExecuteKey)) {
     LOG_DEBUG("Trace cache miss, running program and capturing trace");
-    runTraceProgramAndCaptureTrace(op, context, *traceCache);
+    runTraceProgramAndCaptureTrace(op, context, traceCache);
     debug::Stats::get().incrementStat("TraceCacheMiss");
     debug::Stats::get().incrementStat("CapturedTrace");
     return;
   }
 
-  TraceData *traceData = traceCache->get(mainProgramKey, captureExecuteKey);
+  TraceData *traceData = traceCache.get(mainProgramKey, captureExecuteKey);
   LOG_ASSERT(traceData, "TraceData must be populated in TraceCache");
   LOG_DEBUG("Trace cache hit, executing trace directly");
   executeTrace(op, context, *traceData);

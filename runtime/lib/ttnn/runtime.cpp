@@ -503,10 +503,9 @@ Device openMeshDevice(const MeshDeviceOptions &options) {
 
   auto ttnnTraceCache =
       std::make_shared<::tt::runtime::ttnn::TraceCache>(meshDevice);
-  auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
-      std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
 
-  return Device(std::static_pointer_cast<void>(meshDevice), traceCache,
+  return Device(std::static_pointer_cast<void>(meshDevice),
+                std::static_pointer_cast<void>(ttnnTraceCache),
                 DeviceRuntime::TTNN);
 }
 
@@ -554,9 +553,9 @@ Device createSubMeshDevice(
 
   auto ttnnTraceCache =
       std::make_shared<::tt::runtime::ttnn::TraceCache>(subMeshDevice);
-  auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
-      std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
-  return Device(std::static_pointer_cast<void>(subMeshDevice), traceCache,
+
+  return Device(std::static_pointer_cast<void>(subMeshDevice),
+                std::static_pointer_cast<void>(ttnnTraceCache),
                 DeviceRuntime::TTNN);
 }
 
@@ -635,8 +634,10 @@ size_t getL1SizePerCore(Device meshDevice) {
 
 void releaseTrace(Device meshDevice, std::uint64_t binaryId,
                   size_t mainProgramId) {
+
   ::tt::runtime::ttnn::TraceCache &traceCache =
-      meshDevice.getTraceCache()->as<TraceCache>(DeviceRuntime::TTNN);
+      meshDevice.getTraceCacheHandle(DeviceRuntime::TTNN)
+          .as<::tt::runtime::ttnn::TraceCache>();
 
   MainProgramKey mainProgramKey(binaryId, mainProgramId);
   traceCache.erase(mainProgramKey);
@@ -732,6 +733,12 @@ void wait(const std::vector<::tt::runtime::Tensor> &tensors,
   for (const ::tt::runtime::Tensor &tensor : tensors) {
     ::tt::runtime::ttnn::wait(tensor, cqId);
   }
+}
+
+uint32_t getNumShards(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
+  return ::ttnn::distributed::get_device_tensors(ttnnTensor).size();
 }
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,

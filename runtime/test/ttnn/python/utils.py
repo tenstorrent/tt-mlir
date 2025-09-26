@@ -75,10 +75,12 @@ class ProgramTestRunner:
         self.program = program
         self.program_index = program_index
 
-    def get_inputs_and_golden(self, device):
+    def get_inputs_and_golden(self, device, borrow=True):
         inputs_torch = get_torch_inputs(self.program)
+        storage_type = Storage.Borrowed if borrow else Storage.Owned
         inputs_runtime = [
-            get_runtime_tensor_from_torch(torch_input) for torch_input in inputs_torch
+            get_runtime_tensor_from_torch(torch_input, storage_type)
+            for torch_input in inputs_torch
         ]
         input_layouts = [
             ttrt.runtime.get_layout(

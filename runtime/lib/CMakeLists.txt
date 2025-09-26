@@ -22,8 +22,6 @@ target_include_directories(TTMLIRRuntime
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 
-set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY TT_STL_LIBRARY TRACY_LIBRARY)
-
 target_link_directories(TTMLIRRuntime PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
 target_link_directories(TTMLIRRuntime PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib64)
 
@@ -35,6 +33,7 @@ target_link_libraries(TTMLIRRuntime
     TTRuntimeSysDesc
     TTRuntimeTTNN
     TTRuntimeTTMetal
+    TTRuntimeDistributed
     TTRuntimeContext
     TTRuntimeDebug
     TTRuntimePerf
@@ -45,7 +44,7 @@ target_link_libraries(TTMLIRRuntime
     # we tell linker to link all the symbols anyway. We need this as symbols from libA might be used by whoever
     # imports libB.
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,TTRuntimeTTNNTestLib>"
-    ${TTNN_LIBS}
+    ${METAL_LIBS}
     flatbuffers
 )
 

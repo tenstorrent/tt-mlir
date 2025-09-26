@@ -25,7 +25,7 @@ message(STATUS "Target triple: ${triple}")
 
 add_definitions(-DTARGET_TRIPLE="${triple}")
 
-if (NOT TT_RUNTIME_ENABLED)
+if (NOT DEVICE_RUNTIME_ENABLED)
   add_library(TTRuntimeTypes INTERFACE)
   add_library(TTRuntimeUtils INTERFACE)
   add_library(TTRuntimeSysDesc INTERFACE)
