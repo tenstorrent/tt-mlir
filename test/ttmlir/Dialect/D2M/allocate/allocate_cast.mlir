@@ -16,7 +16,7 @@ module {
     // CHECK: %[[ALLOC0:.*]] = memref.alloc()
     // CHECK: %[[STREAM0:.*]] = "d2m.stream_layout"(%[[CAST0]], %[[ALLOC0]])
     %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x32xf32, #ttnn_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>
-    %0 = ttir.empty() : tensor<32x32xf32, #ttnn_layout>
+    %0 = d2m.empty() : tensor<32x32xf32, #ttnn_layout>
     %cast_0 = ttir.ttnn_metal_layout_cast %0 : tensor<32x32xf32, #ttnn_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_1>
 
     // CHECK: ins(%[[STREAM]] : {{.*}})

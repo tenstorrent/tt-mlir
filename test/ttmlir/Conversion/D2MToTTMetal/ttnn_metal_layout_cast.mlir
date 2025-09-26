@@ -20,7 +20,7 @@ module {
     %2 = ttir.ttnn_metal_layout_cast %arg0 : tensor<32x32xf32, #ttnn_l1_layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #metal_layout>
 
     // CHECK-NOT: memref.alloc()
-    %3 =  ttir.empty() : tensor<32x32xf32, #ttnn_l1_layout>
+    %3 =  d2m.empty() : tensor<32x32xf32, #ttnn_l1_layout>
 
     // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %{{[0-9]+}} : tensor<32x32xf32, #ttnn_layout> -> memref
     %4 = ttir.ttnn_metal_layout_cast %3 : tensor<32x32xf32, #ttnn_l1_layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #metal_layout>

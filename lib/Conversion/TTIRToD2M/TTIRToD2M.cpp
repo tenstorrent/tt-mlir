@@ -1103,6 +1103,7 @@ public:
     this->defaultInputMemSpace = options.defaultInputMemSpace;
     this->defaultOutputMemSpace = options.defaultOutputMemSpace;
     this->overrideDeviceShape = options.overrideDeviceShape;
+    this->ttnnMode = options.ttnnMode;
   }
 
   TTIRToD2MPass(const TTIRToD2MPass &rhs) : Base(rhs) {
