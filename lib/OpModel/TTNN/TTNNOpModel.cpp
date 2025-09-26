@@ -2260,7 +2260,7 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
-  constexpr std::vector<uint32_t> curPosEmpty = {};
+  const std::vector<uint32_t> curPosEmpty = {};
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::transformer::scaled_dot_product_attention_decode, device,
@@ -2332,7 +2332,7 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
-  constexpr std::vector<uint32_t> curPosEmpty = {};
+  const std::vector<uint32_t> curPosEmpty = {};
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::transformer::scaled_dot_product_attention_decode, device,
