@@ -2868,6 +2868,57 @@ private:
 } // namespace
 
 namespace {
+class StableHLOToTTIRRngBitGeneratorOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::RngBitGeneratorOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::RngBitGeneratorOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::RngBitGeneratorOp srcOp,
+                  mlir::stablehlo::RngBitGeneratorOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getOutput().getType()));
+
+    llvm::SmallVector<int32_t> size(outputType.getShape());
+
+    auto floatElementType = rewriter.getF32Type();
+    auto floatOutputType = mlir::RankedTensorType::get(
+        outputType.getShape(), floatElementType, outputType.getEncoding());
+
+    // Use min and max unsigned int value to cover most of the range of uint32.
+    auto fromFloat = rewriter.getF32FloatAttr(
+        static_cast<float>(std::numeric_limits<unsigned int>::min()));
+    auto toFloat = rewriter.getF32FloatAttr(
+        static_cast<float>(std::numeric_limits<unsigned int>::max()));
+
+    // Seed set to 0 is a special case that is equivalent to no seed.
+    // Using any other value would make every flatbuffer run deterministic.
+    auto seed = rewriter.getUI32IntegerAttr(0);
+
+    auto randOp = rewriter.create<mlir::tt::ttir::RandOp>(
+        srcOp.getLoc(), floatOutputType, rewriter.getI32ArrayAttr(size),
+        mlir::TypeAttr::get(floatElementType), fromFloat, toFloat, seed);
+
+    // TODO (pglusac): Change to bit cast once we support it or remove if
+    // rand starts supporting uint32.
+    // See https://github.com/tenstorrent/tt-mlir/issues/5078
+    auto typecastOp =
+        mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::TypecastOp>(
+            rewriter, srcOp.getLoc(), outputType, randOp.getResult());
+
+    // HACK (pglusac): Output state is discarded, initial state is returned as
+    // a result. https://github.com/tenstorrent/tt-mlir/issues/5101
+    rewriter.replaceOp(srcOp,
+                       {adaptor.getInitialState(), typecastOp.getResult()});
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // This pattern recognizes and converts stablehlo.custom_call @tt.fill_cache
 // to ttir.fill_cache.
 class StableHLOFillCacheConversionPattern
@@ -3481,6 +3532,14 @@ static void addRngOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRRngOpConversionPattern>(typeConverter, ctx);
 }
 
+static void
+addRngBitGeneratorOpConversionPattern(MLIRContext *ctx,
+                                      RewritePatternSet &patterns,
+                                      TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRRngBitGeneratorOpConversionPattern>(typeConverter,
+                                                                  ctx);
+}
+
 static void addErfOpConversionPattern(MLIRContext *ctx,
                                       RewritePatternSet &patterns,
                                       TypeConverter &typeConverter) {
@@ -3547,6 +3606,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addPadOpConversionPattern(ctx, patterns, typeConverter);
   addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
   addRngOpConversionPattern(ctx, patterns, typeConverter);
+  addRngBitGeneratorOpConversionPattern(ctx, patterns, typeConverter);
   addErfOpConversionPattern(ctx, patterns, typeConverter);
   addSortOpConversionPattern(ctx, patterns, typeConverter);
   addCacheOpsConversionPattern(ctx, patterns, typeConverter);
