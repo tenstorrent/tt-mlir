@@ -8,7 +8,6 @@ import importlib
 
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
-# from ttrt import API as ttrt
 from ttmlir import passes
 from . import utils, mlir
 import pandas as pd
