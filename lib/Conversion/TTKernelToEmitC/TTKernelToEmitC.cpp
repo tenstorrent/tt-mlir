@@ -291,9 +291,22 @@ public:
   }
 
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
-    if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
-                  std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
-      SmallVector<Attribute, 3> template_args;
+    if constexpr (std::is_same_v<SourceOp, ttkernel::ExpTileOp>) {
+      SmallVector<Attribute, 4> template_args;
+      auto expTileOp = mlir::cast<ttkernel::ExpTileOp>(op);
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), expTileOp.getApprox() ? "true" : "false"));
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), expTileOp.getFastAndApprox() ? "true" : "false"));
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), expTileOp.getScaleEnable() ? "true" : "false"));
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(),
+          expTileOp.getSkipPositiveCheck() ? "true" : "false"));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
+                         std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
+      SmallVector<Attribute, 4> template_args;
       StringRef reduceType, reduceDim;
       std::tie(reduceType, reduceDim) = reduceTypeAndDimToString(
           op.getReduceTypeAttr(), op.getReduceDimAttr());
