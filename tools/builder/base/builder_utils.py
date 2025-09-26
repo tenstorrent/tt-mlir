@@ -517,7 +517,7 @@ def compile_ttir_to_flatbuffer(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -558,8 +558,8 @@ def compile_ttir_to_flatbuffer(
         The path to dump all generated arguments under. If this path doesn't
         exist, it will be created.
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*
-        Either "ttnn", "ttmetal", or "ttnn-standalone". This controls which backend to use.
+    target : *Literal["ttnn", "ttmetal", "emitc"]*
+        Either "ttnn", "ttmetal", or "emitc". This controls which backend to use.
 
     mesh_name : *str*, optional
         Name of the mesh to be used in the module. Default is "mesh".
@@ -609,6 +609,25 @@ def compile_ttir_to_flatbuffer(
     if inputs_types is not None:
         if len(inputs_shapes) != len(inputs_types):
             raise ValueError("inputs_shapes and inputs_types must have the same length")
+
+    if target == "emitc":
+        # Compile a ttnn flatbuffer for EmitC comparison
+        compile_ttir_to_flatbuffer(
+            fn=fn,
+            inputs_shapes=inputs_shapes,
+            inputs_types=inputs_types,
+            system_desc_path=system_desc_path,
+            test_base=test_base,
+            output_root=output_root,
+            target="ttnn",
+            mesh_name=mesh_name,
+            mesh_dict=mesh_dict,
+            module_dump=module_dump,
+            argument_types_string=argument_types_string,
+            custom_pipeline=custom_pipeline,
+            pipeline_options=pipeline_options,
+            print_ir=print_ir,
+        )
 
     # Compile model to TTIR MLIR
     try:
@@ -918,7 +937,7 @@ def compile_stablehlo_to_flatbuffer(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -957,7 +976,7 @@ def compile_stablehlo_to_flatbuffer(
     output_root : str, optional
         The path to dump all generated files under
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
+    target : *Literal["ttnn", "ttmetal", "emitc"]*, optional
         The target backend to use. Default is "ttnn"
 
     mesh_name : str, optional
@@ -1067,7 +1086,7 @@ def compile_ttir_module_to_flatbuffer(
     test_base: str = "test",
     output_root: str = ".",
     builder_dir: str = "ttir-builder-artifacts",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
@@ -1080,7 +1099,7 @@ def compile_ttir_module_to_flatbuffer(
 
     This decorator takes an existing TTIR MLIR module and compiles it through
     the backend pipeline to generate a flatbuffer file. It supports multiple
-    targets including TTNN, TTMetal, and TTNN-standalone. It is mainly a wrapper around the following functions, with
+    targets including TTNN, TTMetal, and emitc. It is mainly a wrapper around the following functions, with
     each next function called on the output of the last:
 
     1. `_run_ttir_pipeline`
@@ -1103,7 +1122,7 @@ def compile_ttir_module_to_flatbuffer(
     output_root : str, optional
         The path to dump all generated files under
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
+    target : *Literal["ttnn", "ttmetal", "emitc"]*, optional
         The target backend to use. Default is "ttnn"
 
     mesh_dict : *OrderedDict[str, int]*, optional
@@ -1158,7 +1177,7 @@ def compile_ttir_module_to_flatbuffer(
         to_target = ttmetal_to_flatbuffer_file
         filename = "ttm.mlir"
         target_extension = "ttm"
-    elif target == "ttnn-standalone":
+    elif target == "emitc":
         ttir_to_ttnn_emitc_pipeline = _create_custom_ttir_pipeline_fn(
             "ttir-to-emitc-pipeline", print_ir=print_ir
         )
@@ -1211,6 +1230,32 @@ def compile_ttir_module_to_flatbuffer(
         raise TTBuilderCompileException(e)
 
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
+
+    # Generate a .so flatbuffer file from the .cpp file
+    if target == "emitc":
+        # Temporary print for debugging CI, will be removed later
+        print(os.environ["TT_METAL_HOME"])
+        # Set TT_METAL_HOME for the subprocess call, temporary until builder is decoupled from ttrt
+        if "ttrt" in os.environ["TT_METAL_HOME"]:
+            tt_metal_home = os.path.abspath(
+                os.path.join(
+                    os.path.dirname(__file__),
+                    "../../../../third_party/tt-metal/src/tt-metal",
+                )
+            )
+            os.environ["TT_METAL_HOME"] = tt_metal_home
+            print(os.environ["TT_METAL_HOME"])
+
+        subprocess.run(
+            [
+                "tools/ttnn-standalone/ci_compile_dylib.py",
+                "--file",
+                output_file_fbb,
+            ],
+            env=os.environ,
+            check=True,
+        )
+
     return output_file_mlir
 
 

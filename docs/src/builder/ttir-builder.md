@@ -447,7 +447,7 @@ def compile_ttir_to_flatbuffer(
     system_desc_path: Optional[str] = None,
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "emitc"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
