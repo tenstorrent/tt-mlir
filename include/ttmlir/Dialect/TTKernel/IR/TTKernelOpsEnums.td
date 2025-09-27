@@ -123,16 +123,13 @@ def TTKernel_BcastType : I32EnumAttr<"BcastType", "TTKernel broadcast types",
 
 def TTKernel_ReduceDimRow : I32EnumAttrCase<"Row", 0, "reduce_dim_row">;
 def TTKernel_ReduceDimCol : I32EnumAttrCase<"Col", 1, "reduce_dim_col">;
-def TTKernel_ReduceDimScalar : I32EnumAttrCase<"Scalar", 2, "reduce_dim_scalar">;
-def TTKernel_ReduceDimNone : I32EnumAttrCase<"None", 3, "reduce_dim_none">;
+def TTKernel_ReduceDimScalar
+    : I32EnumAttrCase<"Scalar", 2, "reduce_dim_scalar">;
 
-def TTKernel_ReduceDim : I32EnumAttr<"ReduceDim", "TTKernel Reduce Dimensions",
-                         [
-                           TTKernel_ReduceDimRow,
-                           TTKernel_ReduceDimCol,
-                           TTKernel_ReduceDimScalar,
-                           TTKernel_ReduceDimNone
-                         ]> {
+def TTKernel_ReduceDim
+    : I32EnumAttr<"ReduceDim", "TTKernel Reduce Dimensions",
+                  [TTKernel_ReduceDimRow, TTKernel_ReduceDimCol,
+                   TTKernel_ReduceDimScalar]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttkernel";
 }
