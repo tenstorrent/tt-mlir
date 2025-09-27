@@ -286,7 +286,8 @@ public:
 
   // Create workaround for permute op operands.
   static TTNNOperandsWorkarounds
-  createPermuteOpOperandWorkaround(mlir::RankedTensorType inputType);
+  createPermuteOpOperandWorkaround(mlir::RankedTensorType inputType,
+                                   llvm::ArrayRef<int64_t> permutation);
 
   // Create workarounds for conv2d/convtranspose2d op.
   template <typename T>
