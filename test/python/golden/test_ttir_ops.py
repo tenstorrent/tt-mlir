@@ -348,7 +348,7 @@ def get_dimension_size(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [
         (
-            [(4, 10, 3, 5, 7), (4, 10, 5, 7, 3), (4, 10, 3, 7, 10, 7, 3)],
+            [(4, 10, 3, 5, 7), (4, 10, 5, 7, 3)],
             [0],
             [3],
             [0],
@@ -367,14 +367,12 @@ def test_dot_general(
     def dot_general(
         in0: Operand,
         in1: Operand,
-        out0: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         return builder.dot_general(
             in0,
             in1,
-            out0,
             batch_dims_lhs,
             contract_dims_lhs,
             batch_dims_rhs,
@@ -1659,30 +1657,27 @@ def test_reduce_or(shape: Shape, dim_args: List[int], request):
 
 def permute(
     in0: Operand,
-    in1: Operand,
     builder: TTIRBuilder,
     permutation: List[int],
     unit_attrs: Optional[List[str]] = None,
 ):
     return builder.permute(
         in0,
-        in1,
         permutation=permutation,
         unit_attrs=unit_attrs,
     )
 
 
-@pytest.mark.parametrize("shapes", [[(2, 3, 4), (3, 4, 2)]])
+@pytest.mark.parametrize("shapes", [[(2, 3, 4)]])
 @pytest.mark.parametrize("permutation", [[1, 2, 0]])
 def test_permute(shapes: List[Shape], permutation: List[int], request):
     # Create a wrapper function that captures permutation
     def permute_wrapper(
         in0: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return permute(in0, in1, builder, permutation, unit_attrs)
+        return permute(in0, builder, permutation, unit_attrs)
 
     # Set the name for better test identification
     permute_wrapper.__name__ = "permute"
