@@ -37,6 +37,7 @@ struct ConvertTosaToTTIRPass
     mlir::ConversionTarget target(getContext());
 
     target.addIllegalDialect<tosa::TosaDialect>();
+    target.addLegalOp<tosa::ConstShapeOp>();
 
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<mlir::tt::ttir::EmptyOp>();

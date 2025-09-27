@@ -139,6 +139,28 @@ private:
 } // namespace
 
 namespace {
+class TosaToTTIRReshapeOpConversionPattern
+    : public OpConversionPattern<tosa::ReshapeOp> {
+  using OpConversionPattern<tosa::ReshapeOp>::OpConversionPattern;
+  using Adaptor = tosa::ReshapeOp::Adaptor;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ReshapeOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    llvm::SmallVector<int32_t> newShape(outputType.getShape());
+    ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(newShape);
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
+        rewriter, srcOp, outputType, adaptor.getInput1(), newShapeAttr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class TosaToTTIRClampOpConversionPattern
     : public OpConversionPattern<tosa::ClampOp> {
   using OpConversionPattern<tosa::ClampOp>::OpConversionPattern;
@@ -380,6 +402,12 @@ static void addCompareOpsConversionPatterns(MLIRContext *ctx,
       tosa::GreaterOp, mlir::tt::ttir::GreaterThanOp>>(typeConverter, ctx);
 }
 
+void addShapeOpsConversionPatterns(MLIRContext *ctx,
+                                   RewritePatternSet &patterns,
+                                   TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRReshapeOpConversionPattern>(typeConverter, ctx);
+}
+
 static void addMatmulOpsConversionPatterns(MLIRContext *ctx,
                                            RewritePatternSet &patterns,
                                            TypeConverter &typeConverter) {
@@ -416,6 +444,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
   addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
   addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
+  addShapeOpsConversionPatterns(ctx, patterns, typeConverter);
 
   patterns.add<TosaToTTIRClampOpConversionPattern,
                TosaToTTIRConcatOpConversionPattern,
