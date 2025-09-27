@@ -980,7 +980,10 @@ public:
           op.getLoc(), resultType, matmulResult, shapeOp.getResult());
     }
 
-    rewriter.replaceOp(op, matmulResult);
+    Value dest = adaptor.getOutput();
+    auto copyOp =
+        rewriter.create<linalg::CopyOp>(op.getLoc(), matmulResult, dest);
+    rewriter.replaceOp(op, copyOp.getResult(0));
     return success();
   }
 };

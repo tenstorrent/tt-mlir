@@ -39,6 +39,7 @@
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/Dialect/Linalg/Transforms/SubsetInsertionOpInterfaceImpl.h"
 
 #if TTMLIR_ENABLE_STABLEHLO
 #include "shardy/dialect/mpmd/ir/register.h"
@@ -97,6 +98,7 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
   arith::registerBufferizableOpInterfaceExternalModels(registry);
   arith::registerBufferDeallocationOpInterfaceExternalModels(registry);
   linalg::registerBufferizableOpInterfaceExternalModels(registry);
+  linalg::registerSubsetOpInterfaceExternalModels(registry); // Add this line
   scf::registerBufferizableOpInterfaceExternalModels(registry);
   bufferization::func_ext::registerBufferizableOpInterfaceExternalModels(
       registry);
