@@ -39,7 +39,7 @@ module {
 module {
   func.func @forward(%arg0: tensor<96x96xf32, #device_tile_dram_interleaved_layout>) -> tensor<96x96xf32, #device_tile_l1_sharded_layout> {
     // CHECK: error: 'ttnn.to_memory_config' op Output tensor scalar shard shape (32, 32) must match memory config shard spec shape (32, 64)
-    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<>, <32x64>, <row_major>, <physical>>>}> : (tensor<96x96xf32, #device_tile_dram_interleaved_layout>) -> tensor<96x96xf32, #device_tile_l1_sharded_layout>
+    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<>, <32x64>, <row_major>>>}> : (tensor<96x96xf32, #device_tile_dram_interleaved_layout>) -> tensor<96x96xf32, #device_tile_l1_sharded_layout>
     return %1 : tensor<96x96xf32, #device_tile_l1_sharded_layout>
   }
 }
@@ -97,7 +97,7 @@ module{
 module{
   func.func @forward(%arg0: tensor<96x96xf32, #device_tile_layout1>) -> tensor<96x96xf32, #device_tile_layout2> {
     // CHECK: error: Sharding is only valid for L1 buffer type
-    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1_small, <block_sharded>, #ttnn.shard_spec<<>, <32x32>, <row_major>, <physical>>>}> : (tensor<96x96xf32, #device_tile_layout1>) -> tensor<96x96xf32, #device_tile_layout2>
+    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1_small, <block_sharded>, #ttnn.shard_spec<<>, <32x32>, <row_major>>>}> : (tensor<96x96xf32, #device_tile_layout1>) -> tensor<96x96xf32, #device_tile_layout2>
     return %1 : tensor<96x96xf32, #device_tile_layout2>
   }
 }
@@ -112,7 +112,7 @@ module{
 module{
   func.func @forward(%arg0: tensor<96x96xf32, #device_tile_layout1>) -> tensor<96x96xf32, #device_tile_layout2> {
     // CHECK: error: Sharding is only valid for block sharded, height sharded, or width sharded tensor memory layout
-    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <interleaved>, #ttnn.shard_spec<<>, <32x32>, <row_major>, <physical>>>}> : (tensor<96x96xf32, #device_tile_layout1>) -> tensor<96x96xf32, #device_tile_layout2>
+    %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <interleaved>, #ttnn.shard_spec<<>, <32x32>, <row_major>>>}> : (tensor<96x96xf32, #device_tile_layout1>) -> tensor<96x96xf32, #device_tile_layout2>
     return %1 : tensor<96x96xf32, #device_tile_layout2>
   }
 }

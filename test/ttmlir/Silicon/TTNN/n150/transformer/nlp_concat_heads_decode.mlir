@@ -34,43 +34,43 @@
 
 module {
   func.func @nlp_concat_heads_decode_8_heads(%arg0: tensor<1x8x32x128xbf16, #ttnn_layout>) -> tensor<1x1x32x1024xbf16, #ttnn_layout_8heads_out> {
-    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,0)>]>, <32x128>, <row_major>, <physical>>>}> : (tensor<1x8x32x128xbf16, #ttnn_layout>) -> tensor<1x8x32x128xbf16, #ttnn_layout_8heads_in>
+    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,0)>]>, <32x128>, <row_major>>>}> : (tensor<1x8x32x128xbf16, #ttnn_layout>) -> tensor<1x8x32x128xbf16, #ttnn_layout_8heads_in>
     %0 = "ttnn.nlp_concat_heads_decode"(%input) <{num_heads = 8 : ui32}> : (tensor<1x8x32x128xbf16, #ttnn_layout_8heads_in>) -> tensor<1x1x32x1024xbf16, #ttnn_layout_8heads_out>
     return %0 : tensor<1x1x32x1024xbf16, #ttnn_layout_8heads_out>
   }
 
   func.func @nlp_concat_heads_decode_16_heads(%arg0: tensor<1x16x32x64xbf16, #ttnn_layout1>) -> tensor<1x1x32x1024xbf16, #ttnn_layout_16heads_out> {
-    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,1)>]>, <32x64>, <row_major>, <physical>>>}> : (tensor<1x16x32x64xbf16, #ttnn_layout1>) -> tensor<1x16x32x64xbf16, #ttnn_layout_16heads_in>
+    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,1)>]>, <32x64>, <row_major>>>}> : (tensor<1x16x32x64xbf16, #ttnn_layout1>) -> tensor<1x16x32x64xbf16, #ttnn_layout_16heads_in>
     %0 = "ttnn.nlp_concat_heads_decode"(%input) <{num_heads = 16 : ui32}> : (tensor<1x16x32x64xbf16, #ttnn_layout_16heads_in>) -> tensor<1x1x32x1024xbf16, #ttnn_layout_16heads_out>
     return %0 : tensor<1x1x32x1024xbf16, #ttnn_layout_16heads_out>
   }
 
   func.func @nlp_concat_heads_decode_32_heads(%arg0: tensor<1x32x32x128xbf16, #ttnn_layout2>) -> tensor<1x1x32x4096xbf16, #ttnn_layout_32heads_out> {
-    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,3)>]>, <32x128>, <row_major>, <physical>>>}> : (tensor<1x32x32x128xbf16, #ttnn_layout2>) -> tensor<1x32x32x128xbf16, #ttnn_layout_32heads_in>
+    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,3)>]>, <32x128>, <row_major>>>}> : (tensor<1x32x32x128xbf16, #ttnn_layout2>) -> tensor<1x32x32x128xbf16, #ttnn_layout_32heads_in>
     %0 = "ttnn.nlp_concat_heads_decode"(%input) <{num_heads = 32 : ui32}> : (tensor<1x32x32x128xbf16, #ttnn_layout_32heads_in>) -> tensor<1x1x32x4096xbf16, #ttnn_layout_32heads_out>
     return %0 : tensor<1x1x32x4096xbf16, #ttnn_layout_32heads_out>
   }
 
   func.func @nlp_concat_heads_decode_12_heads(%arg0: tensor<1x12x32x64xbf16, #ttnn_layout3>) -> tensor<1x1x32x768xbf16, #ttnn_layout_12heads_out> {
-    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,0)>, #ttnn.core_range<(0,1), (3,1)>]>, <32x64>, <row_major>, <physical>>>}> : (tensor<1x12x32x64xbf16, #ttnn_layout3>) -> tensor<1x12x32x64xbf16, #ttnn_layout_12heads_in>
+    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,0)>, #ttnn.core_range<(0,1), (3,1)>]>, <32x64>, <row_major>>>}> : (tensor<1x12x32x64xbf16, #ttnn_layout3>) -> tensor<1x12x32x64xbf16, #ttnn_layout_12heads_in>
     %0 = "ttnn.nlp_concat_heads_decode"(%input) <{num_heads = 12 : ui32}> : (tensor<1x12x32x64xbf16, #ttnn_layout_12heads_in>) -> tensor<1x1x32x768xbf16, #ttnn_layout_12heads_out>
     return %0 : tensor<1x1x32x768xbf16, #ttnn_layout_12heads_out>
   }
 
   func.func @nlp_concat_heads_decode_4_heads(%arg0: tensor<1x4x32x256xbf16, #ttnn_layout4>) -> tensor<1x1x32x1024xbf16, #ttnn_layout_4heads_out> {
-    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (3,0)>]>, <32x256>, <row_major>, <physical>>>}> : (tensor<1x4x32x256xbf16, #ttnn_layout4>) -> tensor<1x4x32x256xbf16, #ttnn_layout_4heads_in>
+    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (3,0)>]>, <32x256>, <row_major>>>}> : (tensor<1x4x32x256xbf16, #ttnn_layout4>) -> tensor<1x4x32x256xbf16, #ttnn_layout_4heads_in>
     %0 = "ttnn.nlp_concat_heads_decode"(%input) <{num_heads = 4 : ui32}> : (tensor<1x4x32x256xbf16, #ttnn_layout_4heads_in>) -> tensor<1x1x32x1024xbf16, #ttnn_layout_4heads_out>
     return %0 : tensor<1x1x32x1024xbf16, #ttnn_layout_4heads_out>
   }
 
   func.func @nlp_concat_heads_decode_single_user(%arg0: tensor<1x1x32x128xbf16, #ttnn_layout5>) -> tensor<1x1x32x1024xbf16, #ttnn_layout_single_out> {
-    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,0)>]>, <32x128>, <row_major>, <physical>>>}> : (tensor<1x1x32x128xbf16, #ttnn_layout5>) -> tensor<1x1x32x128xbf16, #ttnn_layout_single_in>
+    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,0)>]>, <32x128>, <row_major>>>}> : (tensor<1x1x32x128xbf16, #ttnn_layout5>) -> tensor<1x1x32x128xbf16, #ttnn_layout_single_in>
     %0 = "ttnn.nlp_concat_heads_decode"(%input) <{num_heads = 8 : ui32}> : (tensor<1x1x32x128xbf16, #ttnn_layout_single_in>) -> tensor<1x1x32x1024xbf16, #ttnn_layout_single_out>
     return %0 : tensor<1x1x32x1024xbf16, #ttnn_layout_single_out>
   }
 
   func.func @nlp_concat_heads_decode_24_heads(%arg0: tensor<1x24x32x128xbf16, #ttnn_layout6>) -> tensor<1x1x32x3072xbf16, #ttnn_layout_24heads_out> {
-    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,2)>]>, <32x128>, <row_major>, <physical>>>}> : (tensor<1x24x32x128xbf16, #ttnn_layout6>) -> tensor<1x24x32x128xbf16, #ttnn_layout_24heads_in>
+    %input = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,2)>]>, <32x128>, <row_major>>>}> : (tensor<1x24x32x128xbf16, #ttnn_layout6>) -> tensor<1x24x32x128xbf16, #ttnn_layout_24heads_in>
     %0 = "ttnn.nlp_concat_heads_decode"(%input) <{num_heads = 24 : ui32}> : (tensor<1x24x32x128xbf16, #ttnn_layout_24heads_in>) -> tensor<1x1x32x3072xbf16, #ttnn_layout_24heads_out>
     return %0 : tensor<1x1x32x3072xbf16, #ttnn_layout_24heads_out>
   }

@@ -872,9 +872,7 @@ TEST_F(OpModelTest, ToMemoryConfig) {
                     CoreCoordAttr::get(&context, 7, 0))});
   ShardSpecAttr shardSpec = ShardSpecAttr::get(
       &context, coreRangeSetAttr, ShapeAttr::get(&context, {64, 128}),
-      ShardOrientationAttr::get(&context, ShardOrientation::RowMajor),
-      ShardModeAttr::get(&context, ShardMode::Physical),
-      /*physical_shard_shape=*/nullptr);
+      ShardOrientationAttr::get(&context, ShardOrientation::RowMajor));
   const TTNNLayoutAttr outputLayoutL1Tiled = CreateTiledLayout(
       tensorShape, BufferType::L1, TensorMemoryLayout::HeightSharded);
   memoryConfig = MemoryConfigAttr::get(

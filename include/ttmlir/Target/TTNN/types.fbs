@@ -19,11 +19,6 @@ enum ShardOrientation: uint32 {
   ColMajor,
 }
 
-enum ShardMode: uint32 {
-  Physical,
-  Logical,
-}
-
 struct CoreCoord {
   x: uint64;
   y: uint64;
@@ -58,8 +53,6 @@ table ShardSpec {
   core_range_set: CoreRangeSet;
   shape: [int32];
   orientation: ShardOrientation;
-  mode: ShardMode;
-  physical_shard_shape: [int32];
 }
 
 table MemoryConfig {
