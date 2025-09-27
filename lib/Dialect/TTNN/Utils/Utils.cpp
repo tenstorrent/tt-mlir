@@ -319,6 +319,26 @@ bool producesTiledTensorLayout(Operation *op) {
   return ttnnLayout && ttnnLayout->isTiled();
 }
 
+bool hasFirstOperandInDRAM(Operation *op) {
+  if (op->getNumOperands() == 0) {
+    return false;
+  }
+
+  auto firstOperand = op->getOperand(0);
+  auto tensorType =
+      mlir::dyn_cast<mlir::RankedTensorType>(firstOperand.getType());
+  if (!tensorType) {
+    return false;
+  }
+
+  if (auto ttnnLayout =
+          mlir::dyn_cast<TTNNLayoutAttr>(tensorType.getEncoding())) {
+    return ttnnLayout.hasDRAMBufferType();
+  }
+
+  return false;
+}
+
 mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
   return ::mlir::RankedTensorType::get(
       /*shape=*/{},
