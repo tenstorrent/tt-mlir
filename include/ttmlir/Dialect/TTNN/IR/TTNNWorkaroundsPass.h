@@ -19,6 +19,7 @@
 namespace mlir::tt::ttnn {
 class SortOp;
 class SliceDynamicOp;
+class SliceStaticOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -247,6 +248,10 @@ public:
   static TTNNOperandsWorkarounds
   createConcatOpOperandsWorkarounds(mlir::Operation::operand_range inputs,
                                     int64_t numOperands, int32_t dim);
+
+  // Create workarounds for static slice op operands.
+  static TTNNOperandsWorkarounds
+  createSliceStaticOpOperandsWorkarounds(ttnn::SliceStaticOp op);
 
   // Create workarounds for dynamic slice op operands.
   static TTNNOperandsWorkarounds

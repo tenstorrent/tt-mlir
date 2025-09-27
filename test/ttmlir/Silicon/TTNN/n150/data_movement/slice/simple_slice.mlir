@@ -59,4 +59,54 @@ module attributes {} {
     %1 = "ttir.slice_static"(%arg0, %0) <{begins = [0: i32, 0: i32, 0: i32], ends = [2: i32, 16: i32, 16: i32], step = [1: i32, 1: i32, 1: i32]}> : (tensor<4x32x32xi32>, tensor<2x16x16xi32>) -> tensor<2x16x16xi32>
     return %1 : tensor<2x16x16xi32>
   }
+
+  func.func @test_slice_bf16_step(%arg0: tensor<8x64x64xbf16>) -> tensor<4x32x32xbf16> {
+    %0 = ttir.empty() : tensor<4x32x32xbf16>
+    // CHECK: = "ttnn.slice_static"
+    %1 = "ttir.slice_static"(%arg0, %0) <{begins = [0: i32, 0: i32, 0: i32], ends = [8: i32, 64: i32, 64: i32], step = [2: i32, 2: i32, 2: i32]}> : (tensor<8x64x64xbf16>, tensor<4x32x32xbf16>) -> tensor<4x32x32xbf16>
+    return %1 : tensor<4x32x32xbf16>
+  }
+
+  func.func @test_slice_f32_step(%arg0: tensor<8x64x64xf32>) -> tensor<4x32x32xf32> {
+    %0 = ttir.empty() : tensor<4x32x32xf32>
+    // CHECK: = "ttnn.slice_static"
+    %1 = "ttir.slice_static"(%arg0, %0) <{begins = [0: i32, 0: i32, 0: i32], ends = [8: i32, 64: i32, 64: i32], step = [2: i32, 2: i32, 2: i32]}> : (tensor<8x64x64xf32>, tensor<4x32x32xf32>) -> tensor<4x32x32xf32>
+    return %1 : tensor<4x32x32xf32>
+  }
+
+  func.func @test_slice_f16_step(%arg0: tensor<8x64x64xf16>) -> tensor<4x32x32xf16> {
+    %0 = ttir.empty() : tensor<4x32x32xf16>
+    // CHECK: = "ttnn.slice_static"
+    %1 = "ttir.slice_static"(%arg0, %0) <{begins = [0: i32, 0: i32, 0: i32], ends = [8: i32, 64: i32, 64: i32], step = [2: i32, 2: i32, 2: i32]}> : (tensor<8x64x64xf16>, tensor<4x32x32xf16>) -> tensor<4x32x32xf16>
+    return %1 : tensor<4x32x32xf16>
+  }
+
+  func.func @test_slice_uint32_step(%arg0: tensor<8x64x64xui32>) -> tensor<4x32x32xui32> {
+    %0 = ttir.empty() : tensor<4x32x32xui32>
+    // CHECK: = "ttnn.slice_static"
+    %1 = "ttir.slice_static"(%arg0, %0) <{begins = [0: i32, 0: i32, 0: i32], ends = [8: i32, 64: i32, 64: i32], step = [2: i32, 2: i32, 2: i32]}> : (tensor<8x64x64xui32>, tensor<4x32x32xui32>) -> tensor<4x32x32xui32>
+    return %1 : tensor<4x32x32xui32>
+  }
+
+  func.func @test_slice_uint16_step(%arg0: tensor<8x64x64xui16>) -> tensor<4x32x32xui16> {
+    %0 = ttir.empty() : tensor<4x32x32xui16>
+    // CHECK: = "ttnn.slice_static"
+    // CHECK-SAME: (tensor<8x64x64xui32
+    %1 = "ttir.slice_static"(%arg0, %0) <{begins = [0: i32, 0: i32, 0: i32], ends = [8: i32, 64: i32, 64: i32], step = [2: i32, 2: i32, 2: i32]}> : (tensor<8x64x64xui16>, tensor<4x32x32xui16>) -> tensor<4x32x32xui16>
+    return %1 : tensor<4x32x32xui16>
+  }
+
+  func.func @test_slice_uint8_step(%arg0: tensor<8x64x64xui8>) -> tensor<4x32x32xui8> {
+    %0 = ttir.empty() : tensor<4x32x32xui8>
+    // CHECK: = "ttnn.slice_static"
+    %1 = "ttir.slice_static"(%arg0, %0) <{begins = [0: i32, 0: i32, 0: i32], ends = [8: i32, 64: i32, 64: i32], step = [2: i32, 2: i32, 2: i32]}> : (tensor<8x64x64xui8>, tensor<4x32x32xui8>) -> tensor<4x32x32xui8>
+    return %1 : tensor<4x32x32xui8>
+  }
+
+  func.func @test_slice_int32_step(%arg0: tensor<8x64x64xi32>) -> tensor<4x32x32xi32> {
+    %0 = ttir.empty() : tensor<4x32x32xi32>
+    // CHECK: = "ttnn.slice_static"
+    %1 = "ttir.slice_static"(%arg0, %0) <{begins = [0: i32, 0: i32, 0: i32], ends = [8: i32, 64: i32, 64: i32], step = [2: i32, 2: i32, 2: i32]}> : (tensor<8x64x64xi32>, tensor<4x32x32xi32>) -> tensor<4x32x32xi32>
+    return %1 : tensor<4x32x32xi32>
+  }
 }

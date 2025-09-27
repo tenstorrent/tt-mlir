@@ -1253,6 +1253,13 @@ def TTNN_SliceStaticOp: TTNN_Op<"slice_static"> {
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSliceStaticOpOperandsWorkarounds(*this);
+      }
+    }];
+
     let hasVerifier = 1;
 }
 

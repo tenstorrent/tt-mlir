@@ -233,9 +233,34 @@ TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
   return workaround.addOutputOperandWorkaround(bf16Workaround);
 }
 
+// Factory method to create a set of workarounds for slice op input operands.
+// ttnn::SliceStaticOp requires uint32 on input if the slice is strided
+// and input is < uint32.
+// Tracking issue: https://github.com/tenstorrent/tt-metal/issues/26691.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
+    ttnn::SliceStaticOp op) {
+  // Check if any element in 'step' is greater than 1, indicating a strided
+  // slice operation.
+  bool isStridedSliceOp = llvm::any_of(op.getStep(), [](mlir::Attribute value) {
+    mlir::IntegerAttr intAttr = mlir::dyn_cast<mlir::IntegerAttr>(value);
+    return intAttr.getInt() > 1;
+  });
+
+  TTNNOperandWorkarounds workaround;
+  Type inputType = op.getInput().getType().getElementType();
+  uint32_t bitWidth = inputType.getIntOrFloatBitWidth();
+  if (inputType.isUnsignedInteger() && bitWidth < 32 && isStridedSliceOp) {
+    workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+  }
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(workaround)
+      .addOutputOperandWorkaround(workaround);
+}
+
 // Factory method to create a set of workarounds for dynamic slice op input
-// operands. ttnn::SliceDynamicOp requires bfloat16 data type for strided slice.
-// ttnn::SliceDynamicOp requires uint32 for begins and ends operands.
+// operands. ttnn::SliceDynamicOp requires uint32 for inputs if
+// the input is < uint32.
 // Tracking issue: https://github.com/tenstorrent/tt-metal/issues/26691.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
