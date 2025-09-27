@@ -330,6 +330,24 @@ public:
 };
 } // namespace
 
+namespace {
+class TosaToTTIRConstShapeOpConversionPattern
+    : public OpConversionPattern<tosa::ConstShapeOp> {
+  using OpConversionPattern<tosa::ConstShapeOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ConstShapeOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.use_empty()) {
+      rewriter.eraseOp(srcOp);
+      return success();
+    }
+    return failure();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -471,7 +489,8 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addShapeOpsConversionPatterns(ctx, patterns, typeConverter);
 
   patterns.add<TosaToTTIRConcatOpConversionPattern,
-               TosaToTTIRConstantOpConversionPattern>(typeConverter, ctx);
+               TosaToTTIRConstantOpConversionPattern,
+               TosaToTTIRConstShapeOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
