@@ -271,11 +271,16 @@ getRawDataFromElementsAttr(mlir::ElementsAttr attr) {
       return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                      "Element type mismatch");
     }
-    // Iterate over the elements
-    for (auto value : denseAttr.getValues<T>()) {
-      result.push_back(value);
-    }
 
+    if constexpr (std::is_same_v<T, float>) {
+      for (auto value : denseAttr.getValues<llvm::APFloat>()) {
+        result.push_back(value.convertToFloat());
+      }
+    } else {
+      for (auto value : denseAttr.getValues<llvm::APInt>()) {
+        result.push_back(static_cast<T>(value.getZExtValue()));
+      }
+    }
   } else if (auto splatAttr = llvm::dyn_cast<mlir::SplatElementsAttr>(attr)) {
     // Handle splat attributes, Although this is not expected to be triggered
     // (since we have other ops to cover splat attributes, such as FullOp,
@@ -5340,10 +5345,10 @@ auto dispatchGetRawData(mlir::ElementsAttr value, Func &&func)
   // int32_t, uint8_t, uint16_t, uint32_t, bfloat16.
   // We support all of these types:
   ::mlir::Type elType = getElementType(value);
-  DISPATCH_TYPE(isInteger(32), int32_t)
   DISPATCH_TYPE(isUnsignedInteger(8), uint8_t)
   DISPATCH_TYPE(isUnsignedInteger(16), uint16_t)
   DISPATCH_TYPE(isUnsignedInteger(32), uint32_t)
+  DISPATCH_TYPE(isInteger(32), int32_t)
   DISPATCH_TYPE(isF32(), float)
   DISPATCH_TYPE(isBF16(), bfloat16)
 

@@ -233,57 +233,27 @@ TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
   return workaround.addOutputOperandWorkaround(bf16Workaround);
 }
 
-// Factory method to create a set of workarounds for slice op input operands.
-// ttnn::SliceStaticOp requires bfloat16 data type for strided slice.
-// Tracking issue: https://github.com/tenstorrent/tt-metal/issues/26691.
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
-    mlir::ArrayAttr step) {
-  // Check if any element in 'step' is greater than 1, indicating a strided
-  // slice operation.
-  bool isStridedSliceOp = llvm::any_of(step, [](mlir::Attribute value) {
-    mlir::IntegerAttr intAttr = mlir::dyn_cast<mlir::IntegerAttr>(value);
-    return intAttr.getInt() > 1;
-  });
-
-  TTNNOperandWorkarounds bF16Workaround;
-  if (isStridedSliceOp) {
-    bF16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
-  }
-  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(bF16Workaround)
-      .addOutputOperandWorkaround(bF16Workaround);
-}
-
 // Factory method to create a set of workarounds for dynamic slice op input
 // operands. ttnn::SliceDynamicOp requires bfloat16 data type for strided slice.
 // ttnn::SliceDynamicOp requires uint32 for begins and ends operands.
 // Tracking issue: https://github.com/tenstorrent/tt-metal/issues/26691.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
-    mlir::ArrayAttr step) {
-  // Check if any element in 'step' is greater than 1, indicating a strided
-  // slice operation. If step is null, assume non-strided operation.
-  bool isStridedSliceOp = false;
-  if (step) {
-    isStridedSliceOp = llvm::any_of(step, [](mlir::Attribute value) {
-      mlir::IntegerAttr intAttr = mlir::dyn_cast<mlir::IntegerAttr>(value);
-      return intAttr.getInt() > 1;
-    });
-  }
-
-  TTNNOperandWorkarounds bF16Workaround;
-  if (isStridedSliceOp) {
-    bF16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+    ttnn::SliceDynamicOp op) {
+  TTNNOperandWorkarounds inputWorkaround;
+  Type inputType = op.getInput().getType().getElementType();
+  uint32_t bitWidth = inputType.getIntOrFloatBitWidth();
+  if (inputType.isUnsignedInteger() && bitWidth < 32) {
+    inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
   }
   TTNNOperandWorkarounds uInt32Workaround;
   uInt32Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
 
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(bF16Workaround)
+      .addInputOperandWorkaround(inputWorkaround)
       .addInputOperandWorkaround(uInt32Workaround)
       .addInputOperandWorkaround(uInt32Workaround)
-      .addOutputOperandWorkaround(bF16Workaround);
+      .addOutputOperandWorkaround(inputWorkaround);
 }
 
 // ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN
