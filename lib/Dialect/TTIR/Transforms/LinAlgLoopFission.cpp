@@ -62,60 +62,6 @@ struct LoadComputeStoreTriplet {
   affine::AffineStoreOp store;
 };
 
-///
-static std::optional<LoadComputeStoreTriplet> findTripletInBlock(Block &block) {
-  affine::AffineLoadOp load = nullptr;
-  Operation *compute = nullptr;
-  affine::AffineStoreOp store = nullptr;
-
-  for (Operation &op : block) {
-    if (!load) {
-      load = dyn_cast<affine::AffineLoadOp>(&op);
-      if (load) {
-        continue;
-      }
-    } else if (!compute) {
-      // TODO(mbagherbeikTT)
-      // probably need to reset the status if what's after the load isn't a compute
-      // and same if what's after compute isn't store
-      if (op.hasTrait<TTIRGenericRegionComputeOpTrait>()) {
-        compute = &op;
-        continue;
-      }
-    //   // reset check, triplets need to be exactly in order
-    //   load = nullptr;
-
-    } else if (!store) {
-      store = dyn_cast<affine::AffineStoreOp>(&op);
-      if (store) {
-        // Ensure def-use chains match: load result used by compute, compute result stored
-        bool usesLoad = false;
-        for (Value v : compute->getOperands()) {
-          if (v == load.getResult()) {
-            usesLoad = true;
-            break;
-          }
-        }
-        bool storesCompute = false;
-        for (Value r : compute->getResults()) {
-          if (r == store.getValue()) {
-            storesCompute = true;
-            break;
-          }
-        }
-        if (usesLoad && storesCompute) {
-          return LoadComputeStoreTriplet{load, compute, store};
-        }
-        // Reset and keep scanning for next possible triplet in order.
-        load = nullptr;
-        compute = nullptr;
-        store = nullptr;
-      }
-    }
-  }
-  return std::nullopt;
-}
-
 // Helper to find the innermost block within a cloned nest matching 'innermost'.
 template<class LoopType>
 static LoopType findInnermostLoop(LoopType root) {
@@ -137,39 +83,73 @@ static LoopType findInnermostLoop(LoopType root) {
     return cur;
 };
 
-// Given nested affine.for ... affine.for ... blocks, try triplet-based fission.
-static bool fissionInnermostTriplet(affine::AffineForOp outerFor, RewriterBase &rewriter) {
+
+static int insertLoadOps(affine::AffineForOp outerFor, RewriterBase &rewriter) {
+  // helper to track umber of inserted loads.
+  int numInserted = 0;
+
+  // Find the innermost loop.
+  affine::AffineForOp innermost = findInnermostLoop(outerFor);
+
+
+  for (auto &op : *innermost.getBody()) {
+    if (op.hasTrait<TTIRGenericRegionComputeOpTrait>()) {
+      for (auto operand : op.getOperands()) {
+        bool loadIsOk = false;
+
+        Operation *loadOpRequired = operand.getDefiningOp();
+        Operation *prevOp = op.getPrevNode();
+
+        // Check to see if the required load exists between the compute op user and
+        // after the previous store.
+        while (prevOp && !isa<affine::AffineStoreOp>(prevOp)) {
+          if (prevOp == loadOpRequired) {
+            loadIsOk = true;
+          }
+
+          prevOp = prevOp->getPrevNode();
+        }
+
+        if (!loadIsOk) {
+          rewriter.setInsertionPoint(&op);
+          Operation *clonedOp = rewriter.clone(*operand.getDefiningOp());
+          
+          // Rewire the SSA result: replace the operand with the cloned op's result
+          Value clonedResult = clonedOp->getResult(0); // Assuming single result
+          op.replaceUsesOfWith(operand, clonedResult);
+
+          ++numInserted;
+        }
+      }
+    }
+  }
+  return numInserted;
+}
+
+/// 
+static bool fissionAtStore(affine::AffineForOp outerFor, RewriterBase &rewriter) {
   // Find the innermost loop to search for triplets.
   affine::AffineForOp innermost = findInnermostLoop(outerFor);
 
-  auto maybeTriplet = findTripletInBlock(*innermost.getBody());
-  if (!maybeTriplet) {
-    return false;
-  }
-  auto triplet = *maybeTriplet;
-
-  // Compute operation indices in the innermost block relative to the triplet.
-  SmallVector<Operation *> opsInBlock;
+  int storeIdx = -1;
+  affine::AffineStoreOp store = nullptr;
   for (Operation &op : *innermost.getBody()) {
-    opsInBlock.push_back(&op);
-  }
-  auto indexOf = [&](Operation *needle) -> int {
-    for (int i = 0, e = static_cast<int>(opsInBlock.size()); i < e; ++i) {
-      if (opsInBlock[i] == needle) return i;
+    store = dyn_cast<affine::AffineStoreOp>(&op);
+    ++storeIdx;
+
+    if (store) {
+      break;
     }
-    return -1;
-  };
-  int loadIdx = indexOf(triplet.load.getOperation());
-  int computeIdx = indexOf(triplet.compute);
-  int storeIdx = indexOf(triplet.store.getOperation());
-  if (loadIdx < 0 || computeIdx < 0 || storeIdx < 0 || !(loadIdx < computeIdx && computeIdx < storeIdx)) {
+  }
+
+  if (!store || storeIdx < 0) {
     return false;
   }
 
   // Avoids creating an extra loop nest during the last call to this function,
   // where the loop nest is not populated with any ops as there's nothing after the
   // store op.
-  if (isa<affine::AffineYieldOp>(triplet.store.getOperation()->getNextNode())) {
+  if (isa<affine::AffineYieldOp>(store.getOperation()->getNextNode())) {
     return false;
   }
 
@@ -234,6 +214,7 @@ static bool fissionInnermostTriplet(affine::AffineForOp outerFor, RewriterBase &
 
   return true;
 }
+
 //TODO final loop creates an empty nest because it has nothing after the store to copy
 struct TTIRLinAlgLoopFission
     : public tt::ttir::impl::TTIRLinAlgLoopFissionBase<TTIRLinAlgLoopFission> {
@@ -275,11 +256,15 @@ struct TTIRLinAlgLoopFission
       if (scfInnermost) {
         for (Operation &op : *scfInnermost.getBody()) {
             if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
-              IRRewriter rewriter(ctx);
-              rewriter.setInsertionPoint(forOp);
+              if (containsTTIRGenericComputeOp(forOp)) {
+                IRRewriter rewriter(ctx);
+                rewriter.setInsertionPoint(forOp);
 
-              if (fissionInnermostTriplet(forOp, rewriter)) {
-                  changed = true;
+                insertLoadOps(forOp, rewriter);
+
+                if (fissionAtStore(forOp, rewriter)) {
+                    changed = true;
+                }
               }
             }
         }

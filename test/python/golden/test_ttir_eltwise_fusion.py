@@ -525,7 +525,7 @@ def eltwise_unary_chain(
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_unary_chain(shape: Shape, dtype: torch.dtype, target: str, request):
-    options = []
+    options = ["override-device-shape=2,2"]
     compile_ttir_to_flatbuffer(
         eltwise_unary_chain,
         [shape],
@@ -629,31 +629,31 @@ def eltwise_fuse_cosh(
 
     return ret_val
 
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_cosh(shape: Shape, dtype: torch.dtype, target: str, request):
+    def eltwise_fuse_cosh_wrapper(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return eltwise_fuse_cosh(in0, in1, builder, shape, dtype, unit_attrs)
 
-# @pytest.mark.parametrize("shape", [(128, 128)])
-# @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-# @pytest.mark.parametrize("target", ["ttmetal"])
-# def test_eltwise_fuse_cosh(shape: Shape, dtype: torch.dtype, target: str, request):
-#     def eltwise_fuse_cosh_wrapper(
-#         in0: Operand,
-#         in1: Operand,
-#         builder: TTIRBuilder,
-#         unit_attrs: Optional[List[str]] = None,
-#     ):
-#         return eltwise_fuse_cosh(in0, in1, builder, shape, dtype, unit_attrs)
-
-#     options = []
-#     compile_ttir_to_flatbuffer(
-#         eltwise_fuse_cosh_wrapper,
-#         [shape]*2,
-#         [dtype]*2,
-#         target=target,
-#         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-#         test_base=request.node.name,
-#         module_dump=True,
-#         output_root=request.config.getoption("--path"),
-#         system_desc_path=request.config.getoption("--sys-desc"),
-#     )
+    options = [ "override-device-shape=4,4"]
+    compile_ttir_to_flatbuffer(
+        eltwise_fuse_cosh_wrapper,
+        [shape]*2,
+        [dtype]*2,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
+    )
 
 
 def eltwise_unary_chain_multi_tile(
@@ -667,12 +667,18 @@ def eltwise_unary_chain_multi_tile(
     
     return res_3
 
-# @pytest.mark.parametrize("option")
+@pytest.mark.parametrize("grid", 
+    [
+        "override-device-shape=2,2",
+        # "override-device-shape=2,2",
+        # "override-device-shape=4,4",
+    ]
+)
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_eltwise_unary_chain_multi_tile(shape: Shape, dtype: torch.dtype, target: str, request):
-    options = ["override-device-shape=1,1"]
+def test_eltwise_unary_chain_multi_tile(grid: str, shape: Shape, dtype: torch.dtype, target: str, request):
+    options = [grid]
 
     compile_ttir_to_flatbuffer(
         eltwise_unary_chain_multi_tile,

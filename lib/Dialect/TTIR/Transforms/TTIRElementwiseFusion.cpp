@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -18,48 +19,48 @@
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRELEMENTWISEFUSION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
-} // namespace mlir::tt::ttir
 
-using namespace mlir;
-using namespace mlir::tt::ttir;
 
-namespace {
-
-static std::optional<Operation*> getTilizeOpIfPresent(Operation *op) {
-  if(isa<mlir::tt::ttir::TileUntilizeBlockOp>(op)) {
-    return op;
+static bool hasTilizeOp(Operation *op) {
+  if(isa<mlir::tt::ttir::TileTilizeBlockOp>(op)) {
+    return true;
   }
 
   for (Region &region : op->getRegions()) {
     for (Operation &opInner : region.getOps()) {
-      auto tilizeOp = getTilizeOpIfPresent(&opInner);
-
-      if (tilizeOp) {
-        return tilizeOp.value();
+      if (hasTilizeOp(&opInner)) {
+        return true;
       }
     }
   }
 
-  return std::nullopt;
+  return false;
 }
 
 static bool hasMultiUseOperand(GenericOp gOp) {
-  // TODO(mbagherbeikTT) create issue for this
-  // make sure all producer inputs are also single use
-  // otherwise we can end up with intermediate inputs
-  // that the compiler can't handle for now
   for (OpOperand *input : gOp.getDpsInputOperands()) {
+    // Check direct operand usages
     if (llvm::range_size(input->get().getUsers()) > 1) {
       return true;
     }
 
-    // Function arguments go through a tilize for each unique use.
-    // Need to check if operands are coming from a tilize generic to
-    // see if its input argument feeds multiple tilize generics.
-    auto tilizeOp = getTilizeOpIfPresent(input->getOwner());
-    if (tilizeOp) {
-      if (llvm::range_size(tilizeOp.value()->getOperand(0).getUsers()) > 1) {
+    auto tilizeGenOp = dyn_cast<GenericOp>(input->get().getDefiningOp());
+
+    // Function arguments go through to_layout->tilize for each unique non-tilize compute region they appear in.
+    // Need to check if operands are coming from a tilize generic and then trace that back to a
+    // to_layout op and see if the input arg is used multiple times
+    if (hasTilizeOp(tilizeGenOp)) {
+      if (llvm::range_size(tilizeGenOp->getOperand(0).getUsers()) > 1) {
         return true;
+      }
+
+      // The input to tilize could also be a to_layout from a multi-use arg.
+      if (auto *toLayoutOp = tilizeGenOp.getDpsInputOperand(0)->get().getDefiningOp()) {
+        for (auto argOperand : toLayoutOp->getOperands()) {          
+          if (llvm::range_size(argOperand.getUsers()) > 1) {
+            return true;
+          }
+        }
       }
     }
   }
@@ -150,34 +151,79 @@ static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
   return covered.all();
 }
 
-static bool isElementwiseFusable(GenericOp producer, GenericOp consumer,
-                                 OpOperand *use) {  
+static bool fitsInDstPostFusion(
+  GenericOp producer, 
+  GenericOp consumer,
+  OpOperand *use,
+  unsigned dstRegisterSizeTiles
+) {
+  // Check if the operand has 16-bit or 32-bit element type
+  auto tensorType = dyn_cast<RankedTensorType>(use->get().getType());
+  assert(tensorType); // use MUST be a tensorType unless something got borked
+  
+  Type elementType = tensorType.getElementType();
+  
+  // If the element type is a tile type, extract the actual data type
+  if (auto tileType = dyn_cast<mlir::tt::ttcore::TileType>(elementType)) {
+    elementType = tileType.getElementType();
+  }
+  
+  unsigned bitWidth = elementType.getIntOrFloatBitWidth();
+
+  // TODO(mbagherbeikTT) do we need something like this?
+  // if (bitWidth != 16 && bitWidth != 32) {
+  //   return false;
+  // }
+  
+  // TODO(mbagherbeikTT) Confirm if this halving logic is sound
+  unsigned int dstTilesRemaining = dstRegisterSizeTiles/(bitWidth == 32 ? 2 : 1);
+
+  dstTilesRemaining -= consumer->getNumOperands() + producer->getNumOperands() - 2 - 1;
+
+  if (dstTilesRemaining < 0) {
+    return false;
+  }
+
+  // Compute # of intermediate tiles needed
+  // ----------------------------------------------------------------------- //
+  auto subtractIntermediateTiles = [&](GenericOp genOp) {
+    for (Region &region : genOp->getRegions()) {
+      for (Operation &opInner : region.getOps()) {
+        if (opInner.hasTrait<TTIRGenericRegionComputeOpTrait>()) {
+          if (opInner.getNumOperands() > 1) {
+            if (--dstTilesRemaining < 0) {
+              return false;
+            }
+          }
+        }
+      }
+    }
+    return true;
+  };
+
+  if (!subtractIntermediateTiles(consumer) || !subtractIntermediateTiles(producer)) {
+    return false;
+  }
+
+  return true;
+}
+
+static bool isElementwiseFusable(
+  GenericOp producer, 
+  GenericOp consumer,
+  OpOperand *use,
+  unsigned dstRegisterSizeTiles
+) {
   // operand only has 1 user
   if (llvm::range_size(use->get().getUsers()) > 1) {
     return false;
   }
 
-  // TODO(mbagherbeikTT) create issue for this
-  // make sure all producer inputs are also single use
-  // otherwise we can end up with intermediate inputs
-  // that the compiler can't handle for now
   if (hasMultiUseOperand(producer)) {
     return false;
   }
 
-  // NOTE: this only works under assumption that the operand that we're
-  // fusing over only has a single user!
-  //
-  // fused op can't have more than set amount of operands
-  // due to number of CBs that can fit in L1
-  //
-  // TODO(mbagherbeikTT) figure out where to move this constant
-  unsigned int kFusedOpOperandLimit = 16; 
-  unsigned int consumerOperands = consumer->getNumOperands();
-  unsigned int producerOperands = producer->getNumOperands();
-
-  // -2 since were removing 1 operand from both consumer and producer
-  if ((consumerOperands + producerOperands - 2) > kFusedOpOperandLimit) {
+  if (!fitsInDstPostFusion(producer, consumer, use, dstRegisterSizeTiles)) {
     return false;
   }
 
@@ -244,10 +290,15 @@ static llvm::SmallDenseSet<int> getPreservedProducerResults(GenericOp producer,
 }
 
 struct FuseTTIRElementwiseOpsPattern : OpRewritePattern<GenericOp> {
-  using OpRewritePattern<GenericOp>::OpRewritePattern;
+  FuseTTIRElementwiseOpsPattern(MLIRContext *context,
+                                unsigned dstRegisterSizeTiles)
+      : OpRewritePattern<GenericOp>(context),
+        dstRegisterSizeTiles(dstRegisterSizeTiles) {}
 
-  LogicalResult matchAndRewrite(GenericOp consumer,
-                                PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(
+    GenericOp consumer,
+    PatternRewriter &rewriter
+  ) const override {
     if (shouldBeSkipped(consumer)) {
       return failure();
     }
@@ -277,7 +328,7 @@ struct FuseTTIRElementwiseOpsPattern : OpRewritePattern<GenericOp> {
       }
 
       assert(producer.isComputeOnlyForm() && producer.hasPureTensorSemantics());
-      if (!isElementwiseFusable(producer, consumer, use)) {
+      if (!isElementwiseFusable(producer, consumer, use, dstRegisterSizeTiles)) {
         continue;
       }
 
@@ -492,6 +543,8 @@ struct FuseTTIRElementwiseOpsPattern : OpRewritePattern<GenericOp> {
 
     return failure();
   }
+
+  unsigned dstRegisterSizeTiles;
 };
 
 struct TTIRElementwiseFusion
@@ -499,14 +552,26 @@ struct TTIRElementwiseFusion
   using TTIRElementwiseFusionBase::TTIRElementwiseFusionBase;
 
   void runOnOperation() override {
+    auto device = ttcore::lookupDevice(getOperation());
+    assert(device && "Device not found");
+    auto systemDesc = ttcore::getCurrentScopeSystemDesc(getOperation());
+    auto chipIds = device.getChipIds();
+    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
+
+    unsigned dstRegisterSizeTiles = chipDesc.getDstRegisterSizeTiles();
+    if (maxDstRegisterSizeTiles.getValue() > 0) {
+      dstRegisterSizeTiles =
+          std::min(dstRegisterSizeTiles, maxDstRegisterSizeTiles.getValue());
+    }
+
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<FuseTTIRElementwiseOpsPattern>(ctx);
+    patterns.add<FuseTTIRElementwiseOpsPattern>(ctx, dstRegisterSizeTiles);
     GreedyRewriteConfig cfg;
     (void)applyPatternsGreedily(getOperation(), std::move(patterns), cfg);
   }
 };
 
-} // namespace
+}  // namespace mlir::tt::ttir
 
 // Factory is generated by TableGen.
