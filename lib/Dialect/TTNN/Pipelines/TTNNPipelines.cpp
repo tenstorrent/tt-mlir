@@ -241,7 +241,12 @@ void createTTNNBackendToEmitPyPipeline(
   pm.addPass(createTTNNEmitPyWorkarounds());
 
   pm.addPass(createTTNNTuplifyTensors());
-  pm.addPass(createTTNNCreateInputGenerators());
+
+  if (options.loadInputTensorsFromDisk) {
+    pm.addPass(createTTNNLoadInputTensors());
+  } else {
+    pm.addPass(createTTNNCreateInputGenerators());
+  }
 
   pm.addPass(createConvertTTNNToEmitPyPass());
 }
