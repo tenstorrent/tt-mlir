@@ -271,16 +271,11 @@ getRawDataFromElementsAttr(mlir::ElementsAttr attr) {
       return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                      "Element type mismatch");
     }
-
-    if constexpr (std::is_same_v<T, float>) {
-      for (auto value : denseAttr.getValues<llvm::APFloat>()) {
-        result.push_back(value.convertToFloat());
-      }
-    } else {
-      for (auto value : denseAttr.getValues<llvm::APInt>()) {
-        result.push_back(static_cast<T>(value.getZExtValue()));
-      }
+    // Iterate over the elements
+    for (auto value : denseAttr.getValues<T>()) {
+      result.push_back(value);
     }
+
   } else if (auto splatAttr = llvm::dyn_cast<mlir::SplatElementsAttr>(attr)) {
     // Handle splat attributes, Although this is not expected to be triggered
     // (since we have other ops to cover splat attributes, such as FullOp,
