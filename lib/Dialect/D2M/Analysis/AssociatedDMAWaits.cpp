@@ -27,7 +27,6 @@ static SmallVector<d2m::DMAWaitOp> findAssociatedDMAWaits(DMAOpInterface op) {
       llvm_unreachable("Unexpected user of DMAOp");
     }
   }
-  assert(!dmaWaits.empty());
   return dmaWaits;
 }
 
