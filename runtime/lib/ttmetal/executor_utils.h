@@ -11,6 +11,7 @@
 
 #include "ttmlir/Target/TTMetal/Target.h"
 
+#include <filesystem>
 #include <functional>
 #include <variant>
 
@@ -298,14 +299,15 @@ inline std::string createKernelFilePath(
     const char *kernelLoc, const CoreRangeSet &coreRangeSet,
     const std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig,
                        tt_metal::EthernetConfig> &kernelConfig,
-    std::string prefix = {}, const char *extention = ".cpp") {
+    std::filesystem::path prefix = {}, const char *extention = ".cpp") {
   if (prefix.empty()) {
-    prefix = "/tmp/ttmlir_";
+    prefix = "/tmp";
   }
-  std::string path(prefix);
+  std::filesystem::path path(prefix);
   if (debug::Env::get().useLocForKernelName && kernelLoc) {
-    path += kernelLoc;
+    path /= kernelLoc;
   } else {
+    prefix /= "ttmlir_";
     path += currentProgramName;
     path += "_";
     path += kernelDebugInfo;

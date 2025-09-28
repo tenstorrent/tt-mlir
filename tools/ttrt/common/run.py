@@ -156,6 +156,13 @@ class Run:
             help="Use the location information to derive the kernel's filename when dumping to disk",
         )
         Run.register_arg(
+            name="--kernel-source-dir",
+            type=str,
+            default="",
+            choices=None,
+            help="test dir to save kernels to",
+        )
+        Run.register_arg(
             name="--disable-device-address-validation",
             type=bool,
             default=False,
