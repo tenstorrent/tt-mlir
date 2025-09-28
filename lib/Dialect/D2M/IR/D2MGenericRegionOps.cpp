@@ -161,6 +161,12 @@ void DMAOp::getAsmResultNames(function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "tx");
 }
 
+bool DMAOp::isNotConflicting(mlir::OpOperand *, mlir::OpOperand *,
+                             const mlir::bufferization::AnalysisState &) {
+  // Return true to avoid forcing out of place bufferization.
+  return true;
+}
+
 // Comprehensive verifiers matching D2M
 ::mlir::LogicalResult DMAWriteOp::verify() {
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
@@ -256,7 +262,14 @@ void DMAWriteOp::getAsmResultNames(
 }
 
 void DMAOp::getEffects(mlir::SmallVectorImpl<mlir::SideEffects::EffectInstance<
-                           mlir::MemoryEffects::Effect>> &effects) {}
+                           mlir::MemoryEffects::Effect>> &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getSrcMutable(),
+                       0 /*stage*/, true /*effectOnFullRegion*/,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getDstMutable(),
+                       0 /*stage*/, true /*effectOnFullRegion*/,
+                       mlir::SideEffects::DefaultResource::get());
+}
 
 void DMAReadOp::getEffects(
     mlir::SmallVectorImpl<
