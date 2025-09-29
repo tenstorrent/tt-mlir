@@ -23,6 +23,7 @@ class TTCompilerBase(PyKernelAstBase):
             "datamovement",
             "noc",
             "compute",
+            "unified",
         ], "Invalid kernel type"
         self.supported_nodes = [
             # Variables
@@ -32,6 +33,9 @@ class TTCompilerBase(PyKernelAstBase):
             # control-flow
             ast.If,
             ast.For,
+            # Async
+            ast.Yield,
+            ast.Await,
             # Literals
             ast.Constant,
             # Expressions
@@ -214,6 +218,25 @@ class TTCompilerBase(PyKernelAstBase):
                 self.visit(stmt)
             scf.YieldOp([])
             self.symbol_tables.pop()
+
+    # Async
+    def visit_Yield(self, node):
+        if isinstance(node.value, ast.Name):
+            yield_args = [self.visit(node.value)]
+        elif isinstance(node.value, ast.Tuple):
+            yield_args = [self.visit(elem) for elem in node.value.elts]
+        else:
+            raise NotImplementedError(f"Unsupported type for yield {ast.dump(node)}")
+        d2m.YieldOp(yield_args)
+
+    def visit_Await(self, node):
+        if isinstance(node.value, ast.Name):
+            await_args = [self.visit(node.value)]
+        elif isinstance(node.value, ast.Tuple):
+            await_args = [self.visit(elem) for elem in node.value.elts]
+        else:
+            raise NotImplementedError("Unsupported type for yield")
+        d2m.AwaitOp(await_args)
 
     # Statements
     def visit_Name(self, node):
@@ -607,6 +630,10 @@ class TTCompilerBase(PyKernelAstBase):
             rhs = _cast(rhs, lhs.type)
         assert lhs.type == rhs.type, f"{lhs.type} != {rhs.type}"
 
+        if lhs.type != rhs.type:
+            rhs = _cast(rhs, lhs.type)
+        assert lhs.type == rhs.type, f"{lhs.type} != {rhs.type}"
+
         match (node.ops[0]):
             case ast.Eq():
                 return arith.cmpi(arith.CmpIPredicate.eq, lhs, rhs)
@@ -844,9 +871,9 @@ class TTCompilerBase(PyKernelAstBase):
         if callable(as_attr):
             return as_attr(node)
         elif isinstance(node.value, bool):
-            return op_constructor(IntegerType.get_signless(1, self.ctx), node.value)
+            return op_constructor(IndexType.get(self.ctx), node.value)
         elif isinstance(node.value, int):
-            return op_constructor(IntegerType.get_signless(32, self.ctx), node.value)
+            return op_constructor(IndexType.get(self.ctx), node.value)
         else:
             raise NotImplementedError(
                 f"constant type {type(node.value).__name__} not implemented"
