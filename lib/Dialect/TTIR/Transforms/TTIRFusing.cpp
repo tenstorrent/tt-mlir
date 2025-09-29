@@ -2039,6 +2039,20 @@ private:
 
       return xCubed.getLhs();
     }
+    if (PowScalarOp xCubed = xCubedResult.getDefiningOp<ttir::PowScalarOp>()) {
+      auto powerValue = xCubed.getExponent();
+      float exponent = 0;
+      if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(powerValue)) {
+        exponent = floatAttr.getValue().convertToFloat();
+      } else if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(powerValue)) {
+        exponent = static_cast<float>(intAttr.getValue().getSExtValue());
+      }
+      if (!checkFloatIsNear(exponent, THREE)) {
+        return nullptr;
+      }
+
+      return xCubed->getOperand(0);
+    }
     if (ttir::MultiplyOp xCubed =
             xCubedResult.getDefiningOp<ttir::MultiplyOp>()) {
 

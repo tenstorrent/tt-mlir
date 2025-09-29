@@ -1219,6 +1219,24 @@ struct OpModel<PermuteOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// PowScalarOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PowScalarOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, mlir::Attribute exponent,
+                   TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             mlir::Attribute exponent,
+                                             TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // UpsampleOp
 //===----------------------------------------------------------------------===//
 

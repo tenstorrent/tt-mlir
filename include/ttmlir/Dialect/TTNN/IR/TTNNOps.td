@@ -753,6 +753,29 @@ def TTNN_PowOp : TTNN_ElementwiseBinaryCompositeOp<"pow"> {
     }];
 }
 
+def TTNN_PowScalarOp : TTNN_Op<"pow_scalar"> {
+  let summary = "Eltwise power OP.";
+  let description = [{
+    Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
+    result tensor. Tensors must be of same shape.
+
+    Example:
+    ```
+      %result = "ttnn.pow"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
+
+      %lhs: [-2.0, -0.0, -36.0, 5.0, 3.0, 10000.0]
+      %rhs: [2.0, 2.0, 1.1, 2.0, -1.0, 10.0]
+      %result: [4.0, 0.0, -nan, 25.0, 0.333333343, inf]
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyAttrOf<[F32Attr, I32Attr]>:$exponent,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
     let summary = "Eltwise atan2 OP.";
     let description = [{

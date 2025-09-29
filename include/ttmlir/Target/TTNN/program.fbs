@@ -48,6 +48,7 @@ union OpType {
   DeallocateOp,
   EltwiseBinaryCompositeOp,
   EltwiseBinaryOp,
+  PowScalarOp,
   EltwiseQuantizationOp,
   EltwiseTernaryWhereOp,
   EltwiseUnaryCompositeOp,

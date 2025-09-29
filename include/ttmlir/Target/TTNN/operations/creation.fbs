@@ -32,10 +32,6 @@ table EmptyOp {
   out: tt.target.ttnn.TensorRef;
 }
 
-table FloatingPointType {
-  value: float;
-}
-
 table IntegralType {
   value: int32;
 }
