@@ -382,10 +382,14 @@ public:
         emitter.emit(maxPool2dOp.getInputHeight()),
         emitter.emit(maxPool2dOp.getInputWidth()),
         emitter.emit(maxPool2dOp.getChannels()),
-        emitter.emit<std::vector<uint32_t>>(maxPool2dOp.getKernelSizeAttr()),
-        emitter.emit<std::vector<uint32_t>>(maxPool2dOp.getStrideAttr()),
-        emitter.emit<std::vector<uint32_t>>(maxPool2dOp.getPaddingAttr()),
-        emitter.emit<std::vector<uint32_t>>(maxPool2dOp.getDilationAttr()),
+        emitter.template emit<std::vector<uint32_t>>(
+            maxPool2dOp.getKernelSizeAttr()),
+        emitter.template emit<std::vector<uint32_t>>(
+            maxPool2dOp.getStrideAttr()),
+        emitter.template emit<std::vector<uint32_t>>(
+            maxPool2dOp.getPaddingAttr()),
+        emitter.template emit<std::vector<uint32_t>>(
+            maxPool2dOp.getDilationAttr()),
         emitter.emit(emitter.getMemoryConfig(maxPool2dOp.getResult()),
                      "memory_config"),
         emitter.emit(maxPool2dOp.getAppliedShardScheme(),
@@ -1420,10 +1424,12 @@ public:
 // NLPCreateQKVHeadsDecodeOp conversion pattern
 namespace {
 class NLPCreateQKVHeadsDecodeOpConversionPattern
-    : public OpConversionPattern<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp> {
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp> {
 public:
-  using OpConversionPattern<
-      mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>::OpConversionPattern;
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
 
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp srcOp,

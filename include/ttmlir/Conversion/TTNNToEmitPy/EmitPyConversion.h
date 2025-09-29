@@ -1393,7 +1393,6 @@ public:
         op, resultTypes, opConversionPattern.convertOpName(op), operands,
         rewriter.getArrayAttr(args), rewriter.getArrayAttr(keywordArgs));
 
-    assert(callOpaqueOp.getNumResults() <= 1 && "expected at most one result");
     if (callOpaqueOp.getNumResults() == 0) {
       return {};
     }

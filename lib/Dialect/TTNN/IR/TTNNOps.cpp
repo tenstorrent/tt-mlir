@@ -3610,6 +3610,21 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
     return emitOpError() << "value tensor must be a 4D tensor";
   }
 
+  // Both or neither of batch_offset and slice_size must be set.
+  bool batchOffsetExists = getBatchOffset() != nullptr;
+  bool sliceSizeExists = getSliceSizeAttr() != nullptr;
+  if (batchOffsetExists != sliceSizeExists) {
+    return emitOpError()
+           << "both or neither of batch_offset and slice_size must be set";
+  }
+
+  if (batchOffsetExists && getBatchOffset().getType().getNumElements() == 1) {
+    return emitOpError() << "batch_offset must be a scalar, got shape ("
+                         << ttmlir::utils::join(
+                                getBatchOffset().getType().getShape(), ", ")
+                         << ")";
+  }
+
   constexpr uint32_t INPUT_SEQ_DIM = 1;
   constexpr uint32_t INPUT_BATCH_DIM = 2;
   constexpr uint32_t INPUT_HIDDEN_DIM = 3;
@@ -3627,6 +3642,10 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
   uint32_t numHeads = getNumHeads();
   uint32_t numKVHeads = getNumKvHeads() ? *getNumKvHeads() : numHeads;
   int64_t batchSize = inputShape[INPUT_BATCH_DIM];
+  if (sliceSizeExists) {
+    batchSize = *getSliceSize();
+  }
+
   int64_t inputHiddenSize = inputShape[INPUT_HIDDEN_DIM];
 
   int64_t outputHeadDim = inputHiddenSize / (numHeads + 2 * numKVHeads);
@@ -3646,6 +3665,13 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
     return emitOpError() << "expected key shape ("
                          << ttmlir::utils::join(expectedKVShape, ", ") << "), "
                          << "got (" << ttmlir::utils::join(keyShape, ", ")
+                         << ")";
+  }
+
+  if (!llvm::equal(valueShape, expectedKVShape)) {
+    return emitOpError() << "expected value shape ("
+                         << ttmlir::utils::join(expectedKVShape, ", ") << "), "
+                         << "got (" << ttmlir::utils::join(valueShape, ", ")
                          << ")";
   }
 
