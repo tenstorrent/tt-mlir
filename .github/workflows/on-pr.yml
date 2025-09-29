@@ -93,6 +93,8 @@ jobs:
     - name: Set test durations
       if: ${{ steps.check-jobs.outputs.success == 'true' }}
       shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
       run: |
         # if [ '${{ github.ref }}' == 'refs/heads/main' ]; then
           echo "This is main branch, getting test durations"
