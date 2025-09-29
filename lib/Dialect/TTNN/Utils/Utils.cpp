@@ -12,6 +12,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
 #include "llvm/Support/Casting.h"
 
 #include <optional>
@@ -327,12 +328,9 @@ bool hasFirstOperandInDRAM(Operation *op) {
   auto firstOperand = op->getOperand(0);
   auto tensorType =
       mlir::dyn_cast<mlir::RankedTensorType>(firstOperand.getType());
-  if (!tensorType) {
-    return false;
-  }
 
   if (auto ttnnLayout =
-          mlir::dyn_cast<TTNNLayoutAttr>(tensorType.getEncoding())) {
+          mlir::dyn_cast_if_present<TTNNLayoutAttr>(tensorType.getEncoding())) {
     return ttnnLayout.hasDRAMBufferType();
   }
 

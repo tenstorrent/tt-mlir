@@ -8,13 +8,12 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
-
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 
 #include <algorithm>
 #include <cassert>
@@ -196,15 +195,17 @@ bool L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(Operation *op) {
 bool L1InterleavedFallbackAnalysis::handleReshapeOps(Operation *op) const {
   // Output of reshape op is considered for keeping in DRAM, only if its
   // input is still in DRAM.
-  if (isa<ttnn::ReshapeOp>(op) && utils::hasFirstOperandInDRAM(op) &&
-      checkReshapeSkip(op)) {
+  if (auto reshapeOp = dyn_cast<ReshapeOp>(op);
+      reshapeOp && utils::hasFirstOperandInDRAM(reshapeOp) &&
+      checkReshapeSkip(reshapeOp)) {
     return true;
   }
   for (auto *user : op->getUsers()) {
     // Input of reshape user is considered for keeping in DRAM, only if its
     // output is still in DRAM.
-    if (isa<ttnn::ReshapeOp>(user) && utils::producesDRAMLayout(user) &&
-        checkReshapeSkip(user)) {
+    if (auto userReshapeOp = dyn_cast<ReshapeOp>(user);
+        userReshapeOp && utils::producesDRAMLayout(userReshapeOp) &&
+        checkReshapeSkip(userReshapeOp)) {
       return true;
     }
   }
@@ -212,20 +213,14 @@ bool L1InterleavedFallbackAnalysis::handleReshapeOps(Operation *op) const {
 }
 
 bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
-    Operation *reshapeOperation) const {
-
-  auto reshapeOp = dyn_cast<ttnn::ReshapeOp>(reshapeOperation);
-  assert(reshapeOp && "Expected a ReshapeOp");
-
-  auto inputType = mlir::dyn_cast<mlir::RankedTensorType>(
-      reshapeOp->getOperand(0).getType());
-  auto outputType =
-      mlir::dyn_cast<mlir::RankedTensorType>(reshapeOp->getResult(0).getType());
+    ReshapeOp reshapeOp) const {
+  auto inputType = reshapeOp.getInput().getType();
+  auto outputType = reshapeOp.getResult().getType();
   auto inputShape = inputType.getShape();
   auto outputShape = outputType.getShape();
 
   assert(inputShape != outputShape &&
-         "Identity reshapes should have been removed by TTIR canonicalization");
+         "Identity reshapes should have been removed by TTNN canonicalization");
 
   // Early return for rank=0 reshapes - special case, don't need view
   // optimization checks
@@ -248,10 +243,9 @@ bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
   int64_t outputSecondLastDim =
       outputShape.size() >= 2 ? outputShape[outputShape.size() - 2] : 1;
 
-  bool inputTensorTiled = false;
   auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
   assert(ttnnLayout && "Expected input tensor to have TTNN layout attribute");
-  inputTensorTiled = ttnnLayout.isTiled();
+  bool inputTensorTiled = ttnnLayout.isTiled();
 
   // Check tt-metal view optimization: same last dim + tile alignment
   // (conditions 1&2) Buffer type matching (conditions 3&4) already guaranteed

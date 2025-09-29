@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -124,7 +125,7 @@ private:
   // row-major input
   //
   // Called by handleReshapeOps() if conditions 3&4 are met.
-  bool checkReshapeSkip(Operation *reshapeOperation) const;
+  bool checkReshapeSkip(ReshapeOp reshapeOp) const;
 
   // Try to upgrade an operation to L1 interleaved layout by testing available
   // L1 configurations and selecting the first one that passes validation.
