@@ -190,9 +190,9 @@ jobs:
                                                     { type: "builder", path: "test/python/golden/optimizer", args: "not run_error and not fails_golden", flags: "run-ttrt require-opmodel" }
                                                   ]},
           {runs-on: n150, image: "tracy",   test: [
-                                                    { type: "ttrt", path: "Silicon/TTNN/n150/perf", flags: "perf"},
-                                                    { type: "ttrt", path: "Silicon/TTNN/n150/optimizer", flags: "perf"},
-                                                    { type: "runtime_debug"},
+                                                    { type: "ttrt", path: "Silicon/TTNN/n150/perf", flags: "perf" },
+                                                    { type: "ttrt", path: "Silicon/TTNN/n150/optimizer", flags: "perf" },
+                                                    { type: "ttrt", path: "Silicon", args: "--non-zero", flags: "run" },
                                                     { type: "emitc", path: "EmitC" },
                                                     { type: "pytest", path: "tools/ttrt/test" },
                                                     { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt" },
@@ -204,8 +204,8 @@ jobs:
                                                   ]},
           {runs-on: n300,  image: "speedy", test: [ { type: "ttrt", path: "Silicon", flags: "run", args: "--non-zero"} ] },
           {runs-on: n300,  image: "tracy",  test: [
-                                                    { type: "unit"},
-                                                    { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt require-exact-mesh"},
+                                                    { type: "unit" },
+                                                    { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt require-exact-mesh" },
                                                     { type: "runtime_debug" },
                                                     { type: "ttrt", path: "Silicon/TTNN/n300/perf", flags: "perf" },
                                                     { type: "pytest", path: "runtime/test/ttnn/python/multi_device" }
@@ -317,6 +317,8 @@ jobs:
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export RUNS_ON="${{ matrix.build.runs-on }}"
+        export IMAGE_NAME="${{ matrix.build.image }}"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         rm -rf test_reports || true
         mkdir -p test_reports

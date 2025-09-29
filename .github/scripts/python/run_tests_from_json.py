@@ -82,9 +82,12 @@ def main(machine, image, jobid):
             hash_string = test.get("hash_string", "")
             duration = test.get("duration", 0)
             f.write(f"{hash_val} {duration:.2f}\n")
-            print(f"{result} {hash_string} done in {duration:.2f}s")
             if test.get("returncode", 1) != 0:
                 allpassed = False
+                color = "\033[91m"
+            else:
+                color = "\033[92m"
+            print(f"{color}{result} {hash_string} done in {duration:.2f}s\033[0m")
 
     print("\033[1;96m====================================")
     if allpassed:
