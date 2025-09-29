@@ -71,7 +71,7 @@ def get_metal_tensor_layout(
     index_map: Optional[AffineMap] = None,
     memory_layout: Optional[
         ttcore.TensorMemoryLayout
-    ] = ttcore.TensorMemoryLayout.Sharded
+    ] = ttcore.TensorMemoryLayout.Sharded,
 ) -> RankedTensorType:
     """
     Create a metal tensor layout.
@@ -117,7 +117,13 @@ def get_metal_tensor_layout(
         )
     else:
         layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx, logical_shape, worker_grid, oobVal, memorySpace, memory_layout, index_map
+            ctx,
+            logical_shape,
+            worker_grid,
+            oobVal,
+            memorySpace,
+            memory_layout,
+            index_map,
         )
 
     shard_shape = []
