@@ -252,7 +252,8 @@ getShardSpec(const TTNNLayoutAttr &layout) {
     return std::nullopt;
   }
 
-  if (!isShardedMemoryLayout(layout.getMemLayout().getValue())) {
+  if (!isShardedMemoryLayout(
+          layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved))) {
     return std::nullopt;
   }
 
@@ -362,7 +363,8 @@ getTensorMemoryLayout(const TensorMemoryLayoutAttr memLayoutAttr) {
 }
 
 ::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout) {
-  auto tensorMemoryLayout = getTensorMemoryLayout(layout.getMemLayout());
+  auto tensorMemoryLayout = getTensorMemoryLayout(
+      layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved));
   auto bufferType = getBufferType(layout);
 
   auto shardSpec = getShardSpec(layout);
