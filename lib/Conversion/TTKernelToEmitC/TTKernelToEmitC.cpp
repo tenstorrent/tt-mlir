@@ -394,6 +394,18 @@ public:
   LogicalResult
   matchAndRewrite(ttkernel::DPrintOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    StringRef fmt = op.getFmt();
+
+    if (fmt.empty() && adaptor.getOperands().size() == 1) {
+      Value cbOperand = op.getOperands()[0];
+      if (mlir::isa<ttkernel::CBType>(cbOperand.getType())) {
+        rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+            op, TypeRange(), "ttmlir::print_cb_details", nullptr, nullptr,
+            ValueRange{rewriter.getRemappedValue(cbOperand)});
+        return success();
+      }
+    }
+
     auto stringlit = [&](StringRef str) {
       return rewriter
           .create<emitc::LiteralOp>(
@@ -404,7 +416,7 @@ public:
 
     auto operandsIter = adaptor.getOperands().begin();
     auto operandsEnd = adaptor.getOperands().end();
-    StringRef rest, fmt = op.getFmt();
+    StringRef rest;
     SmallVector<Value> vargs;
     do {
       std::tie(fmt, rest) = fmt.split("{}");
