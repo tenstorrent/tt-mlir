@@ -112,9 +112,6 @@ def le(a, b):
         sub,
         mul,
         div,
-        # logical_and, logical_or, logical_xor,
-        # bitwise_or, bitwise_and, bitwise_xor, # not a supported FPU op
-        # remainder, atan2,# not supported in TTIRToD2M
         pow,
         eq,
         ne,
@@ -122,6 +119,9 @@ def le(a, b):
         ge,
         lt,
         le,
+        # logical_and, logical_or, logical_xor,
+        # bitwise_or, bitwise_and, bitwise_xor, # not a supported FPU op
+        # remainder, atan2,# not supported in TTIRToD2M
     ],
 )
 def test_binary_ops(device, h, w, max_grid, dtype, op):
