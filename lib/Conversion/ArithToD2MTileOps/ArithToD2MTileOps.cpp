@@ -41,7 +41,7 @@ struct ArithToD2MTileOpsPass final
     target.addLegalDialect<ttcore::TTCoreDialect>();
     target.addLegalDialect<d2m::D2MDialect>();
 
-    // Mark arith ops inside of a d2m.generic that operate on tiles as illegal.
+    // Mark arith ops that operate on tiles as illegal.
     target.addDynamicallyLegalOp<
 #define GET_OP_LIST
 #include "mlir/Dialect/Arith/IR/ArithOps.cpp.inc"
@@ -71,12 +71,12 @@ namespace mlir::tt {
 void populateArithToD2MTileOpsPatterns(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter) {
-  patterns.add<d2m::TileOpRewriter<arith::NegFOp, d2m::TileNegativeOp, 1>,
-               d2m::TileOpRewriter<arith::AddFOp, d2m::TileAddOp, 2>,
-               d2m::TileOpRewriter<arith::SubFOp, d2m::TileSubOp, 2>,
-               d2m::TileOpRewriter<arith::MulFOp, d2m::TileMulOp, 2>,
-               d2m::TileOpRewriter<arith::DivFOp, d2m::TileDivOp, 2>,
-               d2m::TileOpRewriter<arith::MulFOp, d2m::TileMulOp, 2>>(
+  patterns.add<d2m::UnaryTileOpRewriter<arith::NegFOp, d2m::TileNegativeOp>,
+               d2m::BinaryTileOpRewriter<arith::AddFOp, d2m::TileAddOp>,
+               d2m::BinaryTileOpRewriter<arith::SubFOp, d2m::TileSubOp>,
+               d2m::BinaryTileOpRewriter<arith::MulFOp, d2m::TileMulOp>,
+               d2m::BinaryTileOpRewriter<arith::DivFOp, d2m::TileDivOp>,
+               d2m::BinaryTileOpRewriter<arith::MulFOp, d2m::TileMulOp>>(
       typeConverter, ctx);
 }
 

@@ -41,7 +41,7 @@ struct MathToD2MTileOpsPass final
     target.addLegalDialect<ttcore::TTCoreDialect>();
     target.addLegalDialect<d2m::D2MDialect>();
 
-    // Mark math ops inside of a d2m.generic that operate on tiles as illegal.
+    // Mark math ops that operate on tiles as illegal.
     target.addDynamicallyLegalOp<
 #define GET_OP_LIST
 #include "mlir/Dialect/Math/IR/MathOps.cpp.inc"
@@ -71,7 +71,7 @@ namespace mlir::tt {
 void populateMathToD2MTileOpsPatterns(MLIRContext *ctx,
                                       RewritePatternSet &patterns,
                                       TypeConverter &typeConverter) {
-  patterns.add<d2m::TileOpRewriter<math::AbsFOp, d2m::TileAbsOp, 1>>(
+  patterns.add<d2m::UnaryTileOpRewriter<math::AbsFOp, d2m::TileAbsOp>>(
       typeConverter, ctx);
 }
 
