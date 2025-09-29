@@ -43,8 +43,6 @@ cudaDataTypeToCommon(::tt::target::cuda::DataType cudaType) {
     return ::tt::target::DataType::UInt16;
   case ::tt::target::cuda::DataType::Int16:
     return ::tt::target::DataType::Int16;
-  default:
-    return ::tt::target::DataType::Float32; // fallback
   }
 }
 
@@ -234,13 +232,6 @@ void memcpy(Tensor dst, Tensor src) {
   LOG_ASSERT(src.data.get() != nullptr, "Source tensor data cannot be null");
   auto srcCudaHandle = std::static_pointer_cast<CudaTensorHandle>(src.handle);
   auto dstCudaHandle = std::static_pointer_cast<CudaTensorHandle>(dst.handle);
-  llvm::errs()
-      << ::tt::target::cuda::EnumNameDataType(
-             static_cast<::tt::target::cuda::DataType>(srcCudaHandle->dataType))
-      << " - "
-      << ::tt::target::cuda::EnumNameDataType(
-             static_cast<::tt::target::cuda::DataType>(dstCudaHandle->dataType))
-      << "\n";
   LOG_ASSERT(srcCudaHandle->dataType == dstCudaHandle->dataType,
              "Source and destination tensor data types must match");
   LOG_ASSERT(srcCudaHandle->shape.size() == dstCudaHandle->shape.size(),
@@ -288,7 +279,7 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
 
 ::tt::target::DataType getTensorDataType(Tensor tensor) {
   // Extract data type from CUDA tensor handle and convert to common enum
-  auto cudaHandle = std::static_pointer_cast<CudaTensorHandle>(tensor.data);
+  auto cudaHandle = std::static_pointer_cast<CudaTensorHandle>(tensor.handle);
   return cudaDataTypeToCommon(cudaHandle->dataType);
 }
 
@@ -308,6 +299,66 @@ void wait(Tensor tensor, std::optional<uint8_t> cqId) {
 void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
   // CUDA execution is synchronous, so no-op
 }
+
+std::vector<std::byte> getTensorDataBuffer(Tensor tensor) {
+  auto cudaHandle = std::static_pointer_cast<CudaTensorHandle>(tensor.handle);
+
+  if (!tensor.data || !tensor.data.get()) {
+    LOG_WARNING(
+        "getTensorDataBuffer: Tensor has null data; returning empty buffer");
+    return {};
+  }
+
+  size_t totalElements = 1;
+  for (size_t i = 0; i < cudaHandle->shape.size(); i++) {
+    totalElements *= cudaHandle->shape[i];
+  }
+  size_t totalBytes = totalElements * cudaHandle->itemsize;
+
+  if (totalBytes == 0) {
+    LOG_WARNING(
+        "getTensorDataBuffer: Tensor has zero volume; returning empty buffer");
+    return {};
+  }
+
+  const std::byte *data = static_cast<const std::byte *>(tensor.data.get());
+
+  if (!data) {
+    LOG_WARNING(
+        "getTensorDataBuffer: data pointer is NULL; returning empty buffer");
+    return {};
+  }
+
+  std::vector<std::byte> result;
+  result.reserve(totalBytes);
+
+  result.resize(totalBytes);
+  std::memcpy(result.data(), data, totalBytes);
+
+  return result;
+}
+
+std::uint32_t getTensorElementSize(Tensor tensor) {
+  auto cudaHandle = std::static_pointer_cast<CudaTensorHandle>(tensor.handle);
+  return cudaHandle->itemsize;
+}
+
+std::uint32_t getTensorVolume(Tensor tensor) {
+  auto cudaHandle = std::static_pointer_cast<CudaTensorHandle>(tensor.handle);
+  std::uint32_t volume = 1;
+  for (size_t i = 0; i < cudaHandle->shape.size(); i++) {
+    volume *= cudaHandle->shape[i];
+  }
+  return volume;
+}
+
+namespace detail {
+
+void readDeviceProfilerResults(Device device) {
+  // CUDA doesn't have device profiler results - no-op.
+}
+
+} // namespace detail
 
 SystemDesc
 getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,

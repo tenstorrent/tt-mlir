@@ -101,6 +101,17 @@ void wait(Tensor tensor, std::optional<uint8_t> cqId = std::nullopt);
 
 void wait(const std::vector<Tensor> &tensors,
           std::optional<uint8_t> cqId = std::nullopt);
+
+std::vector<std::byte> getTensorDataBuffer(Tensor tensor);
+
+std::uint32_t getTensorElementSize(Tensor tensor);
+
+std::uint32_t getTensorVolume(Tensor tensor);
+
+namespace detail {
+void readDeviceProfilerResults(Device device);
+} // namespace detail
+
 } // namespace tt::runtime::cuda
 
 #endif

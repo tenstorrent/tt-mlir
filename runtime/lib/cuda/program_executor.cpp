@@ -297,6 +297,12 @@ void ProgramExecutor::finishing() {
   }
 
   // Copy return value to host.
+  if (tensorMap.find(program->return_variable()->str()) == tensorMap.end()) {
+    llvm::errs() << "ERROR: Return variable not found in tensorMap!\n";
+    finishing();
+    return createEmptyErrorTensor();
+  }
+
   CUdeviceptr returnVariable = tensorMap[program->return_variable()->str()];
 
   // Get return tensor metadata
@@ -328,7 +334,15 @@ void ProgramExecutor::finishing() {
 
   // Allocate host memory and copy from device
   auto returnPtr = std::shared_ptr<void>(std::malloc(returnSize), std::free);
-  cuMemcpyDtoH(returnPtr.get(), returnVariable, returnSize);
+
+  CUresult copyResult =
+      cuMemcpyDtoH(returnPtr.get(), returnVariable, returnSize);
+  if (copyResult != CUDA_SUCCESS) {
+    llvm::errs() << "ERROR: cuMemcpyDtoH failed with error code: " << copyResult
+                 << "\n";
+    finishing();
+    return createEmptyErrorTensor();
+  }
 
   // Create proper CUDA tensor handle with metadata
   auto cudaHandle = std::make_shared<CudaTensorHandle>();
@@ -406,7 +420,6 @@ void ProgramExecutor::runCopyFunction(
   }
 }
 void ProgramExecutor::runKernel(const ::tt::target::cuda::Kernel *kernel) {
-
   auto kernelArgs = std::make_unique<void *[]>(kernel->input_names()->size());
   size_t i = 0;
   for (const auto *arg : *kernel->input_names()) {

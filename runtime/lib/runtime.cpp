@@ -154,7 +154,7 @@ void readDeviceProfilerResults(Device device) {
       RetType,
       [&]() { ::tt::runtime::ttnn::readDeviceProfilerResults(device); },
       [&]() { ::tt::runtime::ttmetal::readDeviceProfilerResults(device); },
-      [&]() { fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA); },
+      [&]() { ::tt::runtime::cuda::detail::readDeviceProfilerResults(device); },
       [&]() {
         fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed);
       });
@@ -279,6 +279,9 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
       [&]() -> RetType {
         return ::tt::runtime::cuda::getCurrentSystemDesc(dispatchCoreType,
                                                          meshDevice);
+      },
+      [&]() -> RetType {
+        LOG_FATAL("runtime is not enabled");
       });
 }
 
@@ -517,17 +520,13 @@ std::vector<std::byte> getTensorDataBuffer(Tensor t) {
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::getTensorDataBuffer(t);
       },
-      [&]() -> RetType {
-
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
-      },
-
+      [&]() -> RetType { return ::tt::runtime::cuda::getTensorDataBuffer(t); },
       [&]() -> RetType {
 
         detail::fatalNotImplemented("getTensorDataBuffer",
                                     HostRuntime::Distributed);
       });
+      
 }
 
 std::vector<std::uint32_t> getTensorShape(Tensor t) {
@@ -564,13 +563,9 @@ std::uint32_t getTensorElementSize(Tensor t) {
         return ::tt::runtime::ttmetal::getTensorElementSize(t);
       },
       [&]() -> RetType {
-
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
+        return ::tt::runtime::cuda::getTensorElementSize(t);
       },
-
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getTensorElementSize",
                                     HostRuntime::Distributed);
       });
@@ -582,17 +577,13 @@ std::uint32_t getTensorVolume(Tensor t) {
       RetType,
       [&]() -> RetType { return ::tt::runtime::ttnn::getTensorVolume(t); },
       [&]() -> RetType { return ::tt::runtime::ttmetal::getTensorVolume(t); },
-      [&]() -> RetType {
-
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
-      },
-
+      [&]() -> RetType { return ::tt::runtime::cuda::getTensorVolume(t); },
       [&]() -> RetType {
 
         detail::fatalNotImplemented("getTensorVolume",
                                     HostRuntime::Distributed);
       });
+      
 }
 
 TensorDesc getTensorDesc(Tensor t) {

@@ -415,8 +415,6 @@ cudaDataTypeToCommon(::tt::target::cuda::DataType cudaType) {
     return ::tt::target::DataType::UInt16;
   case ::tt::target::cuda::DataType::Int16:
     return ::tt::target::DataType::Int16;
-  default:
-    return ::tt::target::DataType::Float32; // fallback
   }
 }
 
