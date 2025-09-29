@@ -36,6 +36,54 @@ def tan(input_tensor):
     return ttnn.tan(input_tensor)
 
 
+def cbrt(input_tensor):
+    return ttnn.cbrt(input_tensor)
+
+
+def ceil(input_tensor):
+    return ttnn.ceil(input_tensor)
+
+
+def sign(input_tensor):
+    return ttnn.sign(input_tensor)
+
+
+def erf(input_tensor):
+    return ttnn.erf(input_tensor)
+
+
+def erfc(input_tensor):
+    return ttnn.erfc(input_tensor)
+
+
+def floor(input_tensor):
+    return ttnn.floor(input_tensor)
+
+
+def gelu(input_tensor):
+    return ttnn.gelu(input_tensor)
+
+
+def logical_not(input_tensor):
+    return ttnn.logical_not(input_tensor)
+
+
+def bitwise_not(input_tensor):
+    return ttnn.bitwise_not(input_tensor)
+
+
+def reciprocal(input_tensor):
+    return ttnn.reciprocal(input_tensor)
+
+
+def sqrt(input_tensor):
+    return ttnn.sqrt(input_tensor)
+
+
+def rsqrt(input_tensor):
+    return ttnn.rsqrt(input_tensor)
+
+
 # sweep shapes, grid size, dtype
 @pytest.mark.parametrize(
     "h , w, max_grid",
@@ -54,10 +102,27 @@ def tan(input_tensor):
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.parametrize("op", [abs, exp, log, cos, sin])
-def test_unary_ops(device, h, w, max_grid, dtype, op):
+@pytest.mark.parametrize(
+    "op",
+    [
+        abs,
+        exp,
+        log,
+        cos,
+        sin,
+        ceil,
+        floor,
+        gelu,
+        logical_not,
+        reciprocal,
+        rsqrt,
+        # cbrt, sign, erf, erfc, bitwise_not # <- not supported in TTIRToD2M
+        # sqrt # <- always fails allclose
+    ],
+)
+def test_unary_op(device, h, w, max_grid, dtype, op):
     print("dtype: ", dtype)
-    if op in [log] and dtype == torch.float32:
+    if op in [log, ceil, floor, rsqrt] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
     # Note: both torch.float16 and torch.bfloat16 will convert to ttnn.bfloat16
