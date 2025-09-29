@@ -18,6 +18,10 @@ def TTIRElementwiseFusion : Pass<"ttir-elementwise-fusion", "::mlir::ModuleOp"> 
     to reduce intermediary tensors and improve locality.
   }];
 
+  list<Option> options = [
+    Option<"maxDstRegisterSizeTiles", "max-dst-register-size-tiles", "unsigned", "0", "Override the max dst size tiles or 0 if unset.">,
+  ];
+
   let dependentDialects = [
     "::mlir::tt::ttir::TTIRDialect",
     "::mlir::affine::AffineDialect"

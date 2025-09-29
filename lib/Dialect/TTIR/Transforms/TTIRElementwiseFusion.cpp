@@ -14,6 +14,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/IR/AsmState.h"
 #include "llvm/Support/raw_ostream.h"
+#include <llvm/ADT/APFloat.h>
 #include <optional>
 
 namespace mlir::tt::ttir {
@@ -151,6 +152,23 @@ static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
   return covered.all();
 }
 
+static int countBinaryOps(Operation *op) {
+  int count = 0;
+
+  for (Region &region : op->getRegions()) {
+    for (Operation &opInner : region.getOps()) {
+      llvm::errs() << "After " << opInner << "\n\n";
+      if (opInner.hasTrait<TTIRGenericRegionComputeOpTrait>()) {
+        if (opInner.getNumOperands() > 1) {
+          ++count;
+        }
+      }
+      count += countBinaryOps(&opInner);
+    }
+  }
+  return count;
+};
+
 static bool fitsInDstPostFusion(
   GenericOp producer, 
   GenericOp consumer,
@@ -162,6 +180,14 @@ static bool fitsInDstPostFusion(
   assert(tensorType); // use MUST be a tensorType unless something got borked
   
   Type elementType = tensorType.getElementType();
+  auto shape = tensorType.getShape();
+
+  llvm::errs() << "blockshape " << shape[0] << " " << shape[1]  << shape[2] << " " << shape[3] << "\n";
+
+  int blockSize = shape[3];
+  if (blockSize > static_cast<int>(dstRegisterSizeTiles)) {
+    blockSize = dstRegisterSizeTiles;
+  }
   
   // If the element type is a tile type, extract the actual data type
   if (auto tileType = dyn_cast<mlir::tt::ttcore::TileType>(elementType)) {
@@ -176,32 +202,20 @@ static bool fitsInDstPostFusion(
   // }
   
   // TODO(mbagherbeikTT) Confirm if this halving logic is sound
-  unsigned int dstTilesRemaining = dstRegisterSizeTiles/(bitWidth == 32 ? 2 : 1);
+  int dstTilesRemaining = dstRegisterSizeTiles/(bitWidth == 32 ? 2 : 1);
+  llvm::errs() << "Tiles left initial" << dstTilesRemaining << "\n\n";
 
-  dstTilesRemaining -= consumer->getNumOperands() + producer->getNumOperands() - 2 - 1;
+  dstTilesRemaining -= blockSize*(consumer->getNumOperands() + producer->getNumOperands() - 2 - 1);
+
+  llvm::errs() << "Tiles left after input " << dstTilesRemaining << "\n\n";
 
   if (dstTilesRemaining < 0) {
     return false;
   }
 
-  // Compute # of intermediate tiles needed
-  // ----------------------------------------------------------------------- //
-  auto subtractIntermediateTiles = [&](GenericOp genOp) {
-    for (Region &region : genOp->getRegions()) {
-      for (Operation &opInner : region.getOps()) {
-        if (opInner.hasTrait<TTIRGenericRegionComputeOpTrait>()) {
-          if (opInner.getNumOperands() > 1) {
-            if (--dstTilesRemaining < 0) {
-              return false;
-            }
-          }
-        }
-      }
-    }
-    return true;
-  };
-
-  if (!subtractIntermediateTiles(consumer) || !subtractIntermediateTiles(producer)) {
+  // Subtract # of intermediate tiles needed
+  dstTilesRemaining -= blockSize*(countBinaryOps(consumer) + countBinaryOps(producer));
+  if (dstTilesRemaining < 0) {
     return false;
   }
 
