@@ -41,6 +41,12 @@ jobs:
           echo "other_changed_files=${{ steps.ignore-files.outputs.other_changed_files }}"
           echo "all_changed_files=${{ steps.ignore-files.outputs.all_changed_files }}"
           echo "other_deleted_files=${{ steps.ignore-files.outputs.other_deleted_files }}"
+      - uses: actions/setup-python@v5
+      - name: Generate test matrix
+        id: generate-test-matrix
+        shell: bash
+        run: |
+          python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json 30
 
   build-image:
     needs: ignore-files
