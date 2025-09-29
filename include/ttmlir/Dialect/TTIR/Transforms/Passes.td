@@ -189,6 +189,10 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
              "ttnn-enable-conv2d-with-multiply-pattern",
              "bool", /*default=*/"false",
              "Controls if we should enable the Conv2dWithMultiply pattern">,
+      Option<"globalPoolFusingEnabled",
+              "ttnn-enable-global-avg-pool-pattern",
+              "bool", /*default=*/"false",
+              "Controls if we should enable the GlobalAveragePoolingPattern fusing pattern">,
   ];
 }
 
