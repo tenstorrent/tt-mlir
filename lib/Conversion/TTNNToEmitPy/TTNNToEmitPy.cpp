@@ -1137,23 +1137,23 @@ public:
   matchAndRewrite(mlir::tt::ttnn::UpdateCacheOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // update_index param is a uint32_t in TTNN lib but we model it as a tensor
-    // due to runtime constraints - TODO: Fix this hack
-    //
-    // Runtime code:
-    // const ::ttnn::Tensor indexOnHost = ::ttnn::from_device(updateIndex);
-    // const ::tt::tt_metal::HostBuffer buffer =
-    //     ::tt::tt_metal::host_buffer::get_host_buffer(indexOnHost);
-    // const auto &buf = buffer.view_as<uint32_t>();
-    // uint32_t upIdx = *buf.begin();
-    assert(false && "not implemented");
-
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::UpdateCacheOp> emitter(
         srcOp, adaptor, rewriter);
 
+    // The `update_index` is modeled as a tensor in the IR, but the
+    // `ttnn.update_cache` expects a `int` scalar.
+    auto updateIndex = rewriter
+                           .create<emitpy::CallOpaqueOp>(
+                               srcOp.getLoc(), rewriter.getI32Type(),
+                               ttnn_to_emitpy::kGetScalarFromTensorFunctionName,
+                               adaptor.getUpdateIndex(),
+                               /*args=*/nullptr,
+                               /*keyword_args=*/nullptr)
+                           .getResult(0);
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getCache()), emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getUpdateIndex()),
+        emitter.emit(updateIndex, /*attrName=*/"", /*index=*/2),
         emitter.emit(srcOp.getBatchOffset(), "batch_offset")};
 
     emitter.replaceOp(*this, args);

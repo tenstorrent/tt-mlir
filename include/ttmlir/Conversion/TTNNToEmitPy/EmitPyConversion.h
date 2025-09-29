@@ -1191,6 +1191,10 @@ static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 // `ttnn::Tensor`s.
 inline constexpr const char *kCreateListFunctionName = "util_create_list";
 
+// Name for the function that gets a scalar (uint32_t) from a `ttnn::Tensor`.
+inline constexpr const char *kGetScalarFromTensorFunctionName =
+    "utils.get_scalar_from_tensor";
+
 template <typename TTNNOp>
 class EmitPyTTNNEmitter {
 public:
@@ -1222,15 +1226,27 @@ public:
     return rewriter.getType<emitpy::OpaqueAttr>(TypeNameV<std::nullopt_t>);
   }
 
-  mlir::Attribute emit(mlir::Value val, std::string attrName = "") {
+  // The `val` should be either an operand of the current source operation, in
+  // which case `index` should be nullopt, and the index it's found in the
+  // operands list. If `index` is provided, it means that the `val` is not an
+  // operand of the current source operation, and it is added as-is. Note that
+  // providing an `index` for an operand of the current source operation will
+  // result in an error.
+  mlir::Attribute emit(mlir::Value val, std::string attrName = "",
+                       std::optional<uint32_t> index = std::nullopt) {
     if (!val) {
       return emit(std::nullopt, attrName);
     }
+    if (index) {
+      operands.push_back(val);
+      addKeywordArgument(attrName);
+      return rewriter.getIndexAttr(*index);
+    }
 
-    unsigned index = getOperandIndex(val);
-    operands.push_back(adaptor.getOperands()[index]);
+    unsigned trueIndex = getOperandIndex(val);
+    operands.push_back(adaptor.getOperands()[trueIndex]);
     addKeywordArgument(attrName);
-    return rewriter.getIndexAttr(index);
+    return rewriter.getIndexAttr(trueIndex);
   }
 
   mlir::Attribute emit(mlir::Operation::operand_range operands,
