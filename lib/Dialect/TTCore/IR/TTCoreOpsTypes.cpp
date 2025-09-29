@@ -1095,24 +1095,29 @@ MetalLayoutAttr::getHostStrideAndVolume() const {
 
   llvm::SmallVector<int64_t> strides(logicalShape.size(), 0);
 
-  // Get the number of collapse intervals
   const int64_t numIntervals = normalizedIntervals.size() / 2;
 
   int64_t currentStride = 1;
 
-  // Process intervals from innermost (last) to outermost (first)
+  // Process intervals from innermost (last) to outermost (first).
   for (int64_t i = numIntervals - 1; i >= 0; i--) {
-    // Get interval bounds (end is exclusive in normalized form, so subtract 1)
+    // Get interval bounds (end is exclusive in normalized form, so subtract 1).
     const int64_t intervalStart = normalizedIntervals[i * 2];
     const int64_t intervalEnd = normalizedIntervals[i * 2 + 1] - 1;
 
     int64_t collapsedSize = 1;
+    // Both the alignments and the collapsed sizes are "cumulative" relative to
+    // the current collapse interval. But to update the current stride we need
+    // the true per-dim alignment, which is difficult to obtain, especially when
+    // the aligned up new collapsed size is not a multiple of the old collapsed
+    // size.
+    // Solution: revert the current stride to before the current collapse
+    // interval, and then update it straight to the current collapse stage.
 
-    // Process dimensions within this interval from innermost to outermost
     for (int64_t j = intervalEnd; j >= intervalStart; j--) {
       strides[j] = currentStride;
 
-      // Update stride calculation
+      // Update stride calculation.
       currentStride /= collapsedSize;
       collapsedSize = ttmlir::utils::alignUp(collapsedSize * logicalShape[j],
                                              alignments[j]);
@@ -1122,7 +1127,7 @@ MetalLayoutAttr::getHostStrideAndVolume() const {
 
   // At this point, currentStride == 'stride' of the entire tensor, i.e. volume.
   TT_assertv(currentStride >= ttmlir::utils::volume(logicalShape),
-             "Final stride [{}] less than volume [{}]", currentStride,
+             "Final stride ({}) less than volume ({})", currentStride,
              ttmlir::utils::volume(logicalShape));
 
   return {strides, currentStride};

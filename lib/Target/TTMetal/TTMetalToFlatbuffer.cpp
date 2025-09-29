@@ -164,7 +164,7 @@ static bool isMemrefDeviceL1Memspace(MemRefType memref) {
              .getValue() == ttcore::MemorySpace::DeviceL1;
 }
 
-// Create an extended mapping that handles N-D to 2-D projection
+// Create an extended mapping that handles N-D to 2-D projection.
 static AffineMap extendMappingForHigherDimGrid(AffineMap originalMapping,
                                                size_t gridRank) {
   MLIRContext *ctx = originalMapping.getContext();
