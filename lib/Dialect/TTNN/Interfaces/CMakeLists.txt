@@ -15,6 +15,11 @@ add_mlir_library(MLIRTTNNInterfaces
   MLIRTTNNWorkaroundInterfaceIncGen
   MLIRTTNNKernelInterfaceIncGen
 
-  LINK_LIBS PUBLIC
+  LINK_LIBS
+  PUBLIC
   MLIRIR
+
+  PRIVATE
+  MLIRTTCoreDialect
+  TTNNOpModelLib
 )
