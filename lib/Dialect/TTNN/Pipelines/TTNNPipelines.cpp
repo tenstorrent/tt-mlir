@@ -41,7 +41,8 @@ void createTTNNPipelineTTIRPasses(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIRFusingOptions fusingOptions{
-      options.enableFusingConv2dWithMultiplyPattern};
+      options.enableFusingConv2dWithMultiplyPattern,
+      options.enableFusingGlobalPoolPattern};
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -99,7 +100,10 @@ void createTTNNPipelineAnalysisPasses(
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
     pm.addPass(mlir::createCanonicalizerPass());
 #ifdef TTMLIR_ENABLE_OPMODEL
-    pm.addPass(mlir::tt::ttnn::createTTNNOperationValidationAndFallback());
+    ttnn::TTNNOperationValidationAndFallbackOptions validationOptions{
+        options.tensorL1UsageCap};
+    pm.addPass(mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
+        validationOptions));
     pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
 #endif
   }
@@ -227,6 +231,9 @@ void createTTNNBackendToEmitPyPipeline(
     OpPassManager &pm, const TTNNBackendToEmitPyPipelineOptions &options) {
 
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+
+  // Apply EmitPy-specific workarounds before conversion
+  pm.addPass(createTTNNEmitPyWorkarounds());
 
   pm.addPass(createTTNNTuplifyTensors());
   pm.addPass(createTTNNCreateInputGenerators());

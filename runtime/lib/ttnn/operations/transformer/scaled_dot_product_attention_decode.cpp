@@ -42,10 +42,12 @@ static void runScaledDotProductAttentionDecodeOp(
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
-  constexpr std::vector<uint32_t> curPosEmpty = {};
+  const std::vector<uint32_t> curPosEmpty = {};
   ::ttnn::Tensor out = ::ttnn::transformer::scaled_dot_product_attention_decode(
       query, key, value, isCausal, attentionMask, curPosEmpty, curPosTensor,
-      attentionSink, scale, outputMemoryConfig, std::nullopt, std::nullopt);
+      attentionSink, scale, outputMemoryConfig,
+      /*program_config=*/std::nullopt,
+      /*compute_kernel_config=*/std::nullopt);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 

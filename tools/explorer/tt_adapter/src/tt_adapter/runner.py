@@ -238,6 +238,7 @@ class ModelRunner:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            cwd=os.environ.get("TT_MLIR_HOME", os.getcwd()),
         )
 
         for line in process.stdout:

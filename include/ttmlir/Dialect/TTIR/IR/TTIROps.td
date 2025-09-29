@@ -78,150 +78,6 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
     }];
 }
 
-def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
-  [ AttrSizedOperandSegments
-  , NoTerminator
-  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames", "getAsmBlockNames"]>
-  ]> {
-    let summary = "Generically dispatch work to a grid of cores.";
-    let description = [{
-      This generic op carries a region that represents the work each core does. The region is
-      expected to have the same signature as the op itself with respect to input and output
-      operands. The op is expected to be lowered to a backend specific form by a consuming backend.
-      This op is heavily inspired by the linalg.generic op so it can be useful to refer to
-      linalg.generic documentation for more details.
-
-      ```llvm
-      %5 = "ttir.generic"(%1, %2, %3, %4) <{
-        block_factors = [1, 1],                      // The block factors that additionally divide a shard shape into smaller blocks.
-        grid = #ttcore.grid<1x1>,                    // The grid range of cores to dispatch work to.
-        indexing_maps = [#map, #map, #map],          // Affine maps for indexing into the input/output tensors. See linalg.generic
-        iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
-        threads = [#ttir.thread<compute>],           // Thread types for the regions.
-        operandSegmentSizes = array<i32: 2, 1>       // Sizes of the operand segments, i.e. 2 inputs and 1 output.
-      }> ({
-      ^bb0(%arg2: memref<64x128xf32, #l1_>,
-           %arg3: memref<64x128xf32, #l1_>,
-           %arg4: memref<64x128xf32, #l1_>):
-          // Region body, would contain some computation that represents the work each core does.
-      }) : (tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
-      ```
-    }];
-
-    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
-                         Variadic<AnyRankedTensorOrMemRef>:$outputs,
-                         TTCore_GridAttr:$grid,
-                         I64ArrayAttr:$block_factors,
-                         AffineMapArrayAttr:$indexing_maps,
-                         TTCore_IteratorTypeArrayAttr:$iterator_types,
-                         TTIR_ThreadArrayAttr:$threads);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
-    let regions = (region VariadicRegion<AnyRegion>:$regions);
-    let hasVerifier = 1;
-
-    let assemblyFormat = [{ attr-dict `\n`
-    ` ` ` ` ` ` ` ` `ins` `(` $inputs `:` type($inputs) `)` `\n`
-    ` ` ` ` ` ` ` ` `outs` `(` $outputs  `:` type($outputs) `)` ` `  $regions (`:`  type($results)^ )?
-    }];
-
-    let builders =
-    [
-      OpBuilder<(ins "ValueRange": $inputs,
-                     "ValueRange": $outputs,
-                     "ArrayAttr": $indexingMaps,
-                     "ArrayAttr": $iteratorTypes,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
-                     CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
-      [{
-        assert(!indexingMaps.empty() && "expected non-empty indexing maps");
-        assert(outputs.size() == 1 && "expected single output");
-        if (!grid) {
-          if (RankedTensorType tensorType = mlir::dyn_cast<RankedTensorType>(outputs[0].getType()); tensorType) {
-             grid = $_builder.getAttr<ttcore::GridAttr>(mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding()).getGridShape(tensorType));
-          } else {
-            MemRefType memrefType = mlir::cast<MemRefType>(outputs[0].getType());
-            ttcore::DeviceLayoutInterface layout = mlir::cast<ttcore::DeviceLayoutInterface>(memrefType.getLayout());
-            grid = $_builder.getAttr<ttcore::GridAttr>(layout.getGridShape(memrefType));
-          }
-        }
-        auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(singleThreadType));
-        auto blockFactorsAttr = $_builder.getI64ArrayAttr(blockFactors.empty() ?
-                                                          SmallVector<int64_t>(iteratorTypes.size(), 1) :
-                                                          blockFactors);
-        build($_builder, $_state, TypeRange(outputs), inputs, outputs, grid, blockFactorsAttr, indexingMaps, iteratorTypes, threads, 1);
-      }]>,
-      OpBuilder<(ins "ValueRange": $inputs,
-                     "ValueRange": $outputs,
-                     "ArrayAttr": $indexingMaps,
-                     "ArrayAttr": $iteratorTypes,
-                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
-                     CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
-      [{
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadType, grid, blockFactors);
-        llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
-          mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
-          auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-          auto shardShape = layout.getShardShape(tensorType);
-          return mlir::RankedTensorType::get(shardShape, tensorType.getElementType());
-        });
-        Region& region = *$_state.regions.front().get();
-        llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
-        OpBuilder::InsertionGuard guard($_builder);
-        Block* block = $_builder.createBlock(&region, region.end(), blockTypes, locs);
-        singleThreadRegionBuilder($_builder, $_state.location, block->getArguments());
-      }]>,
-      OpBuilder<(ins "ValueRange": $inputs,
-                     "ValueRange": $outputs,
-                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
-                     CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
-      [{
-        assert(outputs.size() == 1 && "expected single output");
-        RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
-        ttcore::MetalLayoutAttr maybeLayout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-        const size_t rank = (maybeLayout != nullptr) ? maybeLayout.getShardShape(tensorType).size() : tensorType.getShape().size();
-        auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder,
-            inputs.size() + outputs.size(), rank);
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid);
-      }]>,
-    ];
-
-    let extraClassDeclaration = [{
-      static std::pair<ArrayAttr, ArrayAttr> buildParallelAffineMapsAndIteratorTypes(mlir::OpBuilder &builder, size_t arity, size_t rank) {
-        auto map = builder.getMultiDimIdentityMap(rank);
-        Attribute parallel = builder.getAttr<ttcore::IteratorTypeAttr>(ttcore::IteratorType::Parallel);
-        return std::make_pair(builder.getAffineMapArrayAttr(SmallVector<AffineMap>(arity, map)),
-                              builder.getArrayAttr(SmallVector<Attribute>(rank, parallel)));
-      }
-      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-      unsigned getNumLoops();
-      unsigned getNumDims();
-      SmallVector<int64_t> getLoopBounds();
-      SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
-      SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);
-      AffineMap getIndexingMap(int64_t operandIndex);
-      SmallVector<AffineMap> getIndexingMapsValue();
-      SmallVector<ttcore::IteratorType> getIteratorTypesValue();
-      SmallVector<int64_t> getBlockFactorsValue();
-      SmallVector<SmallVector<int64_t>> getOperandGridShapes();
-      SmallVector<SmallVector<int64_t>> getOperandShardShapes(bool convertTileToScalar = false);
-      ThreadType getRegionThreadType(unsigned regionIndex) {
-        return mlir::cast<ThreadAttr>(getThreads()[regionIndex]).getThreadType();
-      }
-      bool isComputeOnlyForm() {
-        auto threads = getThreads();
-        return threads.size() == 1 && mlir::cast<ThreadAttr>(threads[0]).getThreadType() == ThreadType::Compute;
-      }
-      bool isAffineMapForm() { return !getIndexingMaps().empty(); }
-      bool isLoweredLoopForm() { return !isAffineMapForm(); }
-      bool isExternalSymbolForm() { return getRegions().empty(); }
-    }];
-}
-
 def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let summary = "Layout op.";
     let description = [{
@@ -257,20 +113,6 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
 
-      struct CompoundComponents {
-        bool isLayoutChange = false;
-        bool isGridChange = false;
-        bool isFormatChange = false;
-        bool isMemorySpaceChange = false;
-
-        bool isCompound() {
-          return isLayoutChange + isFormatChange + (isGridChange || isMemorySpaceChange) > 1;
-        }
-      };
-
-      // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
-      CompoundComponents compoundComponents();
-      bool isCompound() { return compoundComponents().isCompound(); }
       ttcore::MetalLayoutAttr getOrCreateInputLayout();
       ttcore::MetalLayoutAttr getOrCreateOutputLayout();
 
@@ -282,96 +124,6 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
 
     let hasFolder = 1;
     let hasCanonicalizer = 1;
-}
-
-def TTIR_StreamLayoutOp : TTIR_Op<"stream_layout",
-  [ Pure
-  , DeclareOpInterfaceMethods<OpAsmOpInterface , ["getAsmResultNames"]>
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  , TTIR_ViewOpInterface
-  ]> {
-    let summary = "Stream Layout op.";
-    let description = [{
-      StreamLayout operation used to form a stream between remote and local memory spaces. Note that this op has
-      no side-effects, it's purely representational. The primary use cases include, to enable streaming a large
-      tensor out of dram via a small L1 buffer and also as a means for forming reduce or gather multicast
-      operations. A stream definition includes:
-
-      - The tensor to be streamed.
-      - The storage buffer to be used for streaming.
-      - A result, which is also able to take a view over the input, i.e. same semantics as the ViewLayout op.
-
-      Additional constraints:
-      - It is not capable of changing the data type nor the memory space of the tensor.
-
-      ```llvm
-      %input = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!ttcore.tile<32x32, f32>, #l1_>
-      %storage = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!ttcore.tile<32x32, f32>, #l1_>
-      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!ttcore.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
-      ```
-    }];
-
-    let arguments = (ins AnyRankedTensorOrMemRef:$input,
-                         AnyRankedTensorOrMemRef:$storage);
-    let results = (outs AnyRankedTensorOrMemRef:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getStorageMutable(); }
-    }];
-
-    let hasVerifier = 1;
-    let hasCanonicalizer = 1;
-}
-
-def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
-  [ Pure
-  , TTIROpInterface
-  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  , TTIR_ViewOpInterface
-  ]> {
-    let summary = "View Layout op.";
-    let description = [{
-      ViewLayout operation, used to take a view of one layout into another.  Note that this op is purely representational
-      and doesn't have any side-effects. Its primary usecase is to allow reinterpreting the layout of a tensor without actually
-      moving the data. Consumers of this op are expected to compose the layout with the underlying backing layout.
-
-      Additional notes/constraints:
-      - It is not capable of changing the data type nor the memory space of the tensor.
-      - If reinterpretLayout is true, the layout view change can include a data type cast, but note this does not actually change the format of the data in memory.
-      - All ViewLayout ops can trivially be converted to ToLayout ops.
-
-      ```llvm
-      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
-      %1 = "ttir.view_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
-      ```
-    }];
-
-    let arguments = (ins AnyRankedTensorOrMemRef:$input, DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
-    let results = (outs AnyRankedTensorOrMemRef:$result);
-
-    let builders = [
-      OpBuilder<(ins "Value":$input, "ArrayRef<int64_t>":$reblockedShape,
-                     CArg<"bool", "false">:$reinterpretLayout)>,
-    ];
-
-    let assemblyFormat = [{
-      $input attr-dict `:` type($input) `->` type($result)
-    }];
-
-    let hasVerifier = 1;
-    let hasFolder = 1;
 }
 
 def TTIR_TTNNMetalLayoutCastOp : TTIR_Op<"ttnn_metal_layout_cast",
@@ -5592,18 +5344,18 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
         The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
 
         Args:
-            query (AnyRankedTensor): the input tensor [1 x b x nh x dh]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
-            key (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
-            value (AnyRankedTensor): the input tensor [b x nkv x   s x dh].
-            is_causal (bool, optional): whether the attention is is causal. Defaults to `true`.
-            attention_mask (AnyRankedTensor, optional): the attention mask [b x 1 x nh x s].
-            cur_pos_tensor (AnyRankedTensor): [b] tensor of integers of length b.
-            attention_sink (AnyRankedTensor, optional): the attention sink [nh, 32] (must be a single tile wide).
-            output (AnyRankedTensor): the output DPS operand [1 x b x nh x dh].
+            query (AnyRankedTensor): The query tensor [1 x batch x num_heads x head_size]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
+            key (AnyRankedTensor): The key tensor [batch x num_kv_heads x seq_len x head_size].
+            value (AnyRankedTensor): The value tensor [batch x num_kv_heads x seq_len x head_size].
+            is_causal (bool, optional): Whether the attention is causal. Defaults to `true`.
+            attention_mask (AnyRankedTensor, optional): The attention mask [batch x 1 x num_heads x seq_len].
+            cur_pos_tensor (AnyRankedTensor): [batch] Tensor of integers of length batch.
+            attention_sink (AnyRankedTensor, optional): The attention sink [num_heads, 32] (must be a single tile wide).
+            output (AnyRankedTensor): The output DPS operand [1 x batch x num_heads x head_size].
             scale (float, optional): Defaults to `None`.
 
         Returns:
-            AnyRankedTensor: the output tensor [1 x b x nh x dh].
+            AnyRankedTensor: The output tensor [1 x batch x num_heads x head_size].
     }];
 
     let arguments = (ins AnyRankedTensor:$query,
@@ -5621,5 +5373,36 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
     let hasVerifier = 1;
 }
 
+def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention"> {
+  let summary = "Scaled dot product attention operation.";
+  let description = [{
+    Scaled dot product attention.
+    The implementation is FlashAttention-2."
+
+    Args:
+        query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]
+        key (AnyRankedTensor): The key tensor.              [batch x num_kv_heads x kv_seq_len x head_size]
+        value (AnyRankedTensor): The value tensor.          [batch x num_kv_heads x kv_seq_len x head_size]
+        attention_mask (AnyRankedTensor, optional): Defaults to `None`. [batch x 1 x query_seq_len x kv_seq_len]. Head broadcasting is implied.
+        output (AnyRankedTensor): The output DPS operand [batch x num_heads x query_seq_len x head_size].
+        is_causal (bool): Whether The attention is causal. Defaults to `true`.
+        scale (float, optional): Defaults to `None`.
+
+    Returns:
+        AnyRankedTensor: The output tensor [batch x num_heads x seq_len x head_size].
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       AnyRankedTensor:$value,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       AnyRankedTensor:$output,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       OptionalAttr<F32Attr>:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
 
 #endif

@@ -18,6 +18,8 @@
 // circular dependency issue. https://github.com/tenstorrent/tt-mlir/issues/4405
 namespace mlir::tt::ttnn {
 class SortOp;
+class SliceDynamicOp;
+class SliceStaticOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -247,13 +249,13 @@ public:
   createConcatOpOperandsWorkarounds(mlir::Operation::operand_range inputs,
                                     int64_t numOperands, int32_t dim);
 
-  // Create workarounds for slice op operands.
+  // Create workarounds for static slice op operands.
   static TTNNOperandsWorkarounds
-  createSliceStaticOpOperandsWorkarounds(mlir::ArrayAttr step);
+  createSliceStaticOpOperandsWorkarounds(ttnn::SliceStaticOp op);
 
   // Create workarounds for dynamic slice op operands.
   static TTNNOperandsWorkarounds
-  createSliceDynamicOpOperandsWorkarounds(mlir::ArrayAttr step);
+  createSliceDynamicOpOperandsWorkarounds(ttnn::SliceDynamicOp op);
 
   // Workaround for tensor creation that is modeled as ConstantOp in TTNN
   // dialect.
