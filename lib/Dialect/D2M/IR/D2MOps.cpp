@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/IR/AffineMap.h"
@@ -153,6 +154,11 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
     return success();
   }
 
+  // Don't bufferize if tensor has a ttnn_layout; lowering to ttnn generic.
+  if (options.allowUnknownOps &&
+      mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())) {
+    return success();
+  }
   ::llvm::SmallVector<mlir::Value> invocationStack;
   mlir::bufferization::replaceOpWithNewBufferizedOp<memref::AllocOp>(
       rewriter, *this,

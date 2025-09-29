@@ -872,9 +872,7 @@ TEST_F(OpModelTest, ToMemoryConfig) {
                     CoreCoordAttr::get(&context, 7, 0))});
   ShardSpecAttr shardSpec = ShardSpecAttr::get(
       &context, coreRangeSetAttr, ShapeAttr::get(&context, {64, 128}),
-      ShardOrientationAttr::get(&context, ShardOrientation::RowMajor),
-      ShardModeAttr::get(&context, ShardMode::Physical),
-      /*physical_shard_shape=*/nullptr);
+      ShardOrientationAttr::get(&context, ShardOrientation::RowMajor));
   const TTNNLayoutAttr outputLayoutL1Tiled = CreateTiledLayout(
       tensorShape, BufferType::L1, TensorMemoryLayout::HeightSharded);
   memoryConfig = MemoryConfigAttr::get(
@@ -3824,15 +3822,26 @@ protected:
 };
 
 // Type aliases for different constant data types
+using OpModelConstantUInt32Param = OpModelConstantParam<uint32_t, mlir::Type>;
 using OpModelConstantInt32Param = OpModelConstantParam<int32_t, mlir::Type>;
 using OpModelConstantUInt16Param = OpModelConstantParam<uint16_t, mlir::Type>;
 using OpModelConstantUInt8Param = OpModelConstantParam<uint8_t, mlir::Type>;
 
+TEST_P(OpModelConstantUInt32Param, ConstantOpUInt32) { RunTest(); }
 TEST_P(OpModelConstantInt32Param, ConstantOpInt32) { RunTest(); }
 TEST_P(OpModelConstantUInt16Param, ConstantOpUInt16) { RunTest(); }
 TEST_P(OpModelConstantUInt8Param, ConstantOpUInt8) { RunTest(); }
 
 // Test data for ConstantOp with different supported types
+const auto constantOpUInt32TestData = testing::Values(
+    // Basic 2x2 u32 tensor with L1 interleaved layout
+    std::make_tuple(
+        llvm::SmallVector<int64_t>{2, 2}, std::vector<uint32_t>{1, 2, 3, 4},
+        [](OpModelTest *test) {
+          return test->builder.getIntegerType(32, false);
+        },
+        std::nullopt, detail::ExpectedResult{true, 0, 4096, 4096, 4096}));
+
 const auto constantOpInt32TestData = testing::Values(
     // Basic 2x2 i32 tensor with L1 interleaved layout
     std::make_tuple(
@@ -3869,6 +3878,8 @@ const auto constantOpUInt8TestData = testing::Values(
         },
         std::nullopt, detail::ExpectedResult{true, 0, 1024, 1024, 1024}));
 
+INSTANTIATE_TEST_SUITE_P(ConstantOpUInt32Tests, OpModelConstantUInt32Param,
+                         constantOpUInt32TestData);
 INSTANTIATE_TEST_SUITE_P(ConstantOpInt32Tests, OpModelConstantInt32Param,
                          constantOpInt32TestData);
 INSTANTIATE_TEST_SUITE_P(ConstantOpUInt16Tests, OpModelConstantUInt16Param,

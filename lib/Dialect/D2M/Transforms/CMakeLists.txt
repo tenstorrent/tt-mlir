@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenericRegionsToFuncs.cpp
         GenericTileComputeLoops.cpp
         InsertDstRegisterAccess.cpp
+        InsertStreams.cpp
         LowerToLayout.cpp
 
         ADDITIONAL_HEADER_DIRS

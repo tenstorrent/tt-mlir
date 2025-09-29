@@ -2260,7 +2260,7 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
-  constexpr std::vector<uint32_t> curPosEmpty = {};
+  const std::vector<uint32_t> curPosEmpty = {};
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::transformer::scaled_dot_product_attention_decode, device,
@@ -2332,7 +2332,7 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
-  constexpr std::vector<uint32_t> curPosEmpty = {};
+  const std::vector<uint32_t> curPosEmpty = {};
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::transformer::scaled_dot_product_attention_decode, device,
@@ -5340,10 +5340,10 @@ auto dispatchGetRawData(mlir::ElementsAttr value, Func &&func)
   // int32_t, uint8_t, uint16_t, uint32_t, bfloat16.
   // We support all of these types:
   ::mlir::Type elType = getElementType(value);
-  DISPATCH_TYPE(isInteger(32), int32_t)
   DISPATCH_TYPE(isUnsignedInteger(8), uint8_t)
   DISPATCH_TYPE(isUnsignedInteger(16), uint16_t)
   DISPATCH_TYPE(isUnsignedInteger(32), uint32_t)
+  DISPATCH_TYPE(isInteger(32), int32_t)
   DISPATCH_TYPE(isF32(), float)
   DISPATCH_TYPE(isBF16(), bfloat16)
 

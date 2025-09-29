@@ -87,8 +87,11 @@ public:
             threadType, builder.getAttr<SymbolRefAttr>(symbolName));
         auto threadAttrWithoutSym =
             builder.getAttr<ThreadAttr>(threadType, nullptr);
+        Location loc = region.getNumArguments() > 0
+                           ? region.getArgument(0).getLoc()
+                           : generic.getLoc();
         auto func = builder.create<func::FuncOp>(
-            generic.getLoc(), symbolName,
+            loc, symbolName,
             FunctionType::get(builder.getContext(), region.getArgumentTypes(),
                               {}));
         func.setPrivate();

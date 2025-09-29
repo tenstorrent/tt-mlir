@@ -155,7 +155,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
     std::optional<::ttnn::MeshEvent> meshEvent = std::nullopt;
     if (!blocking) {
       meshEvent =
-          ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::DefaultQueueId);
+          ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::QueueId{0});
     }
 
     return utils::createRuntimeTensorFromTTNN(hostTensor, meshEvent,
@@ -183,7 +183,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
   // in this case we need to populate the event
   if (!untilize && !blocking) {
     meshEvent =
-        ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::DefaultQueueId);
+        ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::QueueId{0});
   }
 
   return utils::createRuntimeTensorFromTTNN(hostTensor, /*meshEvent=*/meshEvent,

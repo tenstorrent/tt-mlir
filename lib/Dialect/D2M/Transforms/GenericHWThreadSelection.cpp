@@ -55,12 +55,13 @@ public:
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
 
-    unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
-    unsigned numInputs = op.getInputs().size();
-    unsigned numOutputs = op.getOutputs().size();
-
-    // Ops with # operands <= # DMA HW Threads don't need to be merged.
-    if (numInputs + numOutputs <= numDMAHWThreads) {
+    // Ops with # threads <= # DMA HW Threads don't need to be merged.
+    size_t numDatamovementThreads =
+        llvm::count_if(op.getThreads(), [](Attribute threadAttr) {
+          return mlir::cast<ThreadAttr>(threadAttr).getThreadType() ==
+                 ThreadType::Datamovement;
+        });
+    if (numDatamovementThreads <= numDMAHWThreads) {
       return failure();
     }
 
@@ -110,6 +111,7 @@ public:
     // IMPORTANT: output DMA blocks MUST be merged after all input DMA blocks in
     // a region.
     unsigned dmaInputThreadsMerged = 0;
+    unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
     for (unsigned i = numDMAHWThreads; i <= outputOperandsIndex; ++i) {
       assert(op.getRegion(i).getBlocks().size() == 1 &&
              "all datamovement regions should have exactly one block");

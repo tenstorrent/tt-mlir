@@ -312,7 +312,8 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
         createKernelConfig(kernelConfig, command->buffers(), meshBuffers,
                            command->cbs(), deviceAddressValidator,
                            createSemaphore),
-        currentProgramName, debugInfo, kernelConfig->debug_info()->c_str());
+        currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
+        kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
 
     std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
         kernelConfig->args()->rt_args(), command->buffers(), meshBuffers,
@@ -344,7 +345,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
     tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
   }
 
-  auto meshWorkload = distributed::CreateMeshWorkload();
+  auto meshWorkload = distributed::MeshWorkload();
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
 
   distributed::AddProgramToMeshWorkload(meshWorkload, std::move(program),

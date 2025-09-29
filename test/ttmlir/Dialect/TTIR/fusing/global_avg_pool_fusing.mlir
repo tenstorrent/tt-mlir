@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --canonicalize --ttir-fusing -o %t %s
+// RUN: ttmlir-opt --canonicalize --ttir-fusing="ttnn-enable-global-avg-pool-pattern=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 func.func @global_avg_pool(%input: tensor<1x32x112x112xbf16>) -> tensor<1x32x1x1xbf16> {
