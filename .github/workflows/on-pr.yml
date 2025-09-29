@@ -91,7 +91,7 @@ jobs:
         allowed-skips: build-and-test
         jobs: ${{ toJSON(needs) }}
     - name: Set test durations
-      if: !steps.check-jobs.outputs.failure
+      if: ${{ steps.check-jobs.outputs.success == 'true' }}
       shell: bash
       run: |
         # if [ '${{ github.ref }}' == 'refs/heads/main' ]; then
