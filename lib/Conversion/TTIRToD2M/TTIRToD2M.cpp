@@ -1155,6 +1155,7 @@ public:
     this->defaultInputMemSpace = options.defaultInputMemSpace;
     this->defaultOutputMemSpace = options.defaultOutputMemSpace;
     this->overrideDeviceShape = options.overrideDeviceShape;
+    this->ttnnMode = options.ttnnMode;
     this->collapseTensorsTo2D = options.collapseTensorsTo2D;
     this->ttnnMode = options.ttnnMode;
   }
@@ -1164,6 +1165,7 @@ public:
     // base class copy constructors ignore Pass option fields.
     this->defaultInputMemSpace = rhs.defaultInputMemSpace;
     this->defaultOutputMemSpace = rhs.defaultOutputMemSpace;
+    this->overrideDeviceShape = rhs.overrideDeviceShape;
     this->ttnnMode = rhs.ttnnMode;
     this->collapseTensorsTo2D = rhs.collapseTensorsTo2D;
   }

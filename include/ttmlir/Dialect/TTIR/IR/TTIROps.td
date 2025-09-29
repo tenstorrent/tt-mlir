@@ -113,6 +113,9 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
 
+      ttcore::MetalLayoutAttr getOrCreateInputLayout();
+      ttcore::MetalLayoutAttr getOrCreateOutputLayout();
+
       bool isHostToDevice();
       bool isDeviceToHost();
     }];
