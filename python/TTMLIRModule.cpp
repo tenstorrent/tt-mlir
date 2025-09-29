@@ -45,6 +45,8 @@ NB_MODULE(_ttmlir, m) {
 
   auto tt_ir = m.def_submodule("tt_ir", "TT IR Bindings");
   mlir::ttmlir::python::populateTTModule(tt_ir);
+  auto d2m_ir = m.def_submodule("d2m_ir", "D2M IR Bindings");
+  mlir::ttmlir::python::populateD2MModule(d2m_ir);
   auto ttkernel_ir = m.def_submodule("ttkernel_ir", "TTKernel IR Bindings");
   mlir::ttmlir::python::populateTTKernelModule(ttkernel_ir);
   auto ttnn_ir = m.def_submodule("ttnn_ir", "TTNN IR Bindings");

@@ -186,4 +186,25 @@ def TTCore_OptimizationBarrierOp : TTCore_Op<"optimization_barrier", [MemoryEffe
   let results = (outs Variadic<AnyRankedTensor>:$results);
 }
 
+def TTCore_GlobalOp : TTCore_Op<"global", [Symbol]> {
+  let summary = "Named global";
+  let description = [{
+  }];
+
+  let arguments = (ins SymbolNameAttr:$sym_name, TypeAttr:$type, OptionalAttr<SI32Attr>:$index);
+
+  let assemblyFormat = "$sym_name `=` $type (` ` `[` $index^ `]`)? attr-dict";
+}
+
+def TTCore_GetGlobalOp : TTCore_Op<"get_global", [Pure]> {
+  let summary = "Named global";
+  let description = [{
+  }];
+
+  let arguments = (ins SymbolNameAttr:$sym_name);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$sym_name attr-dict `:` type($result)";
+}
+
 #endif // TTMLIR_DIALECT_TTCORE_IR_TTCOREOPS_TD

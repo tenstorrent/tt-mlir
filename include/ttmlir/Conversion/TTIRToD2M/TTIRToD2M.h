@@ -31,6 +31,12 @@ std::unique_ptr<OperationPass<ModuleOp>> createTTIRToD2MPass();
 std::unique_ptr<OperationPass<ModuleOp>>
 createTTIRToD2MPass(const TTIRToD2MOptions &options);
 
+inline bool hasMetalLayout(Value v) {
+  auto tensorType = mlir::dyn_cast<RankedTensorType>(v.getType());
+  return tensorType && mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+                           tensorType.getEncoding());
+}
+
 } // namespace mlir::tt
 
 #endif // TTMLIR_CONVERSION_TTIRTOD2M_TTIRTOD2M_H
