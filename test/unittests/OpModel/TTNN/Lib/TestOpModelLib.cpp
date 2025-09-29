@@ -3834,7 +3834,7 @@ TEST_P(OpModelConstantUInt8Param, ConstantOpUInt8) { RunTest(); }
 
 // Test data for ConstantOp with different supported types
 const auto constantOpUInt32TestData = testing::Values(
-    // Basic 2x2 i32 tensor with L1 interleaved layout
+    // Basic 2x2 u32 tensor with L1 interleaved layout
     std::make_tuple(
         llvm::SmallVector<int64_t>{2, 2}, std::vector<uint32_t>{1, 2, 3, 4},
         [](OpModelTest *test) {

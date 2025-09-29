@@ -236,7 +236,6 @@ TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
 // Factory method to create a set of workarounds for slice op input operands.
 // ttnn::SliceStaticOp requires uint32 on input if the slice is strided
 // and input is < uint32.
-// Tracking issue: https://github.com/tenstorrent/tt-metal/issues/26691.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
     ttnn::SliceStaticOp op) {
@@ -261,7 +260,6 @@ TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
 // Factory method to create a set of workarounds for dynamic slice op input
 // operands. ttnn::SliceDynamicOp requires uint32 for inputs if
 // the input is < uint32.
-// Tracking issue: https://github.com/tenstorrent/tt-metal/issues/26691.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
     ttnn::SliceDynamicOp op) {
