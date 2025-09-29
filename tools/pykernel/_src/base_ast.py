@@ -10,8 +10,6 @@ from ttmlir.dialects import func, emitc
 
 
 class PyKernelAstBase(ast.NodeVisitor):
-    _fn_map = {}
-
     def __init__(self, *args, **kwargs):
         self.ctx = Context()
         self.cursor = Location.unknown(self.ctx)
@@ -20,6 +18,7 @@ class PyKernelAstBase(ast.NodeVisitor):
         self.func_entry = None
         self.symbol_tables = []
         self.supported_nodes = [ast.Module, ast.Return, ast.Expr]
+        self._fn_map = {}
 
     def _get_source_comment(self, node):
         """

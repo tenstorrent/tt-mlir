@@ -408,16 +408,19 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // non-local data movement unless it is the only core involved
       // in that dim.
       // Similar logic applies to a broadcast dim.
-      const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
-      const auto bcastDims = indexingMap.getBroadcastDims();
+      const std::optional<AffineMap> indexingMap =
+          genericOp.getIndexingMap(operandIndex);
+      const auto bcastDims = indexingMap ? indexingMap->getBroadcastDims()
+                                         : SmallVector<unsigned>{};
       const llvm::SmallSet<unsigned, 4> bcastDimIndex(bcastDims.begin(),
                                                       bcastDims.end());
-      operandCtx.requiresStream = llvm::any_of(
-          llvm::seq(indexingMap.getNumResults()), [&](unsigned resultIndex) {
+      unsigned numResults = indexingMap ? indexingMap->getNumResults() : 0;
+      operandCtx.requiresStream =
+          llvm::any_of(llvm::seq(numResults), [&](unsigned resultIndex) {
             if (bcastDimIndex.contains(resultIndex)) {
               return true;
             }
-            const auto dimPosition = indexingMap.getDimPosition(resultIndex);
+            const auto dimPosition = indexingMap->getDimPosition(resultIndex);
             ttcore::IteratorType iteratorType =
                 mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[dimPosition])
                     .getValue();

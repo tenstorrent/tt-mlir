@@ -135,14 +135,14 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
 
   // Rank/perm checks
   AffineMap consMap =
-      consumer.getIndexingMap(fusionTargetOperand->getOperandNumber());
+      *consumer.getIndexingMap(fusionTargetOperand->getOperandNumber());
   if (consMap.getNumResults() != producer.getNumDims()) {
     return false;
   }
 
   // Producer result map is that of first init (assume single init/result
   // layout)
-  AffineMap prodResMap = producer.getIndexingMap(
+  AffineMap prodResMap = *producer.getIndexingMap(
       producer.getDpsInitOperand(0)->getOperandNumber());
   if (!prodResMap.isPermutation()) {
     return false;
@@ -157,7 +157,7 @@ static AffineMap computeFusedArgMap(GenericOp producer, OpOperand *prodOpnd,
                                     AffineMap prodResMap,
                                     AffineMap consMapForFused) {
   AffineMap inv = inversePermutation(prodResMap);
-  AffineMap arg = producer.getIndexingMap(prodOpnd->getOperandNumber());
+  AffineMap arg = *producer.getIndexingMap(prodOpnd->getOperandNumber());
   return arg.compose(inv).compose(consMapForFused);
 }
 
@@ -170,16 +170,16 @@ getFusedOperands(OpOperand *fusedOperand, GenericOp producer,
   SmallVector<Type> fusedResultTypes;
   SmallVector<AffineMap> fusedMaps;
 
-  AffineMap prodResMap = producer.getIndexingMap(
+  AffineMap prodResMap = *producer.getIndexingMap(
       producer.getDpsInitOperand(0)->getOperandNumber());
-  AffineMap consMap = consumer.getIndexingMap(fusedOperand->getOperandNumber());
+  AffineMap consMap = *consumer.getIndexingMap(fusedOperand->getOperandNumber());
 
   // consumer inputs before fused
   auto inputs = consumer.getInputs();
   size_t fusedIdx = fusedOperand->getOperandNumber();
   for (size_t i = 0; i < fusedIdx; ++i) {
     fusedInputs.push_back(inputs[i]);
-    fusedMaps.push_back(consumer.getIndexingMap(i));
+    fusedMaps.push_back(*consumer.getIndexingMap(i));
   }
   // producer inputs (remapped)
   for (OpOperand *pi : producer.getDpsInputOperands()) {
@@ -189,12 +189,12 @@ getFusedOperands(OpOperand *fusedOperand, GenericOp producer,
   // remaining consumer inputs after fused
   for (size_t i = fusedIdx + 1; i < inputs.size(); ++i) {
     fusedInputs.push_back(inputs[i]);
-    fusedMaps.push_back(consumer.getIndexingMap(i));
+    fusedMaps.push_back(*consumer.getIndexingMap(i));
   }
 
   for (OpOperand &co : consumer.getDpsInitsMutable()) {
     fusedOutputs.push_back(co.get());
-    fusedMaps.push_back(consumer.getIndexingMap(co.getOperandNumber()));
+    fusedMaps.push_back(*consumer.getIndexingMap(co.getOperandNumber()));
     if (!isa<MemRefType>(co.get().getType())) {
       fusedResultTypes.push_back(co.get().getType());
     }
