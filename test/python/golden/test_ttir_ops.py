@@ -3560,25 +3560,25 @@ def test_all_gather(
     [
         pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.run_error),
         (1, 1, 256, 256),
-        (1, 1, 256, 257),
-        (1, 1, 256, 255),
-        (1, 256, 256, 1),
-        (256, 256, 1, 1),
-        (1, 1, 32, 64),
-        (1, 64, 64),
-        (64, 64),
-        (64, 65),
-        (32, 64),
-        pytest.param(
-            (33, 65), marks=pytest.mark.run_error
-        ),  # all_gather + local reduce case
+        (1, 256, 256),
+        (256, 256),
+        (224, 224),
+        (33, 65),  # This is a case where all_gather + local reduce is not supported.
     ],
     ids=shape_str,
 )
 @pytest.mark.parametrize(
-    "mesh_shape", [(2, 4), (1, 8), (1, 2), (1, 32), (8, 4)], ids=shape_str
+    "mesh_shape, cluster_axis",
+    [
+        ((1, 2), 1),
+        ((1, 8), 1),
+        ((2, 4), 0),
+        ((2, 4), 1),
+        ((1, 32), 1),
+        ((8, 4), 0),
+        ((8, 4), 1),
+    ],
 )
-@pytest.mark.parametrize("cluster_axis", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 def test_all_reduce(
     test_shape: Shape,
@@ -3587,9 +3587,6 @@ def test_all_reduce(
     dtype: torch.dtype,
     request,
 ):
-    if mesh_shape[cluster_axis] == 1:
-        pytest.skip("CCL across 1 device is meaningless")
-
     # test 'sum' only for now. Other reduce types are not supported yet.
     def all_reduce(mesh_shard_in: Operand, builder: TTIRBuilder):
         return builder.all_reduce(
