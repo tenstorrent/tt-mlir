@@ -232,4 +232,11 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
   ];
 }
 
+def TTNNEmitPyWorkarounds: Pass<"ttnn-emitpy-workarounds", "::mlir::ModuleOp"> {
+  let summary = "Apply TTNN workarounds specific to EmitPy pipeline.";
+  let description = [{
+    This pass applies TTNN workarounds that are specific to the EmitPy pipeline.
+  }];
+}
+
 #endif

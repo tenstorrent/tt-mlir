@@ -7,7 +7,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-
 def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {
   let summary = "Broadcast operation is folded to all the consumers.";
   let description = [{

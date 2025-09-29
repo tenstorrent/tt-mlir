@@ -2260,7 +2260,7 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
-  constexpr std::vector<uint32_t> curPosEmpty = {};
+  const std::vector<uint32_t> curPosEmpty = {};
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::transformer::scaled_dot_product_attention_decode, device,
@@ -2332,7 +2332,7 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
-  constexpr std::vector<uint32_t> curPosEmpty = {};
+  const std::vector<uint32_t> curPosEmpty = {};
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::transformer::scaled_dot_product_attention_decode, device,
@@ -2345,6 +2345,118 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
 
   return operation::getOpRuntime(scaledDotProductAttentionDecodeOpQuery);
 
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints>
+OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
+    TTNNLayoutAttr queryLayout, llvm::ArrayRef<int64_t> keyShape,
+    TTNNLayoutAttr keyLayout, llvm::ArrayRef<int64_t> valueShape,
+    TTNNLayoutAttr valueLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
+    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto querySpecExp =
+      detail::convertToTensorSpec(device, queryShape, queryLayout);
+  if (!querySpecExp) {
+    return querySpecExp.takeError();
+  }
+  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
+  if (!keySpecExp) {
+    return keySpecExp.takeError();
+  }
+  auto valueSpecExp =
+      detail::convertToTensorSpec(device, valueShape, valueLayout);
+  if (!valueSpecExp) {
+    return valueSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec querySpec = querySpecExp.get();
+  ::ttnn::TensorSpec keySpec = keySpecExp.get();
+  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+
+  auto scaledDotProductAttentionOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
+        keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpConstraints(queryLayout.getContext(), deviceGrid,
+                                     scaledDotProductAttentionOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
+    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto querySpecExp =
+      detail::convertToTensorSpec(device, queryShape, queryLayout);
+  if (!querySpecExp) {
+    return querySpecExp.takeError();
+  }
+  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
+  if (!keySpecExp) {
+    return keySpecExp.takeError();
+  }
+  auto valueSpecExp =
+      detail::convertToTensorSpec(device, valueShape, valueLayout);
+  if (!valueSpecExp) {
+    return valueSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec querySpec = querySpecExp.get();
+  ::ttnn::TensorSpec keySpec = keySpecExp.get();
+  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+
+  auto scaledDotProductAttentionOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
+        keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpRuntime(scaledDotProductAttentionOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

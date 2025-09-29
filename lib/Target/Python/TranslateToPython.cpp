@@ -211,11 +211,14 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     os << "]";
   } else {
     os << callee << "(";
-    auto args =
-        llvm::zip(*callOpaqueOp.getArgs(), *callOpaqueOp.getKeywordArgs());
-    LogicalResult emittedArgs =
-        callOpaqueOp.getArgs() ? interleaveCommaWithError(args, os, emitArgs)
-                               : emitter.emitOperands(op);
+    LogicalResult emittedArgs = success();
+    if (callOpaqueOp.getArgs()) {
+      auto args =
+          llvm::zip(*callOpaqueOp.getArgs(), *callOpaqueOp.getKeywordArgs());
+      emittedArgs = interleaveCommaWithError(args, os, emitArgs);
+    } else {
+      emittedArgs = emitter.emitOperands(op);
+    }
     if (failed(emittedArgs)) {
       return failure();
     }
