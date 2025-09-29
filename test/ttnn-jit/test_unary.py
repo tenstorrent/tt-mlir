@@ -53,12 +53,16 @@ def tan(input_tensor):
         (1024, 2048, (7, 7)),
     ],
 )
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("op", [abs, exp, log, cos, sin])
-def test_unary_ops(device, h, w, max_grid, op):
-    if op in [exp, log]:
-        pytest.xfail("failing allclose for some shapes")
-    torch_input_tensor = torch.randn((h, w), dtype=torch.float32)
-    torch_input_tensor_2 = torch.randn((h, w), dtype=torch.float32)
+def test_unary_ops(device, h, w, max_grid, dtype, op):
+    print("dtype: ", dtype)
+    if op in [exp, log] and dtype == torch.float32:
+        pytest.xfail("failing allclose for some shapes for float32")
+
+    # Note: both torch.float16 and torch.bfloat16 will convert to ttnn.bfloat16
+    torch_input_tensor = torch.randn((h, w), dtype=dtype)
+    print("torch_input_tensor dtype: ", torch_input_tensor.dtype)
     golden_op = _get_ttnn_op(op)
 
     start_coord = ttnn.CoreCoord(0, 0)
@@ -74,7 +78,7 @@ def test_unary_ops(device, h, w, max_grid, op):
         shard_shape=[
             shard_shape_x,
             shard_shape_y,
-        ],  # This should be shard_shape, not shape
+        ],
         shard_orientation=ttnn.ShardOrientation.ROW_MAJOR,
         shard_mode=ttnn.ShardMode.PHYSICAL,
     )
@@ -91,29 +95,17 @@ def test_unary_ops(device, h, w, max_grid, op):
         device=device,
         memory_config=memory_config,
     )
-    # input_tensor_2 = ttnn.from_torch(
-    #     torch_input_tensor_2,
-    #     layout=ttnn.TILE_LAYOUT,
-    #     device=device,
-    #     memory_config=memory_config
-    # )
+    print("input_tensor dtype: ", input_tensor.dtype)
     op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(op)
     output_tensor = op_jit(input_tensor)
     golden_tensor = golden_op(input_tensor)
 
-    # output_tensor_2 = ttnn.add(output_tensor, input_tensor_2)
-    # golden_tensor = ttnn.add(ttnn.abs(input_tensor), input_tensor_2)
-
     print("--------------------------------")
     print("input_tensor")
     print(input_tensor)
-    # print("input_tensor_2")
-    # print(input_tensor_2)
     print("--------------------------------")
     print("output_tensor")
     print(output_tensor)
-    # print("output_tensor_2")
-    # print(output_tensor_2)
     print("--------------------------------")
     print("golden_tensor")
     print(golden_tensor)

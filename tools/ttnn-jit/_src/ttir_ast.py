@@ -72,6 +72,27 @@ class TTIRCompiler(ast.NodeVisitor):
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
 
+    def _mlir_ttcore_dtype_from_ttnn_dtype(self, dtype):
+        match int(dtype):
+            case 0:
+                return ttcore.DataType.BFloat16
+            case 1:
+                return ttcore.DataType.Float32
+            # case 2:
+            #     return ttcore.DataType.UInt32
+            # case 3:
+            #     return ttcore.DataType.BFloat8
+            # case 4:
+            #     return ttcore.DataType.BFloat4
+            # case 5:
+            #     return ttcore.DataType.UInt8
+            # case 6:
+            #     return ttcore.DataType.UInt16
+            # case 7:
+            #     return ttcore.DataType.Int32
+            case _:
+                raise ValueError(f"Unsupported dtype: {dtype}")
+
     def _var_exists(self, var_name):
         for sym_table in reversed(self.symbol_tables):
             if var_name in sym_table:
@@ -81,31 +102,30 @@ class TTIRCompiler(ast.NodeVisitor):
     def _create_tensor_layout(self, tensor_arg):
         # Only rank 2 tensors supported
         assert len(tensor_arg.shape) == 2
-        # print("tensor arg shape: ", tensor_arg.shape)
+        # assert tensor data type is only f32
+        print("tensor arg dtype: ", tensor_arg.dtype)
         shape_h = tensor_arg.shape[0]
         shape_w = tensor_arg.shape[1]
 
         shard_spec = tensor_arg.memory_config().shard_spec
         shard_shape = shard_spec.shape
-        # print(f"shape_h: {shape_h}")
-        # print(f"shape_w: {shape_w}")
-        # print(f"shard_shape: {shard_shape}")
 
         # Create identity affine map, should be based of tensor shape
         # default to rank 2, don't support shape collapse.
-        # Note: ttnn.tensor.shape is always rank 4
         identity_map = AffineMap.get_identity(2, self.ctx)
 
-        # Create ttcore grid atttr; only single core for now
+        # Create ttcore grid atttr based off max_grid passed by user
+        # Can't pull grid info from tensor unless it's sharded
         grid_size_x = self.max_grid[0] + 1
         grid_size_y = self.max_grid[1] + 1
         grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_x, grid_size_y])
 
         # Create memref, tile type only, only f32 support for now.
         # Only L1 buffer supported. NO DRAM.
+        data_type = self._mlir_ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
         shard_shape_tile_x = shard_shape[0] // 32
         shard_shape_tile_y = shard_shape[1] // 32
-        tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, ttcore.DataType.Float32)
+        tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type)
         buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.L1)
         memref = MemRefType.get(
             [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
@@ -210,6 +230,7 @@ class TTIRCompiler(ast.NodeVisitor):
 
         func_args = [result_type, arg]
         for func_arg in args[1:]:
+            print("func_arg type: ", type(func_arg))
             func_args.append(self.visit(func_arg))
 
         func = self._fn_map[node.attr]
