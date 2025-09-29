@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Tools.h"
 
 #include "llvm/ADT/IntervalTree.h"

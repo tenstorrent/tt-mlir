@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
@@ -715,25 +716,23 @@ calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
   return shardShape;
 }
 
-static llvm::SmallVector<int64_t>
-applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
-                                     mlir::DenseIntElementsAttr intervals,
-                                     llvm::ArrayRef<int64_t> alignments) {
+static llvm::SmallVector<int64_t> applyCollapsedIntervalsAndAlignments(
+    llvm::ArrayRef<int64_t> shape, llvm::ArrayRef<int64_t> normalizedIntervals,
+    llvm::ArrayRef<int64_t> alignments) {
   assert(shape.size() == alignments.size() &&
          "Shape and alignments must have same size");
 
   llvm::SmallVector<int64_t> resultShape;
 
   // Process with collapse intervals.
-  auto values = intervals.getValues<int64_t>();
-  assert(intervals && intervals.getType().getShape()[1] == 2);
-  auto numIntervals = intervals.getType().getShape()[0];
+  assert(normalizedIntervals.size() % 2 == 0);
+  int64_t numIntervals = normalizedIntervals.size() / 2;
 
   int64_t currentIdx = 0;
 
   for (int64_t i = 0; i < numIntervals; ++i) {
-    int64_t start = values[i * 2];
-    int64_t end = values[i * 2 + 1];
+    int64_t start = normalizedIntervals[i * 2];
+    int64_t end = normalizedIntervals[i * 2 + 1];
 
     // Handle Python-like negative indexing.
     if (start < 0) {
@@ -781,9 +780,11 @@ applyCollapsedIntervalsAndAlignments(llvm::ArrayRef<int64_t> shape,
 
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
+  llvm::SmallVector<int64_t> normalizedIntervals = getNormalizedIntervals();
   llvm::SmallVector<int64_t> physicalShape =
       applyCollapsedIntervalsAndAlignments(
-          getLogicalShape(), getCollapsedIntervals(), getDimAlignments());
+          getLogicalShape(), normalizedIntervals, getDimAlignments());
+
   if (!tileShape.empty()) {
     assert(physicalShape.size() >= 2);
     assert(tileShape.size() == 2);
@@ -915,13 +916,15 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
                                    ArrayRef<int64_t> deviceGridShape,
                                    ArrayRef<int64_t> normalizedIntervals) {
   constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
+
   const int64_t logicalRank = logicalShape.size();
   const int64_t deviceGridRank = deviceGridShape.size();
+  const int64_t tensorGridRank = normalizedIntervals.size() / 2;
 
   assert(logicalRank >= 2);
   assert(deviceGridRank == 2);
-  assert(deviceGridRank * 2 ==
-         static_cast<int64_t>(normalizedIntervals.size()));
+  assert(normalizedIntervals.size() % 2 == 0);
+  assert(deviceGridRank <= tensorGridRank);
 
   llvm::SmallVector<int64_t> alignments(logicalRank, 1);
   // Handle the last two intervals (which will map to tiles) with grid-aware
@@ -933,11 +936,13 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
     const int64_t gridIdx = deviceGridRank + idx;
     const int64_t gridDim = deviceGridShape[gridIdx];
 
+    const int64_t intvIdx = tensorGridRank + idx;
+
     const int64_t gridAlignmentThreshold = gridDim * tileDim;
 
     // Inclusive indices.
-    const int64_t intervalStart = normalizedIntervals[gridIdx * 2];
-    const int64_t intervalEnd = normalizedIntervals[gridIdx * 2 + 1] - 1;
+    const int64_t intervalStart = normalizedIntervals[intvIdx * 2];
+    const int64_t intervalEnd = normalizedIntervals[intvIdx * 2 + 1] - 1;
 
     // Calculate collapsed size for this interval.
     int64_t collapsedSize = 1;
@@ -1090,23 +1095,24 @@ MetalLayoutAttr::getHostStrideAndVolume() const {
 
   llvm::SmallVector<int64_t> strides(logicalShape.size(), 0);
 
+  // Get the number of collapse intervals
+  const int64_t numIntervals = normalizedIntervals.size() / 2;
+
   int64_t currentStride = 1;
-  for (int i = -1; i >= -2; i--) {
-    const int64_t intervalIdx = normalizedIntervals.size() / 2 + i;
-    // Inclusive indices.
-    const int64_t intervalStart = normalizedIntervals[intervalIdx * 2];
-    const int64_t intervalEnd = normalizedIntervals[intervalIdx * 2 + 1] - 1;
+
+  // Process intervals from innermost (last) to outermost (first)
+  for (int64_t i = numIntervals - 1; i >= 0; i--) {
+    // Get interval bounds (end is exclusive in normalized form, so subtract 1)
+    const int64_t intervalStart = normalizedIntervals[i * 2];
+    const int64_t intervalEnd = normalizedIntervals[i * 2 + 1] - 1;
 
     int64_t collapsedSize = 1;
-    // Both the alignments and the collapsed sizes are "cumulative" relative to
-    // the current collapse interval. But to update the current stride we need
-    // the true per-dim alignment, which is difficult to obtain, especially when
-    // the aligned up new collapsed size is not a multiple of the old collapsed
-    // size.
-    // Solution: revert the current stride to before the current collapse
-    // interval, and then update it straight to the current collapse stage.
+
+    // Process dimensions within this interval from innermost to outermost
     for (int64_t j = intervalEnd; j >= intervalStart; j--) {
       strides[j] = currentStride;
+
+      // Update stride calculation
       currentStride /= collapsedSize;
       collapsedSize = ttmlir::utils::alignUp(collapsedSize * logicalShape[j],
                                              alignments[j]);
@@ -1115,7 +1121,10 @@ MetalLayoutAttr::getHostStrideAndVolume() const {
   }
 
   // At this point, currentStride == 'stride' of the entire tensor, i.e. volume.
-  assert(currentStride >= ttmlir::utils::volume(logicalShape));
+  TT_assertv(currentStride >= ttmlir::utils::volume(logicalShape),
+             "Final stride [{}] less than volume [{}]", currentStride,
+             ttmlir::utils::volume(logicalShape));
+
   return {strides, currentStride};
 }
 
