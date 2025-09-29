@@ -182,7 +182,19 @@ public:
     FuncBodyTypeConverter() {
       addConversion([](mlir::RankedTensorType type) -> mlir::RankedTensorType {
         mlir::Type elementType = type.getElementType();
-        if (!mlir::isa<BFloat16Type>(elementType)) {
+        
+        bool shouldConvertToBfp8 = false;
+        
+        if (mlir::isa<BFloat16Type>(elementType)) {
+          shouldConvertToBfp8 = true;
+        } else if (auto floatType = mlir::dyn_cast<FloatType>(elementType)) {
+          // Convert Float32 and Float16 to BFP8 as well
+          if (floatType.getWidth() == 32 || floatType.getWidth() == 16) {
+            shouldConvertToBfp8 = true;
+          }
+        }
+        
+        if (!shouldConvertToBfp8) {
           // Allow other element types to pass through unchanged.
           // Explicitly skip conversion for int32 tensors.
           if (auto intType = mlir::dyn_cast<mlir::IntegerType>(elementType)) {
@@ -191,18 +203,12 @@ public:
             }
           }
           return type;
-          //assert(mlir::isa<ttcore::TileType>(elementType) &&
-          //       "Expected TileType for non-bfloat16 element type.");
-          //assert(
-          //    mlir::cast<ttcore::TileType>(elementType).getDataType() ==
-          //        ttcore::DataType::BFP_BFloat8 &&
-          //    "Expected BFP_BFloat8 TileType for non-bfloat16 element type."); 
-          //return type;
-        }
-
-        return type.clone(ttcore::TileType::get(
+        } else {
+          // if not skipped, convert to BFP8 (f32 and bf16)
+          return type.clone(ttcore::TileType::get(
             type.getContext(), ttcore::TileType::getDefaultShape(),
             ttcore::DataType::BFP_BFloat8));
+        }
       });
 
       auto materializeFunc = [](mlir::OpBuilder &builder, mlir::Type type,
