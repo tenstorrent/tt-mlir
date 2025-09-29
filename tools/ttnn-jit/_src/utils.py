@@ -64,22 +64,3 @@ def _get_num_pos_args(func: Callable):
         ]
     )
     return num_pos_args
-
-
-ttnn_map = _discover_dialect_ops("ttnn")
-add_func = ttnn_map["add"]
-print(_get_num_pos_args(add_func))
-# sig = inspect.signature(add_func)
-# print(f"Function signature: {sig}")
-# print(f"Number of parameters: {len(sig.parameters)}")
-
-# # Count required vs optional arguments
-# pos_args = [p for p in sig.parameters.values() if p.default == inspect.Parameter.empty and p.kind != inspect.Parameter.VAR_KEYWORD]
-# kwargs = [p for p in sig.parameters.values() if p.default != inspect.Parameter.empty or p.kind == inspect.Parameter.VAR_KEYWORD]
-
-# print(f"Required positional arguments: {len(pos_args)}")
-# print(f"Optional/keyword arguments: {len(kwargs)}")
-
-# # Print each parameter
-# for param_name, param in sig.parameters.items():
-#     print(f"  - {param_name}: {param}")
