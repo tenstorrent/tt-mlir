@@ -126,15 +126,11 @@ MlirAttribute ttmlirTTNNBufferTypeAttrGet(MlirContext ctx,
 MlirAttribute ttmlirTTNNShardSpecAttrGet(MlirContext ctx,
                                          MlirAttribute coreRangeSetAttr,
                                          MlirAttribute shapeAttr,
-                                         MlirAttribute shardOrientationAttr,
-                                         MlirAttribute shardModeAttr,
-                                         MlirAttribute physicalShardShapeAttr) {
+                                         MlirAttribute shardOrientationAttr) {
   return wrap(ShardSpecAttr::get(
       unwrap(ctx), mlir::cast<CoreRangeSetAttr>(unwrap(coreRangeSetAttr)),
       mlir::cast<ShapeAttr>(unwrap(shapeAttr)),
-      mlir::cast<ShardOrientationAttr>(unwrap(shardOrientationAttr)),
-      mlir::cast<ShardModeAttr>(unwrap(shardModeAttr)),
-      mlir::cast<ShapeAttr>(unwrap(physicalShardShapeAttr))));
+      mlir::cast<ShardOrientationAttr>(unwrap(shardOrientationAttr))));
 }
 
 MlirAttribute ttmlirTTNNMemoryConfigAttrGet(
