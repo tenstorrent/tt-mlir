@@ -23,6 +23,7 @@ class TTCompilerBase(PyKernelAstBase):
             "datamovement",
             "noc",
             "compute",
+            "unified",
         ], "Invalid kernel type"
         self.supported_nodes = [
             # Variables
@@ -32,6 +33,9 @@ class TTCompilerBase(PyKernelAstBase):
             # control-flow
             ast.If,
             ast.For,
+            # Async
+            ast.Yield,
+            ast.Await,
             # Literals
             ast.Constant,
             # Expressions
@@ -214,6 +218,25 @@ class TTCompilerBase(PyKernelAstBase):
                 self.visit(stmt)
             scf.YieldOp([])
             self.symbol_tables.pop()
+
+    # Async
+    def visit_Yield(self, node):
+        if isinstance(node.value, ast.Name):
+            yield_args = [self.visit(node.value)]
+        elif isinstance(node.value, ast.Tuple):
+            yield_args = [self.visit(elem) for elem in node.value.elts]
+        else:
+            raise NotImplementedError(f"Unsupported type for yield {ast.dump(node)}")
+        d2m.YieldOp(yield_args)
+
+    def visit_Await(self, node):
+        if isinstance(node.value, ast.Name):
+            await_args = [self.visit(node.value)]
+        elif isinstance(node.value, ast.Tuple):
+            await_args = [self.visit(elem) for elem in node.value.elts]
+        else:
+            raise NotImplementedError("Unsupported type for yield")
+        d2m.AwaitOp(await_args)
 
     # Statements
     def visit_Name(self, node):
@@ -570,17 +593,42 @@ class TTCompilerBase(PyKernelAstBase):
                 operand, arith.ConstantOp(IndexType.get(self.ctx), 0)
             ).result
 
+        mlir_type = _get_type_str(operand.type)
+
+        def qualified_or(attr, otherwise, *args, **kwargs):
+            qualified_object_syntax = f"{mlir_type}.{attr}"
+            fn = self._fn_map.get(qualified_object_syntax, otherwise)
+            return fn(*args, **kwargs)
+
         match (node.op):
             # need to expose emitc for these unary operators, not sure if this is necessary yet
             case ast.USub():
-                return emitc.UnaryMinusOp(operand.type, operand)
+                return qualified_or(
+                    "__neg__",
+                    lambda v: emitc.UnaryMinusOp(v.type, v),
+                    operand,
+                )
             case ast.UAdd():
-                return emitc.UnaryPlusOp(operand.type, operand)
+                return qualified_or(
+                    "__pos__",
+                    lambda v: emitc.UnaryPlusOp(v.type, v),
+                    operand,
+                )
             case ast.Not():
                 # Must return a 1-bit Signless Integer (bool)
-                return emitc.logical_not(IntegerType.get_signless(1, self.ctx), operand)
+                return qualified_or(
+                    "__not__",
+                    lambda v: emitc.logical_not(
+                        IntegerType.get_signless(1, self.ctx), v
+                    ),
+                    operand,
+                )
             case ast.Invert():
-                return emitc.bitwise_not(operand.type, operand)
+                return qualified_or(
+                    "__invert__",
+                    lambda v: emitc.bitwise_not(v.type, v),
+                    operand,
+                )
             case _:
                 raise NotImplementedError(
                     f"Unary operator {type(node.op).__name__} not implemented"
@@ -602,6 +650,10 @@ class TTCompilerBase(PyKernelAstBase):
             rhs = memref.LoadOp(
                 rhs, arith.ConstantOp(IndexType.get(self.ctx), 0)
             ).result
+
+        if lhs.type != rhs.type:
+            rhs = _cast(rhs, lhs.type)
+        assert lhs.type == rhs.type, f"{lhs.type} != {rhs.type}"
 
         if lhs.type != rhs.type:
             rhs = _cast(rhs, lhs.type)
@@ -844,9 +896,9 @@ class TTCompilerBase(PyKernelAstBase):
         if callable(as_attr):
             return as_attr(node)
         elif isinstance(node.value, bool):
-            return op_constructor(IntegerType.get_signless(1, self.ctx), node.value)
+            return op_constructor(IndexType.get(self.ctx), node.value)
         elif isinstance(node.value, int):
-            return op_constructor(IntegerType.get_signless(32, self.ctx), node.value)
+            return op_constructor(IndexType.get(self.ctx), node.value)
         else:
             raise NotImplementedError(
                 f"constant type {type(node.value).__name__} not implemented"
