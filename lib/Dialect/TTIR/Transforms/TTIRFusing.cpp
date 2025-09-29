@@ -2693,6 +2693,8 @@ public:
         patterns.add<GlobalAveragePoolingPattern>(&getContext());
       }
 
+      patterns.add<MatmulWithBiasFusionPattern>(&getContext());
+
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());
       patterns.add<SiluFusionPattern>(&getContext());
