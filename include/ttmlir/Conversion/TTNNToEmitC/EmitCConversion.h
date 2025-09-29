@@ -1368,6 +1368,10 @@ static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 // `ttnn::Tensor`s.
 inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
 
+// Name for the function that gets a scalar (uint32_t) from a `ttnn::Tensor`.
+inline constexpr const char *kGetScalarFromTensorFunctionName =
+    "::ttnn::getScalarFromTensor";
+
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
 public:

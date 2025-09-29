@@ -3222,6 +3222,56 @@ public:
 } // namespace
 
 namespace {
+class UpdateCacheOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::UpdateCacheOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::UpdateCacheOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::UpdateCacheOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // The `update_index` is modeled as a tensor in the IR, but the
+    // `ttnn::update_cache` expects a `uint32_t` scalar.
+    auto updateIndex =
+        rewriter
+            .create<emitc::CallOpaqueOp>(
+                srcOp.getLoc(), rewriter.getI32Type(),
+                ttnn_to_emitc::kGetScalarFromTensorFunctionName,
+                /*args=*/nullptr,
+                /*template_args=*/nullptr, adaptor.getUpdateIndex())
+            .getResult(0);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        rewriter.getIndexAttr(0),
+        rewriter.getIndexAttr(1),
+        rewriter.getIndexAttr(2),
+        rewriter.getAttr<emitc::OpaqueAttr>(
+            std::to_string(adaptor.getBatchOffset())),
+    };
+
+    llvm::SmallVector<mlir::Value> operands{
+        adaptor.getCache(),
+        adaptor.getInput(),
+        updateIndex,
+    };
+
+    auto resultTypes = llvm::to_vector(
+        llvm::map_range(srcOp->getResultTypes(), [&](Type type) -> Type {
+          return getTypeConverter()->convertType(type);
+        }));
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, resultTypes, convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, operands);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class DumpTensorOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::DumpTensorOp> {
 private:
@@ -3463,8 +3513,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // KV Cache ops
   //
-  patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::UpdateCacheOp>>(
-      typeConverter, ctx);
+  patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::FillCacheOp>>(
       typeConverter, ctx);
 

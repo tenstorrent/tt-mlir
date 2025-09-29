@@ -5,39 +5,49 @@
 #ifndef TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 #define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 
+#include "operations/ccl/ccl_host_types.hpp"
+#include "operations/conv/conv2d/conv2d.hpp"
+#include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
+#include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
+#include "operations/core/core.hpp"
+#include "operations/creation.hpp"
+#include "operations/data_movement/concat/concat.hpp"
+#include "operations/data_movement/permute/permute.hpp"
+#include "operations/data_movement/repeat/repeat.hpp"
+#include "operations/data_movement/repeat_interleave/repeat_interleave.hpp"
+#include "operations/data_movement/slice/slice.hpp"
+#include "operations/data_movement/sort/sort.hpp"
+#include "operations/data_movement/transpose/transpose.hpp"
+#include "operations/eltwise/binary/binary.hpp"
+#include "operations/eltwise/binary/binary_composite.hpp"
+#include "operations/eltwise/quantization/quantization.hpp"
+#include "operations/eltwise/unary/unary_composite.hpp"
+#include "operations/embedding/embedding.hpp"
+#include "operations/embedding_backward/embedding_backward.hpp"
+#include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
+#include "operations/kv_cache/kv_cache.hpp"
+#include "operations/matmul/matmul.hpp"
+#include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
+#include "operations/normalization/batch_norm/batch_norm.hpp"
+#include "operations/normalization/rmsnorm/rmsnorm.hpp"
+#include "operations/normalization/softmax/softmax.hpp"
+#include "operations/pool/generic/generic_pools.hpp"
+#include "operations/pool/upsample/upsample.hpp"
+#include "operations/rand/rand.hpp"
+#include "operations/reduction/argmax/argmax.hpp"
+#include "operations/reduction/generic/generic_reductions.hpp"
+#include "operations/reduction/prod/prod.hpp"
+#include "operations/trace.hpp"
+#include "operations/transformer/concatenate_heads/concatenate_heads.hpp"
+#include "operations/transformer/sdpa/sdpa.hpp"
+#include "operations/transformer/sdpa_decode/sdpa_decode.hpp"
 #include "tt-metalium/bfloat16.hpp"
 #include "ttnn/common/queue_id.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
-#include "ttnn/operations/ccl/ccl_host_types.hpp"
-#include "ttnn/operations/conv/conv2d/conv2d.hpp"
-#include "ttnn/operations/conv/conv2d/prepare_conv2d_weights.hpp"
-#include "ttnn/operations/conv/conv_transpose2d/conv_transpose2d.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
-#include "ttnn/operations/core/core.hpp"
-#include "ttnn/operations/creation.hpp"
-#include "ttnn/operations/data_movement/concat/concat.hpp"
-#include "ttnn/operations/data_movement/permute/permute.hpp"
-#include "ttnn/operations/data_movement/repeat/repeat.hpp"
-#include "ttnn/operations/data_movement/repeat_interleave/repeat_interleave.hpp"
-#include "ttnn/operations/data_movement/slice/slice.hpp"
-#include "ttnn/operations/data_movement/transpose/transpose.hpp"
-#include "ttnn/operations/eltwise/binary/binary.hpp"
-#include "ttnn/operations/eltwise/binary/binary_composite.hpp"
-#include "ttnn/operations/eltwise/quantization/quantization.hpp"
-#include "ttnn/operations/eltwise/unary/unary_composite.hpp"
-#include "ttnn/operations/embedding/embedding.hpp"
-#include "ttnn/operations/embedding_backward/embedding_backward.hpp"
-#include "ttnn/operations/matmul/matmul.hpp"
-#include "ttnn/operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
-#include "ttnn/operations/normalization/batch_norm/batch_norm.hpp"
-#include "ttnn/operations/normalization/softmax/softmax.hpp"
-#include "ttnn/operations/pool/generic/generic_pools.hpp"
-#include "ttnn/operations/pool/upsample/upsample.hpp"
-#include "ttnn/operations/reduction/argmax/argmax.hpp"
-#include "ttnn/operations/reduction/generic/generic_reductions.hpp"
-#include "ttnn/operations/reduction/prod/prod.hpp"
-#include "ttnn/operations/trace.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
+#include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
@@ -63,8 +73,8 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static constexpr std::size_t l1SmallSize = 1 << 15;     // 32 kB
-  static constexpr std::size_t traceRegionSize = 1 << 20; // 1 MB
+  static constexpr std::size_t l1SmallSize = 1 << 15;     // 32kB
+  static constexpr std::size_t traceRegionSize = 1 << 20; // 1MB
 
   static ttnn::MeshDevice *getInstance() {
     // If we have an external device, use it.
@@ -119,6 +129,17 @@ void constEvalFuncWrapper(
   if (outputs->empty()) {
     *outputs = constEvalFunc(inputs);
   }
+}
+
+uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
+  assert(tensor.logical_volume() == 1 && "expected scalar tensor");
+  assert(tensor.dtype() == ttnn::DataType::UINT32 && "expected uint32 tensor");
+
+  const ::ttnn::Tensor tensorOnHost = ::ttnn::from_device(tensor);
+  const ::tt::tt_metal::HostBuffer buffer =
+      ::tt::tt_metal::host_buffer::get_host_buffer(tensorOnHost);
+  const auto &buf = buffer.view_as<uint32_t>();
+  return *buf.begin();
 }
 
 } // namespace ttnn
