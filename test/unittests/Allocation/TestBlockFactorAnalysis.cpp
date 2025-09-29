@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/BlockFactorAnalysis.h"
+#include "ttmlir/Dialect/D2M/Analysis/BlockFactorAnalysis.h"
+#include "ttmlir/Dialect/D2M/IR/D2M.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -16,7 +18,7 @@
 
 #include "gtest/gtest.h"
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::d2m {
 
 class BlockFactorAnalysisTest : public ::testing::Test {
 protected:
@@ -30,6 +32,7 @@ protected:
     context.loadDialect<mlir::func::FuncDialect>();
     context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
     context.loadDialect<mlir::tt::ttir::TTIRDialect>();
+    context.loadDialect<mlir::tt::d2m::D2MDialect>();
 
     // Create a simple module with a function
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
@@ -124,12 +127,12 @@ GenericOp createGenericOp(mlir::OpBuilder &builder, mlir::MLIRContext &context,
   SmallVector<Value> outputs = {output};
 
   // Create the GenericOp
-  auto genericOp = builder.create<mlir::tt::ttir::GenericOp>(
+  auto genericOp = builder.create<mlir::tt::d2m::GenericOp>(
       builder.getUnknownLoc(), inputs, outputs, indexingMaps, iteratorTypes);
   return genericOp;
 }
 
-using Constraints = mlir::tt::ttir::BlockFactorAnalysisConstraints;
+using Constraints = mlir::tt::d2m::BlockFactorAnalysisConstraints;
 using Strategy = Constraints::BufferStrategy;
 
 TEST_F(BlockFactorAnalysisTest, CanCreateGenericOpsWithDifferentGrids) {
@@ -189,7 +192,7 @@ TEST_F(BlockFactorAnalysisTest,
 
   auto genericOp2 = createGenericOp(builder, context, {2, 2}, {4, 8});
 
-  mlir::tt::ttir::BlockFactorAnalysis analysis2;
+  BlockFactorAnalysis analysis2;
   auto bufferConfigs2 = analysis2.analyzeGenericOp(genericOp2);
 
   EXPECT_FALSE(bufferConfigs2.empty());
@@ -212,7 +215,7 @@ TEST_F(BlockFactorAnalysisTest,
 
   auto genericOp3 = createGenericOp(builder, context, {1, 4}, {2, 8});
 
-  mlir::tt::ttir::BlockFactorAnalysis analysis3;
+  BlockFactorAnalysis analysis3;
   auto bufferConfigs3 = analysis3.analyzeGenericOp(genericOp3);
 
   EXPECT_FALSE(bufferConfigs3.empty());
@@ -234,8 +237,9 @@ TEST_F(BlockFactorAnalysisTest, CanAnalyzeBufferingStrategies) {
 
   auto genericOp = createGenericOp(builder, context, {1, 1}, {2, 4});
 
-  Constraints singleBufferConstraints{Strategy::SINGLE_BUFFERED};
-  mlir::tt::ttir::BlockFactorAnalysis analysisSingle(singleBufferConstraints);
+  BlockFactorAnalysisConstraints singleBufferConstraints{
+      Constraints::BufferStrategy::SingleBuffered};
+  mlir::tt::d2m::BlockFactorAnalysis analysisSingle(singleBufferConstraints);
   auto bufferConfigsSingle = analysisSingle.analyzeGenericOp(genericOp);
 
   EXPECT_FALSE(bufferConfigsSingle.empty());
@@ -243,8 +247,9 @@ TEST_F(BlockFactorAnalysisTest, CanAnalyzeBufferingStrategies) {
     EXPECT_EQ(setting.num_buffers, 1u);
   }
 
-  Constraints doubleBufferConstraints{Strategy::DOUBLE_BUFFERED};
-  BlockFactorAnalysis analysisDouble(doubleBufferConstraints);
+  Constraints doubleBufferConstraints{
+      Constraints::BufferStrategy::DoubleBuffered};
+  mlir::tt::d2m::BlockFactorAnalysis analysisDouble(doubleBufferConstraints);
   auto bufferConfigsDouble = analysisDouble.analyzeGenericOp(genericOp);
 
   EXPECT_FALSE(bufferConfigsDouble.empty());
@@ -255,4 +260,4 @@ TEST_F(BlockFactorAnalysisTest, CanAnalyzeBufferingStrategies) {
   }
 }
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::d2m

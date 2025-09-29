@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/BlockFactorAnalysis.h"
+#include "ttmlir/Dialect/D2M/Analysis/BlockFactorAnalysis.h"
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::d2m {
 
 SmallVector<BlockFactorAnalysis::BufferConfig>
 BlockFactorAnalysis::analyzeGenericOp(GenericOp op) {
@@ -19,7 +19,7 @@ BlockFactorAnalysis::analyzeGenericOp(GenericOp op) {
   for (auto [operandIndex, operand] : llvm::enumerate(op.getOperands())) {
     size_t num_buffers =
         (constraints.buffering_strategy ==
-         BlockFactorAnalysisConstraints::BufferStrategy::DOUBLE_BUFFERED)
+         BlockFactorAnalysisConstraints::BufferStrategy::DoubleBuffered)
             ? 2
             : 1;
 
@@ -33,4 +33,4 @@ BlockFactorAnalysis::analyzeGenericOp(GenericOp op) {
   return results;
 }
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::d2m

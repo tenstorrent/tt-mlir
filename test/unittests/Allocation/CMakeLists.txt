@@ -14,5 +14,11 @@ target_link_libraries(${TESTSUITE}
   PRIVATE
     TTMLIRTestUtils
     MLIRD2MAnalysis
+    MLIRD2MDialect
+    MLIRTTCoreDialect
+    MLIRTTIRDialect
+    MLIRTTNNDialect
+    MLIRFuncDialect
+    MLIRLinalgDialect
     coverage_config
 )

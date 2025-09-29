@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_BLOCKFACTORANALYSIS_H
 #define TTMLIR_DIALECT_TTIR_ANALYSIS_BLOCKFACTORANALYSIS_H
 
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
@@ -15,11 +16,11 @@
 
 #include "llvm/ADT/SmallVector.h"
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::d2m {
 
 struct BlockFactorAnalysisConstraints {
-  enum class BufferStrategy { SINGLE_BUFFERED, DOUBLE_BUFFERED };
-  BufferStrategy buffering_strategy = BufferStrategy::DOUBLE_BUFFERED;
+  enum class BufferStrategy : uint32_t { SingleBuffered, DoubleBuffered };
+  BufferStrategy buffering_strategy = BufferStrategy::DoubleBuffered;
 };
 
 /// Analysis for determining buffer configuration options for ttir::GenericOp
@@ -63,6 +64,6 @@ private:
   BlockFactorAnalysisConstraints constraints;
 };
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::d2m
 
 #endif // TTMLIR_DIALECT_TTIR_ANALYSIS_BLOCKFACTORANALYSIS_H
