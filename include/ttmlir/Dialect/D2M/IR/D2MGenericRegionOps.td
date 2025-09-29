@@ -969,7 +969,7 @@ def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[
 // D2M Generic Region Control Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
+class D2M_AsyncOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<mnemonic, [
     MemoryEffects<[MemRead, MemWrite]>,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
@@ -978,18 +978,7 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
       "getAliasingValues",
       "getBufferType"
     ]>
-  ]> {
-    let summary = "Yield op.";
-    let description = [{
-      Yield operation, return control flow to another thread. Corresponds to a circular buffer push.
-    }];
-
-    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
-
-    let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
-
-    let hasVerifier = 1;
-
+  ] # traits> {
     let extraClassDefinition = [{
       bool $cppClass::bufferizesToMemoryRead(
           mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
@@ -1012,15 +1001,39 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
       }
       mlir::LogicalResult $cppClass::bufferize(
           mlir::RewriterBase &rewriter,
-          const mlir::bufferization::BufferizationOptions &,
+          const mlir::bufferization::BufferizationOptions &options,
           mlir::bufferization::BufferizationState &state) {
-        rewriter.eraseOp(*this);
+        assert(getValues().size() == 1);
+        Value input = getValues()[0];
+        if (mlir::isa<mlir::BlockArgument>(input)) {
+          ::llvm::SmallVector<mlir::Value> invocationStack;
+          auto bufferizedInput =
+              bufferization::getBuffer(rewriter, input, options, state);
+          assert(succeeded(bufferizedInput));
+          mlir::bufferization::replaceOpWithNewBufferizedOp<$cppClass>(
+              rewriter, *this, *bufferizedInput);
+        } else {
+          rewriter.eraseOp(*this);
+        }
         return mlir::success();
       }
     }];
 }
 
-def D2M_AwaitOp : D2M_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWrite]>]> {
+def D2M_YieldOp : D2M_AsyncOp<"yield"> {
+    let summary = "Yield op.";
+    let description = [{
+      Yield operation, return control flow to another thread. Corresponds to a circular buffer push.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
+
+    let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
+
+    let hasVerifier = 1;
+}
+
+def D2M_AwaitOp : D2M_AsyncOp<"await"> {
     let summary = "Await op.";
     let description = [{
       Await operation, await control flow from another thread. Corresponds to a circular buffer wait.

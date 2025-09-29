@@ -505,4 +505,16 @@ def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
   let options = D2MStreamingOptions;
 }
 
+def D2MGenericReplaceGlobals : Pass<"d2m-generic-replace-globals", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+}
+
+def D2MInsertExplicitStreams : Pass<"d2m-insert-explicit-streams", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+  }];
+}
+
 #endif

@@ -97,6 +97,8 @@ void createTTIRToTTMetalFrontendPipeline(
     toD2MOptions.collapseTensorsTo2D = options.collapseTensors;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
+  pm.addPass(createConvertElementwiseToLinalgPass());
+  pm.addPass(createLinalgGeneralizeNamedOpsPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
 }
@@ -124,7 +126,6 @@ void createTTIRToTTMetalMiddleendPipeline(
     }
     pm.addPass(d2m::createD2MAllocate(allocateOptions));
   }
-
   pm.addPass(createCanonicalizerPassWithOptions(options));
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {

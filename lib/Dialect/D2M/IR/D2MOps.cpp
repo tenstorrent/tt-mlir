@@ -653,6 +653,59 @@ mlir::LogicalResult StreamLayoutOp::verify() {
 // ViewLayoutOp
 //===----------------------------------------------------------------------===//
 
+static mlir::Type createViewOutputType(mlir::OpBuilder &builder,
+                                       mlir::Value input,
+                                       mlir::ArrayRef<int64_t> outputShape) {
+  auto inputType = mlir::cast<mlir::ShapedType>(input.getType());
+  mlir::Type elementType = inputType.getElementType();
+
+  mlir::Type result;
+  if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(inputType)) {
+    auto inputEncoding =
+        mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+
+    // Preserve any explicit index_map on the encoding (e.g., transpose),
+    // otherwise use identity of the correct rank.
+    mlir::AffineMap map = inputEncoding.getIndexAffineMapOrIdentity(
+        static_cast<unsigned>(outputShape.size()));
+
+    mlir::AffineMap reblockMap = mlir::tt::d2m::utils::calculateReblockMap(
+        inputType.getShape(), outputShape, builder.getContext());
+
+    map = reblockMap.compose(map);
+
+    auto outputEncoding = mlir::tt::ttcore::MetalLayoutAttr::get(
+        builder.getContext(), inputEncoding.getLogicalShape(),
+        inputEncoding.getDimAlignments(), inputEncoding.getCollapsedIntervals(),
+        inputEncoding.getOobVal(), inputEncoding.getMemorySpace(),
+        inputEncoding.getMemoryLayout(), map);
+
+    result =
+        mlir::RankedTensorType::get(outputShape, elementType, outputEncoding);
+  } else {
+    auto memrefType = mlir::cast<mlir::MemRefType>(inputType);
+    mlir::AffineMap view = mlir::tt::d2m::utils::calculateReblockMap(
+        inputType.getShape(), outputShape, builder.getContext());
+    auto viewAttr =
+        mlir::tt::ttcore::ViewLayoutAttr::get(builder.getContext(), view);
+    result = mlir::MemRefType::get(outputShape, elementType, viewAttr,
+                                   memrefType.getMemorySpace());
+  }
+  return result;
+}
+
+// Builder with reblocked shape.
+void mlir::tt::d2m::ViewLayoutOp::build(OpBuilder &builder,
+                                        OperationState &state, Value input,
+                                        ArrayRef<int64_t> reblockedShape,
+                                        bool reinterpretLayout) {
+  Type outputType = createViewOutputType(builder, input, reblockedShape);
+
+  // Build with the view map stored as an attribute.
+  build(builder, state, outputType, input,
+        builder.getBoolAttr(reinterpretLayout));
+}
+
 void d2m::ViewLayoutOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
   setNameFn(getResult(), "view");
@@ -905,7 +958,7 @@ static mlir::LogicalResult verifyAffineBlocking(
 
 // GenericOp verification
 ::mlir::LogicalResult d2m::GenericOp::verify() {
-  if (hasPureTensorSemantics()) {
+  if (hasPureTensorSemantics() && getIndexingMaps().size() > 0) {
     if (this->getNumRegions() != 1) {
       return emitOpError(
           "generic op with pure tensor semantics must have exactly 1 region");
@@ -943,6 +996,18 @@ static mlir::LogicalResult verifyAffineBlocking(
 
   if (!getRegions().empty() && getRegions().size() != getThreads().size()) {
     return emitOpError("number of regions must match the number of threads");
+  }
+
+  if (hasExplicitBlockFactors()) {
+    auto gridRank = getGrid().getRank();
+    auto numOperands = getNumOperands();
+    SmallVector<int64_t> blockFactors = getBlockFactorsValue();
+    if (blockFactors.size() != gridRank * numOperands) {
+      return emitOpError(
+          "number of explicit block factors must be grid rank * num operands");
+    }
+
+    // TODO assert operand grid shapes
   }
 
   // Output grid shape must equal the GenericOp grid shape.
@@ -1160,8 +1225,8 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           }
 
           Operation *origDefiningOp = initOperand.get().getDefiningOp();
-          if (origDefiningOp &&
-              !mlir::isa<EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
+          if (origDefiningOp && (!mlir::isa<EmptyOp>(origDefiningOp) &&
+                                 !mlir::isa<memref::AllocOp>(origDefiningOp))) {
             return false;
           }
 
@@ -1173,6 +1238,12 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
                   origDefiningOp)) {
             rewriter.replaceAllUsesWith(origDefiningOp->getResult(0),
                                         initOperand.get());
+          }
+
+          if (mlir::isa_and_nonnull<memref::AllocOp>(origDefiningOp)) {
+            for (auto user : origDefiningOp->getUsers()) {
+              rewriter.eraseOp(user);
+            }
           }
 
           return true;
@@ -1240,6 +1311,18 @@ d2m::GenericOp::getIteratorTypesValue() {
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getBlockFactorsValue() {
   return llvm::map_to_vector(getBlockFactors(), [](Attribute a) {
+    return mlir::cast<IntegerAttr>(a).getInt();
+  });
+}
+
+mlir::SmallVector<int64_t>
+d2m::GenericOp::getExplicitBlockFactors(int64_t operandIndex) {
+  assert(hasExplicitBlockFactors());
+  assert(operandIndex < getNumOperands());
+  int64_t rank = getGrid().getRank();
+  int64_t begin = operandIndex * rank;
+  ArrayRef<Attribute> blockFactors = getBlockFactors().getValue();
+  return llvm::map_to_vector(blockFactors.slice(begin, rank), [](Attribute a) {
     return mlir::cast<IntegerAttr>(a).getInt();
   });
 }
@@ -1348,6 +1431,9 @@ d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
+  if (getIndexingMaps().empty()) {
+    return {};
+  }
   AffineMap indexingMap = getIndexingMap(operandIndex);
   SmallVector<int64_t> participatingDims =
       getParticipatingLoopDims(operandIndex);

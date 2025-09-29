@@ -37,6 +37,11 @@ def D2M_ViewLayoutOp : D2M_Op<"view_layout", [
   let arguments = (ins AnyRankedTensorOrMemRef:$input, DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
+  let builders = [
+    OpBuilder<(ins "Value":$input, "ArrayRef<int64_t>":$reblockedShape,
+                   CArg<"bool", "false">:$reinterpretLayout)>,
+  ];
+
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($result)
   }];
@@ -183,7 +188,6 @@ def D2M_GenericOp : D2M_Op<"generic",
     let hasVerifier = 1;
     let hasCanonicalizer = 1;
 
-
     let builders = [
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
@@ -278,10 +282,12 @@ def D2M_GenericOp : D2M_Op<"generic",
       bool isAffineMapForm() { return !getIndexingMaps().empty(); }
       bool isLoweredLoopForm() { return !isAffineMapForm(); }
       bool isExternalSymbolForm() { return getRegions().empty(); }
+      bool hasExplicitBlockFactors() { return getIndexingMaps().empty() && !getBlockFactors().empty(); }
       SmallVector<SmallVector<int64_t>> getOperandGridShapes();
       SmallVector<int64_t> getLoopBounds();
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<int64_t> getBlockFactorsValue();
+      SmallVector<int64_t> getExplicitBlockFactors(int64_t operandIndex);
       ttcore::DeviceAttr getDevice();
       SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
       SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);

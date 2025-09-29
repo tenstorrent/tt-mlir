@@ -264,6 +264,8 @@ public:
       return failure();
     }
 
+    assert(!generic.getIndexingMaps().empty());
+
     // One per operand.
     auto numDataMovementRegions = generic.getNumOperands();
     auto numTotalRegions = generic.getNumRegions() + numDataMovementRegions;
