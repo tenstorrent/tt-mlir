@@ -14,8 +14,9 @@ def get_is_ttrt_available():
   if not is_execution_enabled:
     return False
 
-  # TODO(ctr-mcampos): It returns the module is available even if not explicitly built with ttrt support
-  is_ttrt_available = importlib.util.find_spec("ttrt") is not None
+  # Checks for a specific submodule,
+  # so it doesn't error out when the folder for `ttrt` exists but is empty
+  is_ttrt_available = importlib.util.find_spec("ttrt.API") is not None
 
   return is_ttrt_available
 
