@@ -37,7 +37,7 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-print(f"Should enable execution? {ttrt_loader.get_is_ttrt_available() and not args.no_model_execution}")
+ttrt_loader.set_is_execution_enabled(not args.no_model_execution)
 
 # TODO(odjuricic): Hack to make our extension default for .mlir files.
 # This can be handled better when we switch to our model-explorer fork.
