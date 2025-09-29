@@ -1308,51 +1308,132 @@ public:
   using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
   mlir::LogicalResult
   matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
-    if (!isFusable(addOp)) {
-      return mlir::failure();
+    if (DotGeneralOp dotOp = isFusableDotOp(addOp); dotOp) {
+      Value bias =
+          addOp.getLhs() == dotOp.getResult() ? addOp.getRhs() : addOp.getLhs();
+      Value dotOpLHS = dotOp.getLhs();
+      Value dotOpRHS = dotOp.getRhs();
+      LinearOp linearOp = rewriter.create<LinearOp>(
+          addOp.getLoc(), addOp.getResult().getType(), dotOpLHS, dotOpRHS, bias,
+          addOp.getOutput(), false, false);
+
+      rewriter.replaceOp(addOp, linearOp);
+
+      return mlir::success();
     }
+    if (DotGeneralOp dotOp = isFusableReshapeDotOp(addOp); dotOp) {
 
-    // Find which operand is the DotGeneralOp result
-    auto dotOp = addOp.getLhs().getDefiningOp<DotGeneralOp>();
-    Value bias = addOp.getRhs();
+      ReshapeOp reshapeOp =
+          mlir::dyn_cast<ReshapeOp>(*dotOp.getResult().getUsers().begin());
+      assert(reshapeOp &&
+             "DotGeneralWithBiasFusionPattern isFusable logic is broken.");
 
-    if (!dotOp) {
-      dotOp = addOp.getRhs().getDefiningOp<DotGeneralOp>();
-      bias = addOp.getLhs();
+      Value bias = addOp.getLhs() == reshapeOp.getResult() ? addOp.getRhs()
+                                                           : addOp.getLhs();
+
+      Value dotOpLHS = dotOp.getLhs();
+      Value dotOpRHS = dotOp.getRhs();
+      llvm::ArrayRef<int64_t> dotOpShape =
+          dotOp.getResult().getType().getShape();
+      llvm::ArrayRef<int64_t> addOpShape =
+          addOp.getResult().getType().getShape();
+      SmallVector<int32_t> dotShapeI32(dotOpShape.begin(), dotOpShape.end());
+      SmallVector<int32_t> addShapeI32(addOpShape.begin(), addOpShape.end());
+
+      auto biasType = mlir::cast<RankedTensorType>(bias.getType());
+
+      Value reshapedBias = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, addOp.getLoc(),
+          dotOpShape,                             // shape
+          biasType.getElementType(),              // element type
+          biasType.getEncoding(),                 // encoding (as Attribute)
+          bias,                                   // input
+          rewriter.getI32ArrayAttr(dotShapeI32)); // shape attr
+
+      LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
+          rewriter, addOp.getLoc(),
+          dotOp.getResult().getType(),      // result type
+          dotOpLHS, dotOpRHS, reshapedBias, // inputs
+          false, false);                    // transpose flags
+
+      auto linearOpType = mlir::cast<RankedTensorType>(linearOp.getType());
+
+      Value finalReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, addOp.getLoc(), addOpShape, linearOpType.getElementType(),
+          linearOpType.getEncoding(),
+          linearOp.getResult(),                   // input
+          rewriter.getI32ArrayAttr(addShapeI32)); // shape attr
+      llvm::outs() << "DotGeneral op: " << dotOp << "\n";
+      llvm::outs() << "Reshape op: " << reshapeOp << "\n";
+      rewriter.replaceOp(addOp, finalReshape);
+      rewriter.eraseOp(dotOp);
+
+      return mlir::success();
     }
-
-    Value dotOpLHS = dotOp.getLhs();
-    Value dotOpRHS = dotOp.getRhs();
-
-    auto linearOp = rewriter.create<LinearOp>(
-        addOp.getLoc(), addOp.getResult().getType(), dotOpLHS, dotOpRHS, bias,
-        addOp.getOutput(), false, false);
-
-    rewriter.replaceOp(addOp, linearOp.getResult());
-    rewriter.eraseOp(dotOp);
-
-    return mlir::success();
+    return mlir::failure();
   }
 
 private:
-  bool isFusable(AddOp addOp) const {
-    // Check if one operand is a DotGeneralOp with only this AddOp as its user
-    auto dotOp = addOp.getLhs().getDefiningOp<DotGeneralOp>();
-    if (!dotOp) {
-      dotOp = addOp.getRhs().getDefiningOp<DotGeneralOp>();
+  DotGeneralOp isFusableReshapeDotOp(AddOp addOp) const {
+    ReshapeOp reshapeLHS = addOp.getLhs().getDefiningOp<ReshapeOp>();
+    ReshapeOp reshapeRHS = addOp.getRhs().getDefiningOp<ReshapeOp>();
+    DotGeneralOp dotOpLHS =
+        reshapeLHS ? reshapeLHS.getInput().getDefiningOp<DotGeneralOp>()
+                   : nullptr;
+    DotGeneralOp dotOpRHS =
+        reshapeRHS ? reshapeRHS.getInput().getDefiningOp<DotGeneralOp>()
+                   : nullptr;
+    if (dotOpLHS && dotOpRHS) {
+      // Both operands are DotGeneralOps, cannot fuse
+      return DotGeneralOp(nullptr);
     }
+    DotGeneralOp dotOp = dotOpLHS ? dotOpLHS : dotOpRHS;
 
     if (!dotOp) {
-      return false;
+      return DotGeneralOp(nullptr);
     }
 
-    // Check that the DotGeneralOp has only this AddOp as its user
+    // Check that the DotGeneralOp has only one user
     auto users = dotOp.getResult().getUsers();
     if (llvm::range_size(users) != 1) {
-      return false;
+      return DotGeneralOp(nullptr);
     }
 
-    return true;
+    if (dotOp.getBatchDimsLhs().size() > 0 ||
+        dotOp.getBatchDimsRhs().size() > 0) {
+      return DotGeneralOp(nullptr);
+    }
+
+    return dotOp;
+  }
+
+  DotGeneralOp isFusableDotOp(AddOp addOp) const {
+    // Check if one operand is a DotGeneralOp with only this AddOp as its user
+
+    DotGeneralOp dotOpLHS = addOp.getLhs().getDefiningOp<DotGeneralOp>();
+    DotGeneralOp dotOpRHS = addOp.getRhs().getDefiningOp<DotGeneralOp>();
+    if (dotOpLHS && dotOpRHS) {
+      // Both operands are DotGeneralOps, cannot fuse
+      return DotGeneralOp(nullptr);
+    }
+    DotGeneralOp dotOp = dotOpLHS ? dotOpLHS : dotOpRHS;
+
+    if (!dotOp) {
+      return DotGeneralOp(nullptr);
+    }
+
+    // Check that the DotGeneralOp has only one user
+    auto users = dotOp.getResult().getUsers();
+    if (llvm::range_size(users) != 1) {
+      return DotGeneralOp(nullptr);
+    }
+
+    if (dotOp.getBatchDimsLhs().size() > 0 ||
+        dotOp.getBatchDimsRhs().size() > 0) {
+      return DotGeneralOp(nullptr);
+    }
+
+    return dotOp;
   }
 };
 } // namespace
@@ -1420,6 +1501,7 @@ public:
     }
 
     if (useLinearOp) {
+
       populateConstants(reshapeOp);
 
       auto queryOp = mlir::dyn_cast<LinearOp>(fusableMultOps[0]);
@@ -1534,6 +1616,10 @@ public:
       llvm::outs() << "Broadcast bias op : " << broadcastBiasOp << "\n";
       llvm::outs() << "Linear op : " << linearOp << "\n";
       llvm::outs() << "Split op : " << splitOp << "\n";
+      llvm::outs() << "Permute ops to fuse: \n";
+      for (auto permuteOp : permuteOpsToFuse) {
+        llvm::outs() << *permuteOp << "\n";
+      }
       rewriter.replaceOp(permuteOpsToFuse[0], query);
       rewriter.replaceOp(permuteOpsToFuse[1], key);
       rewriter.replaceOp(permuteOpsToFuse[2], value);
@@ -1566,9 +1652,14 @@ private:
   Value returnBias(LinearOp linearOp) const {
     // Get the bias operand (3rd operand) of the linear operation
     Value bias = linearOp.getBias();
+    // Check if bias comes from a reshape operation - edge case
+    ReshapeOp outerReshapeOp = bias.getDefiningOp<ReshapeOp>();
+    if (outerReshapeOp) {
+      bias = outerReshapeOp.getInput();
+    }
 
     // Check if bias comes from a broadcast operation
-    auto broadcastOp = bias.getDefiningOp<BroadcastOp>();
+    BroadcastOp broadcastOp = bias.getDefiningOp<BroadcastOp>();
     if (!broadcastOp) {
       return nullptr; // or handle error case
     }
@@ -1577,13 +1668,13 @@ private:
     Value broadcastInput = broadcastOp.getInput();
 
     // Check if broadcast input comes from a reshape operation
-    auto reshapeOp = broadcastInput.getDefiningOp<ReshapeOp>();
-    if (!reshapeOp) {
+    ReshapeOp innerReshapeOp = broadcastInput.getDefiningOp<ReshapeOp>();
+    if (!innerReshapeOp) {
       return nullptr; // or handle error case
     }
 
     // Return the input to the reshape operation
-    return reshapeOp.getInput();
+    return innerReshapeOp.getInput();
   }
 
   void populateConstants(ReshapeOp reshapeOp) const {
@@ -1689,7 +1780,10 @@ private:
         fusableMultOps.push_back(multOp);
       }
     }
-
+    llvm::outs() << "Fusable mult ops size: " << fusableMultOps.size() << "\n";
+    for (auto op : fusableMultOps) {
+      llvm::outs() << "Fusable mult op: " << *op << "\n";
+    }
     if (fusableMultOps.size() != 3) {
       fusableMultOps.clear();
       return false;

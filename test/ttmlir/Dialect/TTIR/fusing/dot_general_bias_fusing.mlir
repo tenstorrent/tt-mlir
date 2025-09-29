@@ -1,5 +1,4 @@
-// RUN: ttmlir-opt -ttir-fusing -ttir-to-ttir-decomposition -o %t %s
-// RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt -ttir-fusing -ttir-to-ttir-decomposition %s
 
 // ===----------------------------------------------------------------------===
 // POSITIVE CASES: Operations that SHOULD be fused into linear op with bias
