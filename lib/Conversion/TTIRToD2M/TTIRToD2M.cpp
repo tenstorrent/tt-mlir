@@ -61,14 +61,15 @@ protected:
 
     assert(physicalShape.size() >= targetSquareGridShape.size());
 
-    const size_t gridRankDiff = physicalShape.size() - targetGridShape.size();
+    const size_t gridRankDiff =
+        physicalShape.size() - targetSquareGridShape.size();
     grid.assign(gridRankDiff, 1);
 
     for (size_t i = gridRankDiff; i < physicalShape.size(); ++i) {
       const int64_t dim = physicalShape[i];
       assert(dim > 0);
       // Find largest grid dimension that divides evenly.
-      for (int64_t g = targetGridShape[i - gridRankDiff]; g > 0; g--) {
+      for (int64_t g = targetSquareGridShape[i - gridRankDiff]; g > 0; g--) {
         if (dim % g == 0) {
           grid.push_back(g);
           break;
