@@ -1580,15 +1580,15 @@ TEST_F(OpModelBase, ConcatenateHeadsOpInterface) {
   // Output shape: [batch_size, sequence_size, num_heads * head_size]
 
   // Define test tensor shapes based on typical transformer architecture
-  int64_t batch_size = 1;
-  int64_t num_heads = 8;
-  int64_t sequence_size = 512;
-  int64_t head_size = 64;
+  int64_t batchSize = 1;
+  int64_t numHeads = 8;
+  int64_t sequenceSize = 512;
+  int64_t headSize = 64;
 
-  llvm::SmallVector<int64_t> inputShape = {batch_size, num_heads, sequence_size,
-                                           head_size};
-  llvm::SmallVector<int64_t> outputShape = {batch_size, sequence_size,
-                                            num_heads * head_size};
+  llvm::SmallVector<int64_t> inputShape = {batchSize, numHeads, sequenceSize,
+                                           headSize};
+  llvm::SmallVector<int64_t> outputShape = {batchSize, sequenceSize,
+                                            numHeads * headSize};
 
   auto input = createEmptyTensor(inputShape);
   auto outputType = createRankedTensorType(outputShape);
@@ -1621,15 +1621,14 @@ TEST_F(OpModelBase, ConcatenateHeadsOpInterface) {
 }
 
 TEST_F(OpModelBase, RotaryEmbeddingLlamaOpInterface) {
-  int64_t batch_size = 1;
-  int64_t num_heads = 1;
-  int64_t sequence_size = 1;
-  int64_t head_size = 32;
+  int64_t batchSize = 1;
+  int64_t numHeads = 1;
+  int64_t sequenceSize = 1;
+  int64_t headSize = 32;
 
-  llvm::SmallVector<int64_t> shape{batch_size, num_heads, sequence_size,
-                                   head_size};
+  llvm::SmallVector<int64_t> shape{batchSize, numHeads, sequenceSize, headSize};
 
-  llvm::SmallVector<int64_t> transMatShape{batch_size, num_heads, TILE_HEIGHT,
+  llvm::SmallVector<int64_t> transMatShape{batchSize, numHeads, TILE_HEIGHT,
                                            TILE_WIDTH};
 
   auto input = createEmptyTensor(shape);
@@ -1666,20 +1665,75 @@ TEST_F(OpModelBase, RotaryEmbeddingLlamaOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, NLPCreateQKVHeadsDecodeOpInterface) {
+  int32_t sequenceSize = 1;
+  int32_t batchSize = 32;
+  int32_t numHeads = 32;
+  int32_t numKVHeads = 32;
+  int32_t headDim = 32;
+  int32_t hiddenDim = headDim * (numHeads + 2 * numKVHeads);
+  bool overlapQKCoregrid = true;
+
+  llvm::SmallVector<int64_t> inputShape{1, sequenceSize, batchSize, hiddenDim};
+
+  llvm::SmallVector<int64_t> outputQueryShape{sequenceSize, batchSize, numHeads,
+                                              headDim};
+  llvm::SmallVector<int64_t> outputKeyValueShape{sequenceSize, batchSize,
+                                                 numKVHeads, headDim};
+
+  auto input = createEmptyTensor(inputShape);
+
+  auto outputQueryType = createRankedTensorType(outputQueryShape);
+  auto outputKeyType = createRankedTensorType(outputKeyValueShape);
+  auto outputValueType = createRankedTensorType(outputKeyValueShape);
+  auto returnTypes = llvm::SmallVector<mlir::Type>{
+      outputQueryType, outputKeyType, outputValueType};
+
+  IntegerAttr numKVHeadsAttr = builder.getUI32IntegerAttr(numHeads);
+  BoolAttr overlapQKCoregridAttr = builder.getBoolAttr(overlapQKCoregrid);
+
+  auto nlpCreateQKVHeadsDecode = builder.create<NLPCreateQKVHeadsDecodeOp>(
+      builder.getUnknownLoc(), TypeRange(returnTypes), input,
+      /*batchOffset=*/nullptr, numHeads, numKVHeadsAttr, overlapQKCoregridAttr,
+      /*sliceSize=*/nullptr, /*memory_config=*/nullptr);
+
+  auto constraintsExp =
+      getOpConstraints(nlpCreateQKVHeadsDecode.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(l1PeakSize, 6144);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints for NLPCreateQKVHeadsDecodeOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(nlpCreateQKVHeadsDecode.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for NLPCreateQKVHeadsDecodeOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
-  int64_t batch_size = 1;
-  int64_t num_heads = 1;
-  int64_t kv_len = 128;
-  int64_t head_size = 32;
+  int64_t batchSize = 1;
+  int64_t numHeads = 1;
+  int64_t kvLen = 128;
+  int64_t headSize = 32;
 
-  llvm::SmallVector<int64_t> queryShape{1, batch_size, num_heads, head_size};
-  llvm::SmallVector<int64_t> keyValueShape{batch_size, num_heads, kv_len,
-                                           head_size};
+  llvm::SmallVector<int64_t> queryShape{1, batchSize, numHeads, headSize};
+  llvm::SmallVector<int64_t> keyValueShape{batchSize, numHeads, kvLen,
+                                           headSize};
 
-  llvm::SmallVector<int64_t> curPosShape{batch_size};
+  llvm::SmallVector<int64_t> curPosShape{batchSize};
   // Provide an attention mask to satisfy optional-arg handling in the
   // interface. Use broadcastable mask shape [B, 1, nH, T].
-  llvm::SmallVector<int64_t> maskShape{batch_size, 1, num_heads, kv_len};
+  llvm::SmallVector<int64_t> maskShape{batchSize, 1, numHeads, kvLen};
 
   auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
   auto tiledCurPosType = ttcore::TileType::get(builder.getI32Type());
@@ -1751,21 +1805,20 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
 }
 
 TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
-  int64_t batch_size = 1;
-  int64_t num_heads = 1;
-  int64_t seq_len = 32;
-  int64_t kv_len = 128;
-  int64_t head_size = 32;
+  int64_t batchSize = 1;
+  int64_t numHeads = 1;
+  int64_t seqLen = 32;
+  int64_t kvLen = 128;
+  int64_t headSize = 32;
 
-  llvm::SmallVector<int64_t> queryShape{batch_size, num_heads, seq_len,
-                                        head_size};
-  llvm::SmallVector<int64_t> keyValueShape{batch_size, num_heads, kv_len,
-                                           head_size};
+  llvm::SmallVector<int64_t> queryShape{batchSize, numHeads, seqLen, headSize};
+  llvm::SmallVector<int64_t> keyValueShape{batchSize, numHeads, kvLen,
+                                           headSize};
 
-  llvm::SmallVector<int64_t> curPosShape{batch_size};
+  llvm::SmallVector<int64_t> curPosShape{batchSize};
   // Provide an attention mask to satisfy optional-arg handling in the
   // interface. Use broadcastable mask shape [B, 1, nH, T].
-  llvm::SmallVector<int64_t> maskShape{batch_size, 1, seq_len, kv_len};
+  llvm::SmallVector<int64_t> maskShape{batchSize, 1, seqLen, kvLen};
 
   auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
 
@@ -1829,15 +1882,15 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
 }
 
 TEST_F(OpModelBase, NLPConcatHeadsOpInterface) {
-  int64_t batch_size = 1;
-  int64_t num_heads = 8;
-  int64_t sequence_size = 512;
-  int64_t head_size = 64;
+  int64_t batchSize = 1;
+  int64_t numHeads = 8;
+  int64_t sequenceSize = 512;
+  int64_t headSize = 64;
 
-  llvm::SmallVector<int64_t> inputShape = {batch_size, num_heads, sequence_size,
-                                           head_size};
-  llvm::SmallVector<int64_t> outputShape = {batch_size, 1, sequence_size,
-                                            num_heads * head_size};
+  llvm::SmallVector<int64_t> inputShape = {batchSize, numHeads, sequenceSize,
+                                           headSize};
+  llvm::SmallVector<int64_t> outputShape = {batchSize, 1, sequenceSize,
+                                            numHeads * headSize};
 
   auto input = createEmptyTensor(inputShape);
   auto outputType = createRankedTensorType(outputShape);

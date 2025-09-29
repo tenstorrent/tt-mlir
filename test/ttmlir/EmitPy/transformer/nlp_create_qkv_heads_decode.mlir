@@ -1,7 +1,5 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" -o %t.mlir %s
-// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t.mlir
-// RUN: ttmlir-opt --ttnn-tuplify-tensors="tuplify-input-if-empty=true" --convert-ttnn-to-emitc -o %t2.mlir %t.mlir
-// RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
+// RUN: ttmlir-opt --convert-ttnn-to-emitpy -o %t.mlir %s
+// RUN: ttmlir-translate --mlir-to-python -o %t.py %t.mlir
 
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
