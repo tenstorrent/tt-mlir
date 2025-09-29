@@ -40,17 +40,14 @@ def run_unary_op(device, h, w, max_grid, dtype, op):
         shard_spec=shard_spec,
     )
 
-    print("torch_input_tensor: ", torch_input_tensor)
     input_tensor = ttnn.from_torch(
         torch_input_tensor,
         layout=ttnn.TILE_LAYOUT,
         device=device,
         memory_config=memory_config,
     )
-    print("input_ttnn_tensor: ", input_tensor)
     op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(op)
     output_tensor = op_jit(input_tensor)
-    print("input tensor: ", input_tensor)
     golden_tensor = golden_op(input_tensor)
 
     print("--------------------------------")
