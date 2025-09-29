@@ -20,8 +20,8 @@
 
 module attributes {} {
   func.func @forward(%arg0: tensor<32x1024xbf16, #ttnn_layout>, %arg1: tensor<1024x1280xbf16, #ttnn_layout1>) -> tensor<32x1280xbf16, #sharded_layout2> {
-    %0 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <width_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7, 0)>]>, <32x128>, <row_major>, <physical>>>}> : (tensor<32x1024xbf16, #ttnn_layout>) -> tensor<32x1024xbf16, #sharded_layout>
-    %1 = "ttnn.to_memory_config"(%arg1) <{memory_config = #ttnn.memory_config<#l1, <width_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7, 0)>]>, <1024x160>, <row_major>, <physical>>>}> : (tensor<1024x1280xbf16, #ttnn_layout1>) -> tensor<1024x1280xbf16, #sharded_layout1>
+    %0 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <width_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7, 0)>]>, <32x128>, <row_major>>>}> : (tensor<32x1024xbf16, #ttnn_layout>) -> tensor<32x1024xbf16, #sharded_layout>
+    %1 = "ttnn.to_memory_config"(%arg1) <{memory_config = #ttnn.memory_config<#l1, <width_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0,0), (7, 0)>]>, <1024x160>, <row_major>>>}> : (tensor<1024x1280xbf16, #ttnn_layout1>) -> tensor<1024x1280xbf16, #sharded_layout1>
     %2 = "ttnn.matmul"(%0, %1)
       <{
         transpose_a = false,

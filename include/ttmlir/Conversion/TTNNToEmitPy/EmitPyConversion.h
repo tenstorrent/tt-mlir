@@ -44,7 +44,6 @@ struct BufferType;
 
 namespace types {
 struct ShardOrientation;
-struct ShardMode;
 } // namespace types
 
 struct Tensor;
@@ -147,11 +146,6 @@ struct TypeName<::ttnn::ShardSpec> {
 template <>
 struct TypeName<::ttnn::types::ShardOrientation> {
   inline static const std::string value = "ttnn.ShardOrientation";
-};
-
-template <>
-struct TypeName<::ttnn::types::ShardMode> {
-  inline static const std::string value = "ttnn.ShardMode";
 };
 
 template <>
@@ -379,36 +373,6 @@ struct EmitPyTypeConverter<::ttnn::types::ShardOrientation> {
     }
 
     llvm_unreachable("Unknown ttnn.ShardOrientation");
-  }
-};
-
-template <>
-struct EmitPyTypeConverter<::ttnn::types::ShardMode> {
-  static std::optional<std::string> convert(mlir::Attribute attr) {
-    if (auto shardModeAttr =
-            mlir::dyn_cast_if_present<ttnn::ShardModeAttr>(attr)) {
-      return convert(shardModeAttr);
-    }
-    return {};
-  }
-
-  static std::string convert(ttnn::ShardModeAttr attr) {
-    assert(attr &&
-           "expected non-null attribute, call "
-           "EmitPyTypeConverter<std::optional<::ttnn::types::ShardMode>>"
-           "::convert(attr) if attribute is optional");
-    return convert(attr.getValue());
-  }
-
-  static std::string convert(ttnn::ShardMode attr) {
-    switch (attr) {
-    case ttnn::ShardMode::Physical:
-      return TypeNameV<::ttnn::types::ShardMode> + ".PHYSICAL";
-    case ttnn::ShardMode::Logical:
-      return TypeNameV<::ttnn::types::ShardMode> + ".LOGICAL";
-    }
-
-    llvm_unreachable("Unknown ttnn.ShardMode");
   }
 };
 
@@ -913,13 +877,6 @@ struct EmitPyTypeConverter<::ttnn::ShardSpec> {
         << ", ";
     rso << EmitPyTypeConverter<::ttnn::types::ShardOrientation>::convert(
         attr.getShardOrientation());
-    // ShardMode is modeled as optional in TTNN dialect, but it's either
-    // required or defaulted to `Physical` in TTNN library.
-    if (attr.getShardMode()) {
-      rso << ", "
-          << EmitPyTypeConverter<::ttnn::types::ShardMode>::convert(
-                 attr.getShardMode());
-    }
     rso << ")";
 
     return buf;

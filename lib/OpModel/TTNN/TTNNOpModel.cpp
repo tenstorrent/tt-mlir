@@ -5222,10 +5222,10 @@ auto dispatchGetRawData(mlir::ElementsAttr value, Func &&func)
   // int32_t, uint8_t, uint16_t, uint32_t, bfloat16.
   // We support all of these types:
   ::mlir::Type elType = getElementType(value);
-  DISPATCH_TYPE(isInteger(32), int32_t)
   DISPATCH_TYPE(isUnsignedInteger(8), uint8_t)
   DISPATCH_TYPE(isUnsignedInteger(16), uint16_t)
   DISPATCH_TYPE(isUnsignedInteger(32), uint32_t)
+  DISPATCH_TYPE(isInteger(32), int32_t)
   DISPATCH_TYPE(isF32(), float)
   DISPATCH_TYPE(isBF16(), bfloat16)
 

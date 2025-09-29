@@ -353,7 +353,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
     tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
   }
 
-  auto meshWorkload = distributed::CreateMeshWorkload();
+  auto meshWorkload = distributed::MeshWorkload();
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
 
   distributed::AddProgramToMeshWorkload(meshWorkload, std::move(program),

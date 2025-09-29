@@ -1236,9 +1236,8 @@ def TTNN_SliceStaticOp: TTNN_Op<"slice_static"> {
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::ArrayAttr step = getStep();
         return wa::TTNNOperandsWorkaroundsFactory::
-            createSliceStaticOpOperandsWorkarounds(step);
+            createSliceStaticOpOperandsWorkarounds(*this);
       }
     }];
 
@@ -1261,9 +1260,8 @@ def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::ArrayAttr step = getStepAttr();
         return wa::TTNNOperandsWorkaroundsFactory::
-            createSliceDynamicOpOperandsWorkarounds(step);
+            createSliceDynamicOpOperandsWorkarounds(*this);
       }
     }];
 
