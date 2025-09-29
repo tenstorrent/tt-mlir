@@ -510,6 +510,7 @@ jobs:
         sparse-checkout: |
           test/ttmlir/models
           tools/tt-alchemist/test
+          test/ttmlir/EmitC/TTNN/load_input
 
     - name: Fetch job id
       id: fetch-job-id
