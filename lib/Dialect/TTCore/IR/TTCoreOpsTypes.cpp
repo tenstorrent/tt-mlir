@@ -1053,7 +1053,7 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
       MemorySpaceAttr::get(tensorType.getContext(), layout.getMemorySpace()));
 }
 
-// 5-arg + explicit index_map convenience overload.
+// 6-arg + explicit index_map convenience overload.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
                                      ArrayRef<int64_t> deviceGridShape,
@@ -1407,7 +1407,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     return ttmlir::utils::replaceAffineMapSymbols(getDramMap(), symbols)
         .compose(affineMap);
   } else {
-    assert(false && "Unsupported layout type on memref");
+    llvm_unreachable("Unsupported memory space");
   }
 }
 
@@ -1421,19 +1421,23 @@ DeviceAttr::getMemoryMap(std::pair<MemRefType, AffineMap> memrefAndView,
 size_t DeviceAttr::getShardSizeInBytes(MemRefType memrefType, size_t alignSize,
                                        bool includeBuffers) const {
 
-  ShardLayoutAttr layout =
-      mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout());
-  assert(
-      (layout || !mlir::isa<DeviceLayoutInterface>(memrefType.getLayout())) &&
-      "expected shard layout");
-  bool isLocalMemref = (layout == nullptr);
-  auto shardShape =
-      isLocalMemref ? memrefType.getShape() : layout.getShardShape(memrefType);
+  int64_t numBuffers = 1;
+  ArrayRef<int64_t> shardShape;
+  if (auto devLayout =
+          mlir::dyn_cast<DeviceLayoutInterface>(memrefType.getLayout())) {
+    shardShape = devLayout.getShardShape(memrefType);
+    // if the layout is sharded, numBuffers is programmable
+    if (auto shardLayout = mlir::dyn_cast<ShardLayoutAttr>(devLayout)) {
+      numBuffers = (includeBuffers) ? shardLayout.getBuffers() : 1;
+    }
+  } else {
+    // local memrefs have no layout attribute
+    numBuffers = 1;
+    shardShape = memrefType.getShape();
+  }
 
-  mlir::Type elementType = memrefType.getElementType();
-  int64_t elementSizeBytes = getElementSizeBytes(elementType);
-  auto numBuffers = (includeBuffers && layout) ? layout.getBuffers() : 1;
-  auto bytesPerElem = elementSizeBytes * numBuffers;
+  auto elementSizeBytes = getElementSizeBytes(memrefType.getElementType());
+  int64_t bytesPerElem = elementSizeBytes * numBuffers;
 
   return ttmlir::utils::alignUp(
       static_cast<size_t>(ttmlir::utils::volume(shardShape, bytesPerElem)),
@@ -1460,26 +1464,8 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
     }
   }
 
-  int64_t numBuffers = 1;
-  ArrayRef<int64_t> shardShape;
-  auto layout = memrefType.getLayout();
-  if (auto devLayout = mlir::dyn_cast<DeviceLayoutInterface>(layout)) {
-    shardShape = devLayout.getShardShape(memrefType);
-    // if the layout is sharded, numBuffers is programmable
-    if (auto shardLayout = mlir::dyn_cast<ShardLayoutAttr>(devLayout)) {
-      numBuffers = (includeBuffers) ? shardLayout.getBuffers() : 1;
-    }
-  } else {
-    // local memrefs have no layout attribute
-    numBuffers = 1;
-    shardShape = memrefType.getShape();
-  }
-
-  auto elementSizeBytes = getElementSizeBytes(memrefType.getElementType());
-  return ttmlir::utils::alignUp(
-      static_cast<size_t>(ttmlir::utils::volume(
-          shardShape, static_cast<int64_t>(elementSizeBytes * numBuffers))),
-      alignSize);
+  // Assume that memref size footprint is equal to shard size
+  return getShardSizeInBytes(memrefType, alignSize, includeBuffers);
 }
 
 size_t DeviceAttr::getMemrefCBPageSizeBytes(MemRefType memrefType) const {
