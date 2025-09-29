@@ -11,29 +11,80 @@ from math import *
 from utils import _get_ttnn_op
 
 
-def abs(input_tensor):
-    return ttnn.abs(input_tensor)
+def add(a, b):
+    return ttnn.add(a, b)
 
 
-def exp(input_tensor):
-    return ttnn.exp(input_tensor)
+def sub(a, b):
+    return ttnn.subtract(a, b)
 
 
-def log(input_tensor):
-    return ttnn.log(input_tensor)
+def mul(a, b):
+    return ttnn.multiply(a, b)
 
 
-def cos(input_tensor):
-    return ttnn.cos(input_tensor)
+def div(a, b):
+    return ttnn.divide(a, b)
 
 
-def sin(input_tensor):
-    return ttnn.sin(input_tensor)
+def logical_and(a, b):
+    return ttnn.logical_and(a, b)
 
 
-# always fails allclose
-def tan(input_tensor):
-    return ttnn.tan(input_tensor)
+def logical_or(a, b):
+    return ttnn.logical_or(a, b)
+
+
+def logical_xor(a, b):
+    return ttnn.logical_xor(a, b)
+
+
+def bitwise_or(a, b):
+    return ttnn.bitwise_or(a, b)
+
+
+def bitwise_and(a, b):
+    return ttnn.bitwise_and(a, b)
+
+
+def bitwise_xor(a, b):
+    return ttnn.bitwise_xor(a, b)
+
+
+def remainder(a, b):
+    return ttnn.remainder(a, b)
+
+
+def pow(a, b):
+    return ttnn.pow(a, b)
+
+
+def atan2(a, b):
+    return ttnn.atan2(a, b)
+
+
+def eq(a, b):
+    return ttnn.eq(a, b)
+
+
+def ne(a, b):
+    return ttnn.ne(a, b)
+
+
+def gt(a, b):
+    return ttnn.gt(a, b)
+
+
+def ge(a, b):
+    return ttnn.ge(a, b)
+
+
+def lt(a, b):
+    return ttnn.lt(a, b)
+
+
+def le(a, b):
+    return ttnn.le(a, b)
 
 
 # sweep shapes, grid size, dtype
@@ -53,16 +104,33 @@ def tan(input_tensor):
         (1024, 2048, (7, 7)),
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.parametrize("op", [abs, exp, log, cos, sin])
-def test_unary_ops(device, h, w, max_grid, dtype, op):
-    print("dtype: ", dtype)
-    if op in [log] and dtype == torch.float32:
-        pytest.xfail("failing allclose for some shapes for float32")
-
-    # Note: both torch.float16 and torch.bfloat16 will convert to ttnn.bfloat16
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize(
+    "op",
+    [
+        add,
+        sub,
+        mul,
+        div,
+        # logical_and, logical_or, logical_xor,
+        # bitwise_or, bitwise_and, bitwise_xor, # not a supported FPU op
+        # remainder, atan2,# not supported in TTIRToD2M
+        pow,
+        eq,
+        ne,
+        gt,
+        ge,
+        lt,
+        le,
+    ],
+)
+def test_binary_ops(device, h, w, max_grid, dtype, op):
+    if op == div:
+        pytest.xfail("failing allclose for some shapes")
+    if op == pow and dtype == torch.float32:
+        pytest.xfail("failing allclose for some shapes")
     torch_input_tensor = torch.randn((h, w), dtype=dtype)
-    print("torch_input_tensor dtype: ", torch_input_tensor.dtype)
+    torch_input_tensor_2 = torch.randn((h, w), dtype=dtype)
     golden_op = _get_ttnn_op(op)
 
     start_coord = ttnn.CoreCoord(0, 0)
@@ -89,20 +157,27 @@ def test_unary_ops(device, h, w, max_grid, dtype, op):
         shard_spec=shard_spec,
     )
 
-    input_tensor = ttnn.from_torch(
+    input_a = ttnn.from_torch(
         torch_input_tensor,
         layout=ttnn.TILE_LAYOUT,
         device=device,
         memory_config=memory_config,
     )
-    print("input_tensor dtype: ", input_tensor.dtype)
+    input_b = ttnn.from_torch(
+        torch_input_tensor_2,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=memory_config,
+    )
     op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(op)
-    output_tensor = op_jit(input_tensor)
-    golden_tensor = golden_op(input_tensor)
+    output_tensor = op_jit(input_a, input_b)
+    golden_tensor = golden_op(input_a, input_b)
 
     print("--------------------------------")
-    print("input_tensor")
-    print(input_tensor)
+    print("input_a")
+    print(input_a)
+    print("input_b")
+    print(input_b)
     print("--------------------------------")
     print("output_tensor")
     print(output_tensor)

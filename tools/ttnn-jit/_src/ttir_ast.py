@@ -14,7 +14,7 @@ from ttmlir.dialects import (
     ttcore,
 )
 
-from .utils import _discover_dialect_ops
+from .utils import _discover_dialect_ops, _get_num_pos_args
 
 
 class TTIRCompiler(ast.NodeVisitor):
@@ -72,7 +72,7 @@ class TTIRCompiler(ast.NodeVisitor):
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
 
-    def _mlir_ttcore_dtype_from_ttnn_dtype(self, dtype):
+    def _ttcore_dtype_from_ttnn_dtype(self, dtype):
         match int(dtype):
             case 0:
                 return ttcore.DataType.BFloat16
@@ -93,6 +93,15 @@ class TTIRCompiler(ast.NodeVisitor):
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
 
+    def _ttcore_dtype_from_mlir_dtype(self, dtype):
+        match str(dtype):
+            case "f32":
+                return ttcore.DataType.Float32
+            case "bf16":
+                return ttcore.DataType.BFloat16
+            case _:
+                raise ValueError(f"Unsupported dtype: {dtype}")
+
     def _var_exists(self, var_name):
         for sym_table in reversed(self.symbol_tables):
             if var_name in sym_table:
@@ -103,7 +112,6 @@ class TTIRCompiler(ast.NodeVisitor):
         # Only rank 2 tensors supported
         assert len(tensor_arg.shape) == 2
         # assert tensor data type is only f32
-        print("tensor arg dtype: ", tensor_arg.dtype)
         shape_h = tensor_arg.shape[0]
         shape_w = tensor_arg.shape[1]
 
@@ -122,7 +130,7 @@ class TTIRCompiler(ast.NodeVisitor):
 
         # Create memref, tile type only, only f32 support for now.
         # Only L1 buffer supported. NO DRAM.
-        data_type = self._mlir_ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
+        data_type = self._ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
         shard_shape_tile_x = shard_shape[0] // 32
         shard_shape_tile_y = shard_shape[1] // 32
         tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type)
@@ -230,30 +238,19 @@ class TTIRCompiler(ast.NodeVisitor):
 
         func_args = [result_type, arg]
         for func_arg in args[1:]:
-            print("func_arg type: ", type(func_arg))
-            func_args.append(self.visit(func_arg))
-
-        func = self._fn_map[node.attr]
-        op = func(*func_args)
-        if self.backend == "ttnn":
-            op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
-        return op
-
-    def visit_Attribute(self, node, args=[]):
-        assert self.backend == "ttnn", "Attributes are only supported for ttnn backend"
-        assert len(args) >= 1, "Must pass at least one argument (tensor)"
-        assert node.attr in self._fn_map, f"Function {node.attr} not supported"
-
-        arg = self.visit(args[0])
-        result_type = arg.type
-
-        func_args = [result_type, arg]
-        for func_arg in args[1:]:
             func_args.append(self.visit(func_arg))
 
         func = self._fn_map[node.attr]
         op = func(*func_args)
         op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
+        if _get_num_pos_args(func) == 3:
+            # this is a binary op, attach the dtype attr
+            element_type = func_args[1].type.element_type
+            dtype = ttcore.ir.DataTypeAttr.get(
+                self.ctx, self._ttcore_dtype_from_mlir_dtype(element_type)
+            )
+            op.owner.attributes["dtype"] = dtype
+
         return op
 
     # Expressions
