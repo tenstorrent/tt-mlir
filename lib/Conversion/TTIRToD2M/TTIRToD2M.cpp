@@ -17,6 +17,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
@@ -266,7 +267,7 @@ protected:
     }
 
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    ArrayRef<int64_t> logicalShape = tensorType.getShape();
+    SmallVector<int64_t> logicalShape(tensorType.getShape());
 
     Type elementType = tensorType.getElementType();
     llvm::SmallVector<int64_t> tileShape;
@@ -1763,6 +1764,7 @@ public:
 } // namespace
 
 // Conversion for ttir.to_layout -> d2m.to_layout.
+namespace {
 class D2MToLayoutOpRewriter : public D2MNamedRewriterCommon,
                               public OpConversionPattern<ttir::ToLayoutOp> {
 public:
@@ -1895,8 +1897,10 @@ private:
     return success();
   }
 };
+} // namespace
 
 // Simple conversion for ttir.empty -> d2m.empty.
+namespace {
 class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
   using OpConversionPattern<ttir::EmptyOp>::OpConversionPattern;
 
@@ -1932,6 +1936,145 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
     return success();
   }
 };
+} // namespace
+
+namespace {
+class D2MGenericNonDeviceLayoutRewriter final
+    : public mlir::OpConversionPattern<d2m::GenericOp>,
+      D2MNamedRewriterCommon {
+public:
+  D2MGenericNonDeviceLayoutRewriter(const TypeConverter &typeConverter,
+                                    mlir::MLIRContext *ctx,
+                                    ttcore::MemorySpace defaultInputMemSpace,
+                                    ttcore::MemorySpace defaultOutputMemSpace,
+                                    bool ttnnMode, bool /*collapseTensors*/,
+                                    bool enableMulticastInference)
+      : OpConversionPattern<d2m::GenericOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, /*collapseTensors=*/false,
+                               enableMulticastInference) {}
+
+private:
+  LogicalResult
+  matchAndRewrite(d2m::GenericOp op, typename d2m::GenericOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    if (llvm::any_of(adaptor.getOperands(), hasMetalLayout)) {
+      assert(llvm::all_of(adaptor.getOperands(), hasMetalLayout));
+      return llvm::failure();
+    }
+
+    const bool tilize = true;
+    auto gridShape = op.getGrid().getShape();
+
+    auto [inputs, outputs] = toLayoutOperandsAndResults(
+        rewriter, {adaptor.getInputs(), adaptor.getOutputs()}, tilize,
+        /*noCollapse=*/true);
+
+    auto generic = rewriter.create<d2m::GenericOp>(
+        op.getLoc(), TypeRange(outputs), inputs, outputs,
+        adaptor.getAdditionalArgs(), op.getGrid(), op.getBlockFactors(),
+        op.getIndexingMaps(), op.getIteratorTypes(), op.getThreads(),
+        /*scratch_inputs*/ nullptr, op.getNumRegions());
+
+    assert(op->getNumRegions() > 0);
+    llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(
+        llvm::enumerate(TypeRange(op->getRegion(0).getArguments())),
+        [&](auto pair) -> Type {
+          auto [i, t] = pair;
+
+          if (mlir::isa<RankedTensorType>(t)) {
+            // Convert the top level device tensor layout into it's equivalent
+            // block arg.
+            auto tensorType =
+                mlir::cast<RankedTensorType>(generic.getOperand(i).getType());
+            assert(tensorType.getEncoding());
+            auto layout =
+                mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+            auto shardShape = layout.getShardShape(tensorType);
+            t = mlir::RankedTensorType::get(shardShape,
+                                            tensorType.getElementType());
+          }
+
+          return t;
+        });
+
+    for (mlir::Region &region : generic.getRegions()) {
+      OpBuilder::InsertionGuard guard(rewriter);
+
+      mlir::Region &origRegion = op.getRegion(region.getRegionNumber());
+      llvm::SmallVector<mlir::Location> locs =
+          llvm::map_to_vector(origRegion.getArguments(),
+                              [](BlockArgument arg) { return arg.getLoc(); });
+      Block *block =
+          rewriter.createBlock(&region, region.end(), blockTypes, locs);
+      assert(region.getNumArguments() == origRegion.getNumArguments());
+
+      mlir::IRMapping irMapper;
+      // Premap top level generic operands.
+      for (unsigned operandI = 0; operandI < generic.getNumOperands();
+           ++operandI) {
+        irMapper.map(op.getOperand(operandI), generic.getOperand(operandI));
+      }
+
+      // Premap all region block args.
+      for (unsigned argI = 0; argI < origRegion.getNumArguments(); ++argI) {
+        irMapper.map(origRegion.getArgument(argI), region.getArgument(argI));
+      }
+
+      rewriter.setInsertionPointToStart(block);
+      for (auto &op : origRegion.getOps()) {
+        Operation *newOp = rewriter.clone(op, irMapper);
+        SmallVector<Operation *> needsVisit = {newOp};
+        while (!needsVisit.empty()) {
+          Operation *visitOp = needsVisit.pop_back_val();
+          for (auto result : visitOp->getResults()) {
+            RankedTensorType tensorType =
+                mlir::dyn_cast<RankedTensorType>(result.getType());
+            if (!tensorType ||
+                mlir::isa<ttcore::TileType>(tensorType.getElementType())) {
+              continue;
+            }
+            result.setType(reblockTensor(tensorType, gridShape, tilize));
+          }
+
+          for (mlir::Region &visitRegion : visitOp->getRegions()) {
+            auto opPointers = llvm::map_range(
+                visitRegion.getOps(), [](Operation &op) { return &op; });
+            needsVisit.append(opPointers.begin(), opPointers.end());
+          }
+        }
+      }
+    }
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
+
+    return llvm::success();
+  }
+
+  static RankedTensorType reblockTensor(RankedTensorType tensorType,
+                                        ArrayRef<int64_t> gridShape,
+                                        bool tilize) {
+    assert(tensorType);
+    assert(gridShape.size() == 2);
+    constexpr std::array<int64_t, 2> defaultShape =
+        ttcore::TileType::getDefaultShape();
+    llvm::SmallVector<int64_t> tileShape;
+    tileShape.assign(defaultShape.begin(), defaultShape.end());
+    ttcore::TileType tileType =
+        ttcore::TileType::get(tensorType.getElementType(), tileShape);
+    llvm::SmallVector<int64_t> tiledTensorShape(tensorType.getShape());
+    assert(tiledTensorShape.size() >= 2);
+    tiledTensorShape[tiledTensorShape.size() - 2] =
+        ttmlir::utils::alignUpDiv(tiledTensorShape[tiledTensorShape.size() - 2],
+                                  tileShape[0] * gridShape[0]);
+    tiledTensorShape[tiledTensorShape.size() - 1] =
+        ttmlir::utils::alignUpDiv(tiledTensorShape[tiledTensorShape.size() - 1],
+                                  tileShape[1] * gridShape[1]);
+    return mlir::RankedTensorType::get(tiledTensorShape, tileType);
+  }
+};
+} // namespace
 
 class D2MFullOpRewriter : public OpConversionPattern<ttir::FullOp>,
                           D2MNamedRewriterCommon {
@@ -2887,6 +3030,8 @@ public:
     target.addLegalDialect<::mlir::arith::ArithDialect>();
     target.addLegalDialect<mlir::tt::d2m::D2MDialect>();
     target.addLegalDialect<mlir::tt::ttcore::TTCoreDialect>();
+    target.addLegalDialect<mlir::arith::ArithDialect>();
+    target.addLegalDialect<mlir::scf::SCFDialect>();
 
     // Keep some TTIR ops legal if they don't have D2M equivalents.
     target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
