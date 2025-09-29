@@ -76,6 +76,9 @@ struct ConvertTTNNToEmitPyPass
     builder.create<emitpy::ImportOp>(module->getLoc(), "my_get_device", nullptr,
                                      nullptr, nullptr, nullptr);
 
+    builder.create<emitpy::ImportOp>(module->getLoc(), "utils", nullptr,
+                                     nullptr, nullptr, nullptr);
+
     // Unwrap device_module into top-level ModuleOp (if present)
     {
       OpPassManager pm(ModuleOp::getOperationName());
