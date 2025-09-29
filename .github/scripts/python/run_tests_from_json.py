@@ -40,10 +40,10 @@ def main(machine, image, jobid):
 
         start_time = time.time()
         try:
-            perf_report_path = f"{work_dir}/perf_reports/perf_{machine}_{image}_{test_no}_{hash}_{jobid}"
+            ttrt_report_path = f"{work_dir}/ttrt_results/{machine}_{image}_{test_no}_{hash}_{jobid}.json"
             test_report_path = f"{work_dir}/test_reports/report_{machine}_{image}_{test_no}_{hash}_{jobid}.xml"
             env = os.environ.copy()
-            env["PERF_REPORT_PATH"] = perf_report_path
+            env["TTRT_REPORT_PATH"] = ttrt_report_path
             env["TEST_REPORT_PATH"] = test_report_path
             print(
                 f"\033[1;96m====================================\n\033[1;96mRunning test {test_no}-{hash}:\n\033[1;96m{hash_string}\n\033[1;96m{cmd}\n\033[1;96m====================================\n\n\n\n\033[0m"

@@ -3,5 +3,5 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-llvm-lit -sv $BUILD_DIR/test/ttmlir/EmitC/TTNN
+llvm-lit -sv --xunit-xml-output $TEST_REPORT_PATH $BUILD_DIR/test/ttmlir/EmitC/TTNN
 ttrt run --emitc $BUILD_DIR/test/ttmlir/$1

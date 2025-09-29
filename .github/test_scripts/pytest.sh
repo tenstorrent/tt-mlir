@@ -10,6 +10,7 @@
 if [ -n "$3" ]; then
     eval "pip install $3"
 fi
-export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=$BUILD_DIR/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
+export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=$BUILD_DIR/test/ttmlir/Silicon/TTNN/n150/perf,$BUILD_DIR/test/python/golden/ttnn
 export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=$BUILD_DIR/test/python/golden/ttnn
+echo "Build dir: $BUILD_DIR"
 pytest -ssv $1 $2 --junit-xml=$TEST_REPORT_PATH
