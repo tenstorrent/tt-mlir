@@ -53,7 +53,7 @@ public:
 };
 } // namespace
 
-// EltwiseUnaryOp conversion pattern
+// EltwiseUnaryOp conversion pattern.
 //
 namespace {
 template <typename TTNNOpTy, typename OpAdaptor = typename TTNNOpTy::Adaptor>
@@ -84,7 +84,7 @@ public:
 };
 } // namespace
 
-// EltwiseUnaryWithFastAndApproximateModeOp conversion pattern
+// EltwiseUnaryWithFastAndApproximateModeOp conversion pattern.
 //
 namespace {
 template <typename TTNNOpTy, typename OpAdaptor = typename TTNNOpTy::Adaptor>
@@ -116,7 +116,7 @@ public:
 };
 } // namespace
 
-// EltwiseUnaryWithVectorAndFastAndApproximateModeOp conversion pattern
+// EltwiseUnaryWithVectorAndFastAndApproximateModeOp conversion pattern.
 //
 namespace {
 template <typename TTNNOpTy, typename OpAdaptor = typename TTNNOpTy::Adaptor>
@@ -150,7 +150,7 @@ public:
 };
 } // namespace
 
-// EltwiseBinaryOp conversion pattern
+// EltwiseBinaryOp conversion pattern.
 //
 namespace {
 template <typename TTNNOpTy, typename OpAdaptor = typename TTNNOpTy::Adaptor>
@@ -183,7 +183,7 @@ public:
 };
 } // namespace
 
-// EltwiseBinaryCompositeOp conversion pattern
+// EltwiseBinaryCompositeOp conversion pattern.
 //
 namespace {
 template <typename TTNNOpTy, typename OpAdaptor = typename TTNNOpTy::Adaptor>
@@ -215,7 +215,7 @@ public:
 };
 } // namespace
 
-// EltwiseBinaryCompositeWithDTypeOp conversion pattern
+// EltwiseBinaryCompositeWithDTypeOp conversion pattern.
 //
 namespace {
 template <typename TTNNOpTy, typename OpAdaptor = typename TTNNOpTy::Adaptor>
@@ -286,7 +286,7 @@ public:
 };
 } // namespace
 
-// ConstantOp conversion pattern
+// ConstantOp conversion pattern.
 //
 namespace {
 class ConstantOpConversionPattern
@@ -326,7 +326,7 @@ public:
 };
 } // namespace
 
-// MatmulOp conversion pattern
+// MatmulOp conversion pattern.
 //
 namespace {
 class MatmulOpConversionPattern
@@ -359,7 +359,41 @@ public:
 };
 } // namespace
 
-// MaxPool2dOp conversion pattern
+// LinearOp conversion pattern.
+//
+namespace {
+class LinearOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::LinearOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::LinearOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LinearOp linearOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LinearOp> emitter(
+        linearOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(linearOp.getA()),
+        emitter.emit(linearOp.getB()),
+        emitter.emit(linearOp.getBias()),
+        emitter.emit(linearOp.getTransposeA(), "transpose_a"),
+        emitter.emit(linearOp.getTransposeB(), "transpose_b"),
+        emitter.emit(std::nullopt |
+                         emitter.getMemoryConfig(linearOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// MaxPool2dOp conversion pattern.
 //
 namespace {
 class MaxPool2dOpConversionPattern
@@ -434,7 +468,7 @@ public:
 };
 } // namespace
 
-// arith::ConstantOp conversion pattern
+// arith::ConstantOp conversion pattern.
 //
 namespace {
 class ArithConstantOpConversionPattern
@@ -458,7 +492,7 @@ public:
 };
 } // namespace
 
-// DeallocateOp conversion pattern
+// DeallocateOp conversion pattern.
 //
 namespace {
 class DeallocateOpConversionPattern
@@ -487,7 +521,7 @@ public:
 };
 } // namespace
 
-// mlir::tt::ttcore::DeviceOp conversion pattern
+// mlir::tt::ttcore::DeviceOp conversion pattern.
 //
 namespace {
 struct TTDeviceOpConversionPattern
@@ -504,7 +538,7 @@ struct TTDeviceOpConversionPattern
 };
 } // namespace
 
-// GetDeviceOp conversion pattern
+// GetDeviceOp conversion pattern.
 //
 namespace {
 class GetDeviceOpConversionPattern
@@ -535,7 +569,7 @@ public:
 };
 } // namespace
 
-// ToDeviceOp conversion pattern
+// ToDeviceOp conversion pattern.
 //
 namespace {
 class ToDeviceOpConversionPattern
@@ -567,7 +601,7 @@ public:
 };
 } // namespace
 
-// FromDeviceOp conversion pattern
+// FromDeviceOp conversion pattern.
 //
 namespace {
 class FromDeviceOpConversionPattern
@@ -595,7 +629,7 @@ public:
 };
 } // namespace
 
-// TypecastOp conversion pattern
+// TypecastOp conversion pattern.
 //
 namespace {
 class TypecastOpConversionPattern
@@ -626,7 +660,7 @@ public:
 };
 } // namespace
 
-// ToDTypeOp conversion pattern
+// ToDTypeOp conversion pattern.
 //
 namespace {
 class ToDTypeOpConversionPattern
@@ -655,7 +689,7 @@ public:
 };
 } // namespace
 
-// ToLayoutOp conversion pattern
+// ToLayoutOp conversion pattern.
 //
 namespace {
 class ToLayoutOpConversionPattern
@@ -688,7 +722,7 @@ public:
 };
 } // namespace
 
-// FullOp conversion pattern
+// FullOp conversion pattern.
 //
 namespace {
 class FullOpConversionPattern
@@ -778,7 +812,7 @@ public:
 };
 } // namespace
 
-// ReductionOp conversion pattern
+// ReductionOp conversion pattern.
 //
 namespace {
 template <typename ReductionOp>
@@ -813,7 +847,7 @@ public:
 };
 } // namespace
 
-// Conv2dOp conversion pattern
+// Conv2dOp conversion pattern.
 //
 namespace {
 class Conv2dOpConversionPattern
@@ -870,7 +904,7 @@ public:
 };
 } // namespace
 
-// ReshapeOp conversion pattern
+// ReshapeOp conversion pattern.
 //
 namespace {
 class ReshapeOpConversionPattern
@@ -902,7 +936,7 @@ public:
 };
 } // namespace
 
-// RepeatOp conversion pattern
+// RepeatOp conversion pattern.
 //
 namespace {
 class RepeatOpConversionPattern
@@ -931,7 +965,7 @@ public:
 };
 } // namespace
 
-// ConcatOp conversion pattern
+// ConcatOp conversion pattern.
 //
 namespace {
 class ConcatOpConversionPattern
@@ -962,7 +996,7 @@ public:
 };
 } // namespace
 
-// PermuteOp conversion pattern
+// PermuteOp conversion pattern.
 //
 namespace {
 class PermuteOpConversionPattern
@@ -994,7 +1028,7 @@ public:
 };
 } // namespace
 
-// EmbeddingOp conversion pattern
+// EmbeddingOp conversion pattern.
 //
 namespace {
 class EmbeddingOpConversionPattern
@@ -1022,7 +1056,7 @@ public:
 };
 } // namespace
 
-// SliceStaticOp conversion pattern
+// SliceStaticOp conversion pattern.
 //
 namespace {
 class SliceStaticOpConversionPattern
@@ -1163,7 +1197,7 @@ public:
 };
 } // namespace
 
-// GetTupleElementOp conversion pattern
+// GetTupleElementOp conversion pattern.
 //
 namespace {
 class GetTupleElementOpConversionPattern
@@ -1193,7 +1227,7 @@ public:
 };
 } // namespace
 
-// TupleOp conversion pattern
+// TupleOp conversion pattern.
 //
 namespace {
 class TupleOpConversionPattern
@@ -1214,7 +1248,7 @@ public:
 };
 } // namespace
 
-// LoadCached Op conversion pattern
+// LoadCached Op conversion pattern.
 //
 // This op is worked around - it only calls the consteval fn, but there is no
 // caching.
@@ -1281,7 +1315,7 @@ public:
 };
 } // namespace
 
-// ModuleOp conversion pattern
+// ModuleOp conversion pattern.
 //
 // This conversion pattern removes attributes from the ModuleOp.
 //
@@ -1357,7 +1391,7 @@ public:
 };
 } // namespace
 
-// NLPConcatHeadsOp conversion pattern
+// NLPConcatHeadsOp conversion pattern.
 //
 namespace {
 class NLPConcatHeadsOpConversionPattern
@@ -1388,7 +1422,7 @@ public:
 };
 } // namespace
 
-// NLPConcatHeadsDecodeOp conversion pattern
+// NLPConcatHeadsDecodeOp conversion pattern.
 //
 namespace {
 class NLPConcatHeadsDecodeOpConversionPattern
@@ -1451,7 +1485,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Matmul ops
   //
   // clang-format off
-  patterns.add<MatmulOpConversionPattern>(typeConverter, ctx);
+  patterns.add<MatmulOpConversionPattern,
+               LinearOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // Reduction ops
