@@ -423,6 +423,47 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
       });
 }
 
+// Helper function to extract constant value.
+static mlir::Attribute getConstantAttr(mlir::Value value) {
+  mlir::Operation *op = value.getDefiningOp();
+  while (mlir::isa_and_present<mlir::tt::ttir::BroadcastOp,
+                               mlir::tt::ttir::ReshapeOp,
+                               mlir::tt::ttir::TypecastOp>(op)) {
+    op = op->getOperand(0).getDefiningOp();
+  }
+
+  auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(op);
+  if (!fullOp) {
+    return {};
+  }
+
+  mlir::Attribute fillValueAttr = fullOp.getFillValueAttr();
+
+  if (!isa<FloatAttr>(fillValueAttr) && !isa<IntegerAttr>(fillValueAttr)) {
+    return {};
+  }
+  return fillValueAttr;
+}
+
+void mlir::tt::ttir::PowOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(+[](mlir::tt::ttir::PowOp op, mlir::PatternRewriter &rewriter) {
+    RankedTensorType outputType = op.getResult().getType();
+
+    mlir::Attribute exponent = getConstantAttr(op->getOperand(1));
+    if (!exponent) {
+      return mlir::failure();
+    }
+
+    ttir::utils::replaceOpWithNewDPSOp<ttir::PowScalarOp>(
+        rewriter, op, outputType, op->getOperand(0), exponent);
+
+    return mlir::success();
+  });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
 //===----------------------------------------------------------------------===//
 // ArangeOp
 //===----------------------------------------------------------------------===//

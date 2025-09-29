@@ -1741,6 +1741,51 @@ def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow"> {
 
       Mathematical definition: pow(x, y) = x^y
     }];
+
+    let hasCanonicalizer = 1;
+}
+
+def TTIR_PowScalarOp : TTIR_NamedOp<"pow_scalar", [TTIR_ElementwiseUnary]> {
+  let summary = "Elementwise power operation.";
+  let description = [{
+    The `pow` operation performs an elementwise exponentiation between two tensors.
+
+    For each pair of corresponding elements, it raises the element in the first tensor (base)
+    to the power of the element in the second tensor (exponent) and places the result in the
+    output tensor.
+
+    Example:
+    ```mlir
+    // Power operation
+    %result = ttir.pow(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+    // Input tensors:
+    // %lhs: [2.0, 3.0, 4.0]  // Bases
+    // %rhs: [2.0, 2.0, 0.5]  // Exponents
+    // Output tensor:
+    // [4.0, 9.0, 2.0]
+
+    // Example with integer values
+    %result = ttir.pow(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+    // Input tensors:
+    // %int_lhs: [2, 3, 5]
+    // %int_rhs: [3, 2, 1]
+    // Output tensor:
+    // [8, 9, 5]
+    ```
+
+    Special cases:
+    - 0^0 is typically defined as 1
+    - For integer types, negative bases with non-integer exponents may result in complex numbers,
+      which are typically not supported and may result in undefined behavior
+
+    Mathematical definition: pow(x, y) = x^y
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output,
+                       AnyAttrOf<[F32Attr, I32Attr]>:$exponent);
+
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {

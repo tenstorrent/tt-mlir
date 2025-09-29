@@ -536,6 +536,24 @@ public:
 } // namespace
 
 namespace {
+class PowScalarOpConversionPattern
+    : public OpConversionPattern<ttir::PowScalarOp> {
+public:
+  using OpConversionPattern<ttir::PowScalarOp>::OpConversionPattern;
+  // using OpAdaptor = typename TTIROpTy::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(ttir::PowScalarOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::PowScalarOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getExponent(), nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class UpdateCacheOpConversionPattern
     : public OpConversionPattern<ttir::UpdateCacheOp> {
 public:
@@ -1978,6 +1996,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            BroadcastOpConversionPattern,
            PadOpConversionPattern,
+           PowScalarOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
            RepeatOpConversionPattern,

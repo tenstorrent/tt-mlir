@@ -24,6 +24,7 @@
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
+#include "ttmlir/Target/TTNN/operations/eltwise_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
@@ -1056,6 +1057,33 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
 
   return ::tt::target::ttnn::CreateEltwiseBinaryCompositeOp(
       *cache.fbb, type, lhs, rhs, memoryConfig, out);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::PowScalarOp>
+createPowScalarOp(FlatbufferObjectCache &cache, PowScalarOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  ::tt::target::ttnn::ExponentType exponentType;
+  ::flatbuffers::Offset<void> exponent;
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getExponent())) {
+    exponentType = ::tt::target::ttnn::ExponentType::FP;
+    exponent = ::tt::target::ttnn::CreateFloatingPointType(
+                   *cache.fbb, floatAttr.getValue().convertToFloat())
+                   .Union();
+  } else if (auto integerAttr =
+                 mlir::dyn_cast<mlir::IntegerAttr>(op.getExponent())) {
+    exponentType = ::tt::target::ttnn::ExponentType::UI32;
+    exponent = ::tt::target::ttnn::CreateIntegralType(
+                   *cache.fbb, integerAttr.getValue().getSExtValue())
+                   .Union();
+  } else {
+    llvm_unreachable("fill value must be float or integer");
+  }
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  return ::tt::target::ttnn::CreatePowScalarOp(*cache.fbb, in, exponentType,
+                                               exponent, memoryConfig, out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseTernaryWhereOp>
@@ -2329,6 +2357,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto powOp = dyn_cast<PowOp>(op); powOp) {
     return createOperation(cache, createEltwiseBinaryCompositeOp(cache, powOp),
+                           debugString, locInfo);
+  }
+  if (auto powScalarOp = dyn_cast<PowScalarOp>(op); powScalarOp) {
+    return createOperation(cache, createPowScalarOp(cache, powScalarOp),
                            debugString, locInfo);
   }
   if (auto remainderOp = dyn_cast<RemainderOp>(op); remainderOp) {
