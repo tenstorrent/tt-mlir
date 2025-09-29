@@ -58,14 +58,19 @@ table UIntegralType {
   value: uint32;
 }
 
-union ExponentType {
+union rhsParams {
   FP: FloatingPointType,
   UI32: UIntegralType,
 }
 
-table PowScalarOp {
-  input: tt.target.ttnn.TensorRef;  // lhs
-  exponent: ExponentType;           // rhs
+enum EltwiseBinaryCompositeParamsOpType: uint32 {
+  PowScalar,
+}
+
+table EltwiseBinaryCompositeParamsOp {
+  type: EltwiseBinaryCompositeParamsOpType;
+  lhs: tt.target.ttnn.TensorRef;
+  rhs: rhsParams;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }

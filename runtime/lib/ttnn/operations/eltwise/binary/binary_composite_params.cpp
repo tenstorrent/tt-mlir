@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-#include "operations/eltwise/binary/pow_scalar.h"
+#include "operations/eltwise/binary/binary_composite_params.h"
 #include "operations/data_movement/scatter.h"
 #include "operations/eltwise/binary/binary.h"
 #include "tt/runtime/detail/common/logger.h"
@@ -13,10 +13,10 @@
 
 namespace tt::runtime::ttnn::operations::eltwise::binary {
 
-static void run(const ::tt::target::ttnn::PowScalarOp *op, auto &&exponent,
-                ProgramContext &context) {
+static void run(const ::tt::target::ttnn::EltwiseBinaryCompositeParamsOp *op,
+                auto &&exponent, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  ::ttnn::Tensor *input = &(tensorPool.getTTNNTensorAndValidate(op->input()));
+  ::ttnn::Tensor *input = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -30,13 +30,14 @@ static void run(const ::tt::target::ttnn::PowScalarOp *op, auto &&exponent,
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
-void run(const ::tt::target::ttnn::PowScalarOp *op, ProgramContext &context) {
-  switch (op->exponent_type()) {
-  case ::tt::target::ttnn::ExponentType::FP:
-    run(op, op->exponent_as_FP()->value(), context);
+void run(const ::tt::target::ttnn::EltwiseBinaryCompositeParamsOp *op,
+         ProgramContext &context) {
+  switch (op->rhs_type()) {
+  case ::tt::target::ttnn::rhsParams::FP:
+    run(op, op->rhs_as_FP()->value(), context);
     break;
-  case ::tt::target::ttnn::ExponentType::UI32:
-    run(op, op->exponent_as_UI32()->value(), context);
+  case ::tt::target::ttnn::rhsParams::UI32:
+    run(op, op->rhs_as_UI32()->value(), context);
     break;
   default:
     LOG_FATAL("unknown fill value type");
