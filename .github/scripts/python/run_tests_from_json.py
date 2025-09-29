@@ -7,8 +7,8 @@ import json
 import subprocess
 import sys
 import os
-import hashlib
 import time
+import test_common
 
 
 def main(machine, image, jobid):
@@ -31,9 +31,9 @@ def main(machine, image, jobid):
         path = test.get("path", "")
         args = test.get("args", "")
         flags = test.get("flags", "")
-        hash_string = f"{machine}-{image}-{test_type}-{path}-{args}-{flags}"
-        hash = hashlib.md5(hash_string.encode()).hexdigest()
+        hash, hash_string = test_common.compute_hash(test)
         test["hash"] = hash
+        test["hash_string"] = hash_string
 
         script_path = f".github/test_scripts/{test_type}.sh"
         cmd = [script_path, path, args, flags]
@@ -61,9 +61,10 @@ def main(machine, image, jobid):
             test["result"] = "ERROR"
 
         end_time = time.time()
-        test["duration"] = end_time - start_time
+        duration = end_time - start_time
+        test["duration"] = duration
         test["returncode"] = result.returncode
-        print("\n\n\n\n\n")
+        print(f" Test duration {duration}s\n\n\n\n\n")
         test_no = test_no + 1
 
     print(
@@ -75,9 +76,10 @@ def main(machine, image, jobid):
         for test in tests:
             result = test.get("result", "UNKNOWN")
             hash_val = test.get("hash", "")
+            hash_string = test.get("hash_string", "")
             duration = test.get("duration", 0)
-            f.write(f"{result} {hash_val} {duration:.2f}\n")
-            print(f"{result} {hash_val} {duration:.2f}")
+            f.write(f"{hash_val} {duration:.2f}\n")
+            print(f"{result} {hash_string} {duration:.2f}")
 
     print("\033[1;96m====================================")
     allpassed = all(test.get("returncode") == 0 for test in tests)

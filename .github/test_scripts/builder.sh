@@ -3,6 +3,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+# path: path to pytest test files
+# args: pytest marker expression to select tests to run
+# flags: "run-ttrt" or predefined additional flags for pytest and ttrt
+
 runttrt=""
 TTRT_ARGS=""
 PYTEST_ARGS=""

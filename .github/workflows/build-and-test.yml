@@ -98,7 +98,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          # { enable_op_model: ON, enable_emitc: ON, name: "speedy"},
+          { enable_op_model: ON, enable_emitc: ON, name: "speedy"},
           { enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy"},
         ]
 
@@ -182,27 +182,27 @@ jobs:
       matrix:
         build: [
           # [ type: "unit", path: "", args: "", flags: "" ],
-          # {runs-on: n150, image: "speedy",  test: [
-          #                                           { type: "unit" },
-          #                                           { type: "ttnn_standalone" },
-          #                                           { type: "ttrt", path: "Silicon", flags: "perf", args: "--non-zero" },
-          #                                           { type: "op_model", path: "Silicon/TTNN/n150/optimizer", args: "--non-zero" },
-          #                                           { type: "builder", path: "test/python/golden/optimizer", args: "not run_error and not fails_golden", flags: "run-ttrt require-opmodel" }
-          #                                         ]},
-          # {runs-on: n150, image: "tracy",   test: [
-          #                                           { type: "ttrt", path: "Silicon/TTNN/n150/perf", flags: "perf"},
-          #                                           { type: "ttrt", path: "Silicon/TTNN/n150/optimizer", flags: "perf"},
-          #                                           { type: "runtime_debug"},
-          #                                           { type: "emitc", path: "EmitC" },
-          #                                           { type: "pytest", path: "tools/ttrt/test" },
-          #                                           { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt" },
-          #                                           { type: "pytest", path: "tools/explorer/test/run_tests.py", flags: "--force-reinstall $BUILD_DIR/bin/wheels/tt_adapter*.whl $BUILD_DIR/bin/wheels/ai_edge_model_explorer*.whl" },
-          #                                           { type: "pytest", path: "runtime/test/ttnn/python/device_agnostic" },
-          #                                           { type: "pytest", path: "test/python/op_by_op" },
-          #                                           { type: "pytest", path: "runtime/tools/chisel/test", flags: "-e runtime/tools/chisel/" },
-          #                                           { type: "pykernel"}
-          #                                         ]},
-          # {runs-on: n300,  image: "speedy", test: [ { type: "ttrt", path: "Silicon", flags: "run", args: "--non-zero"} ] },
+          {runs-on: n150, image: "speedy",  test: [
+                                                    { type: "unit" },
+                                                    { type: "ttnn_standalone" },
+                                                    { type: "ttrt", path: "Silicon", flags: "perf", args: "--non-zero" },
+                                                    { type: "op_model", path: "Silicon/TTNN/n150/optimizer", args: "--non-zero" },
+                                                    { type: "builder", path: "test/python/golden/optimizer", args: "not run_error and not fails_golden", flags: "run-ttrt require-opmodel" }
+                                                  ]},
+          {runs-on: n150, image: "tracy",   test: [
+                                                    { type: "ttrt", path: "Silicon/TTNN/n150/perf", flags: "perf"},
+                                                    { type: "ttrt", path: "Silicon/TTNN/n150/optimizer", flags: "perf"},
+                                                    { type: "runtime_debug"},
+                                                    { type: "emitc", path: "EmitC" },
+                                                    { type: "pytest", path: "tools/ttrt/test" },
+                                                    { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt" },
+                                                    { type: "pytest", path: "tools/explorer/test/run_tests.py", flags: "--force-reinstall $BUILD_DIR/bin/wheels/tt_adapter*.whl $BUILD_DIR/bin/wheels/ai_edge_model_explorer*.whl" },
+                                                    { type: "pytest", path: "runtime/test/ttnn/python/device_agnostic" },
+                                                    { type: "pytest", path: "test/python/op_by_op" },
+                                                    { type: "pytest", path: "runtime/tools/chisel/test", flags: "-e runtime/tools/chisel/" },
+                                                    { type: "pykernel"}
+                                                  ]},
+          {runs-on: n300,  image: "speedy", test: [ { type: "ttrt", path: "Silicon", flags: "run", args: "--non-zero"} ] },
           {runs-on: n300,  image: "tracy",  test: [
                                                     { type: "unit"},
                                                     { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt require-exact-mesh"},
@@ -210,12 +210,12 @@ jobs:
                                                     { type: "ttrt", path: "Silicon/TTNN/n300/perf", flags: "perf" },
                                                     { type: "pytest", path: "runtime/test/ttnn/python/multi_device" }
                                                   ]},
-          # {runs-on: llmbox, image: "speedy",test: [ { type: "ttrt", path: "Silicon", flags: "run", args: "--non-zero" } ] },
-          # {runs-on: llmbox, image: "tracy", test: [
-          #                                           { type: "ttrt", path: "Silicon/TTNN/llmbox/perf", flags: "perf" },
-          #                                           { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt require-exact-mesh" }
-          #                                          ]},
-          # {runs-on: p150, image: "tracy",   test: [ { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt disable-eth-dispatch require-exact-mesh" } ] }
+          {runs-on: llmbox, image: "speedy",test: [ { type: "ttrt", path: "Silicon", flags: "run", args: "--non-zero" } ] },
+          {runs-on: llmbox, image: "tracy", test: [
+                                                    { type: "ttrt", path: "Silicon/TTNN/llmbox/perf", flags: "perf" },
+                                                    { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt require-exact-mesh" }
+                                                   ]},
+          {runs-on: p150, image: "tracy",   test: [ { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt disable-eth-dispatch require-exact-mesh" } ] }
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
