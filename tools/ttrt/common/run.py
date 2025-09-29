@@ -683,13 +683,25 @@ class Run:
                     if self["--save-artifacts"]:
                         self.artifacts.create_binary_artifacts_folder(bin)
 
+                    compare_emitc = False
                     if self["--emitc"]:
                         # .so are compiled such that they have the same name as flatbuffers, so we rename here
                         emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
 
                         # Open the dylib
-                        emitc_dylib_handle = ttrt.runtime.test.open_so(emitc_dylib_path)
-                        self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
+                        if (
+                            os.path.exists(emitc_dylib_path)
+                            and ".ttnn" in emitc_dylib_path
+                        ):
+                            emitc_dylib_handle = ttrt.runtime.test.open_so(
+                                emitc_dylib_path
+                            )
+                            compare_emitc = True
+                            self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
+                        else:
+                            self.logging.debug(
+                                f"emitc dylib={emitc_dylib_path} not found, skipping comparison"
+                            )
 
                     program_indices = []
                     if self["--program-index"] == "all":
@@ -1087,7 +1099,7 @@ class Run:
                             ttrt.runtime.wait(event)
 
                         # Compare to EmitC
-                        if self["--emitc"]:
+                        if compare_emitc:
                             # Create symbol string to read from dylib
                             fwd_func_name = program.name
 
@@ -1200,7 +1212,7 @@ class Run:
                     bin.test_result = result
                 finally:
 
-                    if self["--emitc"]:
+                    if compare_emitc:
                         ttrt.runtime.test.close_so(emitc_dylib_handle)
 
                     ttrt.runtime.unregister_hooks()
