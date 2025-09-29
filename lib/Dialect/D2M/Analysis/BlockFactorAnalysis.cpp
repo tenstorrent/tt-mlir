@@ -11,22 +11,22 @@ BlockFactorAnalysis::analyzeGenericOp(GenericOp op) {
   SmallVector<BufferConfig> results;
 
   BufferConfig result;
-  result.operand_buffer_settings.reserve(op.getOperands().size());
-  result.predicted_runtime_cost = 0.0f;
+  result.operandBufferSettings.reserve(op.getOperands().size());
+  result.predictedRuntimeCost = 0.0f;
 
   SmallVector<SmallVector<int64_t>> operandShardShapes =
       op.getOperandShardShapes(/*convertTileToScalar=*/false);
   for (auto [operandIndex, operand] : llvm::enumerate(op.getOperands())) {
     size_t num_buffers =
-        (constraints.buffering_strategy ==
+        (constraints.bufferingStrategy ==
          BlockFactorAnalysisConstraints::BufferStrategy::DoubleBuffered)
             ? 2
             : 1;
 
     BufferSetting bufferSetting;
-    bufferSetting.buffer_shape = operandShardShapes[operandIndex];
-    bufferSetting.num_buffers = num_buffers;
-    result.operand_buffer_settings.push_back(bufferSetting);
+    bufferSetting.bufferShape = operandShardShapes[operandIndex];
+    bufferSetting.numBuffers = num_buffers;
+    result.operandBufferSettings.push_back(bufferSetting);
   }
 
   results.push_back(result);

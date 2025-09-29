@@ -20,7 +20,7 @@ namespace mlir::tt::d2m {
 
 struct BlockFactorAnalysisConstraints {
   enum class BufferStrategy : uint32_t { SingleBuffered, DoubleBuffered };
-  BufferStrategy buffering_strategy = BufferStrategy::DoubleBuffered;
+  BufferStrategy bufferingStrategy = BufferStrategy::DoubleBuffered;
 };
 
 /// Analysis for determining buffer configuration options for ttir::GenericOp
@@ -32,15 +32,15 @@ class BlockFactorAnalysis {
 public:
   /// Buffer settings for a single operand.
   struct BufferSetting {
-    SmallVector<int64_t> buffer_shape; // in terms of elements
-    size_t num_buffers;
+    SmallVector<int64_t> bufferShape; // in terms of elements
+    size_t numBuffers;
   };
 
   /// Buffer configuration options for a single GenericOp.
   struct BufferConfig {
     /// Buffer settings indexed by operand index of the associated GenericOp.
-    SmallVector<BufferSetting> operand_buffer_settings;
-    float predicted_runtime_cost = 0.0f;
+    SmallVector<BufferSetting> operandBufferSettings;
+    float predictedRuntimeCost = 0.0f;
   };
 
   BlockFactorAnalysis() = default;

@@ -174,15 +174,15 @@ TEST_F(BlockFactorAnalysisTest,
   EXPECT_FALSE(bufferConfigs1.empty());
   if (!bufferConfigs1.empty()) {
     const auto &config1 = bufferConfigs1[0];
-    EXPECT_EQ(config1.operand_buffer_settings.size(),
+    EXPECT_EQ(config1.operandBufferSettings.size(),
               3u); // 2 inputs + 1 output
 
     // Verify all operands have buffer settings
-    for (const auto &setting : config1.operand_buffer_settings) {
-      EXPECT_FALSE(setting.buffer_shape.empty());
-      EXPECT_GT(setting.num_buffers, 0u);
+    for (const auto &setting : config1.operandBufferSettings) {
+      EXPECT_FALSE(setting.bufferShape.empty());
+      EXPECT_GT(setting.numBuffers, 0u);
     }
-    EXPECT_EQ(config1.operand_buffer_settings[0].buffer_shape,
+    EXPECT_EQ(config1.operandBufferSettings[0].bufferShape,
               (llvm::SmallVector<int64_t>{2, 4}));
   }
 }
@@ -198,14 +198,14 @@ TEST_F(BlockFactorAnalysisTest,
   EXPECT_FALSE(bufferConfigs2.empty());
   if (!bufferConfigs2.empty()) {
     const auto &config2 = bufferConfigs2[0];
-    EXPECT_EQ(config2.operand_buffer_settings.size(), 3u);
+    EXPECT_EQ(config2.operandBufferSettings.size(), 3u);
 
     // Verify buffer configurations are reasonable
-    for (const auto &setting : config2.operand_buffer_settings) {
-      EXPECT_FALSE(setting.buffer_shape.empty());
-      EXPECT_GT(setting.num_buffers, 0u);
+    for (const auto &setting : config2.operandBufferSettings) {
+      EXPECT_FALSE(setting.bufferShape.empty());
+      EXPECT_GT(setting.numBuffers, 0u);
     }
-    EXPECT_EQ(config2.operand_buffer_settings[0].buffer_shape,
+    EXPECT_EQ(config2.operandBufferSettings[0].bufferShape,
               (llvm::SmallVector<int64_t>{2, 4}));
   }
 }
@@ -221,14 +221,14 @@ TEST_F(BlockFactorAnalysisTest,
   EXPECT_FALSE(bufferConfigs3.empty());
   if (!bufferConfigs3.empty()) {
     const auto &config3 = bufferConfigs3[0];
-    EXPECT_EQ(config3.operand_buffer_settings.size(), 3u);
+    EXPECT_EQ(config3.operandBufferSettings.size(), 3u);
 
     // Verify buffer configurations
-    for (const auto &setting : config3.operand_buffer_settings) {
-      EXPECT_FALSE(setting.buffer_shape.empty());
-      EXPECT_GT(setting.num_buffers, 0u);
+    for (const auto &setting : config3.operandBufferSettings) {
+      EXPECT_FALSE(setting.bufferShape.empty());
+      EXPECT_GT(setting.numBuffers, 0u);
     }
-    EXPECT_EQ(config3.operand_buffer_settings[0].buffer_shape,
+    EXPECT_EQ(config3.operandBufferSettings[0].bufferShape,
               (llvm::SmallVector<int64_t>{2, 2}));
   }
 }
@@ -243,8 +243,8 @@ TEST_F(BlockFactorAnalysisTest, CanAnalyzeBufferingStrategies) {
   auto bufferConfigsSingle = analysisSingle.analyzeGenericOp(genericOp);
 
   EXPECT_FALSE(bufferConfigsSingle.empty());
-  for (const auto &setting : bufferConfigsSingle[0].operand_buffer_settings) {
-    EXPECT_EQ(setting.num_buffers, 1u);
+  for (const auto &setting : bufferConfigsSingle[0].operandBufferSettings) {
+    EXPECT_EQ(setting.numBuffers, 1u);
   }
 
   Constraints doubleBufferConstraints{
@@ -254,9 +254,9 @@ TEST_F(BlockFactorAnalysisTest, CanAnalyzeBufferingStrategies) {
 
   EXPECT_FALSE(bufferConfigsDouble.empty());
   const auto &configDouble = bufferConfigsDouble[0];
-  EXPECT_EQ(configDouble.operand_buffer_settings.size(), 3u);
-  for (const auto &setting : configDouble.operand_buffer_settings) {
-    EXPECT_EQ(setting.num_buffers, 2u);
+  EXPECT_EQ(configDouble.operandBufferSettings.size(), 3u);
+  for (const auto &setting : configDouble.operandBufferSettings) {
+    EXPECT_EQ(setting.numBuffers, 2u);
   }
 }
 
