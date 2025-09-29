@@ -2067,6 +2067,7 @@ public:
       if (conv2dWithMultiplyEnabled) {
         patterns.add<Conv2dWithMultiply>(&getContext());
         patterns.add<ConvolutionWithMultiply>(&getContext());
+        patterns.add<BatchNormDecomposition>(&getContext());
       }
       patterns.add<CacheFillUpdatePattern>(&getContext());
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
@@ -2074,11 +2075,10 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
-      patterns.add<GlobalAveragePoolingPattern>(&getContext());
-
-      if (conv2dWithMultiplyEnabled) {
-        patterns.add<BatchNormDecomposition>(&getContext());
+      if (globalPoolFusingEnabled) {
+        patterns.add<GlobalAveragePoolingPattern>(&getContext());
       }
+
       patterns.add<GeluFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
