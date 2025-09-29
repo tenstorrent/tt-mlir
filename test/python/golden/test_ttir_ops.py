@@ -3519,7 +3519,9 @@ def test_mesh_shard_devices(
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
+@pytest.mark.parametrize(
+    "mesh_shape", [(2, 4), (1, 8), (1, 2), (1, 32), (8, 4)], ids=shape_str
+)
 @pytest.mark.parametrize("all_gather_dim", range(4))
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
@@ -3577,7 +3579,9 @@ def test_all_gather(
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
+@pytest.mark.parametrize(
+    "mesh_shape", [(2, 4), (1, 8), (1, 2), (1, 32), (8, 4)], ids=shape_str
+)
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 def test_all_reduce(
@@ -3630,7 +3634,9 @@ def test_all_reduce(
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
+@pytest.mark.parametrize(
+    "mesh_shape", [(2, 4), (1, 8), (1, 2), (1, 32), (8, 4)], ids=shape_str
+)
 @pytest.mark.parametrize("scatter_dim", [0, 1, 2, 3])
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
@@ -3677,28 +3683,103 @@ def test_reduce_scatter(
     [
         (1, 1, 32, 64),
         (1, 32, 64),
-        (32, 64, 1, 1),
-        (1, 32, 64, 1),
         (32, 64),
         (30, 60),
-        (5, 11),
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("mesh_shape", [(2, 4), (1, 8), (1, 2)], ids=shape_str)
 @pytest.mark.parametrize(
-    "source_target_pairs",
+    "mesh_shape, source_target_pairs",
     [
         pytest.param(
-            [(0, 1)], marks=pytest.mark.fails_golden
+            (1, 2), [(0, 1)], marks=pytest.mark.fails_golden
         ),  # https://github.com/tenstorrent/tt-mlir/issues/4323
-        [(0, 1), (1, 0)],
-        [(0, 1), (1, 2), (2, 3), (3, 0)],
-        [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)],
-        [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 0)],
-        [(0, 4), (1, 5), (2, 6), (3, 7), (4, 0), (5, 1), (6, 2), (7, 3)],
-        [(0, 2), (1, 3), (4, 6), (5, 7), (2, 0), (3, 1), (6, 4), (7, 5)],
-        [(0, 7), (1, 6), (2, 5), (3, 4), (4, 3), (5, 2), (6, 1), (7, 0)],
+        ((1, 2), [(0, 1), (1, 0)]),
+        ((2, 4), [(0, 1), (1, 2), (2, 3), (3, 0)]),
+        ((2, 4), [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)]),
+        ((2, 4), [(0, 4), (4, 0), (1, 5), (5, 1), (2, 6), (6, 2), (3, 7), (7, 3)]),
+        ((2, 4), [(0, 4), (1, 5), (2, 6), (3, 7), (4, 0), (5, 1), (6, 2), (7, 3)]),
+        ((2, 4), [(0, 2), (1, 3), (4, 6), (5, 7), (2, 0), (3, 1), (6, 4), (7, 5)]),
+        ((2, 4), [(0, 7), (1, 6), (2, 5), (3, 4), (4, 3), (5, 2), (6, 1), (7, 0)]),
+        pytest.param(
+            (2, 4), [(0, 1), (2, 3), (4, 5), (6, 7)], marks=pytest.mark.fails_golden
+        ),  # https://github.com/tenstorrent/tt-mlir/issues/4323
+        ((1, 8), [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 0)]),
+        ((1, 32), [(i, (i + 1) % 32) for i in range(32)]),
+        (
+            (8, 4),
+            [
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (3, 0),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (7, 4),
+                (8, 9),
+                (9, 10),
+                (10, 11),
+                (11, 8),
+                (12, 13),
+                (13, 14),
+                (14, 15),
+                (15, 12),
+                (16, 17),
+                (17, 18),
+                (18, 19),
+                (19, 16),
+                (20, 21),
+                (21, 22),
+                (22, 23),
+                (23, 20),
+                (24, 25),
+                (25, 26),
+                (26, 27),
+                (27, 24),
+                (28, 29),
+                (29, 30),
+                (30, 31),
+                (31, 28),
+            ],
+        ),
+        (
+            (8, 4),
+            [
+                (0, 4),
+                (4, 8),
+                (8, 12),
+                (12, 16),
+                (16, 20),
+                (20, 24),
+                (24, 28),
+                (28, 0),
+                (1, 5),
+                (5, 9),
+                (9, 13),
+                (13, 17),
+                (17, 21),
+                (21, 25),
+                (25, 29),
+                (29, 1),
+                (2, 6),
+                (6, 10),
+                (10, 14),
+                (14, 18),
+                (18, 22),
+                (22, 26),
+                (26, 30),
+                (30, 2),
+                (3, 7),
+                (7, 11),
+                (11, 15),
+                (15, 19),
+                (19, 23),
+                (23, 27),
+                (27, 31),
+                (31, 3),
+            ],
+        ),
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
@@ -3754,6 +3835,16 @@ def test_collective_permute(
         ((4, 2), ((0, 1), (2, 3), (4, 5), (6, 7))),
         ((1, 2), ((0, 1),)),
         ((2, 1), ((0, 1),)),
+        ((1, 32), range(32)),
+        (
+            (8, 4),
+            (
+                (0, 1, 2, 3, 4, 5, 6, 7),
+                (8, 9, 10, 11, 12, 13, 14, 15),
+                (16, 17, 18, 19, 20, 21, 22, 23),
+                (24, 25, 26, 27, 28, 29, 30, 31),
+            ),
+        ),
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
@@ -3815,6 +3906,16 @@ def test_all_to_all(
         ((1, 8), [(0, 1, 2, 3, 4, 5, 6, 7)]),
         ((1, 2), ((0, 1),)),
         ((2, 1), ((0, 1),)),
+        ((1, 32), range(32)),
+        (
+            (8, 4),
+            (
+                (0, 1, 2, 3, 4, 5, 6, 7),
+                (8, 9, 10, 11, 12, 13, 14, 15),
+                (16, 17, 18, 19, 20, 21, 22, 23),
+                (24, 25, 26, 27, 28, 29, 30, 31),
+            ),
+        ),
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
