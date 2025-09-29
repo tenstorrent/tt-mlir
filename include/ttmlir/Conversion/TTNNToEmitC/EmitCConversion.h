@@ -1401,14 +1401,26 @@ public:
     return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
   }
 
-  mlir::Attribute emit(mlir::Value val) {
+  // The `val` should be either an operand of the current source operation, in
+  // which case `index` should be nullopt, and the index it's found in the
+  // operands list. If `index` is provided, it means that the `val` is not an
+  // operand of the current source operation, and it is added as-is. Note that
+  // providing an `index` for an operand of the current source operation will
+  // result in an error.
+  mlir::Attribute emit(mlir::Value val,
+                       std::optional<uint32_t> index = std::nullopt) {
     if (!val) {
       return emit(std::nullopt);
     }
 
-    unsigned index = getOperandIndex(val);
-    operands.push_back(adaptor.getOperands()[index]);
-    return rewriter.getIndexAttr(index);
+    if (index) {
+      operands.push_back(val);
+      return rewriter.getIndexAttr(*index);
+    }
+
+    unsigned trueIndex = getOperandIndex(val);
+    operands.push_back(adaptor.getOperands()[trueIndex]);
+    return rewriter.getIndexAttr(trueIndex);
   }
 
   mlir::Attribute emit(mlir::Operation::operand_range operands) {

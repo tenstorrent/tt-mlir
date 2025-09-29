@@ -3232,6 +3232,9 @@ public:
   matchAndRewrite(mlir::tt::ttnn::UpdateCacheOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::UpdateCacheOp> emitter(
+        srcOp, adaptor, rewriter);
+
     // The `update_index` is modeled as a tensor in the IR, but the
     // `ttnn::update_cache` expects a `uint32_t` scalar.
     auto updateIndex =
@@ -3244,27 +3247,13 @@ public:
             .getResult(0);
 
     llvm::SmallVector<mlir::Attribute> args{
-        rewriter.getIndexAttr(0),
-        rewriter.getIndexAttr(1),
-        rewriter.getIndexAttr(2),
-        rewriter.getAttr<emitc::OpaqueAttr>(
-            std::to_string(adaptor.getBatchOffset())),
+        emitter.emit(srcOp.getCache()),
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(updateIndex, /*index=*/2),
+        emitter.emit(srcOp.getBatchOffset()),
     };
 
-    llvm::SmallVector<mlir::Value> operands{
-        adaptor.getCache(),
-        adaptor.getInput(),
-        updateIndex,
-    };
-
-    auto resultTypes = llvm::to_vector(
-        llvm::map_range(srcOp->getResultTypes(), [&](Type type) -> Type {
-          return getTypeConverter()->convertType(type);
-        }));
-
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, resultTypes, convertOpName(srcOp), rewriter.getArrayAttr(args),
-        /*template_args=*/nullptr, operands);
+    emitter.replaceOp(*this, args);
 
     return success();
   }
