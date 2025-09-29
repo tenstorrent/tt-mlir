@@ -13,7 +13,6 @@ namespace tt::runtime::ttnn::operations::eltwise::binary {
 void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
          ProgramContext &context);
 
-void run(const ::tt::target::ttnn::PowScalarOp *op, ProgramContext &context);
 } // namespace tt::runtime::ttnn::operations::eltwise::binary
 
 #endif
