@@ -1157,7 +1157,6 @@ public:
     this->overrideDeviceShape = options.overrideDeviceShape;
     this->ttnnMode = options.ttnnMode;
     this->collapseTensorsTo2D = options.collapseTensorsTo2D;
-    this->ttnnMode = options.ttnnMode;
   }
 
   TTIRToD2MPass(const TTIRToD2MPass &rhs) : Base(rhs) {
