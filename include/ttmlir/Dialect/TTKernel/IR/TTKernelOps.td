@@ -2468,9 +2468,14 @@ def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]
       ```mlir
       ttkernel.dprint("virtY {} virtX {} addr {}\\n", %14, %15, %13) : (index, index, i32)
       ```
+      Special case for CB details printing:
+      ```mlir
+      ttkernel.dprint("", %cb) : (!ttkernel.cb<memref<32x32xf32, #l1_>>)
+      ```
       Notes:
         - Only trivial format specifier currently supported, i.e. `{}`.
         - Must double escape newline character or other special characters.
+        - When format string is empty and single CB operand is provided, calls print_cb_details, printing underlying CB pointers and details.
     }];
     let arguments = (ins StrAttr:$fmt, Variadic<AnyType>:$argv);
 
