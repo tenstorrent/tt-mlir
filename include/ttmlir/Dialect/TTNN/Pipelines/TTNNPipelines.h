@@ -249,6 +249,12 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable Conv2dWithMultiply pattern in the fusing pass."),
       llvm::cl::init(false)};
 
+  Option<bool> enableFusingGlobalPoolPattern{
+      *this, "enable-fusing-global-avg-pool-pattern",
+      llvm::cl::desc(
+          "Enable GlobalAveragePoolingPattern pattern in the fusing pass."),
+      llvm::cl::init(false)};
+
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
           *this, ttcore::OptionNames::argumentTypes,
