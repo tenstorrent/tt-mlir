@@ -19,3 +19,11 @@ add_mlir_python_modules(TTPykernelModules
     INSTALL_PREFIX "python_packages/pykernel"
     DECLARED_SOURCES TTPykernelSources
 )
+
+add_dependencies(TTPykernelModules TTMLIRPythonModules)
+
+add_custom_target(pykernel COMMENT "pykernel" DEPENDS TTPykernelModules)
+
+if (TTMLIR_ENABLE_RUNTIME)
+  add_dependencies(pykernel TTMLIRRuntime)
+endif()
