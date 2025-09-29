@@ -3618,7 +3618,7 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
            << "both or neither of batch_offset and slice_size must be set";
   }
 
-  if (batchOffsetExists && getBatchOffset().getType().getNumElements() == 1) {
+  if (batchOffsetExists && getBatchOffset().getType().getNumElements() != 1) {
     return emitOpError() << "batch_offset must be a scalar, got shape ("
                          << ttmlir::utils::join(
                                 getBatchOffset().getType().getShape(), ", ")
