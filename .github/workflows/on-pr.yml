@@ -85,7 +85,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Check if the needed jobs succeeded or failed
+      id: check-jobs
       uses: re-actors/alls-green@release/v1
       with:
         allowed-skips: build-and-test
         jobs: ${{ toJSON(needs) }}
+    - name: Set test durations
+      if: !steps.check-jobs.outputs.failure
+      shell: bash
+      run: |
+        # if [ '${{ github.ref }}' == 'refs/heads/main' ]; then
+          echo "This is main branch, getting test durations"
+          rm -rf _test_durations_d
+          rm -rf _test_durations
+          gh run download $runid --repo tenstorrent/tt-mlir --name "test-durations*" --dir _test_durations_d
+          find _test_durations_d -name "_test_duration" -exec cat {} + > _test_durations
+          gh variable set test_durations --body "$(cat _test_durations)" --repo tenstorrent/tt-mlir
+          rm -rf _test_durations*
+        # fi

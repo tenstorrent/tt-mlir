@@ -6,9 +6,7 @@
 import hashlib
 
 
-def compute_hash(test):
-    machine = test.get("machine", "")
-    image = test.get("image", "")
+def compute_hash(test, machine, image):
     test_type = test.get("type", "")
     path = test.get("path", "")
     args = test.get("args", "")

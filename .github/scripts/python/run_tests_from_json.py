@@ -31,7 +31,7 @@ def main(machine, image, jobid):
         path = test.get("path", "")
         args = test.get("args", "")
         flags = test.get("flags", "")
-        hash, hash_string = test_common.compute_hash(test)
+        hash, hash_string = test_common.compute_hash(test, machine, image)
         test["hash"] = hash
         test["hash_string"] = hash_string
 
@@ -51,26 +51,29 @@ def main(machine, image, jobid):
             sys.stdout.flush()
             sys.stderr.flush()
             result = subprocess.run(cmd, check=True, env=env)
-            print(f"\033[92m SUCCESS running {script_path} \033[0m")
+            print(f"\n\033[92m SUCCESS running {script_path} \033[0m")
             test["result"] = "SUCCESS"
+            test["returncode"] = 0
         except subprocess.CalledProcessError as e:
-            print(f"\033[91m FAILED running {script_path}: {e}\033[0m")
-            test["result"] = "FAIL"
+            print(f"\n\033[91m FAILURE running {script_path}: {e}\033[0m")
+            test["result"] = "FAILURE"
+            test["returncode"] = e.returncode
         except FileNotFoundError:
-            print(f"\033[91m ERROR: Script {script_path} not found\033[0m")
+            print(f"\n\033[91m ERROR: Script {script_path} not found\033[0m")
             test["result"] = "ERROR"
+            test["returncode"] = 1
 
         end_time = time.time()
         duration = end_time - start_time
         test["duration"] = duration
-        test["returncode"] = result.returncode
-        print(f" Test duration {duration}s\n\n\n\n\n")
+        print(f" Test duration {duration:.2f}s\n\n\n\n\n")
         test_no = test_no + 1
 
     print(
         "\033[1;96m====================================\n\033[1;96m TEST SUMMARY \n\033[1;96m====================================\033[0m"
     )
     # Create _test_duration file with test results summary
+    allpassed = True
     duration_file = "_test_duration"
     with open(duration_file, "w") as f:
         for test in tests:
@@ -79,10 +82,11 @@ def main(machine, image, jobid):
             hash_string = test.get("hash_string", "")
             duration = test.get("duration", 0)
             f.write(f"{hash_val} {duration:.2f}\n")
-            print(f"{result} {hash_string} {duration:.2f}")
+            print(f"{result} {hash_string} done in {duration:.2f}s")
+            if test.get("returncode", 1) != 0:
+                allpassed = False
 
     print("\033[1;96m====================================")
-    allpassed = all(test.get("returncode") == 0 for test in tests)
     if allpassed:
         print("\033[92m ALL TESTS PASSED \033[0m")
         sys.exit(0)
