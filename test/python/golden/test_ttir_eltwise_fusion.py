@@ -621,14 +621,14 @@ def eltwise_fuse_cosh(
 
 gridList = [
     "override-device-shape=1,1",
-    # "override-device-shape=2,2",
-    # "override-device-shape=4,4",
-    # "override-device-shape=8,8",
+    "override-device-shape=2,2",
+    "override-device-shape=4,4",
+    "override-device-shape=8,8",
 ]
 
 @pytest.mark.parametrize("grid", gridList)
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: str, request):
     def eltwise_fuse_cosh_wrapper(

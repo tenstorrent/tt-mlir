@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -15,12 +15,12 @@
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
-using namespace mlir::tt::ttir;
+using namespace mlir::tt::d2m;
 
-namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_TTIRLINALGLOOPFISSION
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
-} // namespace mlir::tt::ttir
+namespace mlir::tt::d2m {
+#define GEN_PASS_DEF_D2MLINALGLOOPFISSION
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
+} // namespace mlir::tt::d2m
 
 namespace {
 
@@ -40,14 +40,14 @@ static bool containsTilizeOrUntilize(Operation *op) {
 }
 
 /// Recursively search for Generic Compute Ops.
-static bool containsTTIRGenericComputeOp(Operation *op) {
-  if (op->hasTrait<TTIRGenericRegionComputeOpTrait>()) {
+static bool containsD2MGenericComputeOp(Operation *op) {
+  if (op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
     return true;
   }
 
   for (Region &region : op->getRegions()) {
     for (Operation &nestedOp : region.getOps()) {
-      if (containsTTIRGenericComputeOp(&nestedOp)) {
+      if (containsD2MGenericComputeOp(&nestedOp)) {
         return true;
       }
     }
@@ -93,7 +93,7 @@ static int insertLoadOps(affine::AffineForOp outerFor, RewriterBase &rewriter) {
 
 
   for (auto &op : *innermost.getBody()) {
-    if (op.hasTrait<TTIRGenericRegionComputeOpTrait>()) {
+    if (op.hasTrait<D2MGenericRegionComputeOpTrait>()) {
       for (auto operand : op.getOperands()) {
         bool loadIsOk = false;
 
@@ -216,9 +216,9 @@ static bool fissionAtStore(affine::AffineForOp outerFor, RewriterBase &rewriter)
 }
 
 //TODO final loop creates an empty nest because it has nothing after the store to copy
-struct TTIRLinAlgLoopFission
-    : public tt::ttir::impl::TTIRLinAlgLoopFissionBase<TTIRLinAlgLoopFission> {
-  using TTIRLinAlgLoopFissionBase::TTIRLinAlgLoopFissionBase;
+struct D2MLinAlgLoopFission
+    : public tt::d2m::impl::D2MLinAlgLoopFissionBase<D2MLinAlgLoopFission> {
+  using D2MLinAlgLoopFissionBase::D2MLinAlgLoopFissionBase;
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
@@ -236,7 +236,7 @@ struct TTIRLinAlgLoopFission
         return WalkResult::advance();
       }
       // Skip the book-ending load/store loops
-      if (!containsTTIRGenericComputeOp(gop)) {
+      if (!containsD2MGenericComputeOp(gop)) {
         return WalkResult::advance();
       }
 
@@ -256,7 +256,7 @@ struct TTIRLinAlgLoopFission
       if (scfInnermost) {
         for (Operation &op : *scfInnermost.getBody()) {
             if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
-              if (containsTTIRGenericComputeOp(forOp)) {
+              if (containsD2MGenericComputeOp(forOp)) {
                 IRRewriter rewriter(ctx);
                 rewriter.setInsertionPoint(forOp);
 

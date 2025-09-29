@@ -102,14 +102,13 @@ void createTTIRToTTMetalFrontendPipeline(
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  ttir::TTIRElementwiseFusionOptions elementwiseFusionOptions;
+  d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
   {
     elementwiseFusionOptions.maxDstRegisterSizeTiles =
         options.maxDstRegisterSizeTiles;
   }
-  pm.addPass(ttir::createTTIRElementwiseFusion(elementwiseFusionOptions));
+  pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
   pm.addPass(createLinalgElementwiseOpFusionPass());
-  // Removes extra ttir.empty() and tensor.empty() ops in ttir.compute regions
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   if (options.ttnnMode) {
@@ -143,9 +142,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
-  // Perform loop fission inside compute regions when applicable
-  pm.addPass(ttir::createTTIRLinAlgLoopFission());
-  // clean-up extra loads
+  pm.addPass(d2m::createD2MLinAlgLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());
   
 

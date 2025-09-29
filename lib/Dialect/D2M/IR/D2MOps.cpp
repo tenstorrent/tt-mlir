@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/IR/AffineMap.h"
@@ -1193,7 +1194,7 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
             initOperand.assign(region.getArgument(dpsIOBoundary));
           });
 
-          if (mlir::isa_and_nonnull<EmptyOp>(origDefiningOp)) {
+          if (mlir::isa_and_nonnull<EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
             rewriter.replaceAllUsesWith(origDefiningOp->getResult(0),
                                         initOperand.get());
           }

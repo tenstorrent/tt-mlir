@@ -182,6 +182,7 @@ def D2M_GenericOp : D2M_Op<"generic",
 
     let hasVerifier = 1;
     let hasCanonicalizer = 1;
+    let hasCanonicalizer = 1;
 
 
     let builders = [

@@ -7,6 +7,42 @@
 
 include "mlir/Pass/PassBase.td"
 
+// Elementwise fusion of d2m.generic ops on tensors
+def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
+  let summary = "Fuse chains of compute-only d2m.generic elementwise ops";
+  let description = [{
+    Performs elementwise fusion for `d2m.generic` producers into consumers when
+    safe to do so. The initial implementation targets compute-only, affine-map
+    form `d2m.generic` with tensor semantics and matching device attributes
+    (grid, threads, block_factors). The pass is intended to run pre-bufferization
+    to reduce intermediary tensors and improve locality.
+  }];
+
+  list<Option> options = [
+    Option<"maxDstRegisterSizeTiles", "max-dst-register-size-tiles", "unsigned", "0", "Override the max dst size tiles or 0 if unset.">,
+  ];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect"
+  ];
+}
+
+def D2MLinAlgLoopFission : Pass<"d2m-linalg-loop-fission", "::mlir::ModuleOp"> {
+  let summary = "Perform loop fission inside d2m.generic compute regions for load→compute→store triplets";
+  let description = [{
+    This pass scans `d2m.generic` compute regions that do not contain any tilize/untilize ops,
+    finds nested affine loop nests, and performs loop fission (distribution) by extracting
+    sequences of the form `affine.load → d2m tile compute op → affine.store` into separate
+    loop nests, preserving the original loop bounds and indices.
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect"
+  ];
+}
+
 def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{

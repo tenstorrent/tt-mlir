@@ -90,10 +90,6 @@ public:
   }
 };
 
-template <typename ConcreteType>
-struct TTIRSkipOpEltWiseFusionTrait
-    : public OpTrait::TraitBase<ConcreteType, TTIRSkipOpEltWiseFusionTrait> {
-};
 } // namespace mlir::tt::ttir
 
 #endif // TTMLIR_DIALECT_TTIR_IR_TTIRTRAITS_H

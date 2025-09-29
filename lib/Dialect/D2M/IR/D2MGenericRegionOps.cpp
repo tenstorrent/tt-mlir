@@ -55,84 +55,10 @@ static mlir::Value wrapValueInTensorCompatibleType(mlir::RewriterBase &rewriter,
       .getResult();
 }
 
-//===----------------------------------------------------------------------===//
-// TileMatmulBlockOp
-//===----------------------------------------------------------------------===//
-
-// TileMatmulBlockOp verification
-::mlir::LogicalResult mlir::tt::ttir::TileMatmulBlockOp::verify() {
-
-  if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getA().getType())) ||
-      !llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getB().getType()))) {
-    return emitOpError("operands to TileMatmulBlock must have ttcore.tile "
-                       "element type");
-  }
-
-  int numAttrsSet = getBlockM().has_value() + getBlockK().has_value() +
-                    getBlockN().has_value() + getBBlockStride().has_value();
-  if (numAttrsSet != 0 && numAttrsSet != 4) {
-    return emitOpError(
-        "all or none of the block dim attributes must be present");
-  }
-
-  return success();
-}
-
-bool mlir::tt::ttir::TileMatmulBlockOp::hasBlockDims() {
-  return getBlockM() && getBlockK() && getBlockN() && getBBlockStride();
-}
-
-// TileTilizeBlockOp verification
-::mlir::LogicalResult mlir::tt::ttir::TileTilizeBlockOp::verify() {
-
-  if (llvm::isa<mlir::tt::ttcore::TileType>(
-          getElemType(getInput().getType()))) {
-    return emitOpError("operand to TileTilizeBlock must not have ttcore.tile "
-                       "element type");
-  }
-
-  if (!llvm::isa<mlir::tt::ttcore::TileType>(
-          getElemType(getOutput().getType()))) {
-    return emitOpError("result of TileTilizeBlock must have ttcore.tile "
-                       "element type");
-  }
-
-  return success();
-}
-
-// TileUntilizeBlockOp verification
-::mlir::LogicalResult mlir::tt::ttir::TileUntilizeBlockOp::verify() {
-
-  if (!llvm::isa<mlir::tt::ttcore::TileType>(
-          getElemType(getInput().getType()))) {
-    return emitOpError("operand to TileUntilizeBlock must have ttcore.tile "
-                       "element type");
-  }
-
-  if (llvm::isa<mlir::tt::ttcore::TileType>(
-          getElemType(getOutput().getType()))) {
-    return emitOpError("result of TileUntilizeBlock must not have ttcore.tile "
-                       "element type");
-  }
-
-  return success();
-}
-
-void mlir::tt::ttir::TileMatmulBlockOp::getEffects(
-    mlir::SmallVectorImpl<
-        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
-        &effects) {
-  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getAMutable(), 0,
-                       true, mlir::SideEffects::DefaultResource::get());
-  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getBMutable(), 0,
-                       true, mlir::SideEffects::DefaultResource::get());
-  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
-                       0, true, mlir::SideEffects::DefaultResource::get());
-}
-
-void mlir::tt::ttir::AcquireDstOp::getAsmResultNames(
-    function_ref<void(Value, StringRef)> setNameFn) {
-  setNameFn(getResult(), "dst");
+static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
+  unsigned width = mlir::IndexType::kInternalStorageBitWidth;
+  return mlir::ConstantIntRanges::fromUnsigned(mlir::APInt(width, umin),
+                                               mlir::APInt(width, umax));
 }
 
 //===----------------------------------------------------------------------===//

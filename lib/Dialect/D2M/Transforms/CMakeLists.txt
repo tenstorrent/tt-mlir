@@ -11,6 +11,8 @@ add_mlir_dialect_library(MLIRD2MTransforms
         InsertDstRegisterAccess.cpp
         InsertStreams.cpp
         LowerToLayout.cpp
+        ElementwiseFusion.cpp
+        LinAlgLoopFission.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
