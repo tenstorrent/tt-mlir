@@ -1181,6 +1181,7 @@ def test_max_pool2d(
 @pytest.mark.parametrize("shapes", [[(1, 128, 128, 32), (1, 64, 64, 32)]])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
 @pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.run_error  # Issue #5133.
 def test_hoisted_max_pool2d(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
