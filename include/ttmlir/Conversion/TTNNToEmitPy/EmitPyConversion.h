@@ -1191,7 +1191,7 @@ static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 // `ttnn::Tensor`s.
 inline constexpr const char *kCreateListFunctionName = "util_create_list";
 
-// Name for the function that gets a scalar (uint32_t) from a `ttnn::Tensor`.
+// Name for the function that gets a scalar (int) from a `ttnn.Tensor`.
 inline constexpr const char *kGetScalarFromTensorFunctionName =
     "utils.get_scalar_from_tensor";
 
