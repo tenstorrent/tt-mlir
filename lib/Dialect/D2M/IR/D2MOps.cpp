@@ -535,7 +535,7 @@ ToLayoutOp::getBufferType(mlir::Value value,
 }
 
 //===----------------------------------------------------------------------===//
-// StreamLayoutOp Bufferization Interface Implementation
+// StreamLayoutOp
 //===----------------------------------------------------------------------===//
 
 void d2m::StreamLayoutOp::getAsmResultNames(
@@ -618,6 +618,42 @@ void d2m::StreamLayoutOp::getCanonicalizationPatterns(
         op, newMemref, viewOp.getInput(), op.getStorage());
     return success();
   });
+}
+
+// StreamLayoutOp verification
+mlir::LogicalResult StreamLayoutOp::verify() {
+  auto inputStorageVerification =
+      verifyLayoutOp(*this, getInput().getType(), getStorage().getType(),
+                     /*allowFormatChange*/ false,
+                     /*allowMemorySpaceChange*/ true,
+                     /*checkMemrefRank*/ true,
+                     /*checkMemrefGridShardForm */ true,
+                     /*checkMemrefShardShape*/ false);
+  if (failed(inputStorageVerification)) {
+    return inputStorageVerification;
+  }
+
+  auto storageResultVerification =
+      verifyLayoutOp(*this, getStorage().getType(), getResult().getType(),
+                     /*allowFormatChange*/ false,
+                     /*allowMemorySpaceChange*/ true,
+                     /*checkMemrefRank*/ true,
+                     /*checkMemrefGridShardForm */ true,
+                     /*checkMemrefShardShape*/ true);
+  if (failed(storageResultVerification)) {
+    return storageResultVerification;
+  }
+
+  MemRefType inputMemrefType = mlir::dyn_cast<MemRefType>(getInput().getType());
+  MemRefType resultMemrefType =
+      mlir::dyn_cast<MemRefType>(getResult().getType());
+  if (inputMemrefType && resultMemrefType &&
+      (inputMemrefType.getMemorySpace() != resultMemrefType.getMemorySpace())) {
+    return this->emitOpError(
+        "Input and result memref memory spaces must be the same");
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

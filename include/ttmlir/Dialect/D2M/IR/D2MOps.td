@@ -113,7 +113,6 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
     }];
 
     let hasVerifier = 1;
-
     let hasFolder = 1;
     let hasCanonicalizer = 1;
 }
@@ -141,6 +140,7 @@ def D2M_StreamLayoutOp : D2M_Op<"stream_layout", [
                        AnyRankedTensorOrMemRef:$storage);
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
+  let hasVerifier = 1;
 }
 
 def D2M_GenericOp : D2M_Op<"generic",
