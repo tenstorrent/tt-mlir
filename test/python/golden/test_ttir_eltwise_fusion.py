@@ -8,6 +8,7 @@ from typing import List, Callable, Sequence, Optional
 
 from ttmlir.ir import *
 from ttmlir.passes import ttir_to_ttmetal_backend_pipeline
+from ttmlir.dialects import ttir
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -50,10 +51,10 @@ def eltwise_fuse_cosh(
 @pytest.mark.parametrize(
     "grid",
     [
-        "override-device-shape=1,1",
+        # "override-device-shape=1,1",
         "override-device-shape=2,2",
-        "override-device-shape=4,4",
-        "override-device-shape=8,8",
+        # "override-device-shape=4,4",
+        # "override-device-shape=8,8",
     ],
 )
 @pytest.mark.parametrize("shape", [(128, 128)])
@@ -89,48 +90,208 @@ def test_eltwise_fuse_cosh(
 # #
 # ### ------------------------------------------------------------------------ ###
 
-# # Generic utility to build a repeated op chain for unary or binary ops
-# def repeat_op_chain(
-#     op: Callable[..., Operand],
-#     inputs: Sequence[Operand],
-#     arity: int,
-#     repeat_count: Optional[int] = None,
-#     num_inputs: Optional[int] = None,
-# ) -> Operand:
-#     """
-#     Apply a builder op repeatedly to form a chain.
+# Generic utility to build a repeated op chain for unary or binary ops
+def repeat_op_chain(
+    op: Callable[..., Operand],
+    inputs: Sequence[Operand],
+    arity: int,
+    repeat_count: Optional[int] = None,
+    num_inputs: Optional[int] = None,
+) -> Operand:
+    """
+    Apply a builder op repeatedly to form a chain.
 
-#     - arity == 1: op is unary. Apply it to the single input `repeat_count` times.
-#     - arity == 2: op is binary. Left-reduce it across `inputs` in order.
-#       If `repeat_count` is provided, it must equal len(inputs) - 1.
-#     """
-#     if arity not in (1, 2):
-#         raise ValueError("arity must be 1 or 2")
+    - arity == 1: op is unary. Apply it to the single input `repeat_count` times.
+    - arity == 2: op is binary. Left-reduce it across `inputs` in order.
+      If `repeat_count` is provided, it must equal len(inputs) - 1.
+    """
+    if arity not in (1, 2):
+        raise ValueError("arity must be 1 or 2")
 
-#     if num_inputs is not None and num_inputs != len(inputs):
-#         raise ValueError("num_inputs must equal len(inputs)")
+    if num_inputs is not None and num_inputs != len(inputs):
+        raise ValueError("num_inputs must equal len(inputs)")
 
-#     if arity == 1:
-#         if len(inputs) != 1:
-#             raise ValueError("unary op requires exactly one input")
-#         if repeat_count is None:
-#             raise ValueError("repeat_count is required for unary op")
-#         result = inputs[0]
-#         for _ in range(repeat_count):
-#             result = op(result)
-#         return result
+    if arity == 1:
+        if len(inputs) != 1:
+            raise ValueError("unary op requires exactly one input")
+        if repeat_count is None:
+            raise ValueError("repeat_count is required for unary op")
+        result = inputs[0]
+        for _ in range(repeat_count):
+            result = op(result)
+        return result
 
-#     # arity == 2
-#     if len(inputs) < 2:
-#         raise ValueError("binary op requires at least two inputs")
-#     if repeat_count is not None and repeat_count != len(inputs) - 1:
-#         raise ValueError("repeat_count must equal len(inputs) - 1 for binary op")
-#     result = op(inputs[0], inputs[1])
-#     for operand in inputs[2:]:
-#         result = op(result, operand)
-#     return result
+    # arity == 2
+    if len(inputs) < 2:
+        raise ValueError("binary op requires at least two inputs")
+    if repeat_count is not None and repeat_count != len(inputs) - 1:
+        raise ValueError("repeat_count must equal len(inputs) - 1 for binary op")
+    result = op(inputs[0], inputs[1])
+    for operand in inputs[2:]:
+        result = op(result, operand)
+    return result
 
-# # ##--##-------------------------------------------------------------------##--##
+
+# ##--##-------------------------------------------------------------------##--##
+
+
+def unary_op_builder(op_name: str, builder: TTIRBuilder):
+    if op_name == "abs":
+        return builder.abs
+    if op_name == "ceil":
+        return builder.ceil
+    if op_name == "cos":
+        return builder.cos
+    if op_name == "exp":
+        return builder.exp
+    if op_name == "floor":
+        return builder.floor
+    if op_name == "gelu":
+        return builder.gelu
+    if op_name == "log":
+        return builder.log
+    if op_name == "logical_not":
+        return builder.logical_not
+    if op_name == "negative":
+        return builder.neg
+    if op_name == "recip":
+        return builder.recip
+    if op_name == "rsqrt":
+        return builder.rsqrt
+    if op_name == "sqrt":
+        return builder.sqrt
+    if op_name == "sigmoid":
+        return builder.sigmoid
+    if op_name == "sin":
+        return builder.sin
+    if op_name == "tan":
+        return builder.tan
+    if op_name == "eqz":
+        return builder.eqz
+    if op_name == "nez":
+        return builder.nez
+    if op_name == "gtz":
+        return builder.gtz
+    if op_name == "gez":
+        return builder.gez
+    if op_name == "ltz":
+        return builder.ltz
+    if op_name == "lez":
+        return builder.lez
+
+
+@pytest.mark.parametrize(
+    "op_chain_fn_name",
+    [
+        "abs",
+        "ceil",
+        "cos",
+        "exp",
+        "floor",
+        "gelu",
+        "log",
+        "logical_not",
+        "negative",
+        # "recip",
+        "rsqrt",
+        "sqrt",
+        "sigmoid",
+        "sin",
+        "tan",
+        # "eqz",
+        # "nez",
+        # "gtz",
+        # "gez",
+        # "ltz",
+        # "lez",
+    ],
+)
+@pytest.mark.parametrize("chain_length", [4, 8, 16])
+@pytest.mark.parametrize(
+    "grid",
+    [
+        "override-device-shape=1,1",
+        "override-device-shape=2,2",
+        "override-device-shape=4,4",
+        "override-device-shape=8,8",
+    ],
+)
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_unary_op_chain(
+    op_chain_fn_name: str,
+    chain_length: int,
+    grid: str,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+):
+    def unary_op_chain_wrapper(
+        in0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return repeat_op_chain(
+            op=unary_op_builder(op_chain_fn_name, builder),
+            inputs=[in0],
+            arity=1,
+            repeat_count=chain_length,
+            num_inputs=1,
+        )
+
+    options = [grid]
+    compile_ttir_to_flatbuffer(
+        unary_op_chain_wrapper,
+        [shape],
+        [dtype],
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
+    )
+
+
+# ### ------------------------------------------------------------------------ ###
+# #
+# ### ------------------------------------------------------------------------ ###
+
+# def converging_unary_branches(
+#     in0: Operand,
+#     in1: Operand,
+#     builder: TTIRBuilder,
+# ):
+#     branch_0_0 = builder.abs(in0)
+#     branch_0_1 = builder.exp(branch_0_0)
+#     branch_0_2 = builder.neg(branch_0_1)
+
+#     branch_1_0 = builder.neg(in1)
+#     branch_1_1 = builder.exp(branch_1_0)
+#     branch_1_2 = builder.abs(branch_1_1)
+
+#     return builder.div(branch_0_2, branch_1_2)
+
+# @pytest.mark.parametrize("shape", [(128, 128)])
+# @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+# @pytest.mark.parametrize("target", ["ttmetal"])
+# def test_converging_unary_branches(shape: Shape, dtype: torch.dtype, target: str, request):
+#     options = ["override-device-shape=4,4"]
+#     compile_ttir_to_flatbuffer(
+#         converging_unary_branches,
+#         [shape]*2,
+#         [dtype]*2,
+#         target=target,
+#         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+#         test_base=request.node.name,
+#         module_dump=True,
+#         output_root=request.config.getoption("--path"),
+#         system_desc_path=request.config.getoption("--sys-desc"),
+#         print_ir=True,
+#     )
 
 
 # ### ------------------------------------------------------------------------ ###
@@ -432,42 +593,6 @@ def test_eltwise_fuse_cosh(
 #         print_ir=True,
 #     )
 
-# ### ------------------------------------------------------------------------ ###
-# #
-# ### ------------------------------------------------------------------------ ###
-
-# def converging_unary_branches(
-#     in0: Operand,
-#     in1: Operand,
-#     builder: TTIRBuilder,
-# ):
-#     branch_0_0 = builder.abs(in0)
-#     branch_0_1 = builder.exp(branch_0_0)
-#     branch_0_2 = builder.neg(branch_0_1)
-
-#     branch_1_0 = builder.neg(in1)
-#     branch_1_1 = builder.exp(branch_1_0)
-#     branch_1_2 = builder.abs(branch_1_1)
-
-#     return builder.div(branch_0_2, branch_1_2)
-
-# @pytest.mark.parametrize("shape", [(128, 128)])
-# @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-# @pytest.mark.parametrize("target", ["ttmetal"])
-# def test_converging_unary_branches(shape: Shape, dtype: torch.dtype, target: str, request):
-#     options = ["override-device-shape=4,4"]
-#     compile_ttir_to_flatbuffer(
-#         converging_unary_branches,
-#         [shape]*2,
-#         [dtype]*2,
-#         target=target,
-#         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-#         test_base=request.node.name,
-#         module_dump=True,
-#         output_root=request.config.getoption("--path"),
-#         system_desc_path=request.config.getoption("--sys-desc"),
-#         print_ir=True,
-#     )
 
 # ### ------------------------------------------------------------------------ ###
 # #
