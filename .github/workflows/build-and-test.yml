@@ -48,7 +48,6 @@ jobs:
         shell: bash
         run: |
           python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json 25
-          cat _test_matrix.json
           echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
 
   build-image:
@@ -258,9 +257,6 @@ jobs:
         source env/activate
         pip show ttrt && pip uninstall -y ttrt
         pip install ttrt-${{ env.version }}*.whl --upgrade
-        if [ "${{ matrix.build.type }}" == "pytest" ]; then
-          pip install pytest
-        fi
 
     - name: Download Build Artifacts
       uses: ./.github/actions/download-artifact
@@ -301,7 +297,7 @@ jobs:
 
         echo "Running tests on ${{ matrix.build.runs-on }} with image ${{ matrix.build.image }}"
         cat << 'EOF' > _test_to_run.json
-          ${{ toJson(matrix.build.test) }}
+          ${{ toJson(matrix.build.tests) }}
         EOF
         cat _test_to_run.json
 
@@ -344,7 +340,7 @@ jobs:
       if: success() || failure()
       with:
         report_paths: ${{ steps.strings.outputs.test_report_path }}
-        check_name: ${{ matrix.build.type }} ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ matrix.build.suite }} Tests
+        check_name: ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ strategy.job-index }} Tests
 
 
 
