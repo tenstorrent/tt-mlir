@@ -150,3 +150,101 @@ def test_batch_norm_decomposition(
         pipeline_options=["enable-fusing-conv2d-with-multiply-pattern=true"],
     )
     assert check_op(output, "conv2d") and not check_op(output, "batch_norm")
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (1, 32, 32, 64),  # input
+            (64, 64, 3, 3),  # conv weight
+            (1, 1, 1, 64),  # conv bias
+        ]
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
+@pytest.mark.parametrize("stride", [[1, 1]])
+@pytest.mark.parametrize("padding", [[1, 1]])
+@pytest.mark.parametrize("dilation", [[1, 1]])
+@pytest.mark.parametrize("groups", [1])
+@pytest.mark.parametrize("activation", ["relu", "relu6"])
+def test_conv_activation_fusing(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
+    groups: int,
+    activation: str,
+    request,
+):
+    def conv2d_activation(
+        input_tensor: Operand,
+        conv_weight: Operand,
+        conv_bias: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        # Create input tensor with random data
+        input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
+
+        # Create conv2d weights and bias
+        conv_weight_data = torch.randn(shapes[1], dtype=dtypes[1])
+        conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
+
+        # Calculate golden output using torch operations
+        input_tensor_data_rs = input_tensor_data.transpose(-2, -1).transpose(-3, -2)
+        conv_result = torch.nn.functional.conv2d(
+            input_tensor_data_rs,
+            conv_weight_data,
+            conv_bias_data.squeeze(),
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
+        conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
+
+        # Apply activation based on parameter
+        if activation == "relu":
+            golden_output = torch.nn.functional.relu(conv_result)
+        elif activation == "relu6":
+            golden_output = torch.nn.functional.relu6(conv_result)
+
+        # Create conv2d builder op
+        conv = builder.conv2d(
+            input_tensor,
+            conv_weight,
+            conv_bias,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            unit_attrs=unit_attrs,
+        )
+
+        # Add activation builder op based on parameter
+        if activation == "relu":
+            activation_op = builder.relu(conv)
+        elif activation == "relu6":
+            activation_op = builder.relu6(conv)
+
+        builder.set_goldens(
+            {
+                input_tensor: input_tensor_data,
+                conv_weight: conv_weight_data,
+                conv_bias: conv_bias_data,
+            }
+        )
+        builder.set_operand_goldens({conv: golden_output})
+        return activation_op
+
+    output = compile_ttir_to_flatbuffer(
+        conv2d_activation,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+    assert check_op(output, "conv2d") and not check_op(output, activation)
