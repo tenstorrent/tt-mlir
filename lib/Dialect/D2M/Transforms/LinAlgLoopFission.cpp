@@ -214,8 +214,6 @@ static bool fissionAtStore(affine::AffineForOp outerFor,
   return true;
 }
 
-// TODO final loop creates an empty nest because it has nothing after the store
-// to copy
 struct D2MLinAlgLoopFission
     : public tt::d2m::impl::D2MLinAlgLoopFissionBase<D2MLinAlgLoopFission> {
   using D2MLinAlgLoopFissionBase::D2MLinAlgLoopFissionBase;

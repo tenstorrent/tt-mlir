@@ -13,8 +13,8 @@
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/APFloat.h"
+#include "llvm/Support/raw_ostream.h"
 #include <optional>
 
 namespace mlir::tt::d2m {
@@ -192,15 +192,12 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
     elementType = tileType.getElementType();
   }
 
-  unsigned bitWidth = elementType.getIntOrFloatBitWidth();
+  // unsigned bitWidth = elementType.getIntOrFloatBitWidth();
 
-  // TODO(mbagherbeikTT) do we need something like this?
-  // if (bitWidth != 16 && bitWidth != 32) {
-  //   return false;
-  // }
-
-  // TODO(mbagherbeikTT) Confirm if this halving logic is sound
-  int dstTilesRemaining = dstRegisterSizeTiles / (bitWidth == 32 ? 2 : 1);
+  // TODO(mbagherbeikTT) previous 32bit logic is disabled. Need to eventually
+  // add a check for fp32DstAccumulate.
+  // int dstTilesRemaining = dstRegisterSizeTiles / (bitWidth == 32 ? 2 : 1);
+  int dstTilesRemaining = dstRegisterSizeTiles;
   llvm::errs() << "Tiles left initial" << dstTilesRemaining << "\n\n";
 
   dstTilesRemaining -= blockSize * (consumer->getNumOperands() +
