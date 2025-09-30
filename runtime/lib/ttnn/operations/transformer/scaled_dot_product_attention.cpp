@@ -35,6 +35,13 @@ static void runScaledDotProductAttentionOp(
       query, key, value, attentionMask, isCausal, scale, outputMemoryConfig,
       /*program_config=*/std::nullopt,
       /*compute_kernel_config=*/std::nullopt);
+
+  if (attentionMask.has_value()) {
+    ::ttnn::set_printoptions("full");
+    auto mask_on_host = ::ttnn::from_device(attentionMask.value());
+    mask_on_host.print();
+  }
+
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
