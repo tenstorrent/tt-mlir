@@ -236,7 +236,6 @@ packages = [
     "ttnn.tt_lib._internal",
     "ttnn.tt_lib.fallback_ops",
     "ttnn.tt_lib.fused_ops",
-    "ttnn.tracy",
     # Note: _mlir is a shared library, not a Python package directory
 ]
 
@@ -269,7 +268,6 @@ package_dir = {
     "ttnn.tt_lib._internal": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/tt_lib/_internal",
     "ttnn.tt_lib.fallback_ops": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/tt_lib/fallback_ops",
     "ttnn.tt_lib.fused_ops": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/tt_lib/fused_ops",
-    "ttnn.tracy": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/tracy",
 }
 
 setup(
@@ -307,7 +305,6 @@ setup(
         "ttnn.tt_lib._internal": ["*.py"],
         "ttnn.tt_lib.fallback_ops": ["*.py"],
         "ttnn.tt_lib.fused_ops": ["*.py"],
-        "ttnn.tracy": ["*.py"],
         # Note: _ttmlir_runtime is handled by data_files for top-level installation
     },
     zip_safe=False,
