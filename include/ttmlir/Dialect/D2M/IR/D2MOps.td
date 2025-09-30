@@ -50,6 +50,7 @@ def D2M_ViewLayoutOp : D2M_Op<"view_layout", [
 //===----------------------------------------------------------------------===//
 
 def D2M_ToLayoutOp : D2M_Op<"to_layout", [
+      Pure,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
@@ -180,6 +181,8 @@ def D2M_GenericOp : D2M_Op<"generic",
     }];
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
+
 
     let builders = [
       OpBuilder<(ins "ValueRange": $inputs,
