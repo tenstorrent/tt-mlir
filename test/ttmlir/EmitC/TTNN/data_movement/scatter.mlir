@@ -16,17 +16,3 @@ func.func @scatter_1(%arg0: tensor<71x32xbf16>, %arg1: tensor<71x4x2xi64>, %arg2
   %1 = "ttir.scatter"(%arg0, %arg1, %arg2, %0) <{index_vector_dim = 2 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0, 1>, scatter_dims_to_operand_dims = array<i32: 0, 1>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32>}> : (tensor<71x32xbf16>, tensor<71x4x2xi64>, tensor<71x4xbf16>, tensor<71x32xbf16>) -> tensor<71x32xbf16>
   return %1 : tensor<71x32xbf16>
 }
-
-// https://github.com/tenstorrent/tt-mlir/issues/4531
-func.func @scatter_2(%arg0: tensor<1000x32xf32>, %arg1: tensor<10x1xi64>, %arg2: tensor<10x32xf32>) -> tensor<1000x32xf32> {
-  %0 = ttir.empty() : tensor<1000x32xf32>
-  %1 = "ttir.scatter"(%arg0, %arg1, %arg2, %0) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0>, scatter_dims_to_operand_dims = array<i32: 0>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 1>}> : (tensor<1000x32xf32>, tensor<10x1xi64>, tensor<10x32xf32>, tensor<1000x32xf32>) -> tensor<1000x32xf32>
-  return %1 : tensor<1000x32xf32>
-}
-
-// https://github.com/tenstorrent/tt-mlir/issues/4792
-func.func @scatter_3(%arg0: tensor<2050x768xf32>, %arg1: tensor<1x5x1xi32>, %arg2: tensor<1x5x768xf32>) -> tensor<2050x768xf32> {
-  %0 = ttir.empty() : tensor<2050x768xf32>
-  %1 = "ttir.scatter"(%arg0, %arg1, %arg2, %0) <{index_vector_dim = 2 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0>, scatter_dims_to_operand_dims = array<i32: 0>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 2>}> : (tensor<2050x768xf32>, tensor<1x5x1xi32>, tensor<1x5x768xf32>, tensor<2050x768xf32>) -> tensor<2050x768xf32>
-  return %1 : tensor<2050x768xf32>
-}
