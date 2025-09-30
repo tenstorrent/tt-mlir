@@ -274,15 +274,6 @@ getShardOrientation(const ShardOrientationAttr &shardOrientationAttr) {
   }
 }
 
-::tt::tt_metal::ShardMode getShardMode(const ShardModeAttr &shardModeAttr) {
-  switch (shardModeAttr.getValue()) {
-  case ShardMode::Physical:
-    return ::tt::tt_metal::ShardMode::PHYSICAL;
-  case ShardMode::Logical:
-    return ::tt::tt_metal::ShardMode::LOGICAL;
-  }
-}
-
 ::tt::tt_metal::ShardSpec getShardSpec(const ShardSpecAttr &shardSpecAttr) {
   ::tt::tt_metal::CoreRangeSet coreRangeSet =
       getCoreRangeSet(shardSpecAttr.getCoreRangeSet());
@@ -290,8 +281,7 @@ getShardOrientation(const ShardOrientationAttr &shardOrientationAttr) {
       getShardShape(shardSpecAttr.getShape().getShape());
   ::tt::tt_metal::ShardOrientation orientation =
       getShardOrientation(shardSpecAttr.getShardOrientation());
-  ::tt::tt_metal::ShardMode mode = getShardMode(shardSpecAttr.getShardMode());
-  return ::tt::tt_metal::ShardSpec(coreRangeSet, shape, orientation, mode);
+  return ::tt::tt_metal::ShardSpec(coreRangeSet, shape, orientation);
 }
 
 ::tt::tt_metal::BufferType getBufferType(const BufferType &bufferType) {

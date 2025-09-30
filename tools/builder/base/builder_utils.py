@@ -595,10 +595,26 @@ def compile_ttir_to_flatbuffer(
     pipeline_options : *Optional[List[str]]*
         Pipeline options to be added to the pass
 
-    print_ir : *Union[bool, str]*, optional
-        Set to True to print IR to stdout. Set to dir path to print IR after
-        each pass to its own file under that directory.
-        Default is False.
+    print_ir : Union[bool, str], optional
+        Controls intermediate IR dumping during compilation.
+        - True  →  Print IR to stdout after each pass.
+                This is convenient for quick inspection or interactive
+                debugging (e.g. with breakpoints), but is unreliable if
+                the process crashes or aborts as the output may be truncated or
+                lost.
+        - str (directory path)  →  Write IR after each pass to a separate file
+                under the given directory. This is more reliable than stdout,
+                since files are flushed incrementally and preserved up to the
+                point of failure. It can give hints about where the pipeline
+                crashed.
+        Notes:
+            - For fatal crashes (e.g. MLIR assertions), neither mode guarantees
+            a complete dump. Using a directory at least preserves passes run
+            before the crash.
+            - For stdout mode, you may need to run Python with unbuffered output
+            (e.g. `pytest -s` or `python -u`) and/or use pdb to reliably see
+            dumps before a crash.
+        Default is False (no IR printed).
 
     Returns
     -------
@@ -982,9 +998,26 @@ def compile_stablehlo_to_flatbuffer(
     shlo_pipeline_options : *List[str]*
         Additional pipeline options to pass to the StableHLO pipeline
 
-    print_ir :*Union[bool, str]*, optional
-        Set to True to print IR to stdout or to a directory path
-        Default is False.
+    print_ir : Union[bool, str], optional
+        Controls intermediate IR dumping during compilation.
+        - True  →  Print IR to stdout after each pass.
+                This is convenient for quick inspection or interactive
+                debugging (e.g. with breakpoints), but is unreliable if
+                the process crashes or aborts as the output may be truncated or
+                lost.
+        - str (directory path)  →  Write IR after each pass to a separate file
+                under the given directory. This is more reliable than stdout,
+                since files are flushed incrementally and preserved up to the
+                point of failure. It can give hints about where the pipeline
+                crashed.
+        Notes:
+            - For fatal crashes (e.g. MLIR assertions), neither mode guarantees
+            a complete dump. Using a directory at least preserves passes run
+            before the crash.
+            - For stdout mode, you may need to run Python with unbuffered output
+            (e.g. `pytest -s` or `python -u`) and/or use pdb to reliably see
+            dumps before a crash.
+        Default is False (no IR printed).
 
     Returns
     -------
@@ -1121,8 +1154,26 @@ def compile_ttir_module_to_flatbuffer(
     pipeline_options : *List[str]*, optional
         Additional pipeline options to pass to the pipeline
 
-    print_ir : *Union[bool, str], optional*
-        Set to True to print IR to stdout or to a directory path.
+    print_ir : Union[bool, str], optional
+        Controls intermediate IR dumping during compilation.
+        - True  →  Print IR to stdout after each pass.
+                This is convenient for quick inspection or interactive
+                debugging (e.g. with breakpoints), but is unreliable if
+                the process crashes or aborts as the output may be truncated or
+                lost.
+        - str (directory path)  →  Write IR after each pass to a separate file
+                under the given directory. This is more reliable than stdout,
+                since files are flushed incrementally and preserved up to the
+                point of failure. It can give hints about where the pipeline
+                crashed.
+        Notes:
+            - For fatal crashes (e.g. MLIR assertions), neither mode guarantees
+            a complete dump. Using a directory at least preserves passes run
+            before the crash.
+            - For stdout mode, you may need to run Python with unbuffered output
+            (e.g. `pytest -s` or `python -u`) and/or use pdb to reliably see
+            dumps before a crash.
+        Default is False (no IR printed).
 
     Returns
     -------

@@ -8,7 +8,7 @@
 #core_ranges = #ttnn.core_range_set<[#core_range]>
 
 #dram_memory_config = #ttnn.memory_config<#dram, <interleaved>>
-#l1_memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#core_range]>, <32x32>, <row_major>, <physical>>>
+#l1_memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#core_range]>, <32x32>, <row_major>>>
 
 #dram_layout = #ttnn.ttnn_layout<
   (d0, d1) -> (d0, d1),

@@ -196,7 +196,7 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
 }
 
 const ExpectedResult expected{true, 8192, 2048, 10240, 2048};
-const ExpectedResult cbrtExpected{true, 12288, 6144, 18432, 2048};
+const ExpectedResult cbrtExpected{true, 12288, 2048, 14336, 2048};
 const ExpectedResult tanhExpected{true, 28672, 2048, 28672 + 2048, 2048};
 
 //===---------------------------------------------------------===

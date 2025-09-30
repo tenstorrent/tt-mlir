@@ -294,8 +294,6 @@ TEST_P(ShardSpecFixture, ShardSpec) {
   // if the compiler side changes.
   EXPECT_EQ(shardSpec->orientation,
             ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
-  EXPECT_EQ(shardSpec->mode, ::tt::tt_metal::ShardMode::PHYSICAL);
-  EXPECT_EQ(shardSpec->physical_shard_shape.has_value(), false);
 }
 
 INSTANTIATE_TEST_SUITE_P(
