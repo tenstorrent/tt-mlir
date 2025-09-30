@@ -12,6 +12,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -427,6 +428,57 @@ private:
   }
 };
 
+class Relu6FusionPattern : public mlir::OpRewritePattern<MinimumOp> {
+  using mlir::OpRewritePattern<MinimumOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MinimumOp minimumOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Check if the minimum operation is preceded by a ReLU operation
+    Value input;
+    if (auto reluOp = minimumOp.getLhs().getDefiningOp<ReluOp>()) {
+      input = reluOp.getInput();
+      auto fullOp = minimumOp.getRhs().getDefiningOp<FullOp>();
+      if (!isFillValueSix(fullOp)) {
+        return mlir::failure();
+      }
+    } else if (auto reluOp = minimumOp.getRhs().getDefiningOp<ReluOp>()) {
+      input = reluOp.getInput();
+      auto fullOp = minimumOp.getLhs().getDefiningOp<FullOp>();
+      if (!isFillValueSix(fullOp)) {
+        return mlir::failure();
+      }
+    } else {
+      return mlir::failure();
+    }
+
+    rewriter.setInsertionPoint(minimumOp);
+    utils::replaceOpWithNewDPSOp<Relu6Op>(
+        rewriter, minimumOp, minimumOp.getResult().getType(), input);
+
+    return mlir::success();
+  }
+
+private:
+  // Check if the fill value of the full op is six.
+  bool isFillValueSix(FullOp op) const {
+    if (!op) {
+      return false;
+    }
+    mlir::Attribute fillValue = op.getFillValue();
+    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
+      llvm::outs() << "Fill value INT: "
+                   << integerAttr.getValue().getSExtValue() << "\n";
+      return integerAttr.getValue().getSExtValue() == 6;
+    }
+    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
+      return floatAttr.getValue().convertToFloat() == 6.0;
+    }
+    return false;
+  }
+};
+
 template <typename ConvOpType>
 class ConvWithMultiplyTemplate : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
@@ -434,10 +486,11 @@ class ConvWithMultiplyTemplate : public mlir::OpRewritePattern<MultiplyOp> {
 public:
   /// Pattern: conv(input, weight) * scale
   ///
-  /// This pattern detects when a Convolution operation (with constant weights)
-  /// is followed by a multiplication with a constant scale factor. It optimizes
-  /// this pattern by pre-multiplying the convolution weights with the scale
-  /// factor, which eliminates the runtime multiplication operation.
+  /// This pattern detects when a Convolution operation (with constant
+  /// weights) is followed by a multiplication with a constant scale factor.
+  /// It optimizes this pattern by pre-multiplying the convolution weights
+  /// with the scale factor, which eliminates the runtime multiplication
+  /// operation.
   ///
   /// Input pattern:
   ///   %conv = conv(%input, %weight)  // weight is constant
@@ -610,14 +663,15 @@ private:
   // 2. Input scale is a broadcast operation that needs reshaping
   //
   // In case of 1 we just add reshape operation to the scale tensor such that
-  // it has the output feature dimension at the kernel output feature dimension
-  // to match the weight layout.
-  // For Conv2dOp: shape (out_channels, 1, 1, 1) from (1, 1, 1, out_channels)
-  // For ConvolutionOp: depends on the convolution layout attribute
+  // it has the output feature dimension at the kernel output feature
+  // dimension to match the weight layout. For Conv2dOp: shape (out_channels,
+  // 1, 1, 1) from (1, 1, 1, out_channels) For ConvolutionOp: depends on the
+  // convolution layout attribute
   //
-  // In case of 2 we need to add reshape operation to the input of the of bcast
-  // and then we create new broadcast operation with the new reshaped scale
-  // which broadcasts the reshaped scale to the shape of the weight tensor.
+  // In case of 2 we need to add reshape operation to the input of the of
+  // bcast and then we create new broadcast operation with the new reshaped
+  // scale which broadcasts the reshaped scale to the shape of the weight
+  // tensor.
   static Value createReshapedScale(mlir::PatternRewriter &rewriter,
                                    Value scaleValue, ConvOpType convOp) {
     // If scaleValue is broadcast operation we want to reshape its input.
@@ -668,7 +722,8 @@ private:
         newShape, scaleType.getElementType(), scaleType.getEncoding(),
         reshapeInput, rewriter.getI32ArrayAttr(newShapeI32));
 
-    // If scale value is not a broadcast operation we can return reshapedScale.
+    // If scale value is not a broadcast operation we can return
+    // reshapedScale.
     if (!isa_and_present<ttir::BroadcastOp>(scaleValue.getDefiningOp())) {
       return reshapedScale;
     }
@@ -699,9 +754,9 @@ private:
 using Conv2dWithMultiply = ConvWithMultiplyTemplate<Conv2dOp>;
 using ConvolutionWithMultiply = ConvWithMultiplyTemplate<ConvolutionOp>;
 
-// Tag all block arguments which are direct inputs to Conv2dOp and ConvolutionOp
-// with discardable attribute. This is used during Layouting to check if
-// function argument need to be put to Host/RM. This is temporary
+// Tag all block arguments which are direct inputs to Conv2dOp and
+// ConvolutionOp with discardable attribute. This is used during Layouting to
+// check if function argument need to be put to Host/RM. This is temporary
 // solution until we complete refactor of TTNNLayout see:
 // https://github.com/tenstorrent/tt-mlir/issues/3432.
 template <typename ConvOpType>
@@ -874,14 +929,14 @@ public:
   /// Pattern: scatter(input, indices, updates)
   ///
   /// This pattern detects when a ScatterOp is used as a fill/update for a
-  /// cache. We check for its input, indices, and update tensors to ensure they
-  /// match the expected cache fill/update pattern.
+  /// cache. We check for its input, indices, and update tensors to ensure
+  /// they match the expected cache fill/update pattern.
   ///
   /// Input pattern:
   ///   %result = scatter(%cache, %indices, %updates)
-  ///   - Given a cache with shape (B, N, M, H) and a updates tensor with shape
-  ///   (B, N, S, H), the indices tensor represents the index where each element
-  ///   in %updates should placed in the %cache.
+  ///   - Given a cache with shape (B, N, M, H) and a updates tensor with
+  ///   shape (B, N, S, H), the indices tensor represents the index where each
+  ///   element in %updates should placed in the %cache.
   ///   - %indices can be tracked back to the function's cachePositions input
   ///   that represents the indices of the cache to fill/update.
   /// Output pattern:
@@ -942,8 +997,8 @@ private:
   //    3rd dimension,
   //       (B, N, M, H) and (B, N, S, H) respectively, M being the max cache
   //       length and S being the sequence length of the update.
-  //    2. %indices comes from a block argument representing the cachePositions
-  //    tensor.
+  //    2. %indices comes from a block argument representing the
+  //    cachePositions tensor.
   static std::optional<mlir::Value>
   getCacheUpdatePositions(ttir::ScatterOp scatterOp) {
     // Check that the scatter op inputs represent a cache fill/update:
@@ -983,8 +1038,8 @@ private:
          scatterIdxShape[2] == cacheUpdateSize &&
          scatterIdxShape[3] == inputShape[3] && scatterIdxShape[4] == 4);
 
-    // Check that scatter indices is either a 1D cache positions tensor or a 5D
-    // index grid.
+    // Check that scatter indices is either a 1D cache positions tensor or a
+    // 5D index grid.
     if (!effectively1D && !isIndexGrid) {
       return std::nullopt;
     }
@@ -1102,7 +1157,8 @@ public:
       return mlir::failure();
     }
 
-    // Denominator pooling op must have the same number of inputs as numerator.
+    // Denominator pooling op must have the same number of inputs as
+    // numerator.
     if (numerator.getInputs().size() != denominator.getInputs().size()) {
       return mlir::failure();
     }
@@ -1149,8 +1205,9 @@ public:
     }
 
     // For each denominator input, if it is a FullOp, its fill value must be 1
-    // If it is a constant op, its value must be a tensor filled with ones, and
-    // padded with zeroes according to the padding attribute of the numerator.
+    // If it is a constant op, its value must be a tensor filled with ones,
+    // and padded with zeroes according to the padding attribute of the
+    // numerator.
     for (Value input : denominator.getInputs()) {
       if (FullOp inputOp = input.getDefiningOp<FullOp>()) {
         // If the denominator is a pool of a full op, then
@@ -1309,13 +1366,13 @@ private:
 // into:
 //   avg_pool(act, window=[h,w], stride=1, padding=0)
 //
-// Supports 4D input tensors with reduction over spatial dimensions (height and
-// width).
+// Supports 4D input tensors with reduction over spatial dimensions (height
+// and width).
 //
 // Input tensor layout is NCHW, while AvgPool2dOp expects NHWC layout, so
-// PermuteOps are added before and after the AvgPool2dOp to convert between the
-// two layouts, and a ReshapeOp is added after the permutes if the
-// keepDim attribute of the original SumOp is false.
+// PermuteOps are added before and after the AvgPool2dOp to convert between
+// the two layouts, and a ReshapeOp is added after the permutes if the keepDim
+// attribute of the original SumOp is false.
 
 class GlobalAveragePoolingPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
@@ -1638,8 +1695,8 @@ private:
 
 namespace {
 // This pattern fuses: 0.5 * x * gaussianCDF(x) in to ttir.gelu(x), where
-// gaussianCDF is a linearly transformed cumulative distribution function of the
-// gaussian distribution (or an approximation of one).
+// gaussianCDF is a linearly transformed cumulative distribution function of
+// the gaussian distribution (or an approximation of one).
 class GeluFusionPattern : public mlir::OpRewritePattern<ttir::MultiplyOp> {
 public:
   using mlir::OpRewritePattern<ttir::MultiplyOp>::OpRewritePattern;
@@ -1701,7 +1758,8 @@ public:
       // TODO(@LPanosTT): When the 'approximate' flag is modelled in
       // ttir/ttnn/runtime for the gelu op, we want to set it to 'true' if the
       // gaussianCDFType is Tanh.
-      //     - For now, we will always use the default erf version. This should
+      //     - For now, we will always use the default erf version. This
+      //     should
       //       be OK as the tanh approximation is incredibly accurate.
       // https://github.com/tenstorrent/tt-mlir/issues/4486
       (void)gaussianCDFType;
@@ -1722,8 +1780,8 @@ private:
   static constexpr double ONE = 1.0;
   static constexpr double THREE = 3.0;
 
-  // Given a MultiplyOp, this will return three values if the input 'multiplyOp'
-  // multiply(multiply(a, b), c) or multiply(a, multiply(b, c)).
+  // Given a MultiplyOp, this will return three values if the input
+  // 'multiplyOp' multiply(multiply(a, b), c) or multiply(a, multiply(b, c)).
   SmallVector<std::tuple<Value, Value, Value>>
   getTripleMultiplyArgs(ttir::MultiplyOp multiplyOp) const {
     Value arg1 = multiplyOp.getLhs();
@@ -1890,8 +1948,8 @@ private:
     return x;
   }
 
-  // This will return the input Value of a sequence of ops which computes x^3 if
-  // it exists, given the result of the sequence.
+  // This will return the input Value of a sequence of ops which computes x^3
+  // if it exists, given the result of the sequence.
   Value getXCubedInput(Value xCubedResult) const {
     if (PowOp xCubed = xCubedResult.getDefiningOp<ttir::PowOp>()) {
       ttir::FullOp power = xCubed.getRhs().getDefiningOp<ttir::FullOp>();
@@ -2080,6 +2138,7 @@ public:
       }
 
       patterns.add<GeluFusionPattern>(&getContext());
+      patterns.add<Relu6FusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
