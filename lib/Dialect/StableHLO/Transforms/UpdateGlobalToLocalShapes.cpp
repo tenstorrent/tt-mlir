@@ -18,49 +18,50 @@ namespace mlir::tt::stablehlo {
 
 // Helper function to determine if a ScatterOp represents a safe sharded scatter
 //  that doesn't require attr rewriting when running
-//  UpdateGlobalToLocalShapesPass This requires the scatter to have inputs that
+//  UpdateGlobalToLocalShapesPass. This requires the scatter to have inputs that
 //  are either unsharded, or jointly sharded along the same axis, which must
-//  differ from the scatter axis
+//  differ from the scatter axis:
 // i.e. both insertedWindowDims and scatterDimsToOperandDims must be orthogonal
-//  to the update/input sharding dims
+//  to the update/input sharding dims.
 static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
                                  mlir::sdy::MeshOp &globalMeshOp) {
   mlir::stablehlo::ScatterDimensionNumbersAttr scatterDimensionNumbers =
       scatterOp.getScatterDimensionNumbers();
-  auto insertedWindowDims = scatterDimensionNumbers.getInsertedWindowDims();
-  auto scatterDimsToOperandDims =
+  llvm::ArrayRef<int64_t> insertedWindowDims =
+      scatterDimensionNumbers.getInsertedWindowDims();
+  llvm::ArrayRef<int64_t> scatterDimsToOperandDims =
       scatterDimensionNumbers.getScatterDimsToOperandDims();
 
-  // Get sharding info for inputs
+  // Get sharding info for inputs.
   llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> inputDimShardings =
       shardy_utils::getOperandShardingAttr(
           scatterOp.getOperation()->getOpOperand(0), globalMeshOp)
           .getDimShardings();
 
-  // Get sharding info for updates
+  // Get sharding info for updates.
   llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> updateDimShardings =
       shardy_utils::getOperandShardingAttr(
           scatterOp.getOperation()->getOpOperand(2), globalMeshOp)
           .getDimShardings();
 
-  // Early exit conditions - return false if we can't analyze safely
+  // Early exit conditions - return false if we can't analyze safely.
   if (inputDimShardings.empty() || updateDimShardings.empty()) {
     return false;
   }
 
-  auto scatterInputs = scatterOp.getInputs();
-  auto scatterUpdates = scatterOp.getUpdates();
+  mlir::OperandRange scatterInputs = scatterOp.getInputs();
+  mlir::OperandRange scatterUpdates = scatterOp.getUpdates();
 
-  // shlo scatter accepts a variadic number of inputs / updates tensors, we
-  // expect only 1
+  // SHLO scatter accepts a variadic number of inputs / updates tensors, we
+  // expect only 1.
   if (scatterInputs.size() != 1 || scatterUpdates.size() != 1) {
     return false;
   }
 
-  // expect the inputs and updates to have the same size
+  // Expect the inputs and updates to have the same size.
   mlir::RankedTensorType scatterInputType =
       mlir::dyn_cast<mlir::RankedTensorType>(scatterInputs.front().getType());
-  auto scatterUpdateType =
+  mlir::RankedTensorType scatterUpdateType =
       mlir::dyn_cast<mlir::RankedTensorType>(scatterUpdates.front().getType());
   if (scatterInputType.getShape().size() !=
       scatterUpdateType.getShape().size()) {
@@ -68,16 +69,16 @@ static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
   }
 
   // insertedWindowDims / scatterDimsToOperandDims must be a single dim and
-  // equal for a cache update
+  // equal for a cache update.
   if (insertedWindowDims.size() != 1 || scatterDimsToOperandDims.size() != 1 ||
       (insertedWindowDims.front() != scatterDimsToOperandDims.front())) {
     return false;
   }
 
-  auto scatterAxis = insertedWindowDims.front();
+  int64_t scatterAxis = insertedWindowDims.front();
 
-  // figure out sharding axis
-  // input and updates must be sharded equivalently
+  // Determine the "sharding axis"
+  // input and updates must be sharded equivalently.
   if (!inputDimShardings.equals(updateDimShardings)) {
     return false;
   }
@@ -90,16 +91,12 @@ static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
     }
   }
 
-  // We expect the sharding axes and scatter axes to be disjoint
+  // We expect the sharding axes and scatter axes to be disjoint.
   if (llvm::is_contained(shardingAxes, scatterAxis)) {
-    return false; // Not safe - scatter axis is sharded
+    return false;
   }
 
-  scatterOp.emitWarning("In scatterOp ")
-      << scatterOp->getName() << ", the scatter axis " << scatterAxis
-      << " is orthogonal to input sharding axes - this sharded scatter "
-         "is safe to lower through UpdateGlobalToLocalShapesPass. \n";
-  return true; // Safe cache update detected
+  return true;
 }
 
 // This function creates a new operation state with updated shapes and
