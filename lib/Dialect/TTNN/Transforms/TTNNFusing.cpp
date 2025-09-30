@@ -72,8 +72,6 @@ private:
       return ttnn::UnaryOpType::Relu;
     } else if constexpr (std::is_same_v<ActivationOp, Relu6Op>) {
       return ttnn::UnaryOpType::Relu6;
-    } else if constexpr (std::is_same_v<ActivationOp, SiluOp>) {
-      return ttnn::UnaryOpType::Silu;
     } else {
       static_assert(ttmlir::utils::always_false<ActivationOp>(),
                     "Unsupported activation op");
@@ -118,8 +116,7 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<TTNNConv2dWithActivation<ReluOp>,
-                 TTNNConv2dWithActivation<Relu6Op>,
-                 TTNNConv2dWithActivation<SiluOp>>(&getContext());
+                 TTNNConv2dWithActivation<Relu6Op>>(&getContext());
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));

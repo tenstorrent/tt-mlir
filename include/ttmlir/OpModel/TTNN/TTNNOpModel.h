@@ -129,9 +129,6 @@ template <>
 struct OpModel<BitwiseNotOp> : UnaryEltwiseOpModel<BitwiseNotOp> {};
 
 template <>
-struct OpModel<SiluOp> : UnaryEltwiseOpModel<SiluOp> {};
-
-template <>
 struct OpModel<RsqrtOp> : UnaryEltwiseOpModel<RsqrtOp> {};
 
 template <>

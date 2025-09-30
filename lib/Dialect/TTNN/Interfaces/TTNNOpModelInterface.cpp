@@ -771,22 +771,6 @@ SigmoidOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// SiluOp - TTNN Op Model Interface
-//===----------------------------------------------------------------------===//
-
-llvm::Expected<op_model::OpConstraints>
-SiluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                         const OpConfig &opConfig) {
-  return detail::getUnaryOpConstraints(*this, inputs, opConfig);
-}
-
-llvm::Expected<size_t>
-SiluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                     const OpConfig &opConfig) {
-  return detail::getUnaryOpRuntime(*this, inputs, opConfig);
-}
-
-//===----------------------------------------------------------------------===//
 // ExpOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

@@ -833,41 +833,6 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(ttir.Relu6Op, [in0], unit_attrs)
 
-    def silu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttir.silu``.
-
-        *Elementwise SiLU (Swish) activation operation.*
-
-        Computes the SiLU (Sigmoid Linear Unit) activation function for each element in the input tensor.
-        SiLU is also known as Swish activation and is defined as: silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
-
-        This activation function is smooth, non-monotonic, and has been shown to work well
-        in deep neural networks, particularly in transformer architectures.
-
-        .. code-block:: mlir
-
-            // Compute SiLU activation of all elements
-            %result = ttir.silu(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [1.0, -0.5, 2.0, -2.0]
-            // Output tensor:
-            // [0.731, -0.193, 1.762, -0.238]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the SiLU activation values of each element in the input tensor
-        """
-        return self._op_proxy(ttir.SiluOp, [in0], unit_attrs)
-
     def rsqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
         Creates ``ttir.rsqrt``.

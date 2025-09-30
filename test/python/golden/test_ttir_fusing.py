@@ -167,7 +167,7 @@ def test_batch_norm_decomposition(
 @pytest.mark.parametrize("padding", [[1, 1]])
 @pytest.mark.parametrize("dilation", [[1, 1]])
 @pytest.mark.parametrize("groups", [1])
-@pytest.mark.parametrize("activation", ["relu", "relu6", "silu"])
+@pytest.mark.parametrize("activation", ["relu", "relu6"])
 def test_conv_activation_fusing(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
@@ -210,8 +210,6 @@ def test_conv_activation_fusing(
             golden_output = torch.nn.functional.relu(conv_result)
         elif activation == "relu6":
             golden_output = torch.nn.functional.relu6(conv_result)
-        elif activation == "silu":
-            golden_output = torch.nn.functional.silu(conv_result)
 
         # Create conv2d builder op
         conv = builder.conv2d(
@@ -230,8 +228,6 @@ def test_conv_activation_fusing(
             activation_op = builder.relu(conv)
         elif activation == "relu6":
             activation_op = builder.relu6(conv)
-        elif activation == "silu":
-            activation_op = builder.silu(conv)
 
         builder.set_goldens(
             {
@@ -270,80 +266,3 @@ def test_conv_activation_fusing(
 @pytest.mark.parametrize("dilation", [[1, 1]])
 @pytest.mark.parametrize("groups", [1])
 
-# Test fusing when silu is decomposed as x * sigmoid(x)
-def test_conv_silu_decomposed_fusing(
-    shapes: List[Shape],
-    dtypes: List[torch.dtype],
-    stride: List[int],
-    padding: List[int],
-    dilation: List[int],
-    groups: int,
-    request,
-):
-    def conv2d_silu_decomposed(
-        input_tensor: Operand,
-        conv_weight: Operand,
-        conv_bias: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # Create input tensor with random data
-        input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
-
-        # Create conv2d weights and bias
-        conv_weight_data = torch.randn(shapes[1], dtype=dtypes[1])
-        conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
-
-        # Calculate golden output using torch operations
-        input_tensor_data_rs = input_tensor_data.transpose(-2, -1).transpose(-3, -2)
-        conv_result = torch.nn.functional.conv2d(
-            input_tensor_data_rs,
-            conv_weight_data,
-            conv_bias_data.squeeze(),
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-        )
-        conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
-        golden_output = conv_result * torch.sigmoid(conv_result)
-
-        # Create conv2d builder op
-        conv = builder.conv2d(
-            input_tensor,
-            conv_weight,
-            conv_bias,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            unit_attrs=unit_attrs,
-        )
-
-        # Add builder ops for x * sigmoid(x)
-        sigmoid_op = builder.sigmoid(conv, unit_attrs=unit_attrs)
-        silu_decomposed = builder.multiply(conv, sigmoid_op, unit_attrs=unit_attrs)
-
-        builder.set_goldens(
-            {
-                input_tensor: input_tensor_data,
-                conv_weight: conv_weight_data,
-                conv_bias: conv_bias_data,
-            }
-        )
-        builder.set_operand_goldens({conv: golden_output})
-        return silu_decomposed
-
-    output = compile_ttir_to_flatbuffer(
-        conv2d_silu_decomposed,
-        shapes,
-        dtypes,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-    assert (
-        check_op(output, "conv2d")
-        and not check_op(output, "sigmoid")
-        and not check_op(output, "multiply")
-    )

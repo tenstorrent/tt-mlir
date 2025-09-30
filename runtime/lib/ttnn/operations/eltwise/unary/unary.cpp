@@ -171,10 +171,6 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
                                                          ::ttnn::sigmoid);
     break;
   }
-  case ::tt::target::ttnn::EltwiseUnaryOpType::Silu: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::silu);
-    break;
-  }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sin: {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::sin);
     break;
