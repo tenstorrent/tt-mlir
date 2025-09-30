@@ -59,7 +59,7 @@ module {
       %5 = ttir.empty() : tensor<32x32xbf16>
       %6 = "ttir.multiply"(%arg0, %4, %5) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %7 = ttir.empty() : tensor<32x32xbf16>
-      %8 = "ttir.pow"(%arg0, %0, %7) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %8 = "ttir.pow_tensor"(%arg0, %0, %7) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %9 = ttir.empty() : tensor<32x32xbf16>
       %10 = "ttir.multiply"(%8, %1, %9) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %11 = ttir.empty() : tensor<32x32xbf16>

@@ -736,7 +736,7 @@ def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder"> {
     }];
 }
 
-def TTNN_PowOp : TTNN_ElementwiseBinaryCompositeOp<"pow"> {
+def TTNN_PowTensorOp : TTNN_ElementwiseBinaryCompositeOp<"pow_tensor"> {
     let summary = "Eltwise power OP.";
     let description = [{
       Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a

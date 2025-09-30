@@ -470,6 +470,22 @@ namespace {
 template <typename SourceOp>
 class EltwiseBinaryNGCompositeOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    if constexpr (std::is_same_v<SourceOp, ::mlir::tt::ttnn::PowTensorOp>) {
+      return "ttnn.pow_tensor";
+    }
+
+    return "ttnn.";
+  }
+
+  std::string getPrefixSwapPattern() const override {
+    if constexpr (std::is_same_v<SourceOp, ::mlir::tt::ttnn::PowTensorOp>) {
+      return "ttnn::pow";
+    }
+
+    return "ttnn::";
+  }
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
@@ -3437,7 +3453,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseBinaryCompositeOpConversionPattern<
           mlir::tt::ttnn::LogicalLeftShiftOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
-      EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowOp>,
+      EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowTensorOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>>(
       typeConverter, ctx);
 

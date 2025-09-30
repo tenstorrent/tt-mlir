@@ -260,7 +260,7 @@ template <>
 struct OpModel<LogicalXorOp> : BinaryEltwiseOpModel<LogicalXorOp> {};
 
 template <>
-struct OpModel<PowOp> : BinaryEltwiseOpModel<PowOp> {};
+struct OpModel<PowTensorOp> : BinaryEltwiseOpModel<PowTensorOp> {};
 
 template <>
 struct OpModel<BitwiseAndOp> : BinaryCompositeOpModel<BitwiseAndOp> {};

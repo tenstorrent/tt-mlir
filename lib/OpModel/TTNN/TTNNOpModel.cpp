@@ -429,7 +429,7 @@ auto getOpSymbol() {
     return ::ttnn::remainder;
   } else if constexpr (std::is_same_v<OpTy, Atan2Op>) {
     return ::ttnn::atan2;
-  } else if constexpr (std::is_same_v<OpTy, PowOp>) {
+  } else if constexpr (std::is_same_v<OpTy, PowTensorOp>) {
     return ::ttnn::pow;
   } else if constexpr (std::is_same_v<OpTy, PowScalarOp>) {
     return ::ttnn::pow;
@@ -1231,7 +1231,7 @@ template struct BinaryEltwiseOpModel<LessThanOp>;
 template struct BinaryEltwiseOpModel<LogicalAndOp>;
 template struct BinaryEltwiseOpModel<LogicalOrOp>;
 template struct BinaryEltwiseOpModel<LogicalXorOp>;
-template struct BinaryEltwiseOpModel<PowOp>;
+template struct BinaryEltwiseOpModel<PowTensorOp>;
 // BinaryCompositeOpModel
 template struct BinaryCompositeOpModel<BitwiseAndOp>;
 template struct BinaryCompositeOpModel<BitwiseOrOp>;

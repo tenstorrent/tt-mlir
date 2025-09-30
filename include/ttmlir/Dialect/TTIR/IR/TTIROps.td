@@ -1706,7 +1706,7 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
 
 // TODO We need to add a broadcastable trait to this op.
 // See issue https://github.com/tenstorrent/tt-mlir/issues/2015
-def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow"> {
+def TTIR_PowTensorOp : TTIR_ElementwiseBinaryOp<"pow_tensor"> {
     let summary = "Elementwise power operation.";
     let description = [{
       The `pow` operation performs an elementwise exponentiation between two tensors.

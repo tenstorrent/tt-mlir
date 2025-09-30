@@ -2023,7 +2023,7 @@ private:
   // This will return the input Value of a sequence of ops which computes x^3 if
   // it exists, given the result of the sequence.
   Value getXCubedInput(Value xCubedResult) const {
-    if (PowOp xCubed = xCubedResult.getDefiningOp<ttir::PowOp>()) {
+    if (PowTensorOp xCubed = xCubedResult.getDefiningOp<ttir::PowTensorOp>()) {
       ttir::FullOp power = xCubed.getRhs().getDefiningOp<ttir::FullOp>();
       if (!power) {
         return nullptr;
