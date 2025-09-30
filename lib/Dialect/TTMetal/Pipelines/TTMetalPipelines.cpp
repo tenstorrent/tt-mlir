@@ -144,7 +144,6 @@ void createTTIRToTTMetalMiddleendPipeline(
 
   pm.addPass(d2m::createD2MLinAlgLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());
-  
 
   OpPassManager &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(affine::createAffineLoopInvariantCodeMotionPass());

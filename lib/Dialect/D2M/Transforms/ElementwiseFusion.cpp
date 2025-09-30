@@ -2,28 +2,27 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/IR/AffineValueMap.h"
+#include "mlir/IR/AsmState.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/IR/AsmState.h"
 #include "llvm/Support/raw_ostream.h"
-#include <llvm/ADT/APFloat.h>
+#include "llvm/ADT/APFloat.h"
 #include <optional>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MELEMENTWISEFUSION
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-
 static bool hasTilizeOp(Operation *op) {
-  if(isa<mlir::tt::d2m::TileTilizeBlockOp>(op)) {
+  if (isa<mlir::tt::d2m::TileTilizeBlockOp>(op)) {
     return true;
   }
 
@@ -47,17 +46,19 @@ static bool hasMultiUseOperand(GenericOp gOp) {
 
     auto tilizeGenOp = dyn_cast<GenericOp>(input->get().getDefiningOp());
 
-    // Function arguments go through to_layout->tilize for each unique non-tilize compute region they appear in.
-    // Need to check if operands are coming from a tilize generic and then trace that back to a
-    // to_layout op and see if the input arg is used multiple times
+    // Function arguments go through to_layout->tilize for each unique
+    // non-tilize compute region they appear in. Need to check if operands are
+    // coming from a tilize generic and then trace that back to a to_layout op
+    // and see if the input arg is used multiple times
     if (hasTilizeOp(tilizeGenOp)) {
       if (llvm::range_size(tilizeGenOp->getOperand(0).getUsers()) > 1) {
         return true;
       }
 
       // The input to tilize could also be a to_layout from a multi-use arg.
-      if (auto *toLayoutOp = tilizeGenOp.getDpsInputOperand(0)->get().getDefiningOp()) {
-        for (auto argOperand : toLayoutOp->getOperands()) {          
+      if (auto *toLayoutOp =
+              tilizeGenOp.getDpsInputOperand(0)->get().getDefiningOp()) {
+        for (auto argOperand : toLayoutOp->getOperands()) {
           if (llvm::range_size(argOperand.getUsers()) > 1) {
             return true;
           }
@@ -73,7 +74,7 @@ static bool hasMultiUseOperand(GenericOp gOp) {
 /// If op or any of the operations nested within it's regions have
 /// the D2MSkipOpEltWiseFusionTrait, the op should be skipped.
 static bool shouldBeSkipped(Operation *op) {
-  if(op->hasTrait<D2MSkipOpEltWiseFusionTrait>()) {
+  if (op->hasTrait<D2MSkipOpEltWiseFusionTrait>()) {
     return true;
   }
 
@@ -169,43 +170,41 @@ static int countBinaryOps(Operation *op) {
   return count;
 };
 
-static bool fitsInDstPostFusion(
-  GenericOp producer, 
-  GenericOp consumer,
-  OpOperand *use,
-  unsigned dstRegisterSizeTiles
-) {
+static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
+                                OpOperand *use, unsigned dstRegisterSizeTiles) {
   // Check if the operand has 16-bit or 32-bit element type
   auto tensorType = dyn_cast<RankedTensorType>(use->get().getType());
   assert(tensorType); // use MUST be a tensorType unless something got borked
-  
+
   Type elementType = tensorType.getElementType();
   auto shape = tensorType.getShape();
 
-  llvm::errs() << "blockshape " << shape[0] << " " << shape[1]  << shape[2] << " " << shape[3] << "\n";
+  llvm::errs() << "blockshape " << shape[0] << " " << shape[1] << shape[2]
+               << " " << shape[3] << "\n";
 
   int blockSize = shape[3];
   if (blockSize > static_cast<int>(dstRegisterSizeTiles)) {
     blockSize = dstRegisterSizeTiles;
   }
-  
+
   // If the element type is a tile type, extract the actual data type
   if (auto tileType = dyn_cast<mlir::tt::ttcore::TileType>(elementType)) {
     elementType = tileType.getElementType();
   }
-  
+
   unsigned bitWidth = elementType.getIntOrFloatBitWidth();
 
   // TODO(mbagherbeikTT) do we need something like this?
   // if (bitWidth != 16 && bitWidth != 32) {
   //   return false;
   // }
-  
+
   // TODO(mbagherbeikTT) Confirm if this halving logic is sound
-  int dstTilesRemaining = dstRegisterSizeTiles/(bitWidth == 32 ? 2 : 1);
+  int dstTilesRemaining = dstRegisterSizeTiles / (bitWidth == 32 ? 2 : 1);
   llvm::errs() << "Tiles left initial" << dstTilesRemaining << "\n\n";
 
-  dstTilesRemaining -= blockSize*(consumer->getNumOperands() + producer->getNumOperands() - 2 - 1);
+  dstTilesRemaining -= blockSize * (consumer->getNumOperands() +
+                                    producer->getNumOperands() - 2 - 1);
 
   llvm::errs() << "Tiles left after input " << dstTilesRemaining << "\n\n";
 
@@ -214,7 +213,8 @@ static bool fitsInDstPostFusion(
   }
 
   // Subtract # of intermediate tiles needed
-  dstTilesRemaining -= blockSize*(countBinaryOps(consumer) + countBinaryOps(producer));
+  dstTilesRemaining -=
+      blockSize * (countBinaryOps(consumer) + countBinaryOps(producer));
   if (dstTilesRemaining < 0) {
     return false;
   }
@@ -222,12 +222,9 @@ static bool fitsInDstPostFusion(
   return true;
 }
 
-static bool isElementwiseFusable(
-  GenericOp producer, 
-  GenericOp consumer,
-  OpOperand *use,
-  unsigned dstRegisterSizeTiles
-) {
+static bool isElementwiseFusable(GenericOp producer, GenericOp consumer,
+                                 OpOperand *use,
+                                 unsigned dstRegisterSizeTiles) {
   // operand only has 1 user
   if (llvm::range_size(use->get().getUsers()) > 1) {
     return false;
@@ -305,14 +302,12 @@ static llvm::SmallDenseSet<int> getPreservedProducerResults(GenericOp producer,
 
 struct FuseD2MElementwiseOpsPattern : OpRewritePattern<GenericOp> {
   FuseD2MElementwiseOpsPattern(MLIRContext *context,
-                                unsigned dstRegisterSizeTiles)
+                               unsigned dstRegisterSizeTiles)
       : OpRewritePattern<GenericOp>(context),
         dstRegisterSizeTiles(dstRegisterSizeTiles) {}
 
-  LogicalResult matchAndRewrite(
-    GenericOp consumer,
-    PatternRewriter &rewriter
-  ) const override {
+  LogicalResult matchAndRewrite(GenericOp consumer,
+                                PatternRewriter &rewriter) const override {
     if (shouldBeSkipped(consumer)) {
       return failure();
     }
@@ -330,7 +325,6 @@ struct FuseD2MElementwiseOpsPattern : OpRewritePattern<GenericOp> {
       return failure();
     }
 
-
     for (OpOperand *use : consumer.getDpsInputOperands()) {
       auto producer = dyn_cast_or_null<GenericOp>(use->get().getDefiningOp());
       if (!producer) {
@@ -342,7 +336,8 @@ struct FuseD2MElementwiseOpsPattern : OpRewritePattern<GenericOp> {
       }
 
       assert(producer.isComputeOnlyForm() && producer.hasPureTensorSemantics());
-      if (!isElementwiseFusable(producer, consumer, use, dstRegisterSizeTiles)) {
+      if (!isElementwiseFusable(producer, consumer, use,
+                                dstRegisterSizeTiles)) {
         continue;
       }
 
@@ -547,8 +542,10 @@ struct FuseD2MElementwiseOpsPattern : OpRewritePattern<GenericOp> {
 
       llvm::errs() << "Fused op: " << fused << "\n";
 
-      llvm::errs() << "Consumer users = " << llvm::range_size(consumer->getUsers()) << "\n";
-      llvm::errs() << "Producer users = " << llvm::range_size(producer->getUsers()) << "\n";
+      llvm::errs() << "Consumer users = "
+                   << llvm::range_size(consumer->getUsers()) << "\n";
+      llvm::errs() << "Producer users = "
+                   << llvm::range_size(producer->getUsers()) << "\n";
 
       rewriter.eraseOp(consumer);
       rewriter.eraseOp(producer);
@@ -586,6 +583,6 @@ struct D2MElementwiseFusion
   }
 };
 
-}  // namespace mlir::tt::d2m
+} // namespace mlir::tt::d2m
 
 // Factory is generated by TableGen.

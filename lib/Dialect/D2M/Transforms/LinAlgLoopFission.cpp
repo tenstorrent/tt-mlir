@@ -63,26 +63,25 @@ struct LoadComputeStoreTriplet {
 };
 
 // Helper to find the innermost block within a cloned nest matching 'innermost'.
-template<class LoopType>
+template <class LoopType>
 static LoopType findInnermostLoop(LoopType root) {
-    LoopType cur = root;
-    while (true) {
-        LoopType next = nullptr;
-        for (Operation &op : cur.getBody()->getOperations()) {
-        if (auto child = dyn_cast<LoopType>(&op)) {
-            next = child;
-            break;
-        }
-        }
-        if (!next) { 
-            break;
-        }
-        
-        cur = next;
+  LoopType cur = root;
+  while (true) {
+    LoopType next = nullptr;
+    for (Operation &op : cur.getBody()->getOperations()) {
+      if (auto child = dyn_cast<LoopType>(&op)) {
+        next = child;
+        break;
+      }
     }
-    return cur;
-};
+    if (!next) {
+      break;
+    }
 
+    cur = next;
+  }
+  return cur;
+};
 
 static int insertLoadOps(affine::AffineForOp outerFor, RewriterBase &rewriter) {
   // helper to track umber of inserted loads.
@@ -90,7 +89,6 @@ static int insertLoadOps(affine::AffineForOp outerFor, RewriterBase &rewriter) {
 
   // Find the innermost loop.
   affine::AffineForOp innermost = findInnermostLoop(outerFor);
-
 
   for (auto &op : *innermost.getBody()) {
     if (op.hasTrait<D2MGenericRegionComputeOpTrait>()) {
@@ -100,8 +98,8 @@ static int insertLoadOps(affine::AffineForOp outerFor, RewriterBase &rewriter) {
         Operation *loadOpRequired = operand.getDefiningOp();
         Operation *prevOp = op.getPrevNode();
 
-        // Check to see if the required load exists between the compute op user and
-        // after the previous store.
+        // Check to see if the required load exists between the compute op user
+        // and after the previous store.
         while (prevOp && !isa<affine::AffineStoreOp>(prevOp)) {
           if (prevOp == loadOpRequired) {
             loadIsOk = true;
@@ -113,8 +111,9 @@ static int insertLoadOps(affine::AffineForOp outerFor, RewriterBase &rewriter) {
         if (!loadIsOk) {
           rewriter.setInsertionPoint(&op);
           Operation *clonedOp = rewriter.clone(*operand.getDefiningOp());
-          
-          // Rewire the SSA result: replace the operand with the cloned op's result
+
+          // Rewire the SSA result: replace the operand with the cloned op's
+          // result
           Value clonedResult = clonedOp->getResult(0); // Assuming single result
           op.replaceUsesOfWith(operand, clonedResult);
 
@@ -126,8 +125,9 @@ static int insertLoadOps(affine::AffineForOp outerFor, RewriterBase &rewriter) {
   return numInserted;
 }
 
-/// 
-static bool fissionAtStore(affine::AffineForOp outerFor, RewriterBase &rewriter) {
+///
+static bool fissionAtStore(affine::AffineForOp outerFor,
+                           RewriterBase &rewriter) {
   // Find the innermost loop to search for triplets.
   affine::AffineForOp innermost = findInnermostLoop(outerFor);
 
@@ -147,8 +147,8 @@ static bool fissionAtStore(affine::AffineForOp outerFor, RewriterBase &rewriter)
   }
 
   // Avoids creating an extra loop nest during the last call to this function,
-  // where the loop nest is not populated with any ops as there's nothing after the
-  // store op.
+  // where the loop nest is not populated with any ops as there's nothing after
+  // the store op.
   if (isa<affine::AffineYieldOp>(store.getOperation()->getNextNode())) {
     return false;
   }
@@ -158,17 +158,18 @@ static bool fissionAtStore(affine::AffineForOp outerFor, RewriterBase &rewriter)
   // Create a deep copy of the affine loop nest
   IRMapping map;
   rewriter.setInsertionPointAfter(outerFor);
-  auto postNest = cast<affine::AffineForOp>(rewriter.clone(*outerFor.getOperation(), map));
+  auto postNest =
+      cast<affine::AffineForOp>(rewriter.clone(*outerFor.getOperation(), map));
 
   // Erase operations in original loop nest in a bottom up manner until
   // we reach the store op. Bottom up order guarantees we don't attempt
   // to erase ops that have results that have users.
   // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> //
-  SmallVector<Operation *> preOps ;
+  SmallVector<Operation *> preOps;
   for (Operation &op : *innermost.getBody()) {
     preOps.push_back(&op);
   }
-  
+
   int count = preOps.size() - 1;
 
   while (!preOps.empty()) {
@@ -186,16 +187,15 @@ static bool fissionAtStore(affine::AffineForOp outerFor, RewriterBase &rewriter)
   }
   // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< //
 
-
   // Erase the triplet, starting with the store and moving up, within the
   // cloned loop nest.
   // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> //
   affine::AffineForOp postNestInnermost = findInnermostLoop(postNest);
-  SmallVector<Operation *> postOps ;
+  SmallVector<Operation *> postOps;
   for (Operation &op : *postNestInnermost.getBody()) {
     postOps.push_back(&op);
   }
-  
+
   count = postOps.size() - 1;
 
   // erase operations in a bottom up manner until
@@ -208,14 +208,14 @@ static bool fissionAtStore(affine::AffineForOp outerFor, RewriterBase &rewriter)
     }
 
     --count;
-
   }
-  // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< // 
+  // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< //
 
   return true;
 }
 
-//TODO final loop creates an empty nest because it has nothing after the store to copy
+// TODO final loop creates an empty nest because it has nothing after the store
+// to copy
 struct D2MLinAlgLoopFission
     : public tt::d2m::impl::D2MLinAlgLoopFissionBase<D2MLinAlgLoopFission> {
   using D2MLinAlgLoopFissionBase::D2MLinAlgLoopFissionBase;
@@ -226,7 +226,6 @@ struct D2MLinAlgLoopFission
 
     bool changed = false;
     module.walk([&](GenericOp gop) {
-      
       // Only compute-only region form.
       if (!gop.isComputeOnlyForm()) {
         return WalkResult::advance();
@@ -240,7 +239,8 @@ struct D2MLinAlgLoopFission
         return WalkResult::advance();
       }
 
-      // Find top-level nested affine.for in the compute region and try to fission.
+      // Find top-level nested affine.for in the compute region and try to
+      // fission.
       // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> //
       Block &computeBlock = gop.getRegion(0).front();
 
@@ -249,24 +249,24 @@ struct D2MLinAlgLoopFission
 
       for (Operation &op : computeBlock) {
         if (auto scfOuter = dyn_cast<scf::ForOp>(op)) {
-            scfInnermost = findInnermostLoop(scfOuter);
+          scfInnermost = findInnermostLoop(scfOuter);
         }
       }
 
       if (scfInnermost) {
         for (Operation &op : *scfInnermost.getBody()) {
-            if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
-              if (containsD2MGenericComputeOp(forOp)) {
-                IRRewriter rewriter(ctx);
-                rewriter.setInsertionPoint(forOp);
+          if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
+            if (containsD2MGenericComputeOp(forOp)) {
+              IRRewriter rewriter(ctx);
+              rewriter.setInsertionPoint(forOp);
 
-                insertLoadOps(forOp, rewriter);
+              insertLoadOps(forOp, rewriter);
 
-                if (fissionAtStore(forOp, rewriter)) {
-                    changed = true;
-                }
+              if (fissionAtStore(forOp, rewriter)) {
+                changed = true;
               }
             }
+          }
         }
       }
       // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< //
@@ -282,5 +282,3 @@ struct D2MLinAlgLoopFission
 } // namespace
 
 // Factory is generated by TableGen.
-
-

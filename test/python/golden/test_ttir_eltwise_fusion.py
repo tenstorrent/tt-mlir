@@ -27,6 +27,7 @@ pytestmark = pytest.mark.frontend("ttir")
 # # Key Composite Ops
 # ### ------------------------------------------------------------------------ ###
 
+
 def eltwise_fuse_cosh(
     in0: Operand,
     in1: Operand,
@@ -36,25 +37,31 @@ def eltwise_fuse_cosh(
     unit_attrs: Optional[List[str]] = None,
 ):
     neg_x = builder.neg(in0)
-    
+
     e_neg_x = builder.exp(neg_x)
     e_pos_x = builder.exp(in0)
-    
+
     nr_term = builder.add(e_pos_x, e_neg_x)
     ret_val = builder.multiply(nr_term, in1)
 
     return ret_val
 
-@pytest.mark.parametrize("grid", [
-    "override-device-shape=1,1",
-    "override-device-shape=2,2",
-    "override-device-shape=4,4",
-    "override-device-shape=8,8",
-])
+
+@pytest.mark.parametrize(
+    "grid",
+    [
+        "override-device-shape=1,1",
+        "override-device-shape=2,2",
+        "override-device-shape=4,4",
+        "override-device-shape=8,8",
+    ],
+)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: str, request):
+def test_eltwise_fuse_cosh(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+):
     def eltwise_fuse_cosh_wrapper(
         in0: Operand,
         in1: Operand,
@@ -66,8 +73,8 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
     options = [grid]
     compile_ttir_to_flatbuffer(
         eltwise_fuse_cosh_wrapper,
-        [shape]*2,
-        [dtype]*2,
+        [shape] * 2,
+        [dtype] * 2,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -79,7 +86,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 
 
 # ### ------------------------------------------------------------------------ ###
-# # 
+# #
 # ### ------------------------------------------------------------------------ ###
 
 # # Generic utility to build a repeated op chain for unary or binary ops
@@ -138,7 +145,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 #     return repeat_op_chain(
 #         op=builder.div,
 #         inputs=[
-#             in0, in1, in2, in3, 
+#             in0, in1, in2, in3,
 #             in4,
 #         ],
 #         arity=2,
@@ -148,7 +155,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 # @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 # @pytest.mark.parametrize("target", ["ttmetal"])
 # @pytest.mark.parametrize(
-#     "test_fn", 
+#     "test_fn",
 #     [
 #         # eltwise_fuse_sub_binary_ladder_max_inputs,
 #         eltwise_fuse_div_ladder_max_inputs,
@@ -185,7 +192,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 #     return repeat_op_chain(
 #         op=builder.div,
 #         inputs=[
-#             in0, in1, in2, in3, 
+#             in0, in1, in2, in3,
 #             in4, in5,
 #         ],
 #         arity=2,
@@ -195,7 +202,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 # @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 # @pytest.mark.parametrize("target", ["ttmetal"])
 # @pytest.mark.parametrize(
-#     "test_fn", 
+#     "test_fn",
 #     [
 #         # eltwise_fuse_sub_binary_ladder_max_inputs_plus_1,
 #         eltwise_fuse_div_ladder_max_inputs_plus_1,
@@ -267,7 +274,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 #     return reduction_op_tree(
 #         op=builder.div,
 #         inputs=[
-#             in0, in1, in2, in3, 
+#             in0, in1, in2, in3,
 #             in4, in5,
 #         ]
 #     )
@@ -276,7 +283,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 # @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 # @pytest.mark.parametrize("target", ["ttmetal"])
 # @pytest.mark.parametrize(
-#     "test_fn", 
+#     "test_fn",
 #     [
 #         # eltwise_fuse_sub_binary_tree_max_inputs,
 #         eltwise_fuse_div_tree_max_inputs,
@@ -364,7 +371,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 #     tree_out = reduction_op_tree(
 #         op=builder.div,
 #         inputs=[
-#             in0, in1, in2, in3, 
+#             in0, in1, in2, in3,
 #             in4, in5, in6, in7,
 #             # in8, in9, in10, in11,
 #             # in12, in13, in14, in15
@@ -381,12 +388,11 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 #     return tree_out
 
 
-
 # @pytest.mark.parametrize("shape", [(128, 128)])
 # @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 # @pytest.mark.parametrize("target", ["ttmetal"])
 # @pytest.mark.parametrize(
-#     "test_fn", 
+#     "test_fn",
 #     [
 #         # eltwise_fuse_sub_binary_tree_max_inputs_plus_1,
 #         eltwise_fuse_div_tree_max_inputs_plus_1,
@@ -409,7 +415,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 #             in0, in1, in2, in3,
 #             in4, in5, in6, in7,
 #             # in8, in9, in10, in11,
-#             # in12, in13, in14, in15, 
+#             # in12, in13, in14, in15,
 #             builder, shape, dtype, unit_attrs)
 
 #     options = []
@@ -427,7 +433,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 #     )
 
 # ### ------------------------------------------------------------------------ ###
-# # 
+# #
 # ### ------------------------------------------------------------------------ ###
 
 # def converging_unary_branches(
@@ -464,7 +470,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 #     )
 
 # ### ------------------------------------------------------------------------ ###
-# # 
+# #
 # ### ------------------------------------------------------------------------ ###
 
 # def diamond_unary_op_fanout(
@@ -540,7 +546,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 #     )
 
 # ### ------------------------------------------------------------------------ ###
-# # 
+# #
 # ### ------------------------------------------------------------------------ ###
 
 # # unary ops are done in place, should be able to fuse
@@ -551,17 +557,17 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 # ):
 #     res_0 = builder.abs(in0)
 #     res_1 = builder.sin(res_0)
-#     res_2 = builder.neg(res_1) 
+#     res_2 = builder.neg(res_1)
 #     res_3 = builder.exp(res_2)
 
 #     res_4 = builder.abs(res_3)
 #     res_5 = builder.cos(res_4)
 #     res_6 = builder.neg(res_5)
 #     res_7 = builder.exp(res_6)
-    
+
 #     res_8 = builder.neg(res_7)
 #     res_9 = builder.sin(res_8)
-#     res_10 = builder.neg(res_9) 
+#     res_10 = builder.neg(res_9)
 #     res_11 = builder.exp(res_10)
 
 #     res_12 = builder.abs(res_11)
@@ -571,9 +577,9 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 
 #     res_16 = builder.neg(res_15)
 #     res_17 = builder.sin(res_16)
-#     res_18 = builder.neg(res_17) 
+#     res_18 = builder.neg(res_17)
 #     res_19 = builder.exp(res_18)
-    
+
 #     return res_19
 
 # @pytest.mark.parametrize("shape", [(128, 128)])
@@ -596,7 +602,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 
 
 # ### ------------------------------------------------------------------------ ###
-# # 
+# #
 # ### ------------------------------------------------------------------------ ###
 
 # def big_one(
@@ -624,7 +630,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 
 #     div_2f3 = builder.div(branch_2_2, branch_3_2)
 
-#     div_fuse_all = builder.div(div_0f1, div_2f3) 
+#     div_fuse_all = builder.div(div_0f1, div_2f3)
 
 #     abs_0 = builder.abs(div_fuse_all)
 
@@ -654,7 +660,7 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 #         print_ir=True,
 #     )
 
-# # ttkernel compute config attribute theres a flag for fp32 dest --> globally off?  
+# # ttkernel compute config attribute theres a flag for fp32 dest --> globally off?
 
 
 # def eltwise_unary_chain_multi_tile(
@@ -663,12 +669,12 @@ def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: 
 # ):
 #     res_0 = builder.abs(in0)
 #     res_1 = builder.sin(res_0)
-#     res_2 = builder.neg(res_1) 
+#     res_2 = builder.neg(res_1)
 #     res_3 = builder.exp(res_2)
-    
+
 #     return res_3
 
-# @pytest.mark.parametrize("grid", 
+# @pytest.mark.parametrize("grid",
 #     [
 #         "override-device-shape=2,2",
 #         # "override-device-shape=2,2",
