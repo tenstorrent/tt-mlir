@@ -99,7 +99,8 @@ createDefaultLayout(mlir::MLIRContext *ctx,
 
   return mlir::tt::ttcore::MetalLayoutAttr::get(
       ctx, logicalShape, squareGridShape, mlir::tt::ttcore::OOBVal::Undef,
-      mlir::tt::ttcore::MemorySpace::System);
+      mlir::tt::ttcore::MemorySpace::System,
+      mlir::tt::ttcore::TensorMemoryLayout::Sharded);
 }
 } // namespace
 

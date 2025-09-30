@@ -227,6 +227,9 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
   }
 
   auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(deviceLayout);
+  assert(shardLayout &&
+         "expected shard layout for sharded buffer config generation");
+
   ArrayRef<int64_t> stride = shardLayout.getStride();
   int64_t elementSize = stride[stride.size() - 1];
   auto memrefGridShape = shardLayout.getGridShape(memref);
@@ -302,20 +305,43 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                               MemRefType memref,
                                               ttcore::DeviceAttr device,
                                               target::Dim2d elementShape) {
-  auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
-      memref.getLayout());
-  assert(!deviceLayout &&
-         "Sharded buffers cannot have interleaved config objects");
+  assert(!mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout()));
 
-  auto tile =
-      mlir::dyn_cast_if_present<ttcore::TileType>(memref.getElementType());
-  assert(tile && "non-tiled layouts are not supported");
-  uint64_t pageSize = tile.getSizeBytes();
-  uint64_t numTiles = memref.getNumElements();
-  uint64_t size = ttmlir::utils::alignUp(numTiles * pageSize, pageSize);
+  flatbuffers::Offset<target::metal::InterleavedBufferConfig> config;
+  if (auto layout = mlir::dyn_cast_if_present<ttcore::InterleavedLayoutAttr>(
+          memref.getLayout())) {
 
-  return target::metal::CreateInterleavedBufferConfig(*cache.fbb, size,
-                                                      pageSize);
+    int64_t elementSizeBytes =
+        ttcore::getElementSizeBytes(memref.getElementType());
+    int64_t pageSize = mlir::isa<ttcore::TileType>(memref.getElementType())
+                           ? elementSizeBytes
+                           : layout.getStride().front();
+    int64_t numPages = mlir::isa<ttcore::TileType>(memref.getElementType())
+                           ? memref.getNumElements()
+                           : layout.getShardShape(memref).front();
+    int64_t size = ttmlir::utils::alignUp(numPages * pageSize, pageSize);
+
+    config = target::metal::CreateInterleavedBufferConfig(*cache.fbb, size,
+                                                          pageSize);
+
+  } else {
+    // Infer interleaved buffer config for tiled tensors in absence of an
+    // InterleavedLayoutAttr to avoid breaking Polymage's assumptions
+    auto tile =
+        mlir::dyn_cast_if_present<ttcore::TileType>(memref.getElementType());
+    assert(!tile &&
+           "Cannot generate interleavedbuffer config for memref with non-tiled "
+           "layouts; InterleavedLayoutAttr is missing");
+
+    uint64_t pageSize = tile.getSizeBytes();
+    uint64_t numTiles = memref.getNumElements();
+    uint64_t size = ttmlir::utils::alignUp(numTiles * pageSize, pageSize);
+
+    config = target::metal::CreateInterleavedBufferConfig(*cache.fbb, size,
+                                                          pageSize);
+  }
+
+  return config;
 }
 
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
@@ -329,6 +355,9 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   }
 
   auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(deviceLayout);
+  assert(shardLayout &&
+         "expected shard layout for circular buffer config generation");
+
   auto memrefGridShape = shardLayout.getGridShape(memref);
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
