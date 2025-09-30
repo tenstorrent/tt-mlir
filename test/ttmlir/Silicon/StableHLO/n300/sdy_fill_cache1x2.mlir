@@ -5,7 +5,7 @@
 
 module {
   sdy.mesh @mesh = <["batch"=1, "model"=2]>
-  func.func @sharded_cache_update(%arg0: tensor<1x8x64x128xf32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22batch\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "l__self___key_states"}, %arg1: tensor<64xi64> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}]>"}, mhlo.sharding = "{replicated}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_1"}, %arg2: tensor<i64> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, []>"}, mhlo.sharding = "{replicated}", ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "auto_annotated_const_0"}, %arg3: tensor<1x8x1024x128xf32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22batch\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_0"}) -> tensor<1x8x1024x128xf32> {
+  func.func @sharded_cache_update(%arg0: tensor<1x8x64x128xf32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22model\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "l__self___key_states"}, %arg1: tensor<64xi64> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}]>"}, mhlo.sharding = "{replicated}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_1"}, %arg2: tensor<i64> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, []>"}, mhlo.sharding = "{replicated}", ttcore.argument_type = #ttcore.argument_type<constant>, ttir.name = "auto_annotated_const_0"}, %arg3: tensor<1x8x1024x128xf32> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22model\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_0"}) -> tensor<1x8x1024x128xf32> {
     %c = stablehlo.constant dense<0> : tensor<i64>
     %0 = stablehlo.broadcast_in_dim %c, dims = [] : (tensor<i64>) -> tensor<64xi64>
     %1 = stablehlo.reshape %arg1 : (tensor<64xi64>) -> tensor<1x1x64xi64>
@@ -19,7 +19,7 @@ module {
     ^bb0(%arg4: tensor<f32>, %arg5: tensor<f32>):
       stablehlo.return %arg5 : tensor<f32>
     }) : (tensor<1x8x1024x128xf32>, tensor<64x1xi64>, tensor<1x8x64x128xf32>) -> tensor<1x8x1024x128xf32>
-    %9 = stablehlo.custom_call @Sharding(%8) {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding_per_value<[<@mesh, [{}, {\22batch\22}, {}, {}]>]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}"} : (tensor<1x8x1024x128xf32>) -> tensor<1x8x1024x128xf32>
+    %9 = stablehlo.custom_call @Sharding(%8) {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding_per_value<[<@mesh, [{}, {\22model\22}, {}, {}]>]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}"} : (tensor<1x8x1024x128xf32>) -> tensor<1x8x1024x128xf32>
     return %9 : tensor<1x8x1024x128xf32>
   }
 }
