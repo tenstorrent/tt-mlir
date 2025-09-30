@@ -310,7 +310,7 @@ static Attribute createDenseElementsAttr(RankedTensorType resultType,
 // divisible by the stride.
 static int64_t calculateExtraPadding(int64_t dim, int64_t kernel,
                                      int64_t stride, int64_t padding1,
-                                     int64_t padding2, int64_t dilation = 1) {
+                                     int64_t padding2, int64_t dilation) {
   if ((dim - 1 + padding1 + padding2 - (kernel - 1) * dilation) % stride != 0) {
     return (stride -
             (dim - 1 + padding1 + padding2 - (kernel - 1) * dilation) % stride);
@@ -1006,13 +1006,13 @@ public:
   LogicalResult
   matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto input = adaptor.getInput();
-    auto weight = adaptor.getWeight();
-    auto bias = adaptor.getBias();
-    auto strides = adaptor.getStride();
-    auto dilations = adaptor.getDilation();
-    auto padding = adaptor.getPadding();
-    auto groups = adaptor.getGroups();
+    Value input = adaptor.getInput();
+    Value weight = adaptor.getWeight();
+    Value bias = adaptor.getBias();
+    Attribute strides = adaptor.getStride();
+    Attribute dilations = adaptor.getDilation();
+    Attribute padding = adaptor.getPadding();
+    uint32_t groups = adaptor.getGroups();
 
     if (groups > 1) {
       return rewriter.notifyMatchFailure(
@@ -1147,17 +1147,19 @@ public:
         {paddingTop, paddingBottom, paddingLeft, paddingRight});
 
     // Update return shape to be used in the TOSA Conv2DOp.
+    // Height and width must be adjusted for extra padding.
+    // Batch size and output channels are not changed.
     SmallVector<int64_t> resultShape = {
-        resultType.getShape()[0], resultType.getShape()[1],
-        resultType.getShape()[2], resultType.getShape()[3]};
-    resultShape[1] = (inputHeight - 1 + paddingTop + paddingBottom -
-                      (kernelHeight - 1) * dilationsResult->first) /
-                         stridesResult->first +
-                     1;
-    resultShape[2] = (inputWidth - 1 + paddingLeft + paddingRight -
-                      (kernelWidth - 1) * dilationsResult->second) /
-                         stridesResult->second +
-                     1;
+        resultType.getShape()[0],
+        (inputHeight - 1 + paddingTop + paddingBottom -
+         (kernelHeight - 1) * dilationsResult->first) /
+                stridesResult->first +
+            1,
+        (inputWidth - 1 + paddingLeft + paddingRight -
+         (kernelWidth - 1) * dilationsResult->second) /
+                stridesResult->second +
+            1,
+        resultType.getShape()[3]};
 
     auto actualResultType =
         RankedTensorType::get(resultShape, resultType.getElementType());
@@ -1256,10 +1258,10 @@ public:
 
     paddingBottom +=
         calculateExtraPadding(inputHeight, kernelHeight, stridesResult->first,
-                              paddingTop, paddingBottom);
+                              paddingTop, paddingBottom, 1);
     paddingRight +=
         calculateExtraPadding(inputWidth, kernelWidth, stridesResult->second,
-                              paddingLeft, paddingRight);
+                              paddingLeft, paddingRight, 1);
 
     auto expandedStridesAttr = rewriter.getDenseI64ArrayAttr(
         {stridesResult->first, stridesResult->second});
