@@ -1313,12 +1313,16 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Neg;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, ReluOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Relu;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, Relu6Op>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Relu6;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SqrtOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sqrt;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, RsqrtOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Rsqrt;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SigmoidOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sigmoid;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, SiluOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Silu;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SinOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sin;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, ReciprocalOp>) {
@@ -2359,6 +2363,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseUnaryOp(cache, reluOp),
                            debugString, locInfo);
   }
+  if (auto relu6Op = dyn_cast<Relu6Op>(op); relu6Op) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, relu6Op),
+                           debugString, locInfo);
+  }
   if (auto sqrtOp = dyn_cast<SqrtOp>(op); sqrtOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, sqrtOp),
                            debugString, locInfo);
@@ -2393,6 +2401,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto sigmoidOp = dyn_cast<SigmoidOp>(op); sigmoidOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, sigmoidOp),
+                           debugString, locInfo);
+  }
+  if (auto siluOp = dyn_cast<SiluOp>(op); siluOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, siluOp),
                            debugString, locInfo);
   }
   if (auto reciprocalOp = dyn_cast<ReciprocalOp>(op); reciprocalOp) {
