@@ -788,6 +788,16 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   return result;
 }
 
+bool hasLayout(::tt::runtime::Tensor tensor, Layout layout) {
+  const std::shared_ptr<LayoutDesc> tensorLayoutDesc =
+      LayoutDesc::fromTensor(tensor);
+
+  const LayoutDesc &desiredLayoutDesc =
+      layout.as<LayoutDesc>(DeviceRuntime::TTNN);
+
+  return *tensorLayoutDesc == desiredLayoutDesc;
+}
+
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex) {
   const ::tt::target::ttnn::TTNNBinary &fbb =

@@ -621,6 +621,19 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
       });
 }
 
+/// Returns whether the provided tensor has the specified layout.
+bool hasLayout(Tensor tensor, Layout layout) {
+  using RetType = bool;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::hasLayout(tensor, layout);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::TTMetal);
+      });
+}
+
 void memcpy(void *dst, Tensor src,
             std::optional<::tt::target::DataType> dstDataType) {
   using RetType = void;
