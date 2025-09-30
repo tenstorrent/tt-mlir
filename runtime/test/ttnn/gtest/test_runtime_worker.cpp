@@ -4,8 +4,9 @@
 
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/socket.h"
+#include "tt/runtime/detail/distributed/controller/command_factory.h"
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
-#include "tt/runtime/detail/distributed/server/command_factory.h"
+#include "tt/runtime/detail/distributed/utils/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
@@ -16,30 +17,20 @@
 #include <chrono>
 #include <future>
 
-using tt::runtime::distributed::server::CommandFactory;
+using tt::runtime::distributed::controller::CommandFactory;
 
-static std::string getMlirHome() {
-  const char *mlirHomeEnv = std::getenv("TT_MLIR_HOME");
-  LOG_ASSERT(mlirHomeEnv, "TT_MLIR_HOME is not set");
-  return std::string(mlirHomeEnv);
-}
-
-static auto runClientSubprocess(uint16_t port) {
-  std::string mlirHome = getMlirHome();
-  std::string portString = std::to_string(port);
+static auto runWorkerSubprocess(uint16_t port) {
   std::string command =
-      "/" + mlirHome + "/build/runtime/bin/distributed/runtime-client --port " +
-      portString;
-
+      tt::runtime::distributed::utils::getWorkerExecutableCommand(port);
   return std::async(std::launch::async,
                     [command]() { return std::system(command.c_str()); });
 }
 
 static ::tt::runtime::SizedBuffer readResponseAndValidate(
-    std::unique_ptr<tt::runtime::Socket> &clientSocket,
+    std::unique_ptr<tt::runtime::Socket> &workerSocket,
     tt::runtime::distributed::flatbuffer::ResponseType responseType) {
 
-  tt::runtime::SizedBuffer responseBuffer = clientSocket->sizePrefixedRead();
+  tt::runtime::SizedBuffer responseBuffer = workerSocket->sizePrefixedRead();
 
   const tt::runtime::distributed::flatbuffer::Response *response =
       tt::runtime::distributed::flatbuffer::GetResponse(responseBuffer.data());
@@ -50,13 +41,13 @@ static ::tt::runtime::SizedBuffer readResponseAndValidate(
 }
 
 static void sendShutdownCommandAndValidate(
-    std::unique_ptr<tt::runtime::Socket> &clientSocket) {
+    std::unique_ptr<tt::runtime::Socket> &workerSocket) {
   flatbuffers::FlatBufferBuilder fbb;
 
   CommandFactory::buildShutdownCommand(fbb);
-  clientSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
+  workerSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
 
-  tt::runtime::SizedBuffer responseBuffer = clientSocket->sizePrefixedRead();
+  tt::runtime::SizedBuffer responseBuffer = workerSocket->sizePrefixedRead();
   const tt::runtime::distributed::flatbuffer::Response *response =
       tt::runtime::distributed::flatbuffer::GetResponse(responseBuffer.data());
 
@@ -65,25 +56,25 @@ static void sendShutdownCommandAndValidate(
       tt::runtime::distributed::flatbuffer::ResponseType::ShutdownResponse);
 }
 
-TEST(RuntimeClientTest, TestSystemDesc) {
+TEST(RuntimeWorkerTest, TestSystemDesc) {
 
-  tt::runtime::ServerSocket serverSocket;
+  tt::runtime::ControllerSocket controllerSocket;
 
-  uint16_t port = serverSocket.port();
+  uint16_t port = controllerSocket.port();
 
-  auto futureResult = runClientSubprocess(port);
+  auto futureResult = runWorkerSubprocess(port);
 
-  std::unique_ptr<tt::runtime::Socket> clientSocket =
-      std::move(serverSocket.connectToClients(1)[0]);
+  std::unique_ptr<tt::runtime::Socket> workerSocket =
+      std::move(controllerSocket.connectToWorkers(1)[0]);
 
   flatbuffers::FlatBufferBuilder fbb;
 
   CommandFactory::buildGetSystemDescCommand(
       fbb, tt::runtime::DispatchCoreType::WORKER);
-  clientSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
+  workerSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
 
   tt::runtime::SizedBuffer responseBuffer = readResponseAndValidate(
-      clientSocket, tt::runtime::distributed::flatbuffer::ResponseType::
+      workerSocket, tt::runtime::distributed::flatbuffer::ResponseType::
                         GetSystemDescResponse);
 
   const tt::runtime::distributed::flatbuffer::Response *response =
@@ -94,7 +85,7 @@ TEST(RuntimeClientTest, TestSystemDesc) {
 
   const auto *systemDescVec = getSystemDescResponse->system_desc();
 
-  sendShutdownCommandAndValidate(clientSocket);
+  sendShutdownCommandAndValidate(workerSocket);
 
   futureResult.wait_for(std::chrono::seconds(5));
 
@@ -110,19 +101,19 @@ TEST(RuntimeClientTest, TestSystemDesc) {
   EXPECT_EQ(localSystemDescBuffer, remoteSystemDescBuffer);
 }
 
-TEST(RuntimeClientTest, TestSubmit) {
-  tt::runtime::ServerSocket serverSocket;
+TEST(RuntimeWorkerTest, TestSubmit) {
+  tt::runtime::ControllerSocket controllerSocket;
 
-  uint16_t port = serverSocket.port();
+  uint16_t port = controllerSocket.port();
 
-  auto futureResult = runClientSubprocess(port);
+  auto futureResult = runWorkerSubprocess(port);
 
-  std::unique_ptr<tt::runtime::Socket> clientSocket =
-      std::move(serverSocket.connectToClients(1)[0]);
+  std::unique_ptr<tt::runtime::Socket> workerSocket =
+      std::move(controllerSocket.connectToWorkers(1)[0]);
 
   flatbuffers::FlatBufferBuilder fbb;
 
-  std::string binaryPath = getMlirHome() +
+  std::string binaryPath = ::tt::runtime::utils::getMlirHome() +
                            "/build/test/ttmlir/Runtime/TTNN/n150/consteval/"
                            "Output/binary_ops.mlir.tmp.ttnn";
   ::tt::runtime::Binary binary =
@@ -152,8 +143,8 @@ TEST(RuntimeClientTest, TestSubmit) {
     CommandFactory::buildCreateHostTensorCommand(
         fbb, inputTensorWrappers[i], inputs[i].data(), inputShape, inputStride,
         sizeof(uint16_t), tt::target::DataType::BFloat16);
-    clientSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
-    readResponseAndValidate(clientSocket,
+    workerSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
+    readResponseAndValidate(workerSocket,
                             tt::runtime::distributed::flatbuffer::ResponseType::
                                 CreateHostTensorResponse);
     fbb.Clear();
@@ -166,8 +157,8 @@ TEST(RuntimeClientTest, TestSubmit) {
   meshDeviceOptions.meshShape = {1, 1};
   CommandFactory::buildOpenMeshDeviceCommand(fbb, deviceWrapper,
                                              meshDeviceOptions);
-  clientSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
-  readResponseAndValidate(clientSocket,
+  workerSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
+  readResponseAndValidate(workerSocket,
                           tt::runtime::distributed::flatbuffer::ResponseType::
                               OpenMeshDeviceResponse);
   fbb.Clear();
@@ -185,9 +176,9 @@ TEST(RuntimeClientTest, TestSubmit) {
         ::tt::runtime::Layout(nullptr, tt::runtime::DeviceRuntime::TTNN);
     layoutWrappers.push_back(layoutWrapper);
     CommandFactory::buildGetLayoutCommand(fbb, binary, 0, i, layoutWrapper);
-    clientSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
+    workerSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
     readResponseAndValidate(
-        clientSocket,
+        workerSocket,
         tt::runtime::distributed::flatbuffer::ResponseType::GetLayoutResponse);
     fbb.Clear();
   }
@@ -196,9 +187,9 @@ TEST(RuntimeClientTest, TestSubmit) {
     CommandFactory::buildToLayoutCommand(
         fbb, inputTensorWrappers[i], deviceWrapper, layoutWrappers[i],
         inputWithLayoutTensorWrappers[i], true);
-    clientSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
+    workerSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
     readResponseAndValidate(
-        clientSocket,
+        workerSocket,
         tt::runtime::distributed::flatbuffer::ResponseType::ToLayoutResponse);
     fbb.Clear();
   }
@@ -215,9 +206,9 @@ TEST(RuntimeClientTest, TestSubmit) {
   CommandFactory::buildSubmitCommand(fbb, deviceWrapper, binary, 0,
                                      inputWithLayoutTensorWrappers,
                                      submitOutputTensors);
-  clientSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
+  workerSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
   readResponseAndValidate(
-      clientSocket,
+      workerSocket,
       tt::runtime::distributed::flatbuffer::ResponseType::SubmitResponse);
   fbb.Clear();
 
@@ -228,9 +219,9 @@ TEST(RuntimeClientTest, TestSubmit) {
         nullptr, nullptr, tt::runtime::DeviceRuntime::TTNN));
     CommandFactory::buildToHostCommand(fbb, submitOutputTensors[i], true, true,
                                        {outputTensorsHost[i]});
-    clientSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
+    workerSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
     readResponseAndValidate(
-        clientSocket,
+        workerSocket,
         tt::runtime::distributed::flatbuffer::ResponseType::ToHostResponse);
     fbb.Clear();
   }
@@ -241,9 +232,9 @@ TEST(RuntimeClientTest, TestSubmit) {
   for (size_t i = 0; i < outputTensorsHost.size(); i++) {
     CommandFactory::buildMemcpyCommand(fbb, outputTensorsHost[i], std::nullopt,
                                        std::nullopt);
-    clientSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
+    workerSocket->sizePrefixedWrite(fbb.GetBufferPointer(), fbb.GetSize());
     tt::runtime::SizedBuffer responseBuffer = readResponseAndValidate(
-        clientSocket,
+        workerSocket,
         tt::runtime::distributed::flatbuffer::ResponseType::MemcpyResponse);
     const tt::runtime::distributed::flatbuffer::Response *response =
         tt::runtime::distributed::flatbuffer::GetResponse(
@@ -257,7 +248,7 @@ TEST(RuntimeClientTest, TestSubmit) {
   }
 
   // Shutdown
-  sendShutdownCommandAndValidate(clientSocket);
+  sendShutdownCommandAndValidate(workerSocket);
   futureResult.wait_for(std::chrono::seconds(5));
 
   // Submit locally and compare

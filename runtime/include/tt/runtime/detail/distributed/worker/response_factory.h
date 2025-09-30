@@ -2,14 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_DISTRIBUTED_CLIENT_RESPONSE_FACTORY_H
-#define TT_RUNTIME_DETAIL_DISTRIBUTED_CLIENT_RESPONSE_FACTORY_H
+#ifndef TT_RUNTIME_DETAIL_DISTRIBUTED_WORKER_RESPONSE_FACTORY_H
+#define TT_RUNTIME_DETAIL_DISTRIBUTED_WORKER_RESPONSE_FACTORY_H
 
 #include "flatbuffers/flatbuffers.h"
 #include "tt/runtime/types.h"
 #include <string_view>
 
-namespace tt::runtime::distributed::client {
+namespace tt::runtime::distributed::worker {
 
 class ResponseFactory {
 public:
@@ -44,6 +44,10 @@ public:
   static void buildSubmitResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                   uint64_t commandId);
 
+  static void buildGetNumShardsResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                        uint64_t commandId,
+                                        uint32_t numBuffers);
+
   static void buildToHostResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                   uint64_t commandId);
 
@@ -55,5 +59,5 @@ public:
                                     uint64_t commandId);
 };
 
-} // namespace tt::runtime::distributed::client
-#endif // TT_RUNTIME_DETAIL_DISTRIBUTED_CLIENT_RESPONSE_FACTORY_H
+} // namespace tt::runtime::distributed::worker
+#endif // TT_RUNTIME_DETAIL_DISTRIBUTED_WORKER_RESPONSE_FACTORY_H
