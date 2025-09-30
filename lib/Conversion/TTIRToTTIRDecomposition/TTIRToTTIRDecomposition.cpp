@@ -1004,7 +1004,7 @@ struct DotGeneralToMatmulConversionPattern
 
     // Propagate the hoist attribute to the matmul op.
     if (shouldHoist) {
-      ttir::utils::addShouldHoistAttribute(matmulOp);
+      ttir::utils::addShouldHoistAttr(matmulOp, rewriter);
     }
 
     // Reshape the result by unrolling the prod(lhsResultDims) to original
@@ -1033,7 +1033,7 @@ struct DotGeneralToMatmulConversionPattern
 
     // Propagate the hoist attribute to the final reshape op.
     if (shouldHoist) {
-      ttir::utils::addShouldHoistAttribute(reshapeOutput);
+      ttir::utils::addShouldHoistAttr(reshapeOutput, rewriter);
     }
 
     return success();
@@ -1097,7 +1097,7 @@ private:
 
     // Propagate the hoist attribute to the permute op.
     if (shouldHoist) {
-      ttir::utils::addShouldHoistAttribute(permuteOp);
+      ttir::utils::addShouldHoistAttr(permuteOp, rewriter);
     }
     return permuteOp;
   }
@@ -1138,7 +1138,7 @@ private:
         input, rewriter.getI32ArrayAttr(finalShapeI32));
     // Propagate the hoist attribute to the reshape op.
     if (shouldHoist) {
-      ttir::utils::addShouldHoistAttribute(reshapeOp);
+      ttir::utils::addShouldHoistAttr(reshapeOp, rewriter);
     }
 
     return reshapeOp;

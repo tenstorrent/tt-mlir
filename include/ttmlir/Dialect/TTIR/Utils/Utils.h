@@ -259,8 +259,9 @@ mlir::ValueRange getDpsOutputsFromAdaptor(AdaptorT adaptor,
 }
 
 /// Add the "ttir.should_hoist" attribute to an operation.
-inline void addShouldHoistAttr(mlir::Operation *op, mlir::OpBuilder &builder) {
-  op->setAttr("ttir.should_hoist", builder.getUnitAttr());
+inline void addShouldHoistAttr(mlir::Operation *op,
+                               mlir::PatternRewriter &rewriter) {
+  op->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
 }
 } // namespace mlir::tt::ttir::utils
 
