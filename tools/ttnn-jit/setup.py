@@ -5,51 +5,10 @@
 import os
 import pathlib
 import shutil
+import subprocess
 import re
 from setuptools import setup
-
-# Configuration Constants
-import sysconfig
-
-PYTHON_VERSION = f"cpython-{sysconfig.get_python_version().replace('.', '')}"
-DEFAULT_ARCH = "x86_64"
-
-# Package structure definitions
-TTNN_SUBPACKAGES = [
-    "ttnn",
-    "ttnn.operations",
-    "ttnn.distributed",
-    "ttnn.examples",
-    "ttnn.examples.bert",
-    "ttnn.examples.usage",
-    "ttnn.experimental_loader",
-]
-
-TTLIB_SUBPACKAGES = [
-    "tt_lib",
-    "tt_lib._internal",
-    "tt_lib.fallback_ops",
-    "tt_lib.fused_ops",
-]
-
-TTMLIR_SUBPACKAGES = [
-    "dialects",
-    "dialects.linalg",
-    "dialects.linalg.opdsl",
-    "dialects.linalg.passes",
-    "extras",
-    "_mlir_libs",
-]
-
-# Library definitions
-CORE_TTNN_LIBS = ["_ttnncpp.so"]
-CORE_TTMETAL_LIBS = [
-    "libtt_metal.so",
-    "libdevice.so",
-    "libtt_stl.so",
-    "libtracy.so.0.10.0",
-]
-ESSENTIAL_TTMETAL_DIRS = ["tt_metal", "runtime", "ttnn"]
+from datetime import datetime
 
 
 def extract_tt_metal_version() -> str | None:
@@ -67,159 +26,129 @@ def extract_tt_metal_version() -> str | None:
     return None
 
 
-def get_build_configuration():
-    """Get build paths and environment configuration"""
-    src_dir = os.environ.get(
-        "SOURCE_ROOT",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."),
-    )
+# Environment and build configuration (similar to ttrt setup.py)
+TTMLIR_VERSION_MAJOR = os.getenv("TTMLIR_VERSION_MAJOR", "0")
+TTMLIR_VERSION_MINOR = os.getenv("TTMLIR_VERSION_MINOR", "0")
+TTMLIR_VERSION_PATCH = os.getenv("TTMLIR_VERSION_PATCH", "0")
 
-    ttmlir_build_dir = os.environ.get(
-        "TTMLIR_BINARY_DIR", os.path.join(src_dir, "build")
-    )
+src_dir = os.environ.get(
+    "SOURCE_ROOT",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."),
+)
+# Use 'src_dir/build' as default location if TTMLIR_BINARY_DIR env variable is not available.
+ttmlir_build_dir = os.environ.get(
+    "TTMLIR_BINARY_DIR",
+    os.path.join(src_dir, "build"),
+)
 
-    metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal/build"
-    ttmetalhome = os.environ.get("TT_METAL_HOME", "")
-    arch = os.environ.get("CMAKE_SYSTEM_PROCESSOR", DEFAULT_ARCH)
+metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal/build"
+ttmetalhome = os.environ.get("TT_METAL_HOME", "")
 
-    # Set RPATH for runtime linking
-    os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
+# Set RPATH for runtime linking (similar to ttrt)
+os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
 
-    return {
-        "src_dir": src_dir,
-        "ttmlir_build_dir": ttmlir_build_dir,
-        "metaldir": metaldir,
-        "ttmetalhome": ttmetalhome,
-        "arch": arch,
-    }
+arch = os.environ.get("CMAKE_SYSTEM_PROCESSOR", "x86_64")
 
+# Runtime libraries that ttnn-jit needs
+runtime_module = f"_ttmlir_runtime.cpython-311-{arch}-linux-gnu.so"
+# ttnn-jit specific module
+ttnn_jit_module = f"_ttnn_jit.cpython-311-{arch}-linux-gnu.so"
+dylibs = []
+runlibs = []
+metallibs = []
 
-def copy_library_files(src_path, dst_path, libraries):
-    """Copy library files from source to destination if they exist"""
-    copied_libs = []
-    for lib in libraries:
-        lib_src = f"{src_path}/{lib}"
-        if os.path.exists(lib_src):
-            shutil.copy(lib_src, dst_path)
-            copied_libs.append(lib)
-    return copied_libs
+# Core ttnn-jit libraries
+dylibs += ["libTTMLIRRuntime.so", runtime_module]
 
+# TTMLIR libraries (required for ttmlir package)
+ttmlir_libs = [
+    "_mlir.cpython-311-x86_64-linux-gnu.so",
+    "_mlirDialectsLinalg.cpython-311-x86_64-linux-gnu.so",
+    "_mlirDialectsQuant.cpython-311-x86_64-linux-gnu.so",
+    "_mlirLinalgPasses.cpython-311-x86_64-linux-gnu.so",
+    "_ttmlir.cpython-311-x86_64-linux-gnu.so",
+    "libTTMLIRPythonCAPI.so",
+]
 
-def copy_directories_and_get_files(src_base, dst_base, directories):
-    """Copy directories and return list of all files for packaging"""
-    all_files = []
-    for dirname in directories:
-        src_dir_path = f"{src_base}/{dirname}"
-        dst_dir_path = f"{dst_base}/{dirname}"
+# TTNN libraries (required for ttnn-jit)
+runlibs += ["_ttnncpp.so"]
 
-        if os.path.exists(src_dir_path):
-            shutil.copytree(src_dir_path, dst_dir_path, dirs_exist_ok=True)
+# TT-Metal libraries (required for ttnn-jit)
+runlibs += ["libtt_metal.so"]
 
-            # Collect all files in the copied directory
-            for path, _, filenames in os.walk(dst_dir_path):
+# Common libraries for TTNN/TT-Metal
+runlibs += ["libdevice.so"]
+runlibs += ["libtt_stl.so"]
+runlibs += ["libtracy.so.0.10.0"]
+
+# Copy pre-built binaries to wheel directory
+wheel_runtime_dir = f"{ttmlir_build_dir}/python_packages/ttnn_jit/runtime"
+
+# Ensure runtime directory exists
+os.makedirs(wheel_runtime_dir, exist_ok=True)
+
+# Copy core runtime library
+shutil.copy(
+    f"{ttmlir_build_dir}/runtime/lib/libTTMLIRRuntime.so",
+    wheel_runtime_dir,
+)
+
+# Copy Python runtime module
+shutil.copy(
+    f"{ttmlir_build_dir}/runtime/python/{runtime_module}",
+    wheel_runtime_dir,
+)
+
+# Copy ttnn-jit specific module (if it exists)
+ttnn_jit_module_path = f"{ttmlir_build_dir}/tools/ttnn-jit/python/{ttnn_jit_module}"
+if os.path.exists(ttnn_jit_module_path):
+    shutil.copy(ttnn_jit_module_path, wheel_runtime_dir)
+    dylibs += [ttnn_jit_module]
+
+# Copy TTMLIR libraries from _mlir_libs directory
+ttmlir_libs_src_dir = f"{ttmlir_build_dir}/python_packages/ttmlir/_mlir_libs"
+ttmlir_libs_dst_dir = f"{ttmlir_build_dir}/python_packages/ttmlir/_mlir_libs"
+# Copy TT-Metal libraries to ttmlir/_mlir_libs/ so MLIR libraries can find them
+for runlib in runlibs:
+    src_path = f"{metaldir}/lib/{runlib}"
+    if os.path.exists(src_path):
+        shutil.copy(src_path, ttmlir_libs_dst_dir)
+
+# Copy TT-Metal/TTNN libraries
+for runlib in runlibs:
+    src_path = f"{metaldir}/lib/{runlib}"
+    if os.path.exists(src_path):
+        shutil.copy(src_path, wheel_runtime_dir)
+
+# Copy essential TT-Metal directories (similar to ttrt but more selective for ttnn-jit)
+essential_dirs = ["tt_metal", "runtime", "ttnn"]
+
+for dirname in essential_dirs:
+    src_dir_path = f"{ttmetalhome}/{dirname}"
+    dst_dir_path = f"{wheel_runtime_dir}/{dirname}"
+
+    if os.path.exists(src_dir_path):
+        shutil.copytree(src_dir_path, dst_dir_path, dirs_exist_ok=True)
+
+        # Package files in this directory
+        def package_files(directory):
+            paths = []
+            for path, directories, filenames in os.walk(directory):
                 for filename in filenames:
-                    all_files.append(os.path.join("..", path, filename))
+                    paths.append(os.path.join("..", path, filename))
+            return paths
 
-    return all_files
+        metallibs += package_files(dst_dir_path)
 
-
-def setup_runtime_libraries(config):
-    """Setup and copy all required runtime libraries"""
-    wheel_runtime_dir = f"{config['ttmlir_build_dir']}/python_packages/ttnn_jit/runtime"
-    ttmlir_libs_dst_dir = (
-        f"{config['ttmlir_build_dir']}/python_packages/ttmlir/_mlir_libs"
-    )
-
-    os.makedirs(wheel_runtime_dir, exist_ok=True)
-
-    # Core libraries
-    runtime_module = f"_ttmlir_runtime.{PYTHON_VERSION}-{config['arch']}-linux-gnu.so"
-    ttnn_jit_module = f"_ttnn_jit.{PYTHON_VERSION}-{config['arch']}-linux-gnu.so"
-
-    dylibs = ["libTTMLIRRuntime.so", runtime_module]
-
-    # Copy core runtime files
-    shutil.copy(
-        f"{config['ttmlir_build_dir']}/runtime/lib/libTTMLIRRuntime.so",
-        wheel_runtime_dir,
-    )
-    shutil.copy(
-        f"{config['ttmlir_build_dir']}/runtime/python/{runtime_module}",
-        wheel_runtime_dir,
-    )
-
-    # Copy ttnn-jit module if it exists
-    ttnn_jit_module_path = (
-        f"{config['ttmlir_build_dir']}/tools/ttnn-jit/python/{ttnn_jit_module}"
-    )
-    if os.path.exists(ttnn_jit_module_path):
-        shutil.copy(ttnn_jit_module_path, wheel_runtime_dir)
-        dylibs.append(ttnn_jit_module)
-
-    # Copy runtime libraries
-    metal_lib_dir = f"{config['metaldir']}/lib"
-    all_runtime_libs = CORE_TTNN_LIBS + CORE_TTMETAL_LIBS
-
-    # Copy to both ttmlir libs and runtime dirs
-    copy_library_files(metal_lib_dir, ttmlir_libs_dst_dir, all_runtime_libs)
-    copy_library_files(metal_lib_dir, wheel_runtime_dir, all_runtime_libs)
-
-    # Copy essential TT-Metal directories
-    metallibs = copy_directories_and_get_files(
-        config["ttmetalhome"], wheel_runtime_dir, ESSENTIAL_TTMETAL_DIRS
-    )
-
-    return dylibs + all_runtime_libs + metallibs
-
-
-def generate_package_configuration(config):
-    """Generate packages and package_dir configurations"""
-    rel_build_dir = os.path.relpath(
-        config["ttmlir_build_dir"], os.path.dirname(os.path.abspath(__file__))
-    )
-
-    packages = ["ttnn_jit", "ttnn_jit._src", "ttnn_jit.runtime"]
-    package_dir = {
-        "ttnn_jit": f"{rel_build_dir}/python_packages/ttnn_jit",
-        "ttnn_jit._src": f"{rel_build_dir}/python_packages/ttnn_jit/_src",
-        "ttnn_jit.runtime": f"{rel_build_dir}/python_packages/ttnn_jit/runtime",
-    }
-
-    # Add ttmlir packages
-    packages.extend(
-        [
-            f"ttmlir.{sub}" if sub != "_mlir_libs" else "ttmlir._mlir_libs"
-            for sub in TTMLIR_SUBPACKAGES
-        ]
-    )
-    packages.append("ttmlir")
-
-    for sub in TTMLIR_SUBPACKAGES:
-        # Convert dot notation to filesystem path (e.g., "dialects.linalg" -> "dialects/linalg")
-        sub_path = sub.replace(".", "/")
-        package_dir[
-            f"ttmlir.{sub}"
-        ] = f"{rel_build_dir}/python_packages/ttmlir/{sub_path}"
-    package_dir["ttmlir"] = f"{rel_build_dir}/python_packages/ttmlir"
-
-    # Add ttnn packages
-    runtime_ttnn_base = f"{rel_build_dir}/python_packages/ttnn_jit/runtime"
-    for sub in TTNN_SUBPACKAGES + TTLIB_SUBPACKAGES:
-        full_package = f"ttnn.{sub}"
-        packages.append(full_package)
-        # Convert dot notation to filesystem path (e.g., "ttnn.operations" -> "ttnn/operations")
-        sub_path = sub.replace(".", "/")
-        package_dir[full_package] = f"{runtime_ttnn_base}/ttnn/{sub_path}"
-
-    return packages, package_dir
+dylibs += runlibs
+dylibs += metallibs
+# Note: ttmlir_libs are handled separately in package_data
 
 
 def get_dynamic_version():
-    """Get version from environment variables and always include tt-metal version"""
-    version_major = os.getenv("TTMLIR_VERSION_MAJOR", "0")
-    version_minor = os.getenv("TTMLIR_VERSION_MINOR", "0")
-    version_patch = os.getenv("TTMLIR_VERSION_PATCH", "0")
-    base_version = f"{version_major}.{version_minor}.{version_patch}"
+    """Get version from environment variables and always include full tt-metal version"""
+    # Use environment variables first (similar to ttrt)
+    version = f"{TTMLIR_VERSION_MAJOR}.{TTMLIR_VERSION_MINOR}.{TTMLIR_VERSION_PATCH}"
 
     # Always try to get TT Metal version - this is required
     full_hash = extract_tt_metal_version()
@@ -230,19 +159,20 @@ def get_dynamic_version():
             "This is required for building ttnn-jit package."
         )
 
+    # Always include TT Metal version hash as build metadata (first 8 chars)
     short_hash = full_hash[:8]  # First 8 chars
-    # Always include TT Metal version as build metadata
-    if base_version == "0.0.0":
+    if version == "0.0.0":
         # Use default base version when no env vars set
         return f"0.1.0+ttnn.{short_hash}"
     else:
         # Include TT Metal version with custom base version
-        return f"{base_version}+ttnn.{short_hash}"
+        return f"{version}+ttnn.{short_hash}"
 
 
 def get_dynamic_dependencies():
     """Get dependencies needed for TTNN JIT functionality"""
-    return [
+    # Core dependencies for ttnn-jit (simplified, similar to ttrt approach)
+    install_requires = [
         "nanobind",  # Python binding framework
         "numpy",  # Core numeric computing
         "torch",  # PyTorch for tensor operations
@@ -252,6 +182,8 @@ def get_dynamic_dependencies():
         "psutil",  # System info
         "graphviz",  # Visualization for JIT graphs
     ]
+
+    return install_requires
 
 
 def get_readme():
@@ -278,68 +210,108 @@ For more information, visit: https://docs.tenstorrent.com/tt-mlir/
 """
 
 
-def generate_package_data(all_runtime_libs):
-    """Generate package_data configuration with file patterns"""
-    package_data = {
-        "ttnn_jit.runtime": all_runtime_libs,
+# Package configuration (using relative paths from setup.py location)
+packages = [
+    "ttnn_jit",
+    "ttnn_jit._src",
+    "ttnn_jit.runtime",
+    # Include ttmlir package that ttnn_jit depends on
+    "ttmlir",
+    "ttmlir.dialects",
+    "ttmlir.dialects.linalg",
+    "ttmlir.dialects.linalg.opdsl",
+    "ttmlir.dialects.linalg.passes",
+    "ttmlir.extras",
+    "ttmlir._mlir_libs",
+    # Include ttnn as top-level package (required by dispatch_op.py)
+    "ttnn",
+    "ttnn.ttnn",
+    "ttnn.ttnn.operations",
+    "ttnn.ttnn.distributed",
+    "ttnn.ttnn.examples",
+    "ttnn.ttnn.examples.bert",
+    "ttnn.ttnn.examples.usage",
+    "ttnn.ttnn.experimental_loader",
+    "ttnn.tt_lib",
+    "ttnn.tt_lib._internal",
+    "ttnn.tt_lib.fallback_ops",
+    "ttnn.tt_lib.fused_ops",
+    "ttnn.tracy",
+    # Note: _mlir is a shared library, not a Python package directory
+]
+
+# Calculate relative paths from setup.py directory
+setup_dir = os.path.dirname(os.path.abspath(__file__))
+rel_build_dir = os.path.relpath(ttmlir_build_dir, setup_dir)
+
+package_dir = {
+    "ttnn_jit": f"{rel_build_dir}/python_packages/ttnn_jit",
+    "ttnn_jit._src": f"{rel_build_dir}/python_packages/ttnn_jit/_src",
+    "ttnn_jit.runtime": f"{rel_build_dir}/python_packages/ttnn_jit/runtime",
+    # Include ttmlir package directories
+    "ttmlir": f"{rel_build_dir}/python_packages/ttmlir",
+    "ttmlir.dialects": f"{rel_build_dir}/python_packages/ttmlir/dialects",
+    "ttmlir.dialects.linalg": f"{rel_build_dir}/python_packages/ttmlir/dialects/linalg",
+    "ttmlir.dialects.linalg.opdsl": f"{rel_build_dir}/python_packages/ttmlir/dialects/linalg/opdsl",
+    "ttmlir.dialects.linalg.passes": f"{rel_build_dir}/python_packages/ttmlir/dialects/linalg/passes",
+    "ttmlir.extras": f"{rel_build_dir}/python_packages/ttmlir/extras",
+    "ttmlir._mlir_libs": f"{rel_build_dir}/python_packages/ttmlir/_mlir_libs",
+    # Map ttnn packages to the runtime ttnn directory
+    "ttnn": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn",
+    "ttnn.ttnn": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/ttnn",
+    "ttnn.ttnn.operations": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/ttnn/operations",
+    "ttnn.ttnn.distributed": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/ttnn/distributed",
+    "ttnn.ttnn.examples": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/ttnn/examples",
+    "ttnn.ttnn.examples.bert": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/ttnn/examples/bert",
+    "ttnn.ttnn.examples.usage": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/ttnn/examples/usage",
+    "ttnn.ttnn.experimental_loader": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/ttnn/experimental_loader",
+    "ttnn.tt_lib": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/tt_lib",
+    "ttnn.tt_lib._internal": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/tt_lib/_internal",
+    "ttnn.tt_lib.fallback_ops": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/tt_lib/fallback_ops",
+    "ttnn.tt_lib.fused_ops": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/tt_lib/fused_ops",
+    "ttnn.tracy": f"{rel_build_dir}/python_packages/ttnn_jit/runtime/ttnn/tracy",
+}
+
+setup(
+    name="ttnn-jit",
+    version=get_dynamic_version(),
+    install_requires=get_dynamic_dependencies(),
+    author="Saber Gholami",
+    author_email="sgholami@tenstorrent.com",
+    url="https://github.com/tenstorrent/tt-mlir",
+    description="TTNN Just-In-Time Compilation Interface for TT-MLIR",
+    packages=packages,
+    package_dir=package_dir,
+    entry_points={
+        "console_scripts": ["ttnn-jit = ttnn_jit:main"],
+    },
+    package_data={
+        "ttnn_jit.runtime": dylibs,
         "ttmlir": ["*.py"],
-        "ttmlir._mlir_libs": ["*.so", "*.py", "*.pyi"] + all_runtime_libs,
+        "ttmlir._mlir_libs": ["*.so", "*.py", "*.pyi"] + runlibs,
+        "ttmlir.dialects": ["*.py"],
+        "ttmlir.dialects.linalg": ["*.py"],
+        "ttmlir.dialects.linalg.opdsl": ["*.py"],
+        "ttmlir.dialects.linalg.passes": ["*.py"],
         "ttmlir.extras": ["*.py"],
-    }
-
-    # Add ttmlir dialect package data
-    for sub in [
-        sub for sub in TTMLIR_SUBPACKAGES if sub != "_mlir_libs" and sub != "extras"
-    ]:
-        package_data[f"ttmlir.{sub}"] = ["*.py"]
-
-    # Add ttnn package data with common file patterns
-    common_ttnn_patterns = ["*.py", "*.so", "*.md", "*.ipynb", "*.txt", "*.sh", "*.svg"]
-    base_ttnn_patterns = ["*.py", "*.so"]
-
-    package_data["ttnn"] = common_ttnn_patterns
-    for sub in TTNN_SUBPACKAGES + TTLIB_SUBPACKAGES:
-        patterns = ["*.py", "*.svg"] if "examples.bert" in sub else base_ttnn_patterns
-        package_data[f"ttnn.{sub}"] = patterns
-
-    return package_data
-
-
-def main():
-    """Main setup function"""
-    # Get build configuration
-    config = get_build_configuration()
-
-    # Setup runtime libraries and get list of all libraries
-    all_runtime_libs = setup_runtime_libraries(config)
-
-    # Generate package configuration
-    packages, package_dir = generate_package_configuration(config)
-
-    # Generate package data
-    package_data = generate_package_data(all_runtime_libs)
-
-    # Call setup with clean configuration
-    setup(
-        name="ttnn-jit",
-        version=get_dynamic_version(),
-        install_requires=get_dynamic_dependencies(),
-        author="Saber Gholami",
-        author_email="sgholami@tenstorrent.com",
-        url="https://github.com/tenstorrent/tt-mlir",
-        description="TTNN Just-In-Time Compilation Interface for TT-MLIR",
-        packages=packages,
-        package_dir=package_dir,
-        entry_points={
-            "console_scripts": ["ttnn-jit = ttnn_jit:main"],
-        },
-        package_data=package_data,
-        zip_safe=False,
-        long_description=get_readme(),
-        long_description_content_type="text/markdown",
-        python_requires=">=3.7",
-    )
-
-
-if __name__ == "__main__":
-    main()
+        # Include ttnn package data
+        "ttnn": ["*.py", "*.so", "*.md", "*.ipynb", "*.txt", "*.sh", "*.svg"],
+        "ttnn.ttnn": ["*.py", "*.so"],
+        "ttnn.ttnn.operations": ["*.py"],
+        "ttnn.ttnn.distributed": ["*.py"],
+        "ttnn.ttnn.examples": ["*.py"],
+        "ttnn.ttnn.examples.bert": ["*.py", "*.svg"],
+        "ttnn.ttnn.examples.usage": ["*.py"],
+        "ttnn.ttnn.experimental_loader": ["*.py"],
+        "ttnn.tt_lib": ["*.py"],
+        "ttnn.tt_lib._internal": ["*.py"],
+        "ttnn.tt_lib.fallback_ops": ["*.py"],
+        "ttnn.tt_lib.fused_ops": ["*.py"],
+        "ttnn.tracy": ["*.py"],
+        # Note: _ttmlir_runtime is handled by data_files for top-level installation
+    },
+    zip_safe=False,
+    long_description=get_readme(),
+    long_description_content_type="text/markdown",
+    python_requires=">=3.7",
+)
