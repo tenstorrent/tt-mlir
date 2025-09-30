@@ -6,6 +6,7 @@
 
 import model_explorer
 import argparse
+from tt_adapter import ttrt_loader
 
 parser = argparse.ArgumentParser(prog="tt-explorer")
 parser.add_argument(
@@ -36,6 +37,8 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+ttrt_loader.set_is_execution_enabled(not args.no_model_execution)
+
 # TODO(odjuricic): Hack to make our extension default for .mlir files.
 # This can be handled better when we switch to our model-explorer fork.
 model_explorer.extension_manager.ExtensionManager.BUILTIN_ADAPTER_MODULES = []
@@ -44,6 +47,7 @@ model_explorer.visualize_from_config(
     no_open_in_browser=args.no_browser,
     port=args.port,
     host=args.url,
-    enable_execution=not args.no_model_execution,
+    enable_execution=ttrt_loader.get_is_ttrt_available()
+    and not args.no_model_execution,
     cors_host=args.cors_host,
 )
