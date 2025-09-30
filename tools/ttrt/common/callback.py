@@ -18,79 +18,95 @@ except ImportError:
 # Mapping from TTNN operation names to corresponding TTIR operation classes
 TTNN_TO_TTIR_OP_MAPPING = {}
 
+
 def _init_ttnn_to_ttir_mapping():
     """Initialize the TTNN to TTIR operation mapping if ttir module is available."""
     if ttir is None:
         return
 
     # Arithmetic operations
-    TTNN_TO_TTIR_OP_MAPPING.update({
-        "ttnn.add": ttir.AddOp,
-        "ttnn.multiply": ttir.MultiplyOp,
-        "ttnn.subtract": ttir.SubtractOp,
-        "ttnn.divide": ttir.DivOp,
-    })
+    TTNN_TO_TTIR_OP_MAPPING.update(
+        {
+            "ttnn.add": ttir.AddOp,
+            "ttnn.multiply": ttir.MultiplyOp,
+            "ttnn.subtract": ttir.SubtractOp,
+            "ttnn.divide": ttir.DivOp,
+        }
+    )
 
     # Comparison operations
-    TTNN_TO_TTIR_OP_MAPPING.update({
-        "ttnn.eq": ttir.EqualOp,
-        "ttnn.ne": ttir.NotEqualOp,
-        "ttnn.gt": ttir.GreaterThanOp,
-        "ttnn.ge": ttir.GreaterEqualOp,
-        "ttnn.lt": ttir.LessThanOp,
-        "ttnn.le": ttir.LessEqualOp,
-    })
+    TTNN_TO_TTIR_OP_MAPPING.update(
+        {
+            "ttnn.eq": ttir.EqualOp,
+            "ttnn.ne": ttir.NotEqualOp,
+            "ttnn.gt": ttir.GreaterThanOp,
+            "ttnn.ge": ttir.GreaterEqualOp,
+            "ttnn.lt": ttir.LessThanOp,
+            "ttnn.le": ttir.LessEqualOp,
+        }
+    )
 
     # Logical operations
-    TTNN_TO_TTIR_OP_MAPPING.update({
-        "ttnn.logical_and": ttir.LogicalAndOp,
-        "ttnn.logical_or": ttir.LogicalOrOp,
-        "ttnn.logical_xor": ttir.LogicalXorOp,
-        "ttnn.logical_not": ttir.LogicalNotOp,
-    })
+    TTNN_TO_TTIR_OP_MAPPING.update(
+        {
+            "ttnn.logical_and": ttir.LogicalAndOp,
+            "ttnn.logical_or": ttir.LogicalOrOp,
+            "ttnn.logical_xor": ttir.LogicalXorOp,
+            "ttnn.logical_not": ttir.LogicalNotOp,
+        }
+    )
 
     # Bitwise operations
-    TTNN_TO_TTIR_OP_MAPPING.update({
-        "ttnn.bitwise_and": ttir.BitwiseAndOp,
-        "ttnn.bitwise_or": ttir.BitwiseOrOp,
-        "ttnn.bitwise_xor": ttir.BitwiseXorOp,
-        "ttnn.bitwise_not": ttir.BitwiseNotOp,
-    })
+    TTNN_TO_TTIR_OP_MAPPING.update(
+        {
+            "ttnn.bitwise_and": ttir.BitwiseAndOp,
+            "ttnn.bitwise_or": ttir.BitwiseOrOp,
+            "ttnn.bitwise_xor": ttir.BitwiseXorOp,
+            "ttnn.bitwise_not": ttir.BitwiseNotOp,
+        }
+    )
 
     # Mathematical operations
-    TTNN_TO_TTIR_OP_MAPPING.update({
-        "ttnn.abs": ttir.AbsOp,
-        "ttnn.neg": ttir.NegOp,
-        "ttnn.sqrt": ttir.SqrtOp,
-        "ttnn.rsqrt": ttir.RsqrtOp,
-        "ttnn.reciprocal": ttir.ReciprocalOp,
-        "ttnn.exp": ttir.ExpOp,
-        "ttnn.log": ttir.LogOp,
-        "ttnn.sin": ttir.SinOp,
-        "ttnn.cos": ttir.CosOp,
-        "ttnn.tan": ttir.TanOp,
-        "ttnn.atan": ttir.AtanOp,
-        "ttnn.tanh": ttir.TanhOp,
-        "ttnn.sigmoid": ttir.SigmoidOp,
-        "ttnn.relu": ttir.ReluOp,
-        "ttnn.relu6": ttir.Relu6Op,
-        "ttnn.gelu": ttir.GeluOp,
-        "ttnn.leaky_relu": ttir.LeakyReluOp,
-    })
+    TTNN_TO_TTIR_OP_MAPPING.update(
+        {
+            "ttnn.abs": ttir.AbsOp,
+            "ttnn.neg": ttir.NegOp,
+            "ttnn.sqrt": ttir.SqrtOp,
+            "ttnn.rsqrt": ttir.RsqrtOp,
+            "ttnn.reciprocal": ttir.ReciprocalOp,
+            "ttnn.exp": ttir.ExpOp,
+            "ttnn.log": ttir.LogOp,
+            "ttnn.sin": ttir.SinOp,
+            "ttnn.cos": ttir.CosOp,
+            "ttnn.tan": ttir.TanOp,
+            "ttnn.atan": ttir.AtanOp,
+            "ttnn.tanh": ttir.TanhOp,
+            "ttnn.sigmoid": ttir.SigmoidOp,
+            "ttnn.relu": ttir.ReluOp,
+            "ttnn.relu6": ttir.Relu6Op,
+            "ttnn.gelu": ttir.GeluOp,
+            "ttnn.leaky_relu": ttir.LeakyReluOp,
+        }
+    )
 
     # Matrix operations
-    TTNN_TO_TTIR_OP_MAPPING.update({
-        "ttnn.matmul": ttir.MatmulOp,
-        "ttnn.dot_general": ttir.DotGeneralOp,
-    })
+    TTNN_TO_TTIR_OP_MAPPING.update(
+        {
+            "ttnn.matmul": ttir.MatmulOp,
+            "ttnn.dot_general": ttir.DotGeneralOp,
+        }
+    )
 
     # Other operations
-    TTNN_TO_TTIR_OP_MAPPING.update({
-        "ttnn.where": ttir.WhereOp,
-        "ttnn.typecast": ttir.TypecastOp,
-        "ttnn.to_layout": ttir.ToLayoutOp,
-        "ttnn.get_dimension_size": ttir.GetDimensionSizeOp,
-    })
+    TTNN_TO_TTIR_OP_MAPPING.update(
+        {
+            "ttnn.where": ttir.WhereOp,
+            "ttnn.typecast": ttir.TypecastOp,
+            "ttnn.to_layout": ttir.ToLayoutOp,
+            "ttnn.get_dimension_size": ttir.GetDimensionSizeOp,
+        }
+    )
+
 
 # Initialize the mapping
 _init_ttnn_to_ttir_mapping()
@@ -224,6 +240,7 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 
     # Extract operation name from debug string (e.g., "ttnn.add" from the full debug string)
     import re
+
     op_name_match = re.search(r'"([^"]+)"', debug_str)
     op_name = op_name_match.group(1) if op_name_match else "unknown"
     print("Dhruv", op_name)
@@ -265,7 +282,9 @@ def golden(callback_runtime_config, binary, program_context, op_context):
         rt_buffer = op_output_tensor.get_data_buffer()
         dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
         # golden_tensor_torch = golden_tensor_to_torch(op_golden_tensor).flatten()
-        golden_tensor_torch = torch.add(op_input_tensors_torch[0], op_input_tensors_torch[1]).flatten()
+        golden_tensor_torch = torch.add(
+            op_input_tensors_torch[0], op_input_tensors_torch[1]
+        ).flatten()
 
         output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
         if callback_runtime_config.save_golden_tensors:
@@ -289,7 +308,6 @@ def golden(callback_runtime_config, binary, program_context, op_context):
                 "Golden and output tensor shapes do not match - skipping golden comparison"
             )
             return
-        
 
         _, _, cal_pcc, output_str = get_atol_rtol_pcc(
             golden_tensor_torch, output_tensor_torch, logging
