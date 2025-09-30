@@ -23,5 +23,4 @@ table PagedUpdateCacheOp {
   share_cache: bool = false;
   page_table: tt.target.ttnn.TensorRef;
   batch_offset: uint32;
-  mesh_coordinates: [tt.target.ttnn.MeshCoordinate];
 }
