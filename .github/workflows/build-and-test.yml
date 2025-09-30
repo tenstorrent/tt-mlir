@@ -19,38 +19,41 @@ permissions:
 
 jobs:
 
-  ignore-files:
+  prepare-run:
     runs-on: ubuntu-latest
     outputs:
-      other_changed_files: ${{ steps.ignore-files.outputs.other_changed_files }}
-      other_deleted_files: ${{ steps.ignore-files.outputs.other_deleted_files }}
+      other_changed_files: ${{ steps.prepare-run.outputs.other_changed_files }}
+      other_deleted_files: ${{ steps.prepare-run.outputs.other_deleted_files }}
+      test_matrix: ${{ steps.generate-test-matrix.outputs.test-matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Ignore files
-        id: ignore-files
+        id: prepare-run
         uses: tj-actions/changed-files@v46
         with:
           files: |
             docs/**
       - name: echo ignore_files
         run: |
-          echo "any_changed=${{ steps.ignore-files.outputs.any_changed }}"
-          echo "only_changed=${{ steps.ignore-files.outputs.only_changed }}"
-          echo "other_changed_files=${{ steps.ignore-files.outputs.other_changed_files }}"
-          echo "all_changed_files=${{ steps.ignore-files.outputs.all_changed_files }}"
-          echo "other_deleted_files=${{ steps.ignore-files.outputs.other_deleted_files }}"
+          echo "any_changed=${{ steps.prepare-run.outputs.any_changed }}"
+          echo "only_changed=${{ steps.prepare-run.outputs.only_changed }}"
+          echo "other_changed_files=${{ steps.prepare-run.outputs.other_changed_files }}"
+          echo "all_changed_files=${{ steps.prepare-run.outputs.all_changed_files }}"
+          echo "other_deleted_files=${{ steps.prepare-run.outputs.other_deleted_files }}"
       - uses: actions/setup-python@v5
       - name: Generate test matrix
         id: generate-test-matrix
         shell: bash
         run: |
-          python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json 30
+          python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json 25
+          cat _test_matrix.json
+          echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
 
   build-image:
-    needs: ignore-files
-    if: ${{ needs.ignore-files.outputs.other_changed_files || needs.ignore-files.outputs.other_deleted_files }}
+    needs: prepare-run
+    if: ${{ needs.prepare-run.outputs.other_changed_files || needs.prepare-run.outputs.other_deleted_files }}
     runs-on:
       - builder
     outputs:
@@ -179,50 +182,15 @@ jobs:
 
   run-tests:
 
-    timeout-minutes: 70
+    timeout-minutes: 60
     needs:
       - build-image
       - build-ttmlir
+      - prepare-run
     strategy:
       fail-fast: false
       matrix:
-        build: [
-          # [ type: "unit", path: "", args: "", flags: "" ],
-          {runs-on: n150, image: "speedy",  test: [
-                                                    { type: "unit" },
-                                                    { type: "ttnn_standalone" },
-                                                    { type: "ttrt", path: "Silicon", flags: "perf", args: "--non-zero" },
-                                                    { type: "op_model", path: "Silicon/TTNN/n150/optimizer", args: "--non-zero" },
-                                                    { type: "builder", path: "test/python/golden/optimizer", args: "not run_error and not fails_golden", flags: "run-ttrt require-opmodel" }
-                                                  ]},
-          {runs-on: n150, image: "tracy",   test: [
-                                                    { type: "ttrt", path: "Silicon/TTNN/n150/perf", flags: "perf" },
-                                                    { type: "ttrt", path: "Silicon/TTNN/n150/optimizer", flags: "perf" },
-                                                    { type: "ttrt", path: "Silicon", args: "--non-zero", flags: "run" },
-                                                    { type: "emitc", path: "EmitC" },
-                                                    { type: "pytest", path: "tools/ttrt/test" },
-                                                    { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt" },
-                                                    { type: "pytest", path: "tools/explorer/test/run_tests.py", flags: "--force-reinstall $BUILD_DIR/bin/wheels/tt_adapter*.whl $BUILD_DIR/bin/wheels/ai_edge_model_explorer*.whl" },
-                                                    { type: "ttnn_runtime", path: "runtime/test/ttnn/python/device_agnostic" },
-                                                    { type: "pytest", path: "test/python/op_by_op" },
-                                                    { type: "pytest", path: "runtime/tools/chisel/test", flags: "-e runtime/tools/chisel/" },
-                                                    { type: "pykernel"}
-                                                  ]},
-          {runs-on: n300,  image: "speedy", test: [ { type: "ttrt", path: "Silicon", flags: "run", args: "--non-zero"} ] },
-          {runs-on: n300,  image: "tracy",  test: [
-                                                    { type: "unit" },
-                                                    { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt require-exact-mesh" },
-                                                    { type: "runtime_debug" },
-                                                    { type: "ttrt", path: "Silicon/TTNN/n300/perf", flags: "perf" },
-                                                    { type: "pytest", path: "runtime/test/ttnn/python/multi_device" }
-                                                  ]},
-          {runs-on: llmbox, image: "speedy",test: [ { type: "ttrt", path: "Silicon", flags: "run", args: "--non-zero" } ] },
-          {runs-on: llmbox, image: "tracy", test: [
-                                                    { type: "ttrt", path: "Silicon/TTNN/llmbox/perf", flags: "perf" },
-                                                    { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt require-exact-mesh" }
-                                                   ]},
-          {runs-on: p150, image: "tracy",   test: [ { type: "builder", path: "test/python/golden", args: "not run_error and not fails_golden", flags: "run-ttrt disable-eth-dispatch require-exact-mesh" } ] }
-        ]
+        build: ${{ fromJson(needs.prepare-run.outputs.test_matrix) }}
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ strategy.job-index }})"
 
     runs-on: ${{ matrix.build.sh-run && format('tt-ubuntu-2204-{0}-stable', matrix.build.runs-on) || fromJson(format('["{0}", "in-service"]', matrix.build.runs-on)) }}
