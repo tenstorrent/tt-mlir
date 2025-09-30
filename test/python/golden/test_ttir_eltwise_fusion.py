@@ -19,13 +19,68 @@ from test_utils import (
     shard_wrap_factory,
 )
 
-MAX_INPUT_OPERANDS = 8
-
-MI = 6
-MIPO = 7
-
 
 pytestmark = pytest.mark.frontend("ttir")
+
+
+# ### ------------------------------------------------------------------------ ###
+# # Key Composite Ops
+# ### ------------------------------------------------------------------------ ###
+
+def eltwise_fuse_cosh(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    shape: Shape,
+    dtype: torch.dtype,
+    unit_attrs: Optional[List[str]] = None,
+):
+    neg_x = builder.neg(in0)
+    
+    e_neg_x = builder.exp(neg_x)
+    e_pos_x = builder.exp(in0)
+    
+    nr_term = builder.add(e_pos_x, e_neg_x)
+    ret_val = builder.multiply(nr_term, in1)
+
+    return ret_val
+
+@pytest.mark.parametrize("grid", [
+    "override-device-shape=1,1",
+    "override-device-shape=2,2",
+    "override-device-shape=4,4",
+    "override-device-shape=8,8",
+])
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: str, request):
+    def eltwise_fuse_cosh_wrapper(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return eltwise_fuse_cosh(in0, in1, builder, shape, dtype, unit_attrs)
+
+    options = [grid]
+    compile_ttir_to_flatbuffer(
+        eltwise_fuse_cosh_wrapper,
+        [shape]*2,
+        [dtype]*2,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
+    )
+
+
+# ### ------------------------------------------------------------------------ ###
+# # 
+# ### ------------------------------------------------------------------------ ###
 
 # # Generic utility to build a repeated op chain for unary or binary ops
 # def repeat_op_chain(
@@ -600,58 +655,6 @@ pytestmark = pytest.mark.frontend("ttir")
 #     )
 
 # # ttkernel compute config attribute theres a flag for fp32 dest --> globally off?  
-
-def eltwise_fuse_cosh(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    shape: Shape,
-    dtype: torch.dtype,
-    unit_attrs: Optional[List[str]] = None,
-):
-    neg_x = builder.neg(in0)
-    
-    e_neg_x = builder.exp(neg_x)
-    e_pos_x = builder.exp(in0)
-    
-    nr_term = builder.add(e_pos_x, e_neg_x)
-    ret_val = builder.multiply(nr_term, in1)
-
-    return ret_val
-
-gridList = [
-    "override-device-shape=1,1",
-    "override-device-shape=2,2",
-    "override-device-shape=4,4",
-    "override-device-shape=8,8",
-]
-
-@pytest.mark.parametrize("grid", gridList)
-@pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_eltwise_fuse_cosh(grid: str, shape: Shape, dtype: torch.dtype, target: str, request):
-    def eltwise_fuse_cosh_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return eltwise_fuse_cosh(in0, in1, builder, shape, dtype, unit_attrs)
-
-    options = [grid]
-    compile_ttir_to_flatbuffer(
-        eltwise_fuse_cosh_wrapper,
-        [shape]*2,
-        [dtype]*2,
-        target=target,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        module_dump=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=True,
-    )
 
 
 # def eltwise_unary_chain_multi_tile(
