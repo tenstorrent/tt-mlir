@@ -503,6 +503,7 @@ Device openMeshDevice(const MeshDeviceOptions &options) {
 
   auto ttnnTraceCache =
       std::make_shared<::tt::runtime::ttnn::TraceCache>(meshDevice);
+
   auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
       std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
 
@@ -732,6 +733,12 @@ void wait(const std::vector<::tt::runtime::Tensor> &tensors,
   for (const ::tt::runtime::Tensor &tensor : tensors) {
     ::tt::runtime::ttnn::wait(tensor, cqId);
   }
+}
+
+uint32_t getNumShards(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
+  return ::ttnn::distributed::get_device_tensors(ttnnTensor).size();
 }
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,

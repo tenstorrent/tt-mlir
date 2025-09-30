@@ -606,8 +606,8 @@ class Run:
             self.logging.debug(f"setting tt runtime perf env={perf_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
             torch.manual_seed(self["--seed"])
-            ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
-            current_runtime = ttrt.runtime.get_current_runtime()
+            ttrt.runtime.set_compatible_device_runtime(binaries[0].fbb)
+            current_runtime = ttrt.runtime.get_current_device_runtime()
             self.logging.debug(f"opening devices={self.query.device_ids}")
             dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
 
