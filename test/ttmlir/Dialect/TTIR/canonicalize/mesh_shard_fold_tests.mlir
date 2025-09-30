@@ -66,7 +66,7 @@ module {
         shard_type = #ttcore_shard_type,
         shard_direction = #ttcore_shard_direction,
         shard_shape = array<i64: 1>,
-        shard_dims = array<i64: 0>
+        shard_dims = array<i64: 0, 1>
     }> : (tensor<128xf32>) -> tensor<128xf32>
     return %1 : tensor<128xf32>
   }
@@ -80,7 +80,7 @@ module {
         shard_type = #ttcore_shard_type,
         shard_direction = #ttcore_shard_direction,
         shard_shape = array<i64: 1, 1, 1>,
-        shard_dims = array<i64: 0, 1, 2>
+        shard_dims = array<i64: 0, 1>
     }> : (tensor<64x128x32xf32>) -> tensor<64x128x32xf32>
     return %1 : tensor<64x128x32xf32>
   }
@@ -93,7 +93,7 @@ module {
         shard_type = #ttcore_shard_type,
         shard_direction = #ttcore_shard_direction,
         shard_shape = array<i64: 2, 1, 1>,
-        shard_dims = array<i64: 0, 1, 2>
+        shard_dims = array<i64: 0, 1>
     }> : (tensor<64x128x32xf32>) -> tensor<32x128x32xf32>
     return %1 : tensor<32x128x32xf32>
   }
