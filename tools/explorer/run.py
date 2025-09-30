@@ -47,6 +47,7 @@ model_explorer.visualize_from_config(
     no_open_in_browser=args.no_browser,
     port=args.port,
     host=args.url,
-    enable_execution=ttrt_loader.get_is_ttrt_available() and not args.no_model_execution,
+    enable_execution=ttrt_loader.get_is_ttrt_available()
+    and not args.no_model_execution,
     cors_host=args.cors_host,
 )

@@ -100,7 +100,6 @@ class ModelRunner:
         self._build_dir = os.environ["TT_MLIR_HOME"] + "/build"
         os.makedirs(self._explorer_artifacts_dir, exist_ok=True)
 
-
         if self._ttrt is not None:
             self._ttrt.API.initialize_apis()
 
@@ -252,7 +251,7 @@ class ModelRunner:
     def compile_and_run_wrapper(self, model_path, overrides_string):
         try:
             if not ttrt_loader.get_is_ttrt_available():
-                raise Exception('TTRT not available. Model execution is disabled.')
+                raise Exception("TTRT not available. Model execution is disabled.")
 
             self.compile_and_run(model_path, overrides_string)
         except ExplorerRunException as e:
