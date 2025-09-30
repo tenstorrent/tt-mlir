@@ -535,7 +535,7 @@ const auto createMin = [](OpBuilder &b, Location l, Type t, ValueRange r) {
   return b.create<MinimumOp>(l, t, r).getOperation();
 };
 const auto createPow = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<PowOp>(l, t, r).getOperation();
+  return b.create<PowTensorOp>(l, t, r).getOperation();
 };
 const auto createBitwiseAnd = [](OpBuilder &b, Location l, Type t,
                                  ValueRange r) {

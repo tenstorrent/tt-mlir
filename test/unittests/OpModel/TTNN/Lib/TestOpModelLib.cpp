@@ -1607,7 +1607,7 @@ using OpModelLessThanParam = OpModelBinaryEltwiseParam<LessThanOp>;
 using OpModelLogicalAndParam = OpModelBinaryEltwiseParam<LogicalAndOp>;
 using OpModelLogicalOrParam = OpModelBinaryEltwiseParam<LogicalOrOp>;
 using OpModelLogicalXorParam = OpModelBinaryEltwiseParam<LogicalXorOp>;
-using OpModelPowParam = OpModelBinaryEltwiseParam<PowOp>;
+using OpModelPowParam = OpModelBinaryEltwiseParam<PowTensorOp>;
 using OpModelBitwiseAndParam = OpModelBinaryEltwiseParam<BitwiseAndOp>;
 using OpModelBitwiseOrParam = OpModelBinaryEltwiseParam<BitwiseOrOp>;
 using OpModelBitwiseXorParam = OpModelBinaryEltwiseParam<BitwiseXorOp>;
@@ -1634,7 +1634,7 @@ TEST_P(OpModelLogicalXorParam, LogicalXorOp) { RunTest(); }
 TEST_P(OpModelBitwiseAndParam, BitwiseAndOp) { RunTestInt32(); }
 TEST_P(OpModelBitwiseOrParam, BitwiseOrOp) { RunTestInt32(); }
 TEST_P(OpModelBitwiseXorParam, BitwiseXorOp) { RunTestInt32(); }
-TEST_P(OpModelPowParam, PowOp) { RunTest(); }
+TEST_P(OpModelPowParam, PowTensorOp) { RunTest(); }
 TEST_P(OpModelRemainderParam, RemainderOp) { RunTest(); }
 TEST_P(OpModelAtan2Param, Atan2Op) { RunTest(); }
 
