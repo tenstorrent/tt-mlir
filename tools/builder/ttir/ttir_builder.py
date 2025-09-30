@@ -1894,7 +1894,7 @@ class TTIRBuilder(Builder):
             Tensor with power values
         """
         return self._op_proxy(
-            ttir.PowOp,
+            ttir.PowTensorOp,
             [in0, in1],
             unit_attrs=unit_attrs,
         )

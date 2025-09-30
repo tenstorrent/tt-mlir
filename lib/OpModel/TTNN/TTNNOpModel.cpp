@@ -1261,9 +1261,11 @@ llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
 
   // Helper lambda to create the query with any exponent value type.
   auto powScalarQuery = [=](auto convertedExponent) {
-    return ::ttnn::graph::query_op_constraints(
-        ::ttnn::pow, device, inputSpec, convertedExponent,
-        detail::getNullableMemoryConfig(outputLayout));
+    return [=]() {
+      return ::ttnn::graph::query_op_constraints(
+          ::ttnn::pow, device, inputSpec, convertedExponent,
+          detail::getNullableMemoryConfig(outputLayout));
+    };
   };
 
   // The invoke function of PowScalarOp is templated over the exponent value
@@ -1303,9 +1305,11 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
 
   // Helper lambda to create the query with any exponent value type.
   auto powScalarQuery = [=](auto convertedExponent) {
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::pow, device, inputSpec, convertedExponent,
-        detail::getNullableMemoryConfig(outputLayout));
+    return [=]() {
+      return ::ttnn::graph::query_op_runtime(
+          ::ttnn::pow, device, inputSpec, convertedExponent,
+          detail::getNullableMemoryConfig(outputLayout));
+    };
   };
 
   // The invoke function of PowScalarOp is templated over the exponent value
