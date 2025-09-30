@@ -1707,7 +1707,6 @@ TEST_F(OpModelBase, NLPCreateQKVHeadsDecodeOpInterface) {
     EXPECT_EQ(l1PeakSize, 6144);
     EXPECT_EQ(outputSize, 2048);
     EXPECT_EQ(totalPeakSize, 6144);
-    llvm::outs() << "TotalPeakSize: " << totalPeakSize << "\n";
   } else {
     FAIL() << "Missing L1 constraints for NLPCreateQKVHeadsDecodeOp; Error="
            << llvm::toString(constraintsExp.takeError());
