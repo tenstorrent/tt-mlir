@@ -2716,7 +2716,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.TanhOp: torch.tanh,
     ttir.ReciprocalOp: torch.reciprocal,
     ttir.ReluOp: torch.relu,
-    ttir.Relu6Op: torch.nn.functional.relu6,
+    # ttir.Relu6Op: torch.nn.functional.relu6,
     ttir.RsqrtOp: torch.rsqrt,
     ttir.SigmoidOp: torch.sigmoid,
     ttir.SignOp: torch.sign,
