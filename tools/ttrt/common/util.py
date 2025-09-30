@@ -569,6 +569,41 @@ class FileManager:
         ttsys_files.sort()
         return ttsys_files
 
+    def find_emitpy_dylib_paths(self, path):
+        self.logging.debug(f"finding all .py files from={path}")
+        py_files = []
+
+        if self.is_file(path):
+            if self.check_file_exists(path):
+                if self.get_file_extension(path) == EmitPyDylib.get_so_file_extension():
+                    py_files.append(path)
+                    self.logging.debug(f"found file={path}")
+            else:
+                self.logging.info(f"file '{path}' not found - skipping")
+        else:
+            self.check_directory_exists(path)
+            try:
+                for root, _, files in os.walk(path):
+                    for file in files:
+                        if (
+                            self.get_file_extension(file)
+                            == EmitPyDylib.get_py_file_extension()
+                        ):
+                            py_files.append(os.path.join(root, file))
+                            self.logging.debug(f"found file={os.path.join(root, file)}")
+            except Exception as e:
+                raise Exception(f"an unexpected error occurred: {e}")
+
+        # Sort files alphabetically to ensure consistent ordering.
+        py_files.sort()
+        return py_files
+
+    def find_py_corresponding_ttnn(self, path):
+        ttnn_path = path.replace(".py", ".ttnn")
+        if self.check_file_exists(ttnn_path):
+            return ttnn_path
+        return None
+
 
 class Artifacts:
     def __init__(self, logger, file_manager=None, artifacts_folder_path=""):
@@ -1008,6 +1043,21 @@ class SystemDesc(Flatbuffer):
                 "Binary schema mismatch, please recompile the binary with the compiler at the same schema version"
             )
         return True
+
+
+class EmitPyDylib:
+    def __init__(self, logger, file_manager, file_path, capsule=None):
+        self.logger = logger
+        self.logging = self.logger.get_logger()
+        self.file_manager = file_manager
+        self.file_path = file_path if file_path != None else "<dylib-from-capsule>"
+
+        # temporary state value to check if test failed
+        self.test_result = "pass"
+
+    @staticmethod
+    def get_py_file_extension():
+        return ".py"
 
 
 class TTRTTestException(Exception):
