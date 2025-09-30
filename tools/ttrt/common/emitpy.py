@@ -21,16 +21,9 @@ import ast
 from functools import reduce
 import operator
 
-# import ttnn
-
 from ttrt.common.util import *
 from ttrt.common.query import Query
 from ttrt.common.run import Run
-
-os.environ["PYTHONPATH"] = (
-    os.environ["PYTHONPATH"]
-    + f":{os.getcwd()}/tools/tt-alchemist/templates/python/local"
-)
 
 
 class EmitPy:
