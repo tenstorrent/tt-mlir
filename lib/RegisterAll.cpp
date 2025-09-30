@@ -70,14 +70,14 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::tt::d2m::D2MDialect, mlir::tt::ttnn::TTNNDialect,
       mlir::tt::ttmetal::TTMetalDialect, mlir::tt::ttkernel::TTKernelDialect,
       mlir::tt::sfpi::SFPIDialect, mlir::func::FuncDialect,
-      mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,
-      mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
-      mlir::affine::AffineDialect, mlir::scf::SCFDialect,
-      mlir::cf::ControlFlowDialect, mlir::tosa::TosaDialect,
-      mlir::vector::VectorDialect, mlir::memref::MemRefDialect,
-      mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
-      mlir::LLVM::LLVMDialect, mlir::quant::QuantDialect,
-      mlir::tt::emitpy::EmitPyDialect>();
+      mlir::arith::ArithDialect, mlir::math::MathDialect,
+      mlir::ml_program::MLProgramDialect, mlir::tensor::TensorDialect,
+      mlir::linalg::LinalgDialect, mlir::affine::AffineDialect,
+      mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
+      mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
+      mlir::memref::MemRefDialect, mlir::emitc::EmitCDialect,
+      mlir::bufferization::BufferizationDialect, mlir::LLVM::LLVMDialect,
+      mlir::quant::QuantDialect, mlir::tt::emitpy::EmitPyDialect>();
 
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);

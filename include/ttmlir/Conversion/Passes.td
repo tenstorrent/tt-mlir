@@ -83,6 +83,38 @@ def TTIRToD2M: Pass<"ttir-to-d2m", "::mlir::ModuleOp"> {
   ];
 }
 
+def ArithToD2MTileOps : Pass<"arith-to-d2m-tile-ops", "::mlir::ModuleOp"> {
+  let summary = "Convert Arith to D2M Tile ops dialect.";
+  let description = [{
+    Take arith ops that operate over tiles and convert them to d2m tile ops.
+    ```mlir
+    %0 = arith.negf %arg0 : !ttcore.tile<32x32, f32>
+    ```
+    Becomes:
+    ```mlir
+    %0 = "d2m.tile_negative"(%arg0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    ```
+  }];
+  let dependentDialects = ["mlir::tt::d2m::D2MDialect", "mlir::linalg::LinalgDialect"];
+  let constructor = "createConvertArithToD2MTileOpsPass()";
+}
+
+def MathToD2MTileOps : Pass<"math-to-d2m-tile-ops", "::mlir::ModuleOp"> {
+  let summary = "Convert Math to D2M Tile ops dialect.";
+  let description = [{
+    Take math ops that operate over tiles and convert them to d2m tile ops.
+    ```mlir
+    %0 = math.abs %arg0 : !ttcore.tile<32x32, f32>
+    ```
+    Becomes:
+    ```mlir
+    %0 = "d2m.tile_abs"(%arg0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+    ```
+  }];
+  let dependentDialects = ["mlir::tt::d2m::D2MDialect", "mlir::linalg::LinalgDialect"];
+  let constructor = "createConvertMathToD2MTileOpsPass()";
+}
+
 def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to TTNN dialect.";
   let constructor = "createConvertTTIRToTTNNPass()";
