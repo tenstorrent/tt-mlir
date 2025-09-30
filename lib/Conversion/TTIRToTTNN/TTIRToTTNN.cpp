@@ -1916,7 +1916,8 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKeys(), adaptor.getValues(),
         adaptor.getPageTable(), adaptor.getAttnMask(),
-        adaptor.getCurPosTensor(), adaptor.getIsCausal(), adaptor.getScale());
+        adaptor.getCurPosTensor(), adaptor.getAttnSink(), adaptor.getIsCausal(),
+        adaptor.getScale());
     return success();
   }
 };

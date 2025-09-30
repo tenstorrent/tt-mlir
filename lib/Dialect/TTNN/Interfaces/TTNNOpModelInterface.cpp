@@ -1964,6 +1964,22 @@ llvm::Expected<size_t> ScaledDotProductAttentionOp::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// PagedScaledDotProductAttentionDecodeOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+
+  return op_model::OpConstraints{};
+}
+
+llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return 0;
+}
+
+//===----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 

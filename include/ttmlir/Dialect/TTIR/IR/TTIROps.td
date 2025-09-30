@@ -5405,7 +5405,7 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
   let hasVerifier = 1;
 }
 
-def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot_product_attention_decode"> {
+def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
   let summary = "Paged scaled dot product attention decode.";
   let description = [{
     Paged scaled dot product attention decode.

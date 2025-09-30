@@ -3510,7 +3510,8 @@ public:
         cast<RankedTensorType>(
             getTypeConverter()->convertType(srcOp.getResult(0).getType())),
         query, keyCache, valueCache, pageTable, attn_mask, cur_pos_tensor,
-        attn_sink, isCausal, scale);
+        attn_sink, rewriter.getBoolAttr(isCausal),
+        rewriter.getF32FloatAttr(scale));
 
     return success();
   }
@@ -3519,18 +3520,15 @@ private:
   LogicalResult verifyQKV(Value query, Value keyCache, Value valueCache,
                           PatternRewriter &rewriter) const {
     if (!isa<RankedTensorType>(query.getType())) {
-      return rewriter.notifyMatchFailure(query,
-                                         "Query must be a ranked tensor.");
+      return failure();
     }
 
     if (!isa<RankedTensorType>(keyCache.getType())) {
-      return rewriter.notifyMatchFailure(keyCache,
-                                         "Key cache must be a ranked tensor.");
+      return failure();
     }
 
     if (!isa<RankedTensorType>(valueCache.getType())) {
-      return rewriter.notifyMatchFailure(
-          valueCache, "Value cache must be a ranked tensor.");
+      return failure();
     }
 
     RankedTensorType queryType = cast<RankedTensorType>(query.getType());
@@ -3542,44 +3540,35 @@ private:
     ArrayRef<int64_t> valueCacheShape = valueCacheType.getShape();
 
     if (queryType.getRank() != 4) {
-      return rewriter.notifyMatchFailure(query, "Query must be a 4D tensor.");
+      return failure();
     }
 
     if (keyCacheShape != valueCacheShape) {
-      return rewriter.notifyMatchFailure(
-          keyCache, "Key cache and value cache must have the same shape.");
+      return failure();
     }
 
     if (keyCacheType.getRank() != 4) {
-      return rewriter.notifyMatchFailure(keyCache,
-                                         "Cache tensors must be a 4D tensor.");
+      return failure();
     }
 
     if (queryShape[0] != 1) {
-      return rewriter.notifyMatchFailure(query,
-                                         "Query shape at dim 0 must be 1.");
+      return failure();
     }
 
     int64_t batchSize = queryShape[1];
     int64_t hiddenSize = queryShape[3];
 
     if (keyCacheShape[0] % batchSize != 0) {
-      return rewriter.notifyMatchFailure(
-          keyCache, "Cache shape at dim 0 must be divisible by batch size.");
+      return failure();
     }
 
     if (hiddenSize != keyCacheShape[3]) {
-      return rewriter.notifyMatchFailure(
-          query,
-          "Cache Hidden size must be the same as the query hidden size.");
+      return failure();
     }
 
     return success();
   }
-
-  bool verifyKeyCache(Value keyCache) const {
-
-  };
+};
 } // namespace
 
 static void
@@ -3891,7 +3880,6 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
            StableHLOToTTIRScaledDotProductAttentionOpConversionPattern>(
           typeConverter, ctx);
 }
-
 
 static void addPagedAttentionOpConversionPattern(MLIRContext *ctx,
                                                  RewritePatternSet &patterns,
