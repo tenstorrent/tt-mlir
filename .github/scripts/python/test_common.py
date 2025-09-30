@@ -1,7 +1,8 @@
-#!/usr/bin/env python3
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+
+# common functions for test scripts
 
 import hashlib
 

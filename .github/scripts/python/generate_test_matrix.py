@@ -93,6 +93,43 @@ def main(input_filename, target_duration):
                     }
                     bins.append(new_bin)
 
+            # Optimize bins by trying to move tests between bins to better balance durations
+            improved = True
+            while improved:
+                improved = False
+
+                # Try to move tests between bins to better balance durations
+                for i in range(len(bins)):
+                    for j in range(len(bins)):
+                        if i == j:
+                            continue
+
+                        bin_i = bins[i]
+                        bin_j = bins[j]
+
+                        # Try moving each test from bin_i to bin_j
+                        for test_idx, test in enumerate(bin_i["tests"][:]):
+                            # Check if moving this test would improve balance
+                            if (
+                                bin_j["total_duration"] + test["duration"]
+                                <= target_duration
+                                and bin_i["total_duration"]
+                                > bin_j["total_duration"] + test["duration"]
+                            ):
+
+                                # Move the test
+                                bin_i["tests"].remove(test)
+                                bin_i["total_duration"] -= test["duration"]
+                                bin_j["tests"].append(test)
+                                bin_j["total_duration"] += test["duration"]
+                                improved = True
+                                break
+
+                        if improved:
+                            break
+                    if improved:
+                        break
+
             # Add all bins to the final matrix
             final_test_matrix.extend(bins)
 
