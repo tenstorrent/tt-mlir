@@ -50,14 +50,14 @@ def D2M_ViewLayoutOp : D2M_Op<"view_layout", [
 //===----------------------------------------------------------------------===//
 
 def D2M_ToLayoutOp : D2M_Op<"to_layout", [
-      Pure,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
       "bufferize",
       "getAliasingValues",
       "getBufferType"
-    ]>
+    ]>,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
     let summary = "Layout op.";
     let description = [{

@@ -418,6 +418,25 @@ bool ToLayoutOp::isDeviceToHost() {
   return !hostInput && hostOutput;
 }
 
+void ToLayoutOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  for (OpOperand &operand : getOperation()->getOpOperands()) {
+    if (!llvm::isa<MemRefType>(operand.get().getType())) {
+      continue;
+    }
+    if (operand.getOperandNumber() == 0) { // Input operand
+      effects.emplace_back(MemoryEffects::Read::get(), &operand, /*stage*/ 0,
+                           /*effectOnFullRegion*/ true,
+                           SideEffects::DefaultResource::get());
+    } else { // Output operand
+      effects.emplace_back(MemoryEffects::Write::get(), &operand, /*stage*/ 0,
+                           /*effectOnFullRegion*/ true,
+                           SideEffects::DefaultResource::get());
+    }
+  }
+}
+
 void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
                                              mlir::MLIRContext *context) {
   // Fold into d2m.empty w/ desired layout
@@ -433,12 +452,12 @@ void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
   patterns.add(std::make_unique<ToLayoutFoldRedundantPattern>(context));
 }
 
-bool mlir::tt::d2m::ToLayoutOp::bufferizesToMemoryRead(
+bool ToLayoutOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   return operand.getOperandNumber() == 0; // Input operand
 }
 
-bool mlir::tt::d2m::ToLayoutOp::bufferizesToMemoryWrite(
+bool ToLayoutOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   return operand.getOperandNumber() == 1; // Output operand
 }
