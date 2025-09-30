@@ -12,6 +12,12 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
+# Check if VIRTUAL_ENV is set
+if [[ -z "${VIRTUAL_ENV}" ]]; then
+    echo "Error: VIRTUAL_ENV environment variable is not set. Please activate your virtual environment."
+    exit 1
+fi
+
 # Run main.py
 echo "Running main.py..."
 python3 main.py

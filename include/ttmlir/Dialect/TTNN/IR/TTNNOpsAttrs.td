@@ -141,10 +141,6 @@ def TTNN_ShardOrientationAttr : EnumAttr<TTNN_Dialect, TTNN_ShardOrientation, "s
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTNN_ShardModeAttr : EnumAttr<TTNN_Dialect, TTNN_ShardMode, "shard_mode"> {
-  let assemblyFormat = "`<` $value `>`";
-}
-
 def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
   let summary = "TTNN ShardSpec attribute";
   let description = [{
@@ -172,22 +168,20 @@ def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
 
   let parameters = (ins "CoreRangeSetAttr": $coreRangeSet,
                     "ShapeAttr":$shape,
-                    "ShardOrientationAttr":$shardOrientation,
-                    "ShardModeAttr":$shardMode,
-                    OptionalParameter<"ShapeAttr">:$physical_shard_shape);
+                    "ShardOrientationAttr":$shardOrientation);
 
   let builders =
     [
       AttrBuilder<(ins "ShapeAttr": $shape, "ttcore::GridAttr": $shardGrid, "ttcore::GridAttr": $deviceGrid),
       [{
         CoreRangeSetAttr coreRangeSet = getCoreRangeSet($_ctxt, shardGrid, deviceGrid);
-        return Base::get($_ctxt, coreRangeSet, shape, ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor), ShardModeAttr::get($_ctxt, ::mlir::tt::ttnn::ShardMode::Physical), ShapeAttr());
+        return Base::get($_ctxt, coreRangeSet, shape, ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor));
       }]>,
       AttrBuilder<(ins "TTNNLayoutAttr": $layout, "ttcore::GridAttr": $deviceGrid),
       [{
         ttcore::GridAttr shardGrid = layout.getGrid();
         CoreRangeSetAttr coreRangeSet = getCoreRangeSet($_ctxt, shardGrid, deviceGrid);
-        return Base::get($_ctxt, coreRangeSet, ShapeAttr::get($_ctxt,layout.getScalarShardShape()), ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor), ShardModeAttr::get($_ctxt, ::mlir::tt::ttnn::ShardMode::Physical), ShapeAttr());
+        return Base::get($_ctxt, coreRangeSet, ShapeAttr::get($_ctxt,layout.getScalarShardShape()), ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor));
       }]>
     ];
 
@@ -662,6 +656,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     TTNNLayoutAttr withShardShape(llvm::SmallVector<int64_t> shardShape);
     TTNNLayoutAttr withTensorShape(ArrayRef<int64_t> tensorShape);
     TTNNLayoutAttr withIgnorePhysicalLayout(bool ignorePhysicalLayout);
+    TTNNLayoutAttr withDataType(ttcore::DataType dataType);
 
     bool isSystemBufferType() const { return ::mlir::tt::ttnn::isSystemBufferType(getBufferType()); }
     bool isDeviceBufferType() const { return ::mlir::tt::ttnn::isDeviceBufferType(getBufferType()); }

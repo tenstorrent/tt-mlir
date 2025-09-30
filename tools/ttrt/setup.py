@@ -210,7 +210,7 @@ if enable_perf:
     install_requires += ["click"]
     packages += ["tracy"]
     packages += ["tt_metal"]
-    package_dir["tracy"] = f"{ttmetalhome}/ttnn/tracy"
+    package_dir["tracy"] = f"{ttmetalhome}/tools/tracy"
     package_dir["tt_metal"] = f"{ttmetalhome}/tt_metal"
 
 setup(

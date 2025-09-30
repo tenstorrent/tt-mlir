@@ -28,13 +28,12 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
       lhs, lhs.dtype(), lhs.layout(), std::nullopt, outputMemoryConfig);
   ::tt::tt_metal::Array4D startIndex = {0, 0, 0, 0};
 
-  ::ttnn::Tensor indexPad = ::ttnn::pad(::ttnn::DefaultQueueId, onesLikeLhs,
-                                        rhs.padded_shape().to_array_4D(),
-                                        startIndex, 0, false, std::nullopt);
+  ::ttnn::Tensor indexPad =
+      ::ttnn::pad(onesLikeLhs, rhs.padded_shape().to_array_4D(), startIndex, 0,
+                  false, std::nullopt);
 
-  ::ttnn::Tensor tempA =
-      ::ttnn::pad(::ttnn::DefaultQueueId, lhs, rhs.padded_shape().to_array_4D(),
-                  startIndex, 0, false, std::nullopt);
+  ::ttnn::Tensor tempA = ::ttnn::pad(lhs, rhs.padded_shape().to_array_4D(),
+                                     startIndex, 0, false, std::nullopt);
 
   ::ttnn::Tensor out = ::ttnn::where(indexPad, tempA, rhs);
 

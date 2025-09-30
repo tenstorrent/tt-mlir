@@ -39,6 +39,8 @@
 #include "operations/reduction/prod/prod.hpp"
 #include "operations/trace.hpp"
 #include "operations/transformer/concatenate_heads/concatenate_heads.hpp"
+#include "operations/transformer/sdpa/sdpa.hpp"
+#include "operations/transformer/sdpa_decode/sdpa_decode.hpp"
 #include "tt-metalium/bfloat16.hpp"
 #include "ttnn/common/queue_id.hpp"
 #include "ttnn/core.hpp"

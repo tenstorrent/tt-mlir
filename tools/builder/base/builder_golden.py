@@ -17,7 +17,7 @@ import itertools
 import operator
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo
+from ttmlir.dialects import ttir, stablehlo, d2m
 from ttmlir.ir import (
     Attribute,
     ArrayAttr,
@@ -824,7 +824,6 @@ def linear_golden(
 def dot_general_golden(
     lhs: BuilderGoldenTensor,
     rhs: BuilderGoldenTensor,
-    out: BuilderGoldenTensor,
     batch_dims_lhs,
     contract_dims_lhs,
     batch_dims_rhs,
@@ -839,8 +838,6 @@ def dot_general_golden(
         Left-hand side tensor
     rhs : BuilderGoldenTensor
         Right-hand side tensor
-    out : BuilderGoldenTensor
-        Output tensor shape reference
     batch_dims_lhs : List[int]
         Batch dimensions for left tensor
     contract_dims_lhs : List[int]
@@ -857,9 +854,22 @@ def dot_general_golden(
     """
     non_batch_dims_lhs = [d for d in range(lhs.dim()) if d not in batch_dims_lhs]
     non_batch_dims_rhs = [d for d in range(rhs.dim()) if d not in batch_dims_rhs]
+
+    # Compute output shape
+    lhs_shape = list(lhs.shape)
+    rhs_shape = list(rhs.shape)
+    batch_shape = [lhs_shape[d] for d in batch_dims_lhs]
+    non_contract_lhs = [d for d in non_batch_dims_lhs if d not in contract_dims_lhs]
+    non_contract_rhs = [d for d in non_batch_dims_rhs if d not in contract_dims_rhs]
+    out_shape = (
+        batch_shape
+        + [lhs_shape[d] for d in non_contract_lhs]
+        + [rhs_shape[d] for d in non_contract_rhs]
+    )
+
     transposed_lhs = torch.permute(lhs, (batch_dims_lhs + non_batch_dims_lhs))
     transposed_rhs = torch.permute(rhs, (batch_dims_rhs + non_batch_dims_rhs))
-    result = out.zeros_like_builder(out.shape)
+    result = lhs.zeros_like_builder(out_shape)
 
     dim_ranges = []
     for i in range(len(batch_dims_lhs)):
@@ -2651,7 +2661,9 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
     """
 
     # Handle special cases with parameters
-    if ttir_op_class == ttir.ToLayoutOp and "tilize" in kwargs:
+    if (
+        ttir_op_class == ttir.ToLayoutOp or ttir_op_class == d2m.ToLayoutOp
+    ) and "tilize" in kwargs:
         if kwargs["tilize"]:
             return tilize_golden
         else:
@@ -2796,7 +2808,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.DotGeneralOp: dot_general_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: (lambda x, **kwargs: x),
-    ttir.ViewLayoutOp: (lambda x, **kwargs: x),
+    # D2M Layout operations (identity functions)
+    d2m.ToLayoutOp: (lambda x, **kwargs: x),
+    d2m.ViewLayoutOp: (lambda x, **kwargs: x),
     # Cache operations
     ttir.FillCacheOp: fill_cache_golden,
     ttir.UpdateCacheOp: update_cache_golden,

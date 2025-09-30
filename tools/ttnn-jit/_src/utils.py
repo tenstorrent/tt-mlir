@@ -11,6 +11,7 @@ def _discover_dialect_ops(dialect, denylist=None):
     """
     Return a mapping Dict[str, Callable] of available pybounded dialect ops.
     """
+    # TODO (#5044): match ttnn.* ops instead of just python ops.
     denylist = set() if denylist is None else denylist
     op_map = {}
     ns = dialect.__name__.removeprefix("ttmlir.dialects.")

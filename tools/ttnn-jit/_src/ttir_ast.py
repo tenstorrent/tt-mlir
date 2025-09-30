@@ -16,14 +16,7 @@ from .utils import _discover_dialect_ops
 
 
 class TTIRCompiler(ast.NodeVisitor):
-    _unsupported_ops = [
-        "maximum",
-        "minimum",
-        "logical_xor",
-        "logical_and",
-        "logical_or",
-    ]
-    _fn_map = _discover_dialect_ops(ttir, denylist=_unsupported_ops)
+    _fn_map = _discover_dialect_ops(ttir)
     supported_nodes = [
         ### Control-flow (NOT SUPPORTED)
         # ast.If,

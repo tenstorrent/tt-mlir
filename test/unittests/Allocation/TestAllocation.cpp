@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Planner.h"
+#include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 
-#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Tools.h"
-#include "ttmlir/Dialect/TTIR/Analysis/Allocation/Utils.h"
+#include "ttmlir/Dialect/D2M/Analysis/Allocation/Tools.h"
+#include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
 
 #include "testing/Utils.h"
 
@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <functional>
 
-namespace mlir::tt::ttir::allocation {
+namespace mlir::tt::d2m::allocation {
 
 namespace gtest = ::testing;
 
@@ -571,4 +571,4 @@ TEST(AllocationSpillTest, LargeProblems) {
   }
 }
 
-} // namespace mlir::tt::ttir::allocation
+} // namespace mlir::tt::d2m::allocation

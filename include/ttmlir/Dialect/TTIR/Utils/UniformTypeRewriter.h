@@ -67,10 +67,6 @@ public:
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
-    // Skip if we're inside a GenericOp.
-    if (mlir::isa<GenericOp>(op->getParentOp())) {
-      return failure();
-    }
     bool updated = false;
     SmallVector<Type> operands;
     SmallVector<Type> results;

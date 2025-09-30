@@ -14,6 +14,7 @@ from builder.base.builder import Operand, Shape, TypeInfo
 from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from ttmlir.ir import DenseI32ArrayAttr
 from test_utils import (
     Marks,
     shape_str,
@@ -347,7 +348,7 @@ def get_dimension_size(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [
         (
-            [(4, 10, 3, 5, 7), (4, 10, 5, 7, 3), (4, 10, 3, 7, 10, 7, 3)],
+            [(4, 10, 3, 5, 7), (4, 10, 5, 7, 3)],
             [0],
             [3],
             [0],
@@ -366,14 +367,12 @@ def test_dot_general(
     def dot_general(
         in0: Operand,
         in1: Operand,
-        out0: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         return builder.dot_general(
             in0,
             in1,
-            out0,
             batch_dims_lhs,
             contract_dims_lhs,
             batch_dims_rhs,
@@ -1172,6 +1171,58 @@ def test_max_pool2d(
     )
 
 
+@x86_only
+@pytest.mark.parametrize(
+    "kernel,stride,dilation,padding,ceil_mode",
+    [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
+)
+@pytest.mark.parametrize("shapes", [[(1, 128, 128, 32), (1, 64, 64, 32)]])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.run_error  # Issue #5133.
+def test_hoisted_max_pool2d(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    kernel: List[int],
+    stride: List[int],
+    dilation: List[int],
+    padding: List[int],
+    ceil_mode: bool,
+    target: str,
+    request,
+):
+    """Test hoisted max_pool2d operation"""
+
+    def hoisted_max_pool2d(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.max_pool2d(
+            in0,
+            in1,
+            kernel=kernel,
+            stride=stride,
+            dilation=dilation,
+            padding=padding,
+            ceil_mode=ceil_mode,
+            unit_attrs=["ttir.should_hoist"],
+        )
+
+    hoisted_max_pool2d.__name__ = "hoisted_max_pool2d"
+
+    compile_ttir_to_flatbuffer(
+        hoisted_max_pool2d,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
 @pytest.mark.parametrize(
     "kernel,stride,dilation,padding,ceil_mode,count_include_pad",
     [
@@ -1383,6 +1434,193 @@ def test_ones(shape: Shape, request):
     )
 
 
+@pytest.mark.parametrize("shape", [(16, 16)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_callable_initialization_basic(
+    shape: Shape, dtype: torch.dtype, target: str, request
+):
+    """Basic test demonstrating callable initialization with torch.zeros and torch.ones"""
+
+    def test_with_basic_callables(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_goldens({in0: torch.zeros, in1: torch.ones})
+        result = builder.add(in0, in1, unit_attrs=unit_attrs)
+        return result
+
+    compile_ttir_to_flatbuffer(
+        test_with_basic_callables,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("shape", [(32, 32), (64, 64)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_callable_initialization_zeros(
+    shape: Shape, dtype: torch.dtype, target: str, request
+):
+    def test_with_zeros_init(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        builder.set_goldens({in0: torch.zeros})
+        zeros_result = builder.neg(in0, unit_attrs=unit_attrs)
+        return zeros_result
+
+    compile_ttir_to_flatbuffer(
+        test_with_zeros_init,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("shape", [(32, 32), (64, 64)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_callable_initialization_ones(
+    shape: Shape, dtype: torch.dtype, target: str, request
+):
+    def test_with_ones_init(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        builder.set_goldens({in0: torch.ones})
+        ones_result = builder.neg(in0, unit_attrs=unit_attrs)
+        return ones_result
+
+    compile_ttir_to_flatbuffer(
+        test_with_ones_init,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("shape", [(64, 64), (128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_callable_initialization_eye(
+    shape: Shape, dtype: torch.dtype, target: str, request
+):
+    def test_with_eye_init(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        def eye_init(s):
+            if len(s) == 2 and s[0] == s[1]:
+                return torch.eye(s[0])
+            elif len(s) == 2:
+                return torch.eye(s[0], s[1])
+            else:
+                raise ValueError(f"torch.eye only supports 2D shapes, got {s}")
+
+        builder.set_goldens({in0: eye_init})
+        eye_result = builder.abs(in0, unit_attrs=unit_attrs)
+        return eye_result
+
+    compile_ttir_to_flatbuffer(
+        test_with_eye_init,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_callable_initialization_mixed(
+    shape: Shape, dtype: torch.dtype, target: str, request
+):
+    def test_with_mixed_init(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_goldens({in0: torch.zeros, in1: torch.ones})
+        add_result = builder.add(in0, in1, unit_attrs=unit_attrs)
+        return add_result
+
+    compile_ttir_to_flatbuffer(
+        test_with_mixed_init,
+        [shape, shape],
+        [dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("shape", [(16, 16)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_callable_initialization_custom_lambda(
+    shape: Shape, dtype: torch.dtype, target: str, request
+):
+    def test_with_custom_lambda(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        custom_init = lambda s: torch.full(s, 2.0)
+        builder.set_goldens({in0: custom_init})
+        result = builder.multiply(in0, in0, unit_attrs=unit_attrs)
+        return result
+
+    compile_ttir_to_flatbuffer(
+        test_with_custom_lambda,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("shape", [(16, 16)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+def test_callable_initialization_error_handling(shape: Shape, dtype: torch.dtype):
+    """Test error handling for invalid callable initialization functions"""
+
+    def test_with_invalid_callable(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        invalid_init = lambda s: "not a tensor"
+
+        result = builder.neg(in0, unit_attrs=unit_attrs)
+        with pytest.raises((TypeError, RuntimeError)):
+            builder.set_goldens({in0: invalid_init})
+        return result
+
+    def test_with_failing_callable(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        failing_init = lambda s: torch.zeros(s) / 0  # Division by zero
+
+        result = builder.neg(in0, unit_attrs=unit_attrs)
+        with pytest.raises(RuntimeError):
+            builder.set_goldens({in0: failing_init})
+        return result
+
+
 @pytest.mark.parametrize("shapes", [[(128, 128)]])
 @pytest.mark.parametrize("dim_arg", [[1]])
 def test_argmax(shapes, dim_arg, request):
@@ -1471,30 +1709,27 @@ def test_reduce_or(shape: Shape, dim_args: List[int], request):
 
 def permute(
     in0: Operand,
-    in1: Operand,
     builder: TTIRBuilder,
     permutation: List[int],
     unit_attrs: Optional[List[str]] = None,
 ):
     return builder.permute(
         in0,
-        in1,
         permutation=permutation,
         unit_attrs=unit_attrs,
     )
 
 
-@pytest.mark.parametrize("shapes", [[(2, 3, 4), (3, 4, 2)]])
+@pytest.mark.parametrize("shapes", [[(2, 3, 4)]])
 @pytest.mark.parametrize("permutation", [[1, 2, 0]])
 def test_permute(shapes: List[Shape], permutation: List[int], request):
     # Create a wrapper function that captures permutation
     def permute_wrapper(
         in0: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return permute(in0, in1, builder, permutation, unit_attrs)
+        return permute(in0, builder, permutation, unit_attrs)
 
     # Set the name for better test identification
     permute_wrapper.__name__ = "permute"

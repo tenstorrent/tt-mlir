@@ -1255,9 +1255,8 @@ def TTNN_SliceStaticOp: TTNN_Op<"slice_static"> {
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::ArrayAttr step = getStep();
         return wa::TTNNOperandsWorkaroundsFactory::
-            createSliceStaticOpOperandsWorkarounds(step);
+            createSliceStaticOpOperandsWorkarounds(*this);
       }
     }];
 
@@ -1280,9 +1279,8 @@ def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::ArrayAttr step = getStepAttr();
         return wa::TTNNOperandsWorkaroundsFactory::
-            createSliceDynamicOpOperandsWorkarounds(step);
+            createSliceDynamicOpOperandsWorkarounds(*this);
       }
     }];
 
@@ -1945,7 +1943,7 @@ def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait]> {
     let hasVerifier = 1;
 }
 
-def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
+def TTNN_DeallocateOp : TTNN_MemFreeOp<"deallocate"> {
     let summary = "Deallocate op.";
     let description = [{
       Tensor Deallocate operation
@@ -2477,6 +2475,75 @@ def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+}
+
+def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attention_decode", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
+    let summary = "A version of scaled dot product attention specifically for decode.";
+    let description = [{
+      A version of scaled dot product attention specifically for decode.
+        The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
+
+        Args:
+            input_tensor_q (AnyRankedTensor): The input tensor [1 x batch x num_heads x head_size]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
+            input_tensor_k (AnyRankedTensor): The input tensor [batch x num_kv_heads x   seq_len x head_size].
+            input_tensor_v (AnyRankedTensor): The input tensor [b x num_kv_heads x   seq_len x head_size].
+            is_causal (bool, optional): Whether the attention is causal. Defaults to `true`.
+            attention_mask (AnyRankedTensor, optional): The attention mask [batch x 1 x query_seq_len x kv_seq_len].
+            cur_pos_tensor (AnyRankedTensor): [batch] Tensor of integers of length batch.
+            attention_sink (AnyRankedTensor, optional): The attention sink [num_heads, 32] (must be a single tile wide).
+            scale (float, optional): Defaults to `None`.
+            memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
+
+        Returns:
+            AnyRankedTensor: The output tensor [1 x b x pnh x dh].
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                         Optional<AnyRankedTensor>:$attention_mask,
+                         AnyRankedTensor:$cur_pos_tensor,
+                         Optional<AnyRankedTensor>:$attention_sink,
+                         OptionalAttr<F32Attr>:$scale,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Scaled dot product attention operation.";
+    let description = [{
+      Scaled dot product attention.
+      The implementation is FlashAttention-2."
+
+      Args:
+          query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]
+          key (AnyRankedTensor): The key tensor.              [batch x num_kv_heads x kv_seq_len x head_size]
+          value (AnyRankedTensor): The value tensor.          [batch x num_kv_heads x kv_seq_len x head_size]
+          attention_mask (AnyRankedTensor, optional): Defaults to `None`. [batch x 1 x query_seq_len x kv_seq_len]. Head broadcasting is implied.
+          is_causal (bool): Whether the attention is causal. Defaults to `true`.
+          scale (float, optional): Defaults to `None`.
+          memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
+
+
+      Returns:
+          AnyRankedTensor: The output tensor [batch x num_heads x query_seq_len x head_size].
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+                         Optional<AnyRankedTensor>:$attention_mask,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                         OptionalAttr<F32Attr>:$scale,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 #endif
