@@ -5,19 +5,21 @@
 #ifndef TTMLIR_CONVERSION_PASSES_H
 #define TTMLIR_CONVERSION_PASSES_H
 
+#include "ttmlir/Conversion/ArithToD2MTileOps/ArithToD2MTileOps.h"
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "ttmlir/Conversion/ArithToStableHLO/ArithToStableHLO.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/ShardyToTTIR.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #endif
+#include "ttmlir/Conversion/D2MToTTKernel/D2MToTTKernel.h"
+#include "ttmlir/Conversion/D2MToTTMetal/D2MToTTMetal.h"
 #include "ttmlir/Conversion/D2MToTTNN/D2MToTTNN.h"
+#include "ttmlir/Conversion/MathToD2MTileOps/MathToD2MTileOps.h"
 #include "ttmlir/Conversion/SFPIToEmitC/SFPIToEmitC.h"
+#include "ttmlir/Conversion/TTIRToD2M/TTIRToD2M.h"
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
-#include "ttmlir/Conversion/TTIRToTTIRGeneric/TTIRToTTIRGeneric.h"
-#include "ttmlir/Conversion/TTIRToTTKernel/TTIRToTTKernel.h"
-#include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"

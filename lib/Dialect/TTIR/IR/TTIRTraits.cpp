@@ -70,36 +70,6 @@ mlir::tt::ttir::impl::foldBinaryIdempotence(mlir::Operation *op) {
   return op->getOperand(0);
 }
 
-static mlir::LogicalResult
-verifyGenericRegionOpThreadType(mlir::Operation *op,
-                                mlir::tt::ttir::ThreadType threadType) {
-  mlir::Region *region =
-      ttmlir::utils::getRegionWithParentOfType<mlir::tt::ttir::GenericOp>(op);
-  if (!region) {
-    // If not enclosed in a generic op then we forgo verification.
-    return mlir::success();
-  }
-  mlir::tt::ttir::GenericOp genericOp =
-      mlir::cast<mlir::tt::ttir::GenericOp>(region->getParentOp());
-  if (genericOp.getRegionThreadType(region->getRegionNumber()) != threadType) {
-    return op->emitOpError("expected to be in a ")
-           << stringifyEnum(threadType) << " region";
-  }
-  return mlir::success();
-}
-
-mlir::LogicalResult
-mlir::tt::ttir::impl::verifyGenericRegionComputeOp(mlir::Operation *op) {
-  return verifyGenericRegionOpThreadType(op,
-                                         ::mlir::tt::ttir::ThreadType::Compute);
-}
-
-mlir::LogicalResult
-mlir::tt::ttir::impl::verifyGenericRegionDatamovementOp(mlir::Operation *op) {
-  return verifyGenericRegionOpThreadType(
-      op, ::mlir::tt::ttir::ThreadType::Datamovement);
-}
-
 mlir::LogicalResult
 mlir::tt::ttir::impl::verifyBroadcastable(mlir::Operation *op) {
   assert(op->getNumResults() == 1 &&

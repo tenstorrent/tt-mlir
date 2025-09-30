@@ -33,6 +33,7 @@ table DeviceProgram {
   inputs: [BufferRef];
   outputs: [BufferRef];
   command_queues: [CommandQueue];
+  mesh: MeshDesc;
 }
 
 table Program {

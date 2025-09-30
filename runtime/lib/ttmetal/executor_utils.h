@@ -11,6 +11,7 @@
 
 #include "ttmlir/Target/TTMetal/Target.h"
 
+#include <filesystem>
 #include <functional>
 #include <variant>
 
@@ -295,20 +296,28 @@ inline std::string coreRangeToString(const CoreRangeSet &coreRanges) {
 
 inline std::string createKernelFilePath(
     const char *currentProgramName, const char *kernelDebugInfo,
-    const CoreRangeSet &coreRangeSet,
+    const char *kernelLoc, const CoreRangeSet &coreRangeSet,
     const std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig,
                        tt_metal::EthernetConfig> &kernelConfig,
-    const char *prefix = "/tmp/ttmlir_", const char *extention = ".cpp") {
-  std::string path(prefix);
-  path += currentProgramName;
-  path += "_";
-  path += kernelDebugInfo;
-  path += "_";
-  path += kernelConfigTypeString(kernelConfig);
+    std::filesystem::path prefix = {}, const char *extention = ".cpp") {
+  if (prefix.empty()) {
+    prefix = "/tmp";
+  }
+  std::filesystem::path path(prefix);
+  if (debug::Env::get().useLocForKernelName && kernelLoc) {
+    path /= kernelLoc;
+  } else {
+    prefix /= "ttmlir_";
+    path += currentProgramName;
+    path += "_";
+    path += kernelDebugInfo;
+    path += "_";
+    path += kernelConfigTypeString(kernelConfig);
 
-  // Double underscore to visually separate core ranges from the rest.
-  path += "__";
-  path += coreRangeToString(coreRangeSet);
+    // Double underscore to visually separate core ranges from the rest.
+    path += "__";
+    path += coreRangeToString(coreRangeSet);
+  }
   path += extention;
   return path;
 }
@@ -330,7 +339,7 @@ inline tt_metal::KernelHandle createKernel(
     const std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig,
                        tt_metal::EthernetConfig> &kernelConfig,
     const char *currentProgramName, const char *programDebugInfo,
-    const char *kernelDebugInfo) {
+    const char *kernelDebugInfo, const char *kernelLoc) {
   LOG_TRACE(logger::LogRuntimeTTMetalKernel,
             "Creating kernel: ", kernelDebugInfo);
   LOG_TRACE(logger::LogRuntimeTTMetalKernelSource, "Kernel source:\n",
@@ -340,7 +349,8 @@ inline tt_metal::KernelHandle createKernel(
   std::string fileName;
   if (kernelFromFile) {
     fileName = createKernelFilePath(currentProgramName, kernelDebugInfo,
-                                    coreRangeSet, kernelConfig);
+                                    kernelLoc, coreRangeSet, kernelConfig,
+                                    debug::Env::get().kernelSourceDir);
     writeFile(fileName, kernelSource);
   }
   return kernelFromFile
@@ -603,6 +613,47 @@ inline void readHostTensorFromMeshBuffer(
           },
       },
       output.as<MetalTensor>(DeviceRuntime::TTMetal));
+}
+
+inline void checkHostTensorSizeMatchWithMeshBufferSize(
+    const Tensor &tensor,
+    std::shared_ptr<tt_metal::distributed::MeshBuffer> meshBuffer) {
+  std::visit(
+      utils::overloaded{
+          [&](const TensorDesc &tensorDesc) {
+            LOG_ASSERT(meshBuffer.get()->size() == tensorDesc.sizeBytes());
+          },
+          [&](const HostBuffer &hostBuffer) {
+            LOG_ASSERT(meshBuffer.get()->size() ==
+                       hostBuffer->view_bytes().size_bytes());
+          },
+          [&](const DistributedHostBuffer &distributedHostBuffer) {
+            // SPMD assumes that all buffers have the identical size, so we can
+            // just check the first buffer size.
+            const tt_metal::distributed::MeshCoordinate coord = {0, 0};
+            auto hostBuffer = distributedHostBuffer->get_shard(coord);
+            tt_metal::Buffer *buffer = meshBuffer->get_device_buffer(coord);
+            LOG_ASSERT(buffer->size() == hostBuffer->view_bytes().size_bytes());
+          },
+          [&](const MeshBuffer &meshBuffer) {
+            LOG_FATAL("checkHostTensorSizeMatchWithMeshBufferSize() with "
+                      "MeshBuffer not supported.");
+          },
+      },
+      tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
+}
+
+inline TensorDesc
+createTensorDescFromBufferDesc(const target::metal::BufferDesc *bufferDesc) {
+  const std::vector<uint32_t> shape(bufferDesc->shape()->begin(),
+                                    bufferDesc->shape()->end());
+  const std::vector<uint32_t> stride(bufferDesc->host_strides()->begin(),
+                                     bufferDesc->host_strides()->end());
+  const uint64_t physicalVolume = bufferDesc->host_volume();
+  assert(shape.size() == stride.size());
+  const auto dataType = bufferDesc->data_type();
+  return TensorDesc(shape, dataType, utils::dataTypeElementSize(dataType),
+                    stride, physicalVolume);
 }
 
 } // namespace tt::runtime::ttmetal

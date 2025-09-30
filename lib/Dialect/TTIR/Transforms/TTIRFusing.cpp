@@ -699,20 +699,21 @@ private:
 using Conv2dWithMultiply = ConvWithMultiplyTemplate<Conv2dOp>;
 using ConvolutionWithMultiply = ConvWithMultiplyTemplate<ConvolutionOp>;
 
-// Tag all block arguments which are direct inputs to Conv2dOp with
-// discardable attribute. This is used during Layouting to check if
+// Tag all block arguments which are direct inputs to Conv2dOp and ConvolutionOp
+// with discardable attribute. This is used during Layouting to check if
 // function argument need to be put to Host/RM. This is temporary
 // solution until we complete refactor of TTNNLayout see:
 // https://github.com/tenstorrent/tt-mlir/issues/3432.
-class Conv2dTagWeights : public mlir::OpRewritePattern<Conv2dOp> {
+template <typename ConvOpType>
+class ConvTagWeights : public mlir::OpRewritePattern<ConvOpType> {
 public:
-  Conv2dTagWeights(MLIRContext *context)
-      : OpRewritePattern(context, PatternBenefit(2)) {}
+  ConvTagWeights(MLIRContext *context)
+      : OpRewritePattern<ConvOpType>(context, PatternBenefit(2)) {}
 
   mlir::LogicalResult
-  matchAndRewrite(Conv2dOp conv2d,
+  matchAndRewrite(ConvOpType conv,
                   mlir::PatternRewriter &rewriter) const final {
-    Value weightValue = conv2d.getWeight();
+    Value weightValue = conv.getWeight();
 
     // Special case for bfp8 weights which don't come directly from
     // function argument but are created by TypecastOp.
@@ -2036,7 +2037,8 @@ public:
   void runOnOperation() final {
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<Conv2dTagWeights>(&getContext());
+      patterns.add<ConvTagWeights<Conv2dOp>>(&getContext());
+      patterns.add<ConvTagWeights<ConvolutionOp>>(&getContext());
       if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
         signalPassFailure();
         return;
@@ -2065,6 +2067,7 @@ public:
       if (conv2dWithMultiplyEnabled) {
         patterns.add<Conv2dWithMultiply>(&getContext());
         patterns.add<ConvolutionWithMultiply>(&getContext());
+        patterns.add<BatchNormDecomposition>(&getContext());
       }
       patterns.add<CacheFillUpdatePattern>(&getContext());
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
@@ -2072,11 +2075,10 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
-      patterns.add<GlobalAveragePoolingPattern>(&getContext());
-
-      if (conv2dWithMultiplyEnabled) {
-        patterns.add<BatchNormDecomposition>(&getContext());
+      if (globalPoolFusingEnabled) {
+        patterns.add<GlobalAveragePoolingPattern>(&getContext());
       }
+
       patterns.add<GeluFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;

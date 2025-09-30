@@ -10,6 +10,7 @@
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
+#include "ttnn/events.hpp"
 
 namespace tt::runtime::ttnn::utils {
 
@@ -90,10 +91,6 @@ toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation);
 ::tt::target::ttnn::ShardOrientation
 fromTTNNShardOrientation(::ttnn::ShardOrientation orientation);
 
-::ttnn::ShardMode toTTNNShardMode(tt::target::ttnn::ShardMode mode);
-
-::tt::target::ttnn::ShardMode fromTTNNShardMode(::ttnn::ShardMode mode);
-
 ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
 fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
                   const ::tt::tt_metal::ShardSpec &ttnnShardSpec);
@@ -118,6 +115,9 @@ std::vector<const tt::target::ttnn::TensorRef *> convertFbTensorRefsToVector(
     const ::ttnn::Tensor &tensor,
     const std::optional<::ttnn::MeshEvent> &meshEvent = std::nullopt,
     bool retain = false);
+
+::tt::runtime::Device
+createRuntimeDeviceFromTTNN(::ttnn::MeshDevice *meshDevice);
 
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor);
 

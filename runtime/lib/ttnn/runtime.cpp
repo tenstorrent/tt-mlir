@@ -155,7 +155,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
     std::optional<::ttnn::MeshEvent> meshEvent = std::nullopt;
     if (!blocking) {
       meshEvent =
-          ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::DefaultQueueId);
+          ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::QueueId{0});
     }
 
     return utils::createRuntimeTensorFromTTNN(hostTensor, meshEvent,
@@ -183,7 +183,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
   // in this case we need to populate the event
   if (!untilize && !blocking) {
     meshEvent =
-        ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::DefaultQueueId);
+        ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::QueueId{0});
   }
 
   return utils::createRuntimeTensorFromTTNN(hostTensor, /*meshEvent=*/meshEvent,
@@ -1194,6 +1194,14 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_LoadTensorOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
+    tensorRef = opContext.type_as_ScaledDotProductAttentionDecodeOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
+    tensorRef = opContext.type_as_ScaledDotProductAttentionOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
@@ -1523,6 +1531,25 @@ getOpInputRefs(OpContext opContextHandle,
     for (const auto *input : *opContext.type_as_GenericOp()->io_tensors()) {
       tensorRefs.push_back(input);
     }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
+    tensorRefs = {
+        opContext.type_as_ScaledDotProductAttentionDecodeOp()->query(),
+        opContext.type_as_ScaledDotProductAttentionDecodeOp()->key(),
+        opContext.type_as_ScaledDotProductAttentionDecodeOp()->value(),
+        opContext.type_as_ScaledDotProductAttentionDecodeOp()->attention_mask(),
+        opContext.type_as_ScaledDotProductAttentionDecodeOp()->cur_pos_tensor(),
+        opContext.type_as_ScaledDotProductAttentionDecodeOp()
+            ->attention_sink()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
+    tensorRefs = {
+        opContext.type_as_ScaledDotProductAttentionOp()->query(),
+        opContext.type_as_ScaledDotProductAttentionOp()->key(),
+        opContext.type_as_ScaledDotProductAttentionOp()->value(),
+        opContext.type_as_ScaledDotProductAttentionOp()->attention_mask()};
     break;
   }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {

@@ -54,14 +54,6 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
   ];
 }
 
-def TTIR_GenericParent : OpInterface<"GenericParent"> {
-  let cppNamespace = "::mlir::tt::ttir";
-
-  let verify = [{
-    return detail::verifyGenericParent($_op);
-  }];
-}
-
 def TTIR_ElementwiseUnary : OpInterface<"ElementwiseUnary"> {
   let cppNamespace = "::mlir::tt::ttir";
 }
@@ -76,38 +68,6 @@ def TTIR_ElementwiseTernary : OpInterface<"ElementwiseTernary"> {
 
 def TTIR_TensorManipulation : OpInterface<"TensorManipulation"> {
   let cppNamespace = "::mlir::tt::ttir";
-}
-
-def TTIR_ViewOpInterface : OpInterface<"ViewOpInterface"> {
-  let cppNamespace = "::mlir::tt::ttir";
-  let methods = [
-    InterfaceMethod<
-      /*desc=*/[{
-        Get the input of the view op.
-      }],
-      /*retTy=*/"mlir::Value",
-      /*methodName=*/"getInput"
-    >,
-    InterfaceMethod<
-      /*desc=*/[{
-        Get the result of the view op.
-      }],
-      /*retTy=*/"mlir::Value",
-      /*methodName=*/"getResult"
-    >,
-    InterfaceMethod<
-      /*desc=*/[{
-        Recursively apply view interface ops until a shard layout is reached.
-        Returns a pair of the underlying memref with shard layout and an
-        affine map that describes a view over this memref.
-      }],
-      /*retTy=*/"std::pair<mlir::MemRefType, mlir::AffineMap>",
-      /*methodName=*/"applyViews",
-      /*args=*/(ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/"return ttir::applyViews($_op);"
-    >,
-  ];
 }
 
 def TTIR_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegisterOpInterface"> {

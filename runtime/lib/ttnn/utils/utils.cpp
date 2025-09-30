@@ -2,13 +2,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/utils.h"
+#include <memory>
+
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
+#include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/types.h"
+#include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::utils {
@@ -340,24 +343,6 @@ fromTTNNShardOrientation(::ttnn::ShardOrientation orientation) {
   }
 }
 
-::ttnn::ShardMode toTTNNShardMode(tt::target::ttnn::ShardMode mode) {
-  switch (mode) {
-  case tt::target::ttnn::ShardMode::Physical:
-    return ::ttnn::ShardMode::PHYSICAL;
-  case tt::target::ttnn::ShardMode::Logical:
-    return ::ttnn::ShardMode::LOGICAL;
-  }
-}
-
-::tt::target::ttnn::ShardMode fromTTNNShardMode(::ttnn::ShardMode mode) {
-  switch (mode) {
-  case ::ttnn::ShardMode::PHYSICAL:
-    return tt::target::ttnn::ShardMode::Physical;
-  case ::ttnn::ShardMode::LOGICAL:
-    return tt::target::ttnn::ShardMode::Logical;
-  }
-}
-
 ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
 fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
                   const ::tt::tt_metal::ShardSpec &ttnnShardSpec) {
@@ -368,19 +353,9 @@ fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
   ::tt::target::ttnn::ShardOrientation orientation =
       ::tt::runtime::ttnn::utils::fromTTNNShardOrientation(
           ttnnShardSpec.orientation);
-  ::tt::target::ttnn::ShardMode mode =
-      ::tt::runtime::ttnn::utils::fromTTNNShardMode(ttnnShardSpec.mode);
 
-  std::optional<std::vector<int32_t>> physicalShardShape;
-  if (ttnnShardSpec.physical_shard_shape.has_value()) {
-    physicalShardShape =
-        std::vector<int32_t>(ttnnShardSpec.physical_shard_shape.value().begin(),
-                             ttnnShardSpec.physical_shard_shape.value().end());
-  }
-
-  return ::tt::target::ttnn::CreateShardSpecDirect(
-      fbb, coreRangeSet, &shape, orientation, mode,
-      physicalShardShape.has_value() ? &(physicalShardShape.value()) : nullptr);
+  return ::tt::target::ttnn::CreateShardSpecDirect(fbb, coreRangeSet, &shape,
+                                                   orientation);
 }
 
 CoreType toCoreType(const ::tt::target::ttnn::CoreType &coreType) {
@@ -438,13 +413,8 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
     CoreRangeSet ttnnCoreRangeSet = toTTNNCoreRangeSet(*targetCoreRangeSet);
     ::ttnn::ShardOrientation ttnnShardOrientation =
         toTTNNShardOrientation(memcfg->shard_spec()->orientation());
-    ::ttnn::ShardMode ttnnShardMode =
-        toTTNNShardMode(memcfg->shard_spec()->mode());
-    LOG_ASSERT(ttnnShardMode == ::ttnn::ShardMode::PHYSICAL &&
-                   memcfg->shard_spec()->physical_shard_shape() == 0,
-               "Physical shard shape must be empty");
-    metalShardSpec = ::tt::tt_metal::ShardSpec(
-        ttnnCoreRangeSet, ttnnShardShape, ttnnShardOrientation, ttnnShardMode);
+    metalShardSpec = ::tt::tt_metal::ShardSpec(ttnnCoreRangeSet, ttnnShardShape,
+                                               ttnnShardOrientation);
   }
 
   ::ttnn::MemoryConfig memoryConfig{ttnnMemLayout, ttnnBufferType,
@@ -486,6 +456,21 @@ createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
 
   return ::tt::runtime::Tensor(std::static_pointer_cast<void>(tensorPtr),
                                /*data=*/nullptr, DeviceRuntime::TTNN);
+}
+
+::tt::runtime::Device
+createRuntimeDeviceFromTTNN(::ttnn::MeshDevice *meshDevice) {
+  // Create a non-owning shared_ptr to the provided MeshDevice with no-op
+  // deleter.
+  std::shared_ptr<void> unsafeMeshDeviceSharedPtr =
+      ::tt::runtime::utils::unsafe_borrow_shared(meshDevice);
+  // Wrap the the device in the runtime device.
+  auto ttnnTraceCache = std::make_shared<::tt::runtime::ttnn::TraceCache>(
+      std::static_pointer_cast<::ttnn::MeshDevice>(unsafeMeshDeviceSharedPtr));
+  auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
+      std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
+
+  return Device(unsafeMeshDeviceSharedPtr, traceCache, DeviceRuntime::TTNN);
 }
 
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor) {
