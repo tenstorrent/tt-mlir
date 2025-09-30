@@ -408,7 +408,7 @@ ttir_to_torch_mapping = {
     "ttir.constant": OpMapping(custom_constant, {"value": "data"}),
     "ttir.div": OpMapping(torch.div),
     "ttir.exp": OpMapping(torch.exp, unpack_inputs=False),
-    "ttir.pow": OpMapping(torch.pow),
+    "ttir.pow_tensor": OpMapping(torch.pow),
     "ttir.ge": OpMapping(
         lambda input, other: custom_comparison_operator(input, other, torch.ge)
     ),

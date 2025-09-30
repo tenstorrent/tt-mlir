@@ -445,22 +445,23 @@ static mlir::Attribute getConstantAttr(mlir::Value value) {
   return fillValueAttr;
 }
 
-void mlir::tt::ttir::PowOp::getCanonicalizationPatterns(
+void mlir::tt::ttir::PowTensorOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  patterns.add(+[](mlir::tt::ttir::PowOp op, mlir::PatternRewriter &rewriter) {
-    RankedTensorType outputType = op.getResult().getType();
+  patterns.add(
+      +[](mlir::tt::ttir::PowTensorOp op, mlir::PatternRewriter &rewriter) {
+        RankedTensorType outputType = op.getResult().getType();
 
-    mlir::Attribute exponent = getConstantAttr(op->getOperand(1));
-    if (!exponent) {
-      return mlir::failure();
-    }
+        mlir::Attribute exponent = getConstantAttr(op->getOperand(1));
+        if (!exponent) {
+          return mlir::failure();
+        }
 
-    ttir::utils::replaceOpWithNewDPSOp<ttir::PowScalarOp>(
-        rewriter, op, outputType, op->getOperand(0), exponent);
+        ttir::utils::replaceOpWithNewDPSOp<ttir::PowScalarOp>(
+            rewriter, op, outputType, op->getOperand(0), exponent);
 
-    return mlir::success();
-  });
+        return mlir::success();
+      });
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 

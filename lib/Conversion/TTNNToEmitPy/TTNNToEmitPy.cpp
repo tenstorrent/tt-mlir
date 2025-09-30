@@ -1549,7 +1549,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::LogicalLeftShiftOp>,
                EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
                EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>,
-               EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::PowOp>,
+               EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::PowTensorOp>,
                EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::MinimumOp>,
                EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::MaximumOp>>(typeConverter, ctx);
   // clang-format on

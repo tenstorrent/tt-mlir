@@ -1051,23 +1051,23 @@ RemainderOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// PowOp - TTNN Op Model Interface
+// PowTensorOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::OpConstraints>
-PowOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                        const OpConfig &opConfig) {
+PowTensorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
   return detail::getBinaryOpConstraints(*this, inputs, opConfig);
 }
 
 llvm::Expected<size_t>
-PowOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                    const OpConfig &opConfig) {
+PowTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
   return detail::getBinaryOpRuntime(*this, inputs, opConfig);
 }
 
 //===----------------------------------------------------------------------===//
-// PowOp - TTNN Op Model Interface
+// PowScalarOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::OpConstraints>

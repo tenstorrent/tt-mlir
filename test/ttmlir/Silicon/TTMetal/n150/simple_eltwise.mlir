@@ -77,7 +77,7 @@ func.func @pow(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<6
   // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB1]], %{{.+}}, %[[DST_IDX1:.+]])
   // CHECK: emitc.call_opaque "power_binary_tile_init"
   // CHECK-NEXT: emitc.call_opaque "power_binary_tile"
-  %1 = "ttir.pow"(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  %1 = "ttir.pow_tensor"(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }
 

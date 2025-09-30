@@ -3,8 +3,8 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 func.func @pow(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %0 = ttir.empty() : tensor<32x32xf32>
-  %1 = "ttir.pow"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
-  // CHECK: "ttnn.pow"
+  %1 = "ttir.pow_tensor"(%arg0, %arg1, %0) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  // CHECK: "ttnn.pow_tensor"
   // CHECK-SAME: tensor<32x32xf32
   // CHECK-SAME: tensor<32x32xf32
   // CHECK-SAME: -> tensor<32x32xf32
