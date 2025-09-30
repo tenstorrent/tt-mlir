@@ -3762,6 +3762,17 @@ mlir::tt::ttir::MeshShardOp::getBufferType(
   return mlir::tt::ttir::getBufferType(value.getType(), false);
 }
 
+::mlir::OpFoldResult mlir::tt::ttir::MeshShardOp::fold(FoldAdaptor adaptor) {
+  auto shardShapeArray = getShardShape();
+
+  if (shardShapeArray.size() == 2 && shardShapeArray[0] == 1 &&
+      shardShapeArray[1] == 1) {
+    return getInput();
+  }
+
+  return {};
+}
+
 //===----------------------------------------------------------------------===//
 // ScatterOp
 //===----------------------------------------------------------------------===//
