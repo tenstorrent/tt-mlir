@@ -111,9 +111,15 @@ jobs:
 
     steps:
 
-    - name: Maximize space
-      if: ${{ needs.build-image.outputs.runner }} == 'ubuntu-latest'
-      uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
+    - name: Free Disk Space (Ubuntu)
+      uses: jlumbroso/free-disk-space@main
+      with:
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: false
+        docker-images: true
+        swap-storage: true
 
     - uses: actions/checkout@v4
       with:
