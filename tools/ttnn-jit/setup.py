@@ -9,7 +9,9 @@ import re
 from setuptools import setup
 
 # Configuration Constants
-PYTHON_VERSION = "cpython-311"
+import sysconfig
+
+PYTHON_VERSION = f"cpython-{sysconfig.get_python_version().replace('.', '')}"
 DEFAULT_ARCH = "x86_64"
 
 # Package structure definitions
@@ -193,15 +195,21 @@ def generate_package_configuration(config):
     packages.append("ttmlir")
 
     for sub in TTMLIR_SUBPACKAGES:
-        package_dir[f"ttmlir.{sub}"] = f"{rel_build_dir}/python_packages/ttmlir/{sub}"
+        # Convert dot notation to filesystem path (e.g., "dialects.linalg" -> "dialects/linalg")
+        sub_path = sub.replace(".", "/")
+        package_dir[
+            f"ttmlir.{sub}"
+        ] = f"{rel_build_dir}/python_packages/ttmlir/{sub_path}"
     package_dir["ttmlir"] = f"{rel_build_dir}/python_packages/ttmlir"
 
     # Add ttnn packages
     runtime_ttnn_base = f"{rel_build_dir}/python_packages/ttnn_jit/runtime"
-    for sub in TTNN_SUBPACKAGES + TTLIB_SUBPACKAGES + ["tracy"]:
+    for sub in TTNN_SUBPACKAGES + TTLIB_SUBPACKAGES:
         full_package = f"ttnn.{sub}"
         packages.append(full_package)
-        package_dir[full_package] = f"{runtime_ttnn_base}/ttnn/{sub}"
+        # Convert dot notation to filesystem path (e.g., "ttnn.operations" -> "ttnn/operations")
+        sub_path = sub.replace(".", "/")
+        package_dir[full_package] = f"{runtime_ttnn_base}/ttnn/{sub_path}"
 
     return packages, package_dir
 
@@ -290,7 +298,7 @@ def generate_package_data(all_runtime_libs):
     base_ttnn_patterns = ["*.py", "*.so"]
 
     package_data["ttnn"] = common_ttnn_patterns
-    for sub in TTNN_SUBPACKAGES + TTLIB_SUBPACKAGES + ["tracy"]:
+    for sub in TTNN_SUBPACKAGES + TTLIB_SUBPACKAGES:
         patterns = ["*.py", "*.svg"] if "examples.bert" in sub else base_ttnn_patterns
         package_data[f"ttnn.{sub}"] = patterns
 
