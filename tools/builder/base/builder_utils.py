@@ -44,14 +44,7 @@ from ttrt.common.util import (
     ttrt_datatype_to_torch_dtype,
     get_atol_rtol_pcc,
     parse_fabric_config,
-    Artifacts,
 )
-from ttrt.common.callback import (
-    pre_op_get_callback_fn,
-    post_op_get_callback_fn,
-    CallbackRuntimeConfig,
-)
-from ttrt.common.query import Query
 
 
 # ----- Exception Classes -----
@@ -1366,13 +1359,15 @@ def execute_fb(
     logger = Logger()
     logging = logger.get_logger()
     file_manager = FileManager(logger)
-    artifacts = Artifacts(
-        logger, file_manager, artifacts_folder_path=f"{os.getcwd()}/ttrt-artifacts"
-    )
 
     print(f"Begining flatbuffer execution on {fb_path}")
 
-    bin = Binary(logger, FileManager(logger), fb_path)
+    bin = Binary(logger, file_manager, fb_path)
+
+    # Set which runtime (right now TTNN v. TTMetal) based on the flatbuffer being processed.
+    print("Setting runtime...")
+    ttrt.runtime.set_compatible_runtime(bin.fbb)
+    print(f"Runtime set to {ttrt.runtime.get_current_runtime()}")
 
     fb_mesh_shape = bin.get_program(0).mesh_shape
     num_mesh_devices = reduce(operator.mul, fb_mesh_shape, 1)
@@ -1411,53 +1406,11 @@ def execute_fb(
 
     logging.info(f"evaluating binary={bin.file_path}")
 
-    pre_op_callback_runtime_config = CallbackRuntimeConfig(
-        device,
-        "",
-        pcc,
-        atol,
-        rtol,
-        False,  # save golden tensors
-        logging,
-        not disable_golden,
-        memory,
-        debugger,
-    )
-    post_op_callback_runtime_config = CallbackRuntimeConfig(
-        device,
-        "",
-        pcc,
-        atol,
-        rtol,
-        False,  # save golden tensors
-        logging,
-        not disable_golden,
-        memory,
-        debugger,
-    )
-
-    print("Created callback configs")
-
-    callback_env = ttrt.runtime.DebugHooks.get(
-        pre_op_get_callback_fn(pre_op_callback_runtime_config),
-        post_op_get_callback_fn(post_op_callback_runtime_config),
-    )
-
     program_indices = []
     program_indices.extend(range(bin.get_num_programs()))
 
     for program_index in program_indices:
         print(f"evaluating program={program_index} for binary={bin.file_path}")
-
-        # TODO: uncomment if broken
-        # pre_op_callback_runtime_config.start_new_callback(
-        #    f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
-        # )
-        # post_op_callback_runtime_config.start_new_callback(
-        #    f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
-        # )
-
-        # Implement optional pre_op_callback functionality here
 
         program = bin.get_program(program_index)
 
@@ -1585,10 +1538,10 @@ def execute_fb(
                 output_tensor_torch,
                 logging,
             )
-            pcc_fail = cal_pcc < post_op_callback_runtime_config.pcc
+            pcc_fail = cal_pcc < pcc
             if pcc_fail:
                 raise TTBuilderGoldenException(
-                    f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
+                    f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
                 )
             else:
                 print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
@@ -1611,14 +1564,6 @@ def execute_fb(
 
         # Read the perf data before deallocating buffers
         device.read_device_profiler_results()
-
-        # if golden comparison is enabled, check golden results json file to see if test passed
-        # TODO: catch the exception coming out of `check_pcc` and re-raise it as a golden failure for pytest
-        if not disable_golden:
-
-            print("Checking op level goldens")
-            # check operation level golden comparison result.
-            post_op_callback_runtime_config.check_pcc()
 
         # Only close device if we opened it (not provided as parameter)
         if not device_provided:
