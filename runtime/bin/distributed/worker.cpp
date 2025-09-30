@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/distributed/client/command_executor.h"
+#include "tt/runtime/detail/distributed/worker/command_executor.h"
 
 namespace {
 
@@ -46,7 +46,7 @@ uint16_t parsePort(const std::string &portStr) {
   LOG_ASSERT(!portStr.empty(), "Unexpected empty port number");
 
   int portNum = std::stoi(portStr);
-  LOG_ASSERT(portNum > 0 && portNum <= 65535,
+  LOG_ASSERT(portNum >= 1 && portNum <= 65535,
              "Port must be between 1 and 65535");
 
   return static_cast<uint16_t>(portNum);
@@ -70,9 +70,9 @@ int main(int argc, char **argv) {
     port = parsePort(inputParser.getOption("-p", "--port"));
   }
 
-  LOG_INFO("Connecting to runtime server ", host, ":", port);
+  LOG_INFO("Connecting to runtime controller ", host, ":", port);
 
-  tt::runtime::distributed::client::CommandExecutor commandExecutor;
+  tt::runtime::distributed::worker::CommandExecutor commandExecutor;
   commandExecutor.connect(host, port);
   commandExecutor.run();
 

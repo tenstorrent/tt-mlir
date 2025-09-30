@@ -16,7 +16,7 @@ import pytest
 @pytest.fixture(autouse=True, scope="module")
 def initialize():
     API.initialize_apis()
-    ttrt.runtime.set_current_runtime(ttrt.runtime.DeviceRuntime.TTNN)
+    ttrt.runtime.set_current_device_runtime(ttrt.runtime.DeviceRuntime.TTNN)
 
 
 @pytest.fixture(scope="module")

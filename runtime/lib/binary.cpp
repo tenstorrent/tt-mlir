@@ -150,6 +150,16 @@ std::string asJson(Flatbuffer binary) {
       ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
 }
 
+std::uint32_t getNumProgramInputs(Flatbuffer binary,
+                                  std::uint32_t programIndex) {
+  return getBinary(binary)->programs()->Get(programIndex)->inputs()->size();
+}
+
+std::uint32_t getNumProgramOutputs(Flatbuffer binary,
+                                   std::uint32_t programIndex) {
+  return getBinary(binary)->programs()->Get(programIndex)->outputs()->size();
+}
+
 std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
                                          std::uint32_t programIndex) {
   std::vector<TensorDesc> inputs;
@@ -321,6 +331,16 @@ getTensorDescs(const ::flatbuffers::Vector<
     tensorDescs.push_back(desc);
   }
   return tensorDescs;
+}
+
+std::uint32_t getNumProgramInputs(Flatbuffer binary,
+                                  std::uint32_t programIndex) {
+  return getBinary(binary)->programs()->Get(programIndex)->inputs()->size();
+}
+
+std::uint32_t getNumProgramOutputs(Flatbuffer binary,
+                                   std::uint32_t programIndex) {
+  return getBinary(binary)->programs()->Get(programIndex)->outputs()->size();
 }
 
 std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
@@ -710,6 +730,34 @@ SystemDesc SystemDesc::loadFromPath(const char *path) {
 
 Binary Binary::loadFromPath(const char *path) {
   return Binary(Flatbuffer::loadFromPath(path).handle);
+}
+
+std::uint32_t Binary::getNumProgramInputs(std::uint32_t programIndex) const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getNumProgramInputs(*this, programIndex);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getNumProgramInputs(*this, programIndex);
+  }
+
+  LOG_FATAL("Unsupported binary format");
+}
+
+std::uint32_t Binary::getNumProgramOutputs(std::uint32_t programIndex) const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getNumProgramOutputs(*this, programIndex);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getNumProgramOutputs(*this, programIndex);
+  }
+
+  LOG_FATAL("Unsupported binary format");
 }
 
 std::vector<TensorDesc>

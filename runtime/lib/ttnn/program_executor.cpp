@@ -120,9 +120,9 @@ void ProgramExecutor::runCallback(
     ProgramContext *programContext) {
   if (callback) {
     std::shared_ptr<void> programContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(programContext);
+        ::tt::runtime::utils::unsafeBorrowShared(programContext);
     std::shared_ptr<void> opContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(
+        ::tt::runtime::utils::unsafeBorrowShared(
             const_cast<::tt::target::ttnn::Operation *>(opContext));
     (*callback)(executableHandle,
                 CallbackContext(programContextPtr, DeviceRuntime::TTNN),
@@ -404,6 +404,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
               ::tt::target::ttnn::EnumNameOpType(op->type_type()));
   }
   }
+
+  LOG_FATAL("Unreachable code path, all operations should be handled in switch "
+            "statement");
 }
 
 void ProgramExecutor::dumpPerfCountersIfNeeded() {
