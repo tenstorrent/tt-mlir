@@ -799,6 +799,40 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(ttir.ReluOp, [in0], unit_attrs)
 
+    def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.relu6``.
+
+        *Elementwise ReLU6 activation operation.*
+
+        Computes the ReLU6 function for each element in the input tensor.
+        ReLU6 is defined as: min(max(0, x), 6)
+        This activation function clips values between 0 and 6, making it useful
+        for quantized neural networks and mobile applications.
+
+        .. code-block:: mlir
+
+            // Compute ReLU6 of all elements
+            %result = ttir.relu6(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [-2.0, 3.0, 8.0, 1.5]
+            // Output tensor:
+            // [0.0, 3.0, 6.0, 1.5]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with ReLU6 activation values
+        """
+        return self._op_proxy(ttir.Relu6Op, [in0], unit_attrs)
+
     def rsqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
         Creates ``ttir.rsqrt``.
