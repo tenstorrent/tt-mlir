@@ -37,7 +37,6 @@ static size_t skippedUserReshapeNoOp = 0;
 void L1InterleavedFallbackAnalysis::analysisImplementation() {
   // Counters for statistics
   size_t totalOps = 0;
-  size_t skippedRowMajor = 0;
   size_t skippedDRAMOut = 0;
   size_t skippedMatmulLinear = 0;
   size_t skippedConv2DMatmul = 0;
@@ -76,15 +75,6 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
       return;
     }
     ++totalOps;
-
-    // Skip operations that have the row-major workaround later on in Optimizer.
-    // TODO(bmalesevic,#3985): remove after this is fixed
-    if (isa<ttnn::MaxPool2dOp, ttnn::UpsampleOp>(op)) {
-      ++skippedRowMajor;
-      llvm::outs() << "[L1IFA] Skipped op (row-major workaround): "
-                   << op->getName() << "\n";
-      return;
-    }
 
     // Skip operations that have DRAM output in runtime even when configured as
     // L1 via this analysis.
@@ -232,8 +222,6 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     oss << std::fixed << std::setprecision(2) << pct;
     return oss.str();
   };
-  llvm::outs() << "[L1IFA]  Skipped (row-major workaround): " << skippedRowMajor
-               << " (" << percent(skippedRowMajor, totalOps) << "%)\n";
   llvm::outs() << "[L1IFA]  Skipped (DRAM output in runtime): "
                << skippedDRAMOut << " (" << percent(skippedDRAMOut, totalOps)
                << "%)\n";
