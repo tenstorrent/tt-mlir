@@ -481,6 +481,7 @@ class Builder:
         memorySpace=None,  # Will default to ttcore.MemorySpace.DeviceL1 in the utility
         grid: Optional[Tuple[int, int]] = None,
         index_map: Optional[AffineMap] = None,
+        memory_layout=None,  # Will default to ttcore.TensorMemoryLayout.Sharded in the utility
     ):
         """Create a metal tensor layout using the shared implementation."""
         from builder.base.builder_utils import get_metal_tensor_layout
@@ -491,7 +492,16 @@ class Builder:
             oobVal = ttcore.OOBVal.Undef
         if memorySpace is None:
             memorySpace = ttcore.MemorySpace.DeviceL1
+        if memory_layout is None:
+            memory_layout = ttcore.TensorMemoryLayout.Sharded
 
         return get_metal_tensor_layout(
-            self._ctx, logical_shape, tiled, oobVal, memorySpace, grid, index_map
+            self._ctx,
+            logical_shape,
+            tiled,
+            oobVal,
+            memorySpace,
+            grid,
+            index_map,
+            memory_layout,
         )
