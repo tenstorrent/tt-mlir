@@ -297,14 +297,15 @@ static llvm::SmallDenseSet<int> getPreservedProducerResults(GenericOp producer,
   return keep;
 }
 
-struct FuseD2MElementwiseOpsPattern : OpRewritePattern<GenericOp> {
+namespace {
+struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
   FuseD2MElementwiseOpsPattern(MLIRContext *context,
                                unsigned dstRegisterSizeTiles)
       : OpRewritePattern<GenericOp>(context),
         dstRegisterSizeTiles(dstRegisterSizeTiles) {}
 
   LogicalResult matchAndRewrite(GenericOp consumer,
-                                PatternRewriter &rewriter) const override {
+                                PatternRewriter &rewriter) const final {
     if (shouldBeSkipped(consumer)) {
       return failure();
     }
@@ -554,8 +555,10 @@ struct FuseD2MElementwiseOpsPattern : OpRewritePattern<GenericOp> {
 
   unsigned dstRegisterSizeTiles;
 };
+} // namespace
 
-struct D2MElementwiseFusion
+namespace {
+class D2MElementwiseFusion
     : public tt::d2m::impl::D2MElementwiseFusionBase<D2MElementwiseFusion> {
   using D2MElementwiseFusionBase::D2MElementwiseFusionBase;
 
@@ -579,6 +582,7 @@ struct D2MElementwiseFusion
     (void)applyPatternsGreedily(getOperation(), std::move(patterns), cfg);
   }
 };
+} // namespace
 
 } // namespace mlir::tt::d2m
 
