@@ -2588,9 +2588,8 @@ OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
     TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
     std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
-    std::optional<const uint32_t> numKVHeads,
-    std::optional<const bool> overlapQKCoregrid,
-    std::optional<const uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
+    std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
+    std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2617,7 +2616,8 @@ OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
   auto nlpCreateQKVHeadsDecode = [&]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::experimental::nlp_create_qkv_heads_decode, device, inputSpec,
-        numHeads, numKVHeads, overlapQKCoregrid, batchOffsetSpec, sliceSize,
+        numHeads, numKVHeads, std::optional<const bool>(overlapQKCoregrid),
+        batchOffsetSpec, sliceSize,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -2633,9 +2633,8 @@ llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
     std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
-    std::optional<const uint32_t> numKVHeads,
-    std::optional<const bool> overlapQKCoregrid,
-    std::optional<const uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
+    std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
+    std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2662,7 +2661,8 @@ llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
   auto nlpCreateQKVHeadsDecode = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::experimental::nlp_create_qkv_heads_decode, device, inputSpec,
-        numHeads, numKVHeads, overlapQKCoregrid, batchOffsetSpec, sliceSize,
+        numHeads, numKVHeads, std::optional<const bool>(overlapQKCoregrid),
+        batchOffsetSpec, sliceSize,
         detail::getNullableMemoryConfig(outputLayout));
   };
 

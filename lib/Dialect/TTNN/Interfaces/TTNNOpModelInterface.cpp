@@ -2031,7 +2031,7 @@ RotaryEmbeddingLlamaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 NLPCreateQKVHeadsDecodeOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  assert(inputs.size() == 1 || inputs.size() == 2);
+  assert(inputs.size() == (1 + (getBatchOffset() == nullptr ? 0 : 1)));
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -2050,20 +2050,16 @@ NLPCreateQKVHeadsDecodeOp::getOpConstraints(
     batchOffsetEncoding = inputs[1];
   }
 
-  std::optional<const uint32_t> numKVHeads(getNumKvHeads());
-  std::optional<const bool> overlapQkCoregrid(getOverlapQkCoregrid());
-  std::optional<const uint32_t> sliceSize(getSliceSize());
-
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints, *this,
       deviceGrid, inputShape, inputs[0], batchOffsetShape, batchOffsetEncoding,
-      getNumHeads(), numKVHeads, overlapQkCoregrid, sliceSize,
+      getNumHeads(), getNumKvHeads(), getOverlapQkCoregrid(), getSliceSize(),
       opConfig.outputLayout);
 }
 
 llvm::Expected<size_t> NLPCreateQKVHeadsDecodeOp::getOpRuntime(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  assert(inputs.size() == 1 || inputs.size() == 2);
+  assert(inputs.size() == (1 + (getBatchOffset() == nullptr ? 0 : 1)));
 
   auto inputShape = getInput().getType().getShape();
 
@@ -2074,14 +2070,10 @@ llvm::Expected<size_t> NLPCreateQKVHeadsDecodeOp::getOpRuntime(
     batchOffsetEncoding = inputs[1];
   }
 
-  std::optional<const uint32_t> numKVHeads(getNumKvHeads());
-  std::optional<const bool> overlapQkCoregrid(getOverlapQkCoregrid());
-  std::optional<const uint32_t> sliceSize(getSliceSize());
-
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime, *this,
       inputShape, inputs[0], batchOffsetShape, batchOffsetEncoding,
-      getNumHeads(), numKVHeads, overlapQkCoregrid, sliceSize,
+      getNumHeads(), getNumKvHeads(), getOverlapQkCoregrid(), getSliceSize(),
       opConfig.outputLayout);
 }
 
