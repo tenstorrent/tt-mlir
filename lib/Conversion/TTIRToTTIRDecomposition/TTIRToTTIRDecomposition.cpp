@@ -921,7 +921,7 @@ struct DotGeneralToMatmulConversionPattern
   matchAndRewrite(ttir::DotGeneralOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Check if the original op should be hoisted
+    // Check if the original op should be hoisted.
     bool shouldHoist = op->hasAttr("ttir.should_hoist");
 
     Value lhs = adaptor.getLhs();
@@ -1004,7 +1004,7 @@ struct DotGeneralToMatmulConversionPattern
 
     // Propagate the hoist attribute to the matmul op.
     if (shouldHoist) {
-      matmulOp->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
+      ttmlir::utils::addHoistAttribute(matmulOp);
     }
 
     // Reshape the result by unrolling the prod(lhsResultDims) to original
@@ -1033,7 +1033,7 @@ struct DotGeneralToMatmulConversionPattern
 
     // Propagate the hoist attribute to the final reshape op.
     if (shouldHoist) {
-      reshapeOutput->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
+      ttmlir::utils::addHoistAttribute(reshapeOutput);
     }
 
     return success();
@@ -1095,9 +1095,9 @@ private:
         rewriter, loc, destinationShape, inputType.getElementType(),
         inputType.getEncoding(), input, permutation);
 
-    // propagate the hoist attribute if needed
+    // Propagate the hoist attribute to the permute op.
     if (shouldHoist) {
-      permuteOp->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
+      ttir::utils::addHoistAttribute(permuteOp);
     }
     return permuteOp;
   }
@@ -1136,9 +1136,9 @@ private:
     auto reshapeOp = ttir::utils::createDPSOp<ttir::ReshapeOp>(
         rewriter, loc, finalShape, type.getElementType(), type.getEncoding(),
         input, rewriter.getI32ArrayAttr(finalShapeI32));
-    // propagate the hoist attribute if needed
+    // Propagate the hoist attribute to the reshape op.
     if (shouldHoist) {
-      reshapeOp->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
+      ttir::utils::addHoistAttribute(reshapeOp);
     }
 
     return reshapeOp;
