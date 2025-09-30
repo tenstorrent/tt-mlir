@@ -403,10 +403,8 @@ mlir::OpFoldResult CoreIndexOp::fold(FoldAdaptor adaptor) {
 
 // TileMatmulBlockOp verification
 ::mlir::LogicalResult TileMatmulBlockOp::verify() {
-  if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getA().getType())) ||
-      !llvm::isa<mlir::tt::ttcore::TileType>(getElemType(getB().getType()))) {
-    return emitOpError("operands to TileMatmulBlock must have ttcore.tile "
-                       "element type");
+  if (getElemType(getA().getType()) != getElemType(getB().getType())) {
+    return emitOpError("operands to TileMatmulBlock must have same element type");
   }
 
   int numAttrsSet = getBlockM().has_value() + getBlockK().has_value() +
