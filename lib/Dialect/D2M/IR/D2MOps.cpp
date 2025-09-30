@@ -1164,23 +1164,14 @@ static mlir::LogicalResult verifyAffineBlocking(
   return success();
 }
 
-<<<<<<< HEAD
 void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
                                             mlir::MLIRContext *context) {
-=======
-void mlir::tt::d2m::GenericOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
->>>>>>> 19db2b412 (some tidying)
   patterns.add(
       // Check to see if any linalg generic passes have wired up d2m generic op
       // inputs to the outputs (i.e. inplace) which we currently do not support.
       // This canonicalization pattern will catch these cases and rewire the
       // inputs.
-<<<<<<< HEAD
       +[](GenericOp op, mlir::PatternRewriter &rewriter) {
-=======
-      +[](mlir::tt::d2m::GenericOp op, mlir::PatternRewriter &rewriter) {
->>>>>>> 19db2b412 (some tidying)
         if (op->getNumRegions() == 0) {
           return mlir::failure();
         }
@@ -1195,12 +1186,8 @@ void mlir::tt::d2m::GenericOp::getCanonicalizationPatterns(
           }
 
           Operation *origDefiningOp = initOperand.get().getDefiningOp();
-<<<<<<< HEAD
-          if (origDefiningOp && !mlir::isa<EmptyOp>(origDefiningOp)) {
-=======
           if (origDefiningOp &&
-              !mlir::isa<d2m::EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
->>>>>>> 19db2b412 (some tidying)
+              !mlir::isa<EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
             return false;
           }
 
@@ -1208,12 +1195,8 @@ void mlir::tt::d2m::GenericOp::getCanonicalizationPatterns(
             initOperand.assign(region.getArgument(dpsIOBoundary));
           });
 
-<<<<<<< HEAD
-          if (mlir::isa_and_nonnull<EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
-=======
-          if (origDefiningOp &&
-              mlir::isa<d2m::EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
->>>>>>> 19db2b412 (some tidying)
+          if (mlir::isa_and_nonnull<EmptyOp, mlir::tensor::EmptyOp>(
+                  origDefiningOp)) {
             rewriter.replaceAllUsesWith(origDefiningOp->getResult(0),
                                         initOperand.get());
           }
