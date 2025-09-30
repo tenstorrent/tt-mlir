@@ -556,3 +556,70 @@ mlir::LogicalResult YieldOp::verify() {
 
   return ::mlir::success();
 }
+
+mlir::LogicalResult TileAllGatherOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPoint(getOperation());
+
+  mlir::Value in = getInput();
+  mlir::Value out = getOutput();
+  if (mlir::isa<mlir::RankedTensorType>(in.getType())) {
+    auto maybe = mlir::bufferization::getBuffer(rewriter, in, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    in = *maybe;
+  }
+  if (mlir::isa<mlir::RankedTensorType>(out.getType())) {
+    auto maybe = mlir::bufferization::getBuffer(rewriter, out, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    out = *maybe;
+  }
+
+  mlir::Operation *old = getOperation();
+  auto newOp =
+      rewriter.create<mlir::tt::d2m::TileAllGatherOp>(old->getLoc(), in, out);
+  rewriter.replaceOp(old, newOp->getResults());
+  return mlir::success();
+}
+
+bool TileAllGatherOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getInput();
+}
+
+bool TileAllGatherOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getOutput();
+}
+
+mlir::bufferization::AliasingValueList
+TileAllGatherOp::getAliasingValues(mlir::OpOperand &,
+                                   const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType> TileAllGatherOp::getBufferType(
+    mlir::Value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  assert(false && "should already have bufferized types via parent generic op "
+                  "bufferization");
+  return mlir::failure();
+}
+
+void TileAllGatherOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}

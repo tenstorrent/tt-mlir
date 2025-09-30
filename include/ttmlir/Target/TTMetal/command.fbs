@@ -13,10 +13,15 @@ table ReturnCommand {
   results: [BufferRef];
 }
 
+table ProgramArgs {
+  program_args: [KernelArgs];
+}
+
 table EnqueueProgramCommand {
   buffers: [BufferRef];
   cbs: [CBRef];
-  program: ProgramDesc;
+  kernels: [KernelConfig];
+  per_device_program_args: [ProgramArgs];
 }
 
 table EnqueueWriteBufferCommand {

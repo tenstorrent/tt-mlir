@@ -28,9 +28,11 @@ void TTMetalDialect::registerTypes() {
 }
 
 CoreRangeAttr CoreRangeAttr::get(::mlir::tt::ttcore::GridAttr grid) {
-  // Default offset is (0, 0) -- in the future, we can make it a parameter when
-  // we need to offset differently.
+  // Default offset is (0, 0)
   SmallVector<int64_t> offset = {0, 0};
+  if (!grid.getOffset().empty()) {
+    offset = mlir::SmallVector<int64_t>(grid.getOffset());
+  }
   // Collapse N-D grid to 2D core range.
   auto gridShape = grid.getShape();
   auto collapsed2DGrid = ttcore::collapseGridTo2D(gridShape);

@@ -44,6 +44,9 @@ public:
       return builder.getAttr<ttnn::KernelArgSemaphoreAtAttr>(
           arg.getOperandIndex());
     }
+    case ttkernel::ArgType::Num: {
+      llvm_unreachable("Num argument not supported");
+    }
     }
   }
 

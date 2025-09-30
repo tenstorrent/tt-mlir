@@ -368,4 +368,182 @@ def D2M_MeshShardOp: D2M_Op<"mesh_shard", [
   let hasFolder = 1;
 }
 
+def D2M_CustomOp : D2M_Op<"custom", [
+    AttrSizedOperandSegments,
+    NoTerminator,
+    DestinationStyleOpInterface,
+    DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames", "getAsmBlockNames"]>,
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "isWritable"
+    ]>,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let summary = "d2m custom kernel sources";
+  let description = [{
+    d2m custom kernel sources.
+  }];
+
+  let arguments = (ins
+      Variadic<AnyRankedTensorOrMemRef>:$inputs,
+      Variadic<AnyRankedTensorOrMemRef>:$outputs,
+      TTCore_GridAttr:$grid,
+      D2M_ThreadArrayAttr:$threads);
+
+  let regions = (region VariadicRegion<AnyRegion>:$regions);
+  let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
+
+  let builders = [
+    OpBuilder<(ins "ValueRange": $inputs,
+                   "ValueRange": $outputs,
+                   "ArrayRef<int64_t>": $grid,
+                   "ArrayRef<ThreadType>": $threadTypes,
+                   "ArrayRef<llvm::function_ref<void(OpBuilder&, Location, ValueRange)>>": $threadBuilders),
+    [{
+      build($_builder, $_state, inputs, outputs, grid, {0, 0}, threadTypes, threadBuilders);
+    }]>,
+    OpBuilder<(ins "ValueRange": $inputs,
+                   "ValueRange": $outputs,
+                   "ArrayRef<int64_t>": $grid,
+                   "ArrayRef<int64_t>": $grid_offset,
+                   "ArrayRef<ThreadType>": $threadTypes,
+                   "ArrayRef<llvm::function_ref<void(OpBuilder&, Location, ValueRange)>>": $threadBuilders),
+    [{
+      // First build custom op with empty region
+      auto gridAttr = $_builder.getAttr<ttcore::GridAttr>(grid, grid_offset);
+      SmallVector<Attribute> threads;
+      for (auto threadType : threadTypes) {
+        threads.push_back($_builder.getAttr<mlir::tt::d2m::ThreadAttr>(threadType));
+      }
+      build($_builder, $_state, TypeRange(outputs), inputs, outputs, gridAttr, $_builder.getArrayAttr(threads), threads.size());
+
+      // Create blocks for the regions
+      SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
+        mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
+        auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+        auto shardShape = layout.getShardShape(tensorType);
+        return mlir::RankedTensorType::get(shardShape, tensorType.getElementType());
+      });
+      SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
+      OpBuilder::InsertionGuard guard($_builder);
+      for (auto &region : $_state.regions) {
+        auto &targetRegion = *region.get();
+        $_builder.createBlock(&targetRegion, targetRegion.end(), blockTypes, locs);
+      }
+
+      // Fill out regions
+      for (auto [region, threadBuilder] : llvm::zip_equal($_state.regions, threadBuilders)) {
+        Block *block = &region.get()->front();
+        $_builder.setInsertionPointToEnd(block);
+        threadBuilder($_builder, $_state.location, block->getArguments());
+      }
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    // Required by DestinationStyleOpInterface
+    MutableOperandRange getDpsInitsMutable() {
+      return getOutputsMutable();
+    }
+    ThreadType getRegionThreadType(unsigned regionIndex) {
+      auto arr = getThreadsAttr().getValue();
+      return mlir::cast<ThreadAttr>(arr[regionIndex]).getThreadType();
+    }
+  }];
+}
+
+def D2M_SpatialReturnOp : D2M_Op<"spatial_return", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+  let summary = [{
+    The `d2m.spatial_return` operation terminates the d2m spatial region.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$results);
+  let assemblyFormat = "attr-dict ($results^ `:` type($results))?";
+  let extraClassDefinition = [{
+    bool $cppClass::bufferizesToMemoryRead(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
+    bool $cppClass::bufferizesToMemoryWrite(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
+    mlir::bufferization::AliasingValueList $cppClass::getAliasingValues(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      mlir::bufferization::AliasingValueList result;
+      return result;
+    }
+    mlir::FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+        mlir::Value, const mlir::bufferization::BufferizationOptions &,
+        const mlir::bufferization::BufferizationState &,
+        ::llvm::SmallVector<mlir::Value> &) {
+      return mlir::failure();
+    }
+    mlir::LogicalResult $cppClass::bufferize(
+        mlir::RewriterBase &rewriter,
+        const mlir::bufferization::BufferizationOptions &,
+        mlir::bufferization::BufferizationState &state) {
+      rewriter.eraseOp(*this);
+      return mlir::success();
+    }
+  }];
+}
+
+def D2M_SpatialOp : D2M_Op<"spatial", [
+    AttrSizedOperandSegments,
+    IsolatedFromAbove,
+    RecursiveMemoryEffects,
+    NoTerminator,
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "isWritable"
+    ]>
+  ]> {
+  let summary = "d2m spatial";
+  let description = [{
+    d2m spatial.
+  }];
+
+  let arguments = (ins
+      Variadic<AnyRankedTensorOrMemRef>:$inputs,
+      Variadic<AnyRankedTensorOrMemRef>:$outputs,
+      D2M_PerDeviceProgramArgsAttr:$per_device_program_args);
+  let regions = (region SizedRegion<1>:$body);
+  let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
+
+  let assemblyFormat = [{ attr-dict `\n`
+    `ins` `(` $inputs `:` type($inputs) `)` `\n`
+    `outs` `(` $outputs  `:` type($outputs) `)` $body (`:` type($results)^ )?
+  }];
+
+  let builders = [
+    OpBuilder<(ins "TypeRange": $results,
+                   "ValueRange": $inputs,
+                   "ValueRange": $outputs),
+    [{
+      auto perDeviceProgramArgsAttr = $_builder.getAttr<PerDeviceProgramArgsAttr>(ArrayRef<ProgramArgsAttr>{});
+      build($_builder, $_state, results, inputs, outputs, perDeviceProgramArgsAttr);
+    }]>
+  ];
+ 
+  let hasVerifier = 1;
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MOPS_TD

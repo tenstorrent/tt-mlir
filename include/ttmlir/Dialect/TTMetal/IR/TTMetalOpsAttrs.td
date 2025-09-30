@@ -137,4 +137,22 @@ def TTMetal_KernelConfigAttr : AnyAttrOf<[TTMetal_ComputeConfigAttr, TTMetal_Noc
 
 def TTMetal_KernelConfigArrayAttr : TypedArrayAttrBase<TTMetal_KernelConfigAttr, "">;
 
+def TTMetal_ProgramArgsAttr : TTMetal_Attr<"ProgramArgs", "program_args"> {
+  let summary = "program arguments.";
+  let description = [{
+    A list of argument attibutes, of which form the argument specification for this kernel.
+  }];
+  let parameters = (ins OptionalArrayRefParameter<"KernelArgsAttr">:$program_args);
+  let assemblyFormat = "`<` (`[` $program_args^ `]`)? `>`";
+}
+
+def TTMetal_PerDeviceProgramArgsAttr : TTMetal_Attr<"PerDeviceProgramArgs", "per_device_program_args"> {
+  let summary = "Per-device program arguments.";
+  let description = [{
+    A list of argument attibutes, of which form the argument specification for this kernel.
+  }];
+  let parameters = (ins OptionalArrayRefParameter<"ProgramArgsAttr">:$per_device_program_args);
+  let assemblyFormat = "`<` (`[` $per_device_program_args^ `]`)? `>`";
+}
+
 #endif

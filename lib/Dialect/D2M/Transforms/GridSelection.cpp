@@ -652,6 +652,9 @@ public:
         d2m::utils::getSquareTargetGrid(targetGridShape);
 
     module.walk([&](d2m::GenericOp genericOp) {
+      if (mlir::isa<d2m::SpatialOp>(genericOp->getParentOp())) {
+        return;
+      }
       assignGrids(genericOp, targetGridShape, targetSquareGridShape);
     });
   }

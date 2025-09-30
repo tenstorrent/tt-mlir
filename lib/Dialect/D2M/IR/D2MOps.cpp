@@ -18,6 +18,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
+#include <mlir/Support/LLVM.h>
 
 #include <functional>
 
@@ -355,10 +356,9 @@ ToLayoutOp::CompoundComponents ToLayoutOp::compoundComponents() {
       inputTensor.getElementType() != outputTensor.getElementType();
 
   // Check layout (collapsed intervals and alignments).
-  components.isLayoutChange =
-      inputLayout.getNormalizedIntervals() !=
-          outputLayout.getNormalizedIntervals() ||
-      inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
+  components.isLayoutChange = inputLayout.getNormalizedIntervals() !=
+                              outputLayout.getNormalizedIntervals();
+  // inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
 
   return components;
 }
@@ -1620,6 +1620,290 @@ bool d2m::GenericOp::isAllParallel() {
     auto itAttr = mlir::cast<mlir::tt::ttcore::IteratorTypeAttr>(it);
     return itAttr.getValue() == mlir::tt::ttcore::IteratorType::Parallel;
   });
+}
+
+//===----------------------------------------------------------------------===//
+// SpatialOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult d2m::SpatialOp::verify() {
+  auto device = ttcore::lookupDevice(*this);
+  auto physicalGridShape = device.getWorkerGrid().getShape();
+  std::vector<std::vector<long>> grids;
+
+  // Make sure all GenericOps in the SpatialOp is not overlapping and within
+  // the boundary of physical core grid.
+  Block &block = getBody().front();
+  for (auto &op : block.getOperations()) {
+    if (auto genericOp = mlir::dyn_cast<d2m::GenericOp>(op)) {
+      auto gridShape = genericOp.getGrid().getShape();
+      auto gridOffset = genericOp.getGrid().getOffset();
+      std::vector<long> currGrid = {/*startX*/ gridOffset[0],
+                                    /*startY*/ gridOffset[1],
+                                    /*endX*/ gridOffset[0] + gridShape[0] - 1,
+                                    /*endY*/ gridOffset[1] + gridShape[1] - 1};
+      if (currGrid[2] >= physicalGridShape[0] &&
+          currGrid[3] >= physicalGridShape[1]) {
+        return emitOpError("generic op grid must be within the boundary of "
+                           "physical core grid");
+      }
+      for (auto &existingGrid : grids) {
+        if (currGrid[0] <= existingGrid[2] && currGrid[2] >= existingGrid[0] &&
+            currGrid[1] <= existingGrid[3] && currGrid[3] >= existingGrid[1]) {
+          return emitOpError(
+              "generic op grid must not overlap with other generic ops");
+        }
+      }
+      grids.push_back(currGrid);
+    }
+  }
+
+  auto perDeviceProgramArgs = getPerDeviceProgramArgs();
+  if (!perDeviceProgramArgs.getPerDeviceProgramArgs().empty() &&
+      perDeviceProgramArgs.getPerDeviceProgramArgs().size() !=
+          device.getChipIds().size()) {
+    return emitOpError("expected per-device program arguments to be the same "
+                       "as the number of devices: perDeviceProgramArgs=")
+           << perDeviceProgramArgs.getPerDeviceProgramArgs().size()
+           << ", devices=" << device.getChipIds().size();
+  }
+  return success();
+}
+
+bool d2m::SpatialOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool d2m::SpatialOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::LogicalResult d2m::SpatialOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+
+  // Sanity checks.
+  if (getNumResults() == 0) {
+    return failure();
+  }
+  if (!mlir::isa<mlir::RankedTensorType>(getResult(0).getType())) {
+    return failure();
+  }
+
+  mlir::SmallVector<mlir::Value> bufferInputs;
+  bufferInputs.reserve(getInputs().size());
+  for (auto input : getInputs()) {
+    auto maybeValue = bufferization::getBuffer(rewriter, input, options, state);
+    if (failed(maybeValue)) {
+      return maybeValue;
+    }
+    bufferInputs.push_back(*maybeValue);
+  }
+  mlir::SmallVector<mlir::Value> bufferOutputs;
+  bufferOutputs.reserve(getOutputs().size());
+  for (auto output : getOutputs()) {
+    auto maybeValue =
+        bufferization::getBuffer(rewriter, output, options, state);
+    if (failed(maybeValue)) {
+      return maybeValue;
+    }
+    bufferOutputs.push_back(*maybeValue);
+  }
+
+  auto spatialOp = rewriter.create<d2m::SpatialOp>(
+      getLoc(), ValueRange(), bufferInputs, bufferOutputs,
+      getPerDeviceProgramArgsAttr());
+  mlir::Region &region = spatialOp.getBody();
+  region.takeBody(getBody());
+
+  // Bufferize region block arguments.
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  mlir::Block &block = region.front();
+  for (unsigned argNumber = 0; argNumber < block.getNumArguments();
+       ++argNumber) {
+    mlir::BlockArgument oldArg = block.getArgument(argNumber);
+    if (!mlir::isa<mlir::RankedTensorType>(oldArg.getType())) {
+      continue;
+    }
+    auto newArgType = getBufferType(oldArg, options, state, invocationStack);
+    mlir::BlockArgument newArg =
+        block.insertArgument(argNumber, *newArgType, oldArg.getLoc());
+    auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+        spatialOp.getLoc(), oldArg.getType(), newArg);
+    oldArg.replaceAllUsesWith(toTensor);
+    block.eraseArgument(argNumber + 1);
+  }
+
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     bufferOutputs);
+  return success();
+}
+
+mlir::bufferization::AliasingValueList
+d2m::SpatialOp::getAliasingValues(mlir::OpOperand &,
+                                  const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+bool d2m::SpatialOp::isWritable(mlir::Value value,
+                                const mlir::bufferization::AnalysisState &) {
+  return mlir::isa<mlir::OpResult>(value) ||
+         mlir::isa<mlir::BlockArgument>(value);
+}
+
+mlir::FailureOr<mlir::BaseMemRefType>
+d2m::SpatialOp::getBufferType(mlir::Value value,
+                              const mlir::bufferization::BufferizationOptions &,
+                              const mlir::bufferization::BufferizationState &,
+                              ::llvm::SmallVector<mlir::Value> &) {
+  return ttcore::getBufferType(mlir::cast<RankedTensorType>(value.getType()),
+                               /*isView=*/false);
+}
+
+//===----------------------------------------------------------------------===//
+// CustomOp
+//===----------------------------------------------------------------------===//
+
+void d2m::CustomOp::getAsmBlockArgumentNames(
+    Region &region, function_ref<void(Value, StringRef)> setNameFn) {
+  int cbIndex = 0;
+  int semIndex = 0;
+  for (BlockArgument arg : region.getArguments()) {
+    if (mlir::isa<MemRefType>(arg.getType())) {
+      setNameFn(arg, "cb" + std::to_string(cbIndex++));
+    } else if (mlir::isa<RankedTensorType>(arg.getType())) {
+      setNameFn(arg, "t" + std::to_string(cbIndex++));
+    } else if (mlir::isa<SemaphoreType>(arg.getType())) {
+      setNameFn(arg, "sem" + std::to_string(semIndex++));
+    } else {
+      llvm_unreachable("Unexpected region argument type");
+    }
+  }
+}
+
+void d2m::CustomOp::getAsmBlockNames(
+    function_ref<void(Block *, StringRef)> setNameFn) {
+  std::array<int, getMaxEnumValForThreadType() + 1> threadTypeCounts{};
+  for (Region &region : getRegions()) {
+    auto type = getRegionThreadType(region.getRegionNumber());
+    setNameFn(&region.front(),
+              stringifyEnum(type).str() +
+                  Twine(threadTypeCounts[llvm::to_underlying(type)]++).str());
+  }
+}
+
+void d2m::CustomOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  d2m::getDpsEffects(*this, effects);
+}
+
+bool d2m::CustomOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool d2m::CustomOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::LogicalResult d2m::CustomOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+
+  // Sanity checks.
+  if (getNumResults() == 0) {
+    return failure();
+  }
+  assert(getNumResults() == 1 && "SpatialOp should have exactly one result");
+  if (!mlir::isa<mlir::RankedTensorType>(getResult(0).getType())) {
+    return failure();
+  }
+
+  mlir::SmallVector<mlir::Value> bufferInputs;
+  bufferInputs.reserve(getInputs().size());
+  for (auto input : getInputs()) {
+    auto maybeValue = bufferization::getBuffer(rewriter, input, options, state);
+    if (failed(maybeValue)) {
+      return maybeValue;
+    }
+    bufferInputs.push_back(*maybeValue);
+  }
+  mlir::SmallVector<mlir::Value> bufferOutputs;
+  bufferOutputs.reserve(getOutputs().size());
+  for (auto output : getOutputs()) {
+    auto maybeValue =
+        bufferization::getBuffer(rewriter, output, options, state);
+    if (failed(maybeValue)) {
+      return maybeValue;
+    }
+    bufferOutputs.push_back(*maybeValue);
+  }
+
+  auto customOp = rewriter.create<d2m::CustomOp>(
+      getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGrid(),
+      getThreads(), getThreads().size());
+
+  for (auto [idx, orgRegion] : llvm::enumerate(getRegions())) {
+    mlir::Region &region = customOp.getRegion(idx);
+    region.takeBody(orgRegion);
+
+    // Bufferize region block arguments.
+    ::llvm::SmallVector<mlir::Value> invocationStack;
+    mlir::Block &block = region.front();
+    for (unsigned argNumber = 0; argNumber < block.getNumArguments();
+         ++argNumber) {
+      mlir::BlockArgument oldArg = block.getArgument(argNumber);
+      if (!mlir::isa<mlir::RankedTensorType>(oldArg.getType())) {
+        continue;
+      }
+      auto newArgType = getBufferType(oldArg, options, state, invocationStack);
+      mlir::BlockArgument newArg =
+          block.insertArgument(argNumber, *newArgType, oldArg.getLoc());
+      auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+          customOp.getLoc(), oldArg.getType(), newArg);
+      oldArg.replaceAllUsesWith(toTensor);
+      block.eraseArgument(argNumber + 1);
+    }
+  }
+
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     bufferOutputs);
+  return success();
+}
+
+mlir::bufferization::AliasingValueList
+d2m::CustomOp::getAliasingValues(mlir::OpOperand &,
+                                 const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+bool d2m::CustomOp::isWritable(mlir::Value value,
+                               const mlir::bufferization::AnalysisState &) {
+  return mlir::isa<mlir::OpResult>(value) ||
+         mlir::isa<mlir::BlockArgument>(value);
+}
+
+mlir::FailureOr<mlir::BaseMemRefType>
+d2m::CustomOp::getBufferType(mlir::Value value,
+                             const mlir::bufferization::BufferizationOptions &,
+                             const mlir::bufferization::BufferizationState &,
+                             ::llvm::SmallVector<mlir::Value> &) {
+  auto tensorType = mlir::cast<RankedTensorType>(value.getType());
+  if (mlir::isa<mlir::BlockArgument>(value)) {
+    return MemRefType::get(
+        tensorType.getShape(), tensorType.getElementType(), nullptr,
+        ttcore::MemorySpaceAttr::get(tensorType.getContext(),
+                                     ttcore::MemorySpace::DeviceL1));
+  }
+  return ttcore::getBufferType(tensorType, /*isView=*/false);
 }
 
 } // namespace mlir::tt::d2m

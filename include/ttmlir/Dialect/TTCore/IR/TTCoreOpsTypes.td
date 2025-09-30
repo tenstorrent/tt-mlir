@@ -36,8 +36,9 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
   let parameters = (ins ArrayRefParameter<"int64_t">:$shape,
                         DefaultValuedParameter<
                           "AffineMap",
-                          "$_builder.getEmptyAffineMap()">:$mapping);
-  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` $mapping^)? `>`";
+                          "$_builder.getEmptyAffineMap()">:$mapping,
+                        OptionalArrayRefParameter<"int64_t">:$offset);
+  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` $mapping^)? (`,` custom<DimensionList>($offset)^)? `>`";
 
   let extraClassDeclaration = [{
       static GridAttr get(::mlir::MLIRContext *context) {
@@ -45,11 +46,19 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
       }
 
       static GridAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape) {
-        return GridAttr::get(context, shape, AffineMap::get(context));
+        return GridAttr::get(context, shape, AffineMap::get(context), {});
       }
 
       static GridAttr get(::mlir::MLIRContext *context, std::int64_t rank) {
         return GridAttr::get(context, SmallVector<std::int64_t>(rank, 1));
+      }
+
+      static GridAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, AffineMap mapping) {
+        return GridAttr::get(context, shape, mapping, {});
+      }
+
+      static GridAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, ArrayRef<int64_t> offset) {
+        return GridAttr::get(context, shape, AffineMap::get(context), offset);
       }
 
       uint64_t mutable cGridVolume = 0;

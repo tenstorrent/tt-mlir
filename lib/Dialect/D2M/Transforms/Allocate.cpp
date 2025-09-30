@@ -454,6 +454,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     funcBody.walk([&](d2m::GenericOp genericOp) {
       GenericOpContext &genericCtx = analysis.generics[genericOp];
 
+      if (mlir::isa<d2m::SpatialOp>(genericOp->getParentOp())) {
+        return;
+      }
+
       // Detect generic ops in "DMA-only" form, they must not
       // insert operand streams and therefore have no memory allocation
       // needs possibly associated with those.

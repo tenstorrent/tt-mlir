@@ -5594,4 +5594,17 @@ def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_value_
 
     let hasVerifier = 1;
 }
+
+def TTIR_DummyOp: TTIR_NamedOp<"dummy", [AttrSizedOperandSegments]> {
+  let summary = "Dummy operation.";
+  let description = [{
+    Dummy operation.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
+                       Variadic<AnyRankedTensorOrMemRef>:$outputs);
+
+  let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
+}
+
 #endif

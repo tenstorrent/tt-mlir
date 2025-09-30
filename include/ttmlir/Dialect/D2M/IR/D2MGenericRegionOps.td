@@ -554,6 +554,24 @@ def D2M_DstReinterpretCastOp : D2M_GenericRegionOp<"dst_reinterpret_cast"> {
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileAllGatherOp : D2M_GenericRegionComputeOp<"tile_all_gather",
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
+    let summary = "D2M Tile All Gather Op";
+    let description = [{
+      The 'all_gather' operation.
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output);
+}
+
 //===----------------------------------------------------------------------===//
 // D2M Destination Control Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//

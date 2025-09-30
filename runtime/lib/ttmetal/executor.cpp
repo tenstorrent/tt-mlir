@@ -67,6 +67,12 @@ private:
   void execute(const target::metal::MeshShardCommand *command);
 
   std::uint64_t getUniqueProgramRuntimeId() { return nextProgramRuntimeId++; }
+  void buildProgram(
+      const target::metal::EnqueueProgramCommand *command,
+      tt_metal::Program &program,
+      const ::flatbuffers::Vector<
+          ::flatbuffers::Offset<tt::target::metal::KernelArgs>> *programArgs,
+      const char *debugInfo);
 
 private:
   distributed::MeshDevice *meshDevice;
@@ -285,19 +291,21 @@ void MCQExecutor::execute(const target::metal::ReturnCommand *command) {
   }
 }
 
-void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
-                          const char *loc, const char *debugInfo) {
-  ZoneScopedN("EnqueueProgramCommand");
-  tt_metal::Program program = tt_metal::CreateProgram();
+void MCQExecutor::buildProgram(
+    const target::metal::EnqueueProgramCommand *command,
+    tt_metal::Program &program,
+    const flatbuffers::Vector<
+        flatbuffers::Offset<tt::target::metal::KernelArgs>> *programArgs,
+    const char *debugInfo) {
 
-  for (const target::metal::KernelConfig *kernelConfig :
-       *command->program()->kernels()) {
+  const tt::target::metal::KernelArgs *kernelArgs = nullptr;
+  auto kernelIdx = 0;
+  for (const target::metal::KernelConfig *kernelConfig : *command->kernels()) {
     const target::metal::KernelSource *kernelSource =
         kernelConfig->kernel_as_KernelSource();
     LOG_ASSERT(kernelSource, "Only source kernels supported for now");
     std::string kernelSourceString(kernelSource->source()->c_str(),
                                    kernelSource->source()->size());
-
     CoreRangeSet coreRangeSet =
         common::toCoreRangeSet(kernelConfig->core_range_set());
 
@@ -307,17 +315,24 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
                                        coreType);
     };
 
+    if (programArgs) {
+      kernelArgs = programArgs->Get(kernelIdx++);
+    }
+
     tt_metal::KernelHandle handle = createKernel(
         program, kernelSourceString, coreRangeSet,
-        createKernelConfig(kernelConfig, command->buffers(), meshBuffers,
-                           command->cbs(), deviceAddressValidator,
-                           createSemaphore),
+        createKernelConfig(kernelConfig,
+                           (kernelArgs) ? kernelArgs->ct_args()
+                                        : kernelConfig->args()->ct_args(),
+                           command->buffers(), meshBuffers, command->cbs(),
+                           deviceAddressValidator, createSemaphore),
         currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
         kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
 
     std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
-        kernelConfig->args()->rt_args(), command->buffers(), meshBuffers,
-        command->cbs(), deviceAddressValidator, createSemaphore);
+        (kernelArgs) ? kernelArgs->rt_args() : kernelConfig->args()->rt_args(),
+        command->buffers(), meshBuffers, command->cbs(), deviceAddressValidator,
+        createSemaphore);
     tt_metal::SetRuntimeArgs(program, handle, coreRangeSet, rtArgsVec);
   }
 
@@ -344,11 +359,34 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
         createCircularBufferConfig(cbRef, meshBuffers);
     tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
   }
+}
 
+void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
+                          const char *loc, const char *debugInfo) {
+  ZoneScopedN("EnqueueProgramCommand");
   auto meshWorkload = distributed::MeshWorkload();
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
 
-  meshWorkload.add_program(deviceRange, std::move(program));
+  const auto *perDeviceProgramArgs = command->per_device_program_args();
+  if (perDeviceProgramArgs == nullptr || perDeviceProgramArgs->size() == 0) {
+    // Homogenous device execution: all devices use the same ct/rt args
+    // from program attributes.
+    tt_metal::Program program = tt_metal::CreateProgram();
+    buildProgram(command, program, nullptr, debugInfo);
+    meshWorkload.add_program(deviceRange, std::move(program));
+  } else {
+    // Heterogenous device execution: per-device specialization using ct/rt args
+    // from per_device_program_args sets for each device.
+    assert(perDeviceProgramArgs->size() == meshDevice->shape().mesh_size());
+    auto deviceIdx = 0;
+    for (const auto &coord : deviceRange) {
+      const distributed::MeshCoordinateRange programRange(coord, coord);
+      const auto *programArgs = perDeviceProgramArgs->Get(deviceIdx++);
+      tt_metal::Program program = tt_metal::CreateProgram();
+      buildProgram(command, program, programArgs->program_args(), debugInfo);
+      meshWorkload.add_program(programRange, std::move(program));
+    }
+  }
 
   if (perf::Env::get().enablePerfTrace) {
     for (auto &[range, program] : meshWorkload.get_programs()) {

@@ -23,9 +23,11 @@
 #include "flatbuffers/buffer.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/Block.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/STLExtras.h"
@@ -55,7 +57,6 @@ struct CQBuilder {
   CQBuilder(flatbuffers::FlatBufferBuilder *fbb) : fbb(fbb) {
     printFlags = printFlags.elideLargeElementsAttrs()
                      .elideLargeResourceString()
-                     .skipRegions()
                      .enableDebugInfo()
                      .assumeVerified();
   }
@@ -567,6 +568,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     arg = target::metal::CreateKernelArgSemaphore(*cache.fbb).Union();
     break;
   }
+  case ttkernel::ArgType::Num: {
+    argType = target::metal::KernelArgType::KernelArgNum;
+    arg = target::metal::CreateKernelArgNum(*cache.fbb,
+                                            kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
   }
 
   return target::metal::CreateKernelArg(*cache.fbb, argType, arg);
@@ -776,8 +784,7 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                                        bufferValueToFlatbuffer, systemDesc, 0)),
             op);
       } else if (auto enqueueProgramOp =
-                     dyn_cast_if_present<tt::ttmetal::EnqueueProgramOp>(op);
-                 enqueueProgramOp) {
+                     dyn_cast_if_present<tt::ttmetal::EnqueueProgramOp>(op)) {
         std::vector<flatbuffers::Offset<target::metal::BufferRef>> buffers;
         buffers.reserve(enqueueProgramOp.getBuffers().size());
         for (auto buffer : enqueueProgramOp.getBuffers()) {
@@ -788,8 +795,8 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
         cbs.reserve(enqueueProgramOp.getCbs().size());
         for (auto [port, cb] : llvm::zip(enqueueProgramOp.getCbPorts(),
                                          enqueueProgramOp.getCbs())) {
-          auto buffer = cache.at<target::metal::BufferRef>(cb);
-          cbs.push_back(target::metal::CreateCBRef(*cache.fbb, port, buffer));
+          cbs.push_back(target::metal::CreateCBRef(
+              *cache.fbb, port, cache.at<target::metal::BufferRef>(cb)));
         }
 
         std::vector<flatbuffers::Offset<target::metal::KernelConfig>>
@@ -800,10 +807,30 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
               cache, mlir::cast<KernelConfigInterface>(kernelConfig),
               symbolTable));
         }
+
+        std::vector<flatbuffers::Offset<target::metal::ProgramArgs>>
+            perDeviceProgramArgs;
+        if (auto ttmetalPerDeviceProgramArgs =
+                enqueueProgramOp.getPerDeviceProgramArgs()) {
+          for (auto ttmetalProgramArgs :
+               ttmetalPerDeviceProgramArgs->getPerDeviceProgramArgs()) {
+            std::vector<flatbuffers::Offset<target::metal::KernelArgs>>
+                programArgs;
+            for (auto ttmetalKernelArgs : ttmetalProgramArgs.getProgramArgs()) {
+              programArgs.push_back(cache.getOrCreate(
+                  mlir::cast<KernelArgsAttr>(ttmetalKernelArgs),
+                  kernelArgsToFlatbuffer));
+            }
+            perDeviceProgramArgs.push_back(
+                CreateProgramArgsDirect(fbb, &programArgs));
+          }
+        }
+
         cqBuilder.appendCommand(
             target::metal::CreateEnqueueProgramCommandDirect(
-                fbb, &buffers, &cbs,
-                target::metal::CreateProgramDescDirect(fbb, &kernelConfigs)),
+                fbb, &buffers, &cbs, &kernelConfigs,
+                (perDeviceProgramArgs.empty() ? nullptr
+                                              : &perDeviceProgramArgs)),
             op);
       } else if (auto createBufferOp =
                      dyn_cast_if_present<tt::ttmetal::CreateBufferOp>(op);

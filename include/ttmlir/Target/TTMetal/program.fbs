@@ -78,10 +78,15 @@ table KernelArgSemaphore {
   core_type: CoreType;
 }
 
+table KernelArgNum {
+  value: uint32;
+}
+
 union KernelArgType {
   KernelArgCBPort,
   KernelArgBufferAddress,
   KernelArgSemaphore,
+  KernelArgNum
 }
 
 table KernelArg {
@@ -101,8 +106,4 @@ table KernelConfig {
   debug_info: string;
   symbol: string;
   loc: string;
-}
-
-table ProgramDesc {
-  kernels: [KernelConfig];
 }

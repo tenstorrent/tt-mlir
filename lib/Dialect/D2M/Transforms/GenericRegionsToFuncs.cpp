@@ -113,6 +113,54 @@ public:
       generic.replaceAllUsesWith(symbolicGeneric);
       generic.erase();
     });
+
+    moduleOp->walk([&](CustomOp custom) {
+      SmallVector<Attribute> threads;
+      for (Region &region : custom.getRegions()) {
+        builder.setInsertionPoint(moduleOp.getBody(),
+                                  moduleOp.getBody()->end());
+        ThreadType threadType =
+            custom.getRegionThreadType(region.getRegionNumber());
+        std::string symbolName =
+            stringifyEnum(custom.getRegionThreadType(region.getRegionNumber()))
+                .str() +
+            "_kernel" + Twine(unique++).str();
+        auto threadAttrWithSym = builder.getAttr<ThreadAttr>(
+            threadType, builder.getAttr<SymbolRefAttr>(symbolName));
+        auto threadAttrWithoutSym =
+            builder.getAttr<ThreadAttr>(threadType, nullptr);
+        Location loc = region.getNumArguments() > 0
+                           ? region.getArgument(0).getLoc()
+                           : custom.getLoc();
+        auto func = builder.create<func::FuncOp>(
+            loc, symbolName,
+            FunctionType::get(builder.getContext(), region.getArgumentTypes(),
+                              {}));
+        func.setPrivate();
+        func->setAttr(d2m::ThreadAttr::name, threadAttrWithoutSym);
+        func.getBody().takeBody(region);
+        builder.setInsertionPointToEnd(&func.getBody().front());
+        builder.create<func::ReturnOp>(custom.getLoc());
+        threads.push_back(threadAttrWithSym);
+      }
+
+      builder.setInsertionPoint(custom);
+      // auto symbolicCustom = builder.create<CustomOp>(
+      //     custom->getLoc(), custom.getResultTypes(), custom.getInputs(),
+      //     custom.getOutputs(), custom.getGrid(),
+      //     builder.getArrayAttr(threads),
+      //     /*numRegions*/ 0);
+
+      auto symbolicGeneric = builder.create<GenericOp>(
+          custom->getLoc(), custom.getResultTypes(), custom.getInputs(),
+          custom.getOutputs(), custom.getGrid(), builder.getArrayAttr({}),
+          builder.getArrayAttr({}), builder.getArrayAttr({}),
+          builder.getArrayAttr(threads),
+          /*numRegions*/ 0);
+
+      custom.replaceAllUsesWith(symbolicGeneric);
+      custom.erase();
+    });
   }
 };
 } // namespace

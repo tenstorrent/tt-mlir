@@ -559,4 +559,14 @@ def D2MGenericReplaceGlobals : Pass<"d2m-generic-replace-globals", "::mlir::Modu
     3. The index corresponds to a valid operand in the parent generic operation
   }];
 }
+
+def D2MInsertCCLOps: Pass<"d2m-insert-ccl-ops", "::mlir::ModuleOp"> {
+  let summary = "Insert ccl operations for D2M generic ops.";
+  let description = [{
+
+    Example:
+  }];
+  let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
+}
+
 #endif

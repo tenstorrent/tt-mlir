@@ -10,6 +10,7 @@
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 
 #include "ttmlir/Target/TTMetal/Target.h"
+#include "ttmlir/Target/TTMetal/command_generated.h"
 
 #include <filesystem>
 #include <functional>
@@ -341,7 +342,7 @@ inline tt_metal::KernelHandle createKernel(
     const char *currentProgramName, const char *programDebugInfo,
     const char *kernelDebugInfo, const char *kernelLoc) {
   LOG_TRACE(logger::LogRuntimeTTMetalKernel,
-            "Creating kernel: ", kernelDebugInfo);
+            "Creating kernel: ", kernelDebugInfo, coreRangeSet.str());
   LOG_TRACE(logger::LogRuntimeTTMetalKernelSource, "Kernel source:\n",
             kernelSource);
   const bool kernelFromFile = debug::Env::get().dumpKernelsToDisk ||
@@ -422,6 +423,11 @@ std::vector<std::uint32_t> processKernelArgs(
                                           toCoreType(arg->core_type())));
       break;
     }
+    case target::metal::KernelArgType::KernelArgNum: {
+      const auto *arg = kernelArg->arg_as_KernelArgNum();
+      argsVec.push_back(arg->value());
+      break;
+    }
     case target::metal::KernelArgType::NONE:
       LOG_FATAL("Unsupported runtime arg type");
     }
@@ -448,6 +454,8 @@ inline std::variant<tt_metal::DataMovementConfig, tt_metal::ComputeConfig,
                     tt_metal::EthernetConfig>
 createKernelConfig(
     const target::metal::KernelConfig *kernelConfig,
+    const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::KernelArg>>
+        *ctArgs,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::BufferRef>>
         *buffers,
     const std::unordered_map<std::uint32_t,
@@ -458,8 +466,8 @@ createKernelConfig(
     const DeviceAddressValidator &deviceAddressValidator,
     std::function<std::uint32_t(std::uint32_t, CoreType)> createSemaphoreFn) {
   std::vector<uint32_t> compileArgs =
-      processCompileArgs(kernelConfig->args()->ct_args(), buffers, meshBuffers,
-                         cbs, deviceAddressValidator, createSemaphoreFn);
+      processCompileArgs(ctArgs, buffers, meshBuffers, cbs,
+                         deviceAddressValidator, createSemaphoreFn);
   switch (kernelConfig->type_type()) {
   case target::metal::KernelConfigType::NocConfig: {
     switch (kernelConfig->type_as_NocConfig()->noc_index()) {
