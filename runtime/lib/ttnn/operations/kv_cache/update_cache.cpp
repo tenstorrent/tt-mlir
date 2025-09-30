@@ -9,6 +9,7 @@
 #include "tt/runtime/workarounds.h"
 #include "ttnn/distributed/api.hpp"
 #include "ttnn/distributed/distributed_tensor.hpp"
+#include <ttnn/core.hpp>
 
 namespace tt::runtime::ttnn::operations::kv_cache {
 void run(const ::tt::target::ttnn::UpdateCacheOp *op, ProgramContext &context) {
@@ -46,6 +47,9 @@ void run(const ::tt::target::ttnn::UpdateCacheOp *op, ProgramContext &context) {
     uint32_t upIdx = *buf.begin();
 
     ::ttnn::update_cache(cache, input, upIdx, op->batch_offset(), std::nullopt);
+    ::ttnn::set_printoptions("full");
+    auto cache_on_host = ::ttnn::from_device(cache);
+    cache_on_host.print();
   } else {
     LOG_FATAL("Currently, the only way to execute ttnn::update_cache is to use "
               "the workaround enabled by the flag "
