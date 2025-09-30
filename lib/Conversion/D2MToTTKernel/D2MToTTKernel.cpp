@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
 
@@ -642,26 +643,6 @@ public:
     llvm_unreachable("Expected BlockArgument or CollapseShapeOp");
   }
 
-  // Helper to get 2D collapsed shape for tilize/untilize operations.
-  static std::array<int64_t, 2> getCollapsed2DShape(MemRefType memrefType) {
-    auto shape = memrefType.getShape();
-    auto rank = shape.size();
-
-    if (rank == 2) {
-      return {shape[0], shape[1]};
-    }
-
-    // For N-D tensors, collapse all but the last dimension
-    // e.g., [3, 2, 2] -> [6, 2].
-    int64_t collapsedRows = 1;
-    for (size_t i = 0; i < rank - 1; ++i) {
-      collapsedRows *= shape[i];
-    }
-    int64_t collapsedCols = shape[rank - 1];
-
-    return {collapsedRows, collapsedCols};
-  }
-
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const final {
@@ -671,7 +652,8 @@ public:
       Value dst = operands[1];
       auto preLinearizedMemrefType = mlir::cast<MemRefType>(
           findPreLinearizedMemref(tilizeOp.getOutput()).getType());
-      auto collapsed2DShape = getCollapsed2DShape(preLinearizedMemrefType);
+      auto collapsed2DShape =
+          ttcore::collapseGridTo2D(preLinearizedMemrefType.getShape());
 
       auto blockR = i32(rewriter, op->getLoc(), collapsed2DShape[0]);
       auto blockC = i32(rewriter, op->getLoc(), collapsed2DShape[1]);
@@ -686,7 +668,8 @@ public:
       Value dst = operands[1];
       auto preLinearizedMemrefType = mlir::cast<MemRefType>(
           findPreLinearizedMemref(untilizeOp.getInput()).getType());
-      auto collapsed2DShape = getCollapsed2DShape(preLinearizedMemrefType);
+      auto collapsed2DShape =
+          ttcore::collapseGridTo2D(preLinearizedMemrefType.getShape());
 
       auto blockR = i32(rewriter, op->getLoc(), collapsed2DShape[0]);
       auto blockC = i32(rewriter, op->getLoc(), collapsed2DShape[1]);

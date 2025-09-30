@@ -105,6 +105,9 @@ ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType);
 
 ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
 
+// Grid utility functions
+llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape);
+
 } // namespace mlir::tt::ttcore
 
 #endif // TTMLIR_DIALECT_TTCORE_IR_UTILS_H

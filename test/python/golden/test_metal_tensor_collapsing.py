@@ -69,16 +69,16 @@ def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
             [(2, 32, 64), (2, 64, 32)],
             batch_matmul,
             "matmul",
-            marks=pytest.mark.xfail(
-                reason="Hardcoded rank==2 assertions in matmul rewriter"
+            marks=pytest.mark.skip(
+                reason="Hardcoded rank==2 assertions in matmul rewriter cause core dump"
             ),
         ),
         pytest.param(
             [(3, 32, 64)],
             transpose_inner_dims,
             "transpose",
-            marks=pytest.mark.xfail(
-                reason="Hardcoded 2D transpose assertions in permute rewriter"
+            marks=pytest.mark.skip(
+                reason="Hardcoded 2D transpose assertions in permute rewriter cause core dump"
             ),
         ),
     ],

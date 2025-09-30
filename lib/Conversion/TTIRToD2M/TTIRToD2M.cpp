@@ -165,23 +165,22 @@ protected:
       elementType = ttcore::TileType::get(elementType, tileShape);
     }
 
-    DenseIntElementsAttr emptyCollapseIntervals;
     ttcore::MetalLayoutAttr layout;
     if (!collapseTensors) {
       auto emptyIntervalType = RankedTensorType::get(
           {0, 2}, IntegerType::get(rewriter.getContext(), 64));
 
-      emptyCollapseIntervals =
+      DenseIntElementsAttr emptyCollapseIntervals =
           DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
 
       layout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), logicalShape, targetGridShape,
+          rewriter.getContext(), logicalShape, targetSquareGridShape,
           ttcore::OOBVal::Undef, memSpace, emptyCollapseIntervals);
 
     } else {
       // Default-constructed collapse intervals will collapse to 2D.
       layout = ttcore::MetalLayoutAttr::get(rewriter.getContext(), logicalShape,
-                                            targetGridShape,
+                                            targetSquareGridShape,
                                             ttcore::OOBVal::Undef, memSpace);
     }
 

@@ -35,11 +35,7 @@ def TTMetal_CoreRangeAttr : TTMetal_Attr<"CoreRange", "core_range"> {
   let assemblyFormat = "`<` custom<DimensionList>($offset) `,` custom<DimensionList>($size) `>`";
 
   let extraClassDeclaration = [{
-      static CoreRangeAttr get(::mlir::MLIRContext *context, ::mlir::tt::ttcore::GridAttr grid, SmallVector<int64_t> offset = {0, 0})
-      {
-        assert(grid.getShape().size() == 2 && "Grid shape must be 2D for now");
-        return CoreRangeAttr::get(context, offset, grid.getShape());
-      }
+      static CoreRangeAttr get(::mlir::MLIRContext *context, ::mlir::tt::ttcore::GridAttr grid);
   }];
 }
 
