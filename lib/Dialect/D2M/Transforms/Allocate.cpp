@@ -368,7 +368,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
         memrefCtx.type = mlir::cast<MemRefType>(op->getResult(0).getType());
         if (isDeviceMemorySpace(memrefCtx.type, MemorySpace::System)) {
-          memrefCtx.size = device.getMemrefSizeBytes(memrefCtx.type);
+          memrefCtx.size = getMemrefSizeBytes(memrefCtx.type, device);
         }
 
         memrefCtx.live = closure.live;
@@ -477,7 +477,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           TT_debugv(mlir::isa<BlockArgument>(memref),
                     "expected a block arg: {}", memref);
           memrefCtx.type = mlir::cast<MemRefType>(memref.getType());
-          memrefCtx.size = device.getMemrefSizeBytes(memrefCtx.type);
+          memrefCtx.size = getMemrefSizeBytes(memrefCtx.type, device);
         } else {
           // An existing `analysis.memrefs` entry means `operand` is ultimately
           // rooted in a `memref::AllocOp`.
@@ -622,7 +622,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                         rewriter, memrefCtx.type, numStreamBuffers);
                   }
                   const AllocSizeT bufferSize =
-                      device.getMemrefSizeBytes(operandCtx.bufferType);
+                      getStreamBufferSizeBytes(operandCtx.bufferType, device);
 
                   // Because we will insert stream buffer allocs just before
                   // generic ops themselves, without any other interposing
@@ -914,28 +914,42 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         });
   }
 
-  // TODO(vroubtsov) this is currently mocked up to use single tile buffers
-  static llvm::SmallVector<int64_t, 4>
+  // TODO(#5028) this needs to work with the size analysis API instead of making
+  // buffer shape/size the same as the operand's.
+  static llvm::ArrayRef<int64_t>
   selectStreamBufferShape(MemRefType operandType) {
-    ttcore::DeviceLayoutInterface layout =
-        mlir::cast<ttcore::DeviceLayoutInterface>(operandType.getLayout());
-    ArrayRef<int64_t> gridShape = layout.getGridShape(operandType);
+    return operandType.getShape();
+  }
 
-    llvm::SmallVector<int64_t, 4> shape(gridShape);
-    shape.resize(operandType.getRank(), 1);
-    return shape;
+  // Factor out defaults passed into DeviceAttr::getMemrefSizeBytes()
+  // for operand memrefs.
+  static int64_t getMemrefSizeBytes(MemRefType bufferType,
+                                    ttcore::DeviceAttr device) {
+    // A tighter size calculation is possible for memrefs that don't map to CBs
+    // which we don't attempt here except to ignore `buffers` multipler.
+    return device.getMemrefSizeBytes(bufferType, 0, false);
+  }
+
+  // Factor out defaults passed into DeviceAttr::getMemrefSizeBytes()
+  // for stream buffer memrefs.
+  static int64_t getStreamBufferSizeBytes(MemRefType bufferType,
+                                          ttcore::DeviceAttr device) {
+    // Stream buffers map to CBs and therefore are subject to CB size alignment
+    // requirements (invoke with `pageSize` default of 0).
+    return device.getMemrefSizeBytes(bufferType, 0, true);
   }
 
   static MemRefType selectStreamBuffer(RewriterBase &rewriter,
                                        MemRefType operandType,
                                        uint32_t buffers) {
-    llvm::SmallVector<int64_t> bufferShape =
-        selectStreamBufferShape(operandType);
+    llvm::ArrayRef<int64_t> bufferShape = selectStreamBufferShape(operandType);
+
     auto bufferLayout = ttcore::ShardLayoutAttr::get(
         ArrayRef(bufferShape).take_back(bufferShape.size() / 2),
-        operandType.getElementType(), /*buffers=*/buffers);
+        operandType.getElementType(),
+        /*buffers=*/buffers);
     return MemRefType::get(
-        ArrayRef(bufferShape), operandType.getElementType(), bufferLayout,
+        bufferShape, operandType.getElementType(), bufferLayout,
         rewriter.getAttr<ttcore::MemorySpaceAttr>(MemorySpace::DeviceL1));
   }
 
