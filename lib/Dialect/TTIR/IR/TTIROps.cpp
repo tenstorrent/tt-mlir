@@ -90,7 +90,15 @@ MemRefType getBufferType(Type type, bool isView,
     layoutAttr = ttcore::ViewLayoutAttr::get(ctx, map);
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-    layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Sharded) {
+      layoutAttr =
+          ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    } else if (layout.getMemoryLayout() ==
+               ttcore::TensorMemoryLayout::Interleaved) {
+      layoutAttr = ttcore::InterleavedLayoutAttr::get(ctx, shardStride);
+    } else {
+      llvm_unreachable("Unsupported memory layout");
+    }
   }
 
   return MemRefType::get(
