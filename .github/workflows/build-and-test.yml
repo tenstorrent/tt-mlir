@@ -216,7 +216,7 @@ jobs:
         ]
     name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
 
-    runs-on: ${{ matrix.build.sh-run && format('tt-ubuntu-2204-{0}-stable', matrix.build.runs-on) || fromJson(format('["{0}", "in-service"]', matrix.build.runs-on)) }}
+    runs-on: ${{ matrix.build.sh-run && format('tt-ubuntu-2204-{0}-tt-mlir', matrix.build.runs-on) || fromJson(format('["{0}", "in-service"]', matrix.build.runs-on)) }}
 
     container:
       image: ${{ matrix.build.sh-run && needs.build-image.outputs.docker-image-harbor || needs.build-image.outputs.docker-image }}
