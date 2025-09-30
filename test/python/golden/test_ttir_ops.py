@@ -1088,6 +1088,7 @@ def test_conv2d_consteval(
 @pytest.mark.parametrize("padding", [[2, 1]])
 @pytest.mark.parametrize("groups", [1])
 @pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.run_error  # Issue #5165.
 def test_hoisted_conv2d(
     shapes: List[Shape],
     stride: List[int],
