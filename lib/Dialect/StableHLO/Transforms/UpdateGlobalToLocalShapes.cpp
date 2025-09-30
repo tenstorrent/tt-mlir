@@ -2,13 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "llvm/Support/Debug.h"
+
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "stablehlo/dialect/StablehloOps.h"
 
@@ -58,11 +58,12 @@ static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
   }
 
   // expect the inputs and updates to have the same size
-  mlir::RankedTensorType scatterInput =
+  mlir::RankedTensorType scatterInputType =
       mlir::dyn_cast<mlir::RankedTensorType>(scatterInputs.front().getType());
-  auto scatterUpdate =
+  auto scatterUpdateType =
       mlir::dyn_cast<mlir::RankedTensorType>(scatterUpdates.front().getType());
-  if (scatterInput.getShape().size() != scatterUpdate.getShape().size()) {
+  if (scatterInputType.getShape().size() !=
+      scatterUpdateType.getShape().size()) {
     return false;
   }
 
@@ -94,9 +95,10 @@ static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
     return false; // Not safe - scatter axis is sharded
   }
 
-  llvm::dbgs() << "Scatter axis " << scatterAxis
-               << " is orthogonal to sharding axes - this is sharded scatter "
-                  "is safe to lower through UpdateGlobalToLocalShapesPass. \n";
+  scatterOp.emitWarning("In scatterOp ")
+      << scatterOp->getName() << ", the scatter axis " << scatterAxis
+      << " is orthogonal to input sharding axes - this sharded scatter "
+         "is safe to lower through UpdateGlobalToLocalShapesPass. \n";
   return true; // Safe cache update detected
 }
 
