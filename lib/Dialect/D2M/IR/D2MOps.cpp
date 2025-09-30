@@ -1192,7 +1192,7 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
             initOperand.assign(region.getArgument(dpsIOBoundary));
           });
 
-          if (origDefiningOp && mlir::isa<EmptyOp>(origDefiningOp)) {
+          if (mlir::isa_and_nonnull<EmptyOp>(origDefiningOp)) {
             rewriter.replaceAllUsesWith(origDefiningOp->getResult(0),
                                         initOperand.get());
           }
