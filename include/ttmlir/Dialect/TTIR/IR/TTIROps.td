@@ -3073,6 +3073,28 @@ def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache"> {
   let hasVerifier = 1;
 }
 
+def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache"> {
+  let summary = "Paged update cache op.";
+  let description = [{
+      Paged update cache op.
+  }];
+
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$update_index,
+                       DefaultValuedAttr<BoolAttr, "false">:$share_cache,
+                       Optional<AnyRankedTensor>:$page_table,
+                       I32Attr:$batch_offset);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache"> {
   let summary = "Cache filling operation.";
   let description = [{

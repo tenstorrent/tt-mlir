@@ -31,21 +31,9 @@ void run(const ::tt::target::ttnn::PagedUpdateCacheOp *op,
           : std::nullopt;
   auto batchOffset = op->batch_offset();
 
-  std::set<::ttnn::MeshCoordinate> meshCoordinates;
-  if (op->mesh_coordinates()) {
-    for (const auto &meshCoordinate : *op->mesh_coordinates()) {
-      std::vector<uint32_t> coordsVector(meshCoordinate->values()->begin(),
-                                         meshCoordinate->values()->end());
-      meshCoordinates.emplace(::ttnn::MeshCoordinate(coordsVector));
-    }
-  }
-  std::optional<std::set<::ttnn::MeshCoordinate>> meshCoordinatesOptional =
-      meshCoordinates.empty() ? std::nullopt
-                              : std::make_optional(meshCoordinates);
-
   const std::vector<uint32_t> emptyUpdateIndex = {};
   ::ttnn::experimental::paged_update_cache(
       cacheTensor, inputTensor, emptyUpdateIndex, updateIndexTensor, shareCache,
-      pageTableTensor, batchOffset, std::nullopt, meshCoordinates);
+      pageTableTensor, batchOffset, std::nullopt, std::nullopt);
 }
 } // namespace tt::runtime::ttnn::operations::kv_cache
