@@ -248,21 +248,3 @@ def test_conv_activation_fusing(
         system_desc_path=request.config.getoption("--sys-desc"),
     )
     assert check_op(output, "conv2d") and not check_op(output, activation)
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        [
-            (1, 32, 32, 64),  # input
-            (64, 64, 3, 3),  # conv weight
-            (1, 1, 1, 64),  # conv bias
-        ]
-    ],
-)
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
-@pytest.mark.parametrize("stride", [[1, 1]])
-@pytest.mark.parametrize("padding", [[1, 1]])
-@pytest.mark.parametrize("dilation", [[1, 1]])
-@pytest.mark.parametrize("groups", [1])
-
