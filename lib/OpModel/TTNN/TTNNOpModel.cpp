@@ -4032,6 +4032,30 @@ llvm::Expected<size_t> OpModel<UpdateCacheOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// PagedUpdateCacheOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<PagedUpdateCacheOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
+    TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> updateIndexShape,
+    TTNNLayoutAttr updateIndexLayout,
+    std::optional<llvm::ArrayRef<int64_t>> pageTableShape,
+    TTNNLayoutAttr pageTableLayout, uint32_t batchOffset,
+    TTNNLayoutAttr outputLayout) {
+  return llvm::createStringError("Not Implemented");
+}
+
+llvm::Expected<size_t> OpModel<PagedUpdateCacheOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> updateIndexShape, TTNNLayoutAttr updateIndexLayout,
+    std::optional<llvm::ArrayRef<int64_t>> pageTableShape,
+    TTNNLayoutAttr pageTableLayout, uint32_t batchOffset,
+    TTNNLayoutAttr outputLayout) {
+  return llvm::createStringError("Not Implemented");
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(

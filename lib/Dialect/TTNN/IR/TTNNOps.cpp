@@ -2833,6 +2833,79 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// PagedUpdateCacheOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult PagedUpdateCacheOp::verify() {
+  auto cacheShape = getCache().getType().getShape();
+  auto inputShape = getInput().getType().getShape();
+  auto updateIndexShape = getUpdateIndex().getType().getShape();
+
+  if (cacheShape.size() != 4) {
+    return emitOpError("Cache tensor must be a 4D tensor");
+  }
+  if (inputShape.size() != 4) {
+    return emitOpError("Input tensor must be a 4D tensor");
+  }
+  if (updateIndexShape.size() != 1) {
+    return emitOpError("Update index tensor must be a 1D tensor");
+  }
+
+  if (cacheShape[1] != 1) {
+    return emitOpError("Cache tensor requires that dim 1 have size 1, got "
+                       "cache dim 1 size = " +
+                       std::to_string(cacheShape[1]));
+  }
+
+  if (inputShape[0] != 1) {
+    return emitOpError("Input tensor requires that dim 0 have size 1, got "
+                       "input dim 0 size = " +
+                       std::to_string(inputShape[1]));
+  }
+
+  if (inputShape[2] != 1) {
+    return emitOpError("Input tensor requires that dim 2 have size 1, got "
+                       "input dim 2 size = " +
+                       std::to_string(inputShape[2]));
+  }
+
+  int64_t batchSize = cacheShape[0];
+  int64_t headSize = cacheShape[3];
+
+  if (inputShape[1] != batchSize) {
+    return emitOpError(
+        "Input tensor requires that dim 1 have size equal to batch size, got "
+        "input dim 1 size = " +
+        std::to_string(inputShape[1]) +
+        ", batch size = " + std::to_string(batchSize));
+  }
+
+  if (inputShape[3] != headSize) {
+    return emitOpError(
+        "Input tensor requires that dim 3 have size equal to head size, got "
+        "input dim 3 size = " +
+        std::to_string(inputShape[3]) +
+        ", head size = " + std::to_string(headSize));
+  }
+
+  if (getPageTable()) {
+    auto pageTableShape = getPageTable().getType().getShape();
+    if (pageTableShape.size() != 2) {
+      return emitOpError("Page table tensor must be a 2D tensor");
+    }
+    if (pageTableShape[0] != batchSize) {
+      return emitOpError("Page table tensor requires that dim 0 have size "
+                         "equal to batch size, got "
+                         "page table dim 0 size = " +
+                         std::to_string(pageTableShape[0]) +
+                         ", batch size = " + std::to_string(batchSize));
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // FillCacheOp
 //===----------------------------------------------------------------------===//
 

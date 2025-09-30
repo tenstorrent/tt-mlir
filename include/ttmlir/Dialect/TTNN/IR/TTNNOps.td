@@ -1018,6 +1018,28 @@ def TTNN_UpdateCacheOp : TTNN_InplaceOp<"update_cache"> {
   let hasVerifier = 1;
 }
 
+def TTNN_PagedUpdateCacheOp : TTNN_InplaceOp<"paged_update_cache"> {
+  let summary = "Paged update cache op.";
+  let description = [{
+      Paged update cache op.
+  }];
+
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$update_index,
+                       DefaultValuedAttr<BoolAttr, "false">:$share_cache,
+                       Optional<AnyRankedTensor>:$page_table,
+                       I32Attr:$batch_offset);
+
+  // let extraClassDeclaration = [{
+  //   wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+  //     return wa::TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds();
+  //   }
+  // }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
   let summary = "Fill static cache tensor.";
   let description = [{

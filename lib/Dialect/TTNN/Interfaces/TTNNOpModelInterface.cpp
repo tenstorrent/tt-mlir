@@ -2794,6 +2794,18 @@ UpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getBatchOffset(), opConfig.outputLayout);
 }
 
+llvm::Expected<op_model::OpConstraints>
+PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  return llvm::createStringError("Not Implemented");
+}
+
+llvm::Expected<size_t>
+PagedUpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  return llvm::createStringError("Not Implemented");
+}
+
 //===----------------------------------------------------------------------===//
 // WriteTensorOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//

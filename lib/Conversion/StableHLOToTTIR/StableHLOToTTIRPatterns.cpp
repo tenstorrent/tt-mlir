@@ -3493,6 +3493,75 @@ public:
 } // namespace
 
 namespace {
+class StableHLOPagedUpdateCacheConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.paged_update_cache") {
+      return failure();
+    }
+
+    Value cache = adaptor.getOperands()[0];
+    Value input = adaptor.getOperands()[1];
+    Value updateIndex = adaptor.getOperands()[2];
+    Value pageTable;
+    if (adaptor.getOperands().size() == 4) {
+      pageTable = adaptor.getOperands()[3];
+    }
+
+    bool shareCache = false;
+    uint32_t batchOffset = 0;
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "PagedUpdateCache op must have mhlo.frontend_attributes attribute.");
+    }
+
+    auto shareCacheStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("share_cache");
+    if (shareCacheStringAttr) {
+      if (shareCacheStringAttr.getValue().lower() == "true") {
+        shareCache = true;
+      } else if (shareCacheStringAttr.getValue().lower() == "false") {
+        shareCache = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "share_cache attribute must be true or false. Received \"" +
+                       shareCacheStringAttr.getValue() + "\".");
+      }
+    }
+
+    auto batchOffsetStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("batch_offset");
+    if (!batchOffsetStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "PagedUpdateCache op must have batch_offset attribute.");
+    }
+
+    if (!llvm::to_integer(batchOffsetStringAttr.getValue(), batchOffset)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Failed to convert batch_offset string to integer.");
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
+        srcOp, cache.getType(), cache, input, updateIndex, shareCache,
+        pageTable, batchOffset);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOErfOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
@@ -4078,6 +4147,7 @@ static void addCacheOpsConversionPattern(MLIRContext *ctx,
                                          TypeConverter &typeConverter) {
   patterns.add<StableHLOFillCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOUpdateCacheConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOPagedUpdateCacheConversionPattern>(typeConverter, ctx);
 }
 
 static void
