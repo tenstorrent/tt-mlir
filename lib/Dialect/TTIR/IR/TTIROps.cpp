@@ -3765,8 +3765,12 @@ mlir::tt::ttir::MeshShardOp::getBufferType(
 ::mlir::OpFoldResult mlir::tt::ttir::MeshShardOp::fold(FoldAdaptor adaptor) {
   auto shardShapeArray = getShardShape();
 
-  if (shardShapeArray.size() == 2 && shardShapeArray[0] == 1 &&
-      shardShapeArray[1] == 1) {
+  int64_t shardVolume = 1;
+  for (int64_t dim : shardShapeArray) {
+    shardVolume *= dim;
+  }
+
+  if (shardVolume == 1) {
     return getInput();
   }
 
