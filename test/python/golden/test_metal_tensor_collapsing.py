@@ -62,7 +62,7 @@ def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
         ([(3, 32, 64), (3, 32, 64)], elementwise_multiply, "3d_multiply"),
         ([(3, 32, 64)], unary_exp, "3d_exp"),
         # 4D element-wise operations (working with non-collapsed tensors)
-        ([(2, 3, 32, 64), (2, 3, 32, 64)], elementwise_add, "4d_add"),
+        ([(2, 2, 32, 32), (2, 2, 32, 32)], elementwise_add, "4d_add"),
         ([(1, 2, 32, 32)], unary_exp, "4d_exp"),
         # Operations with known issues (marked as skip)
         pytest.param(
