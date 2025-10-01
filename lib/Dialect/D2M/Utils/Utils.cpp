@@ -85,4 +85,28 @@ Type getRegionLargestDstElemType(Region &region) {
   return largestType;
 }
 
+AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
+                                      bool reverse) {
+  assert(!affineMaps.empty());
+
+  // We typically want to reverse it so that output dimensions get priority for
+  // the inverse permutation.
+  if (reverse) {
+    affineMaps = llvm::to_vector(llvm::reverse(affineMaps));
+  }
+
+  // Concat all of the indexing maps together, matmul example:
+  // (d0, d1, d2) -> (d0, d2)
+  // (d0, d1, d2) -> (d2, d1)
+  // (d0, d1, d2) -> (d0, d1)
+  // Becomes:
+  // (d0, d1, d2) -> (d0, d2, d2, d1, d0, d1)
+  AffineMap concat =
+      concatAffineMaps(affineMaps, affineMaps.front().getContext());
+
+  // Invert the permutation to get a map that we can use to get the loop
+  // bounds. Above example becomes: (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
+  return inversePermutation(concat);
+}
+
 } // namespace mlir::tt::d2m::utils
