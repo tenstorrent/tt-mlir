@@ -2881,6 +2881,50 @@ void mlir::tt::ttir::TTNNMetalLayoutCastOp::getAsmResultNames(
   setNameFn(getResult(), "cast");
 }
 
+void mlir::tt::ttir::TTNNMetalLayoutCastOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Eliminate back-to-back casts of the same tensor.
+
+  // Because of the verifier, we are guaranteed that casts are always
+  // ttnn->metal or metal->ttnn. Therefore, if the producer of the input is a
+  // cast, we necessarily have one of:
+  //   1. metal_0->ttnn->metal_1
+  //   2. ttnn_0->metal->ttnn_1
+  // The cast is purely representational and no layout conversion is performed.
+  // At op creation time it is guaranteed that the input and output are the same
+  // tensor. Therefore we can assume that:
+  //   metal_0 == metal_1 in 1
+  //   ttnn_0 == ttnn_1 in 2
+
+  patterns.add(+[](TTNNMetalLayoutCastOp op, mlir::PatternRewriter &rewriter) {
+    TTNNMetalLayoutCastOp producerOp =
+        op.getInput().getDefiningOp<TTNNMetalLayoutCastOp>();
+
+    if (!producerOp) {
+      return failure();
+    }
+
+    // Bail if we are post bufferization.
+    auto producerInputTensor =
+        mlir::dyn_cast<mlir::RankedTensorType>(producerOp.getInput().getType());
+    auto producerOutputTensor = mlir::dyn_cast<mlir::RankedTensorType>(
+        producerOp.getResult().getType());
+    auto consumerInputTensor =
+        mlir::dyn_cast<mlir::RankedTensorType>(op.getInput().getType());
+    auto consumerOutputTensor =
+        mlir::dyn_cast<mlir::RankedTensorType>(op.getResult().getType());
+
+    if (!producerInputTensor || !producerOutputTensor || !consumerInputTensor ||
+        !consumerOutputTensor) {
+      return failure();
+    }
+
+    // Because of the verifier, we know that
+    rewriter.replaceOp(op, producerOp.getInput());
+    return success();
+  });
+}
+
 mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
