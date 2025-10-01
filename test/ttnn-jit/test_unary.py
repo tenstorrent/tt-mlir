@@ -31,7 +31,7 @@ def run_unary_op(device, h, w, max_grid, dtype, op):
             shard_shape_y,
         ],
         shard_orientation=ttnn.ShardOrientation.ROW_MAJOR,
-        shard_mode=ttnn.ShardMode.PHYSICAL,
+        # shard_mode=ttnn.ShardMode.PHYSICAL,
     )
 
     memory_config = ttnn.MemoryConfig(
