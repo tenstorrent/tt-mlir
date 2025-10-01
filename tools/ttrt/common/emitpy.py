@@ -415,36 +415,35 @@ class EmitPy:
                                     f"finished loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
                                 )
 
-                            if compare_to_ttnn:
-                                self.logging.debug(
-                                    f"comparing flatbuffer outputs to emitpy outputs"
-                                )
-                                torch_dylib_outputs = []
-                                for output in dylib_outputs:
-                                    output = ttnn.from_device(output)
-                                    torch_dylib_outputs.append(output.to_torch())
+                            self.logging.debug(
+                                f"comparing flatbuffer outputs to emitpy outputs"
+                            )
+                            torch_dylib_outputs = []
+                            for output in dylib_outputs:
+                                output = ttnn.from_device(output)
+                                torch_dylib_outputs.append(output.to_torch())
 
-                                torch_fbb_outputs = self.load_tensors_from_artifacts(
-                                    bin, "device_output"
-                                )["program_" + str(program_index)]
+                            torch_fbb_outputs = self.load_tensors_from_artifacts(
+                                bin, "device_output"
+                            )["program_" + str(program_index)]
 
-                                for i in range(len(torch_fbb_outputs)):
-                                    if not torch.allclose(
-                                        torch_dylib_outputs[i], torch_fbb_outputs[i]
-                                    ):
-                                        self.logging.error(
-                                            f"EmitPy dylib output tensor {torch_results[i]} does not match flatbuffer output {torch_outputs[i]} for program_index={program_index}, loop={loop}"
-                                        )
-                                        raise Exception(
-                                            f"EmitPy dylib output tensor {torch_results[i]} does not match flatbuffer output {torch_outputs[i]} for program_index={program_index}, loop={loop}"
-                                        )
-                                    else:
-                                        self.logging.debug(
-                                            f"Output tensors match for program_index={program_index}, loop={loop}"
-                                        )
-                                self.logging.info(
-                                    f"All output tensors match for {dylib.file_path}"
-                                )
+                            for i in range(len(torch_fbb_outputs)):
+                                if not torch.allclose(
+                                    torch_dylib_outputs[i], torch_fbb_outputs[i]
+                                ):
+                                    self.logging.error(
+                                        f"EmitPy dylib output tensor {torch_results[i]} does not match flatbuffer output {torch_outputs[i]} for program_index={program_index}, loop={loop}"
+                                    )
+                                    raise Exception(
+                                        f"EmitPy dylib output tensor {torch_results[i]} does not match flatbuffer output {torch_outputs[i]} for program_index={program_index}, loop={loop}"
+                                    )
+                                else:
+                                    self.logging.debug(
+                                        f"Output tensors match for program_index={program_index}, loop={loop}"
+                                    )
+                            self.logging.info(
+                                f"All output tensors match for {dylib.file_path}"
+                            )
             except Exception as e:
                 result = "error"
                 if isinstance(e, TTRTTestException):
