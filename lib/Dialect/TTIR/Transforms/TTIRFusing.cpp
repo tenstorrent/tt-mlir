@@ -428,6 +428,16 @@ private:
   }
 };
 
+// ReLU6 fusion pattern matcher that transforms:
+//   minimum(relu(x), 6)
+// into:
+//   relu6(x)
+//
+// The pattern matches both operand orders:
+//   - minimum(relu(x), 6)
+//   - minimum(6, relu(x))
+//
+// The constant 6 can be represented as either an integer or float fill value.
 class Relu6FusionPattern : public mlir::OpRewritePattern<MinimumOp> {
   using mlir::OpRewritePattern<MinimumOp>::OpRewritePattern;
 
@@ -435,28 +445,29 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MinimumOp minimumOp,
                   mlir::PatternRewriter &rewriter) const final {
-    // Check if the minimum operation is preceded by a ReLU operation
-    Value input;
-    if (auto reluOp = minimumOp.getLhs().getDefiningOp<ReluOp>()) {
-      input = reluOp.getInput();
-      auto fullOp = minimumOp.getRhs().getDefiningOp<FullOp>();
-      if (!isFillValueSix(fullOp)) {
-        return mlir::failure();
-      }
-    } else if (auto reluOp = minimumOp.getRhs().getDefiningOp<ReluOp>()) {
-      input = reluOp.getInput();
-      auto fullOp = minimumOp.getLhs().getDefiningOp<FullOp>();
-      if (!isFillValueSix(fullOp)) {
-        return mlir::failure();
-      }
-    } else {
+    // Try to match pattern: Minimum(ReLU(x), 6) or Minimum(6, ReLU(x))
+    Value lhs = minimumOp.getLhs();
+    Value rhs = minimumOp.getRhs();
+
+    auto reluOp = lhs.getDefiningOp<ReluOp>();
+    auto fullOp = rhs.getDefiningOp<FullOp>();
+
+    // Check the reversed pattern if initial match fails
+    if (!reluOp) {
+      reluOp = rhs.getDefiningOp<ReluOp>();
+      fullOp = lhs.getDefiningOp<FullOp>();
+    }
+
+    // Verify we found the expected pattern
+    if (!reluOp || !fullOp || !isFillValueSix(fullOp)) {
       return mlir::failure();
     }
 
+    // Replace with ReLU6
     rewriter.setInsertionPoint(minimumOp);
-    utils::replaceOpWithNewDPSOp<Relu6Op>(
-        rewriter, minimumOp, minimumOp.getResult().getType(), input);
-
+    utils::replaceOpWithNewDPSOp<Relu6Op>(rewriter, minimumOp,
+                                          minimumOp.getResult().getType(),
+                                          reluOp.getInput());
     return mlir::success();
   }
 
@@ -468,8 +479,6 @@ private:
     }
     mlir::Attribute fillValue = op.getFillValue();
     if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
-      llvm::outs() << "Fill value INT: "
-                   << integerAttr.getValue().getSExtValue() << "\n";
       return integerAttr.getValue().getSExtValue() == 6;
     }
     if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {

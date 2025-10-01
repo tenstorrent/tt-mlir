@@ -349,14 +349,11 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
 
 ::tt::tt_metal::TensorMemoryLayout
 getTensorMemoryLayout(const TensorMemoryLayoutAttr memLayoutAttr) {
-  llvm::outs() << "Getting tensor memory layout for attr: " << memLayoutAttr
-               << "\n";
   auto tensorMemoryLayout = memLayoutAttr.getValue();
   return getTensorMemoryLayout(tensorMemoryLayout);
 }
 
 ::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout) {
-  llvm::outs() << "Getting memory config for layout: " << layout << "\n";
   auto tensorMemoryLayout = getTensorMemoryLayout(
       layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved));
   auto bufferType = getBufferType(layout);

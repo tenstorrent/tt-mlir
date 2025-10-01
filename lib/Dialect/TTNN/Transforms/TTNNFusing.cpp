@@ -128,23 +128,19 @@ private:
     // Check stride is 1.
     llvm::ArrayRef<int32_t> strideAttr = srcOp.getStride();
     if (strideAttr.size() != 2 || strideAttr[0] != 1 || strideAttr[1] != 1) {
-      llvm::outs() << "Stride is not 1\n";
       return false;
     }
 
     // Check padding is 0.
     llvm::ArrayRef<int32_t> paddingAttr = srcOp.getPadding();
     if (llvm::any_of(paddingAttr, [](int32_t v) { return v != 0; })) {
-      llvm::outs() << "Padding is not 0\n";
       return false;
     }
 
     // only groups = 1 is supported for now
     if (srcOp.getGroups() != 1) {
-      llvm::outs() << "Groups is not 1\n";
       return false;
     }
-    llvm::outs() << "Conv2d can be converted to matmul\n";
     return true;
   }
 };

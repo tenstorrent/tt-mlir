@@ -505,8 +505,6 @@ createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
   for (size_t i = 0; i < shape.size(); i++) {
     volume *= shape[i];
   }
-  llvm::outs() << "Creating tensor with datatype: "
-               << static_cast<int>(dataType) << "\n";
   dataType = ttcore::DataType::BFloat16; // Temporary override
   auto metalDataType = conversion::getDataType(dataType);
   auto hostBuffer = createHostBuffer(volume, metalDataType);
@@ -552,12 +550,6 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  llvm::outs() << "Input shape: ";
-  for (auto dim : inputShape) {
-    llvm::outs() << dim << " ";
-  }
-  llvm::outs() << "\n";
-  llvm::outs() << "Input layout: " << inputLayout << "\n";
   auto inputSpecExp =
       detail::convertToTensorSpec(device, inputShape, inputLayout);
   if (!inputSpecExp) {
@@ -640,8 +632,6 @@ getPrepareConv2dBiasOpOutputTensorSpec(
   }
 
   // TODO(rpavlovicTT):: Move this to tt-metal side #4043
-  llvm::outs() << "and data type: "
-               << static_cast<int>(biasLayout.getDataType()) << "\n";
   if (biasLayout.getDataType() != ttcore::DataType::Float32 &&
       biasLayout.getDataType() != ttcore::DataType::BFloat16) {
     return llvm::createStringError(
