@@ -163,8 +163,7 @@ static bool fissionAtStore(affine::AffineForOp outerFor,
 
   // Erase operations in original loop nest in a bottom up manner until
   // we reach the store op. Bottom up order guarantees we don't attempt
-  // to erase ops that have results that have users.
-  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> //
+  // to erase ops that have results that still have existing users.
   SmallVector<Operation *> preOps;
   for (Operation &op : *innermost.getBody()) {
     preOps.push_back(&op);
@@ -185,11 +184,9 @@ static bool fissionAtStore(affine::AffineForOp outerFor,
     --count;
     rewriter.eraseOp(lastOp);
   }
-  // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< //
 
-  // Erase the triplet, starting with the store and moving up, within the
-  // cloned loop nest.
-  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> //
+  // Erase the triplet, within the cloned loop nest,
+  // starting with the store and moving up.
   affine::AffineForOp postNestInnermost = findInnermostLoop(postNest);
   SmallVector<Operation *> postOps;
   for (Operation &op : *postNestInnermost.getBody()) {
@@ -209,14 +206,13 @@ static bool fissionAtStore(affine::AffineForOp outerFor,
 
     --count;
   }
-  // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< //
 
   return true;
 }
 
-struct D2MLinAlgLoopFission
-    : public tt::d2m::impl::D2MLinAlgLoopFissionBase<D2MLinAlgLoopFission> {
-  using D2MLinAlgLoopFissionBase::D2MLinAlgLoopFissionBase;
+struct D2MLinalgLoopFission
+    : public tt::d2m::impl::D2MLinalgLoopFissionBase<D2MLinalgLoopFission> {
+  using D2MLinalgLoopFissionBase::D2MLinalgLoopFissionBase;
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
@@ -228,7 +224,7 @@ struct D2MLinAlgLoopFission
       if (!gop.isComputeOnlyForm()) {
         return WalkResult::advance();
       }
-      // Skip if region contains tilize/untilize
+      // Skip d2m.generic if it contains tilize/untilize
       if (containsTilizeOrUntilize(gop)) {
         return WalkResult::advance();
       }
@@ -239,7 +235,6 @@ struct D2MLinAlgLoopFission
 
       // Find top-level nested affine.for in the compute region and try to
       // fission.
-      // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> //
       Block &computeBlock = gop.getRegion(0).front();
 
       // Get the innermost scf.for loop first
@@ -267,7 +262,7 @@ struct D2MLinAlgLoopFission
           }
         }
       }
-      // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< //
+
       return WalkResult::advance();
     });
 

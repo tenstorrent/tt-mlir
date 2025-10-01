@@ -452,7 +452,7 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
                                                        , "getAliasingValues"
                                                        , "getBufferType"
                                                        ]>
-  , D2M_SkipOpEltWiseFusionTrait
+  , D2M_SkipOpEltwiseFusionTrait
   ]> {
     let summary = "D2M Tile Tilize Block Op";
     let description = [{
@@ -477,7 +477,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
                                                        , "getAliasingValues"
                                                        , "getBufferType"
                                                        ]>
-  , D2M_SkipOpEltWiseFusionTrait
+  , D2M_SkipOpEltwiseFusionTrait
   ]> {
     let summary = "D2M Tile Untilize Block Op";
     let description = [{

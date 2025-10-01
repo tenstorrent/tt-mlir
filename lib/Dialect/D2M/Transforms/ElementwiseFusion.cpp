@@ -69,18 +69,16 @@ static bool hasMultiUseOperand(GenericOp gOp) {
   return false;
 }
 
-/// Check if op should be skipped for elementwise fusion.
-///
-/// If op or any of the operations nested within it's regions have
-/// the D2MSkipOpEltWiseFusionTrait, the op should be skipped.
-static bool shouldBeSkipped(Operation *op) {
-  if (op->hasTrait<D2MSkipOpEltWiseFusionTrait>()) {
+/// Returns true if op or any of the operations nested within it's regions have
+/// the D2MSkipOpEltwiseFusionTrait, the op should be skipped.
+static bool hasSkipOpEltwiseFusionTrait(Operation *op) {
+  if (op->hasTrait<D2MSkipOpEltwiseFusionTrait>()) {
     return true;
   }
 
   for (Region &region : op->getRegions()) {
     for (Operation &opInner : region.getOps()) {
-      if (shouldBeSkipped(&opInner)) {
+      if (hasSkipOpEltwiseFusionTrait(&opInner)) {
         return true;
       }
     }
@@ -158,7 +156,6 @@ static int countBinaryOps(Operation *op) {
 
   for (Region &region : op->getRegions()) {
     for (Operation &opInner : region.getOps()) {
-      llvm::errs() << "After " << opInner << "\n\n";
       if (opInner.hasTrait<D2MGenericRegionComputeOpTrait>()) {
         if (opInner.getNumOperands() > 1) {
           ++count;
@@ -179,9 +176,6 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
   Type elementType = tensorType.getElementType();
   auto shape = tensorType.getShape();
 
-  llvm::errs() << "blockshape " << shape[0] << " " << shape[1] << shape[2]
-               << " " << shape[3] << "\n";
-
   int blockSize = shape[3];
   if (blockSize > static_cast<int>(dstRegisterSizeTiles)) {
     blockSize = dstRegisterSizeTiles;
@@ -198,12 +192,9 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
   // add a check for fp32DstAccumulate.
   // int dstTilesRemaining = dstRegisterSizeTiles / (bitWidth == 32 ? 2 : 1);
   int dstTilesRemaining = dstRegisterSizeTiles;
-  llvm::errs() << "Tiles left initial" << dstTilesRemaining << "\n\n";
 
   dstTilesRemaining -= blockSize * (consumer->getNumOperands() +
                                     producer->getNumOperands() - 2 - 1);
-
-  llvm::errs() << "Tiles left after input " << dstTilesRemaining << "\n\n";
 
   if (dstTilesRemaining < 0) {
     return false;
@@ -306,7 +297,7 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
 
   LogicalResult matchAndRewrite(GenericOp consumer,
                                 PatternRewriter &rewriter) const final {
-    if (shouldBeSkipped(consumer)) {
+    if (hasSkipOpEltwiseFusionTrait(consumer)) {
       return failure();
     }
 
@@ -329,7 +320,7 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
         continue;
       }
 
-      if (shouldBeSkipped(producer)) {
+      if (hasSkipOpEltwiseFusionTrait(producer)) {
         continue;
       }
 
@@ -535,16 +526,6 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
         r.replaceAllUsesWith(fused->getResult(resIdx++));
       }
 
-      llvm::errs() << "Consumer to be deleted: " << consumer << "\n";
-      llvm::errs() << "Producer to be deleted: " << producer << "\n\n";
-
-      llvm::errs() << "Fused op: " << fused << "\n";
-
-      llvm::errs() << "Consumer users = "
-                   << llvm::range_size(consumer->getUsers()) << "\n";
-      llvm::errs() << "Producer users = "
-                   << llvm::range_size(producer->getUsers()) << "\n";
-
       rewriter.eraseOp(consumer);
       rewriter.eraseOp(producer);
       return success();
@@ -579,7 +560,11 @@ class D2MElementwiseFusion
     RewritePatternSet patterns(ctx);
     patterns.add<FuseD2MElementwiseOpsPattern>(ctx, dstRegisterSizeTiles);
     GreedyRewriteConfig cfg;
-    (void)applyPatternsGreedily(getOperation(), std::move(patterns), cfg);
+
+    if (failed(
+            applyPatternsGreedily(getOperation(), std::move(patterns), cfg))) {
+      signalPassFailure();
+    }
   }
 };
 } // namespace

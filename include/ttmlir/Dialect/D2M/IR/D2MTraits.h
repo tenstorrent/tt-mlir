@@ -33,8 +33,8 @@ struct D2MGenericRegionDatamovementOpTrait
 };
 
 template <typename ConcreteType>
-struct D2MSkipOpEltWiseFusionTrait
-    : public OpTrait::TraitBase<ConcreteType, D2MSkipOpEltWiseFusionTrait> {};
+struct D2MSkipOpEltwiseFusionTrait
+    : public OpTrait::TraitBase<ConcreteType, D2MSkipOpEltwiseFusionTrait> {};
 
 } // namespace mlir::tt::d2m
 
