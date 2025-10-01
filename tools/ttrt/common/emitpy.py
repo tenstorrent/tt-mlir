@@ -230,6 +230,8 @@ class EmitPy:
 
     def execute(self):
         import ttrt.runtime
+        import ttnn
+        import importlib.util
 
         self.logging.debug(f"------executing emitpy API")
 
@@ -246,16 +248,29 @@ class EmitPy:
             try:
                 compare_to_ttnn = False
                 if dylib in self.ttnn_binaries:
-                    import ttnn
-
                     bin = self.ttnn_binaries[dylib]
                     compare_to_ttnn = True
 
                 if compare_to_ttnn:
                     command_options = f"--program-index {self['--program-index']} --loops {self['--loops']} --save-artifacts "
 
+                    if self["--clean-artifacts"]:
+                        command_options += f" --clean-artifacts "
+
+                    if self["--log-file"]:
+                        command_options += f" --log-file {self['--log-file']} "
+
+                    if self["--artifact-dir"]:
+                        command_options += f" --artifact-dir {self['--artifact-dir']} "
+
+                    if self["--result-file"]:
+                        command_options += f" --result-file {self['--result-file']} "
+
                     if self["--memory"]:
                         command_options += " --memory "
+
+                    if self["--host-only"]:
+                        command_options += f" --host-only "
 
                     if self["--disable-eth-dispatch"]:
                         command_options += " --disable-eth-dispatch "
@@ -301,52 +316,69 @@ class EmitPy:
                     signal.signal(signal.SIGTERM, signal_handler)
                     testProcess.communicate()
 
-                self.logging.debug(f"opening device for EmitPy execution")
+                self.logging.debug(f"loading module from file: {dylib.file_path}")
+                # Get the module name from the file path
+                module_name = os.path.splitext(os.path.basename(dylib.file_path))[0]
 
-                with ttnn.manage_device(device_id=0) as device:
-                    import importlib.util
+                # Load the module from the file path
+                spec = importlib.util.spec_from_file_location(
+                    module_name, dylib.file_path
+                )
+                module = importlib.util.module_from_spec(spec)
 
-                    self.logging.debug(f"loading module from file: {dylib.file_path}")
-                    # Get the module name from the file path
-                    module_name = os.path.splitext(os.path.basename(dylib.file_path))[0]
+                # Add the module to sys.modules so it can be imported by other modules
+                sys.modules[module_name] = module
 
-                    # Load the module from the file path
-                    spec = importlib.util.spec_from_file_location(
-                        module_name, dylib.file_path
-                    )
-                    module = importlib.util.module_from_spec(spec)
+                # Execute the module
+                spec.loader.exec_module(module)
+                self.logging.debug(
+                    f"module {module_name} loaded and executed successfully"
+                )
 
-                    # Add the module to sys.modules so it can be imported by other modules
-                    sys.modules[module_name] = module
+                # Parse the AST to find function names
+                with open(dylib.file_path, "r") as f:
+                    source_code = f.read()
 
-                    # Execute the module
-                    spec.loader.exec_module(module)
-                    self.logging.debug(
-                        f"module {module_name} loaded and executed successfully"
-                    )
+                tree = ast.parse(source_code)
+                program_names = []
+                for node in ast.walk(tree):
+                    if (
+                        isinstance(node, ast.FunctionDef)
+                        and node.name != "main"
+                        and node.name[0:18] != "create_inputs_for_"
+                    ):
+                        program_names.append(node.name)
 
-                    # Parse the AST to find function names
-                    with open(dylib.file_path, "r") as f:
-                        source_code = f.read()
+                self.logging.debug(f"Program names found: {program_names}")
 
-                    tree = ast.parse(source_code)
-                    program_names = []
-                    for node in ast.walk(tree):
-                        if (
-                            isinstance(node, ast.FunctionDef)
-                            and node.name != "main"
-                            and node.name[0:18] != "create_inputs_for_"
-                        ):
-                            program_names.append(node.name)
-
-                    self.logging.debug(f"Program names found: {program_names}")
-
+                if not compare_to_ttnn:
                     for program_index in range(len(program_names)):
-                        self.logging.debug(
-                            f"evaluating program={program_names[program_index]} for python file={dylib.file_path}"
+                        create_program_inputs = (
+                            "create_inputs_for_" + program_names[program_index]
                         )
+                        self.logging.debug(
+                            f"creating inputs using function: {create_program_inputs}"
+                        )
+                        create_inputs_func = getattr(module, create_program_inputs)
+                        inputs = create_inputs_func()
+                        self.logging.debug(f"created {len(inputs)} input tensors")
 
-                        if compare_to_ttnn:
+                        for loop in range(self["--loops"]):
+                            self.logging.debug(
+                                f"starting loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
+                            )
+                            program_func = getattr(module, program_names[program_index])
+                            dylib_outputs = program_func(inputs)
+                            self.logging.debug(
+                                f"finished loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
+                            )
+                else:
+                    with ttnn.manage_device(device_id=0) as device:
+                        for program_index in range(len(program_names)):
+                            self.logging.debug(
+                                f"evaluating program={program_names[program_index]} for python file={dylib.file_path}"
+                            )
+
                             self.logging.debug(
                                 f"loading input tensors from artifacts for program={program_index}"
                             )
@@ -370,58 +402,49 @@ class EmitPy:
                             self.logging.debug(
                                 f"converted {len(inputs)} torch tensors to ttnn tensors"
                             )
-                        else:
-                            create_program_inputs = (
-                                "create_inputs_for_" + program_names[program_index]
-                            )
-                            self.logging.debug(
-                                f"creating inputs using function: {create_program_inputs}"
-                            )
-                            create_inputs_func = getattr(module, create_program_inputs)
-                            inputs = create_inputs_func()
-                            self.logging.debug(f"created {len(inputs)} input tensors")
 
-                        for loop in range(self["--loops"]):
-                            self.logging.debug(
-                                f"starting loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
-                            )
-                            program_func = getattr(module, program_names[program_index])
-                            dylib_outputs = program_func(inputs)
-                            self.logging.debug(
-                                f"finished loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
-                            )
+                            for loop in range(self["--loops"]):
+                                self.logging.debug(
+                                    f"starting loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
+                                )
+                                program_func = getattr(
+                                    module, program_names[program_index]
+                                )
+                                dylib_outputs = program_func(inputs)
+                                self.logging.debug(
+                                    f"finished loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
+                                )
 
-                        if compare_to_ttnn:
-                            self.logging.debug(
-                                f"comparing flatbuffer outputs to emitpy outputs"
-                            )
-                            torch_dylib_outputs = []
-                            for output in dylib_outputs:
-                                output = ttnn.from_device(output)
-                                torch_dylib_outputs.append(output.to_torch())
+                            if compare_to_ttnn:
+                                self.logging.debug(
+                                    f"comparing flatbuffer outputs to emitpy outputs"
+                                )
+                                torch_dylib_outputs = []
+                                for output in dylib_outputs:
+                                    output = ttnn.from_device(output)
+                                    torch_dylib_outputs.append(output.to_torch())
 
-                            torch_fbb_outputs = self.load_tensors_from_artifacts(
-                                bin, "device_output"
-                            )["program_" + str(program_index)]
+                                torch_fbb_outputs = self.load_tensors_from_artifacts(
+                                    bin, "device_output"
+                                )["program_" + str(program_index)]
 
-                            for i in range(len(torch_fbb_outputs)):
-                                if not torch.allclose(
-                                    torch_dylib_outputs[i], torch_fbb_outputs[i]
-                                ):
-                                    self.logging.error(
-                                        f"EmitPy dylib output tensor {torch_results[i]} does not match flatbuffer output {torch_outputs[i]} for program_index={program_index}, loop={loop}"
-                                    )
-                                    raise Exception(
-                                        f"EmitPy dylib output tensor {torch_results[i]} does not match flatbuffer output {torch_outputs[i]} for program_index={program_index}, loop={loop}"
-                                    )
-                                else:
-                                    self.logging.debug(
-                                        f"Output tensors match for program_index={program_index}, loop={loop}"
-                                    )
-                            self.logging.info(
-                                f"All output tensors match for {dylib.file_path}"
-                            )
-
+                                for i in range(len(torch_fbb_outputs)):
+                                    if not torch.allclose(
+                                        torch_dylib_outputs[i], torch_fbb_outputs[i]
+                                    ):
+                                        self.logging.error(
+                                            f"EmitPy dylib output tensor {torch_results[i]} does not match flatbuffer output {torch_outputs[i]} for program_index={program_index}, loop={loop}"
+                                        )
+                                        raise Exception(
+                                            f"EmitPy dylib output tensor {torch_results[i]} does not match flatbuffer output {torch_outputs[i]} for program_index={program_index}, loop={loop}"
+                                        )
+                                    else:
+                                        self.logging.debug(
+                                            f"Output tensors match for program_index={program_index}, loop={loop}"
+                                        )
+                                self.logging.info(
+                                    f"All output tensors match for {dylib.file_path}"
+                                )
             except Exception as e:
                 result = "error"
                 if isinstance(e, TTRTTestException):
