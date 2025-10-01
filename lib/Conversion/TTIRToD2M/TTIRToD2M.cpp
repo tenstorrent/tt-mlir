@@ -328,11 +328,11 @@ protected:
 
   // Helper to get output grid shape--this will be the canonical grid shape,
   // padded with 1s in leading dimensions as needed to match output grid rank.
-  ttcore::GridAttr getOutputGrid(mlir::ConversionPatternRewriter &rewriter,
+  ttcore::GridAttr getOutputGrid(MLIRContext *ctx,
                                  ShapedType outputType) const {
     const size_t outputGridRank = outputType.getRank() / 2;
     return ttcore::GridAttr::get(
-        rewriter.getContext(), paddedAndSquaredInputGridShape(outputGridRank));
+        ctx, paddedAndSquaredInputGridShape(outputGridRank));
   }
 
 protected:
@@ -407,7 +407,8 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    ttcore::GridAttr grid = getOutputGrid(outputs[0].getType());
+    ttcore::GridAttr grid =
+        getOutputGrid(ctx, mlir::cast<ShapedType>(outputs[0].getType()));
 
     const std::size_t rank = grid.getShape().size();
 
@@ -547,7 +548,8 @@ private:
     // minus 1 for the scaler operand
     assert((numOperands - 1) == op->getNumOperands());
 
-    ttcore::GridAttr grid = getOutputGrid(outputs[0].getType());
+    ttcore::GridAttr grid =
+        getOutputGrid(ctx, mlir::cast<ShapedType>(outputs[0].getType()));
 
     const std::size_t rank = grid.getShape().size();
 
@@ -781,7 +783,8 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    ttcore::GridAttr grid = getOutputGrid(outputs[0].getType());
+    ttcore::GridAttr grid =
+        getOutputGrid(ctx, mlir::cast<ShapedType>(outputs[0].getType()));
 
     const std::size_t rank = grid.getShape().size();
 

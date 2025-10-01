@@ -6,7 +6,7 @@
 Tests for the --collapse-tensors-to-2d pipeline option.
 
 This test suite validates the behavior of tensor operations when the
---collapse-tensors-to-2d option is disabled, allowing tensors to maintain
+--collapse-tensors-to-2d option is false, allowing tensors to maintain
 their original dimensionality instead of being collapsed to 2D.
 
 Current state:
@@ -64,7 +64,7 @@ def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
         # 4D element-wise operations (working with non-collapsed tensors)
         ([(2, 3, 32, 64), (2, 3, 32, 64)], elementwise_add, "4d_add"),
         ([(1, 2, 32, 32)], unary_exp, "4d_exp"),
-        # Operations with known issues (marked as expected failures)
+        # Operations with known issues (marked as skip)
         pytest.param(
             [(2, 32, 64), (2, 64, 32)],
             batch_matmul,
@@ -78,7 +78,7 @@ def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
             transpose_inner_dims,
             "transpose",
             marks=pytest.mark.skip(
-                reason="Hardcoded 2D transpose assertions in permute rewriter cause core dump"
+                reason="Hardcoded rank==2 assertions in permute rewriter cause core dump"
             ),
         ),
     ],
@@ -98,7 +98,6 @@ def test_uncollapsed_tensors(
 ):
     """Test tensor operations with and without tensor collapsing to 2D."""
 
-    # Use pipeline options properly following the DMA test pattern
     pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()}}}"
     pipeline = f"ttir-to-ttmetal-pipeline{pipeline_options}"
 
