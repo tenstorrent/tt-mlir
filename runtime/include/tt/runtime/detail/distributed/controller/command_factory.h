@@ -2,30 +2,31 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_DISTRIBUTED_SERVER_COMMAND_FACTORY_H
-#define TT_RUNTIME_DETAIL_DISTRIBUTED_SERVER_COMMAND_FACTORY_H
+#ifndef TT_RUNTIME_DETAIL_DISTRIBUTED_CONTROLLER_COMMAND_FACTORY_H
+#define TT_RUNTIME_DETAIL_DISTRIBUTED_CONTROLLER_COMMAND_FACTORY_H
 
 #include "flatbuffers/flatbuffers.h"
 #include "tt/runtime/types.h"
 #include <string_view>
 
-namespace tt::runtime::distributed::server {
+namespace tt::runtime::distributed::controller {
 
 class CommandFactory {
 public:
   static uint64_t buildGetSystemDescCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
-      const ::tt::runtime::DispatchCoreType &dispatchCoreType,
-      std::optional<uint32_t> deviceGlobalId = std::nullopt);
+      const std::optional<::tt::runtime::DispatchCoreType> &dispatchCoreType =
+          std::nullopt,
+      const std::optional<::tt::runtime::Device> &deviceHandle = std::nullopt);
 
   static uint64_t buildOpenMeshDeviceCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
-      const ::tt::runtime::Device &deviceShell,
+      const ::tt::runtime::Device &deviceHandle,
       const ::tt::runtime::MeshDeviceOptions &meshDeviceOptions);
 
   static uint64_t
   buildCloseMeshDeviceCommand(::flatbuffers::FlatBufferBuilder &fbb,
-                              const ::tt::runtime::Device &deviceShell);
+                              const ::tt::runtime::Device &deviceHandle);
 
   static uint64_t buildCreateHostTensorCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
@@ -49,27 +50,30 @@ public:
 
   static uint64_t
   buildSubmitCommand(::flatbuffers::FlatBufferBuilder &fbb,
-                     ::tt::runtime::Device device,
-                     ::tt::runtime::Binary executable, uint32_t programIndex,
+                     const ::tt::runtime::Device &device,
+                     const ::tt::runtime::Binary &executable,
+                     uint32_t programIndex,
                      const std::vector<::tt::runtime::Tensor> &inputTensors,
                      const std::vector<::tt::runtime::Tensor> &outputTensors);
 
   static uint64_t
+  buildGetNumShardsCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                           const ::tt::runtime::Tensor &tensor);
+
+  static uint64_t
   buildToHostCommand(::flatbuffers::FlatBufferBuilder &fbb,
-                     ::tt::runtime::Tensor inputTensor, bool untilize,
+                     const ::tt::runtime::Tensor &inputTensor, bool untilize,
                      bool blocking,
                      const std::vector<::tt::runtime::Tensor> &outputTensors);
 
-  static uint64_t buildReadbackCommand(::flatbuffers::FlatBufferBuilder &fbb,
-                                       ::tt::runtime::Tensor srcTensor);
-
   static uint64_t buildMemcpyCommand(
-      ::flatbuffers::FlatBufferBuilder &fbb, ::tt::runtime::Tensor srcTensor,
-      std::optional<::tt::runtime::Tensor> dstTensor = std::nullopt,
-      std::optional<::tt::target::DataType> dstDataType = std::nullopt);
+      ::flatbuffers::FlatBufferBuilder &fbb,
+      const ::tt::runtime::Tensor &srcTensor,
+      const std::optional<::tt::runtime::Tensor> &dstTensor = std::nullopt,
+      const std::optional<::tt::target::DataType> &dstDataType = std::nullopt);
 
   static uint64_t buildShutdownCommand(::flatbuffers::FlatBufferBuilder &fbb);
 };
 
-} // namespace tt::runtime::distributed::server
-#endif // TT_RUNTIME_DETAIL_DISTRIBUTED_SERVER_COMMAND_FACTORY_H
+} // namespace tt::runtime::distributed::controller
+#endif // TT_RUNTIME_DETAIL_DISTRIBUTED_CONTROLLER_COMMAND_FACTORY_H

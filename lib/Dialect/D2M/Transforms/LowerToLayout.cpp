@@ -142,8 +142,7 @@ public:
       auto enc = ttcore::MetalLayoutAttr::get(
           ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
           baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
-          baseLayout.getMemorySpace(), map);
-
+          baseLayout.getMemorySpace(), baseLayout.getMemoryLayout(), map);
       auto resultTy =
           RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
       return rewriter
@@ -273,7 +272,8 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
           ctx, referenceLayout.getLogicalShape(),
           referenceLayout.getDimAlignments(),
           referenceLayout.getCollapsedIntervals(), referenceLayout.getOobVal(),
-          memSpace, referenceLayout.getIndexAffineMap());
+          memSpace, referenceLayout.getMemoryLayout(),
+          referenceLayout.getIndexAffineMap());
 
       // Compute the device shape using the referenceType's grid shape.
       ArrayRef<int64_t> tileShape;
@@ -312,7 +312,7 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       auto layout = ttcore::MetalLayoutAttr::get(
           ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
           baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(), memSpace,
-          baseLayout.getIndexAffineMap());
+          baseLayout.getMemoryLayout(), baseLayout.getIndexAffineMap());
 
       ArrayRef<int64_t> tileShape;
       if (mlir::isa<ttcore::TileType>(elementType)) {
