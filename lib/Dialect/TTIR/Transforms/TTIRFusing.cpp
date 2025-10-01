@@ -1344,7 +1344,6 @@ public:
     }
     // Create AvgPoolOp wrapped with two PermuteOps needed for NCHW<->NHWC
     // layout changes.
-    llvm::outs() << "GlobalAveragePoolingPattern is HAPPENINNG\n-------------------\n";
     auto insertedOp = createWrappedGlobalAvgPool(rewriter, sumOp);
 
     // If keepDim is false, we need to reshape the output of the pooling op
