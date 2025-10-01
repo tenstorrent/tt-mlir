@@ -1326,13 +1326,6 @@ private:
   static constexpr int64_t SPATIAL_WIDTH_DIM = 3;
   static constexpr int64_t CHANNEL_DIM = 1;
 
-  struct PoolingConfig {
-    DenseI32ArrayAttr windowDimensions;
-    DenseI32ArrayAttr windowStrides;
-    DenseI32ArrayAttr windowDilations;
-    DenseI32ArrayAttr padding;
-    BoolAttr ceilMode;
-  };
 
 public:
   mlir::LogicalResult
@@ -1351,7 +1344,8 @@ public:
     }
     // Create AvgPoolOp wrapped with two PermuteOps needed for NCHW<->NHWC
     // layout changes.
-    auto insertedOp = createWrappedAvgPool(rewriter, sumOp);
+    llvm::outs() << "GlobalAveragePoolingPattern is HAPPENINNG\n-------------------\n";
+    auto insertedOp = createWrappedGlobalAvgPool(rewriter, sumOp);
 
     // If keepDim is false, we need to reshape the output of the pooling op
     // to keep output dimension same as input.
@@ -1435,7 +1429,7 @@ private:
     return permuteOp;
   }
 
-  PermuteOp createWrappedAvgPool(mlir::PatternRewriter &rewriter,
+  PermuteOp createWrappedGlobalAvgPool(mlir::PatternRewriter &rewriter,
                                  SumOp sumOp) const {
 
     // Input must be permuted from NCHW to NHWC for AvgPool2dOp, and then back
@@ -1449,17 +1443,13 @@ private:
     auto permuteOp = createPermuteOp(rewriter, currentLayout, desiredLayout,
                                      sumOp.getInput());
 
-    auto poolingConfig =
-        createPoolingConfig(rewriter, sumOp.getInput().getType().getShape());
 
     auto outputType = createPoolingOutputType(permuteOp.getOutput().getType());
 
     auto loc = sumOp.getLoc();
-    auto poolingOp = ttir::utils::createDPSOp<ttir::AvgPool2dOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_pool"), outputType,
-        permuteOp.getResult(), poolingConfig.windowDimensions,
-        poolingConfig.windowStrides, poolingConfig.windowDilations,
-        poolingConfig.padding, poolingConfig.ceilMode);
+    auto poolingOp = ttir::utils::createDPSOp<ttir::GlobalAvgPool2dOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_global_avg_pool"), outputType,
+        permuteOp.getResult());
 
     // Permute output from NHWC back to NCHW
     auto inversePermuteOp = createPermuteOp(
@@ -1468,21 +1458,6 @@ private:
     return inversePermuteOp;
   }
 
-  PoolingConfig createPoolingConfig(mlir::PatternRewriter &rewriter,
-                                    ArrayRef<int64_t> inputShape) const {
-    PoolingConfig config;
-    int32_t inputHeight = static_cast<int32_t>(inputShape[SPATIAL_HEIGHT_DIM]);
-    int32_t inputWidth = static_cast<int32_t>(inputShape[SPATIAL_WIDTH_DIM]);
-
-    config.windowDimensions =
-        rewriter.getDenseI32ArrayAttr({inputHeight, inputWidth});
-    config.windowStrides = rewriter.getDenseI32ArrayAttr({1, 1});
-    config.windowDilations = rewriter.getDenseI32ArrayAttr({1, 1});
-    config.padding = rewriter.getDenseI32ArrayAttr({0, 0, 0, 0});
-    config.ceilMode = rewriter.getBoolAttr(false);
-
-    return config;
-  }
 
   RankedTensorType createPoolingOutputType(RankedTensorType inputType) const {
     SmallVector<int64_t> poolOutputShape(inputType.getShape());
