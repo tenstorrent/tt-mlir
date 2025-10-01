@@ -278,6 +278,9 @@ public:
   static TTNNOperandsWorkarounds
   createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
 
+  static TTNNOperandsWorkarounds
+  createPagedUpdateCacheOpOperandsWorkarounds(MLIRContext *context);
+
   // Create workarounds for binary op operands.
   static TTNNOperandsWorkarounds
   createBinaryOpOperandsWorkarounds(mlir::Operation *op);

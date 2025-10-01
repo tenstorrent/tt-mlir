@@ -3507,54 +3507,45 @@ public:
       return failure();
     }
 
+    if (adaptor.getOperands().size() != 4 || srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "PagedUpdateCache op must have exactly four operands and one "
+                 "result. Got " +
+                     std::to_string(adaptor.getOperands().size()) +
+                     " operands "
+                     "and " +
+                     std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
     Value cache = adaptor.getOperands()[0];
     Value input = adaptor.getOperands()[1];
     Value updateIndex = adaptor.getOperands()[2];
-    Value pageTable;
-    if (adaptor.getOperands().size() == 4) {
-      pageTable = adaptor.getOperands()[3];
-    }
+    Value pageTable = adaptor.getOperands()[3];
 
     bool shareCache = false;
-    uint32_t batchOffset = 0;
     mlir::DictionaryAttr frontendAttributes =
         mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
             srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
-    if (!frontendAttributes) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "PagedUpdateCache op must have mhlo.frontend_attributes attribute.");
-    }
-
-    auto shareCacheStringAttr =
-        frontendAttributes.getAs<mlir::StringAttr>("share_cache");
-    if (shareCacheStringAttr) {
-      if (shareCacheStringAttr.getValue().lower() == "true") {
-        shareCache = true;
-      } else if (shareCacheStringAttr.getValue().lower() == "false") {
-        shareCache = false;
-      } else {
-        return rewriter.notifyMatchFailure(
-            srcOp, "share_cache attribute must be true or false. Received \"" +
-                       shareCacheStringAttr.getValue() + "\".");
+    if (frontendAttributes) {
+      auto shareCacheStringAttr =
+          frontendAttributes.getAs<mlir::StringAttr>("share_cache");
+      if (shareCacheStringAttr) {
+        if (shareCacheStringAttr.getValue().lower() == "true") {
+          shareCache = true;
+        } else if (shareCacheStringAttr.getValue().lower() == "false") {
+          shareCache = false;
+        } else {
+          return rewriter.notifyMatchFailure(
+              srcOp,
+              "share_cache attribute must be true or false. Received \"" +
+                  shareCacheStringAttr.getValue() + "\".");
+        }
       }
-    }
-
-    auto batchOffsetStringAttr =
-        frontendAttributes.getAs<mlir::StringAttr>("batch_offset");
-    if (!batchOffsetStringAttr) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "PagedUpdateCache op must have batch_offset attribute.");
-    }
-
-    if (!llvm::to_integer(batchOffsetStringAttr.getValue(), batchOffset)) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Failed to convert batch_offset string to integer.");
     }
 
     rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
         srcOp, cache.getType(), cache, input, updateIndex, shareCache,
-        pageTable, batchOffset);
+        pageTable);
 
     return success();
   }

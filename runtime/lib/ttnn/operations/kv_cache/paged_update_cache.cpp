@@ -29,11 +29,13 @@ void run(const ::tt::target::ttnn::PagedUpdateCacheOp *op,
           ? std::make_optional(context.getTensorPool().getTTNNTensorAndValidate(
                 op->page_table()))
           : std::nullopt;
-  auto batchOffset = op->batch_offset();
 
   const std::vector<uint32_t> emptyUpdateIndex = {};
   ::ttnn::experimental::paged_update_cache(
       cacheTensor, inputTensor, emptyUpdateIndex, updateIndexTensor, shareCache,
-      pageTableTensor, batchOffset, std::nullopt, std::nullopt);
+      pageTableTensor,
+      /*batch_offset=*/0,
+      /*compute_kernel_config*/ std::nullopt,
+      /*mesh_coords*/ std::nullopt);
 }
 } // namespace tt::runtime::ttnn::operations::kv_cache

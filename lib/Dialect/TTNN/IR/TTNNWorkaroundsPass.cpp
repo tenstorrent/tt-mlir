@@ -445,6 +445,29 @@ TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(
       .addInputOperandWorkaround(typeWorkarounds);
 }
 
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
+    MLIRContext *context) {
+  TTNNOperandWorkarounds nullWorkarounds;
+  TTNNOperandWorkarounds inputWorkarounds;
+  TTNNOperandWorkarounds updateIndexWorkarounds;
+  TTNNOperandWorkarounds pageTableWorkarounds;
+
+  inputWorkarounds.tensorBufferTypeWorkaround = BufferType::L1;
+  inputWorkarounds.tensorMemoryLayoutWorkaround =
+      TensorMemoryLayoutAttr::get(context, TensorMemoryLayout::HeightSharded);
+
+  updateIndexWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
+
+  pageTableWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(nullWorkarounds)
+      .addInputOperandWorkaround(inputWorkarounds)
+      .addInputOperandWorkaround(updateIndexWorkarounds)
+      .addInputOperandWorkaround(pageTableWorkarounds);
+}
+
 // Helper function to determine if data type workaround is required for a binary
 // op. Set the workaround data type based on the binary op.
 static std::optional<mlir::tt::ttcore::DataType>

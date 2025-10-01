@@ -1028,14 +1028,13 @@ def TTNN_PagedUpdateCacheOp : TTNN_InplaceOp<"paged_update_cache"> {
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$update_index,
                        DefaultValuedAttr<BoolAttr, "false">:$share_cache,
-                       Optional<AnyRankedTensor>:$page_table,
-                       I32Attr:$batch_offset);
+                       AnyRankedTensor:$page_table);
 
-  // let extraClassDeclaration = [{
-  //   wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-  //     return wa::TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds();
-  //   }
-  // }];
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(getContext());
+    }
+  }];
 
   let hasVerifier = 1;
 }

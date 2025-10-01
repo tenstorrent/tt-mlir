@@ -1221,6 +1221,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_UpdateCacheOp()->cache();
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedUpdateCacheOp: {
+    tensorRef = opContext.type_as_PagedUpdateCacheOp()->cache();
+    break;
+  }
   case ::tt::target::ttnn::OpType::PointToPointOp: {
     tensorRef = opContext.type_as_PointToPointOp()->out();
     break;
@@ -1548,6 +1552,13 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_UpdateCacheOp()->cache(),
                   opContext.type_as_UpdateCacheOp()->input(),
                   opContext.type_as_UpdateCacheOp()->update_index()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedUpdateCacheOp: {
+    tensorRefs = {opContext.type_as_PagedUpdateCacheOp()->cache(),
+                  opContext.type_as_PagedUpdateCacheOp()->input(),
+                  opContext.type_as_PagedUpdateCacheOp()->update_index(),
+                  opContext.type_as_PagedUpdateCacheOp()->page_table()};
     break;
   }
   case ::tt::target::ttnn::OpType::FillCacheOp: {

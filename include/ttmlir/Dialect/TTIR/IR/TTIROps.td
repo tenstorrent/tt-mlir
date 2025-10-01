@@ -3083,8 +3083,7 @@ def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache"> {
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$update_index,
                        DefaultValuedAttr<BoolAttr, "false">:$share_cache,
-                       Optional<AnyRankedTensor>:$page_table,
-                       I32Attr:$batch_offset);
+                       AnyRankedTensor:$page_table);
 
   let results = (outs AnyRankedTensor:$result);
 

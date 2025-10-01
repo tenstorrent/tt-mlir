@@ -977,7 +977,7 @@ createOp(FlatbufferObjectCache &cache, PagedUpdateCacheOp op) {
                        : 0;
   return ::tt::target::ttnn::CreatePagedUpdateCacheOp(
       *cache.fbb, cacheOperand, input, updateIndex, op.getShareCache(),
-      pageTable, op.getBatchOffset());
+      pageTable);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::FillCacheOp>
