@@ -18,29 +18,18 @@ from .utils import _discover_dialect_ops, _get_num_pos_args
 
 
 class TTIRCompiler(ast.NodeVisitor):
-    supported_nodes = [
-        ### Control-flow (NOT SUPPORTED)
-        # ast.If,
-        # ast.For,
-        ### Literals
+    common_nodes = [
+        ast.Module,
+        ast.FunctionDef,
+        ast.Return,
         ast.Name,
         ast.Load,
         ast.Store,
         ast.Constant,
-        ### Expressions
         ast.Expr,
         ast.Call,
         ast.Attribute,
-        ast.UnaryOp,
-        ast.BinOp,
-        # ast.BoolOp,
-        ast.Compare,
-        ### Statements
         ast.Assign,
-        ### Function-and-class-definitions
-        ast.Module,
-        ast.FunctionDef,
-        ast.Return,
     ]
 
     def __init__(self, *args, **kwargs):
@@ -54,6 +43,17 @@ class TTIRCompiler(ast.NodeVisitor):
         self.backend = kwargs.get("_backend")
         self.max_grid = kwargs.get("_max_grid")
         self._fn_map = _discover_dialect_ops(self.backend)
+        self.supported_nodes = self.common_nodes
+
+        # In ttnn mode, should always use ttnn ops instead.
+        if self.backend == "metal":
+            self.supported_nodes.extend(
+                [
+                    ast.UnaryOp,
+                    ast.BinOp,
+                    ast.Compare,
+                ]
+            )
 
     def _mlir_dtype_from_ttnn_dtype(self, dtype):
         match int(dtype):
@@ -78,18 +78,6 @@ class TTIRCompiler(ast.NodeVisitor):
                 return ttcore.DataType.BFloat16
             case 1:
                 return ttcore.DataType.Float32
-            # case 2:
-            #     return ttcore.DataType.UInt32
-            # case 3:
-            #     return ttcore.DataType.BFloat8
-            # case 4:
-            #     return ttcore.DataType.BFloat4
-            # case 5:
-            #     return ttcore.DataType.UInt8
-            # case 6:
-            #     return ttcore.DataType.UInt16
-            # case 7:
-            #     return ttcore.DataType.Int32
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
 
@@ -116,9 +104,6 @@ class TTIRCompiler(ast.NodeVisitor):
     def _create_tensor_layout(self, tensor_arg):
         # Only rank 2 tensors supported
         assert len(tensor_arg.shape) == 2
-        # assert tensor data type is only f32
-        shape_h = tensor_arg.shape[0]
-        shape_w = tensor_arg.shape[1]
 
         shard_spec = tensor_arg.memory_config().shard_spec
         shard_shape = shard_spec.shape
@@ -133,8 +118,8 @@ class TTIRCompiler(ast.NodeVisitor):
         grid_size_y = self.max_grid[1] + 1
         grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_x, grid_size_y])
 
-        # Create memref, tile type only, only f32 support for now.
-        # Only L1 buffer supported. NO DRAM.
+        # Create memref, tile type only.
+        # Only L1 buffer supported. NO DRAM yet.
         data_type = self._ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
         shard_shape_tile_x = shard_shape[0] // 32
         shard_shape_tile_y = shard_shape[1] // 32
@@ -176,8 +161,6 @@ class TTIRCompiler(ast.NodeVisitor):
         return self.visit(node.value)
 
     def visit_FunctionDef(self, node):
-        # no longer passing CBs, just tensors.
-        # use the `tensor` dialect
         input_types = []
         for arg in node.args.args:
             name = arg.arg
@@ -214,24 +197,20 @@ class TTIRCompiler(ast.NodeVisitor):
 
         # Assumption: first arg is always a tensor, and shape is same for input/output
         # input params usually look like (result_type, input1, input2, output, *other_args) for ttir,
-        # for ttnn, don't need to specify output.
-        # edge case of of passing *other_args does not work (yet) -> eg: max and min have a keep_dim arg
+        # edge case of of passing *other_args does not work (yet) -> eg: max and min have a keep_dim arg.
         assert node.func.id in self._fn_map, f"Function {node.func.id} not supported"
+        assert self.backend != "ttnn", "ttnn backend only supports ttnn ops."
         arg = self.visit(node.args[0])
         result_type = arg.type
+        output = ttir.empty(result_type)
 
         func_args = [result_type]
         for arg in node.args:
             func_args.append(self.visit(arg))
-
-        if self.backend == "metal":
-            output = ttir.empty(result_type)
-            func_args.append(output)
+        func_args.append(output)
 
         func = self._fn_map[node.func.id]
         op = func(*func_args)
-        if self.backend == "ttnn":
-            op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
         return op
 
     def visit_Attribute(self, node, args=[]):
@@ -247,20 +226,17 @@ class TTIRCompiler(ast.NodeVisitor):
 
         func_args = [result_type, arg]
         for func_arg in args[1:]:
-            if isinstance(func_arg, ast.Constant):
-                arg = self.visit(func_arg, tensor_type=result_type)
-            else:
-                arg = self.visit(func_arg)
+            arg = self.visit(func_arg, tensor_type=result_type)
             func_args.append(arg)
 
         func = self._fn_map[node.attr]
         op = func(*func_args)
         op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
+
+        # Binary ops have 3 pos args: [result_type, lhs, rhs].
         if _get_num_pos_args(func) == 3:
-            # this is a binary op, attach the dtype attr
-            element_type = func_args[1].type.element_type
             dtype = ttcore.ir.DataTypeAttr.get(
-                self.ctx, self._ttcore_dtype_from_mlir_dtype(element_type)
+                self.ctx, self._ttcore_dtype_from_mlir_dtype(result_type.element_type)
             )
             op.owner.attributes["dtype"] = dtype
         return op
@@ -381,47 +357,48 @@ class TTIRCompiler(ast.NodeVisitor):
 
         return None
 
-    def visit_Constant(self, node, tensor_type=None):
-        # assert tensor_shape, "Tensor shape must be provided for constants"
-        assert tensor_type is not None, "Tensor type must be provided for constants"
-        if isinstance(
-            tensor_type.element_type, FloatType
-        ):  # FIX IF BFLOAT16, CHECK TENSOR_TYPE INSTEAD
-            attr = FloatAttr.get(tensor_type.element_type, node.value)
-        elif isinstance(tensor_type.element_type, BFloat16Type):
-            attr = FloatAttr.get(BF16Type.get(self.ctx), node.value)
-        else:
+    def visit_Constant(self, node, tensor=None):
+        assert tensor is not None, "Tensor must be provided for constants"
+        element_type = tensor.type.element_type
+        if not isinstance(element_type, FloatType) and not isinstance(
+            element_type, BFloat16Type
+        ):
             raise NotImplementedError(f"Unsupported constant type: {type(node.value)}")
 
+        type_attr = FloatAttr.get(element_type, node.value)
         if self.backend == "ttnn":
-            element_type = tensor_type.element_type
-            print("element_type: ", type(element_type))
-            dense_attr = DenseElementsAttr.get_splat(tensor_type, attr)
+            if not isinstance(tensor.type.element_type, FloatType):
+                raise NotImplementedError(
+                    f"Unsupported constant type: {type(node.value)}"
+                )
 
             dtype = ttcore.ir.DataTypeAttr.get(
                 self.ctx, self._ttcore_dtype_from_mlir_dtype(element_type)
             )
+            shape = ttnn.ir.ShapeAttr.get(self.ctx, tensor.type.shape)
+
             # Extract layout from tensor encoding if present
             layout_attr = None
-            if tensor_type.encoding:
-                layout = ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor_type.encoding)
+            if tensor.type.encoding:
+                layout = ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor.type.encoding)
                 layout_attr = ttnn.ir.LayoutAttr.get(
                     self.ctx, layout.memory_layout_as_int
                 )
 
-            shape = ttnn.ir.ShapeAttr.get(self.ctx, tensor_type.shape)
+            # FullOp only supports I32, F32. Might need switch to ConstantOp
             return ttnn.FullOp(
-                tensor_type,
+                tensor.type,
                 shape,
-                attr,
+                type_attr,
                 device=self.device,
                 dtype=dtype,
                 layout=layout_attr,
             )
-
-        # tensor_type = RankedTensorType.get(tensor_shape, attr.type)
-        # dense_attr = DenseElementsAttr.get_splat(tensor_type, attr)
-        # return ttir.ConstantOp(tensor_type, dense_attr)
+        else:
+            raise NotImplementedError("metal backend not supported for constants")
+            # tensor_type = RankedTensorType.get(tensor.type.shape, type_attr.type)
+            # dense_attr = DenseElementsAttr.get_splat(tensor.type, type_attr)
+            # return ttir.ConstantOp(tensor.type, dense_attr)
 
     def visit(self, node: ast.AST, **kwargs):
         if any(

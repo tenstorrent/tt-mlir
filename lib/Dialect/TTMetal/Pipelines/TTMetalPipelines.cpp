@@ -69,11 +69,7 @@ void createOptimizationPasses(OpPassManager &pm,
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(mlir::createLoopInvariantCodeMotionPass());
   pm.addPass(mlir::createSCCPPass());
-  // Skip CSE in ttnn-mode to preserve distinct d2m.empty operations
-  // Each d2m.empty needs to remain separate to allocate distinct buffers
-  if (!options.ttnnMode) {
-    pm.addPass(mlir::createCSEPass());
-  }
+  pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::arith::createIntRangeOptimizationsPass());
 }
 
