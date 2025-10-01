@@ -21,17 +21,12 @@ namespace {
 
 /// Helper function to preserve TTNN-specific attributes as custom attributes on
 /// TTIR operations when the target dialect doesn't have equivalent attributes.
-void preserveTTNNAttributesAsCustom(mlir::Operation *srcOp,
-                                    mlir::Operation *destOp) {
-  // Get all attributes from the source operation
-  auto srcAttrs = srcOp->getAttrs();
-
-  // For each TTNN operation attribute, check if it exists in the TTIR operation
-  // and if not, create a custom attribute for it
-  for (auto &attr : srcAttrs) {
+static void preserveTTNNAttributesAsCustom(mlir::Operation *srcOp,
+                                           mlir::Operation *destOp) {
+  for (auto &attr : srcOp->getAttrs()) {
     auto attrName = attr.getName();
 
-    if (attrName.getValue().starts_with("ttnn.hoist_generic_via_d2m")) {
+    if (attrName.getValue() == "ttnn.hoist_generic_via_d2m") {
       continue;
     }
 
