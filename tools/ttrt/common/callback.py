@@ -444,6 +444,9 @@ def pre_op_get_callback_fn(callback_runtime_config):
 
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
 
+    callback_runtime_config.logging.info("TESTING DHRUV")
+    # print("TESTING DHRUV")
+
     # if callback_runtime_config.enable_golden:
     golden(callback_runtime_config, binary, program_context, op_context)
 
