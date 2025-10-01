@@ -98,10 +98,9 @@ module {
     return %1 : tensor<32x128x32xf32>
   }
 
-  func.func @mesh_shard_replicate_fold(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    // CHECK-LABEL: func.func @mesh_shard_replicate_fold
-    // CHECK-NOT: ttir.mesh_shard
-    // CHECK: return %arg0
+  func.func @mesh_shard_replicate_no_fold(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+    // CHECK-LABEL: func.func @mesh_shard_replicate_no_fold
+    // CHECK: ttir.mesh_shard
     %0 = ttir.empty() : tensor<64x128xf32>
     %1 = "ttir.mesh_shard"(%arg0) <{
         shard_type = #ttcore.shard_type<replicate>,
