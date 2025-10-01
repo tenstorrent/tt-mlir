@@ -1495,4 +1495,16 @@ d2m::GenericOp::getBufferType(mlir::Value value,
   return d2m::getBufferType(tensorType, /*isView=*/false);
 }
 
+bool d2m::GenericOp::isAllParallel() {
+  ArrayAttr iteratorTypes = getIteratorTypes();
+
+  for (Attribute it : iteratorTypes) {
+    auto itAttr = mlir::cast<mlir::tt::ttcore::IteratorTypeAttr>(it);
+    if (itAttr.getValue() != mlir::tt::ttcore::IteratorType::Parallel) {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace mlir::tt::d2m

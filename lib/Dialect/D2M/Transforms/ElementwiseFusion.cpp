@@ -94,16 +94,6 @@ static bool hasCompatibleBlocking(GenericOp a, GenericOp b) {
          a.getBlockFactors() == b.getBlockFactors();
 }
 
-static bool isAllParallel(ArrayAttr iteratorTypes) {
-  for (Attribute it : iteratorTypes) {
-    auto itAttr = cast<mlir::tt::ttcore::IteratorTypeAttr>(it);
-    if (itAttr.getValue() != mlir::tt::ttcore::IteratorType::Parallel) {
-      return false;
-    }
-  }
-  return true;
-}
-
 static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
                                      OpOperand *fusedOperand) {
   // If consumer has no reductions, trivially ok as in linalg.
@@ -232,7 +222,7 @@ static bool isElementwiseFusable(GenericOp producer, GenericOp consumer,
     return false;
   }
 
-  if (!isAllParallel(producer.getIteratorTypes())) {
+  if (!producer.isAllParallel()) {
     return false;
   }
 
