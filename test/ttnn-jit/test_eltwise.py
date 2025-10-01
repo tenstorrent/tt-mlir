@@ -7,14 +7,11 @@ import torch
 
 import pytest
 
-from math import *
 from utils import _get_ttnn_op
 
 
-def run_unary_op(device, h, w, max_grid, dtype, op):
-    # Note: both torch.float16 and torch.bfloat16 will convert to ttnn.bfloat16
-    torch_input_tensor = torch.randn((h, w), dtype=dtype)
-    golden_op = _get_ttnn_op(op)
+def create_sharded_tile_tensor(device, h, w, max_grid, dtype):
+    torch_tensor = torch.randn((h, w), dtype=dtype)
 
     start_coord = ttnn.CoreCoord(0, 0)
     end_coord = ttnn.CoreCoord(max_grid[0], max_grid[1])
@@ -26,12 +23,8 @@ def run_unary_op(device, h, w, max_grid, dtype, op):
 
     shard_spec = ttnn.ShardSpec(
         grid=core_range_set,
-        shard_shape=[
-            shard_shape_x,
-            shard_shape_y,
-        ],
+        shard_shape=[shard_shape_x, shard_shape_y],
         shard_orientation=ttnn.ShardOrientation.ROW_MAJOR,
-        # shard_mode=ttnn.ShardMode.PHYSICAL,
     )
 
     memory_config = ttnn.MemoryConfig(
@@ -40,23 +33,29 @@ def run_unary_op(device, h, w, max_grid, dtype, op):
         shard_spec=shard_spec,
     )
 
-    input_tensor = ttnn.from_torch(
-        torch_input_tensor,
+    return ttnn.from_torch(
+        torch_tensor,
         layout=ttnn.TILE_LAYOUT,
         device=device,
         memory_config=memory_config,
     )
-    op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(op)
-    output_tensor = op_jit(input_tensor)
 
-    if golden_op:
-        golden_tensor = golden_op(input_tensor)
-    else:
-        golden_tensor = op(input_tensor)
+
+def run_op_test(device, h, w, max_grid, dtype, op, num_inputs):
+    inputs = [
+        create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+        for _ in range(num_inputs)
+    ]
+    golden_op = _get_ttnn_op(op)
+
+    op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(op)
+    output_tensor = op_jit(*inputs)
+    golden_tensor = (golden_op or op)(*inputs)
 
     print("--------------------------------")
-    print("input_tensor")
-    print(input_tensor)
+    print("input tensor(s)")
+    for tensor in inputs:
+        print(tensor)
     print("--------------------------------")
     print("output_tensor")
     print(output_tensor)
@@ -75,6 +74,9 @@ def run_unary_op(device, h, w, max_grid, dtype, op):
     assert all_close
 
 
+# ------------------------------------------------------------
+# Unary ops
+# ------------------------------------------------------------
 def abs(input_tensor):
     return ttnn.abs(input_tensor)
 
@@ -147,15 +149,6 @@ def rsqrt(input_tensor):
     return ttnn.rsqrt(input_tensor)
 
 
-def cosh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.add(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-# sweep shapes, grid size, dtype
 @pytest.mark.parametrize(
     "h , w, max_grid",
     [
@@ -187,7 +180,6 @@ def cosh(input_tensor):
         logical_not,
         reciprocal,
         rsqrt,
-        cosh,
         # cbrt, sign, erf, erfc, bitwise_not # <- not supported in TTIRToD2M
         # tan, sqrt # <- always fails allclose
     ],
@@ -198,13 +190,147 @@ def test_unary_op(device, h, w, max_grid, dtype, op):
     if op == abs and max_grid == (0, 0) and dtype == torch.bfloat16:
         pytest.skip("already tested in test_unary_op_single_core_sweep")
 
-    run_unary_op(device, h, w, max_grid, dtype, op)
+    run_op_test(device, h, w, max_grid, dtype, op, 1)
 
 
 # Note: anything bigger than 256x256 will fail allclose for bfloat16
-# looks like data corruption in the runtime..?
 @pytest.mark.parametrize(
     "h, w", [(h, w) for h in range(32, 256, 32) for w in range(32, 256, 32)]
 )
 def test_unary_op_single_core_sweep(device, h, w):
-    run_unary_op(device, h, w, (0, 0), torch.bfloat16, abs)
+    run_op_test(device, h, w, (0, 0), torch.bfloat16, abs, 1)
+
+
+# ------------------------------------------------------------
+# Binary ops
+# ------------------------------------------------------------
+def add(a, b):
+    return ttnn.add(a, b)
+
+
+def sub(a, b):
+    return ttnn.subtract(a, b)
+
+
+def mul(a, b):
+    return ttnn.multiply(a, b)
+
+
+def div(a, b):
+    return ttnn.divide(a, b)
+
+
+def logical_and(a, b):
+    return ttnn.logical_and(a, b)
+
+
+def logical_or(a, b):
+    return ttnn.logical_or(a, b)
+
+
+def logical_xor(a, b):
+    return ttnn.logical_xor(a, b)
+
+
+def bitwise_or(a, b):
+    return ttnn.bitwise_or(a, b)
+
+
+def bitwise_and(a, b):
+    return ttnn.bitwise_and(a, b)
+
+
+def bitwise_xor(a, b):
+    return ttnn.bitwise_xor(a, b)
+
+
+def remainder(a, b):
+    return ttnn.remainder(a, b)
+
+
+def pow(a, b):
+    return ttnn.pow(a, b)
+
+
+def atan2(a, b):
+    return ttnn.atan2(a, b)
+
+
+def eq(a, b):
+    return ttnn.eq(a, b)
+
+
+def ne(a, b):
+    return ttnn.ne(a, b)
+
+
+def gt(a, b):
+    return ttnn.gt(a, b)
+
+
+def ge(a, b):
+    return ttnn.ge(a, b)
+
+
+def lt(a, b):
+    return ttnn.lt(a, b)
+
+
+def le(a, b):
+    return ttnn.le(a, b)
+
+
+@pytest.mark.parametrize(
+    "h , w, max_grid",
+    [
+        (32, 32, (0, 0)),
+        (32, 64, (0, 0)),
+        (64, 64, (0, 0)),
+        (64, 128, (0, 0)),
+        (128, 128, (0, 0)),
+        (256, 256, (7, 7)),
+        (256, 512, (7, 7)),
+        (512, 512, (7, 7)),
+        (512, 1024, (7, 7)),
+        (1024, 1024, (7, 7)),
+        (1024, 2048, (7, 7)),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize(
+    "op",
+    [
+        add,
+        sub,
+        mul,
+        div,
+        pow,
+        eq,
+        ne,
+        gt,
+        ge,
+        lt,
+        le,
+        # logical_and, logical_or, logical_xor,
+        # bitwise_or, bitwise_and, bitwise_xor, # not a supported FPU op
+        # remainder, atan2,# not supported in TTIRToD2M
+    ],
+)
+def test_binary_ops(device, h, w, max_grid, dtype, op):
+    if op == div:
+        pytest.xfail("failing allclose for some shapes")
+    if op == pow and dtype == torch.float32:
+        pytest.xfail("failing allclose for some shapes")
+
+    run_op_test(device, h, w, max_grid, dtype, op, num_inputs=2)
+
+
+# ------------------------------------------------------------
+# Composite ops (not testing yet.)
+# ------------------------------------------------------------
+def cosh(input_tensor):
+    e_pos_x = ttnn.exp(input_tensor)
+    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
+    nr_term = ttnn.add(e_pos_x, e_neg_x)
+    output = ttnn.multiply(nr_term, 0.5)
+    return output
