@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -26,7 +27,8 @@ static void preserveTTNNAttributesAsCustom(mlir::Operation *srcOp,
   for (auto &attr : srcOp->getAttrs()) {
     auto attrName = attr.getName();
 
-    if (attrName.getValue() == "ttnn.hoist_generic_via_d2m") {
+    if (attrName.getValue() ==
+        mlir::tt::ttnn::g_TTNNHoistGenericViaD2MAttrName) {
       continue;
     }
 
