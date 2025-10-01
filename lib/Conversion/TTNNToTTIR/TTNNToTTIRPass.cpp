@@ -28,9 +28,6 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_CONVERTTTNNTOTTIR
 #include "ttmlir/Conversion/Passes.h.inc"
 
-#define GET_OP_LIST
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h.inc"
-
 namespace {
 struct ConvertTTNNToTTIRPass
     : public ttnn::impl::ConvertTTNNToTTIRBase<ConvertTTNNToTTIRPass> {
