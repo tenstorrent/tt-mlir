@@ -632,6 +632,9 @@ class Artifacts:
     def get_binary_run_folder_path(self, binary):
         return f"{self.get_artifacts_folder_path()}/{binary.name}/run"
 
+    def get_dylib_emitpy_folder_path(self, dylib):
+        return f"{self.get_artifacts_folder_path()}/{dylib.name}/emitpy"
+
     def create_artifacts(self):
         self.file_manager.create_directory(self.get_artifacts_folder_path())
 
@@ -691,6 +694,8 @@ class Artifacts:
             f"saving torch tensor={torch_tensor_name} to folder_path={folder_path}"
         )
 
+        if not self.file_manager.check_directory_exists(folder_path):
+            self.file_manager.create_directory(folder_path)
         try:
             torch.save(torch_tensor, f"{folder_path}/{torch_tensor_name}")
         except Exception as e:
@@ -1054,6 +1059,7 @@ class EmitPyDylib:
         self.logging = self.logger.get_logger()
         self.file_manager = file_manager
         self.file_path = file_path if file_path != None else "<dylib-from-capsule>"
+        self.name = self.file_manager.get_file_name(file_path)
 
         # temporary state value to check if test failed
         self.test_result = "pass"

@@ -158,6 +158,20 @@ class EmitPy:
             choices=[True, False],
             help="disable ttrt callbacks",
         )
+        EmitPy.register_arg(
+            name="--print-input-output-tensors",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="print input and output tensors",
+        )
+        EmitPy.register_arg(
+            name="--save-artifacts",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="save all artifacts during run",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in EmitPy.registered_args.items():
@@ -196,7 +210,8 @@ class EmitPy:
         if self["--clean-artifacts"]:
             self.artifacts.clean_artifacts()
 
-        self.artifacts.create_artifacts()
+        if self["--save-artifacts"]:
+            self.artifacts.create_artifacts()
 
         self.logging.debug(f"------finished preprocessing emitpy API")
 
@@ -367,11 +382,37 @@ class EmitPy:
                             self.logging.debug(
                                 f"starting loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
                             )
+
+                            # Save input tensors before they get deallocated
+                            if self["--save-artifacts"]:
+                                program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
+                                for i, input_tensor in enumerate(inputs):
+                                    input_tensor = ttnn.from_device(input_tensor)
+                                    torch_input = input_tensor.to_torch()
+
+                                    self.artifacts.save_torch_tensor(
+                                        program_folder,
+                                        torch_input,
+                                        f"emitpy_input_{i}.pt",
+                                    )
+
                             program_func = getattr(module, program_names[program_index])
                             dylib_outputs = program_func(inputs)
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for program={program_names[program_index]}"
                             )
+
+                            if self["--save-artifacts"]:
+                                program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
+                                for output in dylib_outputs:
+                                    ttnn_output = ttnn.from_device(output)
+                                    torch_output = ttnn_output.to_torch()
+
+                                    self.artifacts.save_torch_tensor(
+                                        program_folder,
+                                        torch_output,
+                                        f"emitpy_output_{i}.pt",
+                                    )
                 else:
                     with ttnn.manage_device(device_id=0) as device:
                         for program_index in range(len(program_names)):
@@ -426,6 +467,21 @@ class EmitPy:
                                 torch_fbb_outputs = self.load_tensors_from_artifacts(
                                     bin, "device_output"
                                 )["program_" + str(program_index)]
+
+                                if self["--save-artifacts"]:
+                                    program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
+                                    for i, input_tensor in enumerate(torch_inputs):
+                                        self.artifacts.save_torch_tensor(
+                                            program_folder,
+                                            input_tensor,
+                                            f"emitpy_input_{i}.pt",
+                                        )
+                                    for i, output in enumerate(torch_dylib_outputs):
+                                        self.artifacts.save_torch_tensor(
+                                            program_folder,
+                                            output,
+                                            f"emitpy_output_{i}.pt",
+                                        )
 
                                 for i in range(len(torch_fbb_outputs)):
                                     if not torch.allclose(
