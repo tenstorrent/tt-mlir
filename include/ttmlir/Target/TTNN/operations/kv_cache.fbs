@@ -22,5 +22,4 @@ table PagedUpdateCacheOp {
   update_index: tt.target.ttnn.TensorRef;
   share_cache: bool = false;
   page_table: tt.target.ttnn.TensorRef;
-  batch_offset: uint32;
 }
