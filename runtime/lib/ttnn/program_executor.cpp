@@ -118,9 +118,9 @@ void ProgramExecutor::runCallback(
     std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
-
+  std::cout << "TESTING DHRUV IN CALLBACK EVEN IF NULL" << std::endl;
   if (callback) {
-    std::cout << "TESTING DHRUV IN CALLBACK" << std::endl;
+    std::cout << "TESTING DHRUV IN CALLBACK IF NOT NULL" << std::endl;
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafeBorrowShared(programContext);
     std::shared_ptr<void> opContextPtr =
