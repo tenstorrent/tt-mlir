@@ -132,9 +132,7 @@ void deallocateBuffers(Device device) {
       RetType, [&]() { ::tt::runtime::ttnn::deallocateBuffers(device); },
       [&]() { ::tt::runtime::ttmetal::deallocateBuffers(device); },
       [&]() { fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA); },
-      [&]() {
-        fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed);
-      });
+      [&]() { fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed); });
 }
 
 void dumpMemoryReport(Device device) {
@@ -143,9 +141,7 @@ void dumpMemoryReport(Device device) {
       RetType, [&]() { ::tt::runtime::ttnn::dumpMemoryReport(device); },
       [&]() { ::tt::runtime::ttmetal::dumpMemoryReport(device); },
       [&]() { fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA); },
-      [&]() {
-        fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed);
-      });
+      [&]() { fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed); });
 }
 
 void readDeviceProfilerResults(Device device) {
@@ -155,9 +151,7 @@ void readDeviceProfilerResults(Device device) {
       [&]() { ::tt::runtime::ttnn::readDeviceProfilerResults(device); },
       [&]() { ::tt::runtime::ttmetal::readDeviceProfilerResults(device); },
       [&]() { ::tt::runtime::cuda::detail::readDeviceProfilerResults(device); },
-      [&]() {
-        fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed);
-      });
+      [&]() { fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed); });
 }
 
 using MemoryViewResult = std::unordered_map<::tt::runtime::MemoryBufferType,
@@ -232,7 +226,8 @@ void setCompatibleDeviceRuntime(const Binary &binary) {
 
 #if defined(TTMLIR_ENABLE_CUDA) && (TTMLIR_ENABLE_CUDA == 1)
   if (binary.getFileIdentifier() == ::tt::target::cuda::ProgramIdentifier()) {
-    return RuntimeContext::instance().setCurrentDeviceRuntime(DeviceRuntime::CUDA);
+    return RuntimeContext::instance().setCurrentDeviceRuntime(
+        DeviceRuntime::CUDA);
   }
 #endif
   LOG_FATAL("Unsupported binary file identifier or runtime not enabled");
@@ -282,6 +277,8 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
       },
       [&]() -> RetType {
         LOG_FATAL("runtime is not enabled");
+        return detail::fatalNotImplemented(__FUNCTION__,
+                                           HostRuntime::Distributed);
       });
 }
 
@@ -373,7 +370,7 @@ Tensor createOwnedHostTensor(const void *data,
       },
       [&]() -> RetType {
         return ::tt::runtime::cuda::createOwnedHostTensor(data, shape, stride,
-          itemsize, dataType);
+                                                          itemsize, dataType);
       },
       [&]() -> RetType {
         return ::tt::runtime::distributed::createOwnedHostTensor(
@@ -403,13 +400,10 @@ Tensor createMultiDeviceHostTensor(
             data, shape, stride, itemsize, dataType, strategy, meshShape);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("createMultiDeviceHostTensor",
                                     HostRuntime::Distributed);
       });
@@ -432,13 +426,10 @@ Tensor createMultiDeviceHostTensor(
             tensorShards, strategy, meshShape);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("createEmptyTensor",
                                     HostRuntime::Distributed);
       });
@@ -485,10 +476,8 @@ bool isTensorAllocated(Tensor tensor) {
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("isTensorAllocated",
                                     HostRuntime::Distributed);
-        
       });
 }
 
@@ -522,11 +511,9 @@ std::vector<std::byte> getTensorDataBuffer(Tensor t) {
       },
       [&]() -> RetType { return ::tt::runtime::cuda::getTensorDataBuffer(t); },
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getTensorDataBuffer",
                                     HostRuntime::Distributed);
       });
-      
 }
 
 std::vector<std::uint32_t> getTensorShape(Tensor t) {
@@ -562,9 +549,7 @@ std::uint32_t getTensorElementSize(Tensor t) {
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::getTensorElementSize(t);
       },
-      [&]() -> RetType {
-        return ::tt::runtime::cuda::getTensorElementSize(t);
-      },
+      [&]() -> RetType { return ::tt::runtime::cuda::getTensorElementSize(t); },
       [&]() -> RetType {
         detail::fatalNotImplemented("getTensorElementSize",
                                     HostRuntime::Distributed);
@@ -579,11 +564,9 @@ std::uint32_t getTensorVolume(Tensor t) {
       [&]() -> RetType { return ::tt::runtime::ttmetal::getTensorVolume(t); },
       [&]() -> RetType { return ::tt::runtime::cuda::getTensorVolume(t); },
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getTensorVolume",
                                     HostRuntime::Distributed);
       });
-      
 }
 
 TensorDesc getTensorDesc(Tensor t) {
@@ -593,13 +576,10 @@ TensorDesc getTensorDesc(Tensor t) {
       [&]() -> RetType { return ::tt::runtime::ttnn::getTensorDesc(t); },
       [&]() -> RetType { return ::tt::runtime::ttmetal::getTensorDesc(t); },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getTensorDesc", HostRuntime::Distributed);
       });
 }
@@ -613,13 +593,10 @@ bool getTensorRetain(Tensor tensor) {
         return ::tt::runtime::ttmetal::getTensorRetain(tensor);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getTensorRetain",
                                     HostRuntime::Distributed);
       });
@@ -631,13 +608,10 @@ void setTensorRetain(Tensor tensor, bool retain) {
       RetType, [&]() { ::tt::runtime::ttnn::setTensorRetain(tensor, retain); },
       [&]() { ::tt::runtime::ttmetal::setTensorRetain(tensor, retain); },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("setTensorRetain",
                                     HostRuntime::Distributed);
       });
@@ -649,13 +623,10 @@ Arch getArch() {
       RetType, [&]() -> RetType { return ::tt::runtime::ttnn::getArch(); },
       [&]() -> RetType { return ::tt::runtime::ttmetal::getArch(); },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getArch", HostRuntime::Distributed);
       });
 }
@@ -666,13 +637,10 @@ void enablePersistentKernelCache() {
       RetType, [&]() { ::tt::runtime::ttnn::enablePersistentKernelCache(); },
       [&]() { ::tt::runtime::ttmetal::enablePersistentKernelCache(); },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("enablePersistentKernelCache",
                                     HostRuntime::Distributed);
       });
@@ -684,13 +652,10 @@ void disablePersistentKernelCache() {
       RetType, [&]() { ::tt::runtime::ttnn::disablePersistentKernelCache(); },
       [&]() { ::tt::runtime::ttmetal::disablePersistentKernelCache(); },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("disablePersistentKernelCache",
                                     HostRuntime::Distributed);
       });
@@ -707,13 +672,10 @@ size_t getNumAvailableDevices() {
         return ::tt::runtime::ttmetal::getNumAvailableDevices();
       },
       [&]() -> RetType {
-
         return ::tt::runtime::cuda::getNumAvailableDevices();
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getNumAvailableDevices",
                                     HostRuntime::Distributed);
       });
@@ -727,14 +689,9 @@ Device openMeshDevice(const MeshDeviceOptions &options) {
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::openMeshDevice(options);
       },
-      [&]() -> RetType {
-
-        return ::tt::runtime::cuda::openMeshDevice(options);
-
-      },
+      [&]() -> RetType { return ::tt::runtime::cuda::openMeshDevice(options); },
 
       [&]() -> RetType {
-
         return ::tt::runtime::distributed::openMeshDevice(options);
       });
 }
@@ -763,13 +720,10 @@ Device createSubMeshDevice(
             parentMesh, meshShape, meshOffset);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("createSubMeshDevice",
                                     HostRuntime::Distributed);
       });
@@ -781,13 +735,10 @@ void releaseSubMeshDevice(Device subMesh) {
       RetType, [&]() { ::tt::runtime::ttnn::releaseSubMeshDevice(subMesh); },
       [&]() { ::tt::runtime::ttmetal::releaseSubMeshDevice(subMesh); },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("releaseSubMeshDevice",
                                     HostRuntime::Distributed);
       });
@@ -803,13 +754,10 @@ void reshapeMeshDevice(Device meshDevice,
         ::tt::runtime::ttmetal::reshapeMeshDevice(meshDevice, meshShape);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("reshapeMeshDevice",
                                     HostRuntime::Distributed);
       });
@@ -826,13 +774,10 @@ std::vector<uint32_t> getMeshShape(Device meshDevice) {
         return ::tt::runtime::ttmetal::getMeshShape(meshDevice);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getMeshShape", HostRuntime::Distributed);
       });
 }
@@ -848,13 +793,10 @@ std::vector<int> getDeviceIds(Device meshDevice) {
         return ::tt::runtime::ttmetal::getDeviceIds(meshDevice);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getDeviceIds", HostRuntime::Distributed);
       });
 }
@@ -868,13 +810,10 @@ size_t getNumHwCqs(Device meshDevice) {
         return ::tt::runtime::ttmetal::getNumHwCqs(meshDevice);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getNumHwCqs", HostRuntime::Distributed);
       });
 }
@@ -890,13 +829,10 @@ bool isProgramCacheEnabled(Device meshDevice) {
         return ::tt::runtime::ttmetal::isProgramCacheEnabled(meshDevice);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("isProgramCacheEnabled",
                                     HostRuntime::Distributed);
       });
@@ -913,13 +849,10 @@ size_t getL1SmallSize(Device meshDevice) {
         return ::tt::runtime::ttmetal::getL1SmallSize(meshDevice);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getL1SmallSize", HostRuntime::Distributed);
       });
 }
@@ -935,13 +868,10 @@ size_t getTraceRegionSize(Device meshDevice) {
         return ::tt::runtime::ttmetal::getTraceRegionSize(meshDevice);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getTraceRegionSize",
                                     HostRuntime::Distributed);
       });
@@ -958,13 +888,10 @@ size_t getNumDramChannels(Device meshDevice) {
         return ::tt::runtime::ttmetal::getNumDramChannels(meshDevice);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getNumDramChannels",
                                     HostRuntime::Distributed);
       });
@@ -981,13 +908,10 @@ size_t getDramSizePerChannel(Device meshDevice) {
         return ::tt::runtime::ttmetal::getDramSizePerChannel(meshDevice);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getDramSizePerChannel",
                                     HostRuntime::Distributed);
       });
@@ -1004,13 +928,10 @@ size_t getL1SizePerCore(Device meshDevice) {
         return ::tt::runtime::ttmetal::getL1SizePerCore(meshDevice);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getL1SizePerCore",
                                     HostRuntime::Distributed);
       });
@@ -1052,7 +973,6 @@ void wait(Tensor tensor, std::optional<uint8_t> cqId) {
       [&]() { ::tt::runtime::ttmetal::wait(tensor, cqId); },
       [&]() { ::tt::runtime::cuda::wait(tensor, cqId); },
       [&]() { detail::fatalNotImplemented("wait", HostRuntime::Distributed); });
-      
 }
 
 void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
@@ -1062,7 +982,7 @@ void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
       [&]() { ::tt::runtime::ttmetal::wait(tensors, cqId); },
       [&]() { ::tt::runtime::cuda::wait(tensors, cqId); },
       [&]() { detail::fatalNotImplemented("wait", HostRuntime::Distributed); });
-     }
+}
 
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   using RetType = std::vector<Tensor>;
@@ -1075,13 +995,10 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
         return ::tt::runtime::ttmetal::toHost(tensor, untilize, blocking);
       },
       [&]() -> RetType {
-
         return ::tt::runtime::cuda::toHost(tensor, untilize, blocking);
-
       },
 
       [&]() -> RetType {
-
         return ::tt::runtime::distributed::toHost(tensor, untilize, blocking);
       });
 }
@@ -1102,7 +1019,6 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout,
       },
 
       [&]() -> RetType {
-
         return ::tt::runtime::distributed::toLayout(tensor, device, layout,
                                                     retain);
       });
@@ -1122,13 +1038,10 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                                                  inputIndex);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         return ::tt::runtime::distributed::getLayout(executableHandle,
                                                      programIndex, inputIndex);
       });
@@ -1199,13 +1112,10 @@ std::string getOpDebugString(OpContext opContextHandle) {
         return ::tt::runtime::ttmetal::getOpDebugString(opContextHandle);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getOpDebugString",
                                     HostRuntime::Distributed);
       });
@@ -1222,13 +1132,10 @@ std::string getOpLocInfo(OpContext opContextHandle) {
         return ::tt::runtime::ttmetal::getOpLocInfo(opContextHandle);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getOpLocInfo", HostRuntime::Distributed);
       });
 }
@@ -1248,13 +1155,10 @@ getOpOutputTensor(OpContext opContextHandle,
                                                          programContextHandle);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getOpOutputTensor",
                                     HostRuntime::Distributed);
       });
@@ -1276,13 +1180,10 @@ getOpOutputRef(OpContext opContextHandle,
                                                       programContextHandle);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getOpOutputRef", HostRuntime::Distributed);
       });
 }
@@ -1302,13 +1203,10 @@ getOpInputRefs(OpContext opContextHandle,
                                                       programContextHandle);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("getOpInputRefs", HostRuntime::Distributed);
       });
 }
@@ -1328,13 +1226,10 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
             programContextHandle, tensorRef, untilize);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("retrieveTensorFromPool",
                                     HostRuntime::Distributed);
       });
@@ -1354,13 +1249,10 @@ void updateTensorInPool(CallbackContext programContextHandle,
                                                           tensorRef, srcTensor);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("updateTensorInPool",
                                     HostRuntime::Distributed);
       });
@@ -1375,13 +1267,10 @@ void setFabricConfig(FabricConfig config) {
         return ::tt::runtime::ttmetal::setFabricConfig(config);
       },
       [&]() -> RetType {
-
         detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
-
       },
 
       [&]() -> RetType {
-
         detail::fatalNotImplemented("setFabricConfig",
                                     HostRuntime::Distributed);
       });
@@ -1402,14 +1291,11 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                                               programIndex, inputs);
       },
       [&]() -> RetType {
-
         return ::tt::runtime::cuda::submit(deviceHandle, executableHandle,
                                            programIndex, inputs);
-
       },
 
       [&]() -> RetType {
-
         return ::tt::runtime::distributed::submit(
             deviceHandle, executableHandle, programIndex, inputs);
       });
@@ -1422,9 +1308,7 @@ void dumpTensor(Tensor tensor, const std::string &filePath) {
       [&]() {
         detail::fatalNotImplemented("dumpTensor", DeviceRuntime::TTMetal);
       },
-      [&]() {
-        detail::fatalNotImplemented("dumpTensor", DeviceRuntime::CUDA);
-      },
+      [&]() { detail::fatalNotImplemented("dumpTensor", DeviceRuntime::CUDA); },
       [&]() -> RetType {
         detail::fatalNotImplemented("dumpTensor", HostRuntime::Distributed);
       });
