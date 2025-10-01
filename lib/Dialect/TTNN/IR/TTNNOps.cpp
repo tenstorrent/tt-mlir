@@ -2520,10 +2520,8 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 ::mlir::LogicalResult AllReduceOp::verify() {
   ::mlir::tt::ttcore::ReduceType reduceType = getReduceType();
 
-  // Currently TTNN only supports the following reduce types.
-  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum &&
-      reduceType != ::mlir::tt::ttcore::ReduceType::Max &&
-      reduceType != ::mlir::tt::ttcore::ReduceType::Min) {
+  // Currently TTNN only supports the sum reduce types.
+  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
     return emitOpError("Invalid reduction op for all reduce op.");
   }
 
