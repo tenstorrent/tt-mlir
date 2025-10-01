@@ -2736,6 +2736,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.MinimumOp: torch.minimum,
     ttir.RemainderOp: torch.remainder,
     ttir.PowTensorOp: torch.pow,
+    ttir.PowScalarOp: torch.pow,
     # Comparison operations
     ttir.EqualOp: equal_golden,
     ttir.NotEqualOp: not_equal_golden,

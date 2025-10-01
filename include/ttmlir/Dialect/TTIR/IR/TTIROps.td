@@ -1709,7 +1709,7 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
 def TTIR_PowTensorOp : TTIR_ElementwiseBinaryOp<"pow_tensor"> {
     let summary = "Elementwise power operation.";
     let description = [{
-      The `pow` operation performs an elementwise exponentiation between two tensors.
+      The `pow_tensor` operation performs an elementwise exponentiation between two tensors.
 
       For each pair of corresponding elements, it raises the element in the first tensor (base)
       to the power of the element in the second tensor (exponent) and places the result in the
@@ -1718,7 +1718,7 @@ def TTIR_PowTensorOp : TTIR_ElementwiseBinaryOp<"pow_tensor"> {
       Example:
       ```mlir
       // Power operation
-      %result = ttir.pow(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+      %result = ttir.pow_tensor(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
       // Input tensors:
       // %lhs: [2.0, 3.0, 4.0]  // Bases
       // %rhs: [2.0, 2.0, 0.5]  // Exponents
@@ -1726,7 +1726,7 @@ def TTIR_PowTensorOp : TTIR_ElementwiseBinaryOp<"pow_tensor"> {
       // [4.0, 9.0, 2.0]
 
       // Example with integer values
-      %result = ttir.pow(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+      %result = ttir.pow_tensor(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
       // Input tensors:
       // %int_lhs: [2, 3, 5]
       // %int_rhs: [3, 2, 1]
@@ -1748,35 +1748,22 @@ def TTIR_PowTensorOp : TTIR_ElementwiseBinaryOp<"pow_tensor"> {
 def TTIR_PowScalarOp : TTIR_NamedOp<"pow_scalar", [TTIR_ElementwiseUnary]> {
   let summary = "Elementwise power operation.";
   let description = [{
-    The `pow` operation performs an elementwise exponentiation between two tensors.
-
-    For each pair of corresponding elements, it raises the element in the first tensor (base)
-    to the power of the element in the second tensor (exponent) and places the result in the
-    output tensor.
+    The `pow_scalar` operation performs an exponentiation of each element of an
+    input tensor with a scalar exponent and returns the result.
 
     Example:
     ```mlir
     // Power operation
-    %result = ttir.pow(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+    %0 = ttir.empty() : tensor<4xf32>
+    %result = ttir.pow_scalar(%input, %0) <{exponent = 2 : i32}> : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
     // Input tensors:
-    // %lhs: [2.0, 3.0, 4.0]  // Bases
-    // %rhs: [2.0, 2.0, 0.5]  // Exponents
-    // Output tensor:
-    // [4.0, 9.0, 2.0]
-
-    // Example with integer values
-    %result = ttir.pow(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
-    // Input tensors:
-    // %int_lhs: [2, 3, 5]
-    // %int_rhs: [3, 2, 1]
-    // Output tensor:
-    // [8, 9, 5]
+    // %input: [2.0, 3.0, 4.0, 5.0]  // Bases
+    // %exponent: 2  // Power
+    // Output tensor: [4.0, 9.0, 16.0, 25.0]
     ```
 
     Special cases:
     - 0^0 is typically defined as 1
-    - For integer types, negative bases with non-integer exponents may result in complex numbers,
-      which are typically not supported and may result in undefined behavior
 
     Mathematical definition: pow(x, y) = x^y
   }];

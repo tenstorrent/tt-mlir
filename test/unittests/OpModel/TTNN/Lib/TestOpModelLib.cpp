@@ -1824,6 +1824,71 @@ INSTANTIATE_TEST_SUITE_P(
     Atan2Tests, OpModelAtan2Param,
     generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
 
+class OpModelPowScalarParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,    // input
+                     detail::TestTensor,    // output
+                     float,                 // exponent
+                     detail::ExpectedResult // expected legal
+                     >> {};
+
+TEST_P(OpModelPowScalarParam, PowScalarParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto exponent = builder.getF32FloatAttr(std::get<2>(params));
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+              expectedTotalPeakSize, expectedOutputSize] = std::get<3>(params);
+
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  auto constraintsExp = OpModel<PowScalarOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, exponent, outputLayout);
+  if (!constraintsExp) {
+    std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
+              << std::endl;
+  }
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+
+  if (constraintsExp) {
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
+    EXPECT_EQ(cbSize, expectedCbSize);
+    EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
+    EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
+    EXPECT_EQ(outputSize, expectedOutputSize);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = OpModel<PowScalarOp>::getOpRuntime(inputShape, inputLayout,
+                                                       exponent, outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    PowScalarTests, OpModelPowScalarParam,
+    ::testing::Values(std::make_tuple(
+        detail::TestTensor{{1, 1, 128 * 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 1, 128 * 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::L1},
+        2.0, detail::ExpectedResult{true, 8192, 16384, 24576, 16384})));
+
 // ==== Binary Eltwise Ops Ends ====
 
 class OpModelLinearParam

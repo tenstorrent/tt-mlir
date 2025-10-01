@@ -23,6 +23,7 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/Support/LogicalResult.h"
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -207,6 +208,29 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PowScalarOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::PowScalarOp::verify() {
+  if (auto exponentAttr = mlir::dyn_cast<IntegerAttr>(getExponent())) {
+    if (exponentAttr.getInt() < 0) {
+      return emitOpError() << "exponent must be non-negative; but got "
+                           << exponentAttr.getInt();
+    }
+    return success();
+  }
+  if (auto exponentAttr = mlir::dyn_cast<FloatAttr>(getExponent())) {
+    if (exponentAttr.getValueAsDouble() < 0.0) {
+      return emitOpError() << "exponent must be non-negative; but got "
+                           << exponentAttr.getValueAsDouble();
+    }
+    return success();
+  }
+
+  return emitOpError() << "exponent must be an integer or float attribute.";
 }
 
 //===----------------------------------------------------------------------===//
