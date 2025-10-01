@@ -7,8 +7,8 @@ import torch
 
 from ttnn_jit.runtime._ttmlir_runtime.runtime import (
     submit,
-    set_compatible_runtime,
-    get_current_runtime,
+    set_compatible_device_runtime,
+    get_current_device_runtime,
 )
 from ttnn_jit.runtime._ttmlir_runtime.binary import load_binary_from_path
 from ttnn_jit.runtime._ttmlir_runtime.utils import (
