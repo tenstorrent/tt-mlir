@@ -2445,4 +2445,37 @@ def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
   let hasVerifier = 1;
 }
 
+def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d">{
+  let summary = "A global average pooling 2d operation";
+  let description = [{
+    The `global_avg_pool2d` operation is <context>
+
+    <More description>
+    
+    Example:
+    ```mlir
+    <code>
+    ```
+
+    Inputs:
+    - <input(s)>
+
+    Attributes:
+    - <attribute(s)>
+
+    Outputs:
+    - <output(s)>
+
+    Note: <note>
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+
 #endif

@@ -1723,6 +1723,19 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
       op.getInPlaceHalo());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::GlobalAvgPool2dOp>
+createGlobalAvgPool2dOp(FlatbufferObjectCache &cache, GlobalAvgPool2dOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  // Get memory config from the output tensor
+  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, op.getResult());
+
+  return ::tt::target::ttnn::CreateGlobalAvgPool2dOp(*cache.fbb, in, out,
+                                                      memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
 createRepeatInterleaveOp(FlatbufferObjectCache &cache, RepeatInterleaveOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2498,6 +2511,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto max_pool2dOp = dyn_cast<MaxPool2dOp>(op); max_pool2dOp) {
     return createOperation(cache, createPool2dOp(cache, max_pool2dOp),
+                           debugString, locInfo);
+  }
+  if (auto global_avg_pool2dOp = dyn_cast<GlobalAvgPool2dOp>(op);
+      global_avg_pool2dOp) {
+    return createOperation(cache,
+                           createGlobalAvgPool2dOp(cache, global_avg_pool2dOp),
                            debugString, locInfo);
   }
   if (auto deallocateOp = dyn_cast<DeallocateOp>(op); deallocateOp) {

@@ -3518,4 +3518,20 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
   return mlir::success();
 }
 
+//===----------------------------------------------------------------------===//
+// GlobalAvgPool2dOp
+//===----------------------------------------------------------------------===//
+
+// GlobalAvgPool2dOp verification
+::mlir::LogicalResult mlir::tt::ttnn::GlobalAvgPool2dOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  if (inputType.getRank() != 4) {
+    return emitOpError("input tensor must be a 4D tensor");
+  }
+
+  return success();
+}
+
+
+
 } // namespace mlir::tt::ttnn

@@ -1350,6 +1350,29 @@ public:
 } // namespace
 
 namespace {
+class GlobalAvgPool2dOpConversionPattern
+    : public OpConversionPattern<ttir::GlobalAvgPool2dOp> {
+public:
+  using OpConversionPattern<ttir::GlobalAvgPool2dOp>::OpConversionPattern;
+  using OpAdaptor = typename ttir::GlobalAvgPool2dOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(ttir::GlobalAvgPool2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // GlobalAvgPool2d is essentially a much simpler operation than AvgPool2d andd MaxPool2d.
+    // under the hood, we just perform a sum reduction across the spatial dimensions on metal
+    // and we dont take stride/padding/dilation as params.
+    // That is why we don't inherit from the Pooling2dOpConversionPattern. 
+    rewriter.replaceOpWithNewOp<ttnn::GlobalAvgPool2dOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInput(), adaptor.getOutput());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class TypecastOpConversionPattern
     : public OpConversionPattern<ttir::TypecastOp> {
   using OpConversionPattern<ttir::TypecastOp>::OpConversionPattern;
@@ -1926,6 +1949,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::AtanOp, ttnn::AtanOp>,
            Pooling2dOpConversionPattern<ttir::MaxPool2dOp, ttnn::MaxPool2dOp>,
            Pooling2dOpConversionPattern<ttir::AvgPool2dOp, ttnn::AvgPool2dOp>,
+           GlobalAvgPool2dOpConversionPattern,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
