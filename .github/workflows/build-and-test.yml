@@ -433,7 +433,7 @@ jobs:
 
         echo "Running PyKernel tests..."
         pytest -v ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo/test.py
-        pytest -v ${{ steps.strings.outputs.work-dir }}/test/ttnn-jit/test_unary_composite.py
+        pytest -v ${{ steps.strings.outputs.work-dir }}/test/ttnn-jit/test_eltwise.py
         rm -rf third_party/tt-metal
 
     # pytest runner
