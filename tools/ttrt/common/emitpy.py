@@ -89,6 +89,13 @@ class EmitPy:
             help="disable golden comparison for intermediate and output tensors",
         )
         EmitPy.register_arg(
+            name="--disable-flatbuffer",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable flatbuffer run and comparison",
+        )
+        EmitPy.register_arg(
             name="--memory",
             type=bool,
             default=False,
@@ -262,7 +269,7 @@ class EmitPy:
 
             try:
                 compare_to_ttnn = False
-                if dylib in self.ttnn_binaries:
+                if dylib in self.ttnn_binaries and not self["--disable-flatbuffer"]:
                     bin = self.ttnn_binaries[dylib]
                     compare_to_ttnn = True
 
