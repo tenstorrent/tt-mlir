@@ -7,7 +7,6 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNFUSING
