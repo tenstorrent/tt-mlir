@@ -512,6 +512,61 @@ public:
 };
 } // namespace
 
+// PowScalar op conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (memcfg).
+//
+namespace {
+class PowScalarOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::PowScalarOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.pow_scalar";
+  }
+
+  std::string getPrefixSwapPattern() const override { return "ttnn::pow"; }
+
+  template <typename ExponentT,
+            typename = std::void_t<llvm::is_one_of<ExponentT, float, uint32_t>>>
+  LogicalResult matchAndRewriteImpl(mlir::tt::ttnn::PowScalarOp srcOp,
+                                    ExponentT exponent, OpAdaptor adaptor,
+                                    ConversionPatternRewriter &rewriter) const {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PowScalarOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(exponent),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PowScalarOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PowScalarOp srcOp,
+                  mlir::tt::ttnn::PowScalarOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (auto exponentAttr = mlir::dyn_cast<FloatAttr>(srcOp.getExponent())) {
+      auto exponent = exponentAttr.getValue().convertToFloat();
+      return matchAndRewriteImpl(srcOp, exponent, adaptor, rewriter);
+    }
+    if (auto exponentAttr = mlir::dyn_cast<IntegerAttr>(srcOp.getExponent())) {
+      auto exponent =
+          static_cast<uint32_t>(exponentAttr.getValue().getSExtValue());
+      return matchAndRewriteImpl(srcOp, exponent, adaptor, rewriter);
+    }
+    return failure();
+  }
+};
+} // namespace
+
 // Eltwise Ternary op conversion pattern
 //
 // Currently, it has to insert nullopts for some parameters that are not
@@ -3454,8 +3509,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
           mlir::tt::ttnn::LogicalLeftShiftOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowTensorOp>,
-      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>>(
-      typeConverter, ctx);
+      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>,
+      PowScalarOpConversionPattern>(typeConverter, ctx);
 
   // Eltwise ternary ops
   //

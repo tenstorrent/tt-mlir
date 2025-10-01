@@ -744,7 +744,7 @@ def TTNN_PowTensorOp : TTNN_ElementwiseBinaryCompositeOp<"pow_tensor"> {
 
       Example:
       ```
-        %result = "ttnn.pow"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
+        %result = "ttnn.pow_tensor"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
 
         %lhs: [-2.0, -0.0, -36.0, 5.0, 3.0, 10000.0]
         %rhs: [2.0, 2.0, 1.1, 2.0, -1.0, 10.0]
@@ -756,17 +756,19 @@ def TTNN_PowTensorOp : TTNN_ElementwiseBinaryCompositeOp<"pow_tensor"> {
 def TTNN_PowScalarOp : TTNN_Op<"pow_scalar"> {
   let summary = "Eltwise power OP.";
   let description = [{
-    Performs element-wise exponentiation of lhs tensor by rhs tensor and produces a
-    result tensor. Tensors must be of same shape.
+    The `pow_scalar` operation performs an exponentiation of each element of an
+    input tensor with a scalar exponent and returns the result.
 
     Example:
+    ```mlir
+    %result = ttnn.pow_scalar(%input) <{exponent = 2.0 : f32}> : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+    // Input tensors:
+    // %input: [2.0, 3.0, 4.0, 5.0]  // Bases
+    // %exponent: 2.0  // Power
+    // Output tensor: [4.0, 9.0, 16.0, 25.0]
     ```
-      %result = "ttnn.pow"(%lhs, %rhs) : (tensor<6xf64>, tensor<6xf64>) -> tensor<6xf64>
 
-      %lhs: [-2.0, -0.0, -36.0, 5.0, 3.0, 10000.0]
-      %rhs: [2.0, 2.0, 1.1, 2.0, -1.0, 10.0]
-      %result: [4.0, 0.0, -nan, 25.0, 0.333333343, inf]
-    ```
+    Restriction: TTNN API supports expoenent ≥ 0 only.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
@@ -774,6 +776,8 @@ def TTNN_PowScalarOp : TTNN_Op<"pow_scalar"> {
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
