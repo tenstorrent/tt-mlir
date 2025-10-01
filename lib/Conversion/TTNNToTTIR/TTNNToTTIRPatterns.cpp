@@ -45,6 +45,36 @@ public:
     return mlir::success();
   }
 };
+
+class TTNNMatmulToTTIRMatmulConversionPattern
+    : public mlir::OpConversionPattern<mlir::tt::ttnn::MatmulOp> {
+
+  using mlir::OpConversionPattern<mlir::tt::ttnn::MatmulOp>::OpConversionPattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MatmulOp srcOp,
+                  mlir::tt::ttnn::MatmulOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    if (mlir::tt::ttnn::utils::isTTNNHoistGenericViaD2MOp(srcOp)) {
+      auto outputType = mlir::cast<mlir::RankedTensorType>(
+          this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+      // TTNN MatmulOp -> TTIR MatmulOp conversion
+      // TTNN: matmul(a, b) {transpose_a, transpose_b, matmul_program_config}
+      // TTIR: matmul(a, b, output) {transpose_a, transpose_b}
+      auto newOp = mlir::tt::ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MatmulOp>(
+          rewriter, srcOp, outputType, adaptor.getA(), adaptor.getB(),
+          adaptor.getTransposeA(), adaptor.getTransposeB());
+
+      // Preserve the TTNN matmul_program_config (which has no TTIR equivalent) as a custom attribute
+      if (auto programConfig = srcOp.getMatmulProgramConfig()) {
+        newOp->setAttr("matmul_program_config", *programConfig);
+      }
+    }
+    return mlir::success();
+  }
+};
 } // namespace
 
 static void
@@ -134,6 +164,7 @@ void populateTTNNToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                 TypeConverter &typeConverter) {
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  patterns.add<TTNNMatmulToTTIRMatmulConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
