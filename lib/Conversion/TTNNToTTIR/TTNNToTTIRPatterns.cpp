@@ -3,12 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTNNToTTIR/TTNNToTTIR.h"
-
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTCore/Utils/Mesh.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -24,6 +18,29 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 namespace {
+
+/// Helper function to preserve TTNN-specific attributes as custom attributes on
+/// TTIR operations when the target dialect doesn't have equivalent attributes.
+void preserveTTNNAttributesAsCustom(mlir::Operation *srcOp,
+                                    mlir::Operation *destOp) {
+  // Get all attributes from the source operation
+  auto srcAttrs = srcOp->getAttrs();
+
+  // For each TTNN operation attribute, check if it exists in the TTIR operation
+  // and if not, create a custom attribute for it
+  for (auto &attr : srcAttrs) {
+    auto attrName = attr.getName();
+
+    if (attrName.getValue().starts_with("ttnn.hoist_generic_via_d2m")) {
+      continue;
+    }
+
+    if (!destOp->hasAttr(attrName)) {
+      destOp->setAttr(attrName, attr.getValue());
+    }
+  }
+}
+
 template <typename SrcOp, typename DestOp>
 class TTNNToTTIRElementwiseConversionPattern
     : public mlir::OpConversionPattern<SrcOp> {
@@ -49,7 +66,8 @@ public:
 class TTNNMatmulToTTIRMatmulConversionPattern
     : public mlir::OpConversionPattern<mlir::tt::ttnn::MatmulOp> {
 
-  using mlir::OpConversionPattern<mlir::tt::ttnn::MatmulOp>::OpConversionPattern;
+  using mlir::OpConversionPattern<
+      mlir::tt::ttnn::MatmulOp>::OpConversionPattern;
 
 public:
   mlir::LogicalResult
@@ -60,17 +78,14 @@ public:
       auto outputType = mlir::cast<mlir::RankedTensorType>(
           this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-      // TTNN MatmulOp -> TTIR MatmulOp conversion
-      // TTNN: matmul(a, b) {transpose_a, transpose_b, matmul_program_config}
-      // TTIR: matmul(a, b, output) {transpose_a, transpose_b}
-      auto newOp = mlir::tt::ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MatmulOp>(
-          rewriter, srcOp, outputType, adaptor.getA(), adaptor.getB(),
-          adaptor.getTransposeA(), adaptor.getTransposeB());
+      auto newOp = mlir::tt::ttir::utils::replaceOpWithNewDPSOp<
+          mlir::tt::ttir::MatmulOp>(rewriter, srcOp, outputType, adaptor.getA(),
+                                    adaptor.getB(), adaptor.getTransposeA(),
+                                    adaptor.getTransposeB());
 
-      // Preserve the TTNN matmul_program_config (which has no TTIR equivalent) as a custom attribute
-      if (auto programConfig = srcOp.getMatmulProgramConfig()) {
-        newOp->setAttr("matmul_program_config", *programConfig);
-      }
+      // Preserve TTNN-specific attributes as custom attributes
+      preserveTTNNAttributesAsCustom(srcOp.getOperation(),
+                                     newOp.getOperation());
     }
     return mlir::success();
   }

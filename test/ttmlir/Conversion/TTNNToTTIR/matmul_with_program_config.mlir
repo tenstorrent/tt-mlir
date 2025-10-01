@@ -28,7 +28,7 @@ module {
         %2 = "ttnn.to_memory_config"(%arg1) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
 
         // CHECK: %{{[0-9]+}} = ttir.empty() : tensor<32x32xf32, #ttnn_layout1>
-        // CHECK: %{{[0-9]+}} = "ttir.matmul"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) <{transpose_a = false, transpose_b = false, matmul_program_config = #ttnn.matmul_multi_core_reuse_program_config<{{.*}}>> : (tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
+        // CHECK: %{{[0-9]+}} = "ttir.matmul"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) <{transpose_a = false, transpose_b = false}> {matmul_program_config = #ttnn.matmul_multi_core_reuse_program_config<{{.*}}>} : (tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
         %3 = "ttnn.matmul"(%1, %2) {ttnn.hoist_generic_via_d2m, transpose_a = false, transpose_b = false, matmul_program_config = #matmul_program_config} : (tensor<32x32xf32, #l1_layout>, tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
 
         %4 = "ttnn.to_memory_config"(%3) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
