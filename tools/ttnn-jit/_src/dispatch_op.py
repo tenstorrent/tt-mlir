@@ -20,7 +20,7 @@ from ttnn_jit.runtime._ttmlir_runtime.utils import (
 
 def _run_binary(binary_path, input_tensors):
     bin = load_binary_from_path(binary_path)
-    set_compatible_runtime(bin)
+    set_compatible_device_runtime(bin)
 
     num_programs = bin.get_num_programs()
     if num_programs > 1:
@@ -39,7 +39,7 @@ def _run_binary(binary_path, input_tensors):
         "Running program: ",
         program_name,
         " in runtime: ",
-        get_current_runtime(),
+        get_current_device_runtime(),
     )
 
     output_runtime_tensor = submit(runtime_device, bin, 0, runtime_tensors)

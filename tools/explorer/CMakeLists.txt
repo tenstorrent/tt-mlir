@@ -43,7 +43,7 @@ add_custom_target(explorer
   COMMAND python -m pip wheel ${CMAKE_CURRENT_SOURCE_DIR}/tt_adapter --wheel-dir ${TTMLIR_BUILD_BIN_DIR}/wheels
   COMMAND python -m pip wheel ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer/src/model-explorer/src/server/package --wheel-dir ${TTMLIR_BUILD_BIN_DIR}/wheels
 
-  DEPENDS TTMLIRPythonModules model-explorer ttrt ttmlir-opt ttmlir-translate
+  DEPENDS TTMLIRPythonModules model-explorer ttmlir-opt ttmlir-translate
 )
 
 add_custom_command(TARGET explorer POST_BUILD

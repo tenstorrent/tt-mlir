@@ -347,7 +347,7 @@ jobs:
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_generate_sys_desc
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_float_bfloat_buffer_cast
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_integer_buffer_cast
-        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/ttnn/gtest/test_runtime_client
+        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/ttnn/gtest/test_runtime_worker
         ${{ steps.strings.outputs.build-output-dir }}/runtime/test/ttnn/gtest/test_tensor_serialization
 
 
@@ -450,6 +450,9 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
         export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
         pytest -ssv ${{ matrix.build.path }} ${{ matrix.build.flags }} --junit-xml=${{ steps.strings.outputs.test_report_path }}

@@ -348,8 +348,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   auto meshWorkload = distributed::MeshWorkload();
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
 
-  distributed::AddProgramToMeshWorkload(meshWorkload, std::move(program),
-                                        deviceRange);
+  meshWorkload.add_program(deviceRange, std::move(program));
 
   if (perf::Env::get().enablePerfTrace) {
     for (auto &[range, program] : meshWorkload.get_programs()) {
@@ -423,7 +422,7 @@ void MCQExecutor::execute(
     const target::metal::EnqueueWaitForEventCommand *command) {
   ZoneScopedN("EnqueueWaitForEventCommand");
   auto mesh_event = meshEvents.at(command->ref()->global_id());
-  distributed::EnqueueWaitForEvent(*mcq, *mesh_event);
+  mcq->enqueue_wait_for_event(*mesh_event);
 }
 
 void MCQExecutor::execute(

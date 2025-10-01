@@ -2,14 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/detail/distributed/client/response_factory.h"
+#include "tt/runtime/detail/distributed/worker/response_factory.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 
-namespace tt::runtime::distributed::client {
+namespace tt::runtime::distributed::worker {
 
 using ::tt::runtime::DeviceRuntime;
 
@@ -184,6 +184,25 @@ void ResponseFactory::buildSubmitResponse(::flatbuffers::FlatBufferBuilder &fbb,
   debug::verifyFlatbuffer(fbb, verifyFn);
 }
 
+void ResponseFactory::buildGetNumShardsResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+    uint32_t numBuffers) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  auto responseType = ::tt::runtime::distributed::flatbuffer::ResponseType::
+      GetNumShardsResponse;
+
+  auto getNumShardsResponse =
+      ::tt::runtime::distributed::flatbuffer::CreateGetNumShardsResponse(
+          fbb, numBuffers);
+
+  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
+      fbb, commandId, responseType, getNumShardsResponse.Union());
+  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
+
+  debug::verifyFlatbuffer(fbb, verifyFn);
+}
+
 void ResponseFactory::buildToHostResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                           uint64_t commandId) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
@@ -243,4 +262,4 @@ void ResponseFactory::buildShutdownResponse(
   debug::verifyFlatbuffer(fbb, verifyFn);
 }
 
-} // namespace tt::runtime::distributed::client
+} // namespace tt::runtime::distributed::worker
