@@ -44,7 +44,8 @@ static bool hasCompatibleBlocking(GenericOp a, GenericOp b) {
          a.getBlockFactors() == b.getBlockFactors();
 }
 
-/// Something TODO
+/// Returns true if, post-fusion, every dimension has at least one input
+/// that defines it.
 ///
 /// Ensure that the fusion does not remove size information required to
 /// get the loop bounds. For non-reduction generics, this is trivially the
@@ -52,48 +53,57 @@ static bool hasCompatibleBlocking(GenericOp a, GenericOp b) {
 /// the fusion, each loop dimension has at least one input that defines it.
 static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
                                      OpOperand *fusedOperand) {
-  // If consumer has no reductions, trivially ok as in linalg.
-  if (!consumer.hasReduction()) {
-    return true;
-  }
+  // TODO(mbagherbeikTT) add issue to come back and re-enable this
+  // once we add reductions. Currently it's just a slightly reformatted
+  // version of how the linalg fusion pass checks dimension coverage.
+  //
+  // already check if we're all-parallel coming into here
+  assert(!consumer.hasReduction());
+  return true;
 
-  // Mark dims covered by existing (non-fused) consumer inputs.
-  BitVector coveredDims(consumer.getNumDims(), false);
-  for (auto [val, mapAttr] :
-       llvm::zip(consumer.getInputs(), consumer.getIndexingMaps())) {
-    if (val == fusedOperand->get()) {
-      continue;
-    }
-    AffineMap m = cast<AffineMapAttr>(mapAttr).getValue();
-    for (AffineExpr e : m.getResults()) {
-      if (auto d = dyn_cast<AffineDimExpr>(e)) {
-        coveredDims.set(d.getPosition());
-      }
-    }
-  }
+  // // If consumer has no reductions, trivially ok as in linalg.
+  // if (!consumer.hasReduction()) {
+  //   return true;
+  // }
 
-  // Add coverage from producer inputs remapped into consumer loops.
-  AffineMap consIdx = consumer.getIndexingMap(fusedOperand->getOperandNumber());
-  // Use first init operand's indexing map as result map.
-  AffineMap prodResMap = producer.getIndexingMap(
-      producer.getDpsInitOperand(0)->getOperandNumber());
-  AffineMap inv = inversePermutation(prodResMap);
+  // // Mark dims covered by existing (non-fused) consumer inputs.
+  // BitVector coveredDims(consumer.getNumDims(), false);
+  // for (auto [val, mapAttr] :
+  //      llvm::zip(consumer.getInputs(), consumer.getIndexingMaps())) {
+  //   if (val == fusedOperand->get()) {
+  //     continue;
+  //   }
+  //   AffineMap m = cast<AffineMapAttr>(mapAttr).getValue();
+  //   for (AffineExpr e : m.getResults()) {
+  //     if (auto d = dyn_cast<AffineDimExpr>(e)) {
+  //       coveredDims.set(d.getPosition());
+  //     }
+  //   }
+  // }
 
-  if (!inv) {
-    return false;
-  }
+  // // Add coverage from producer inputs remapped into consumer loops.
+  // AffineMap consIdx =
+  // consumer.getIndexingMap(fusedOperand->getOperandNumber());
+  // // Use first init operand's indexing map as result map.
+  // AffineMap prodResMap = producer.getIndexingMap(
+  //     producer.getDpsInitOperand(0)->getOperandNumber());
+  // AffineMap inv = inversePermutation(prodResMap);
 
-  AffineMap consToProd = inv.compose(consIdx);
-  for (OpOperand *oprd : producer.getDpsInputOperands()) {
-    AffineMap argMap = producer.getIndexingMap(oprd->getOperandNumber());
-    AffineMap fused = argMap.compose(consToProd);
-    for (AffineExpr e : fused.getResults()) {
-      if (auto d = dyn_cast<AffineDimExpr>(e)) {
-        coveredDims.set(d.getPosition());
-      }
-    }
-  }
-  return coveredDims.all();
+  // if (!inv) {
+  //   return false;
+  // }
+
+  // AffineMap consToProd = inv.compose(consIdx);
+  // for (OpOperand *oprd : producer.getDpsInputOperands()) {
+  //   AffineMap argMap = producer.getIndexingMap(oprd->getOperandNumber());
+  //   AffineMap fused = argMap.compose(consToProd);
+  //   for (AffineExpr e : fused.getResults()) {
+  //     if (auto d = dyn_cast<AffineDimExpr>(e)) {
+  //       coveredDims.set(d.getPosition());
+  //     }
+  //   }
+  // }
+  // return coveredDims.all();
 }
 
 static int countBinaryOps(Operation *op) {
