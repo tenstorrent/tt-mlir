@@ -1313,6 +1313,8 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Neg;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, ReluOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Relu;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, Relu6Op>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Relu6;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SqrtOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sqrt;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, RsqrtOp>) {
@@ -1928,6 +1930,36 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
       attentionSink, scale, out, memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ScaledDotProductAttentionOp>
+createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto value = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getValue()));
+  auto attentionMask = op.getAttentionMask()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionMask()))
+                           : 0;
+
+  auto isCausal = op.getIsCausal();
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  ::flatbuffers::Optional<float> scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+  return ::tt::target::ttnn::CreateScaledDotProductAttentionOp(
+      *cache.fbb, query, key, value, isCausal, attentionMask, scale, out,
+      memoryConfig);
+}
+
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
 createKernelArgs(FlatbufferObjectCache &cache,
                  llvm::ArrayRef<mlir::Attribute> argsAttrs) {
@@ -2329,6 +2361,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseUnaryOp(cache, reluOp),
                            debugString, locInfo);
   }
+  if (auto relu6Op = dyn_cast<Relu6Op>(op); relu6Op) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, relu6Op),
+                           debugString, locInfo);
+  }
   if (auto sqrtOp = dyn_cast<SqrtOp>(op); sqrtOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, sqrtOp),
                            debugString, locInfo);
@@ -2669,6 +2705,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       scaledDotProductAttentionDecodeOp) {
     return createOperation(cache,
                            createOp(cache, scaledDotProductAttentionDecodeOp),
+                           debugString, locInfo);
+  }
+  if (auto scaledDotProductAttentionOp =
+          dyn_cast<ScaledDotProductAttentionOp>(op);
+      scaledDotProductAttentionOp) {
+    return createOperation(cache, createOp(cache, scaledDotProductAttentionOp),
                            debugString, locInfo);
   }
 

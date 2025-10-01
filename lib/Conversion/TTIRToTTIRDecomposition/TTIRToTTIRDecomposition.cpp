@@ -681,7 +681,7 @@ struct GatherToEmbeddingConversionPattern
           rewriter, inputPermuted.getType().getShape(), op);
     }
     auto startIndices = startIndicesTransformed;
-    if (startIndices.getType().getShape().size() >= 3) {
+    if (startIndices.getType().getShape().size() != 2) {
       startIndices =
           reshapeStartIndices(rewriter,
                               ttmlir::utils::appendLocationSuffix(
@@ -825,14 +825,14 @@ private:
   }
 
   // Helper that reshapes start indices to reduce number of dims, as Embedding
-  // Op input can be 1D or 2D.
+  // Op input needs to be 2D.
   static ttir::ReshapeOp reshapeStartIndices(
       ConversionPatternRewriter &rewriter, Location loc,
       ::mlir::TypedValue<::mlir::RankedTensorType> startIndices) {
     auto startIndicesShape = startIndices.getType().getShape();
-    llvm::SmallVector<int64_t, 1> newStartIndicesShape{
-        std::accumulate(startIndicesShape.begin(), startIndicesShape.end(),
-                        int64_t{1}, std::multiplies<>())};
+    llvm::SmallVector<int64_t, 2> newStartIndicesShape{
+        1, std::accumulate(startIndicesShape.begin(), startIndicesShape.end(),
+                           int64_t{1}, std::multiplies<>())};
     return createReshapeOp(rewriter, loc, startIndices, newStartIndicesShape);
   }
 

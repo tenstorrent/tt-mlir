@@ -12,7 +12,7 @@
 namespace tt::runtime::test::ttnn {
 using ::tt::runtime::DeviceRuntime;
 Layout getDramInterleavedTileLayout(::tt::target::DataType dataType) {
-  LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
+  LOG_ASSERT(getCurrentDeviceRuntime() == DeviceRuntime::TTNN);
   ::ttnn::DataType ttnnDataType =
       ::tt::runtime::ttnn::utils::toTTNNDataType(dataType);
   ::tt::runtime::ttnn::LayoutDesc layoutDesc(::ttnn::StorageType::DEVICE,
@@ -25,7 +25,7 @@ Layout getDramInterleavedTileLayout(::tt::target::DataType dataType) {
 }
 
 Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
-  LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
+  LOG_ASSERT(getCurrentDeviceRuntime() == DeviceRuntime::TTNN);
   ::ttnn::DataType ttnnDataType =
       ::tt::runtime::ttnn::utils::toTTNNDataType(dataType);
   ::tt::runtime::ttnn::LayoutDesc layoutDesc(
@@ -38,7 +38,7 @@ Layout getDramInterleavedRowMajorLayout(::tt::target::DataType dataType) {
 }
 
 ::tt::runtime::Layout getHostRowMajorLayout(::tt::target::DataType dataType) {
-  LOG_ASSERT(getCurrentRuntime() == DeviceRuntime::TTNN);
+  LOG_ASSERT(getCurrentDeviceRuntime() == DeviceRuntime::TTNN);
   ::ttnn::DataType ttnnDataType =
       ::tt::runtime::ttnn::utils::toTTNNDataType(dataType);
   ::tt::runtime::ttnn::LayoutDesc layoutDesc(::ttnn::StorageType::HOST,

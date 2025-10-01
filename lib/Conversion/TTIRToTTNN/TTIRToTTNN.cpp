@@ -1787,6 +1787,26 @@ public:
 };
 } // namespace
 
+namespace {
+class ScaledDotProductAttentionOpConversionPattern
+    : public OpConversionPattern<ttir::ScaledDotProductAttentionOp> {
+public:
+  using OpConversionPattern<
+      ttir::ScaledDotProductAttentionOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::ScaledDotProductAttentionOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    FloatAttr scaleAttr = op.getScaleAttr() ? op.getScaleAttr() : nullptr;
+    rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
+        adaptor.getAttentionMask(), op.getIsCausal(), scaleAttr,
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
 // This rewrite pattern lowers a ttir.all_to_all op into a sequence of
 // ttnn.slice_static, ttnn.point_to_point, and ttnn.concat ops.
 //
@@ -1926,6 +1946,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::BitwiseNotOp, ttnn::BitwiseNotOp>,
            ElementwiseOpConversionPattern<ttir::NegOp, ttnn::NegOp>,
            ElementwiseOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
+           ElementwiseOpConversionPattern<ttir::Relu6Op, ttnn::Relu6Op>,
            ElementwiseOpConversionPattern<ttir::GeluOp, ttnn::GeluOp>,
            ElementwiseOpConversionPattern<ttir::SqrtOp, ttnn::SqrtOp>,
            ElementwiseOpConversionPattern<ttir::RsqrtOp, ttnn::RsqrtOp>,
@@ -1994,6 +2015,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllToAllOpConversionPattern,
            CollectiveBroadcastOpConversionPattern,
            ConcatenateHeadsOpConversionPattern,
+           ScaledDotProductAttentionOpConversionPattern,
            ScaledDotProductAttentionDecodeOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
