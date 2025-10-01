@@ -281,12 +281,25 @@ def golden(callback_runtime_config, binary, program_context, op_context):
         op_output_tensor = op_output_tensor_map[device_id]
         rt_buffer = op_output_tensor.get_data_buffer()
         dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
-        # golden_tensor_torch = golden_tensor_to_torch(op_golden_tensor).flatten()
-        golden_tensor_torch = torch.add(
-            op_input_tensors_torch[0], op_input_tensors_torch[1]
-        ).flatten()
+        # Get the corresponding TTIR operation class and its golden function
+        ttir_op_class = get_ttir_op_class(op_name)
+        if ttir_op_class:
+            golden_func = get_golden_function(ttir_op_class)
+            if golden_func:
+                golden_tensor_torch = golden_func(
+                    *op_input_tensors_torch.values()
+                ).flatten()
+            else:
+                logging.warning(f"No golden function found for operation {op_name}")
+                return
+        else:
+            logging.warning(f"No TTIR operation class found for operation {op_name}")
+            return
 
         output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
+        print(op_name + " golden comparison op by op")
+        print(golden_tensor_torch)
+        print(output_tensor_torch)
         if callback_runtime_config.save_golden_tensors:
             golden_tensor_torch_name = get_sanitized_filename(
                 f"{loc}_{device_id}_golden.pt"
