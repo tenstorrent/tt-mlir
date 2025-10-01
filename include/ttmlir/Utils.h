@@ -121,6 +121,32 @@ replaceAffineMapSymbols(mlir::AffineMap map, mlir::ArrayRef<int64_t> symbols) {
                                    map.getNumDims(), numResultSyms);
 }
 
+// Generates an affine map translating ND grid x ND shard coordinates into ND
+// grid + a linearized offset i.e. collapsing all shard dims into a single
+// byte offset based on provided shard strides.
+//
+// i.e. if strides = [4, 2] --> (g0, g1, s0, s1) -> (g0, g1, 4*s0 + 2*s1)
+inline mlir::AffineMap
+generateAffineMapFromShardStrides(mlir::ArrayRef<int64_t> strides,
+                                  mlir::MLIRContext *context) {
+  int64_t rank = strides.size();
+  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank + 1);
+
+  for (int64_t i = 0; i < rank; i++) {
+    mapExprs[i] = getAffineDimExpr(i, context);
+  }
+
+  mapExprs[rank] = getAffineConstantExpr(0, context);
+  for (int64_t i = rank - 1; i >= 0; i--) {
+    mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
+    mlir::AffineExpr stride = getAffineConstantExpr(strides[i], context);
+    mapExprs[rank] = shardDim * stride + mapExprs[rank];
+  }
+
+  auto map = mlir::AffineMap::get(strides.size() * 2, 0, mapExprs, context);
+  return map;
+}
+
 template <typename T>
 T volume(mlir::ArrayRef<T> shape, T stride = 1) {
   return std::accumulate(shape.begin(), shape.end(), stride,

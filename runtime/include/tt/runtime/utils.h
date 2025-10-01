@@ -156,17 +156,19 @@ void handleBFloat16ToFloat16(const uint16_t *oldBuffer, uint16_t *newBuffer,
 
 } // namespace detail
 
+std::string getMlirHome();
+
 std::shared_ptr<void> mallocShared(const size_t size);
 std::shared_ptr<void> callocShared(const size_t size);
 
 template <typename T>
-inline std::shared_ptr<const void> unsafe_borrow_shared(const T *ptr) {
+inline std::shared_ptr<const void> unsafeBorrowShared(const T *ptr) {
   return std::shared_ptr<const void>(static_cast<const void *>(ptr),
                                      [](const void *) {});
 }
 
 template <typename T>
-inline std::shared_ptr<void> unsafe_borrow_shared(T *ptr) {
+inline std::shared_ptr<void> unsafeBorrowShared(T *ptr) {
   return std::shared_ptr<void>(static_cast<void *>(ptr), [](void *) {});
 }
 

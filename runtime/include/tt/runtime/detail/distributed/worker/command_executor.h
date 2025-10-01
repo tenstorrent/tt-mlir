@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_DISTRIBUTED_CLIENT_COMMAND_EXECUTOR_H
-#define TT_RUNTIME_DETAIL_DISTRIBUTED_CLIENT_COMMAND_EXECUTOR_H
+#ifndef TT_RUNTIME_DETAIL_DISTRIBUTED_WORKER_COMMAND_EXECUTOR_H
+#define TT_RUNTIME_DETAIL_DISTRIBUTED_WORKER_COMMAND_EXECUTOR_H
 
 #include <atomic>
 #include <thread>
@@ -14,7 +14,7 @@
 #include "tt/runtime/detail/distributed/types/spsc_queue.h"
 #include "tt/runtime/types.h"
 
-namespace tt::runtime::distributed::client {
+namespace tt::runtime::distributed::worker {
 
 class CommandExecutor {
 public:
@@ -32,9 +32,14 @@ public:
 
 private:
   std::atomic<bool> shutdownRequested_{false};
-  std::unique_ptr<ClientSocket> clientSocket_;
+  std::unique_ptr<WorkerSocket> workerSocket_;
+
   SPSCQueue<SizedBuffer> commandQueue_;
   std::thread commandReceiverThread_;
+
+  SPSCQueue<std::unique_ptr<::flatbuffers::FlatBufferBuilder>> responseQueue_;
+  std::thread responseSenderThread_;
+
   std::unordered_map<uint32_t, ::tt::runtime::Device> devicePool_;
   std::unordered_map<uint64_t, ::tt::runtime::Binary> binaryPool_;
   std::unordered_map<uint64_t, ::tt::runtime::Layout> layoutPool_;
@@ -46,6 +51,9 @@ private:
 
   void launchCommandReceiver();
   void receiveCommands();
+
+  void launchResponseSender();
+  void sendResponses();
 
   void
   execute(uint64_t commandId,
@@ -72,6 +80,9 @@ private:
   void
   execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::SubmitCommand *command);
+  void execute(uint64_t commandId,
+               const ::tt::runtime::distributed::flatbuffer::GetNumShardsCommand
+                   *command);
   void
   execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::ToHostCommand *command);
@@ -84,10 +95,7 @@ private:
 
   void executeCommand(
       const ::tt::runtime::distributed::flatbuffer::Command *command);
-
-  void sendResponse(::flatbuffers::FlatBufferBuilder &responseBuilder);
-  void handleShutdown();
 };
 
-} // namespace tt::runtime::distributed::client
-#endif // TT_RUNTIME_DETAIL_DISTRIBUTED_CLIENT_COMMAND_EXECUTOR_H
+} // namespace tt::runtime::distributed::worker
+#endif // TT_RUNTIME_DETAIL_DISTRIBUTED_WORKER_COMMAND_EXECUTOR_H

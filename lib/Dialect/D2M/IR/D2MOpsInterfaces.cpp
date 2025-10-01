@@ -35,9 +35,11 @@ mlir::tt::d2m::applyViews(mlir::Operation *op) {
   Value input = viewOp.getInput();
   auto inputMemref = mlir::cast<mlir::MemRefType>(input.getType());
 
-  assert(
-      mlir::isa<ttcore::ShardLayoutAttr>(inputMemref.getLayout()) &&
-      "Expected ShardLayoutAttr, only one level of view nesting is supported");
+  auto devLayout = mlir::dyn_cast_or_null<ttcore::DeviceLayoutInterface>(
+      inputMemref.getLayout());
+  assert(devLayout && devLayout.isPhysical() &&
+         "Expected physical layout attr; only one level of "
+         "view nesting is supported");
 
   return std::make_pair(inputMemref, map);
 }
