@@ -21,21 +21,21 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MELEMENTWISEFUSION
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-static bool hasTilizeOp(Operation *op) {
-  if (isa<mlir::tt::d2m::TileTilizeBlockOp>(op)) {
-    return true;
-  }
+// static bool hasTilizeOp(Operation *op) {
+//   if (isa<mlir::tt::d2m::TileTilizeBlockOp>(op)) {
+//     return true;
+//   }
 
-  for (Region &region : op->getRegions()) {
-    for (Operation &opInner : region.getOps()) {
-      if (hasTilizeOp(&opInner)) {
-        return true;
-      }
-    }
-  }
+//   for (Region &region : op->getRegions()) {
+//     for (Operation &opInner : region.getOps()) {
+//       if (hasTilizeOp(&opInner)) {
+//         return true;
+//       }
+//     }
+//   }
 
-  return false;
-}
+//   return false;
+// }
 
 static bool hasMultiUseOperand(GenericOp gOp) {
   for (OpOperand *input : gOp.getDpsInputOperands()) {
@@ -44,27 +44,29 @@ static bool hasMultiUseOperand(GenericOp gOp) {
       return true;
     }
 
-    auto tilizeGenOp = dyn_cast<GenericOp>(input->get().getDefiningOp());
+    // auto tilizeGenOp = dyn_cast<GenericOp>(input->get().getDefiningOp());
 
-    // Function arguments go through to_layout->tilize for each unique
-    // non-tilize compute region they appear in. Need to check if operands are
-    // coming from a tilize generic and then trace that back to a to_layout op
-    // and see if the input arg is used multiple times
-    if (hasTilizeOp(tilizeGenOp)) {
-      if (llvm::range_size(tilizeGenOp->getOperand(0).getUsers()) > 1) {
-        return true;
-      }
+    // // Function arguments go through to_layout->tilize for each unique
+    // // non-tilize compute region they appear in. Need to check if operands
+    // are
+    // // coming from a tilize generic and then trace that back to a to_layout
+    // op
+    // // and see if the input arg is used multiple times
+    // if (hasTilizeOp(tilizeGenOp)) {
+    //   if (llvm::range_size(tilizeGenOp->getOperand(0).getUsers()) > 1) {
+    //     return true;
+    //   }
 
-      // The input to tilize could also be a to_layout from a multi-use arg.
-      if (auto *toLayoutOp =
-              tilizeGenOp.getDpsInputOperand(0)->get().getDefiningOp()) {
-        for (auto argOperand : toLayoutOp->getOperands()) {
-          if (llvm::range_size(argOperand.getUsers()) > 1) {
-            return true;
-          }
-        }
-      }
-    }
+    //   // The input to tilize could also be a to_layout from a multi-use arg.
+    //   if (auto *toLayoutOp =
+    //           tilizeGenOp.getDpsInputOperand(0)->get().getDefiningOp()) {
+    //     for (auto argOperand : toLayoutOp->getOperands()) {
+    //       if (llvm::range_size(argOperand.getUsers()) > 1) {
+    //         return true;
+    //       }
+    //     }
+    //   }
+    // }
   }
   return false;
 }
