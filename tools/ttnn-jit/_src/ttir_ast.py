@@ -108,6 +108,11 @@ class TTIRCompiler(ast.NodeVisitor):
                 return sym_table
         return {}
 
+    def _create_get_device_op(self):
+        mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(self.ctx, 1, 1)
+        mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(self.ctx, 0, 0)
+        return ttnn.get_device(mesh_shape=mesh_shape_attr, mesh_offset=mesh_offset_attr)
+
     def _create_tensor_layout(self, tensor_arg):
         # Only rank 2 tensors supported
         assert len(tensor_arg.shape) == 2
@@ -196,6 +201,7 @@ class TTIRCompiler(ast.NodeVisitor):
 
         self.symbol_tables.append(symbol_table)
         with InsertionPoint(func_bb), Location.unknown():
+            self.device = self._create_get_device_op()
             for target in node.body:
                 self.visit(target)
 
@@ -232,13 +238,20 @@ class TTIRCompiler(ast.NodeVisitor):
         assert self.backend == "ttnn", "Attributes are only supported for ttnn backend"
         assert len(args) >= 1, "Must pass at least one argument (tensor)"
         assert node.attr in self._fn_map, f"Function {node.attr} not supported"
+        assert not isinstance(
+            args[0], ast.Constant
+        ), "First argument cannot be a constant"
 
         arg = self.visit(args[0])
         result_type = arg.type
 
         func_args = [result_type, arg]
         for func_arg in args[1:]:
-            func_args.append(self.visit(func_arg))
+            if isinstance(func_arg, ast.Constant):
+                arg = self.visit(func_arg, tensor_type=result_type)
+            else:
+                arg = self.visit(func_arg)
+            func_args.append(arg)
 
         func = self._fn_map[node.attr]
         op = func(*func_args)
@@ -250,7 +263,6 @@ class TTIRCompiler(ast.NodeVisitor):
                 self.ctx, self._ttcore_dtype_from_mlir_dtype(element_type)
             )
             op.owner.attributes["dtype"] = dtype
-
         return op
 
     # Expressions
@@ -369,16 +381,47 @@ class TTIRCompiler(ast.NodeVisitor):
 
         return None
 
-    def visit_Constant(self, node, tensor_shape=[]):
-        assert tensor_shape, "Tensor shape must be provided for constants"
-        if isinstance(node.value, float):
-            attr = FloatAttr.get(F32Type.get(self.ctx), node.value)
+    def visit_Constant(self, node, tensor_type=None):
+        # assert tensor_shape, "Tensor shape must be provided for constants"
+        assert tensor_type is not None, "Tensor type must be provided for constants"
+        if isinstance(
+            tensor_type.element_type, FloatType
+        ):  # FIX IF BFLOAT16, CHECK TENSOR_TYPE INSTEAD
+            attr = FloatAttr.get(tensor_type.element_type, node.value)
+        elif isinstance(tensor_type.element_type, BFloat16Type):
+            attr = FloatAttr.get(BF16Type.get(self.ctx), node.value)
         else:
             raise NotImplementedError(f"Unsupported constant type: {type(node.value)}")
 
-        tensor_type = RankedTensorType.get(tensor_shape, attr.type)
-        dense_attr = DenseElementsAttr.get_splat(tensor_type, attr)
-        return ttir.ConstantOp(tensor_type, dense_attr)
+        if self.backend == "ttnn":
+            element_type = tensor_type.element_type
+            print("element_type: ", type(element_type))
+            dense_attr = DenseElementsAttr.get_splat(tensor_type, attr)
+
+            dtype = ttcore.ir.DataTypeAttr.get(
+                self.ctx, self._ttcore_dtype_from_mlir_dtype(element_type)
+            )
+            # Extract layout from tensor encoding if present
+            layout_attr = None
+            if tensor_type.encoding:
+                layout = ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor_type.encoding)
+                layout_attr = ttnn.ir.LayoutAttr.get(
+                    self.ctx, layout.memory_layout_as_int
+                )
+
+            shape = ttnn.ir.ShapeAttr.get(self.ctx, tensor_type.shape)
+            return ttnn.FullOp(
+                tensor_type,
+                shape,
+                attr,
+                device=self.device,
+                dtype=dtype,
+                layout=layout_attr,
+            )
+
+        # tensor_type = RankedTensorType.get(tensor_shape, attr.type)
+        # dense_attr = DenseElementsAttr.get_splat(tensor_type, attr)
+        # return ttir.ConstantOp(tensor_type, dense_attr)
 
     def visit(self, node: ast.AST, **kwargs):
         if any(

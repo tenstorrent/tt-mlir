@@ -48,7 +48,11 @@ def run_unary_op(device, h, w, max_grid, dtype, op):
     )
     op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(op)
     output_tensor = op_jit(input_tensor)
-    golden_tensor = golden_op(input_tensor)
+
+    if golden_op:
+        golden_tensor = golden_op(input_tensor)
+    else:
+        golden_tensor = op(input_tensor)
 
     print("--------------------------------")
     print("input_tensor")
@@ -143,6 +147,14 @@ def rsqrt(input_tensor):
     return ttnn.rsqrt(input_tensor)
 
 
+def cosh(input_tensor):
+    e_pos_x = ttnn.exp(input_tensor)
+    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
+    nr_term = ttnn.add(e_pos_x, e_neg_x)
+    output = ttnn.multiply(nr_term, 0.5)
+    return output
+
+
 # sweep shapes, grid size, dtype
 @pytest.mark.parametrize(
     "h , w, max_grid",
@@ -175,6 +187,7 @@ def rsqrt(input_tensor):
         logical_not,
         reciprocal,
         rsqrt,
+        cosh,
         # cbrt, sign, erf, erfc, bitwise_not # <- not supported in TTIRToD2M
         # tan, sqrt # <- always fails allclose
     ],
