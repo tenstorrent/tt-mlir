@@ -25,12 +25,6 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
   // Go through schedule in order using walk, trying to upgrade DRAM ops to L1
   // interleaved.
   analysisInput.funcOp->walk([&](Operation *op) {
-    // Skip operations that have the row-major workaround later on in Optimizer.
-    // TODO(bmalesevic,#3985): remove after this is fixed
-    if (isa<ttnn::MaxPool2dOp, ttnn::UpsampleOp>(op)) {
-      return;
-    }
-
     // Skip operations that have DRAM output in runtime even when configured as
     // L1 via this analysis.
     // TODO(bmalesevic,#4505): remove this after they are supported in runtime
