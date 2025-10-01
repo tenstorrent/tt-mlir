@@ -367,6 +367,7 @@ class TTIRCompiler(ast.NodeVisitor):
 
         type_attr = FloatAttr.get(element_type, node.value)
         if self.backend == "ttnn":
+            # TODO(#5186): Support bf16 constants.
             if not isinstance(tensor.type.element_type, FloatType):
                 raise NotImplementedError(
                     f"Unsupported constant type: {type(node.value)}"
