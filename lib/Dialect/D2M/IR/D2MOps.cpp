@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/IR/AffineMap.h"
@@ -98,7 +99,8 @@ createDefaultLayout(mlir::MLIRContext *ctx,
 
   return mlir::tt::ttcore::MetalLayoutAttr::get(
       ctx, logicalShape, squareGridShape, mlir::tt::ttcore::OOBVal::Undef,
-      mlir::tt::ttcore::MemorySpace::System);
+      mlir::tt::ttcore::MemorySpace::System,
+      mlir::tt::ttcore::TensorMemoryLayout::Sharded);
 }
 } // namespace
 
@@ -153,6 +155,11 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
     return success();
   }
 
+  // Don't bufferize if tensor has a ttnn_layout; lowering to ttnn generic.
+  if (options.allowUnknownOps &&
+      mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())) {
+    return success();
+  }
   ::llvm::SmallVector<mlir::Value> invocationStack;
   mlir::bufferization::replaceOpWithNewBufferizedOp<memref::AllocOp>(
       rewriter, *this,
@@ -412,6 +419,25 @@ bool ToLayoutOp::isDeviceToHost() {
   return !hostInput && hostOutput;
 }
 
+void ToLayoutOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  for (OpOperand &operand : getOperation()->getOpOperands()) {
+    if (!llvm::isa<MemRefType>(operand.get().getType())) {
+      continue;
+    }
+    if (operand.getOperandNumber() == 0) { // Input operand
+      effects.emplace_back(MemoryEffects::Read::get(), &operand, /*stage*/ 0,
+                           /*effectOnFullRegion*/ true,
+                           SideEffects::DefaultResource::get());
+    } else { // Output operand
+      effects.emplace_back(MemoryEffects::Write::get(), &operand, /*stage*/ 0,
+                           /*effectOnFullRegion*/ true,
+                           SideEffects::DefaultResource::get());
+    }
+  }
+}
+
 void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
                                              mlir::MLIRContext *context) {
   // Fold into d2m.empty w/ desired layout
@@ -427,12 +453,12 @@ void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
   patterns.add(std::make_unique<ToLayoutFoldRedundantPattern>(context));
 }
 
-bool mlir::tt::d2m::ToLayoutOp::bufferizesToMemoryRead(
+bool ToLayoutOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   return operand.getOperandNumber() == 0; // Input operand
 }
 
-bool mlir::tt::d2m::ToLayoutOp::bufferizesToMemoryWrite(
+bool ToLayoutOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   return operand.getOperandNumber() == 1; // Output operand
 }
@@ -529,7 +555,7 @@ ToLayoutOp::getBufferType(mlir::Value value,
 }
 
 //===----------------------------------------------------------------------===//
-// StreamLayoutOp Bufferization Interface Implementation
+// StreamLayoutOp
 //===----------------------------------------------------------------------===//
 
 void d2m::StreamLayoutOp::getAsmResultNames(
@@ -612,6 +638,41 @@ void d2m::StreamLayoutOp::getCanonicalizationPatterns(
         op, newMemref, viewOp.getInput(), op.getStorage());
     return success();
   });
+}
+
+mlir::LogicalResult StreamLayoutOp::verify() {
+  auto inputStorageVerification =
+      verifyLayoutOp(*this, getInput().getType(), getStorage().getType(),
+                     /*allowFormatChange*/ false,
+                     /*allowMemorySpaceChange*/ true,
+                     /*checkMemrefRank*/ true,
+                     /*checkMemrefGridShardForm */ true,
+                     /*checkMemrefShardShape*/ false);
+  if (failed(inputStorageVerification)) {
+    return inputStorageVerification;
+  }
+
+  auto storageResultVerification =
+      verifyLayoutOp(*this, getStorage().getType(), getResult().getType(),
+                     /*allowFormatChange*/ false,
+                     /*allowMemorySpaceChange*/ true,
+                     /*checkMemrefRank*/ true,
+                     /*checkMemrefGridShardForm */ true,
+                     /*checkMemrefShardShape*/ true);
+  if (failed(storageResultVerification)) {
+    return storageResultVerification;
+  }
+
+  MemRefType inputMemrefType = mlir::dyn_cast<MemRefType>(getInput().getType());
+  MemRefType resultMemrefType =
+      mlir::dyn_cast<MemRefType>(getResult().getType());
+  if (inputMemrefType && resultMemrefType &&
+      (inputMemrefType.getMemorySpace() != resultMemrefType.getMemorySpace())) {
+    return this->emitOpError(
+        "Input and result memref memory spaces must be the same");
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1100,6 +1161,77 @@ static mlir::LogicalResult verifyAffineBlocking(
   }
 
   return success();
+}
+
+void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
+                                            mlir::MLIRContext *context) {
+  patterns.add(
+      // Check to see if any linalg generic passes have wired up d2m generic op
+      // inputs to the outputs (i.e. inplace) which we currently do not support.
+      // This canonicalization pattern will catch these cases and rewire the
+      // inputs.
+      +[](GenericOp op, mlir::PatternRewriter &rewriter) {
+        if (op->getNumRegions() == 0) {
+          return mlir::failure();
+        }
+
+        auto replaceWithOutputCb =
+            +[](PatternRewriter &rewriter, Region &region, Operation *regionOp,
+                OpOperand &initOperand, int64_t dpsIOBoundary) -> bool {
+          BlockArgument blockArg =
+              mlir::dyn_cast<BlockArgument>(initOperand.get());
+          if (blockArg && blockArg.getArgNumber() >= dpsIOBoundary) {
+            return false;
+          }
+
+          Operation *origDefiningOp = initOperand.get().getDefiningOp();
+          if (origDefiningOp && !mlir::isa<EmptyOp>(origDefiningOp)) {
+            return false;
+          }
+
+          rewriter.modifyOpInPlace(regionOp, [&]() {
+            initOperand.assign(region.getArgument(dpsIOBoundary));
+          });
+
+          if (mlir::isa_and_nonnull<EmptyOp>(origDefiningOp)) {
+            rewriter.replaceAllUsesWith(origDefiningOp->getResult(0),
+                                        initOperand.get());
+          }
+
+          return true;
+        };
+
+        int64_t dpsIOBoundary = op.getNumDpsInputs();
+        bool updated = false;
+        for (Region &region : op->getRegions()) {
+          if (op.getRegionThreadType(region.getRegionNumber()) !=
+              ThreadType::Compute) {
+            continue;
+          }
+
+          region.walk([&](Operation *regionOp) {
+            if (DestinationStyleOpInterface dps =
+                    mlir::dyn_cast<DestinationStyleOpInterface>(regionOp);
+                dps) {
+              for (OpOperand &initOperand : dps.getDpsInitsMutable()) {
+                assert(op.getNumDpsInits() == dps.getNumDpsInits());
+                assert(op.getNumDpsInits() == 1);
+
+                updated |= replaceWithOutputCb(rewriter, region, regionOp,
+                                               initOperand, dpsIOBoundary);
+              }
+            } else if (TileMatmulBlockOp tmb =
+                           mlir::dyn_cast<TileMatmulBlockOp>(regionOp);
+                       tmb) {
+              updated |=
+                  replaceWithOutputCb(rewriter, region, regionOp,
+                                      tmb.getOutputMutable(), dpsIOBoundary);
+            }
+          });
+        }
+
+        return updated ? mlir::success() : mlir::failure();
+      });
 }
 
 unsigned d2m::GenericOp::getNumLoops() { return getNumDims(); }

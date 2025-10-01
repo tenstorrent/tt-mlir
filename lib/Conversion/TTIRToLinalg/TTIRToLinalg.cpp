@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
@@ -23,8 +24,6 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
-
-#include <cstdint>
 
 #include <cstdint>
 
@@ -304,6 +303,19 @@ static Attribute createDenseElementsAttr(RankedTensorType resultType,
         resultType, APInt(cast<IntegerType>(elementType).getWidth(), value));
   }
   return {};
+}
+
+// Helper function to calculate extra padding for MaxPool2dOp.
+// This function calculates the extra padding needed to make the output size
+// divisible by the stride.
+static int64_t calculateExtraPadding(int64_t dim, int64_t kernel,
+                                     int64_t stride, int64_t padding1,
+                                     int64_t padding2, int64_t dilation) {
+  if ((dim - 1 + padding1 + padding2 - (kernel - 1) * dilation) % stride != 0) {
+    return (stride -
+            (dim - 1 + padding1 + padding2 - (kernel - 1) * dilation) % stride);
+  }
+  return 0;
 }
 
 } // namespace
@@ -986,6 +998,320 @@ public:
 };
 } // namespace
 
+namespace {
+class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
+public:
+  using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Value input = adaptor.getInput();
+    Value weight = adaptor.getWeight();
+    Value bias = adaptor.getBias();
+    Attribute strides = adaptor.getStride();
+    Attribute dilations = adaptor.getDilation();
+    Attribute padding = adaptor.getPadding();
+    uint32_t groups = adaptor.getGroups();
+
+    if (groups > 1) {
+      return rewriter.notifyMatchFailure(
+          op, "Grouped convolution is not supported yet.");
+    }
+    auto weightType = cast<RankedTensorType>(weight.getType());
+
+    // TTIR uses (O,C,H,W) but TOSA uses (O,H,W,C) for weight.
+    SmallVector<int32_t> permutation = {0, 2, 3, 1};
+    auto weightShape = weightType.getShape();
+    SmallVector<int64_t> transposedShape = ttmlir::utils::applyPermutation(
+        weightShape, llvm::to_vector_of<int64_t>(permutation));
+
+    auto transposedWeightType =
+        RankedTensorType::get(transposedShape, weightType.getElementType());
+
+    auto transposedWeight = rewriter.create<tosa::TransposeOp>(
+        op.getLoc(), transposedWeightType, weight, permutation);
+
+    // Reshape bias from 4D (1,1,1,B) to 1D (B) for TOSA.
+    // If bias is not provided, create a zero bias tensor.
+    Value reshapedBias = nullptr;
+    if (bias) {
+      auto biasType = cast<RankedTensorType>(bias.getType());
+      auto biasShape = biasType.getShape();
+      assert(biasShape.size() == 4 && "Bias must be 4D");
+      assert(biasShape[0] == 1 && biasShape[1] == 1 && biasShape[2] == 1 &&
+             "Bias must be 4D with shape (1,1,1,B)");
+      SmallVector<int64_t> reshapedBiasShape = {biasShape[3]};
+      auto reshapedBiasType =
+          RankedTensorType::get(reshapedBiasShape, biasType.getElementType());
+      auto shapeType = tosa::shapeType::get(rewriter.getContext(), 1);
+      auto shapeAttr = rewriter.getIndexTensorAttr(reshapedBiasShape);
+      auto shapeOp = rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType,
+                                                         shapeAttr);
+
+      reshapedBias = rewriter
+                         .create<tosa::ReshapeOp>(op.getLoc(), reshapedBiasType,
+                                                  bias, shapeOp.getResult())
+                         .getResult();
+    } else {
+      int64_t outputChannels = weightShape[0];
+      auto biasElementType =
+          cast<RankedTensorType>(input.getType()).getElementType();
+      auto biasType = RankedTensorType::get({outputChannels}, biasElementType);
+
+      Attribute zeroAttr;
+      if (isa<FloatType>(biasElementType)) {
+        zeroAttr = DenseElementsAttr::get(
+            biasType,
+            APFloat::getZero(
+                cast<FloatType>(biasElementType).getFloatSemantics()));
+      } else if (isa<IntegerType>(biasElementType)) {
+        zeroAttr = DenseElementsAttr::get(
+            biasType,
+            APInt::getZero(cast<IntegerType>(biasElementType).getWidth()));
+      } else {
+        return rewriter.notifyMatchFailure(op, "Unsupported bias element type");
+      }
+      reshapedBias = rewriter.create<tosa::ConstOp>(
+          op.getLoc(), biasType, cast<DenseElementsAttr>(zeroAttr));
+    }
+    // Expand stride if it contains only one element.
+    auto stridesResult = ttmlir::utils::getPairOfInteger<int32_t>(strides);
+    if (!stridesResult) {
+      return rewriter.notifyMatchFailure(
+          op, "stride must be an integer or array attribute");
+    }
+
+    // Expand padding if it contains only one or two elements.
+    auto paddingResult = ttmlir::utils::getQuadrupleOfInteger<int32_t>(padding);
+    if (!paddingResult) {
+      return rewriter.notifyMatchFailure(
+          op, "padding must be an integer, 2-element, or 4-element array "
+              "attribute");
+    }
+    // If padding is a single integer, expand it to 4 elements.
+    // If padding is a 2-element array, it is (width, height) and expand it to 4
+    // elements (width, height, width, height). If padding is a 4-element array,
+    // TTIR uses (top, left, bottom, right) but TOSA uses (top, bottom, left,
+    // right). Permutation of indices 1 and 2 is needed to match the padding
+    // order. (width, height, width, height) -> (width, width, height, height)
+    // (top, left, bottom, right) -> (top, bottom, left, right)
+
+    auto [paddingTop, paddingLeft, paddingBottom, paddingRight] =
+        *paddingResult;
+
+    // Expand dilation if it contains only one element.
+    auto dilationsResult = ttmlir::utils::getPairOfInteger<int32_t>(dilations);
+    if (!dilationsResult) {
+      return rewriter.notifyMatchFailure(
+          op, "dilation must be an integer or array attribute");
+    }
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Choose accumulator type based on result element type.
+    Type accType;
+    if (isa<FloatType>(resultType.getElementType())) {
+      accType = rewriter.getF32Type();
+    } else if (isa<IntegerType>(resultType.getElementType())) {
+      accType = rewriter.getI32Type();
+    } else {
+      return rewriter.notifyMatchFailure(
+          op, "Unsupported result element type for conv2d");
+    }
+
+    // Update padding and return shape to be used in the TOSA Conv2DOp.
+    // input_height - 1 + pad_top + pad_bottom - (kernel_height - 1) *
+    // dilation_y must be divisible by stride_y. input_width - 1 + pad_left +
+    // pad_right - (kernel_width - 1) * dilation_x must be divisible by
+    // stride_x. The padding values are updated to ensure this condition is met.
+    int64_t inputHeight = cast<RankedTensorType>(input.getType()).getShape()[1];
+    int64_t inputWidth = cast<RankedTensorType>(input.getType()).getShape()[2];
+    int64_t kernelHeight = weightShape[2];
+    int64_t kernelWidth = weightShape[3];
+
+    paddingBottom += calculateExtraPadding(
+        inputHeight, kernelHeight, stridesResult->first, paddingTop,
+        paddingBottom, dilationsResult->first);
+    paddingRight += calculateExtraPadding(
+        inputWidth, kernelWidth, stridesResult->second, paddingLeft,
+        paddingRight, dilationsResult->second);
+
+    auto expandedStridesAttr = rewriter.getDenseI64ArrayAttr(
+        {stridesResult->first, stridesResult->second});
+    auto expandedDilationsAttr = rewriter.getDenseI64ArrayAttr(
+        {dilationsResult->first, dilationsResult->second});
+    auto expandedPaddingAttr = rewriter.getDenseI64ArrayAttr(
+        {paddingTop, paddingBottom, paddingLeft, paddingRight});
+
+    // Update return shape to be used in the TOSA Conv2DOp.
+    // Height and width must be adjusted for extra padding.
+    // Batch size and output channels are not changed.
+    SmallVector<int64_t> resultShape = {
+        resultType.getShape()[0],
+        (inputHeight - 1 + paddingTop + paddingBottom -
+         (kernelHeight - 1) * dilationsResult->first) /
+                stridesResult->first +
+            1,
+        (inputWidth - 1 + paddingLeft + paddingRight -
+         (kernelWidth - 1) * dilationsResult->second) /
+                stridesResult->second +
+            1,
+        resultType.getShape()[3]};
+
+    auto actualResultType =
+        RankedTensorType::get(resultShape, resultType.getElementType());
+
+    auto conv2dOp = rewriter.create<tosa::Conv2DOp>(
+        op.getLoc(), actualResultType, input, transposedWeight.getResult(),
+        reshapedBias, expandedPaddingAttr, expandedStridesAttr,
+        expandedDilationsAttr, TypeAttr::get(accType));
+
+    // Slice the result back to the original expected shape if needed.
+    Value result = conv2dOp.getResult();
+    ArrayRef<int64_t> originalShape = resultType.getShape();
+    if (!std::equal(resultShape.begin(), resultShape.end(),
+                    originalShape.begin(), originalShape.end())) {
+      SmallVector<OpFoldResult> offsets, sizes, strides;
+      for (int64_t i = 0; i < resultType.getRank(); ++i) {
+        offsets.push_back(rewriter.getI64IntegerAttr(0));
+        sizes.push_back(rewriter.getI64IntegerAttr(resultType.getShape()[i]));
+        strides.push_back(rewriter.getI64IntegerAttr(1));
+      }
+      result = rewriter.create<tensor::ExtractSliceOp>(
+          op.getLoc(), resultType, result, offsets, sizes, strides);
+    }
+
+    rewriter.replaceOp(op, result);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class MaxPool2dOpConversionPattern
+    : public OpConversionPattern<ttir::MaxPool2dOp> {
+public:
+  using OpConversionPattern<ttir::MaxPool2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto input = adaptor.getInput();
+    auto strides = adaptor.getStride();
+    auto kernel = adaptor.getKernel();
+    auto padding = adaptor.getPadding();
+    auto dilation = adaptor.getDilation();
+
+    // Expand stride if it contains only one element.
+    auto stridesResult = ttmlir::utils::getPairOfInteger<int32_t>(strides);
+    if (!stridesResult) {
+      return rewriter.notifyMatchFailure(
+          op, "stride must be an integer or array attribute");
+    }
+
+    auto paddingResult = ttmlir::utils::getQuadrupleOfInteger<int32_t>(padding);
+    if (!paddingResult) {
+      return rewriter.notifyMatchFailure(
+          op, "padding must be an integer, 2-element, or 4-element array "
+              "attribute");
+    }
+
+    // If padding is a single integer, expand it to 4 elements.
+    // If padding is a 2-element array, it is (width, height) and expand it to 4
+    // elements (width, height, width, height). If padding is a 4-element array,
+    // TTIR uses (top, left, bottom, right) but TOSA uses (top, bottom, left,
+    // right). Permutation of indices 1 and 2 is needed to match the padding
+    // order. (width, height, width, height) -> (width, width, height, height)
+    // (top, left, bottom, right) -> (top, bottom, left, right)
+
+    auto [paddingTop, paddingLeft, paddingBottom, paddingRight] =
+        *paddingResult;
+
+    // Expand kernel if it contains only one element.
+    auto kernelResult = ttmlir::utils::getPairOfInteger<int32_t>(kernel);
+    if (!kernelResult) {
+      return rewriter.notifyMatchFailure(
+          op, "kernel must be an integer or array attribute");
+    }
+
+    auto dilationResult = ttmlir::utils::getPairOfInteger<int32_t>(dilation);
+    if (!dilationResult) {
+      return rewriter.notifyMatchFailure(
+          op, "dilation must be an integer or array attribute");
+    }
+    assert(dilationResult->first == 1 && dilationResult->second == 1 &&
+           "dilation must be 1x1");
+
+    // Update padding and return shape to be used in the TOSA MaxPool2dOp.
+    // input_height + pad_top + pad_bottom - kernel_height must be divisible by
+    // stride_y. input_width + pad_left + pad_right - kernel_width must be
+    // divisible by stride_x. The padding values are updated to ensure this
+    // condition is met.
+    int64_t inputHeight = cast<RankedTensorType>(input.getType()).getShape()[1];
+    int64_t inputWidth = cast<RankedTensorType>(input.getType()).getShape()[2];
+    auto [kernelHeight, kernelWidth] = *kernelResult;
+
+    paddingBottom +=
+        calculateExtraPadding(inputHeight, kernelHeight, stridesResult->first,
+                              paddingTop, paddingBottom, 1);
+    paddingRight +=
+        calculateExtraPadding(inputWidth, kernelWidth, stridesResult->second,
+                              paddingLeft, paddingRight, 1);
+
+    auto expandedStridesAttr = rewriter.getDenseI64ArrayAttr(
+        {stridesResult->first, stridesResult->second});
+    auto expandedPaddingAttr = rewriter.getDenseI64ArrayAttr(
+        {paddingTop, paddingBottom, paddingLeft, paddingRight});
+    auto expandedKernelAttr = rewriter.getDenseI64ArrayAttr(
+        {kernelResult->first, kernelResult->second});
+
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+    // Update return shape to be used in the TOSA MaxPool2dOp.
+    // The output size is calculated as (inputSize + padding1 + padding2 -
+    // kernelSize) / stride + 1. This is because the output size is the number
+    // of elements separated by stride in a kernel window between the first and
+    // last element of the input after padding.
+    SmallVector<int64_t> resultShape(resultType.getShape());
+    resultShape[1] = (inputHeight + paddingTop + paddingBottom - kernelHeight) /
+                         stridesResult->first +
+                     1;
+    resultShape[2] = (inputWidth + paddingLeft + paddingRight - kernelWidth) /
+                         stridesResult->second +
+                     1;
+
+    auto actualResultType =
+        RankedTensorType::get(resultShape, resultType.getElementType());
+
+    // Create the max pool op.
+    auto maxPoolOp = rewriter.create<tosa::MaxPool2dOp>(
+        op.getLoc(), actualResultType, input, expandedKernelAttr,
+        expandedStridesAttr, expandedPaddingAttr);
+
+    // Slice the result back to the original expected shape if needed.
+    Value result = maxPoolOp.getResult();
+    if (!llvm::equal(resultShape, resultType.getShape())) {
+      SmallVector<OpFoldResult> offsets, sizes, strides;
+      for (int64_t i = 0; i < resultType.getRank(); ++i) {
+        offsets.push_back(rewriter.getI64IntegerAttr(0));
+        sizes.push_back(rewriter.getI64IntegerAttr(resultType.getShape()[i]));
+        strides.push_back(rewriter.getI64IntegerAttr(1));
+      }
+      result = rewriter.create<tensor::ExtractSliceOp>(
+          op.getLoc(), resultType, result, offsets, sizes, strides);
+    }
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
 namespace {
 class GatherOpConversionPattern : public OpConversionPattern<ttir::GatherOp> {
 public:
@@ -1828,7 +2154,8 @@ void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                GatherOpConversionPattern, LogicalNotOpConversionPattern,
                MaxOpConversionPattern, SumOpConversionPattern,
                ReduceOrOpConversionPattern, MeanOpConversionPattern,
-               SqueezeOpConversionPattern>(typeConverter, ctx);
+               SqueezeOpConversionPattern, MaxPool2dOpConversionPattern,
+               Conv2dOpConversionPattern>(typeConverter, ctx);
 
   // Special operations
   patterns.add<WhereOpConversionPattern, ReshapeOpConversionPattern,

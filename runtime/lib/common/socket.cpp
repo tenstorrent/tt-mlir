@@ -10,8 +10,10 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
+#include <future>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -26,6 +28,16 @@ Socket::Socket(int domain, int type, int protocol) {
   fd_ = ::socket(domain, type, protocol);
   if (fd_ < 0) {
     LOG_ERROR("Failed to create socket with error: ", std::strerror(errno));
+    return;
+  }
+
+  int opt = 1;
+  if (::setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+    LOG_ERROR("SO_REUSEADDR failed with error: ", std::strerror(errno));
+  }
+
+  if (::setsockopt(fd_, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt)) < 0) {
+    LOG_ERROR("TCP_NODELAY failed with error: ", std::strerror(errno));
   }
 }
 
@@ -40,7 +52,7 @@ bool Socket::close() {
   return false;
 }
 
-ssize_t Socket::readExact(void *buf, size_t nbytes) {
+ssize_t Socket::readExact(void *buf, size_t nbytes) const {
   std::byte *dst = static_cast<std::byte *>(buf);
   size_t total = 0;
   while (total < nbytes) {
@@ -60,7 +72,7 @@ ssize_t Socket::readExact(void *buf, size_t nbytes) {
   return static_cast<ssize_t>(total);
 }
 
-ssize_t Socket::writeExact(const void *buf, size_t nbytes) {
+ssize_t Socket::writeExact(const void *buf, size_t nbytes) const {
   const std::byte *src = static_cast<const std::byte *>(buf);
   size_t total = 0;
   while (total < nbytes) {
@@ -87,7 +99,7 @@ bool Socket::hasDataToRead(const std::chrono::milliseconds &timeout) const {
   return (result > 0) && ((pfd.revents & POLLIN) != 0);
 }
 
-SizedBuffer Socket::sizePrefixedRead() {
+SizedBuffer Socket::sizePrefixedRead() const {
   if (!valid()) {
     LOG_ERROR(__FUNCTION__, ": Invalid socket file descriptor");
     return SizedBuffer();
@@ -115,7 +127,7 @@ SizedBuffer Socket::sizePrefixedRead() {
   return SizedBuffer(buffer, msgSize);
 }
 
-ssize_t Socket::sizePrefixedWrite(const void *msg, uint32_t msgSize) {
+ssize_t Socket::sizePrefixedWrite(const void *msg, uint32_t msgSize) const {
   if (!valid()) {
     LOG_ERROR(__FUNCTION__, ": Invalid socket file descriptor");
     return -1;
@@ -136,19 +148,28 @@ ssize_t Socket::sizePrefixedWrite(const void *msg, uint32_t msgSize) {
   return writeResult;
 }
 
+std::future<SizedBuffer> Socket::sizePrefixedReadAsync() {
+  return std::async(std::launch::async,
+                    [this]() -> SizedBuffer { return sizePrefixedRead(); });
+}
+
+std::future<ssize_t> Socket::sizePrefixedWriteAsync(const void *msg,
+                                                    uint32_t msgSize) const {
+  return std::async(std::launch::async, [this, msg, msgSize]() -> ssize_t {
+    return sizePrefixedWrite(msg, msgSize);
+  });
+}
+
 //
-// ServerSocket
+// ControllerSocket
 //
-ServerSocket::ServerSocket(uint16_t port) {
+ControllerSocket::ControllerSocket(uint16_t port) {
   std::unique_ptr<Socket> socket =
       std::make_unique<Socket>(AF_INET, SOCK_STREAM, 0);
   if (!socket->valid()) {
-    LOG_FATAL("Failed to create server socket on port ", port,
+    LOG_FATAL("Failed to create controller socket on port ", port,
               " with error: ", std::strerror(errno));
   }
-
-  int opt = 1;
-  ::setsockopt(socket->fd(), SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
   sockaddr_in addr{};
   addr.sin_family = AF_INET;
@@ -157,7 +178,7 @@ ServerSocket::ServerSocket(uint16_t port) {
 
   if (::bind(socket->fd(), reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) <
       0) {
-    LOG_FATAL("Failed to bind ServerSocket on port ", port, ": ",
+    LOG_FATAL("Failed to bind ControllerSocket on port ", port, ": ",
               std::strerror(errno));
   }
 
@@ -165,7 +186,7 @@ ServerSocket::ServerSocket(uint16_t port) {
   socklen_t len = sizeof(addr);
   if (getsockname(socket->fd(), reinterpret_cast<struct sockaddr *>(&addr),
                   &len) < 0) {
-    LOG_FATAL("Failed to get actual port for ServerSocket: ",
+    LOG_FATAL("Failed to get actual port for ControllerSocket: ",
               std::strerror(errno));
   }
 
@@ -176,38 +197,38 @@ ServerSocket::ServerSocket(uint16_t port) {
   }
 
   listenSocket_ = std::move(socket);
-  LOG_INFO("ServerSocket bound to port ", port_);
+  LOG_INFO("ControllerSocket bound to port ", port_);
 }
 
 std::vector<std::unique_ptr<Socket>>
-ServerSocket::connectToClients(size_t numClients) {
-  std::vector<std::unique_ptr<Socket>> clientConnections;
-  clientConnections.reserve(numClients);
-  for (size_t i = 0; i < numClients; i++) {
-    sockaddr_in clientAddr{};
-    socklen_t clientLen = sizeof(clientAddr);
-    std::unique_ptr<Socket> clientSocket = std::make_unique<Socket>(
-        ::accept(listenSocket_->fd(), reinterpret_cast<sockaddr *>(&clientAddr),
-                 &clientLen));
-    if (!clientSocket->valid()) {
+ControllerSocket::connectToWorkers(size_t numWorkers) const {
+  std::vector<std::unique_ptr<Socket>> workerConnections;
+  workerConnections.reserve(numWorkers);
+  for (size_t i = 0; i < numWorkers; i++) {
+    sockaddr_in workerAddr{};
+    socklen_t workerLen = sizeof(workerAddr);
+    std::unique_ptr<Socket> workerSocket = std::make_unique<Socket>(
+        ::accept(listenSocket_->fd(), reinterpret_cast<sockaddr *>(&workerAddr),
+                 &workerLen));
+    if (!workerSocket->valid()) {
       LOG_FATAL("Accept failed with error: ", std::strerror(errno));
     }
 
     char ipStr[INET_ADDRSTRLEN] = {0};
-    ::inet_ntop(AF_INET, &clientAddr.sin_addr, ipStr, sizeof(ipStr));
-    uint16_t clientPort = ntohs(clientAddr.sin_port);
+    ::inet_ntop(AF_INET, &workerAddr.sin_addr, ipStr, sizeof(ipStr));
+    uint16_t workerPort = ntohs(workerAddr.sin_port);
 
-    LOG_INFO("Connected to client ", i, " at ", ipStr, ":", clientPort);
+    LOG_INFO("Connected to worker ", i, " at ", ipStr, ":", workerPort);
 
-    clientConnections.emplace_back(std::move(clientSocket));
+    workerConnections.emplace_back(std::move(workerSocket));
   }
-  return clientConnections;
+  return workerConnections;
 }
 
 //
-// ClientSocket
+// WorkerSocket
 //
-ClientSocket::ClientSocket(const std::string &host, uint16_t port) {
+WorkerSocket::WorkerSocket(const std::string &host, uint16_t port) {
   addrinfo hints{};
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_STREAM;
@@ -218,7 +239,7 @@ ClientSocket::ClientSocket(const std::string &host, uint16_t port) {
   std::string portStr = std::to_string(port);
   int r = ::getaddrinfo(host.c_str(), portStr.c_str(), &hints, &endpoints);
   if (r != 0) {
-    LOG_FATAL("Client socket getaddrinfo failed: ", ::gai_strerror(r));
+    LOG_FATAL("Worker socket getaddrinfo failed: ", ::gai_strerror(r));
   }
 
   for (addrinfo *endpoint = endpoints; endpoint != nullptr;
@@ -243,28 +264,29 @@ ClientSocket::ClientSocket(const std::string &host, uint16_t port) {
   ::freeaddrinfo(endpoints);
 
   if (!isConnected()) {
-    LOG_FATAL("Client socket connect failed with error: ",
+    LOG_FATAL("Worker socket connect failed with error: ",
               std::strerror(errno));
   }
 };
 
-bool ClientSocket::isConnected() const { return socket_ && socket_->valid(); }
+bool WorkerSocket::isConnected() const { return socket_ && socket_->valid(); }
 
-void ClientSocket::disconnect() { socket_.reset(); }
+void WorkerSocket::disconnect() { socket_.reset(); }
 
-bool ClientSocket::hasDataToRead(
+bool WorkerSocket::hasDataToRead(
     const std::chrono::milliseconds &timeout) const {
-  LOG_ASSERT(isConnected(), "ClientSocket is not connected");
+  LOG_ASSERT(isConnected(), "WorkerSocket is not connected");
   return socket_->hasDataToRead(timeout);
 }
 
-SizedBuffer ClientSocket::sizePrefixedRead() {
-  LOG_ASSERT(isConnected(), "ClientSocket is not connected");
+SizedBuffer WorkerSocket::sizePrefixedRead() const {
+  LOG_ASSERT(isConnected(), "WorkerSocket is not connected");
   return socket_->sizePrefixedRead();
 }
 
-ssize_t ClientSocket::sizePrefixedWrite(const void *msg, uint32_t msgSize) {
-  LOG_ASSERT(isConnected(), "ClientSocket is not connected");
+ssize_t WorkerSocket::sizePrefixedWrite(const void *msg,
+                                        uint32_t msgSize) const {
+  LOG_ASSERT(isConnected(), "WorkerSocket is not connected");
   return socket_->sizePrefixedWrite(msg, msgSize);
 }
 } // namespace tt::runtime

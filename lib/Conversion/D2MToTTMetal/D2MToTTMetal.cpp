@@ -161,7 +161,11 @@ public:
     assert(op.getMemref().getType().getMemorySpace() &&
            "No memref memory space found, failing.");
     auto memrefType = op.getMemref().getType();
-    assert(mlir::isa<ttcore::ShardLayoutAttr>(memrefType.getLayout()));
+
+    auto layout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
+        memrefType.getLayout());
+    assert(layout && layout.isPhysical() && "expected physical device layout");
+
     rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(op, memrefType,
                                                          address);
 

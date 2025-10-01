@@ -11,14 +11,22 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+namespace mlir::tt::d2m {
+
+#define GEN_PASS_DECL_CONVERTD2MTOTTKERNEL
+#include "ttmlir/Conversion/Passes.h.inc"
+} // namespace mlir::tt::d2m
+
 namespace mlir::tt {
 
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     const d2m::AssociatedDMAWaits &associatedDMAWaits,
-    const d2m::CBProducerConsumer &cbProducerConsumer);
+    const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass();
+std::unique_ptr<OperationPass<ModuleOp>>
+createConvertD2MToTTKernelPass(const d2m::ConvertD2MToTTKernelOptions &options);
 
 } // namespace mlir::tt
 

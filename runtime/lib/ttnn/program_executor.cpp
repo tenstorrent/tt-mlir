@@ -71,6 +71,7 @@
 #include "operations/transformer/nlp_concat_heads.h"
 #include "operations/transformer/nlp_concat_heads_decode.h"
 #include "operations/transformer/rotary_embedding_llama.h"
+#include "operations/transformer/scaled_dot_product_attention.h"
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
@@ -119,9 +120,9 @@ void ProgramExecutor::runCallback(
     ProgramContext *programContext) {
   if (callback) {
     std::shared_ptr<void> programContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(programContext);
+        ::tt::runtime::utils::unsafeBorrowShared(programContext);
     std::shared_ptr<void> opContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(
+        ::tt::runtime::utils::unsafeBorrowShared(
             const_cast<::tt::target::ttnn::Operation *>(opContext));
     (*callback)(executableHandle,
                 CallbackContext(programContextPtr, DeviceRuntime::TTNN),
@@ -394,11 +395,18 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::transformer::run(
         op->type_as_ScaledDotProductAttentionDecodeOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
+    return operations::transformer::run(
+        op->type_as_ScaledDotProductAttentionOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",
               ::tt::target::ttnn::EnumNameOpType(op->type_type()));
   }
   }
+
+  LOG_FATAL("Unreachable code path, all operations should be handled in switch "
+            "statement");
 }
 
 void ProgramExecutor::dumpPerfCountersIfNeeded() {

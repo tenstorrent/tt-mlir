@@ -103,12 +103,19 @@ void createTTIRToTTMetalFrontendPipeline(
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   createTTIRBufferizationPipeline(pm, options);
-  d2m::D2MAllocateOptions allocateOptions;
-  {
-    allocateOptions.numStreamBuffers = options.numStreamBuffers;
-    allocateOptions.allowOutputSpilling = options.allowOutputSpilling;
+  if (options.ttnnMode) {
+    d2m::D2MInsertStreamsOptions insertStreamsOptions;
+    { insertStreamsOptions.numStreamBuffers = options.numStreamBuffers; }
+    pm.addPass(d2m::createD2MInsertStreams(insertStreamsOptions));
+  } else {
+    d2m::D2MAllocateOptions allocateOptions;
+    {
+      allocateOptions.numStreamBuffers = options.numStreamBuffers;
+      allocateOptions.allowOutputSpilling = options.allowOutputSpilling;
+    }
+    pm.addPass(d2m::createD2MAllocate(allocateOptions));
   }
-  pm.addPass(d2m::createD2MAllocate(allocateOptions));
+
   pm.addPass(createCanonicalizerPassWithOptions(options));
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
@@ -144,7 +151,9 @@ void createTTIRToTTMetalMiddleendPipeline(
 
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  pm.addPass(tt::createConvertD2MToTTKernelPass());
+  d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
+  { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
+  pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);

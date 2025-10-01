@@ -99,6 +99,8 @@ table KernelConfig {
   args: KernelArgs;
   type: KernelConfigType;
   debug_info: string;
+  symbol: string;
+  loc: string;
 }
 
 table ProgramDesc {

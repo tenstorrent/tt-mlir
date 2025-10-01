@@ -1105,7 +1105,10 @@ namespace {
 class D2MGetGlobalOperandRewriter
     : public OpConversionPattern<d2m::GetGlobalOperandOp> {
 public:
-  using OpConversionPattern<d2m::GetGlobalOperandOp>::OpConversionPattern;
+  D2MGetGlobalOperandRewriter(TypeConverter &typeConverter,
+                              MLIRContext *context, bool ttnnMode)
+      : OpConversionPattern<d2m::GetGlobalOperandOp>(typeConverter, context),
+        ttnnMode(ttnnMode) {}
 
   LogicalResult
   matchAndRewrite(d2m::GetGlobalOperandOp op,
@@ -1115,15 +1118,24 @@ public:
     auto arg =
         rewriter.getAttr<ArgAttr>(ArgType::BufferAddress, op.getOperandIndex());
     size_t argIndex;
-    rewriter.modifyOpInPlace(entry, [&]() {
-      argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
-    });
-
-    rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
-        op, rewriter.getI32Type(), argIndex);
-
+    if (ttnnMode) {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendRuntimeArg(entry, arg);
+      });
+      rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
+          op, rewriter.getI32Type(), index(rewriter, op->getLoc(), argIndex));
+    } else {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
+      });
+      rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
+          op, rewriter.getI32Type(), argIndex);
+    }
     return success();
   }
+
+private:
+  bool ttnnMode;
 };
 } // namespace
 
@@ -1358,7 +1370,7 @@ namespace mlir::tt {
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     const d2m::AssociatedDMAWaits &associatedDMAWaits,
-    const d2m::CBProducerConsumer &cbProducerConsumer) {
+    const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode) {
   // clang-format off
   patterns.add<ttkernel::D2MKernelFunctionArgsRewriter,
 
@@ -1407,13 +1419,13 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MAwaitYieldRewriter<d2m::YieldOp>,
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
-               ttkernel::D2MGetGlobalOperandRewriter,
                ttkernel::D2MNullTxRewriter,
                ttkernel::MemRefCollapseRewriter,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,
                ttkernel::D2MSemaphoreWaitRewriter>(typeConverter, ctx);
 
+  patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx, ttnnMode);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   // clang-format on

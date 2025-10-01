@@ -27,7 +27,7 @@ RuntimeContext::RuntimeContext() {
 #endif
 }
 
-DeviceRuntime RuntimeContext::getCurrentRuntime() const {
+DeviceRuntime RuntimeContext::getCurrentDeviceRuntime() const {
   DeviceRuntime runtime = currentRuntime.load(std::memory_order_relaxed);
 
 #if !defined(TT_RUNTIME_ENABLE_TTNN) || (TT_RUNTIME_ENABLE_TTNN == 0)
@@ -41,7 +41,7 @@ DeviceRuntime RuntimeContext::getCurrentRuntime() const {
   return runtime;
 }
 
-void RuntimeContext::setCurrentRuntime(const DeviceRuntime &runtime) {
+void RuntimeContext::setCurrentDeviceRuntime(const DeviceRuntime &runtime) {
 #if !defined(TT_RUNTIME_ENABLE_TTNN) || (TT_RUNTIME_ENABLE_TTNN == 0)
   LOG_ASSERT(runtime != DeviceRuntime::TTNN);
 #endif
@@ -49,6 +49,14 @@ void RuntimeContext::setCurrentRuntime(const DeviceRuntime &runtime) {
   LOG_ASSERT(runtime != DeviceRuntime::TTMetal);
 #endif
   currentRuntime.store(runtime, std::memory_order_relaxed);
+}
+
+HostRuntime RuntimeContext::getCurrentHostRuntime() const {
+  return currentHostRuntime.load(std::memory_order_relaxed);
+}
+
+void RuntimeContext::setCurrentHostRuntime(const HostRuntime &runtime) {
+  currentHostRuntime.store(runtime, std::memory_order_relaxed);
 }
 
 FabricConfig RuntimeContext::getCurrentFabricConfig() const {

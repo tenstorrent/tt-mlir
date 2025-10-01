@@ -65,8 +65,11 @@ jobs:
             gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \
               --field mlir_override=${{ github.event.pull_request.head.sha }} \
-              --field preset=push \
-              --field run_on=All
+              --field test_suite=model-test-push.json
+            gh workflow run ${{ env.WORKFLOW_NAME }} \
+              --repo ${{ env.TARGET_REPO }} --ref main \
+              --field mlir_override=${{ github.event.pull_request.head.sha }} \
+              --field test_suite=basic-test.json
           else
             gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \

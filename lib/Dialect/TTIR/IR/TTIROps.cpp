@@ -90,7 +90,15 @@ MemRefType getBufferType(Type type, bool isView,
     layoutAttr = ttcore::ViewLayoutAttr::get(ctx, map);
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-    layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Sharded) {
+      layoutAttr =
+          ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    } else if (layout.getMemoryLayout() ==
+               ttcore::TensorMemoryLayout::Interleaved) {
+      layoutAttr = ttcore::InterleavedLayoutAttr::get(ctx, shardStride);
+    } else {
+      llvm_unreachable("Unsupported memory layout");
+    }
   }
 
   return MemRefType::get(
@@ -475,11 +483,6 @@ mlir::LogicalResult mlir::tt::ttir::EmptyOp::bufferize(
     return success();
   }
 
-  // Don't bufferize if tensor has a ttnn_layout; lowering to ttnn generic.
-  if (options.allowUnknownOps &&
-      mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())) {
-    return success();
-  }
   ::llvm::SmallVector<mlir::Value> invocationStack;
   mlir::bufferization::replaceOpWithNewBufferizedOp<memref::AllocOp>(
       rewriter, *this,
@@ -4620,6 +4623,101 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
   } else {
     if (!getIsCausal()) {
       return emitOpError("Attention mask is required when is_causal is false");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::ScaledDotProductAttentionOp::verify() {
+
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  if (queryType != resultType) {
+    return emitOpError("Query and result must have the same type");
+  }
+
+  if (keyType != valueType) {
+    return emitOpError("Key and value must have the same type");
+  }
+  if (queryType.getShape().size() != 4) {
+    return emitOpError("Query must be a 4D tensor");
+  }
+  if (keyType.getShape().size() != 4) {
+    return emitOpError("Key/Value must be a 4D tensor");
+  }
+  if (resultType.getShape().size() != 4) {
+    return emitOpError("Output must be a 4D tensor");
+  }
+
+  int64_t batchSize = queryType.getShape()[0];
+  int64_t nQueryHeads = queryType.getShape()[1];
+  int64_t nKVHeads = keyType.getShape()[1];
+  int64_t headSize = queryType.getShape()[3];
+  int64_t seqLen = queryType.getShape()[2];
+  int64_t maxSeqLen = keyType.getShape()[2];
+
+  // NOTE: The q_chunk_size is 32 by default in ttnn. This is configurable via
+  // the program config. However, this is not modeled in the ttnn dialect.
+  if (seqLen % 32 != 0) {
+    return emitOpError(
+        "Sequence length must be divisible by q_chunk_size (32)");
+  }
+
+  if (keyType.getShape()[0] != batchSize) {
+    return emitOpError("Key/Value batch size must match query batch size");
+  }
+
+  if (keyType.getShape()[3] != headSize) {
+    return emitOpError("Key/Value head size must match query head size");
+  }
+
+  if (nQueryHeads % nKVHeads != 0) {
+    return emitOpError(
+        "Query num heads must be divisible by key/value num heads");
+  }
+
+  if (getAttentionMask()) {
+    if (getIsCausal()) {
+      return emitOpError(
+          "Attention mask is not allowed when is_causal is true");
+    }
+    RankedTensorType attentionMaskType = getAttentionMask().getType();
+    if (attentionMaskType.getShape().size() != 4) {
+      return emitOpError("Attention mask must be a 4D tensor");
+    }
+    if (attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError(
+          "Attention mask batch size must match query batch size");
+    }
+    if (attentionMaskType.getShape()[1] != 1) {
+      return emitOpError("Attention mask dim 1 must be 1");
+    }
+    if (attentionMaskType.getShape()[2] != seqLen) {
+      return emitOpError(
+          "Attention mask at dim 2 must match query sequence length");
+    }
+    if (attentionMaskType.getShape()[3] != maxSeqLen) {
+      return emitOpError("Attention mask at dim 3 must match key/value "
+                         "sequence length (max sequence length)");
+    }
+  } else {
+    if (!getIsCausal()) {
+      return emitOpError("Attention mask is required when is_causal is false");
+    }
+  }
+
+  if (getIsCausal()) {
+    if (seqLen != maxSeqLen) {
+      return emitOpError("Sequence length must match key/value sequence length "
+                         "when is_causal is true");
     }
   }
 

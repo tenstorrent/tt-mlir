@@ -91,10 +91,6 @@ toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation);
 ::tt::target::ttnn::ShardOrientation
 fromTTNNShardOrientation(::ttnn::ShardOrientation orientation);
 
-::ttnn::ShardMode toTTNNShardMode(tt::target::ttnn::ShardMode mode);
-
-::tt::target::ttnn::ShardMode fromTTNNShardMode(::ttnn::ShardMode mode);
-
 ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
 fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
                   const ::tt::tt_metal::ShardSpec &ttnnShardSpec);

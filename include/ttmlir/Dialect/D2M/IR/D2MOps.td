@@ -56,7 +56,8 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
       "bufferize",
       "getAliasingValues",
       "getBufferType"
-    ]>
+    ]>,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
     let summary = "Layout op.";
     let description = [{
@@ -113,7 +114,6 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
     }];
 
     let hasVerifier = 1;
-
     let hasFolder = 1;
     let hasCanonicalizer = 1;
 }
@@ -141,6 +141,7 @@ def D2M_StreamLayoutOp : D2M_Op<"stream_layout", [
                        AnyRankedTensorOrMemRef:$storage);
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
+  let hasVerifier = 1;
 }
 
 def D2M_GenericOp : D2M_Op<"generic",
@@ -180,6 +181,8 @@ def D2M_GenericOp : D2M_Op<"generic",
     }];
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
+
 
     let builders = [
       OpBuilder<(ins "ValueRange": $inputs,
@@ -265,6 +268,12 @@ def D2M_GenericOp : D2M_Op<"generic",
       bool isComputeOnlyForm() {
         auto threads = getThreads();
         return threads.size() == 1 && mlir::cast<ThreadAttr>(threads[0]).getThreadType() == ThreadType::Compute;
+      }
+      bool isDMAOnlyForm() {
+        return llvm::none_of(getThreads(), [](Attribute attr) {
+          return mlir::cast<d2m::ThreadAttr>(attr).getThreadType() ==
+                d2m::ThreadType::Compute;
+        });
       }
       bool isAffineMapForm() { return !getIndexingMaps().empty(); }
       bool isLoweredLoopForm() { return !isAffineMapForm(); }

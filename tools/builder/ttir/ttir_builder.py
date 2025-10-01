@@ -210,7 +210,6 @@ class TTIRBuilder(Builder):
         self,
         in0: Operand,
         in1: Operand,
-        out0: Operand,
         batch_dims_lhs: List[int],
         contract_dims_lhs: List[int],
         batch_dims_rhs: List[int],
@@ -252,7 +251,7 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.DotGeneralOp,
-            [in0, in1, out0],
+            [in0, in1],
             ttir_kwargs={
                 "batch_dims_lhs": batch_dims_lhs,
                 "contract_dims_lhs": contract_dims_lhs,
@@ -799,6 +798,40 @@ class TTIRBuilder(Builder):
             Tensor with ReLU activation values
         """
         return self._op_proxy(ttir.ReluOp, [in0], unit_attrs)
+
+    def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.relu6``.
+
+        *Elementwise ReLU6 activation operation.*
+
+        Computes the ReLU6 function for each element in the input tensor.
+        ReLU6 is defined as: min(max(0, x), 6)
+        This activation function clips values between 0 and 6, making it useful
+        for quantized neural networks and mobile applications.
+
+        .. code-block:: mlir
+
+            // Compute ReLU6 of all elements
+            %result = ttir.relu6(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [-2.0, 3.0, 8.0, 1.5]
+            // Output tensor:
+            // [0.0, 3.0, 6.0, 1.5]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with ReLU6 activation values
+        """
+        return self._op_proxy(ttir.Relu6Op, [in0], unit_attrs)
 
     def rsqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -3468,7 +3501,6 @@ class TTIRBuilder(Builder):
     def permute(
         self,
         in0: Operand,
-        in1: Operand,
         permutation: List[int],
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -3495,10 +3527,9 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.PermuteOp,
-            [in0, in1],
+            [in0],
             ttir_kwargs={"permutation": DenseI64ArrayAttr.get(permutation)},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
-            organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
             unit_attrs=unit_attrs,
         )
 

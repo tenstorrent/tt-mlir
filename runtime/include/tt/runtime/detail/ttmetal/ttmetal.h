@@ -36,7 +36,7 @@ Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc);
 
 inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
-  return ttmetal::createBorrowedHostTensor(utils::unsafe_borrow_shared(data),
+  return ttmetal::createBorrowedHostTensor(utils::unsafeBorrowShared(data),
                                            desc);
 }
 

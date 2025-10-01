@@ -19,28 +19,34 @@ struct Env {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static const Env &
 #else
-  constexpr static Env
+  static Env
 #endif
   get(bool dumpKernelsToDisk = false, bool loadKernelsFromDisk = false,
+      bool useLocForKernelName = false, std::string kernelSourceDir = {},
       bool deviceAddressValidation = false, bool blockingCQ = false)
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
       ;
 #else
   {
-    return Env(false, false, false, false);
+    return Env(false, false, false, {}, false, false);
   }
 #endif
 
   bool dumpKernelsToDisk;
   bool loadKernelsFromDisk;
+  bool useLocForKernelName;
+  std::string kernelSourceDir;
   bool deviceAddressValidation;
   bool blockingCQ;
 
 private:
-  constexpr Env(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
-                bool deviceAddressValidation, bool blockingCQ)
+  Env(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
+      bool useLocForKernelName, std::string kernelSourceDir,
+      bool deviceAddressValidation, bool blockingCQ)
       : dumpKernelsToDisk(dumpKernelsToDisk),
         loadKernelsFromDisk(loadKernelsFromDisk),
+        useLocForKernelName(useLocForKernelName),
+        kernelSourceDir(kernelSourceDir),
         deviceAddressValidation(deviceAddressValidation),
         blockingCQ(blockingCQ) {}
 };
@@ -51,6 +57,10 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << "dumpKernelsToDisk: " << env.dumpKernelsToDisk << "\n"
      << "\t"
      << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << "\n"
+     << "\t"
+     << "useLocForKernelName: " << env.useLocForKernelName << "\n"
+     << "\t"
+     << "kernelSourceDir: " << env.kernelSourceDir << "\n"
      << "\t"
      << "deviceAddressValidation: " << env.deviceAddressValidation << "\n"
      << "\t"

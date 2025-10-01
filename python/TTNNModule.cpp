@@ -46,30 +46,21 @@ void populateTTNNModule(nb::module_ &m) {
       });
 
   tt_attribute_class<tt::ttnn::ShardSpecAttr>(m, "ShardSpecAttr")
-      .def_static("get",
-                  [](MlirContext ctx, tt::ttnn::CoreRangeSetAttr coreRangeSet,
-                     tt::ttnn::ShapeAttr shardShape,
-                     tt::ttnn::ShardOrientationAttr shardOrientation,
-                     tt::ttnn::ShardModeAttr shardMode,
-                     tt::ttnn::ShapeAttr physicalShardShape) {
-                    return wrap(tt::ttnn::ShardSpecAttr::get(
-                        unwrap(ctx), coreRangeSet, shardShape, shardOrientation,
-                        shardMode, physicalShardShape));
-                  })
+      .def_static(
+          "get",
+          [](MlirContext ctx, tt::ttnn::CoreRangeSetAttr coreRangeSet,
+             tt::ttnn::ShapeAttr shardShape,
+             tt::ttnn::ShardOrientationAttr shardOrientation) {
+            return wrap(tt::ttnn::ShardSpecAttr::get(
+                unwrap(ctx), coreRangeSet, shardShape, shardOrientation));
+          })
       .def_prop_ro(
           "core_range_set",
           [](tt::ttnn::ShardSpecAttr self) { return self.getCoreRangeSet(); })
       .def_prop_ro("shard_shape",
                    [](tt::ttnn::ShardSpecAttr self) { return self.getShape(); })
-      .def_prop_ro("shard_orientation",
-                   [](tt::ttnn::ShardSpecAttr self) {
-                     return self.getShardOrientation();
-                   })
-      .def_prop_ro(
-          "shard_mode",
-          [](tt::ttnn::ShardSpecAttr self) { return self.getShardMode(); })
-      .def_prop_ro("physical_shard_shape", [](tt::ttnn::ShardSpecAttr self) {
-        return self.getPhysicalShardShape();
+      .def_prop_ro("shard_orientation", [](tt::ttnn::ShardSpecAttr self) {
+        return self.getShardOrientation();
       });
 
   tt_attribute_class<tt::ttnn::MemoryConfigAttr>(m, "MemoryConfigAttr")

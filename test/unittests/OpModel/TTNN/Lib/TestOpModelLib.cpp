@@ -173,6 +173,7 @@ protected:
 
 // Type aliases for unary operations
 using OpModelReluParam = OpModelUnaryEltwiseParam<ReluOp>;
+using OpModelRelu6Param = OpModelUnaryEltwiseParam<Relu6Op>;
 using OpModelSqrtParam = OpModelUnaryEltwiseParam<SqrtOp>;
 using OpModelSigmoidParam = OpModelUnaryEltwiseParam<SigmoidOp>;
 using OpModelSinParam = OpModelUnaryEltwiseParam<SinOp>;
@@ -200,6 +201,7 @@ using OpModelCbrtParam = OpModelUnaryEltwiseParam<CbrtOp>;
 using OpModelBitwiseNotParam = OpModelUnaryEltwiseParam<BitwiseNotOp>;
 
 TEST_P(OpModelReluParam, ReluOp) { RunTest(); }
+TEST_P(OpModelRelu6Param, Relu6Op) { RunTest(); }
 TEST_P(OpModelSqrtParam, SqrtOp) { RunTest(); }
 TEST_P(OpModelSigmoidParam, SigmoidOp) { RunTest(); }
 TEST_P(OpModelSinParam, SinOp) { RunTest(); }
@@ -310,6 +312,9 @@ const std::initializer_list<
             detail::ExpectedResult{false})};
 
 INSTANTIATE_TEST_SUITE_P(ReluTests, OpModelReluParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(Relu6Tests, OpModelRelu6Param,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(SqrtTests, OpModelSqrtParam,
@@ -872,9 +877,7 @@ TEST_F(OpModelTest, ToMemoryConfig) {
                     CoreCoordAttr::get(&context, 7, 0))});
   ShardSpecAttr shardSpec = ShardSpecAttr::get(
       &context, coreRangeSetAttr, ShapeAttr::get(&context, {64, 128}),
-      ShardOrientationAttr::get(&context, ShardOrientation::RowMajor),
-      ShardModeAttr::get(&context, ShardMode::Physical),
-      /*physical_shard_shape=*/nullptr);
+      ShardOrientationAttr::get(&context, ShardOrientation::RowMajor));
   const TTNNLayoutAttr outputLayoutL1Tiled = CreateTiledLayout(
       tensorShape, BufferType::L1, TensorMemoryLayout::HeightSharded);
   memoryConfig = MemoryConfigAttr::get(
@@ -3824,15 +3827,26 @@ protected:
 };
 
 // Type aliases for different constant data types
+using OpModelConstantUInt32Param = OpModelConstantParam<uint32_t, mlir::Type>;
 using OpModelConstantInt32Param = OpModelConstantParam<int32_t, mlir::Type>;
 using OpModelConstantUInt16Param = OpModelConstantParam<uint16_t, mlir::Type>;
 using OpModelConstantUInt8Param = OpModelConstantParam<uint8_t, mlir::Type>;
 
+TEST_P(OpModelConstantUInt32Param, ConstantOpUInt32) { RunTest(); }
 TEST_P(OpModelConstantInt32Param, ConstantOpInt32) { RunTest(); }
 TEST_P(OpModelConstantUInt16Param, ConstantOpUInt16) { RunTest(); }
 TEST_P(OpModelConstantUInt8Param, ConstantOpUInt8) { RunTest(); }
 
 // Test data for ConstantOp with different supported types
+const auto constantOpUInt32TestData = testing::Values(
+    // Basic 2x2 u32 tensor with L1 interleaved layout
+    std::make_tuple(
+        llvm::SmallVector<int64_t>{2, 2}, std::vector<uint32_t>{1, 2, 3, 4},
+        [](OpModelTest *test) {
+          return test->builder.getIntegerType(32, false);
+        },
+        std::nullopt, detail::ExpectedResult{true, 0, 4096, 4096, 4096}));
+
 const auto constantOpInt32TestData = testing::Values(
     // Basic 2x2 i32 tensor with L1 interleaved layout
     std::make_tuple(
@@ -3869,6 +3883,8 @@ const auto constantOpUInt8TestData = testing::Values(
         },
         std::nullopt, detail::ExpectedResult{true, 0, 1024, 1024, 1024}));
 
+INSTANTIATE_TEST_SUITE_P(ConstantOpUInt32Tests, OpModelConstantUInt32Param,
+                         constantOpUInt32TestData);
 INSTANTIATE_TEST_SUITE_P(ConstantOpInt32Tests, OpModelConstantInt32Param,
                          constantOpInt32TestData);
 INSTANTIATE_TEST_SUITE_P(ConstantOpUInt16Tests, OpModelConstantUInt16Param,
@@ -4842,5 +4858,163 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
 INSTANTIATE_TEST_SUITE_P(ScaledDotProductAttentionDecodeTests,
                          OpModelScaledDotProductAttentionDecodeParam,
                          scaledDotProductAttentionDecodeOpTestValues);
+
+// === ScaledDotProductAttentionOp Tests ===
+
+struct ScaledDotProductAttentionOpParam {
+  detail::TestTensor query;
+  detail::TestTensor key;
+  detail::TestTensor value;
+  std::optional<detail::TestTensor> attentionMask;
+  bool isCausal;
+  bool withScale;
+  detail::TestTensor output;
+  detail::ExpectedResult expectedResult;
+};
+class OpModelScaledDotProductAttentionParam
+    : public OpModelTest,
+      public testing::WithParamInterface<ScaledDotProductAttentionOpParam> {
+protected:
+  void RunTest() {
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    const auto [queryShape, queryTensorLayout, queryBufferType,
+                queryVirtualGrid] = GetParam().query;
+    const auto [keyShape, keyTensorLayout, keyBufferType, keyVirtualGrid] =
+        GetParam().key;
+    const auto [valueShape, valueTensorLayout, valueBufferType,
+                valueVirtualGrid] = GetParam().value;
+
+    std::optional<SmallVector<int64_t>> attentionMaskShape = std::nullopt;
+    std::optional<TensorMemoryLayout> attentionMaskTensorLayout = std::nullopt;
+    std::optional<BufferType> attentionMaskBufferType = std::nullopt;
+    std::optional<SmallVector<int64_t>> attentionMaskVirtualGrid = std::nullopt;
+
+    if (auto attentionMaskDetail = GetParam().attentionMask) {
+      attentionMaskShape = attentionMaskDetail->shape;
+      attentionMaskTensorLayout = attentionMaskDetail->layout;
+      attentionMaskBufferType = attentionMaskDetail->bufferType;
+      attentionMaskVirtualGrid = attentionMaskDetail->virtualGrid;
+    }
+
+    const auto isCausal = GetParam().isCausal;
+
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        GetParam().expectedResult;
+
+    const TTNNLayoutAttr queryLayout = CreateTiledLayout(
+        queryShape, queryBufferType, queryTensorLayout, queryVirtualGrid);
+    const TTNNLayoutAttr keyLayout = CreateTiledLayout(
+        keyShape, keyBufferType, keyTensorLayout, keyVirtualGrid);
+    const TTNNLayoutAttr valueLayout = CreateTiledLayout(
+        valueShape, valueBufferType, valueTensorLayout, valueVirtualGrid);
+
+    std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
+
+    if (attentionMaskShape) {
+      attentionMaskLayout = CreateTiledLayout(
+          *attentionMaskShape, *attentionMaskBufferType,
+          *attentionMaskTensorLayout, attentionMaskVirtualGrid);
+    }
+
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    const llvm::APFloat scaleAPFloat(1.0f);
+    std::optional<llvm::APFloat> scale = std::nullopt;
+    if (GetParam().withScale) {
+      scale.emplace(scaleAPFloat);
+    }
+
+    auto constraintsExp =
+        OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
+            CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
+            valueShape, valueLayout, attentionMaskShape, attentionMaskLayout,
+            isCausal, scale, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBack] = constraintsExp.get();
+      EXPECT_LE(cbSize, expectedCbSize);
+      EXPECT_LE(l1PeakSize, expectedL1PeakSize);
+      EXPECT_LE(totalPeakSize, expectedTotalPeakSize);
+      EXPECT_LE(outputSizeResult, expectedOutputSize);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+  }
+};
+
+TEST_P(OpModelScaledDotProductAttentionParam, ScaledDotProductAttentionOp) {
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+  RunTest();
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+}
+
+const auto scaledDotProductAttentionOpTestValues = testing::Values(
+    ScaledDotProductAttentionOpParam{
+        detail::TestTensor{
+            {1, 1, 128, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 128, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 128, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, true, false,
+        detail::TestTensor{
+            {1, 1, 128, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 120832, 0, 120832, 0}},
+
+    ScaledDotProductAttentionOpParam{
+        detail::TestTensor{
+            {1, 1, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 128, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 128, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional(detail::TestTensor{{1, 1, 32, 128},
+                                              TensorMemoryLayout::Interleaved,
+                                              BufferType::DRAM}),
+        false, false,
+        detail::TestTensor{
+            {1, 1, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 120832, 0, 120832, 0}},
+    ScaledDotProductAttentionOpParam{
+        detail::TestTensor{
+            {1, 1, 128, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 128, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 128, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, true, true,
+        detail::TestTensor{
+            {1, 1, 128, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 120832, 0, 120832, 0}},
+
+    ScaledDotProductAttentionOpParam{
+        detail::TestTensor{
+            {1, 1, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 128, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 128, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional(detail::TestTensor{{1, 1, 32, 128},
+                                              TensorMemoryLayout::Interleaved,
+                                              BufferType::DRAM}),
+        false, true,
+        detail::TestTensor{
+            {1, 1, 32, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true, 120832, 0, 120832, 0}}
+
+);
+
+INSTANTIATE_TEST_SUITE_P(ScaledDotProductAttentionTests,
+                         OpModelScaledDotProductAttentionParam,
+                         scaledDotProductAttentionOpTestValues);
 
 } // namespace mlir::tt::ttnn::op_model
