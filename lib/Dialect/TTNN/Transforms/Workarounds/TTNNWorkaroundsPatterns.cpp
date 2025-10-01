@@ -20,6 +20,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyTypecastRemovalRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
@@ -558,6 +559,7 @@ public:
           workarounds::decomposition::ArgMaxOpRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
           workarounds::decomposition::MultiplyOpDecompositionRewritePattern,
+          workarounds::decomposition::MultiplyTypecastRemovalRewritePattern,
           workarounds::decomposition::SubtractOpImplicitBroadcastRewritePattern,
           workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern,
           workarounds::decomposition::Conv2dRewritePattern<Conv2dOp>,
