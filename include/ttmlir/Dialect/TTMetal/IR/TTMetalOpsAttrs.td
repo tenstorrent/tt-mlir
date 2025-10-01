@@ -35,7 +35,7 @@ def TTMetal_CoreRangeAttr : TTMetal_Attr<"CoreRange", "core_range"> {
   let assemblyFormat = "`<` custom<DimensionList>($offset) `,` custom<DimensionList>($size) `>`";
 
   let extraClassDeclaration = [{
-      static CoreRangeAttr get(::mlir::MLIRContext *context, ::mlir::tt::ttcore::GridAttr grid);
+      static CoreRangeAttr get(::mlir::tt::ttcore::GridAttr grid);
   }];
 }
 

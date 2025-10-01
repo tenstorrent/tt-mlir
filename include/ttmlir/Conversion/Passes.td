@@ -84,7 +84,6 @@ def TTIRToD2M: Pass<"ttir-to-d2m", "::mlir::ModuleOp"> {
   ];
 }
 
-<<<<<<< HEAD
 def ArithToD2MTileOps : Pass<"arith-to-d2m-tile-ops", "::mlir::ModuleOp"> {
   let summary = "Convert Arith to D2M Tile ops dialect.";
   let description = [{
@@ -117,8 +116,6 @@ def MathToD2MTileOps : Pass<"math-to-d2m-tile-ops", "::mlir::ModuleOp"> {
   let constructor = "createConvertMathToD2MTileOpsPass()";
 }
 
-=======
->>>>>>> 671aaeffd (final feedback + reverts)
 def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to TTNN dialect.";
   let constructor = "createConvertTTIRToTTNNPass()";

@@ -67,7 +67,7 @@ public:
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
 
-    auto coreRange = builder.getAttr<ttmetal::CoreRangeAttr>(opGrid);
+    auto coreRange = ttmetal::CoreRangeAttr::get(opGrid);
 
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
