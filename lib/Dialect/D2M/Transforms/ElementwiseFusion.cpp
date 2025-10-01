@@ -53,9 +53,10 @@ static bool hasCompatibleBlocking(GenericOp a, GenericOp b) {
 /// the fusion, each loop dimension has at least one input that defines it.
 static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
                                      OpOperand *fusedOperand) {
-  // TODO(mbagherbeikTT) add issue to come back and re-enable this
-  // once we add reductions. Currently it's just a slightly reformatted
-  // version of how the linalg fusion pass checks dimension coverage.
+  // TODO(mbagherbeikTT) Revisit when adressing issue
+  // https://github.com/tenstorrent/tt-mlir/issues/5188 once we add reductions.
+  // Currently it's just a slightly reformatted version of how the linalg fusion
+  // pass checks dimension coverage.
   //
   // already check if we're all-parallel coming into here
   assert(!consumer.hasReduction());
