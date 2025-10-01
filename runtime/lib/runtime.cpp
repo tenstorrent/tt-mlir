@@ -125,14 +125,17 @@ uint32_t getNumShards(Tensor tensor) {
         fatalNotImplemented("getNumShards", HostRuntime::Distributed);
       });
 }
+} // namespace detail
 
 void deallocateBuffers(Device device) {
   using RetType = void;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::deallocateBuffers(device); },
       [&]() { ::tt::runtime::ttmetal::deallocateBuffers(device); },
-      [&]() { fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA); },
-      [&]() { fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed); });
+      [&]() { detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA); },
+      [&]() {
+        detail::fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed);
+      });
 }
 
 void dumpMemoryReport(Device device) {
@@ -140,8 +143,10 @@ void dumpMemoryReport(Device device) {
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::dumpMemoryReport(device); },
       [&]() { ::tt::runtime::ttmetal::dumpMemoryReport(device); },
-      [&]() { fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA); },
-      [&]() { fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed); });
+      [&]() { detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA); },
+      [&]() {
+        detail::fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed);
+      });
 }
 
 void readDeviceProfilerResults(Device device) {
@@ -151,7 +156,9 @@ void readDeviceProfilerResults(Device device) {
       [&]() { ::tt::runtime::ttnn::readDeviceProfilerResults(device); },
       [&]() { ::tt::runtime::ttmetal::readDeviceProfilerResults(device); },
       [&]() { ::tt::runtime::cuda::detail::readDeviceProfilerResults(device); },
-      [&]() { fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed); });
+      [&]() {
+        detail::fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed);
+      });
 }
 
 using MemoryViewResult = std::unordered_map<::tt::runtime::MemoryBufferType,
@@ -165,13 +172,12 @@ MemoryViewResult getMemoryView(Device device) {
         return ::tt::runtime::ttmetal::getMemoryView(device);
       },
       [&]() -> RetType {
-        fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
+        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
       },
       [&]() -> RetType {
-        fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed);
+        detail::fatalNotImplemented(__FUNCTION__, HostRuntime::Distributed);
       });
 }
-} // namespace detail
 
 std::vector<DeviceRuntime> getAvailableDeviceRuntimes() {
   std::vector<DeviceRuntime> runtimes;
@@ -275,11 +281,7 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
         return ::tt::runtime::cuda::getCurrentSystemDesc(dispatchCoreType,
                                                          meshDevice);
       },
-      [&]() -> RetType {
-        LOG_FATAL("runtime is not enabled");
-        return detail::fatalNotImplemented(__FUNCTION__,
-                                           HostRuntime::Distributed);
-      });
+      [&]() -> RetType { LOG_FATAL("runtime is not enabled"); });
 }
 
 void launchDistributedRuntime(const DistributedOptions &options) {
@@ -1038,7 +1040,8 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                                                  inputIndex);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented(__FUNCTION__, DeviceRuntime::CUDA);
+        return ::tt::runtime::cuda::getLayout(executableHandle, programIndex,
+                                              inputIndex);
       },
 
       [&]() -> RetType {
@@ -1059,7 +1062,7 @@ bool hasLayout(Tensor tensor, Layout layout) {
         detail::fatalNotImplemented("hasLayout", DeviceRuntime::TTMetal);
       },
       [&]() -> RetType {
-        return ::tt::runtime::cuda::hasLayout(tensor, layout);
+        detail::fatalNotImplemented("hasLayout", DeviceRuntime::CUDA);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("hasLayout", HostRuntime::Distributed);

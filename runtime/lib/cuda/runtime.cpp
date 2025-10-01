@@ -107,7 +107,7 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
   cudaHandle->dataType = commonDataTypeToCuda(dataType);
   cudaHandle->itemsize = itemsize;
 
-  std::shared_ptr<void> borrowedData = utils::unsafe_borrow_shared(data);
+  std::shared_ptr<void> borrowedData = utils::unsafeBorrowShared(data);
 
   return Tensor(std::static_pointer_cast<void>(cudaHandle), borrowedData,
                 DeviceRuntime::CUDA);

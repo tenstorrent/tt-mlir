@@ -26,16 +26,6 @@ message(STATUS "Target triple: ${triple}")
 add_definitions(-DTARGET_TRIPLE="${triple}")
 
 
-if (TTMLIR_ENABLE_CUDA)
-  add_library(TTRuntimeTypes STATIC types.cpp)
-  set_property(TARGET TTRuntimeTypes PROPERTY CXX_STANDARD 20)
-  target_include_directories(TTRuntimeTypes
-    PUBLIC
-      ${PROJECT_SOURCE_DIR}/runtime/include
-  )
-  target_link_libraries(TTRuntimeTypes PUBLIC coverage_config)
-
-
 if (NOT DEVICE_RUNTIME_ENABLED AND NOT TTMLIR_ENABLE_CUDA)
   add_library(TTRuntimeTypes INTERFACE)
   add_library(TTRuntimeUtils INTERFACE)
