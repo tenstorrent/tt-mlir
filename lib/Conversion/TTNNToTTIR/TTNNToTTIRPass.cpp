@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -27,6 +28,9 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_CONVERTTTNNTOTTIR
 #include "ttmlir/Conversion/Passes.h.inc"
 
+#define GET_OP_LIST
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h.inc"
+
 namespace {
 struct ConvertTTNNToTTIRPass
     : public ttnn::impl::ConvertTTNNToTTIRBase<ConvertTTNNToTTIRPass> {
@@ -34,17 +38,22 @@ struct ConvertTTNNToTTIRPass
   ConvertTTNNToTTIRPass() = default;
 
   void runOnOperation() final {
-    mlir::ConversionTarget target(getContext());
+    ::mlir::ConversionTarget target(getContext());
 
     // Common legal/illegal ops/dialects for both partial and full conversion.
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalDialect<ttcore::TTCoreDialect>();
-    target.addLegalOp<mlir::ModuleOp>();
+    target.addLegalOp<::mlir::ModuleOp>();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
+
+    // Mark TTNN dialect as dynamically legal for all ops that do NOT have the
+    // `hoist_generic_via_d2m` attribute
+    target.addDynamicallyLegalDialect<ttnn::TTNNDialect>(
+        [&](Operation *op) { return !utils::isTTNNHoistGenericViaD2MOp(op); });
 
     ::mlir::tt::populateTTNNToTTIRPatterns(&getContext(), patterns,
                                            typeConverter);
@@ -63,11 +72,8 @@ struct ConvertTTNNToTTIRPass
     target.addDynamicallyLegalOp<func::CallOp>(
         [&](func::CallOp op) { return typeConverter.isLegal(op); });
 
-    // For partial conversion, we can leave TTNN dialect as neither
-    // explicitly legal so the patterns run, nor explicitly illegal so
-    // leftover ops won't throw an error.
-    if (failed(applyPartialConversion(getOperation(), target,
-                                      std::move(patterns)))) {
+    if (failed(
+            applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
     }
   }

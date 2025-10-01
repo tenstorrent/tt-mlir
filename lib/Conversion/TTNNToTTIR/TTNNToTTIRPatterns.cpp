@@ -6,7 +6,6 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -20,24 +19,6 @@
 
 namespace {
 
-/// Helper function to preserve TTNN-specific attributes as custom attributes on
-/// TTIR operations when the target dialect doesn't have equivalent attributes.
-static void preserveTTNNAttributesAsCustom(mlir::Operation *srcOp,
-                                           mlir::Operation *destOp) {
-  for (auto &attr : srcOp->getAttrs()) {
-    auto attrName = attr.getName();
-
-    if (attrName.getValue() ==
-        mlir::tt::ttnn::g_TTNNHoistGenericViaD2MAttrName) {
-      continue;
-    }
-
-    if (!destOp->hasAttr(attrName)) {
-      destOp->setAttr(attrName, attr.getValue());
-    }
-  }
-}
-
 template <typename SrcOp, typename DestOp>
 class TTNNToTTIRElementwiseConversionPattern
     : public mlir::OpConversionPattern<SrcOp> {
@@ -49,13 +30,12 @@ public:
   mlir::LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    if (mlir::tt::ttnn::utils::isTTNNHoistGenericViaD2MOp(srcOp)) {
-      auto outputType = mlir::cast<mlir::RankedTensorType>(
-          this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+    auto outputType = mlir::cast<mlir::RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-      mlir::tt::ttir::utils::replaceOpWithNewDPSOp<DestOp>(
-          rewriter, srcOp, outputType, adaptor.getOperands());
-    }
+    mlir::tt::ttir::utils::replaceOpWithNewDPSOp<DestOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands());
+
     return mlir::success();
   }
 };
@@ -71,19 +51,17 @@ public:
   matchAndRewrite(mlir::tt::ttnn::MatmulOp srcOp,
                   mlir::tt::ttnn::MatmulOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    if (mlir::tt::ttnn::utils::isTTNNHoistGenericViaD2MOp(srcOp)) {
-      auto outputType = mlir::cast<mlir::RankedTensorType>(
-          this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-      auto newOp = mlir::tt::ttir::utils::replaceOpWithNewDPSOp<
-          mlir::tt::ttir::MatmulOp>(rewriter, srcOp, outputType, adaptor.getA(),
-                                    adaptor.getB(), adaptor.getTransposeA(),
-                                    adaptor.getTransposeB());
+    auto outputType = mlir::cast<mlir::RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-      // Preserve TTNN-specific attributes as custom attributes
-      preserveTTNNAttributesAsCustom(srcOp.getOperation(),
-                                     newOp.getOperation());
-    }
+    mlir::tt::ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MatmulOp>(
+        rewriter, srcOp, outputType, adaptor.getA(), adaptor.getB(),
+        adaptor.getTransposeA(), adaptor.getTransposeB());
+
+    // Note that TTNN attributes that have no TTIR equivalents are simply
+    // dropped
+
     return mlir::success();
   }
 };
