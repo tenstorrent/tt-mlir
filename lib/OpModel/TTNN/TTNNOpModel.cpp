@@ -4,6 +4,7 @@
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
+#include <llvm/Support/Error.h>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -504,7 +505,9 @@ createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
   for (size_t i = 0; i < shape.size(); i++) {
     volume *= shape[i];
   }
-
+  llvm::outs() << "Creating tensor with datatype: "
+               << static_cast<int>(dataType) << "\n";
+  dataType = ttcore::DataType::BFloat16; // Temporary override
   auto metalDataType = conversion::getDataType(dataType);
   auto hostBuffer = createHostBuffer(volume, metalDataType);
   auto metalShape = conversion::getShape(shape);
@@ -531,7 +534,15 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
     uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig, bool hasBias,
     bool transpose) {
   if (weightLayout.getBufferType() != BufferType::SystemMemory) {
-    llvm::report_fatal_error("Conv2d weight tensor assumed to be on host.");
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Conv2d weight tensor assumed to be on host.");
+  }
+  if (weightLayout.getDataType() != ttcore::DataType::Float32 &&
+      weightLayout.getDataType() != ttcore::DataType::BFloat16) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Conv2d weight tensor assumed to be float32 or bfloat16.");
   }
 
   // TODO(rpavlovicTT):: Move this to tt-metal side #4043
@@ -541,6 +552,12 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
+  llvm::outs() << "Input shape: ";
+  for (auto dim : inputShape) {
+    llvm::outs() << dim << " ";
+  }
+  llvm::outs() << "\n";
+  llvm::outs() << "Input layout: " << inputLayout << "\n";
   auto inputSpecExp =
       detail::convertToTensorSpec(device, inputShape, inputLayout);
   if (!inputSpecExp) {
@@ -618,10 +635,19 @@ getPrepareConv2dBiasOpOutputTensorSpec(
     llvm::ArrayRef<int32_t> dilation, uint32_t groups,
     std::optional<Conv2dConfigAttr> conv2dConfig) {
   if (biasLayout.getBufferType() != BufferType::SystemMemory) {
-    llvm::report_fatal_error("Conv2d bias tensor assumed to be on host.");
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "Conv2d bias tensor assumed to be on host.");
   }
 
   // TODO(rpavlovicTT):: Move this to tt-metal side #4043
+  llvm::outs() << "and data type: "
+               << static_cast<int>(biasLayout.getDataType()) << "\n";
+  if (biasLayout.getDataType() != ttcore::DataType::Float32 &&
+      biasLayout.getDataType() != ttcore::DataType::BFloat16) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Conv2d bias tensor assumed to be float32 or bfloat16.");
+  }
   ::tt::tt_metal::Tensor biasTensor =
       createMetalHostTensor(biasShape, biasLayout.getDataType());
 
@@ -4043,6 +4069,17 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
   assert(device != nullptr && "Device is nullptr");
   assert(weightLayout != nullptr && "Weight layout is nullptr");
 
+  if (weightLayout.getBufferType() != BufferType::SystemMemory) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Conv2d weight tensor assumed to be on host.");
+  }
+  if (weightLayout.getDataType() != ttcore::DataType::Float32 &&
+      weightLayout.getDataType() != ttcore::DataType::BFloat16) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Conv2d weight tensor assumed to be float32 or bfloat16.");
+  }
   // TODO(#4043): Move this to tt-metal side.
   ::tt::tt_metal::Tensor weightTensor =
       createMetalHostTensor(weightShape, weightLayout.getDataType());
@@ -4103,6 +4140,16 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
   assert(device != nullptr && "Device is nullptr");
   assert(biasLayout != nullptr && "Weight layout is nullptr");
 
+  if (biasLayout.getBufferType() != BufferType::SystemMemory) {
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "Conv2d bias tensor assumed to be on host.");
+  }
+  if (biasLayout.getDataType() != ttcore::DataType::Float32 &&
+      biasLayout.getDataType() != ttcore::DataType::BFloat16) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Conv2d bias tensor assumed to be float32 or bfloat16.");
+  }
   // TODO(#4043): Move this to tt-metal side.
   ::tt::tt_metal::Tensor biasTensor =
       createMetalHostTensor(biasShape, biasLayout.getDataType());
