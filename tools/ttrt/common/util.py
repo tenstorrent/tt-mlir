@@ -575,7 +575,7 @@ class FileManager:
 
         if self.is_file(path):
             if self.check_file_exists(path):
-                if self.get_file_extension(path) == EmitPyDylib.get_so_file_extension():
+                if self.get_file_extension(path) == EmitPyDylib.get_py_file_extension():
                     py_files.append(path)
                     self.logging.debug(f"found file={path}")
             else:
@@ -628,6 +628,9 @@ class Artifacts:
 
     def get_binary_perf_folder_path(self, binary):
         return f"{self.get_artifacts_folder_path()}/{binary.name}/perf"
+
+    def get_binary_run_folder_path(self, binary):
+        return f"{self.get_artifacts_folder_path()}/{binary.name}/run"
 
     def create_artifacts(self):
         self.file_manager.create_directory(self.get_artifacts_folder_path())
