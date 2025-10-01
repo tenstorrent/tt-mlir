@@ -1,5 +1,6 @@
 // RUN: ttmlir-opt -canonicalize %s | FileCheck %s
 
+// Test cases for MeshShardOp folding pattern with volume-based optimization
 #ttcore_shard_direction = #ttcore.shard_direction<full_to_shard>
 #ttcore_shard_type = #ttcore.shard_type<devices>
 
