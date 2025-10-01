@@ -119,8 +119,8 @@ void ProgramExecutor::runCallback(
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
 
-  std::cout << "TESTING DHRUV IN CALLBACK" << std::endl;
   if (callback) {
+    std::cout << "TESTING DHRUV IN CALLBACK" << std::endl;
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafeBorrowShared(programContext);
     std::shared_ptr<void> opContextPtr =
