@@ -516,4 +516,22 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
   return static_cast<void *>(hostBuffer.view_bytes().data());
 }
 
+::ttnn::GlobalSemaphore createGlobalSemaphore(::ttnn::MeshDevice &meshDevice) {
+  return ::ttnn::global_semaphore::create_global_semaphore(
+      &meshDevice,
+      meshDevice.worker_cores(::tt::tt_metal::HalProgrammableCoreType::TENSIX,
+                              tt::tt_metal::SubDeviceId{0}),
+      0);
+}
+
+std::vector<::ttnn::GlobalSemaphore>
+createGlobalSemaphores(::ttnn::MeshDevice &meshDevice, size_t count) {
+  std::vector<::ttnn::GlobalSemaphore> semaphores;
+  semaphores.reserve(count);
+  for (size_t i = 0; i < count; ++i) {
+    semaphores.push_back(createGlobalSemaphore(meshDevice));
+  }
+  return semaphores;
+}
+
 } // namespace tt::runtime::ttnn::utils

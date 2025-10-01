@@ -18,6 +18,7 @@ void run(const ::tt::target::ttnn::AllReduceOp *op, ProgramContext &context) {
   uint32_t numLinks = op->num_links();
   auto reduceType =
       ::tt::runtime::ttnn::utils::getReduceType(op->reduce_type());
+
   LOG_ASSERT(input.storage_type() == ::ttnn::StorageType::DEVICE,
              "Input of all_reduce must be DEVICE. id:", op->in()->global_id());
 
@@ -28,28 +29,28 @@ void run(const ::tt::target::ttnn::AllReduceOp *op, ProgramContext &context) {
              "Memory config must exist for device tensors");
 
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
-  ::ttnn::Tensor out;
-  auto createGlobalSemaphore = [&meshDevice]() {
-    return ::ttnn::global_semaphore::create_global_semaphore(
-        &meshDevice,
-        meshDevice.worker_cores(::tt::tt_metal::HalProgrammableCoreType::TENSIX,
-                                tt::tt_metal::SubDeviceId{0}),
-        0);
-  };
-  std::vector<::ttnn::GlobalSemaphore> barrier_semaphores;
-  std::generate_n(std::back_inserter(barrier_semaphores), 2,
-                  createGlobalSemaphore);
-  std::vector<::ttnn::GlobalSemaphore> rs_global_semaphores;
-  std::generate_n(std::back_inserter(rs_global_semaphores), 3,
-                  createGlobalSemaphore);
-  std::vector<::ttnn::GlobalSemaphore> ag_global_semaphores;
-  std::generate_n(std::back_inserter(ag_global_semaphores), 2,
-                  createGlobalSemaphore);
-  out = ::ttnn::experimental::all_reduce_async(
-      input, clusterAxis, meshDevice, barrier_semaphores, rs_global_semaphores,
-      ag_global_semaphores, reduceType, outputMemoryConfig,
+
+  // NOTE: The caller is currently responsible for creating/passing semaphores.
+  // TODO(hkwon): Remove semaphore creation here once all_reduce_async manages
+  // semaphores internally. Tracking:
+  // https://github.com/tenstorrent/tt-metal/issues/26952
+
+  // all_reduce_async requires specific numbers of semaphores for different
+  // phases:
+  // - 2 barrier semaphores for synchronization
+  // - 3 reduce-scatter semaphores for the reduce-scatter phase
+  // - 2 all-gather semaphores for the all-gather phase
+  auto barrier_semaphores = ttnn::utils::createGlobalSemaphores(meshDevice, 2);
+  auto rs_semaphores = ttnn::utils::createGlobalSemaphores(meshDevice, 3);
+  auto ag_semaphores = ttnn::utils::createGlobalSemaphores(meshDevice, 2);
+
+  ::ttnn::Tensor out = ::ttnn::experimental::all_reduce_async(
+      input, clusterAxis, meshDevice, barrier_semaphores, rs_semaphores,
+      ag_semaphores, reduceType, outputMemoryConfig,
       ::ttnn::ccl::Topology::Linear,
-      std::make_optional(static_cast<size_t>(numLinks)), std::nullopt);
+      std::make_optional(static_cast<size_t>(numLinks)),
+      std::nullopt /*worker_subdevice_id_opt*/);
+
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::ccl
