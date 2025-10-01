@@ -42,8 +42,8 @@ target_link_libraries(TTRuntimeGTestLib INTERFACE
     TTRuntimeUtils
     TTRuntimeSocket
     TTMLIRRuntime
-    TTRuntimeDistributedServer
-    TTRuntimeDistributedClient
+    TTRuntimeDistributedController
+    TTRuntimeDistributedWorker
     TTNN_LIBRARY
     TTMETAL_LIBRARY
     DEVICE_LIBRARY
