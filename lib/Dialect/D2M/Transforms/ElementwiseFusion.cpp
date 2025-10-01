@@ -394,7 +394,7 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
       // Build fused region: clone producer then consumer, map fused operand to
       // producer yield value. Ensure fused block argument types match original
       // region operand argument types (shard types), not the top-level types.
-      IRMapping map;
+      IRMapping irMap;
       Block &fusedBlock = fused.getRegion(0).emplaceBlock();
       Block &pb = producer.getRegion(0).front();
       Block &cb = consumer.getRegion(0).front();
@@ -452,7 +452,7 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
       auto mapRegionArgs = [&](Operation *op, Block &orig) {
         for (unsigned i = 0; i < op->getNumOperands(); ++i) {
           unsigned fusedIndex = sourceToFusedIdx[{op, i}];
-          map.map(orig.getArgument(i), fusedBlock.getArgument(fusedIndex));
+          irMap.map(orig.getArgument(i), fusedBlock.getArgument(fusedIndex));
         }
       };
       mapRegionArgs(producer.getOperation(), pb);
@@ -467,7 +467,7 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
         if (isa<YieldOp>(op)) {
           continue;
         }
-        rewriter.clone(op, map);
+        rewriter.clone(op, irMap);
       }
       YieldOp prodYield = nullptr;
       for (Operation &op : pb) {
@@ -476,27 +476,28 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
         }
       }
       int prodResultNumber = cast<OpResult>(use->get()).getResultNumber();
-      Value repl = map.lookupOrDefault(prodYield.getOperand(prodResultNumber));
+      Value repl =
+          irMap.lookupOrDefault(prodYield.getOperand(prodResultNumber));
 
       // Map consumer arg corresponding to fused operand number to repl.
       // If `repl` is a tensor, and consumer block arg is tensor, direct map.
       // If consumer expects a tensor but repl is produced by inner ops,
       // ensure we cloned those inner ops already (we did by cloning pb body),
       // so `repl` dominates this point.
-      map.map(cb.getArgument(fusedIdx), repl);
+      irMap.map(cb.getArgument(fusedIdx), repl);
 
       // Clone remaining consumer body ops (except terminator). Treat nested
       // operations opaquely; cloning preserves dominance as long as operands
       // are mapped.
       for (Operation &op : cb.without_terminator()) {
-        rewriter.clone(op, map);
+        rewriter.clone(op, irMap);
       }
 
       // Build fused yield: kept producer yields then consumer yields
       SmallVector<Value> fusedYields;
       for (auto it : llvm::enumerate(prodYield.getOperands())) {
         if (keep.count(static_cast<int>(it.index()))) {
-          fusedYields.push_back(map.lookupOrDefault(it.value()));
+          fusedYields.push_back(irMap.lookupOrDefault(it.value()));
         }
       }
       YieldOp consYield = nullptr;
@@ -506,7 +507,7 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
         }
       }
       for (Value y : consYield.getOperands()) {
-        fusedYields.push_back(map.lookupOrDefault(y));
+        fusedYields.push_back(irMap.lookupOrDefault(y));
       }
       rewriter.setInsertionPointToEnd(&fusedBlock);
       rewriter.create<YieldOp>(fused.getLoc(), fusedYields);
