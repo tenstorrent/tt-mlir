@@ -243,7 +243,6 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 
     op_name_match = re.search(r'"([^"]+)"', debug_str)
     op_name = op_name_match.group(1) if op_name_match else "unknown"
-    print("Dhruv", op_name)
 
     # Get input tensors
     op_input_tensor_refs = ttrt.runtime.get_op_input_refs(op_context, program_context)
@@ -445,8 +444,8 @@ def pre_op_get_callback_fn(callback_runtime_config):
 
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
 
-    if callback_runtime_config.enable_golden:
-        golden(callback_runtime_config, binary, program_context, op_context)
+    # if callback_runtime_config.enable_golden:
+    golden(callback_runtime_config, binary, program_context, op_context)
 
     if callback_runtime_config.enable_memory:
         memory(callback_runtime_config, binary, program_context, op_context)
