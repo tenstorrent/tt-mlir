@@ -7,6 +7,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNFUSING
@@ -29,6 +30,12 @@ public:
     Value activationInput = activationOp.getInput();
 
     auto activation = getActivationOpType(rewriter);
+    if (isMatmul(srcOp) && activation == ttnn::UnaryOpType::Relu6) {
+      // For conv2d that will be converted to matmul, we cannot fuse relu6 as
+      // tt-metal doesn't support relu6 fusion for matmul.
+      return failure();
+    }
+
     ttcore::DataType weightDtype = ttcore::elementTypeToDataType(
         srcOp.getWeight().getType().getElementType());
     Conv2dConfigAttr conv2dConfigAttr =
@@ -106,6 +113,39 @@ private:
     // has only one user and that user is activation.
     return reshapeOp.getResult().hasOneUse() &&
            ttmlir::utils::allUsersOfType<ActivationOp>(reshapeOp);
+  }
+
+  bool isMatmul(Conv2dOp srcOp) const {
+    RankedTensorType weightType =
+        mlir::cast<RankedTensorType>(srcOp.getWeight().getType());
+    llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
+
+    // Check kernel size is 1x1.
+    if (weightShape[2] != 1 || weightShape[3] != 1) {
+      return false;
+    }
+
+    // Check stride is 1.
+    llvm::ArrayRef<int32_t> strideAttr = srcOp.getStride();
+    if (strideAttr.size() != 2 || strideAttr[0] != 1 || strideAttr[1] != 1) {
+      llvm::outs() << "Stride is not 1\n";
+      return false;
+    }
+
+    // Check padding is 0.
+    llvm::ArrayRef<int32_t> paddingAttr = srcOp.getPadding();
+    if (llvm::any_of(paddingAttr, [](int32_t v) { return v != 0; })) {
+      llvm::outs() << "Padding is not 0\n";
+      return false;
+    }
+
+    // only groups = 1 is supported for now
+    if (srcOp.getGroups() != 1) {
+      llvm::outs() << "Groups is not 1\n";
+      return false;
+    }
+    llvm::outs() << "Conv2d can be converted to matmul\n";
+    return true;
   }
 };
 
