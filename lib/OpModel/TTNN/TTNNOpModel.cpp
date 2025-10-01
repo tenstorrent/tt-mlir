@@ -4,7 +4,6 @@
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
-#include <llvm/Support/Error.h>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -505,7 +504,7 @@ createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
   for (size_t i = 0; i < shape.size(); i++) {
     volume *= shape[i];
   }
-  dataType = ttcore::DataType::BFloat16; // Temporary override
+
   auto metalDataType = conversion::getDataType(dataType);
   auto hostBuffer = createHostBuffer(volume, metalDataType);
   auto metalShape = conversion::getShape(shape);
