@@ -21,56 +21,6 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MELEMENTWISEFUSION
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-// static bool hasTilizeOp(Operation *op) {
-//   if (isa<mlir::tt::d2m::TileTilizeBlockOp>(op)) {
-//     return true;
-//   }
-
-//   for (Region &region : op->getRegions()) {
-//     for (Operation &opInner : region.getOps()) {
-//       if (hasTilizeOp(&opInner)) {
-//         return true;
-//       }
-//     }
-//   }
-
-//   return false;
-// }
-
-static bool hasMultiUseOperand(GenericOp gOp) {
-  for (OpOperand *input : gOp.getDpsInputOperands()) {
-    // Check direct operand usages
-    if (llvm::range_size(input->get().getUsers()) > 1) {
-      return true;
-    }
-
-    // auto tilizeGenOp = dyn_cast<GenericOp>(input->get().getDefiningOp());
-
-    // // Function arguments go through to_layout->tilize for each unique
-    // // non-tilize compute region they appear in. Need to check if operands
-    // are
-    // // coming from a tilize generic and then trace that back to a to_layout
-    // op
-    // // and see if the input arg is used multiple times
-    // if (hasTilizeOp(tilizeGenOp)) {
-    //   if (llvm::range_size(tilizeGenOp->getOperand(0).getUsers()) > 1) {
-    //     return true;
-    //   }
-
-    //   // The input to tilize could also be a to_layout from a multi-use arg.
-    //   if (auto *toLayoutOp =
-    //           tilizeGenOp.getDpsInputOperand(0)->get().getDefiningOp()) {
-    //     for (auto argOperand : toLayoutOp->getOperands()) {
-    //       if (llvm::range_size(argOperand.getUsers()) > 1) {
-    //         return true;
-    //       }
-    //     }
-    //   }
-    // }
-  }
-  return false;
-}
-
 /// Returns true if op or any of the operations nested within it's regions have
 /// the D2MSkipOpEltwiseFusionTrait, the op should be skipped.
 static bool hasSkipOpEltwiseFusionTrait(Operation *op) {
@@ -94,20 +44,21 @@ static bool hasCompatibleBlocking(GenericOp a, GenericOp b) {
          a.getBlockFactors() == b.getBlockFactors();
 }
 
+/// Something TODO
+///
+/// Ensure that the fusion does not remove size information required to
+/// get the loop bounds. For non-reduction generics, this is trivially the
+/// case due to the output operand. For reductions, we need to check that after
+/// the fusion, each loop dimension has at least one input that defines it.
 static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
                                      OpOperand *fusedOperand) {
   // If consumer has no reductions, trivially ok as in linalg.
-  SmallVector<Attribute> iters = llvm::to_vector(consumer.getIteratorTypes());
-  bool hasReduction = llvm::any_of(iters, [](Attribute it) {
-    auto itAttr = cast<mlir::tt::ttcore::IteratorTypeAttr>(it);
-    return itAttr.getValue() == mlir::tt::ttcore::IteratorType::Reduction;
-  });
-  if (!hasReduction) {
+  if (!consumer.hasReduction()) {
     return true;
   }
 
   // Mark dims covered by existing (non-fused) consumer inputs.
-  BitVector covered(consumer.getNumDims(), false);
+  BitVector coveredDims(consumer.getNumDims(), false);
   for (auto [val, mapAttr] :
        llvm::zip(consumer.getInputs(), consumer.getIndexingMaps())) {
     if (val == fusedOperand->get()) {
@@ -116,7 +67,7 @@ static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
     AffineMap m = cast<AffineMapAttr>(mapAttr).getValue();
     for (AffineExpr e : m.getResults()) {
       if (auto d = dyn_cast<AffineDimExpr>(e)) {
-        covered.set(d.getPosition());
+        coveredDims.set(d.getPosition());
       }
     }
   }
@@ -127,20 +78,22 @@ static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
   AffineMap prodResMap = producer.getIndexingMap(
       producer.getDpsInitOperand(0)->getOperandNumber());
   AffineMap inv = inversePermutation(prodResMap);
+
   if (!inv) {
     return false;
   }
+
   AffineMap consToProd = inv.compose(consIdx);
   for (OpOperand *oprd : producer.getDpsInputOperands()) {
     AffineMap argMap = producer.getIndexingMap(oprd->getOperandNumber());
     AffineMap fused = argMap.compose(consToProd);
     for (AffineExpr e : fused.getResults()) {
       if (auto d = dyn_cast<AffineDimExpr>(e)) {
-        covered.set(d.getPosition());
+        coveredDims.set(d.getPosition());
       }
     }
   }
-  return covered.all();
+  return coveredDims.all();
 }
 
 static int countBinaryOps(Operation *op) {
@@ -210,7 +163,7 @@ static bool isElementwiseFusable(GenericOp producer, GenericOp consumer,
     return false;
   }
 
-  if (hasMultiUseOperand(producer)) {
+  if (producer.hasMultiUseInputOperand()) {
     return false;
   }
 
@@ -297,12 +250,11 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
       return failure();
     }
 
-    // Only tensor semantics.
     if (!consumer.hasPureTensorSemantics()) {
       return failure();
     }
 
-    if (hasMultiUseOperand(consumer)) {
+    if (consumer.hasMultiUseInputOperand()) {
       return failure();
     }
 

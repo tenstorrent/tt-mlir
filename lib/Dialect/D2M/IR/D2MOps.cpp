@@ -1495,6 +1495,23 @@ d2m::GenericOp::getBufferType(mlir::Value value,
   return d2m::getBufferType(tensorType, /*isView=*/false);
 }
 
+bool d2m::GenericOp::hasReduction() {
+  SmallVector<Attribute> iters = llvm::to_vector(getIteratorTypes());
+  return llvm::any_of(iters, [](Attribute it) {
+    auto itAttr = cast<mlir::tt::ttcore::IteratorTypeAttr>(it);
+    return itAttr.getValue() == mlir::tt::ttcore::IteratorType::Reduction;
+  });
+}
+
+bool d2m::GenericOp::hasMultiUseInputOperand() {
+  for (OpOperand *input : getDpsInputOperands()) {
+    if (llvm::range_size(input->get().getUsers()) > 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool d2m::GenericOp::isAllParallel() {
   ArrayAttr iteratorTypes = getIteratorTypes();
 
