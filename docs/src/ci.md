@@ -145,7 +145,7 @@ This script has several types of flags that can be stated concurently `run-ttrt`
 possible flags are additional flags for pytest or ttrt. `args` are used as pytest marker string because it contains spaces.
 This test uses TTRT_REPORT_PATH but due to the fact that it has two ttrt runs it inserts its type inside filename.
 
-THe second example is `pytest.sh` script:
+The second example is `pytest.sh` script:
 
 ```bash
 # path: path to pytest test files
@@ -161,3 +161,14 @@ pytest -ssv $1 $2 --junit-xml=$TEST_REPORT_PATH
 ```
 
 Note how it uses eval command to expand bash variables where it is suitable. It also define some additional environment variables using provided ones.
+
+## CI Run (under the hood)
+
+Test run is prepared in `prepare-run` job when input test matrix is trasformed into real test matrix that will be used for test runs.
+All jobs are grouped based on `runs-on` and `image` fields and then split (and balanced) to several runs based on test durations and target total time.
+This is done to make efficient use of resources because there are many tests that last for just several seconds while preparation can take ~4 minutes.
+So, tests are run in batches in `Run Test` step with clear separation and summary. List of tests are displayed on the beginning and one can search for `test <number>`
+(number range from 1 to total number of tests) when in need to see test flow and test results for particular test. Also, it is possible during development
+to comment out tests in JSON file of [Test Matrix](#test-matrix) using `#` character in development branch and make test runs much faster but
+please do not forget to remove comments when PR is created or finalized.
+Test durations are collected after each push to main and these are automatically used on each subsequent PR, Push, and other runs.
