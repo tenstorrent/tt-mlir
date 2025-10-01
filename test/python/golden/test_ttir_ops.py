@@ -1072,6 +1072,64 @@ def test_conv2d_consteval(
     )
 
 
+@x86_only
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (1, 32, 32, 64),
+            (64, 64, 3, 3),
+            (1, 1, 1, 64),
+        ]
+    ],
+)
+@pytest.mark.parametrize("stride", [[2, 1]])
+@pytest.mark.parametrize("dilation", [[2, 1]])
+@pytest.mark.parametrize("padding", [[2, 1]])
+@pytest.mark.parametrize("groups", [1])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.run_error  # Issue #5165.
+def test_hoisted_conv2d(
+    shapes: List[Shape],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
+    groups: int,
+    target: str,
+    request,
+):
+    """Test hoisted conv2d operation"""
+
+    def hoisted_conv2d(
+        in0: Operand,
+        weight: Operand,
+        bias: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.conv2d(
+            in0,
+            weight,
+            bias,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            unit_attrs=["ttir.should_hoist"],
+        )
+
+    hoisted_conv2d.__name__ = "hoisted_conv2d"
+
+    compile_ttir_to_flatbuffer(
+        hoisted_conv2d,
+        shapes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
 @pytest.mark.parametrize(
     "shapes",
     [
