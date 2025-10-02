@@ -122,36 +122,6 @@ def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::func::FuncDialect"];
 }
 
-def WrapSingleAffineLoops : Pass<"wrap-single-affine-loops", "::mlir::func::FuncOp"> {
-  let summary = "Wrap single AffineFor operations with outer dummy loops for GPU conversion.";
-  let description = [{
-    This pass addresses a limitation in the AffineFor to GPU conversion where single
-    (non-nested) AffineFor operations cannot be converted to GPU kernels. The pass
-    wraps such single AffineFor operations with an outer AffineFor loop that iterates
-    from 0 to 1, creating the nested structure required for GPU kernel generation.
-
-    Example transformation:
-    ```mlir
-    func.func @single_loop() {
-      affine.for %i = 0 to 10 {
-        // loop body
-      }
-    }
-    ```
-
-    Becomes:
-    ```mlir
-    func.func @single_loop() {
-      affine.for %outer = 0 to 1 {
-        affine.for %i = 0 to 10 {
-          // loop body
-        }
-      }
-    }
-    ```
-  }];
-  let dependentDialects = ["mlir::affine::AffineDialect"];
-}
 
 def CollapseParallelLoops: Pass<"collapse-parallel-loops", "::mlir::func::FuncOp"> {
   let summary = "Collapse and reverse dimensions in multidimensional SCF parallel loops";
