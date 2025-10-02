@@ -95,7 +95,7 @@ table ChipDesc {
   dram_unreserved_end: uint32;
   supported_data_types: [DataType];
   supported_tile_sizes: [Dim2d];
-  dst_register_size_tiles: uint32;
+  dst_physical_size_tiles: uint32;
   num_cbs: uint32;
   num_compute_threads: uint32;
   num_datamovement_threads: uint32;

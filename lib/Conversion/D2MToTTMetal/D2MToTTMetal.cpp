@@ -68,10 +68,7 @@ public:
             fp32DestAccum = true;
           }
         }
-        // This setting is a perfomance optimization closely related to all the
-        // hard-coded dstRegisterSizeTiles/dst_register_size_tiles = 8 scattered
-        // across our code base. Should this becomes a variable, the max DST
-        // size needs to change to 16 and halfed when this setting is false.
+        // This must stay in-sync with ChipDescAttr::getDstLogicalSizeTiles().
         constexpr bool dstFullSyncEn = false;
         std::vector<UnpackToDestMode> unpackModes{UnpackToDestMode::Default};
         kernelConfig = builder.getAttr<ttmetal::ComputeConfigAttr>(

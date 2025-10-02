@@ -33,7 +33,7 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipDescAttrGet(
     unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
     unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
     unsigned dramUnreservedEnd, MlirAttribute *supportedDataTypes,
-    MlirAttribute *supportedTileSizes, unsigned dstRegisterSizeTiles,
+    MlirAttribute *supportedTileSizes, unsigned dstPhysicalSizeTiles,
     unsigned numCBs, unsigned numComputeThreads,
     unsigned numDatamovementThreads);
 

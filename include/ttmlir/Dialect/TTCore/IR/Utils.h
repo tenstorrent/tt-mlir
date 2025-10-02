@@ -33,7 +33,7 @@ DeviceAttr lookupDevice(Operation *op, SymbolRefAttr deviceName);
 DeviceAttr lookupDevice(Operation *op,
                         llvm::StringRef deviceName = getDefaultDeviceName());
 
-unsigned getDstRegisterSizeTiles(Operation *op);
+ChipDescAttr getOpChipDescAttr(Operation *op);
 
 // Create a global memref in the top-level module's symbol table.
 mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, StringRef name,

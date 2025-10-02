@@ -18,6 +18,8 @@ mlir::AffineMap calculateReblockMap(ArrayRef<int64_t> fromTensorShape,
 llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape);
 
+Type getRegionLargestDstElemType(Region &region);
+
 } // namespace mlir::tt::d2m::utils
 
 #endif

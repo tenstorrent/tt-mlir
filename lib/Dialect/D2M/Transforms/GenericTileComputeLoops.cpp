@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
@@ -20,12 +21,12 @@ namespace mlir::tt::d2m {
 // DST.
 static SmallVector<int64_t>
 calculateOutputSubblockFactors(ArrayRef<int64_t> outputBlockShape,
-                               unsigned dstRegisterSizeTiles) {
+                               unsigned dstCapacity) {
   // The output operand always corresponds to the compute grid and is therefore
   // the only shape we care about when it comes to constraining on the dst
   // register size. We reverse the output shape to give the priority to the
   // inner dimension and to ensure row major output.
-  int64_t remainingBlockFactor = static_cast<int64_t>(dstRegisterSizeTiles);
+  int64_t remainingBlockFactor = static_cast<int64_t>(dstCapacity);
   SmallVector<int64_t> outputBlockFactors;
   outputBlockFactors.reserve(outputBlockShape.size());
   for (int64_t dim : llvm::reverse(outputBlockShape)) {
@@ -62,12 +63,12 @@ calculateOutputSubblockFactors(ArrayRef<int64_t> outputBlockShape,
 //    operands.
 static SmallVector<int64_t> calculateOptimalSubblockSizes(
     ArrayRef<AffineMap> indexingMaps, ValueRange inputs,
-    ArrayRef<int64_t> outputBlockShape, unsigned dstRegisterSizeTiles) {
+    ArrayRef<int64_t> outputBlockShape, unsigned dstCapacity) {
   assert(!indexingMaps.empty());
   MLIRContext *context = indexingMaps[0].getContext();
 
   SmallVector<int64_t> outputSubblockFactors =
-      calculateOutputSubblockFactors(outputBlockShape, dstRegisterSizeTiles);
+      calculateOutputSubblockFactors(outputBlockShape, dstCapacity);
 
   //
   // Concat all of the indexing maps together, matmul example:
@@ -147,6 +148,8 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
       optimizeSubblocking =
           optimizeSubblocking &&
           (computeOp.getOperandsLoadFromDstRegister().size() == 1);
+      return optimizeSubblocking ? WalkResult::advance()
+                                 : WalkResult::interrupt();
     });
 
     assert(op.getRegion().hasOneBlock());
@@ -157,14 +160,13 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
 
     SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(), 1);
     if (optimizeSubblocking) {
-      auto *region =
-          ttmlir::utils::getRegionWithParentOfType<d2m::GenericOp>(op);
-      auto d2mGenericOp = mlir::cast<d2m::GenericOp>(region->getParentOp());
-      const unsigned dstRegisterSizeTiles = d2mGenericOp.getDstTileCapacity();
+      Type largestDstType = utils::getRegionLargestDstElemType(op.getRegion());
+      const unsigned dstCapacity =
+          ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(largestDstType);
 
       subblockSizes = calculateOptimalSubblockSizes(
           op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
-          dstRegisterSizeTiles);
+          dstCapacity);
     }
 
     linalg::LinalgTilingOptions tilingOptions;

@@ -43,14 +43,11 @@ DeviceAttr lookupDevice(Operation *op, llvm::StringRef deviceName) {
   return deviceOp.getDeviceAttr();
 }
 
-unsigned getDstRegisterSizeTiles(Operation *op) {
+ChipDescAttr getOpChipDescAttr(Operation *op) {
   auto device = ttcore::lookupDevice(op);
-  auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
   auto chipIds = device.getChipIds();
-  auto chipDescs = systemDesc.getChipDescs();
-  auto chipDescIndices = systemDesc.getChipDescIndices();
-  auto chipDesc = chipDescs[chipDescIndices[chipIds[0]]];
-  return chipDesc.getDstRegisterSizeTiles();
+  auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
+  return systemDesc.getChipDesc(chipIds[0]);
 }
 
 mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, StringRef name,

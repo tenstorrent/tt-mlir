@@ -1461,15 +1461,4 @@ d2m::GenericOp::getBufferType(mlir::Value value,
   return d2m::getBufferType(tensorType, /*isView=*/false);
 }
 
-unsigned d2m::GenericOp::getDstTileCapacity() {
-  const unsigned nDstTiles = ttcore::getDstRegisterSizeTiles(getOperation());
-  for (size_t i = 0; i < getOutputs().size(); ++i) {
-    auto elemType = ttcore::getOperandInnerElementType(getOutputs()[i]);
-    if (elemType.getIntOrFloatBitWidth() == 32) {
-      return nDstTiles / 2;
-    }
-  }
-  return nDstTiles;
-}
-
 } // namespace mlir::tt::d2m

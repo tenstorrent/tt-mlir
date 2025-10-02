@@ -289,7 +289,6 @@ def D2M_GenericOp : D2M_Op<"generic",
       unsigned getNumLoops();
       unsigned getNumDims();
       AffineMap getIndexingMap(int64_t operandIndex);
-      unsigned getDstTileCapacity();
     }];
 }
 

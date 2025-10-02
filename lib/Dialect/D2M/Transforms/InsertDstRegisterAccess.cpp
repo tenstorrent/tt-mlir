@@ -5,6 +5,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -66,7 +67,6 @@ public:
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     if constexpr (std::is_same_v<GenericOrFuncOp, GenericOp>) {
-      const unsigned dstRegisterSizeTiles = op.getDstTileCapacity();
       for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
            regionIndex++) {
         if (op.getRegionThreadType(regionIndex) != ThreadType::Compute) {
@@ -76,12 +76,16 @@ public:
         Region &region = op.getRegion(regionIndex);
         Block &block = region.getBlocks().front();
 
+        Type largestDstType = utils::getRegionLargestDstElemType(region);
+        const unsigned dstCapacity =
+            ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
+                largestDstType);
+
         bool linalgToAffineFailed = false;
         block.walk([&](linalg::GenericOp linalgGenericOp) {
           if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
             linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
-                rewriter, op, region, linalgGenericOp, dstRegisterSizeTiles,
-                modified);
+                rewriter, op, region, linalgGenericOp, dstCapacity, modified);
             return;
           }
 
@@ -95,7 +99,7 @@ public:
           }
           rewriter.eraseOp(linalgGenericOp);
           modified |= insertDstRegisterAccess(
-              rewriter, op.getLoc(), region, dstRegisterSizeTiles,
+              rewriter, op.getLoc(), region, dstCapacity,
               !linalgLoops.value().empty() ? linalgLoops.value().front()
                                            : nullptr,
               [&](int64_t index) {
@@ -107,23 +111,29 @@ public:
         }
       }
     } else {
+      // This branch is for lit tests only.
       static_assert(std::is_same_v<GenericOrFuncOp, func::FuncOp>);
-      // This branch is for lit tests only, use a fixed DST size.
-      const unsigned dstRegisterSizeTiles = 8;
       d2m::ThreadAttr threadAttr =
           op->template getAttrOfType<d2m::ThreadAttr>(d2m::ThreadAttr::name);
-      if (threadAttr && threadAttr.getThreadType() == ThreadType::Compute) {
-        modified |= insertDstRegisterAccess(rewriter, op.getLoc(), op.getBody(),
-                                            dstRegisterSizeTiles);
+      if (!threadAttr || threadAttr.getThreadType() != ThreadType::Compute) {
+        return failure();
       }
+
+      Type largestDstType = utils::getRegionLargestDstElemType(op.getRegion());
+      const unsigned dstCapacity =
+          ttcore::SystemDescAttr::getDefault(rewriter.getContext())
+              .getChipDesc(0)
+              .getDstLogicalSizeTiles(largestDstType);
+
+      modified |= insertDstRegisterAccess(rewriter, op.getLoc(), op.getBody(),
+                                          dstCapacity);
     }
     return success(modified);
   }
 
   static bool insertDstRegisterAccess(
       PatternRewriter &rewriter, Location loc, Region &region,
-      unsigned dstRegisterSizeTiles,
-      Operation *outermostInnerComputeLoop = nullptr,
+      unsigned dstCapacity, Operation *outermostInnerComputeLoop = nullptr,
       llvm::function_ref<SmallVector<int64_t>(int64_t)>
           getNonParticipatingLoopDims =
               [](int64_t) { return SmallVector<int64_t>{}; }) {
@@ -142,7 +152,7 @@ public:
     // 2. Insert acquire dst.
     AcquireDstOp acquireDst =
         insertAcquireDst(rewriter, loc, region, copyInfos,
-                         outermostInnerComputeLoop, dstRegisterSizeTiles);
+                         outermostInnerComputeLoop, dstCapacity);
     Value dst = acquireDst.getResult();
 
     // 3. Generate data copy loops to/from dst and output cb.
@@ -160,25 +170,22 @@ public:
 
   static std::pair<MemRefType, int64_t>
   inferCbInfoFromAllAccesses(const CopyInfoMap &copyInfos) {
-    MemRefType canonicalType;
-    bool first = true;
-    int64_t maxDstSliceIdx = 0;
+    MemRefType canonicalType = nullptr;
+    int64_t maxDstSliceIdx = -1;
 
     for (auto [loopNest, copyInfo] : copyInfos) {
-      for (auto [loadOp, idx] : copyInfo.loads) {
-        if (first) {
+      for (auto &[loadOp, idx] : copyInfo.loads) {
+        if (canonicalType == nullptr) {
           canonicalType = loadOp.getMemRefType();
-          first = false;
         } else {
           TT_assertv(loadOp.getMemRefType() == canonicalType,
                      "Multiple interpretations of DST not supported.");
         }
         maxDstSliceIdx = std::max(maxDstSliceIdx, idx);
       }
-      for (auto [storeOp, idx] : copyInfo.stores) {
-        if (first) {
+      for (auto &[storeOp, idx] : copyInfo.stores) {
+        if (canonicalType == nullptr) {
           canonicalType = storeOp.getMemRefType();
-          first = false;
         } else {
           TT_assertv(storeOp.getMemRefType() == canonicalType,
                      "Multiple interpretations of DST not supported.");
@@ -186,7 +193,8 @@ public:
         maxDstSliceIdx = std::max(maxDstSliceIdx, idx);
       }
     }
-    TT_assert(!first);
+    TT_assert(canonicalType != nullptr);
+    TT_assert(maxDstSliceIdx >= 0);
     return {canonicalType, maxDstSliceIdx};
   }
 
@@ -194,7 +202,7 @@ public:
                                        Region &region,
                                        const CopyInfoMap &copyInfos,
                                        Operation *outermostInnerComputeLoop,
-                                       unsigned dstRegisterSizeTiles) {
+                                       unsigned dstCapacity) {
     assert(!copyInfos.empty());
     if (outermostInnerComputeLoop) {
       rewriter.setInsertionPoint(outermostInnerComputeLoop);
@@ -205,8 +213,8 @@ public:
     auto [cbType, maxDstSliceIdx] = inferCbInfoFromAllAccesses(copyInfos);
     // Calculate dst shape as N slices of cb shape.
     int64_t volume = ttmlir::utils::volume(cbType.getShape());
-    assert(volume <= dstRegisterSizeTiles);
-    int64_t numDstSlices = dstRegisterSizeTiles / volume;
+    assert(volume <= dstCapacity);
+    int64_t numDstSlices = dstCapacity / volume;
     TT_assertv(maxDstSliceIdx < numDstSlices,
                "Insufficient DST capacity for all operands.");
     SmallVector<int64_t> dstShape({numDstSlices});
@@ -377,8 +385,7 @@ public:
   */
   static bool rewriteTileMatmulAsTileMatmulBlock(
       PatternRewriter &rewriter, GenericOp op, Region &region,
-      linalg::GenericOp linalgGenericOp, unsigned dstRegisterSizeTiles,
-      bool &modified) {
+      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified) {
     assert(linalgGenericOp.getInputs().size() == 2 &&
            "Expected exactly 2 input for tile matmul");
     assert(linalgGenericOp.getOutputs().size() == 1 &&
@@ -396,7 +403,7 @@ public:
     }
     rewriter.eraseOp(linalgGenericOp);
     modified |= insertDstRegisterAccess(
-        rewriter, op.getLoc(), region, dstRegisterSizeTiles,
+        rewriter, op.getLoc(), region, dstCapacity,
         !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr,
         [&](int64_t index) { return op.getNonParticipatingLoopDims(index); });
 

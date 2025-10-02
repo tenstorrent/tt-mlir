@@ -881,11 +881,7 @@ public:
   matchAndRewrite(d2m::DMAReadOp op, d2m::DMAReadOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
-    auto device = ttcore::lookupDevice(op);
-    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
-    auto chipIds = device.getChipIds();
-    assert(chipIds.size() == 1);
-    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
 
     // NOTE: All reads must be from remote locations in DMAReadOp
     // local->local transfers are lowered as nocAsyncWrites, which require
@@ -939,11 +935,7 @@ public:
   matchAndRewrite(d2m::DMAWriteOp op, d2m::DMAWriteOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
-    auto device = ttcore::lookupDevice(op);
-    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
-    auto chipIds = device.getChipIds();
-    assert(chipIds.size() == 1);
-    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
 
     if (op.isDstLocal()) {
       // Local to Local Datamovement & Multicast
@@ -1055,11 +1047,8 @@ public:
   LogicalResult
   matchAndRewrite(d2m::CoreIndexOp op, d2m::CoreIndexOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto device = ttcore::lookupDevice(op);
-    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
-    auto chipIds = device.getChipIds();
-    assert(chipIds.size() == 1);
-    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
+
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
 
     assert(op.getDim() == 0 ||
            op.getDim() == 1 &&
@@ -1290,11 +1279,8 @@ public:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto device = ttcore::lookupDevice(op);
-    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
-    auto chipIds = device.getChipIds();
-    assert(chipIds.size() == 1);
-    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
+
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
 
     Value value = op.getValue();
     Value semaphoreAddr = adaptor.getSemaphore();

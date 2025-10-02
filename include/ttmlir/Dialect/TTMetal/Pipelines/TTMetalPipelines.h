@@ -44,6 +44,11 @@ struct TTIRToTTMetalPipelineOptions
                                   "Use mock blackhole system desc.")),
       llvm::cl::init(ttcore::Arch::WormholeB0)};
 
+  Option<unsigned> maxDstPhysicalSizeTiles{
+      *this, "max-dst-physical-size-tiles",
+      llvm::cl::desc("Clamp DST's max physical size in tiles. 0 means unset."),
+      llvm::cl::init(0)};
+
   ListOption<int64_t> matmulInterchange{
       *this, "matmul-interchange",
       llvm::cl::desc(
