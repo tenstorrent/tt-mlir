@@ -3749,6 +3749,31 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   auto updateIndexShape = getUpdateIndex().getType().getShape();
   auto pageTableShape = getPageTable().getType().getShape();
 
+  auto updateIndexElementType = getUpdateIndex().getType().getElementType();
+  auto pageTableElementType = getPageTable().getType().getElementType();
+
+  if (!mlir::isa<mlir::IntegerType>(updateIndexElementType)) {
+    return emitOpError("Update index tensor must have integer element type");
+  }
+
+  auto updateIndexIntegerType =
+      mlir::dyn_cast<mlir::IntegerType>(updateIndexElementType);
+  if (updateIndexIntegerType.getWidth() != 32) {
+    return emitOpError(
+        "Update index tensor must have 32-bit integer element type");
+  }
+
+  if (!mlir::isa<mlir::IntegerType>(pageTableElementType)) {
+    return emitOpError("Page table tensor must have integer element type");
+  }
+
+  auto pageTableIntegerType =
+      mlir::dyn_cast<mlir::IntegerType>(pageTableElementType);
+  if (pageTableIntegerType.getWidth() != 32) {
+    return emitOpError(
+        "Page table tensor must have 32-bit integer element type");
+  }
+
   if (cacheShape.size() != 4) {
     return emitOpError("Cache tensor must be a 4D tensor");
   }
