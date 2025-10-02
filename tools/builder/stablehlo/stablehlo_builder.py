@@ -167,6 +167,536 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    # ----- Elementwise Unary Operations -----
+
+    def abs(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.abs``.
+
+        *Elementwise absolute value operation.*
+
+        Computes the element-wise absolute value of the input tensor.
+
+        Mathematical definition: abs(x) = |x|
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise absolute values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.AbsOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.cbrt``.
+
+        *Elementwise cube root operation.*
+
+        Computes the element-wise cube root of the input tensor.
+
+        Mathematical definition: cbrt(x) = x^(1/3)
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise cube roots of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.CbrtOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def convert(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.convert``.
+
+        *Element-wise type conversion operation.*
+
+        Converts each element of the input tensor to a different type.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor with elements converted to the target type
+        """
+        return self._eltwise_proxy(
+            stablehlo.ConvertOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def ceil(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.ceil``.
+
+        *Elementwise ceiling operation.*
+
+        Computes the element-wise ceiling of the input tensor.
+
+        Mathematical definition: ceil(x) = ⌈x⌉
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise ceiling values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.CeilOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def cosine(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.cosine``.
+
+        *Elementwise cosine operation.*
+
+        Computes the element-wise cosine of the input tensor.
+
+        Mathematical definition: cosine(x) = cos(x)
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise cosine values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.CosineOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def exp(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.exponential``.
+
+        *Elementwise exponential operation.*
+
+        Computes the element-wise exponential of the input tensor.
+
+        Mathematical definition: exp(x) = e^x
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise exponential values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.ExpOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def floor(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.floor``.
+
+        *Elementwise floor operation.*
+
+        Computes the element-wise floor of the input tensor.
+
+        Mathematical definition: floor(x) = ⌊x⌋
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise floor values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.FloorOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def is_finite(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.is_finite``.
+
+        *Elementwise finite check operation.*
+
+        Checks if each element of the input tensor is finite (not infinity or NaN).
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A boolean tensor indicating which elements are finite
+        """
+        return self._eltwise_proxy(
+            stablehlo.IsFiniteOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def neg(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.negate``.
+
+        *Elementwise negation operation.*
+
+        Computes the element-wise negation of the input tensor.
+
+        Mathematical definition: neg(x) = -x
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise negated values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.NegOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def rsqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.rsqrt``.
+
+        *Elementwise reciprocal square root operation.*
+
+        Computes the element-wise reciprocal square root of the input tensor.
+
+        Mathematical definition: rsqrt(x) = 1/√x
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise reciprocal square root values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.RsqrtOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def sine(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.sine``.
+
+        *Elementwise sine operation.*
+
+        Computes the element-wise sine of the input tensor.
+
+        Mathematical definition: sine(x) = sin(x)
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise sine values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.SineOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def sqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.sqrt``.
+
+        *Elementwise square root operation.*
+
+        Computes the element-wise square root of the input tensor.
+
+        Mathematical definition: sqrt(x) = √x
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise square root values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.SqrtOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def log1p(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.log_plus_one``.
+
+        *Elementwise log(1+x) operation.*
+
+        Computes the element-wise natural logarithm of (1 + input tensor).
+
+        Mathematical definition: log1p(x) = log(1 + x)
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise log(1+x) values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.Log1pOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def expm1(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.exponential_minus_one``.
+
+        *Elementwise exp(x)-1 operation.*
+
+        Computes the element-wise exponential minus one of the input tensor.
+
+        Mathematical definition: expm1(x) = exp(x) - 1
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise exp(x)-1 values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.Expm1Op,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def sign(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.sign``.
+
+        *Elementwise sign operation.*
+
+        Computes the element-wise sign of the input tensor.
+
+        Mathematical definition: sign(x) = -1 if x < 0, 0 if x = 0, 1 if x > 0
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise sign values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.SignOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def logistic(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.logistic``.
+
+        *Elementwise logistic (sigmoid) operation.*
+
+        Computes the element-wise logistic function of the input tensor.
+
+        Mathematical definition: logistic(x) = 1 / (1 + exp(-x))
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise logistic values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.LogisticOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def tan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.tan``.
+
+        *Elementwise tangent operation.*
+
+        Computes the element-wise tangent of the input tensor.
+
+        Mathematical definition: tan(x) = sin(x) / cos(x)
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise tangent values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.TanOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def tanh(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.tanh``.
+
+        *Elementwise hyperbolic tangent operation.*
+
+        Computes the element-wise hyperbolic tangent of the input tensor.
+
+        Mathematical definition: tanh(x) = (exp(x) - exp(-x)) / (exp(x) + exp(-x))
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise hyperbolic tangent values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.TanhOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
+    def log(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``stablehlo.log``.
+
+        *Elementwise natural logarithm operation.*
+
+        Computes the element-wise natural logarithm of the input tensor.
+
+        Mathematical definition: log(x) = ln(x)
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise natural logarithm values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.LogOp,
+            [in0],
+            unit_attrs=unit_attrs,
+        )
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(
