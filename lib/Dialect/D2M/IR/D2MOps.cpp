@@ -1554,35 +1554,25 @@ bool d2m::GenericOp::isAllParallel() {
 }
 
 bool d2m::GenericOp::isValidElementwiseFusionTarget() {
-  int count = 0;
   if (!isComputeOnlyForm()) {
     return false;
   }
-  llvm::errs() << "V " << count++ << "\n";
 
   if (!hasPureTensorSemantics()) {
     return false;
   }
 
-  llvm::errs() << "V " << count++ << "\n";
-
   if (!isAllParallel()) {
     return false;
   }
-
-  llvm::errs() << "V " << count++ << "\n";
 
   if (hasSkipOpEltwiseFusionTrait()) {
     return false;
   }
 
-  llvm::errs() << "V " << count++ << "\n";
-
   if (hasMultiUseInputOperand()) {
     return false;
   }
-
-  llvm::errs() << "V " << count++ << "\n";
 
   return true;
 }
