@@ -427,6 +427,66 @@ private:
   }
 };
 
+// ReLU6 fusion pattern matcher that transforms:
+//   minimum(relu(x), 6)
+// into:
+//   relu6(x)
+//
+// The pattern matches both operand orders:
+//   - minimum(relu(x), 6)
+//   - minimum(6, relu(x))
+//
+// The constant 6 can be represented as either an integer or float fill value.
+class Relu6FusionPattern : public mlir::OpRewritePattern<MinimumOp> {
+  using mlir::OpRewritePattern<MinimumOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MinimumOp minimumOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Try to match pattern: Minimum(ReLU(x), 6) or Minimum(6, ReLU(x))
+    Value lhs = minimumOp.getLhs();
+    Value rhs = minimumOp.getRhs();
+
+    auto reluOp = lhs.getDefiningOp<ReluOp>();
+    auto fullOp = rhs.getDefiningOp<FullOp>();
+
+    // Check the reversed pattern if initial match fails
+    if (!reluOp) {
+      reluOp = rhs.getDefiningOp<ReluOp>();
+      fullOp = lhs.getDefiningOp<FullOp>();
+    }
+
+    // Verify we found the expected pattern
+    if (!reluOp || !fullOp || !isFillValueSix(fullOp)) {
+      return mlir::failure();
+    }
+
+    // Replace with ReLU6
+    rewriter.setInsertionPoint(minimumOp);
+    utils::replaceOpWithNewDPSOp<Relu6Op>(rewriter, minimumOp,
+                                          minimumOp.getResult().getType(),
+                                          reluOp.getInput());
+    return mlir::success();
+  }
+
+private:
+  // Check if the fill value of the full op is six.
+  bool isFillValueSix(FullOp op) const {
+    if (!op) {
+      return false;
+    }
+    mlir::Attribute fillValue = op.getFillValue();
+    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
+      return integerAttr.getValue().getSExtValue() == 6;
+    }
+    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
+      return floatAttr.getValue().convertToFloat() == 6.0;
+    }
+    return false;
+  }
+};
+
 template <typename ConvOpType>
 class ConvWithMultiplyTemplate : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
@@ -2080,6 +2140,7 @@ public:
       }
 
       patterns.add<GeluFusionPattern>(&getContext());
+      patterns.add<Relu6FusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
