@@ -107,6 +107,21 @@ ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
 
 llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape);
 
+// Retrieve the layout from the shaped type (ie. getEncoding for tensors and
+// getLayout for memrefs).
+inline DeviceLayoutInterface getDeviceLayout(ShapedType shapedType) {
+  if (auto tensor = mlir::dyn_cast_if_present<RankedTensorType>(shapedType)) {
+    return mlir::dyn_cast_if_present<DeviceLayoutInterface>(
+        tensor.getEncoding());
+  }
+
+  if (auto memref = mlir::dyn_cast_if_present<MemRefType>(shapedType)) {
+    return mlir::dyn_cast_if_present<DeviceLayoutInterface>(memref.getLayout());
+  }
+
+  return nullptr;
+}
+
 } // namespace mlir::tt::ttcore
 
 #endif // TTMLIR_DIALECT_TTCORE_IR_UTILS_H
