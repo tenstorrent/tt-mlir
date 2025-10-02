@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
@@ -65,7 +66,9 @@ public:
                                 ttmetal::MathFidelity mathFidelity) {
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
-    auto coreRange = builder.getAttr<ttmetal::CoreRangeAttr>(opGrid);
+
+    auto coreRange = ttmetal::CoreRangeAttr::get(opGrid);
+
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
       KernelArgsAttr kernelArgs = evalKernelArgsFromSpec(

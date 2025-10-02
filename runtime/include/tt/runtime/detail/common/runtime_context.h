@@ -7,6 +7,7 @@
 
 #include "tt/runtime/types.h"
 #include <atomic>
+#include <filesystem>
 
 namespace tt::runtime {
 
@@ -18,6 +19,11 @@ public:
   RuntimeContext(RuntimeContext &&) = delete;
 
   static RuntimeContext &instance();
+
+  std::string getMlirHome() const;
+  void setMlirHome(std::string_view mlirHome);
+
+  std::string getMetalHome() const;
 
   DeviceRuntime getCurrentDeviceRuntime() const;
   void setCurrentDeviceRuntime(const DeviceRuntime &runtime);
@@ -32,9 +38,12 @@ private:
   RuntimeContext();
   ~RuntimeContext() = default;
 
-  std::atomic<DeviceRuntime> currentRuntime = DeviceRuntime::Disabled;
-  std::atomic<HostRuntime> currentHostRuntime = HostRuntime::Local;
-  std::atomic<FabricConfig> currentFabricConfig = FabricConfig::DISABLED;
+  std::filesystem::path mlirHome_;
+  std::filesystem::path metalHome_;
+
+  std::atomic<DeviceRuntime> currentDeviceRuntime_ = DeviceRuntime::Disabled;
+  std::atomic<HostRuntime> currentHostRuntime_ = HostRuntime::Local;
+  std::atomic<FabricConfig> currentFabricConfig_ = FabricConfig::DISABLED;
 };
 
 } // namespace tt::runtime

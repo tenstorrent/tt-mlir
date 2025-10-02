@@ -112,6 +112,13 @@ uint32_t getNumShards(Tensor tensor) {
 }
 } // namespace detail
 
+void setMlirHome(std::string_view mlirHome) {
+#if defined(DEVICE_RUNTIME_ENABLED)
+  return RuntimeContext::instance().setMlirHome(mlirHome);
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 std::vector<DeviceRuntime> getAvailableDeviceRuntimes() {
   std::vector<DeviceRuntime> runtimes;
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
@@ -124,16 +131,14 @@ std::vector<DeviceRuntime> getAvailableDeviceRuntimes() {
 }
 
 DeviceRuntime getCurrentDeviceRuntime() {
-#if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \
-    (defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1))
+#if defined(DEVICE_RUNTIME_ENABLED)
   return RuntimeContext::instance().getCurrentDeviceRuntime();
 #endif
   return DeviceRuntime::Disabled;
 }
 
 void setCurrentDeviceRuntime(const DeviceRuntime &runtime) {
-#if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \
-    (defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1))
+#if defined(DEVICE_RUNTIME_ENABLED)
   return RuntimeContext::instance().setCurrentDeviceRuntime(runtime);
 #endif
   LOG_FATAL("Runtime is not enabled");
@@ -169,16 +174,14 @@ std::vector<HostRuntime> getAvailableHostRuntimes() {
 }
 
 HostRuntime getCurrentHostRuntime() {
-#if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \
-    (defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1))
+#if defined(DEVICE_RUNTIME_ENABLED)
   return RuntimeContext::instance().getCurrentHostRuntime();
 #endif
   return HostRuntime::Local;
 }
 
 void setCurrentHostRuntime(const HostRuntime &runtime) {
-#if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \
-    (defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1))
+#if defined(DEVICE_RUNTIME_ENABLED)
   return RuntimeContext::instance().setCurrentHostRuntime(runtime);
 #endif
   LOG_FATAL("Runtime is not enabled");
@@ -187,8 +190,7 @@ void setCurrentHostRuntime(const HostRuntime &runtime) {
 SystemDesc
 getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
                      std::optional<Device> meshDevice) {
-#if (defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)) ||      \
-    (defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1))
+#if defined(DEVICE_RUNTIME_ENABLED)
   return system_desc::getCurrentSystemDesc(dispatchCoreType, meshDevice);
 #endif
   LOG_FATAL("runtime is not enabled");

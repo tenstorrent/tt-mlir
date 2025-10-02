@@ -21,6 +21,7 @@ try:
         MeshDeviceOptions,
         DistributedOptions,
         DistributedMode,
+        set_mlir_home,
         get_current_device_runtime,
         set_current_device_runtime,
         set_compatible_device_runtime,
