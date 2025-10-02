@@ -242,6 +242,16 @@ class EmitPy:
         if "--init" in sys.argv:
             self["--disable-golden"] = True
 
+        # Workaround for issue #5205: Reorder dylibs so that ones with corresponding flatbuffers run first
+        solo_dylibs = []
+        paired_dylibs = []
+        for dylib in self.emitpy_dylibs:
+            if dylib in self.ttnn_binaries:
+                paired_dylibs.append(dylib)
+            else:
+                solo_dylibs.append(dylib)
+        self.emitpy_dylibs = paired_dylibs + solo_dylibs
+
         for dylib in self.emitpy_dylibs:
             self.logging.info(f"evaluating python file={dylib.file_path}")
 
