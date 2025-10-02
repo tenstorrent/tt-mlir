@@ -11,8 +11,10 @@ from setuptools import setup
 # Configuration Constants
 import sysconfig
 
-PYTHON_VERSION = f"cpython-{sysconfig.get_python_version().replace('.', '')}"
+# Use Python 3.11 to match the build environment
+PYTHON_VERSION = "cpython-311"
 DEFAULT_ARCH = "x86_64"
+
 
 # Package structure definitions
 TTNN_SUBPACKAGES = [
@@ -244,13 +246,7 @@ def get_dynamic_dependencies():
     """Get dependencies needed for TTNN JIT functionality"""
     return [
         "nanobind",  # Python binding framework
-        "numpy",  # Core numeric computing
         "torch",  # PyTorch for tensor operations
-        "pyyaml",  # YAML parsing
-        "loguru",  # Logging (used by TTNN)
-        "tqdm",  # Progress bars
-        "psutil",  # System info
-        "graphviz",  # Visualization for JIT graphs
     ]
 
 
@@ -293,14 +289,12 @@ def generate_package_data(all_runtime_libs):
     ]:
         package_data[f"ttmlir.{sub}"] = ["*.py"]
 
-    # Add ttnn package data with common file patterns
-    common_ttnn_patterns = ["*.py", "*.so", "*.md", "*.ipynb", "*.txt", "*.sh", "*.svg"]
+    # Add ttnn package data with essential file patterns only
     base_ttnn_patterns = ["*.py", "*.so"]
 
-    package_data["ttnn"] = common_ttnn_patterns
+    package_data["ttnn"] = base_ttnn_patterns
     for sub in TTNN_SUBPACKAGES + TTLIB_SUBPACKAGES:
-        patterns = ["*.py", "*.svg"] if "examples.bert" in sub else base_ttnn_patterns
-        package_data[f"ttnn.{sub}"] = patterns
+        package_data[f"ttnn.{sub}"] = base_ttnn_patterns
 
     return package_data
 
@@ -337,7 +331,7 @@ def main():
         zip_safe=False,
         long_description=get_readme(),
         long_description_content_type="text/markdown",
-        python_requires=">=3.7",
+        python_requires=">=3.11",
     )
 
 
