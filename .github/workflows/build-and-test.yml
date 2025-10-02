@@ -362,7 +362,7 @@ jobs:
         if [[ "${{ matrix.build.run-ttrt }}" == "true" ]]; then
           ttrt run ${{ matrix.build.ttrt-flags }} ttir-builder-artifacts/
           ttrt run ${{ matrix.build.ttrt-flags }} stablehlo-builder-artifacts/
-          ttrt run ${{ matrix.build.ttrt-flags }} ttir-builder-artifacts/emitpy/
+          ttrt emitpy ${{ matrix.build.ttrt-flags }} ttir-builder-artifacts/emitpy/
         fi
 
 
