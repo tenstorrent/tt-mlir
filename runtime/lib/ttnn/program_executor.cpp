@@ -119,6 +119,7 @@ void ProgramExecutor::runCallback(
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   std::cout << "TESTING DHRUV IN CALLBACK EVEN IF NULL" << std::endl;
+  std::cout << "CALLBACK: " << callback.has_value() << std::endl;
   if (callback) {
     std::cout << "TESTING DHRUV IN CALLBACK IF NOT NULL" << std::endl;
     std::shared_ptr<void> programContextPtr =
