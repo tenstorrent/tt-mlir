@@ -251,7 +251,6 @@ class EmitPy:
                     bin = self.ttnn_binaries[dylib]
                     compare_to_ttnn = True
 
-                if compare_to_ttnn:
                     command_options = f"--program-index {self['--program-index']} --loops {self['--loops']} --save-artifacts "
 
                     if self["--artifact-dir"]:
