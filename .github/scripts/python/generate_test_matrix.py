@@ -6,14 +6,40 @@
 import json
 import sys
 import test_common
+from itertools import product
 
 default_duration = 150.0  # default duration in seconds if not found in _test_durations
+
+
+def unroll_arrays(tests):
+    # Unroll tests with array fields into multiple tests
+    unrolled_tests = []
+    for test in tests:
+        array_fields = {k: v for k, v in test.items() if isinstance(v, list)}
+        if not array_fields:
+            unrolled_tests.append(test)
+            continue
+
+        # Create a list of all combinations of array fields
+        keys, values = zip(*array_fields.items())
+        for combination in product(*values):
+            new_test = test.copy()
+            for k, v in zip(keys, combination):
+                new_test[k] = v
+            unrolled_tests.append(new_test)
+
+    return unrolled_tests
 
 
 def main(input_filename, target_duration):
     # Load the input JSON file
     with open(input_filename, "r") as f:
         tests = json.load(f)
+
+    tests = unroll_arrays(tests)
+    # debug print
+    print(f"Unrolled to {len(tests)} tests:")
+    print(json.dumps(tests, indent=2))
 
     # load saved durations
     durations = {}
@@ -140,6 +166,7 @@ def main(input_filename, target_duration):
         json.dump(test_matrix, f, indent=2)
 
     # Print the test matrix
+    print(f"Generated job matrix, {len(test_matrix)} jobs:")
     print(json.dumps(test_matrix, indent=2))
 
 

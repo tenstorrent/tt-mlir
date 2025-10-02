@@ -27,7 +27,7 @@ It uses a matrix strategy which means that multiple jobs are created and execute
 
 ### Test Matrix
 Test matrix is defined as JSON file inside `.github/test_matrix` directory. Currently, only `pr-push-matrix.json` is used.
-Each row in the matrix array represents one test that will execute on a specific machine using specified (release) build image.
+Each row in the matrix array represents test that will execute on a specific machine using specified (release) build image.
 Example:
 
 ```json
@@ -43,7 +43,7 @@ Currently supported runners are:
 - n300 - Wormhole 2 chip card
 - llmbox - Loudbox machine with with 4 N300 cards
 - tg - galaxy box
-- p150b - Blackhole 1 chip card
+- p150 - Blackhole 1 chip card
 
 > It is expected that list will expand soon as machines with blackhole chip family are added to the runner pool.
 
@@ -71,6 +71,28 @@ It is up to the test script how it will use this argument.
 Additional flags may be used when running tests.
 It is up to the test script how it will use this argument.
 
+### Using JSON arrays
+Each of the field can be passed as JSON array. With arrays one can define test to execute on multiple
+machines, images, paths, or whatever combination is needed.
+Examples:
+
+```json
+{ "runs-on": ["n150","n300"],
+    "image": ["speedy","tracy"],
+        "type": "unit" }
+```
+
+In this example "unit" test will be executed on both "n150" and "n300" machines using both images
+("speedy" and "tracy"). In reality it will execute four times on different machine/image combinations.
+
+```json
+{ "runs-on": "n150",
+    "image": "tracy",
+        "type": "pytest",
+            "path": ["tools/ttrt/test", "test/python/op_by_op"] },
+```
+
+This will execute pytest with two different paths.
 
 ## Adding New Test
 Usually, it is enough to add a single line to the test matrix and your tests will become part of tt-mlir CI.
@@ -164,7 +186,7 @@ Note how it uses eval command to expand bash variables where it is suitable. It 
 
 ## CI Run (under the hood)
 
-Test run is prepared in `prepare-run` job when input test matrix is trasformed into real test matrix that will be used for test runs.
+Test run is prepared in `prepare-run` job when input test matrix is transformed into real test matrix that will be used for test runs.
 All jobs are grouped based on `runs-on` and `image` fields and then split (and balanced) to several runs based on test durations and target total time.
 This is done to make efficient use of resources because there are many tests that last for just several seconds while preparation can take ~4 minutes.
 So, tests are run in batches in `Run Test` step with clear separation and summary. List of tests are displayed on the beginning and one can search for `test <number>`
