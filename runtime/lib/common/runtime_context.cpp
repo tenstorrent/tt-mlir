@@ -14,21 +14,30 @@ RuntimeContext &RuntimeContext::instance() {
 }
 
 RuntimeContext::RuntimeContext() {
-#if (!defined(TT_RUNTIME_ENABLE_TTNN) || (TT_RUNTIME_ENABLE_TTNN == 0)) &&     \
-    (!defined(TT_RUNTIME_ENABLE_TTMETAL) || (TT_RUNTIME_ENABLE_TTMETAL == 0))
+#if !defined(DEVICE_RUNTIME_ENABLED)
   LOG_FATAL(
       "Runtime context cannot be initialized when no runtimes are enabled");
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
-  currentRuntime = DeviceRuntime::TTNN;
+  currentDeviceRuntime_ = DeviceRuntime::TTNN;
 #elif defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1)
-  currentRuntime = DeviceRuntime::TTMetal;
+  currentDeviceRuntime_ = DeviceRuntime::TTMetal;
 #endif
 }
 
+std::string RuntimeContext::getMlirHome() const { return mlirHome_.string(); }
+
+void RuntimeContext::setMlirHome(std::string_view mlirHome) {
+  constexpr std::string_view metalPath = "third_party/tt-metal/src/tt-metal";
+  mlirHome_ = mlirHome;
+  metalHome_ = mlirHome_ / metalPath;
+}
+
+std::string RuntimeContext::getMetalHome() const { return metalHome_.string(); }
+
 DeviceRuntime RuntimeContext::getCurrentDeviceRuntime() const {
-  DeviceRuntime runtime = currentRuntime.load(std::memory_order_relaxed);
+  DeviceRuntime runtime = currentDeviceRuntime_.load(std::memory_order_relaxed);
 
 #if !defined(TT_RUNTIME_ENABLE_TTNN) || (TT_RUNTIME_ENABLE_TTNN == 0)
   LOG_ASSERT(runtime != DeviceRuntime::TTNN);
@@ -48,23 +57,23 @@ void RuntimeContext::setCurrentDeviceRuntime(const DeviceRuntime &runtime) {
 #if !defined(TT_RUNTIME_ENABLE_TTMETAL) || (TT_RUNTIME_ENABLE_TTMETAL == 0)
   LOG_ASSERT(runtime != DeviceRuntime::TTMetal);
 #endif
-  currentRuntime.store(runtime, std::memory_order_relaxed);
+  currentDeviceRuntime_.store(runtime, std::memory_order_relaxed);
 }
 
 HostRuntime RuntimeContext::getCurrentHostRuntime() const {
-  return currentHostRuntime.load(std::memory_order_relaxed);
+  return currentHostRuntime_.load(std::memory_order_relaxed);
 }
 
 void RuntimeContext::setCurrentHostRuntime(const HostRuntime &runtime) {
-  currentHostRuntime.store(runtime, std::memory_order_relaxed);
+  currentHostRuntime_.store(runtime, std::memory_order_relaxed);
 }
 
 FabricConfig RuntimeContext::getCurrentFabricConfig() const {
-  FabricConfig config = currentFabricConfig.load(std::memory_order_relaxed);
+  FabricConfig config = currentFabricConfig_.load(std::memory_order_relaxed);
   return config;
 }
 void RuntimeContext::setCurrentFabricConfig(const FabricConfig &config) {
-  currentFabricConfig.store(config, std::memory_order_relaxed);
+  currentFabricConfig_.store(config, std::memory_order_relaxed);
 }
 
 } // namespace tt::runtime

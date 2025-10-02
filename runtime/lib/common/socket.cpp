@@ -200,11 +200,25 @@ ControllerSocket::ControllerSocket(uint16_t port) {
   LOG_INFO("ControllerSocket bound to port ", port_);
 }
 
-std::vector<std::unique_ptr<Socket>>
-ControllerSocket::connectToWorkers(size_t numWorkers) const {
+std::vector<std::unique_ptr<Socket>> ControllerSocket::connectToWorkers(
+    size_t numWorkers, const std::chrono::milliseconds &timeout) const {
   std::vector<std::unique_ptr<Socket>> workerConnections;
   workerConnections.reserve(numWorkers);
+
   for (size_t i = 0; i < numWorkers; i++) {
+    struct pollfd pfd;
+    pfd.fd = listenSocket_->fd();
+    pfd.events = POLLIN;
+
+    int result = poll(&pfd, 1, timeout.count());
+
+    if (result < 0) {
+      LOG_FATAL("Poll failed with error: ", std::strerror(errno));
+    }
+    if (result == 0) {
+      LOG_FATAL("Timeout occurred while connecting to workers");
+    }
+
     sockaddr_in workerAddr{};
     socklen_t workerLen = sizeof(workerAddr);
     std::unique_ptr<Socket> workerSocket = std::make_unique<Socket>(
@@ -222,6 +236,7 @@ ControllerSocket::connectToWorkers(size_t numWorkers) const {
 
     workerConnections.emplace_back(std::move(workerSocket));
   }
+
   return workerConnections;
 }
 
