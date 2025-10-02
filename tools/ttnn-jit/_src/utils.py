@@ -46,10 +46,24 @@ def _discover_dialect_ops(dialect, denylist=None):
 def _cleanup_source_code(f: Callable):
     source_code = inspect.getsource(f)
     source_code = textwrap.dedent(source_code)
-    cleaned = [
-        line for line in source_code.splitlines() if not line.strip().startswith("@")
-    ]
-    source_code = "\n".join(cleaned)
+
+    # Find the line that starts the function definition and keep from there
+    lines = source_code.splitlines()
+    def_line_idx = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("def "):
+            def_line_idx = i
+            break
+
+    if def_line_idx is None:
+        # Fallback to old behavior if we can't find def line
+        cleaned = [line for line in lines if not line.strip().startswith("@")]
+        source_code = "\n".join(cleaned)
+    else:
+        # Keep only from the def line onwards (removes all decorator lines)
+        source_code = "\n".join(lines[def_line_idx:])
+
     return source_code
 
 
