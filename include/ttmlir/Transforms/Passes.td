@@ -153,4 +153,28 @@ def WrapSingleAffineLoops : Pass<"wrap-single-affine-loops", "::mlir::func::Func
   let dependentDialects = ["mlir::affine::AffineDialect"];
 }
 
+def CollapseParallelLoops: Pass<"collapse-parallel-loops", "::mlir::func::FuncOp"> {
+  let summary = "Collapse and reverse dimensions in multidimensional SCF parallel loops";
+  let description = [{
+    This pass collapses the last dimensions of SCF parallel loops to three dimensions and then reverses the parameter order to improve memory locality.
+
+    Example transformation:
+    ```mlir
+    // Before:
+    scf.parallel (%i, %j, %k, %l) = (0, 0, 0, 0) to (8, 224, 224, 3) step (1, 1, 1, 1) {
+      // loop body using %i, %j, %k, %l
+    }
+
+    // After:
+    scf.parallel (%merged, %j, %i) = (0, 0, 0) to (672, 224, 8) step (1, 1, 1) {
+      %k = arith.divui %merged, %c3 : index
+      %l = arith.remui %merged, %c3 : index
+      // loop body using %i, %j, %k, %l
+    }
+    ```
+  }];
+
+  let dependentDialects = ["::mlir::scf::SCFDialect", "::mlir::arith::ArithDialect"];
+}
+
 #endif

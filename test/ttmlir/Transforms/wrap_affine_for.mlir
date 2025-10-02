@@ -1,4 +1,5 @@
-//RUN: ttmlir-opt --wrap-single-affine-loops %s | FileCheck %s
+// RUN: ttmlir-opt --wrap-single-affine-loops -o %t %s
+// RUN: FileCheck %s --input-file=%t
 
 func.func @test_simple(%arg0: memref<2xf32>) -> memref<2xf32> {
   %cst = arith.constant 0.000000e+00 : f32
