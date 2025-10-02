@@ -167,7 +167,6 @@ class EmitPy:
                 else:
                     self[name] = attributes["default"]
             else:
-                # argument got parsed to hyphen's for underscrolls and leading hyphen's removed - need to put back
                 converted_name = name
                 if name != "dylib":
                     converted_name = converted_name.lstrip("-")
@@ -254,9 +253,6 @@ class EmitPy:
 
                 if compare_to_ttnn:
                     command_options = f"--program-index {self['--program-index']} --loops {self['--loops']} --save-artifacts "
-
-                    if self["--log-file"]:
-                        command_options += f" --log-file {self['--log-file']} "
 
                     if self["--artifact-dir"]:
                         command_options += f" --artifact-dir {self['--artifact-dir']} "
