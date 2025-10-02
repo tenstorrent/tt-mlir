@@ -63,7 +63,8 @@ void Controller::launchLocalSubprocess(uint16_t controllerPort) {
       std::launch::async, [command]() { return std::system(command.c_str()); });
   exitCodeFutures_.emplace_back(std::move(asyncFuture));
 
-  workerConnections_ = controllerSocket_->connectToWorkers(numWorkers);
+  workerConnections_ =
+      controllerSocket_->connectToWorkers(numWorkers, writeTimeout_);
   launchCommandDispatcher();
   launchResponseHandler();
 }

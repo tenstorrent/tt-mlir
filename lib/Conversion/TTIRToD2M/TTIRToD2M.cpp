@@ -99,10 +99,13 @@ protected:
         mlir::cast<ttcore::TileType>(ttnnLayout.getElementType()).getHeight() ==
             ttcore::TileType::getDefaultShape()[0] &&
         "Only default tile shape is supported");
-    assert(ttnnLayout.hasL1BufferType() &&
-           ttnnLayout.getMemLayout().getValue() ==
-               ttnn::TensorMemoryLayout::BlockSharded &&
-           "Only block sharded L1 tensor memory layout is supported");
+    bool isBlockSharded = ttnnLayout.hasL1BufferType() &&
+                          ttnnLayout.getMemLayout().getValue() ==
+                              ttnn::TensorMemoryLayout::BlockSharded;
+    bool isInterleaved = ttnnLayout.hasInterleavedDRAMTensorMemoryLayout();
+    assert((isBlockSharded || isInterleaved) &&
+           "Only block sharded L1 or interleaved DRAM tensor memory layouts "
+           "are supported");
   }
 
   RankedTensorType
@@ -119,7 +122,7 @@ protected:
             ? ttcore::MemorySpace::DeviceDRAM
             : ttcore::MemorySpace::DeviceL1;
 
-    Type elementType = ttnnLayout.getElementType();
+    // Hardcode collapse intervals to [[0, -1)] to match ttnn.
     auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
     auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
     DenseIntElementsAttr collapsedIntervals =
@@ -131,14 +134,19 @@ protected:
             ? ttcore::TensorMemoryLayout::Interleaved
             : ttcore::TensorMemoryLayout::Sharded;
 
+    // For tiled tensors the tile dims need to be 32 aligned.
+    llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
+    dimAlignments[dimAlignments.size() - 1] = 32;
+    dimAlignments[dimAlignments.size() - 2] = 32;
+
     // The index map in TTNNLayoutAttr is for collapsing an N-D tensor on to
     // the grid. It has no relevance to the index map in MetalLayoutAttr.
-    // Hardcode collapse intervals to [[0, -1]].
     // MetalLayoutAttr takes the grid shape of the device, not the grid on which
     // the tensor is sharded.
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), targetSquareGridShape,
-        ttcore::OOBVal::Undef, memSpace, memLayout, collapsedIntervals);
+        ttcore::OOBVal::Undef, memSpace, memLayout, collapsedIntervals,
+        dimAlignments);
 
     llvm::SmallVector<int64_t> unshardedShape =
         metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
@@ -146,6 +154,7 @@ protected:
     llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
         ttnnLayout.getGrid().getShape(), ttcore::TileType::getDefaultShape());
 
+    Type elementType = ttnnLayout.getElementType();
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
