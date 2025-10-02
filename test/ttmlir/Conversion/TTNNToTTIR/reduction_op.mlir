@@ -147,4 +147,30 @@ module {
         return %3 : tensor<f16, #dram_layout>
     }
 
+    func.func @test_prod_all_dims(%arg0: tensor<32x64xf32, #dram_layout>) -> tensor<f32, #dram_layout> {
+        %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #memory_config_l1}> : (tensor<32x64xf32, #dram_layout>) -> tensor<32x64xf32, #l1_layout>
+
+        // CHECK: %{{[0-9]+}} = ttir.empty() : tensor<f32, #ttnn_layout{{[0-9]+}}>
+        // CHECK: %{{[0-9]+}} = "ttir.prod"(%{{[0-9]+}}, %{{[0-9]+}}) <{keep_dim = false}> : (tensor<32x64xf32, #ttnn_layout{{[0-9]+}}>, tensor<f32, #ttnn_layout{{[0-9]+}}>) -> tensor<f32, #ttnn_layout{{[0-9]+}}>
+        // CHECK-NOT: "ttnn.prod"
+        %2 = "ttnn.prod"(%1) {ttnn.hoist_generic_via_d2m, keep_dim = false} : (tensor<32x64xf32, #l1_layout>) -> tensor<f32, #l1_layout>
+
+        %3 = "ttnn.to_memory_config"(%2) <{memory_config = #memory_config_dram}> : (tensor<f32, #l1_layout>) -> tensor<f32, #dram_layout>
+
+        return %3 : tensor<f32, #dram_layout>
+    }
+
+    func.func @test_argmax_all_dims(%arg0: tensor<64x96xbf16, #dram_layout>) -> tensor<1x1xi32, #dram_layout> {
+        %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #memory_config_l1}> : (tensor<64x96xbf16, #dram_layout>) -> tensor<64x96xbf16, #l1_layout>
+
+        // CHECK: %{{[0-9]+}} = ttir.empty() : tensor<1x1xi32, #ttnn_layout{{[0-9]+}}>
+        // CHECK: %{{[0-9]+}} = "ttir.argmax"(%{{[0-9]+}}, %{{[0-9]+}}) <{keep_dim = true}> : (tensor<64x96xbf16, #ttnn_layout{{[0-9]+}}>, tensor<1x1xi32, #ttnn_layout{{[0-9]+}}>) -> tensor<1x1xi32, #ttnn_layout{{[0-9]+}}>
+        // CHECK-NOT: "ttnn.argmax"
+        %2 = "ttnn.argmax"(%1) {ttnn.hoist_generic_via_d2m, keep_dim = true, use_multicore = true} : (tensor<64x96xbf16, #l1_layout>) -> tensor<1x1xi32, #l1_layout>
+
+        %3 = "ttnn.to_memory_config"(%2) <{memory_config = #memory_config_dram}> : (tensor<1x1xi32, #l1_layout>) -> tensor<1x1xi32, #dram_layout>
+
+        return %3 : tensor<1x1xi32, #dram_layout>
+    }
+
 }
