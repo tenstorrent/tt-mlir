@@ -1929,14 +1929,103 @@ public:
   matchAndRewrite(ReshapeOp reshapeOp,
                   mlir::PatternRewriter &rewriter) const final {
     llvm::SmallVector<LinearOp> linearOps =
-        {}; // ops that use the reshape op output
+        {}; // Linear ops that use the reshape op output.
     populateLinearOps(reshapeOp, linearOps);
+
     if (!linearOps.empty() && validateLinearOps(reshapeOp, linearOps)) {
       llvm::SmallVector<PermuteOp> permuteOps = {};
       populatePermuteOps(linearOps, permuteOps);
       if (!validatePermuteOps(permuteOps)) {
         return mlir::failure();
       }
+
+      // Concatenate weights along dimension 1.
+      // Weights are the second input (B) of linear op, shape [hidden, hidden].
+      Value queryWeightMatrix = linearOps[0].getB();
+      Value keyWeightMatrix = linearOps[1].getB();
+      Value valueWeightMatrix = linearOps[2].getB();
+
+      Value reshapeOutput = reshapeOp.getResult();
+      ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
+      int32_t batchSize = inputShape[BATCH_SIZE];
+      int32_t sequenceLength = inputShape[SEQUENCE_LENGTH];
+      int32_t hiddenSize = inputShape[HIDDEN_DIMENSION];
+
+      SmallVector<int64_t> concatenatedWeightShape = {hiddenSize,
+                                                      hiddenSize * 3};
+      RankedTensorType concatenatedWeightType = RankedTensorType::get(
+          concatenatedWeightShape,
+          mlir::cast<RankedTensorType>(queryWeightMatrix.getType())
+              .getElementType());
+
+      // TODO: Do I need this?
+      Operation *lastWeightOp = valueWeightMatrix.getDefiningOp();
+      rewriter.setInsertionPointAfter(lastWeightOp);
+
+      ConcatOp concatenatedWeightMatrix =
+          ttir::utils::createDPSOp<ttir::ConcatOp>(
+              rewriter, lastWeightOp->getLoc(), concatenatedWeightType,
+              ValueRange{queryWeightMatrix, keyWeightMatrix, valueWeightMatrix},
+              rewriter.getSI32IntegerAttr(1) /* axis */);
+
+      // Concatenate bias along dimension 1 (last dimension).
+      // TODO: What happens if bias is 1D?
+      Value queryBias = linearOps[0].getBias();
+      Value keyBias = linearOps[1].getBias();
+      Value valueBias = linearOps[2].getBias();
+      Operation *lastBiasOp = valueBias.getDefiningOp();
+      rewriter.setInsertionPointAfter(lastBiasOp);
+      ArrayRef<int64_t> biasShape =
+          mlir::cast<RankedTensorType>(queryBias.getType()).getShape();
+      SmallVector<int64_t> concatenatedBiasShape = {biasShape[0],
+                                                    biasShape[1] * 3};
+      RankedTensorType concatenatedBiasType = RankedTensorType::get(
+          concatenatedBiasShape,
+          mlir::cast<RankedTensorType>(queryBias.getType()).getElementType());
+
+      ConcatOp concatenatedBias = ttir::utils::createDPSOp<ttir::ConcatOp>(
+          rewriter, lastBiasOp->getLoc(), concatenatedBiasType,
+          ValueRange{queryBias, keyBias, valueBias},
+          rewriter.getSI32IntegerAttr(1) /* axis */);
+
+      // Create linear operation with concatenated weights and bias.
+      RankedTensorType linearOutputType = RankedTensorType::get(
+          {batchSize * sequenceLength, hiddenSize * 3},
+          mlir::cast<RankedTensorType>(reshapeOutput.getType())
+              .getElementType());
+      LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
+          rewriter, lastBiasOp->getLoc(), linearOutputType, reshapeOutput,
+          concatenatedWeightMatrix.getResult(), concatenatedBias.getResult(),
+          /*transpose_a=*/false, /*transpose_b=*/false);
+
+      // Create split qkv op.
+      auto queryType = permuteOps[0].getOutput().getType();
+      auto keyType = permuteOps[1].getOutput().getType();
+      auto valueType = permuteOps[2].getOutput().getType();
+      int32_t numHeads = queryType.getShape()[Q_NUM_KV_HEADS];
+
+      Value queryOutput = rewriter.create<EmptyOp>(
+          linearOp.getLoc(), queryType.getShape(), queryType.getElementType(),
+          queryType.getEncoding());
+      Value keyOutput = rewriter.create<EmptyOp>(
+          linearOp.getLoc(), keyType.getShape(), keyType.getElementType(),
+          keyType.getEncoding());
+      Value valueOutput = rewriter.create<EmptyOp>(
+          linearOp.getLoc(), valueType.getShape(), valueType.getElementType(),
+          valueType.getEncoding());
+
+      auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
+          linearOp.getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
+          linearOp.getResult(), Value(), queryOutput, keyOutput, valueOutput,
+          rewriter.getUI32IntegerAttr(numHeads), IntegerAttr(),
+          rewriter.getBoolAttr(false));
+
+      rewriter.replaceAllUsesWith(permuteOps[0].getResult(),
+                                  splitOp.getResult(0));
+      rewriter.replaceAllUsesWith(permuteOps[1].getResult(),
+                                  splitOp.getResult(1));
+      rewriter.replaceAllUsesWith(permuteOps[2].getResult(),
+                                  splitOp.getResult(2));
 
       return mlir::success();
     }
