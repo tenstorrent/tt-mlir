@@ -6,15 +6,14 @@ import os
 import pytest
 import ttrt
 import ttrt.runtime
-import torch
+import json
 from ttrt.common.util import *
 from ..utils import (
     TT_MLIR_HOME,
-    Helper,
-    Storage,
     DeviceContext,
     ProgramTestConfig,
     ProgramTestRunner,
+    subprocess_get_system_descriptor,
     get_torch_output_container,
     assert_pcc,
 )
@@ -24,7 +23,9 @@ FLATBUFFER_BASE_PATH = (
 )
 
 
-def test_system_desc(helper: Helper, request):
+def test_system_desc(request):
+    system_desc_local = subprocess_get_system_descriptor(request)
+
     ttrt.runtime.set_mlir_home(TT_MLIR_HOME)
     ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Distributed)
     ttrt.runtime.launch_distributed_runtime()
@@ -32,17 +33,14 @@ def test_system_desc(helper: Helper, request):
     assert system_desc is not None
     ttrt.runtime.shutdown_distributed_runtime()
 
-    ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Local)
-    system_desc_local = ttrt.runtime.get_current_system_desc()
     assert system_desc.as_json() == system_desc_local.as_json()
+    ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Local)
 
 
 @pytest.mark.parametrize("num_loops", [64])
-def test_flatbuffer_execution(helper: Helper, request, num_loops):
+def test_flatbuffer_execution(request, num_loops):
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "binary_ops.mlir.tmp.ttnn")
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
-    helper.initialize(request.node.name, binary_path)
-    helper.check_constraints()
 
     test_config = ProgramTestConfig(
         name="binary_ops_distributed",
@@ -52,7 +50,18 @@ def test_flatbuffer_execution(helper: Helper, request, num_loops):
         description="Binary ops distributed test",
     )
 
-    test_runner = ProgramTestRunner(test_config, helper.binary, 0)
+    logger = Logger()
+    file_manager = FileManager(logger)
+    binary = Binary(logger, file_manager, binary_path)
+
+    curr_system_desc = json.loads(subprocess_get_system_descriptor(request).as_json())
+    binary_system_desc = binary.system_desc_dict
+
+    assert (
+        curr_system_desc["system_desc"] == binary_system_desc
+    ), "System descriptor mismatch"
+
+    test_runner = ProgramTestRunner(test_config, binary, 0)
 
     ttrt.runtime.set_mlir_home(TT_MLIR_HOME)
     ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Distributed)
@@ -78,5 +87,4 @@ def test_flatbuffer_execution(helper: Helper, request, num_loops):
             assert_pcc(output_torch, golden)
 
     ttrt.runtime.shutdown_distributed_runtime()
-    helper.teardown()
     ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Local)
