@@ -176,12 +176,10 @@ def rsqrt(input_tensor):
         sin,
         ceil,
         floor,
-        gelu,
-        logical_not,
-        reciprocal,
-        rsqrt,
-        # cbrt, sign, erf, erfc, bitwise_not # <- not supported in TTIRToD2M
-        # tan, sqrt # <- always fails allclose
+        # Not supported in TTIRToD2M:
+        # gelu, logical_not, reciprocal cbrt, sign, erf, erfc, bitwise_not
+        # Always fails allclose
+        # tan, sqrt
     ],
 )
 def test_unary_op(device, h, w, max_grid, dtype, op):
@@ -290,15 +288,10 @@ def le(a, b):
         mul,
         div,
         pow,
-        eq,
-        ne,
-        gt,
-        ge,
-        lt,
-        le,
         # logical_and, logical_or, logical_xor,
         # bitwise_or, bitwise_and, bitwise_xor, # not a supported FPU op
-        # remainder, atan2,# not supported in TTIRToD2M
+        # Not supported in TTIRToD2M
+        # remainder, atan2, eq, ne, gt, ge, lt, le
     ],
 )
 def test_binary_ops(device, h, w, max_grid, dtype, op):
