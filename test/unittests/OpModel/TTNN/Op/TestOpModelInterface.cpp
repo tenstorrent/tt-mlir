@@ -2321,9 +2321,9 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
-  EXPECT_EQ(cbSize, 69696);
-  EXPECT_EQ(l1PeakSize, 88400);
-  EXPECT_EQ(outputSize, 26624);
+  EXPECT_EQ(cbSize, 131136);
+  EXPECT_EQ(l1PeakSize, 110360);
+  EXPECT_EQ(outputSize, 0);
 
   runtimeExp =
       backend.getOpRuntime(getInputLayouts(conv2d),

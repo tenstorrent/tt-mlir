@@ -654,9 +654,6 @@ TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(
 
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
-    ttnn::Conv2dOp op);
-template TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::ConvTranspose2dOp op);
 
 } // namespace mlir::tt::ttnn::wa

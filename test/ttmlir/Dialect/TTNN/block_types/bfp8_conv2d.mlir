@@ -9,9 +9,6 @@ module  {
     %0 = ttir.empty() : tensor<16x30x30x64xbf16>
     // CHECK: ttnn.conv2d
 
-    // Input should be in row major bf16
-    // CHECK-SAME: tensor<1x1x16384x64xbf16, #ttnn.ttnn_layout<{{.*}}, memref<16384x64xbf16, #ttnn.buffer_type<dram
-
     // Weight should be on host row major bf16
     // CHECK-SAME: tensor<64x64x3x3xbf16, #ttnn.ttnn_layout{{.*}}, memref<12288x3xbf16, #ttnn.buffer_type<system_memory
 

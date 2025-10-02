@@ -671,6 +671,9 @@ getPrepareConv2dBiasOpOutputTensorSpec(
       localConfig = *conv2dConfigConverted;
     }
 
+    std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+        sliceConfigConverted = std::nullopt;
+
     return ::ttnn::graph::query_op_constraints(
         prepare_fn, device, biasTensor, inputSpec.memory_config(),
         inputSpec.layout(), in_channels, out_channels, batch_size, input_height,
@@ -681,7 +684,7 @@ getPrepareConv2dBiasOpOutputTensorSpec(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, *inputDtype, outputDtype, localConfig,
-        /*compute_config_=*/std::nullopt);
+        /*compute_config_=*/std::nullopt, sliceConfigConverted);
   };
 
   auto output = operation::executeConstraintQuery(prepareConv2dBiasOpQuery);
@@ -4150,6 +4153,9 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
     convertedOutputDtype = conversion::getDataType(outputDtype.value());
   }
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfigConverted = std::nullopt;
+
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         &::ttnn::operations::conv::conv2d::prepare_conv_bias, device,
@@ -4163,7 +4169,8 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
-        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig));
+        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
+        sliceConfigConverted);
   };
 
   return operation::getOpConstraints(biasLayout.getContext(), deviceGrid,

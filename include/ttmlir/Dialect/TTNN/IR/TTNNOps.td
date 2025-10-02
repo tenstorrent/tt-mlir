@@ -1477,9 +1477,6 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface]> {
       // Get number of output channels.
       int64_t getOutputChannelSize();
       bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        return wa::TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(*this);
-      }
     }];
 }
 
