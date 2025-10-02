@@ -989,9 +989,8 @@ struct OpModel<PagedUpdateCacheOp> {
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
       TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
       TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> updateIndexShape,
-      TTNNLayoutAttr updateIndexLayout,
-      std::optional<llvm::ArrayRef<int64_t>> pageTableShape,
-      TTNNLayoutAttr pageTableLayout, uint32_t batchOffset,
+      TTNNLayoutAttr updateIndexLayout, llvm::ArrayRef<int64_t> pageTableShape,
+      TTNNLayoutAttr pageTableLayout, bool shareCache,
       TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
@@ -999,8 +998,8 @@ struct OpModel<PagedUpdateCacheOp> {
                llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                llvm::ArrayRef<int64_t> updateIndexShape,
                TTNNLayoutAttr updateIndexLayout,
-               std::optional<llvm::ArrayRef<int64_t>> pageTableShape,
-               TTNNLayoutAttr pageTableLayout, uint32_t batchOffset,
+               llvm::ArrayRef<int64_t> pageTableShape,
+               TTNNLayoutAttr pageTableLayout, bool shareCache,
                TTNNLayoutAttr outputLayout);
 };
 
