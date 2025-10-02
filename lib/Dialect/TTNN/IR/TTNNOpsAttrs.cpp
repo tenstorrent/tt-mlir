@@ -1022,7 +1022,8 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 ::llvm::LogicalResult KernelCBAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     uint32_t totalSize, CoreRangeSetAttr coreRanges,
-    llvm::ArrayRef<mlir::tt::ttnn::KernelCBFormatAttr> formats) {
+    llvm::ArrayRef<mlir::tt::ttnn::KernelCBFormatAttr> formats,
+    mlir::tt::ttnn::KernelCBGlobalBufferAddressOfTensorAttr buffer) {
   return ::llvm::success();
 }
 
