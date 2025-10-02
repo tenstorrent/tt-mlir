@@ -111,9 +111,12 @@ inline DeviceLayoutInterface getDeviceLayout(ShapedType shapedType) {
   if (auto tensor = mlir::dyn_cast_if_present<RankedTensorType>(shapedType)) {
     return mlir::dyn_cast_if_present<DeviceLayoutInterface>(
         tensor.getEncoding());
-  } else if (auto memref = mlir::dyn_cast_if_present<MemRefType>(shapedType)) {
+  }
+
+  if (auto memref = mlir::dyn_cast_if_present<MemRefType>(shapedType)) {
     return mlir::dyn_cast_if_present<DeviceLayoutInterface>(memref.getLayout());
   }
+
   return nullptr;
 }
 
