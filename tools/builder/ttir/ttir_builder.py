@@ -1869,45 +1869,11 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def pow_scalar(
-        self, in0: Operand, exponent: float, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.pow_scalar``.
-
-        *Elementwise power operation.*
-
-        Takes the power of each element in in0 with exponent and returns a tensor with the result.
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor (base)
-        exponent : float
-            scalar value (exponent)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with power values
-        """
-        kwargs = {"exponent": FloatAttr.get_f32(exponent)}
-        golden = {"exponent": exponent}
-        return self._op_proxy(
-            ttir.PowScalarOp,
-            [in0],
-            golden_kwargs=golden,
-            ttir_kwargs=kwargs,
-            unit_attrs=unit_attrs,
-        )
-
-    def pow_tensor(
+    def pow(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
         """
-        Creates ``ttir.pow_tensor``.
+        Creates ``ttir.pow``.
 
         *Elementwise power operation.*
 
@@ -1928,7 +1894,7 @@ class TTIRBuilder(Builder):
             Tensor with power values
         """
         return self._op_proxy(
-            ttir.PowTensorOp,
+            ttir.PowOp,
             [in0, in1],
             unit_attrs=unit_attrs,
         )

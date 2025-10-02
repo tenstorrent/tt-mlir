@@ -1123,7 +1123,7 @@ void populateTTIRToD2MPatterns(
     D2MNamedElementwiseRewriter<ttir::MultiplyOp,   d2m::TileMulOp>,
     D2MNamedElementwiseRewriter<ttir::MaximumOp,    d2m::TileMaximumOp>,
     D2MNamedElementwiseRewriter<ttir::NegOp,        d2m::TileNegativeOp>,
-    D2MNamedElementwiseRewriter<ttir::PowTensorOp,  d2m::TilePowOp>,
+    D2MNamedElementwiseRewriter<ttir::PowOp,        d2m::TilePowOp>,
     D2MNamedElementwiseRewriter<ttir::ReciprocalOp, d2m::TileRecipOp>,
     D2MNamedElementwiseRewriter<ttir::RsqrtOp,      d2m::TileRsqrtOp>,
     D2MNamedElementwiseRewriter<ttir::SigmoidOp,    d2m::TileSigmoidOp>,

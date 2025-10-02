@@ -649,26 +649,7 @@ def test_linear(shapes: List[Shape], request):
     )
 
 
-@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
-@pytest.mark.parametrize("exponent", [(2.0)])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_pow_scalar(shape: Shape, exponent: float, target: str, request):
-    def pow_scalar(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.pow_scalar(in0, exponent=exponent, unit_attrs=unit_attrs)
-
-    compile_ttir_to_flatbuffer(
-        pow_scalar,
-        [shape],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-    )
-
-
-def pow_tensor(
+def pow(
     in0: Operand,
     in1: Operand,
     builder: TTIRBuilder,
@@ -686,7 +667,7 @@ def pow_tensor(
     if torch.is_floating_point(randn_exponent_tensor):
         randn_base_tensor = torch.abs(randn_base_tensor)
     output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
-    pow0 = builder.pow_tensor(in0, in1, unit_attrs=unit_attrs)
+    pow0 = builder.pow(in0, in1, unit_attrs=unit_attrs)
     builder.set_goldens_from_builder_tensor(
         {in0: randn_base_tensor, in1: randn_exponent_tensor}, {pow0: output_golden}
     )
@@ -697,9 +678,9 @@ def pow_tensor(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_pow_tensor(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_pow(shape: Shape, dtype: torch.dtype, target: str, request):
     compile_ttir_to_flatbuffer(
-        pow_tensor,
+        pow,
         [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,

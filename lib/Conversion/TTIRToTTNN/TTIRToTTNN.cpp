@@ -536,18 +536,46 @@ public:
 } // namespace
 
 namespace {
-class PowScalarOpConversionPattern
-    : public OpConversionPattern<ttir::PowScalarOp> {
+class PowOpConversionPattern : public OpConversionPattern<ttir::PowOp> {
+private:
+  // Helper function to extract constant value.
+  static mlir::Attribute getConstantAttr(mlir::Value value) {
+    mlir::Operation *op = value.getDefiningOp();
+    while (mlir::isa_and_present<mlir::tt::ttnn::ReshapeOp,
+                                 mlir::tt::ttnn::TypecastOp>(op)) {
+      op = op->getOperand(0).getDefiningOp();
+    }
+
+    auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttnn::FullOp>(op);
+    if (!fullOp) {
+      return {};
+    }
+
+    mlir::Attribute fillValueAttr = fullOp.getFillValueAttr();
+
+    if (!isa<FloatAttr>(fillValueAttr) && !isa<IntegerAttr>(fillValueAttr)) {
+      return {};
+    }
+    return fillValueAttr;
+  }
+
 public:
-  using OpConversionPattern<ttir::PowScalarOp>::OpConversionPattern;
-  // using OpAdaptor = typename TTIROpTy::Adaptor;
+  using OpConversionPattern<ttir::PowOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::PowScalarOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::PowOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::PowScalarOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getExponent(), nullptr);
+    mlir::Attribute exponent = getConstantAttr(adaptor.getRhs());
+    if (exponent) {
+      rewriter.replaceOpWithNewOp<ttnn::PowScalarOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getLhs(), exponent, nullptr);
+      return success();
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::PowTensorOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getLhs(), adaptor.getRhs());
     return success();
   }
 };
@@ -1955,7 +1983,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::MinimumOp, ttnn::MinimumOp>,
            ElementwiseOpConversionPattern<ttir::RemainderOp, ttnn::RemainderOp>,
            ElementwiseOpConversionPattern<ttir::Atan2Op, ttnn::Atan2Op>,
-           ElementwiseOpConversionPattern<ttir::PowTensorOp, ttnn::PowTensorOp>,
+           // ElementwiseOpConversionPattern<ttir::PowTensorOp, ttnn::PowTensorOp>,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
            ElementwiseOpConversionPattern<ttir::CbrtOp, ttnn::CbrtOp>,
            ElementwiseOpConversionPattern<ttir::FloorOp, ttnn::FloorOp>,
@@ -1996,7 +2024,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            BroadcastOpConversionPattern,
            PadOpConversionPattern,
-           PowScalarOpConversionPattern,
+           PowOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
            RepeatOpConversionPattern,

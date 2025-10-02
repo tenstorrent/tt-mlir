@@ -15,4 +15,15 @@ module @jit_eltwise_pow attributes {} {
     %0 = stablehlo.power %arg0, %arg1 : tensor<64x128xf32>
     return %0 : tensor<64x128xf32>
   }
+
+  func.func public @test_power_scalar(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+    // CHECK-LABEL: func.func public @test_power
+    %cst = stablehlo.constant dense<2.000000e+00> : tensor<64x128xf32>
+    // CHECK: ttnn.pow
+    // CHECK-SAME: <{exponent = 2.000000e+00 : f32}>
+    // CHECK-SAME: tensor<64x128xf32,
+    // CHECK-SAME: -> tensor<64x128xf32,
+    %0 = stablehlo.power %arg0, %cst : tensor<64x128xf32>
+    return %0 : tensor<64x128xf32>
+  }
 }
