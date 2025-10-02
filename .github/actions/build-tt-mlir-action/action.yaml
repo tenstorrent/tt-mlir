@@ -81,6 +81,7 @@ runs:
         cmake --build ${{ inputs.build-output-dir }} -- compile-ttmlir-tests
 
     - name: Build ttnn-jit wheel
+      if: inputs.enable-pykernel == 'ON'
       shell: bash
       run: |
         source env/activate
@@ -147,6 +148,7 @@ runs:
         path: build/tools/ttrt/build/ttrt*.whl
 
     - name: Upload ttnn-jit .whl
+      if: inputs.enable-pykernel == 'ON'
       uses: actions/upload-artifact@v4
       with:
         name: ttnn-jit-whl-${{ inputs.build-name }}
