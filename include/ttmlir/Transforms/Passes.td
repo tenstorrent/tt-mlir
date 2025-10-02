@@ -181,4 +181,42 @@ def EmbedCudaTargetAttributes : Pass<"embed-cuda-target-attributes", "::mlir::Mo
   ];
 }
 
+def ExtractGPUModules: Pass<"extract-gpu-modules", "::mlir::ModuleOp">
+{
+  let summary = "Extract GPU kernel functions from LLVM into a single module";
+  let description = [{
+    This pass removes host code from llvm and extracts all functions of gpu modules into a single module.
+
+    Example:
+    ```
+    module @Example attributes {gpu.container_module} {
+      llvm.func @host_function
+      ...
+      gpu.module @kernel_1
+      {
+        llvm.func @kernel_func
+        ...
+      }
+      ...
+      gpu.module @kernel_n
+      {
+        llvm.func @kernel_func
+        ...
+      }
+    }
+    ```
+    becomes:
+
+    ```
+    module {
+      llvm.func @kernel_1_kernel_func
+      ...
+      llvm.func @kernel_n_kernel_func
+    }
+    ```
+
+  }];
+  let dependentDialects = ["mlir::LLVM::LLVMDialect"];
+}
+
 #endif
