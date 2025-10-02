@@ -254,7 +254,7 @@ addElementwiseBinaryOpsConversionPatterns(mlir::MLIRContext *ctx,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::WhereOp,
                                                   mlir::tt::ttir::WhereOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::PowTensorOp,
-                                                  mlir::tt::ttir::PowTensorOp>,
+                                                  mlir::tt::ttir::PowOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::Atan2Op,
                                                   mlir::tt::ttir::Atan2Op>,
            TTNNToTTIRElementwiseConversionPattern<

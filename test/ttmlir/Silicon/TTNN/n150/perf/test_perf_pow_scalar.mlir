@@ -8,6 +8,6 @@ func.func @pow(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
     // CHECK-SAME: <{exponent = 2.000000e+00 : f32}>
     // CHECK-SAME: tensor<32x32xf32,
     // CHECK-SAME: -> tensor<32x32xf32,
-    %2 = "ttir.pow_tensor"(%arg0, %0, %1) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %2 = "ttir.pow"(%arg0, %0, %1) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     return %2 : tensor<32x32xf32>
 }

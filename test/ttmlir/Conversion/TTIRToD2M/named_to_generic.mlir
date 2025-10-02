@@ -60,7 +60,7 @@ module {
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_pow
-    %9 = "ttir.pow_tensor"(%7, %8, %out) : (!ttype, !ttype, !ttype) -> !ttype
+    %9 = "ttir.pow"(%7, %8, %out) : (!ttype, !ttype, !ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
