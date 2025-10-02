@@ -25,7 +25,11 @@ find_package(pybind11 CONFIG REQUIRED)
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
 
 # Configure path to Python scripts
-set(TTMLIR_PYTHON_SCRIPTS_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../python/scripts")
+# Check if TTMLIR_PYTHON_SCRIPTS_PATH is set by user, otherwise use default logic
+if(NOT TTMLIR_PYTHON_SCRIPTS_PATH)
+  # Default: use source path for development, can be overridden for third-party usage
+  set(TTMLIR_PYTHON_SCRIPTS_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../python/scripts")
+endif()
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/python_scripts_path.h.in
   ${CMAKE_CURRENT_BINARY_DIR}/python_scripts_path.h
@@ -43,3 +47,10 @@ target_include_directories(TTRuntimeTTNN SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTME
 target_link_libraries(TTRuntimeTTNN PUBLIC TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
 target_link_libraries(TTRuntimeTTNN PUBLIC coverage_config)
 add_dependencies(TTRuntimeTTNN TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
+
+# Install Python scripts for third-party usage
+if(TTMLIR_ENABLE_RUNTIME)
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../python/scripts/"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/ttmlir/python/scripts"
+          COMPONENT SharedLib)
+endif()

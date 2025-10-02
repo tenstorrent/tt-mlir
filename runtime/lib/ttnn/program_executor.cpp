@@ -134,27 +134,64 @@ void ProgramExecutor::importGoldenModule() {
     // Add the scripts directory to Python path
     py::module_ sys = py::module_::import("sys");
     py::list path = sys.attr("path");
-    path.append(TTMLIR_PYTHON_SCRIPTS_PATH);
 
-    // Import the golden module
-    py::module_ golden = py::module_::import("golden");
-    LOG_DEBUG(LogType::LogRuntimeTTNN,
-              "Successfully imported golden Python module");
+    // Try multiple possible locations for the scripts
+    std::vector<std::string> script_paths = {
+        TTMLIR_PYTHON_SCRIPTS_PATH,      // Configured path
+        "runtime/python/scripts",        // Relative to working directory
+        "../share/ttmlir/python/scripts" // Relative to lib directory
+    };
 
-    // Optional: Call a function from the module to verify it works
-    if (py::hasattr(golden, "hello_from_golden")) {
-      py::object result = golden.attr("hello_from_golden")();
+    bool path_added = false;
+    for (const auto &script_path : script_paths) {
+      // Check if directory exists (simple check by trying to list it)
+      try {
+        py::module_ os = py::module_::import("os");
+        if (py::bool_(os.attr("path").attr("isdir")(script_path))) {
+          path.append(script_path);
+          path_added = true;
+          LOG_DEBUG(LogType::LogRuntimeTTNN,
+                    "Added Python scripts path: ", script_path);
+          break;
+        }
+      } catch (...) {
+        // Directory doesn't exist or can't be accessed
+      }
+    }
+
+    if (!path_added) {
+      // Fallback: add the configured path anyway
+      path.append(TTMLIR_PYTHON_SCRIPTS_PATH);
+      LOG_DEBUG(LogType::LogRuntimeTTNN, "Using fallback Python scripts path: ",
+                TTMLIR_PYTHON_SCRIPTS_PATH);
+    }
+
+    // Try to import the golden module - this is optional for third-party usage
+    try {
+      py::module_ golden = py::module_::import("golden");
       LOG_DEBUG(LogType::LogRuntimeTTNN,
-                "Golden module test function returned: ",
-                py::str(result).cast<std::string>());
+                "Successfully imported golden Python module");
+
+      // Optional: Call a function from the module to verify it works
+      if (py::hasattr(golden, "hello_from_golden")) {
+        py::object result = golden.attr("hello_from_golden")();
+        LOG_DEBUG(LogType::LogRuntimeTTNN,
+                  "Golden module test function returned: ",
+                  py::str(result).cast<std::string>());
+      }
+    } catch (const py::error_already_set &e) {
+      LOG_DEBUG(LogType::LogRuntimeTTNN,
+                "Golden Python module not available (this is normal for "
+                "third-party usage): ",
+                e.what());
     }
 
   } catch (const py::error_already_set &e) {
     LOG_WARNING(LogType::LogRuntimeTTNN,
-                "Failed to import golden Python module: ", e.what());
+                "Failed to initialize Python for golden module: ", e.what());
   } catch (const std::exception &e) {
     LOG_WARNING(LogType::LogRuntimeTTNN,
-                "Failed to import golden Python module: ", e.what());
+                "Failed to initialize Python for golden module: ", e.what());
   }
 }
 
