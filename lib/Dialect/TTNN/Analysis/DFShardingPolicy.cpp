@@ -92,8 +92,11 @@ void DFShardingPolicy::run() {
 
         // Consider sharding only if we found at least single legal config for
         // the current op.
-        bool validForSharding = llvm::isa<ttnn::Conv2dOp>(currentOp) &&
-                                legalConfigs.lookup(currentOp).size() > 0;
+        bool validForSharding =
+            llvm::isa<ttnn::Conv2dOp, ttnn::AddOp, ttnn::MultiplyOp,
+                      ttnn::ReluOp, ttnn::Relu6Op, ttnn::TypecastOp,
+                      ttnn::MinimumOp>(currentOp) &&
+            legalConfigs.lookup(currentOp).size() > 0;
 
         if (validForSharding) {
           OpL1MemSpec shardSpec;
