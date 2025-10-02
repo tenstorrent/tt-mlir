@@ -145,7 +145,7 @@ TEST_F(GenericOpBufferAnalysisTest, CanCreateGenericOpsWithDifferentGrids) {
   EXPECT_EQ(grid3.getShape()[1], 4);
 }
 
-// Value-parameterized tests for different sharding configurations
+// Value-parameterized tests for different sharding configurations.
 struct GenericOpBufferAnalysisTestParams {
   llvm::SmallVector<int64_t> grid;
   llvm::SmallVector<int64_t> dims;

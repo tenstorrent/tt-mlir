@@ -32,7 +32,8 @@ public:
 
   /// Buffer settings for a single operand.
   struct BufferSetting {
-    SmallVector<int64_t> bufferShape; // in terms of elements
+    /// Shape is in terms of elements.
+    SmallVector<int64_t> bufferShape;
     std::uint32_t numBuffers;
   };
 
