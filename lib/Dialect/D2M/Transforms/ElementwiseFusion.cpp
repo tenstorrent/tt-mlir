@@ -21,69 +21,6 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MELEMENTWISEFUSION
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-/// Returns true if, post-fusion, every dimension has at least one input
-/// that defines it.
-///
-/// Ensure that the fusion does not remove size information required to
-/// get the loop bounds. For non-reduction generics, this is trivially the
-/// case due to the output operand. For reductions, we need to check that after
-/// the fusion, each loop dimension has at least one input that defines it.
-static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
-                                     OpOperand *fusedOperand) {
-  // TODO(mbagherbeikTT) Revisit when adressing issue
-  // https://github.com/tenstorrent/tt-mlir/issues/5188 once we add reductions.
-  // Currently, what's commented out is just a slightly reformatted version of
-  // how the linalg fusion pass checks dimension coverage.
-  //
-  // already check if we're all-parallel coming into here
-  assert(!consumer.hasReduction());
-  return true;
-
-  // // If consumer has no reductions, trivially ok as in linalg.
-  // if (!consumer.hasReduction()) {
-  //   return true;
-  // }
-
-  // // Mark dims covered by existing (non-fused) consumer inputs.
-  // BitVector coveredDims(consumer.getNumDims(), false);
-  // for (auto [val, mapAttr] :
-  //      llvm::zip(consumer.getInputs(), consumer.getIndexingMaps())) {
-  //   if (val == fusedOperand->get()) {
-  //     continue;
-  //   }
-  //   AffineMap m = cast<AffineMapAttr>(mapAttr).getValue();
-  //   for (AffineExpr e : m.getResults()) {
-  //     if (auto d = dyn_cast<AffineDimExpr>(e)) {
-  //       coveredDims.set(d.getPosition());
-  //     }
-  //   }
-  // }
-
-  // // Add coverage from producer inputs remapped into consumer loops.
-  // AffineMap consIdx =
-  // consumer.getIndexingMap(fusedOperand->getOperandNumber());
-  // // Use first init operand's indexing map as result map.
-  // AffineMap prodResMap = producer.getIndexingMap(
-  //     producer.getDpsInitOperand(0)->getOperandNumber());
-  // AffineMap inv = inversePermutation(prodResMap);
-
-  // if (!inv) {
-  //   return false;
-  // }
-
-  // AffineMap consToProd = inv.compose(consIdx);
-  // for (OpOperand *oprd : producer.getDpsInputOperands()) {
-  //   AffineMap argMap = producer.getIndexingMap(oprd->getOperandNumber());
-  //   AffineMap fused = argMap.compose(consToProd);
-  //   for (AffineExpr e : fused.getResults()) {
-  //     if (auto d = dyn_cast<AffineDimExpr>(e)) {
-  //       coveredDims.set(d.getPosition());
-  //     }
-  //   }
-  // }
-  // return coveredDims.all();
-}
-
 static int countBinaryOps(Operation *op) {
   int count = 0;
 
@@ -180,10 +117,6 @@ static bool isElementwiseFusable(OpOperand *fusionOperand,
     return false;
   }
 
-  if (!coversAllDimsAfterFusion(producer, consumer, fusionOperand)) {
-    return false;
-  }
-
   return true;
 }
 
@@ -197,27 +130,47 @@ static AffineMap computeFusedArgMap(GenericOp producer, OpOperand *prodOpnd,
   return arg.compose(inv).compose(consMapForFused);
 }
 
-// Identify which producer results must be preserved in fused op
-static llvm::SmallDenseSet<int> getPreservedProducerResults(GenericOp producer,
-                                                            GenericOp consumer,
-                                                            OpOperand *fused) {
-  llvm::SmallDenseSet<int> keep;
-  // Only single output currently supported by D2M GenericOp; be robust if
-  // extended.
-  for (auto it : llvm::enumerate(producer->getResults())) {
-    int idx = static_cast<int>(it.index());
-    // Preserve if used by something other than the consumer
-    bool hasOtherUse = llvm::any_of(it.value().getUsers(), [&](Operation *u) {
-      return u != consumer.getOperation();
-    });
-    if (hasOtherUse) {
-      keep.insert(idx);
-      continue;
-    }
-    // In doubt about dropping, conservatively keep for now.
-    // TODO: Refine like linalg's invertibility concat check.
+static void gatherAndComposeFusedOpIO(OpOperand *fusedOperand,
+
+                                      // Build fused op operands, maps, results
+                                      SmallVector<Value> &fusedInputs,
+                                      SmallVector<Value> &fusedOutputs,
+                                      SmallVector<Type> &fusedResultTypes,
+                                      SmallVector<AffineMap> &fusedMaps) {
+  assert(fusedOperand);
+  auto producer = fusedOperand->get().getDefiningOp<GenericOp>();
+  auto consumer = dyn_cast<GenericOp>(fusedOperand->getOwner());
+  assert(producer && consumer);
+
+  AffineMap prodResMap = producer.getIndexingMap(
+      producer.getDpsInitOperand(0)->getOperandNumber());
+  AffineMap consMap = consumer.getIndexingMap(fusedOperand->getOperandNumber());
+
+  // consumer inputs before fused
+  auto inputs = consumer.getInputs();
+  size_t fusedIdx = fusedOperand->getOperandNumber();
+  for (size_t i = 0; i < fusedIdx; ++i) {
+    fusedInputs.push_back(inputs[i]);
+    fusedMaps.push_back(consumer.getIndexingMap(i));
   }
-  return keep;
+  // producer inputs (remapped)
+  for (OpOperand *pi : producer.getDpsInputOperands()) {
+    fusedInputs.push_back(pi->get());
+    fusedMaps.push_back(computeFusedArgMap(producer, pi, prodResMap, consMap));
+  }
+  // remaining consumer inputs after fused
+  for (size_t i = fusedIdx + 1; i < inputs.size(); ++i) {
+    fusedInputs.push_back(inputs[i]);
+    fusedMaps.push_back(consumer.getIndexingMap(i));
+  }
+
+  for (OpOperand &co : consumer.getDpsInitsMutable()) {
+    fusedOutputs.push_back(co.get());
+    fusedMaps.push_back(consumer.getIndexingMap(co.getOperandNumber()));
+    if (!isa<MemRefType>(co.get().getType())) {
+      fusedResultTypes.push_back(co.get().getType());
+    }
+  }
 }
 
 namespace {
@@ -251,51 +204,8 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
       SmallVector<Type> fusedResultTypes;
       SmallVector<AffineMap> fusedMaps;
 
-      AffineMap prodResMap = producer.getIndexingMap(
-          producer.getDpsInitOperand(0)->getOperandNumber());
-      AffineMap consMap = consumer.getIndexingMap(use->getOperandNumber());
-
-      // consumer inputs before fused
-      auto inputs = consumer.getInputs();
-      size_t fusedIdx = use->getOperandNumber();
-      for (size_t i = 0; i < fusedIdx; ++i) {
-        fusedInputs.push_back(inputs[i]);
-        fusedMaps.push_back(consumer.getIndexingMap(i));
-      }
-      // producer inputs (remapped)
-      for (OpOperand *pi : producer.getDpsInputOperands()) {
-        fusedInputs.push_back(pi->get());
-        fusedMaps.push_back(
-            computeFusedArgMap(producer, pi, prodResMap, consMap));
-      }
-      // remaining consumer inputs after fused
-      for (size_t i = fusedIdx + 1; i < inputs.size(); ++i) {
-        fusedInputs.push_back(inputs[i]);
-        fusedMaps.push_back(consumer.getIndexingMap(i));
-      }
-
-      // outputs: preserved producer outputs then consumer outputs
-      auto keep = getPreservedProducerResults(producer, consumer, use);
-      for (int i = 0, e = static_cast<int>(producer.getOutputs().size()); i < e;
-           ++i) {
-        if (!keep.count(i)) {
-          continue;
-        }
-        Value outVal = producer.getOutputs()[i];
-        fusedOutputs.push_back(outVal);
-        // map for this output in fused coords equals producer out map remapped
-        AffineMap m = computeFusedArgMap(
-            producer, producer.getDpsInitOperand(i), prodResMap, consMap);
-        fusedMaps.push_back(m);
-        fusedResultTypes.push_back(outVal.getType());
-      }
-      for (OpOperand &co : consumer.getDpsInitsMutable()) {
-        fusedOutputs.push_back(co.get());
-        fusedMaps.push_back(consumer.getIndexingMap(co.getOperandNumber()));
-        if (!isa<MemRefType>(co.get().getType())) {
-          fusedResultTypes.push_back(co.get().getType());
-        }
-      }
+      gatherAndComposeFusedOpIO(use, fusedInputs, fusedOutputs,
+                                fusedResultTypes, fusedMaps);
 
       // Create fused op
       auto fused = rewriter.create<GenericOp>(
@@ -329,6 +239,8 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
         fusedBlockArgLocs.push_back(srcArg.getLoc());
       };
 
+      auto inputs = consumer.getInputs();
+      size_t fusedIdx = use->getOperandNumber();
       // Reconstruct argSources in the same order as fused operands.
       // consumer inputs before fused
       for (size_t i = 0; i < fusedIdx; ++i) {
@@ -341,14 +253,6 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
       // remaining consumer inputs after fused
       for (size_t i = fusedIdx + 1; i < inputs.size(); ++i) {
         appendSource(consumer.getOperation(), /*operandNumber=*/i);
-      }
-      // preserved producer outputs
-      for (int i = 0, e = static_cast<int>(producer.getOutputs().size()); i < e;
-           ++i) {
-        if (keep.count(i)) {
-          appendSource(producer.getOperation(),
-                       producer.getDpsInitOperand(i)->getOperandNumber());
-        }
       }
       // consumer outputs
       for (OpOperand &co : consumer.getDpsInitsMutable()) {
@@ -408,11 +312,6 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
 
       // Build fused yield: kept producer yields then consumer yields
       SmallVector<Value> fusedYields;
-      for (auto it : llvm::enumerate(prodYield.getOperands())) {
-        if (keep.count(static_cast<int>(it.index()))) {
-          fusedYields.push_back(irMap.lookupOrDefault(it.value()));
-        }
-      }
       YieldOp consYield = nullptr;
       for (Operation &op : cb) {
         if (auto y = dyn_cast<YieldOp>(op)) {
@@ -427,16 +326,6 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
 
       // Replace uses: from producer and consumer results to fused results.
       int resIdx = 0;
-      // Map preserved producer results first
-      for (auto it : llvm::enumerate(producer->getResults())) {
-        if (!keep.count(static_cast<int>(it.index()))) {
-          continue;
-        }
-        it.value().replaceUsesWithIf(
-            fused->getResult(resIdx++), [&](OpOperand &u) {
-              return u.getOwner() != consumer.getOperation();
-            });
-      }
       // Consumer results
       for (auto r : consumer->getResults()) {
         r.replaceAllUsesWith(fused->getResult(resIdx++));
