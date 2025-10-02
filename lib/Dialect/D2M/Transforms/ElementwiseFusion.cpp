@@ -102,30 +102,19 @@ static int countBinaryOps(Operation *op) {
 
 static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
                                 OpOperand *use, unsigned dstRegisterSizeTiles) {
-  // Check if the operand has 16-bit or 32-bit element type
   auto tensorType = dyn_cast<RankedTensorType>(use->get().getType());
   assert(tensorType); // use MUST be a tensorType unless something got borked
 
-  Type elementType = tensorType.getElementType();
   auto shape = tensorType.getShape();
-
   int blockSize = shape.back();
+
   if (blockSize > static_cast<int>(dstRegisterSizeTiles)) {
     blockSize = dstRegisterSizeTiles;
   }
 
-  // If the element type is a tile type, extract the actual data type
-  if (auto tileType = dyn_cast<mlir::tt::ttcore::TileType>(elementType)) {
-    elementType = tileType.getElementType();
-  }
-
-  // unsigned bitWidth = elementType.getIntOrFloatBitWidth();
-
-  // TODO(mbagherbeikTT) previous 32bit logic is disabled. Need to eventually
-  // add a check for fp32DstAccumulate.
-  // int dstTilesRemaining = dstRegisterSizeTiles / (bitWidth == 32 ? 2 : 1);
   int dstTilesRemaining = dstRegisterSizeTiles;
 
+  // Account for number of tiles needed to store input operands after fusion
   dstTilesRemaining -= blockSize * (consumer->getNumOperands() +
                                     producer->getNumOperands() - 2 - 1);
 
