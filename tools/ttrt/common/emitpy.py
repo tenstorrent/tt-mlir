@@ -82,7 +82,7 @@ class EmitPy:
             help="disable golden comparison for intermediate and output tensors",
         )
         EmitPy.register_arg(
-            name="--disable-flatbuffer",
+            name="--disable-flatbuffer-comparison",
             type=bool,
             default=False,
             choices=[True, False],
@@ -247,7 +247,10 @@ class EmitPy:
 
             try:
                 compare_to_ttnn = False
-                if dylib in self.ttnn_binaries and not self["--disable-flatbuffer"]:
+                if (
+                    dylib in self.ttnn_binaries
+                    and not self["--disable-flatbuffer-comparison"]
+                ):
                     bin = self.ttnn_binaries[dylib]
                     compare_to_ttnn = True
 
@@ -415,9 +418,9 @@ class EmitPy:
                             if self["--print-input-output-tensors"]:
                                 for i, output_tensor in enumerate(dylib_outputs):
                                     output_tensor = ttnn.from_device(output_tensor)
-                                    torch_input = output_tensor.to_torch()
+                                    torch_output = output_tensor.to_torch()
                                     self.logging.info(
-                                        f"Output tensor {i}: {output_tensor}"
+                                        f"Output tensor {i}: {torch_output}"
                                     )
                 else:
                     with ttnn.manage_device(device_id=0) as device:
@@ -507,9 +510,9 @@ class EmitPy:
                                 if self["--print-input-output-tensors"]:
                                     for i, output_tensor in enumerate(dylib_outputs):
                                         output_tensor = ttnn.from_device(output_tensor)
-                                        torch_input = output_tensor.to_torch()
+                                        torch_output = output_tensor.to_torch()
                                         self.logging.info(
-                                            f"Output tensor {i}: {output_tensor}"
+                                            f"Output tensor {i}: {torch_output}"
                                         )
 
                                 # Compare outputs
@@ -526,10 +529,16 @@ class EmitPy:
                                         torch_dylib_outputs[i], torch_fbb_outputs[i]
                                     ):
                                         self.logging.error(
-                                            f"EmitPy dylib output tensor {torch_results[i]} does not match flatbuffer output {torch_outputs[i]} for program_index={program_index}, loop={loop}"
+                                            f"EmitPy dylib output tensor does not match flatbuffer output for program_index={program_index}, loop={loop}"
+                                        )
+                                        self.logging.debug(
+                                            f"EmitPy dylib output tensor {torch_dylib_outputs[i]}"
+                                        )
+                                        self.logging.debug(
+                                            f"Flatbuffer output tensor {torch_fbb_outputs[i]}"
                                         )
                                         raise Exception(
-                                            f"EmitPy dylib output tensor {torch_results[i]} does not match flatbuffer output {torch_outputs[i]} for program_index={program_index}, loop={loop}"
+                                            f"EmitPy dylib output tensor does not match flatbuffer output for program_index={program_index}, loop={loop}"
                                         )
                                     else:
                                         self.logging.debug(
