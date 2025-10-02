@@ -212,9 +212,8 @@ struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
 static ::mlir::LogicalResult
 verifyLayoutOp(mlir::Operation *op, const char *aName, const char *bName,
                mlir::Type aType, mlir::Type bType, bool checkSameElementType,
-               bool checkSameMemorySpace = false, bool checkSameRank = false,
-               bool checkSameGridShape = false,
-               bool checkSameShardShape = false) {
+               bool checkSameMemorySpace, bool checkSameRank,
+               bool checkSameGridShape, bool checkSameShardShape) {
   mlir::ShapedType a = mlir::cast<mlir::ShapedType>(aType);
   mlir::ShapedType b = mlir::cast<mlir::ShapedType>(bType);
   ttcore::DeviceLayoutInterface aLayout = ttcore::getDeviceLayout(a);
@@ -226,32 +225,41 @@ verifyLayoutOp(mlir::Operation *op, const char *aName, const char *bName,
 
   if (checkSameElementType && (a.getElementType() != b.getElementType())) {
     return op->emitOpError()
-           << aName << " and " << bName << "'s element types must be the same";
+           << aName << " and " << bName << "'s element types must be the same ("
+           << a.getElementType() << " != " << b.getElementType() << ")";
   }
 
   if (checkSameMemorySpace && mlir::isa<MemRefType>(a)) {
     if (mlir::cast<MemRefType>(a).getMemorySpace() !=
         mlir::cast<MemRefType>(b).getMemorySpace()) {
-      return op->emitOpError() << aName << " and " << bName
-                               << "'s memref memory spaces must be the same";
+      return op->emitOpError()
+             << aName << " and " << bName
+             << "'s memref memory spaces must be the same ("
+             << mlir::cast<MemRefType>(a).getMemorySpace()
+             << " != " << mlir::cast<MemRefType>(b).getMemorySpace() << ")";
     }
   }
 
   if (checkSameRank && a.getRank() != b.getRank()) {
     return op->emitOpError()
-           << aName << " and " << bName << "'s ranks must be the same";
+           << aName << " and " << bName << "'s ranks must be the same ("
+           << a.getRank() << " != " << b.getRank() << ")";
   }
 
   if (checkSameGridShape &&
       (aLayout.getGridShape(a) != bLayout.getGridShape(b))) {
     return op->emitOpError()
-           << aName << " and " << bName << "'s grid shape must be the same";
+           << aName << " and " << bName << "'s grid shape must be the same ("
+           << aLayout.getGridShape(a) << " != " << bLayout.getGridShape(b)
+           << ")";
   }
 
   if (checkSameShardShape &&
       (aLayout.getShardShape(a) != bLayout.getShardShape(b))) {
     return op->emitOpError()
-           << aName << " and " << bName << "'s shard shape must be the same";
+           << aName << " and " << bName << "'s shard shape must be the same ("
+           << aLayout.getShardShape(a) << " != " << bLayout.getShardShape(b)
+           << ")";
   }
 
   return mlir::success();
@@ -262,7 +270,10 @@ verifyLayoutOp(mlir::Operation *op, const char *aName, const char *bName,
   return verifyLayoutOp(*this, "input", "output", getInput().getType(),
                         getOutput().getType(),
                         /*checkSameElementType*/ false,
-                        /*checkSameMemorySpace*/ false);
+                        /*checkSameMemorySpace*/ false,
+                        /*checkSameRank*/ false,
+                        /*checkSameGridShape*/ false,
+                        /*checkSameShardShape*/ false);
 }
 
 // ToLayoutOp utility methods
