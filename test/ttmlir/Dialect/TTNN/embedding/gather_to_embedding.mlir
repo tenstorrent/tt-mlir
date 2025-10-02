@@ -330,7 +330,7 @@ module attributes {} {
     return %1 : tensor<1x2x3xf32>
   }
 
-  // a1
+  // In examples 17 to 23 there are dims that are in start index map that don't have slice size 1
   func.func @gather_17(%operand : tensor<2x3x2xbf16>, %start_indices: tensor<2x2x2xi32>) -> (tensor<2x2x2x2xbf16> {jax.result_info = "result"}) {
     // CHECK: "ttnn.embedding"
     %0 = ttir.empty() : tensor<2x2x2x2xbf16>
@@ -347,7 +347,6 @@ module attributes {} {
     return %1 : tensor<2x2x2x2xbf16>
   }
 
-  // a2
   func.func @gather_18(%operand : tensor<2x3x2xbf16>, %start_indices: tensor<2x2x2xi32>) -> (tensor<2x2x1x3x2xbf16> {jax.result_info = "result"}) {
     // CHECK: "ttnn.embedding"
     %0 = ttir.empty() : tensor<2x2x1x3x2xbf16>
@@ -364,7 +363,6 @@ module attributes {} {
     return %1 : tensor<2x2x1x3x2xbf16>
   }
 
-  // a3
   func.func @gather_19(%operand : tensor<5x2x3xbf16>, %start_indices: tensor<2x1xi32>) -> (tensor<2x2x2x3xbf16> {jax.result_info = "result"}) {
     // CHECK: "ttnn.embedding"
     %0 = ttir.empty() : tensor<2x2x2x3xbf16>
@@ -381,7 +379,6 @@ module attributes {} {
     return %1 : tensor<2x2x2x3xbf16>
   }
 
-  // a4
   func.func @gather_20(%operand : tensor<2x5x2xbf16>, %start_indices: tensor<2x3xi32>) -> (tensor<2x2x2x3x2xbf16> {jax.result_info = "result"}) {
     // CHECK: "ttnn.embedding"
     %0 = ttir.empty() : tensor<2x2x2x3x2xbf16>
@@ -398,7 +395,6 @@ module attributes {} {
     return %1 : tensor<2x2x2x3x2xbf16>
   }
 
-  // a5
   func.func @gather_21(%operand : tensor<2x3x4x6xbf16>, %start_indices: tensor<5x4xi32>) -> (tensor<5x2x3x4x3xbf16> {jax.result_info = "result"}) {
     // CHECK: "ttnn.embedding"
     %0 = ttir.empty() : tensor<5x2x3x4x3xbf16>
@@ -415,7 +411,6 @@ module attributes {} {
     return %1 : tensor<5x2x3x4x3xbf16>
   }
 
-  // a6
   func.func @gather_22(%operand : tensor<2x6xbf16>, %start_indices: tensor<5x2xi32>) -> (tensor<5x2x3xbf16> {jax.result_info = "result"}) {
     // CHECK: "ttnn.embedding"
     %0 = ttir.empty() : tensor<5x2x3xbf16>
@@ -432,7 +427,6 @@ module attributes {} {
     return %1 : tensor<5x2x3xbf16>
   }
 
-  // a7
   func.func @gather_23(%operand : tensor<2x3x6x2xbf16>, %start_indices: tensor<3x2x3xi32>) -> (tensor<2x2x3x3x4x2xbf16> {jax.result_info = "result"}) {
     // CHECK: "ttnn.embedding"
     %0 = ttir.empty() : tensor<2x2x3x3x4x2xbf16>
