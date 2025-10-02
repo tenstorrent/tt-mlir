@@ -6,6 +6,7 @@
 #define TT_RUNTIME_DETAIL_COMMON_SOCKET_H
 
 #include <chrono>
+#include <future>
 #include <memory>
 #include <string>
 #include <vector>
@@ -48,44 +49,51 @@ public:
 
   bool hasDataToRead(const std::chrono::milliseconds &timeout =
                          std::chrono::milliseconds(100)) const;
-  ssize_t readExact(void *buf, size_t nbytes);
-  ssize_t writeExact(const void *buf, size_t nbytes);
-  SizedBuffer sizePrefixedRead();
-  ssize_t sizePrefixedWrite(const void *msg, uint32_t msgSize);
+
+  ssize_t readExact(void *buf, size_t nbytes) const;
+  ssize_t writeExact(const void *buf, size_t nbytes) const;
+
+  SizedBuffer sizePrefixedRead() const;
+  ssize_t sizePrefixedWrite(const void *msg, uint32_t msgSize) const;
+
+  std::future<SizedBuffer> sizePrefixedReadAsync();
+  std::future<ssize_t> sizePrefixedWriteAsync(const void *msg,
+                                              uint32_t msgSize) const;
 
 private:
   SocketFd fd_;
 };
 
-class ServerSocket {
+class ControllerSocket {
 public:
-  explicit ServerSocket(uint16_t port = 0);
-  ~ServerSocket() = default;
+  explicit ControllerSocket(uint16_t port = 0);
+  ~ControllerSocket() = default;
 
-  ServerSocket(const ServerSocket &) = delete;
-  ServerSocket &operator=(const ServerSocket &) = delete;
+  ControllerSocket(const ControllerSocket &) = delete;
+  ControllerSocket &operator=(const ControllerSocket &) = delete;
 
-  ServerSocket(ServerSocket &&) = default;
-  ServerSocket &operator=(ServerSocket &&) = default;
+  ControllerSocket(ControllerSocket &&) = default;
+  ControllerSocket &operator=(ControllerSocket &&) = default;
 
   uint16_t port() const { return port_; }
-  std::vector<std::unique_ptr<Socket>> connectToClients(size_t numClients);
+  std::vector<std::unique_ptr<Socket>>
+  connectToWorkers(size_t numWorkers) const;
 
 private:
   std::unique_ptr<Socket> listenSocket_;
   uint16_t port_ = 0;
 };
 
-class ClientSocket {
+class WorkerSocket {
 public:
-  explicit ClientSocket(const std::string &host, uint16_t port);
-  ~ClientSocket() = default;
+  explicit WorkerSocket(const std::string &host, uint16_t port);
+  ~WorkerSocket() = default;
 
-  ClientSocket(const ClientSocket &) = delete;
-  ClientSocket &operator=(const ClientSocket &) = delete;
+  WorkerSocket(const WorkerSocket &) = delete;
+  WorkerSocket &operator=(const WorkerSocket &) = delete;
 
-  ClientSocket(ClientSocket &&) = default;
-  ClientSocket &operator=(ClientSocket &&) = default;
+  WorkerSocket(WorkerSocket &&) = default;
+  WorkerSocket &operator=(WorkerSocket &&) = default;
 
   void connect();
   void disconnect();
@@ -94,9 +102,9 @@ public:
   bool hasDataToRead(const std::chrono::milliseconds &timeout =
                          std::chrono::milliseconds(100)) const;
 
-  SizedBuffer sizePrefixedRead();
+  SizedBuffer sizePrefixedRead() const;
 
-  ssize_t sizePrefixedWrite(const void *msg, uint32_t msgSize);
+  ssize_t sizePrefixedWrite(const void *msg, uint32_t msgSize) const;
 
 private:
   std::unique_ptr<Socket> socket_;

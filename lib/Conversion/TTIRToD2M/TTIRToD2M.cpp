@@ -63,7 +63,7 @@ protected:
     for (size_t i = 0; i < physicalShape.size(); ++i) {
       const int64_t dim = physicalShape[i];
       assert(dim > 0);
-      // Find largest grid dimension that divides evenly
+      // Find largest grid dimension that divides evenly.
       for (int64_t g = targetSquareGridShape[i]; g > 0; g--) {
         if (dim % g == 0) {
           grid.push_back(g);
@@ -87,7 +87,7 @@ protected:
     assert(ttnnLayout.isDeviceBufferType() && "Must be a device tensor");
 
     // With these assumptions we can use the default alignment and dim
-    // collapsing behaviour in the MetalLayoutAttr
+    // collapsing behaviour in the MetalLayoutAttr.
     assert(ttnnLayout.isTiled() &&
            "Row major TTNN layouts are not supported yet");
     assert(
@@ -120,14 +120,20 @@ protected:
     DenseIntElementsAttr collapsedIntervals =
         DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
 
+    ttcore::TensorMemoryLayout memLayout =
+        (ttnnLayout.getMemLayout().getValue() ==
+         ttnn::TensorMemoryLayout::Interleaved)
+            ? ttcore::TensorMemoryLayout::Interleaved
+            : ttcore::TensorMemoryLayout::Sharded;
+
     // The index map in TTNNLayoutAttr is for collapsing an N-D tensor on to
     // the grid. It has no relevance to the index map in MetalLayoutAttr.
     // Hardcode collapse intervals to [[0, -1]].
     // MetalLayoutAttr takes the grid shape of the device, not the grid on which
-    // the tensor is sharded
+    // the tensor is sharded.
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), targetSquareGridShape,
-        ttcore::OOBVal::Undef, memSpace, collapsedIntervals);
+        ttcore::OOBVal::Undef, memSpace, memLayout, collapsedIntervals);
 
     llvm::SmallVector<int64_t> unshardedShape =
         metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
@@ -162,7 +168,7 @@ protected:
 
     auto layout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), logicalShape, targetSquareGridShape,
-        ttcore::OOBVal::Undef, memSpace);
+        ttcore::OOBVal::Undef, memSpace, ttcore::TensorMemoryLayout::Sharded);
 
     // Get raw, unsharded physical shape.
     llvm::SmallVector<int64_t> unshardedShape =
@@ -403,7 +409,7 @@ private:
               mlir::Value yield;
 
               if constexpr (isComparisonOp) {
-                // For comparison ops, first subtract then compare with zero
+                // For comparison ops, first subtract then compare with zero.
                 mlir::Value subResult = bbBuilder.create<d2m::TileSubOp>(
                     loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
                     /*operands=*/bbArgs.take_front(numInputs));
@@ -411,7 +417,7 @@ private:
                     loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
                     /*operands=*/subResult);
               } else {
-                // For regular elementwise ops, create TileOp directly
+                // For regular elementwise ops, create TileOp directly.
                 yield = bbBuilder.create<TileOp>(
                     loc,
                     /* resultTypes */ bbArgs.take_back(numOutputs).getTypes(),
@@ -914,7 +920,8 @@ public:
     auto resultLayout = ttcore::MetalLayoutAttr::get(
         ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
         inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
-        inputLayout.getMemorySpace(), composedMap);
+        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+        composedMap);
 
     auto viewType = mlir::RankedTensorType::get(
         resultShape, inputTensorType.getElementType(), resultLayout);
@@ -1118,7 +1125,7 @@ public:
     MLIRContext *ctx = &getContext();
     ModuleOp module = getOperation();
 
-    // Get target grid shape from device or override
+    // Get target grid shape from device or override.
     llvm::SmallVector<int64_t> gridShape = getTargetGridShape();
 
     TypeConverter typeConverter;
@@ -1137,7 +1144,8 @@ public:
     target.addLegalDialect<mlir::tt::d2m::D2MDialect>();
     target.addLegalDialect<mlir::tt::ttcore::TTCoreDialect>();
 
-    // Keep some TTIR ops legal if they don't have D2M equivalents
+    // (TODO: #5137) For now, keep some TTIR ops legal if they don't have D2M
+    // equivalents--this should be cleaned up.
     target.addLegalOp<mlir::tt::ttir::ConstantOp>();
     target.addLegalOp<mlir::tt::ttir::FullOp>();
     target.addLegalOp<ttir::MeshShardOp>();
@@ -1175,4 +1183,3 @@ createTTIRToD2MPass(const TTIRToD2MOptions &options) {
 }
 
 } // namespace mlir::tt
-// ----------------------------------------------------------------------------
