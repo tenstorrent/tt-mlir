@@ -495,6 +495,9 @@ private:
 // The pattern matches both operand orders:
 // - multiply(sigmoid(x), x)
 // - multiply(x, sigmoid(x))
+//
+// When multiply inputs and output are typecasted, the typecasts are ignored and
+// silu op is done in the type of the sigmoid input.
 class SiluFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
@@ -504,6 +507,18 @@ public:
                   mlir::PatternRewriter &rewriter) const final {
     mlir::Value lhs = multiplyOp.getLhs();
     mlir::Value rhs = multiplyOp.getRhs();
+
+    // If either operand is a typecast, we want to look through it.
+    if (auto lhsTypecast = lhs.getDefiningOp<TypecastOp>()) {
+      lhs = lhsTypecast.getInput();
+    }
+    if (auto rhsTypecast = rhs.getDefiningOp<TypecastOp>()) {
+      rhs = rhsTypecast.getInput();
+    }
+
+    if (lhs.getType() != rhs.getType()) {
+      return mlir::failure();
+    }
 
     SigmoidOp sigmoidOp = nullptr;
     mlir::Value otherOperand;
@@ -524,10 +539,20 @@ public:
       return mlir::failure();
     }
 
-    rewriter.setInsertionPoint(multiplyOp);
-    // Replace multiply with silu.
-    utils::replaceOpWithNewDPSOp<SiluOp>(
-        rewriter, multiplyOp, multiplyOp.getResult().getType(), otherOperand);
+    auto inputType = sigmoidOp.getInput().getType();
+    auto outputType = multiplyOp.getResult().getType();
+    auto siluOp = utils::createDPSOp<SiluOp>(rewriter, multiplyOp->getLoc(),
+                                             inputType, otherOperand);
+
+    // If multiply inputs and output are typecasted, we need to add a typecast
+    // after silu to convert back to the multiply output type.
+    if (inputType != outputType) {
+      auto typecastOp = utils::createDPSOp<TypecastOp>(
+          rewriter, multiplyOp->getLoc(), inputType, siluOp.getResult());
+      rewriter.replaceAllOpUsesWith(multiplyOp, typecastOp);
+    } else {
+      rewriter.replaceAllOpUsesWith(multiplyOp, siluOp);
+    }
     return mlir::success();
   }
 };
