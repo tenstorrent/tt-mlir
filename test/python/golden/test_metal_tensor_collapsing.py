@@ -62,7 +62,7 @@ def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
         ([(3, 32, 64), (3, 32, 64)], elementwise_multiply, "3d_multiply"),
         ([(3, 32, 64)], unary_exp, "3d_exp"),
         # 4D element-wise operations (working with non-collapsed tensors)
-        ([(2, 2, 32, 32), (2, 2, 32, 32)], elementwise_add, "4d_add"),
+        ([(2, 3, 64, 32), (2, 3, 64, 32)], elementwise_add, "4d_add"),
         ([(1, 2, 32, 32)], unary_exp, "4d_exp"),
         # Operations with known issues (marked as skip)
         pytest.param(
@@ -98,7 +98,7 @@ def test_uncollapsed_tensors(
 ):
     """Test tensor operations with and without tensor collapsing to 2D."""
 
-    pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()}}}"
+    pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()} max-dst-register-size-tiles=1}}"
     pipeline = f"ttir-to-ttmetal-pipeline{pipeline_options}"
 
     compile_ttir_to_flatbuffer(
