@@ -28,25 +28,20 @@ protected:
   mlir::func::FuncOp func;
 
   void SetUp() override {
-    // Initialize context and load necessary dialects
+    // Initialize context and load necessary dialects.
     context.loadDialect<mlir::func::FuncDialect>();
     context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
     context.loadDialect<mlir::tt::ttir::TTIRDialect>();
     context.loadDialect<mlir::tt::d2m::D2MDialect>();
 
-    // Create a simple module with a function
+    // Create a simple module with a function containing a single block.
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToEnd(module->getBody());
 
-    // Note: Device registration may be needed for some layouts but not for
-    // basic testing
-
-    // Create a function
     auto funcType = builder.getFunctionType({}, {});
     func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(),
                                               "test_func", funcType);
 
-    // Create a basic block in the function
     mlir::Block *entryBlock = func.addEntryBlock();
     builder.setInsertionPointToStart(entryBlock);
   }
@@ -54,39 +49,35 @@ protected:
   void TearDown() override {}
 };
 
+// Create a generic op with the given grid and dimensions.
 GenericOp createGenericOp(mlir::OpBuilder &builder, mlir::MLIRContext &context,
                           llvm::SmallVector<int64_t> grid,
                           llvm::SmallVector<int64_t> dims) {
 
-  // Create tile type with default 32x32 shape and f32 data type
   auto tileType = mlir::tt::ttcore::TileType::get(
       &context, {32, 32}, mlir::tt::ttcore::DataType::Float32);
 
-  // Create memory space attribute for L1 memory
   auto l1MemorySpace = mlir::tt::ttcore::MemorySpaceAttr::get(
       &context, mlir::tt::ttcore::MemorySpace::DeviceL1);
 
   assert(grid.size() == 2);
   assert(dims.size() == grid.size());
 
-  // divide dims by grid to get the shard shape
   auto shardShape = llvm::SmallVector<int64_t>(dims.size(), 0);
   for (size_t i = 0; i < dims.size(); i++) {
     shardShape[i] = dims[i] / grid[i];
   }
-  // full memref shape is grid concat shard shape
   auto memrefShape = llvm::SmallVector<int64_t>(grid);
   memrefShape.insert(memrefShape.end(), shardShape.begin(), shardShape.end());
 
   auto tileSize = tileType.getSizeBytes();
   auto shardStrides = llvm::SmallVector<int64_t>(shardShape.size(), 0);
-  int64_t stride_accum = tileSize;
+  int64_t strideAccum = tileSize;
   for (size_t i = 0; i < shardShape.size(); i++) {
-    shardStrides[i] = stride_accum;
-    stride_accum *= shardShape[i];
+    shardStrides[i] = strideAccum;
+    strideAccum *= shardShape[i];
   }
 
-  // Create shard layout attributes for the memref types
   auto shardLayout1 = mlir::tt::ttcore::ShardLayoutAttr::get(
       &context, shardStrides, /*buffered=*/1);
   auto shardLayout2 = mlir::tt::ttcore::ShardLayoutAttr::get(
@@ -94,7 +85,6 @@ GenericOp createGenericOp(mlir::OpBuilder &builder, mlir::MLIRContext &context,
   auto shardLayout3 = mlir::tt::ttcore::ShardLayoutAttr::get(
       &context, shardStrides, /*buffered=*/1);
 
-  // Create MemRefType for the three operands
   auto memrefType1 =
       mlir::MemRefType::get(memrefShape, tileType, shardLayout1, l1MemorySpace);
   auto memrefType2 =
@@ -102,17 +92,15 @@ GenericOp createGenericOp(mlir::OpBuilder &builder, mlir::MLIRContext &context,
   auto memrefType3 =
       mlir::MemRefType::get(memrefShape, tileType, shardLayout3, l1MemorySpace);
 
-  // Create affine maps for indexing (identity maps for simplicity)
   auto identityMap2D = mlir::AffineMap::getMultiDimIdentityMap(2, &context);
   auto indexingMaps = builder.getAffineMapArrayAttr(
       {identityMap2D, identityMap2D, identityMap2D});
 
-  // Create iterator types (parallel for all dimensions)
   auto parallelType = mlir::tt::ttcore::IteratorTypeAttr::get(
       &context, mlir::tt::ttcore::IteratorType::Parallel);
   auto iteratorTypes = builder.getArrayAttr({parallelType, parallelType});
 
-  // use memref alloc to create concrete memref values from types
+  // Use memref alloc to create concrete memref values from types.
   Value input1 =
       builder.create<ttir::EmptyOp>(builder.getUnknownLoc(), memrefType1)
           ->getResult(0);
@@ -126,7 +114,7 @@ GenericOp createGenericOp(mlir::OpBuilder &builder, mlir::MLIRContext &context,
   SmallVector<Value> inputs = {input1, input2};
   SmallVector<Value> outputs = {output};
 
-  // Create the GenericOp
+  // Create the GenericOp.
   auto genericOp = builder.create<mlir::tt::d2m::GenericOp>(
       builder.getUnknownLoc(), inputs, outputs, indexingMaps, iteratorTypes);
   return genericOp;
@@ -136,9 +124,7 @@ using Constraints = mlir::tt::d2m::BlockFactorAnalysisConstraints;
 using Strategy = Constraints::BufferStrategy;
 
 TEST_F(BlockFactorAnalysisTest, CanCreateGenericOpsWithDifferentGrids) {
-  // Test creating GenericOps with different grid configurations
 
-  // Test 1x1 grid with 2x4 dimensions
   auto genericOp1 = createGenericOp(builder, context, {1, 1}, {2, 4});
   EXPECT_TRUE(genericOp1);
   EXPECT_EQ(genericOp1.getInputs().size(), 2u);
@@ -147,14 +133,12 @@ TEST_F(BlockFactorAnalysisTest, CanCreateGenericOpsWithDifferentGrids) {
   EXPECT_EQ(grid1.getShape()[0], 1);
   EXPECT_EQ(grid1.getShape()[1], 1);
 
-  // Test 2x2 grid with 4x8 dimensions
   auto genericOp2 = createGenericOp(builder, context, {2, 2}, {4, 8});
   EXPECT_TRUE(genericOp2);
   auto grid2 = genericOp2.getGrid();
   EXPECT_EQ(grid2.getShape()[0], 2);
   EXPECT_EQ(grid2.getShape()[1], 2);
 
-  // Test 1x4 grid with 2x8 dimensions
   auto genericOp3 = createGenericOp(builder, context, {1, 4}, {2, 8});
   EXPECT_TRUE(genericOp3);
   auto grid3 = genericOp3.getGrid();
@@ -162,76 +146,44 @@ TEST_F(BlockFactorAnalysisTest, CanCreateGenericOpsWithDifferentGrids) {
   EXPECT_EQ(grid3.getShape()[1], 4);
 }
 
-TEST_F(BlockFactorAnalysisTest,
-       CanPerformBlockFactorAnalysis1x1ShardedGenericOp) {
+// Value-parameterized tests for different sharding configurations
+struct BlockFactorAnalysisTestParams {
+  llvm::SmallVector<int64_t> grid;
+  llvm::SmallVector<int64_t> dims;
+  llvm::SmallVector<int64_t> expectedBufferShape;
+  std::string testName;
+};
 
-  // Test Case 1: Small single-core operation (1x1 grid, 2x4 dims)
-  auto genericOp1 = createGenericOp(builder, context, {1, 1}, {2, 4});
+class BlockFactorAnalysisParamTest : public BlockFactorAnalysisTest,
+                                     public ::testing::WithParamInterface<BlockFactorAnalysisTestParams> {};
 
-  BlockFactorAnalysis analysis1;
-  auto bufferConfigs1 = analysis1.analyzeGenericOp(genericOp1);
+TEST_P(BlockFactorAnalysisParamTest, CanPerformBlockFactorAnalysis) {
+  auto params = GetParam();
+  
+  auto genericOp = createGenericOp(builder, context, params.grid, params.dims);
 
-  EXPECT_FALSE(bufferConfigs1.empty());
-  if (!bufferConfigs1.empty()) {
-    const auto &config1 = bufferConfigs1[0];
-    EXPECT_EQ(config1.operandBufferSettings.size(),
-              3u); // 2 inputs + 1 output
+  BlockFactorAnalysis analysis;
+  auto bufferConfigs = analysis.analyzeGenericOp(genericOp);
 
-    // Verify all operands have buffer settings
-    for (const auto &setting : config1.operandBufferSettings) {
-      EXPECT_FALSE(setting.bufferShape.empty());
-      EXPECT_GT(setting.numBuffers, 0u);
-    }
-    EXPECT_EQ(config1.operandBufferSettings[0].bufferShape,
-              (llvm::SmallVector<int64_t>{2, 4}));
+  ASSERT_FALSE(bufferConfigs.empty());
+  const auto &config = bufferConfigs[0];
+  EXPECT_EQ(config.operandBufferSettings.size(), 3u);
+
+  for (const auto &setting : config.operandBufferSettings) {
+    EXPECT_FALSE(setting.bufferShape.empty());
+    EXPECT_GT(setting.numBuffers, 0u);
   }
+  EXPECT_EQ(config.operandBufferSettings[0].bufferShape, params.expectedBufferShape);
 }
 
-TEST_F(BlockFactorAnalysisTest,
-       CanPerformBlockFactorAnalysis2x2ShardedGenericOp) {
-
-  auto genericOp2 = createGenericOp(builder, context, {2, 2}, {4, 8});
-
-  BlockFactorAnalysis analysis2;
-  auto bufferConfigs2 = analysis2.analyzeGenericOp(genericOp2);
-
-  EXPECT_FALSE(bufferConfigs2.empty());
-  if (!bufferConfigs2.empty()) {
-    const auto &config2 = bufferConfigs2[0];
-    EXPECT_EQ(config2.operandBufferSettings.size(), 3u);
-
-    // Verify buffer configurations are reasonable
-    for (const auto &setting : config2.operandBufferSettings) {
-      EXPECT_FALSE(setting.bufferShape.empty());
-      EXPECT_GT(setting.numBuffers, 0u);
-    }
-    EXPECT_EQ(config2.operandBufferSettings[0].bufferShape,
-              (llvm::SmallVector<int64_t>{2, 4}));
-  }
-}
-
-TEST_F(BlockFactorAnalysisTest,
-       CanPerformBlockFactorAnalysis1x4ShardedGenericOp) {
-
-  auto genericOp3 = createGenericOp(builder, context, {1, 4}, {2, 8});
-
-  BlockFactorAnalysis analysis3;
-  auto bufferConfigs3 = analysis3.analyzeGenericOp(genericOp3);
-
-  EXPECT_FALSE(bufferConfigs3.empty());
-  if (!bufferConfigs3.empty()) {
-    const auto &config3 = bufferConfigs3[0];
-    EXPECT_EQ(config3.operandBufferSettings.size(), 3u);
-
-    // Verify buffer configurations
-    for (const auto &setting : config3.operandBufferSettings) {
-      EXPECT_FALSE(setting.bufferShape.empty());
-      EXPECT_GT(setting.numBuffers, 0u);
-    }
-    EXPECT_EQ(config3.operandBufferSettings[0].bufferShape,
-              (llvm::SmallVector<int64_t>{2, 2}));
-  }
-}
+// Register test instances
+INSTANTIATE_TEST_SUITE_P(
+    BlockFactorAnalysisTests, BlockFactorAnalysisParamTest,
+    ::testing::Values(
+        BlockFactorAnalysisTestParams{{1, 1}, {2, 4}, {2, 4}, "1x1Sharded"},
+        BlockFactorAnalysisTestParams{{2, 2}, {4, 8}, {2, 4}, "2x2Sharded"},
+        BlockFactorAnalysisTestParams{{1, 4}, {2, 8}, {2, 2}, "1x4Sharded"}
+    ));
 
 TEST_F(BlockFactorAnalysisTest, CanAnalyzeBufferingStrategies) {
 
@@ -242,7 +194,7 @@ TEST_F(BlockFactorAnalysisTest, CanAnalyzeBufferingStrategies) {
   mlir::tt::d2m::BlockFactorAnalysis analysisSingle(singleBufferConstraints);
   auto bufferConfigsSingle = analysisSingle.analyzeGenericOp(genericOp);
 
-  EXPECT_FALSE(bufferConfigsSingle.empty());
+  ASSERT_FALSE(bufferConfigsSingle.empty());
   for (const auto &setting : bufferConfigsSingle[0].operandBufferSettings) {
     EXPECT_EQ(setting.numBuffers, 1u);
   }
@@ -252,7 +204,7 @@ TEST_F(BlockFactorAnalysisTest, CanAnalyzeBufferingStrategies) {
   mlir::tt::d2m::BlockFactorAnalysis analysisDouble(doubleBufferConstraints);
   auto bufferConfigsDouble = analysisDouble.analyzeGenericOp(genericOp);
 
-  EXPECT_FALSE(bufferConfigsDouble.empty());
+  ASSERT_FALSE(bufferConfigsDouble.empty());
   const auto &configDouble = bufferConfigsDouble[0];
   EXPECT_EQ(configDouble.operandBufferSettings.size(), 3u);
   for (const auto &setting : configDouble.operandBufferSettings) {
