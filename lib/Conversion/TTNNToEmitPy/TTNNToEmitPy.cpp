@@ -1421,6 +1421,176 @@ public:
 };
 } // namespace
 
+// AllGatherOp
+//
+namespace {
+class TTNN_AllGatherOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::AllGatherOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.all_gather";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.all_gather_async";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AllGatherOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllGatherOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AllGatherOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getAllGatherDim(), "dim"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getDevice(), "mesh_device"),
+        // Topology was not listed as an argument in the ttnn op. It will be
+        // added in the future.
+        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
+        /*multi_device_global_semaphore*/
+        emitter.emit(srcOp.getNumLinks(), "num_links"),
+        emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// ReduceScatterOp
+//
+namespace {
+class TTNN_ReduceScatterOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::ReduceScatterOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.reduce_scatter";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.reduce_scatter_minimal_async";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::ReduceScatterOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ReduceScatterOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ReduceScatterOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getScatterDim(), "dim"),
+        /*multi_device_global_semaphore*/
+        /*barrier_semaphore*/
+        emitter.emit(srcOp.getNumLinks(), "num_links"),
+        emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        // Topology was not listed as an argument in the ttnn op. It will be
+        // added in the future.
+        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// AllReduceOp
+//
+namespace {
+class TTNN_AllReduceOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::AllReduceOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.all_reduce";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.all_reduce_async";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AllReduceOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllReduceOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AllReduceOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // TODO: complete this
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getDevice(), "mesh_device"),
+        /*barrier_semaphores*/
+        /*rs_global_semaphores*/
+        /*ag_global_semaphores*/
+        emitter.emit(srcOp.getReduceType(), "math_op"),
+        emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// PointToPointOp
+//
+namespace {
+class TTNN_PointToPointOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::PointToPointOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::PointToPointOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PointToPointOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PointToPointOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // TODO: complete this
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emitMeshCoordinate(srcOp.getSendCoord(), "send_coord"),
+        emitter.emitMeshCoordinate(srcOp.getReceiveCoord(), "receive_coord"),
+        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
+        emitter.emit(srcOp.getAccumTensor(), "optional_output_tensor"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -1602,6 +1772,15 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   patterns.add<NLPConcatHeadsOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
+
+  // Collective communication ops
+  //
+  // clang-format off
+  patterns.add<TTNN_AllGatherOpConversionPattern>(typeConverter, ctx);
+  patterns.add<TTNN_ReduceScatterOpConversionPattern>(typeConverter, ctx);
+  patterns.add<TTNN_AllReduceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<TTNN_PointToPointOpConversionPattern>(typeConverter, ctx);
+  // clang-format on
 }
 
 } // namespace mlir::tt
