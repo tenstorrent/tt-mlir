@@ -2797,13 +2797,38 @@ UpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
-  return llvm::createStringError("Not Implemented");
+  assert(inputs.size() == 4);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  auto cacheShape = getCache().getType().getShape();
+  auto inputShape = getInput().getType().getShape();
+  auto updateIndexShape = getUpdateIndex().getType().getShape();
+  auto pageTableShape = getPageTable().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PagedUpdateCacheOp>::getOpConstraints, *this,
+      deviceGrid, cacheShape, inputs[0], inputShape, inputs[1],
+      updateIndexShape, inputs[2], pageTableShape, inputs[3], getShareCache(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 PagedUpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                  const OpConfig &opConfig) {
-  return llvm::createStringError("Not Implemented");
+  auto cacheShape = getCache().getType().getShape();
+  auto inputShape = getInput().getType().getShape();
+  auto updateIndexShape = getUpdateIndex().getType().getShape();
+  auto pageTableShape = getPageTable().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<PagedUpdateCacheOp>::getOpRuntime, *this, cacheShape,
+      inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
+      pageTableShape, inputs[3], getShareCache(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

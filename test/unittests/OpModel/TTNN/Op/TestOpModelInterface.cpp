@@ -4397,6 +4397,52 @@ TEST_F(OpModelBase, UpdateCacheOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, PagedUpdateCacheOpInterface) {
+  // Test PagedUpdateCacheOp with cache, input, update_index, and page_table
+  // tensors
+  llvm::SmallVector<int64_t> cacheShape = {128, 4, 32, 256};
+  llvm::SmallVector<int64_t> inputShape = {1, 8, 12, 256};
+  llvm::SmallVector<int64_t> updateIndexShape = {8};
+  llvm::SmallVector<int64_t> pageTableShape = {8, 16};
+
+  auto cacheTensor = createEmptyTensor(cacheShape);
+  auto inputTensor = createEmptyTensor(inputShape);
+  auto updateIndexTensor =
+      createEmptyTensor(updateIndexShape, mlir::IntegerType::get(&context, 32));
+  auto pageTableTensor =
+      createEmptyTensor(pageTableShape, mlir::IntegerType::get(&context, 32));
+
+  auto pagedUpdateCacheOp = builder.create<PagedUpdateCacheOp>(
+      builder.getUnknownLoc(), cacheTensor, inputTensor, updateIndexTensor,
+      false, pageTableTensor);
+
+  auto backend = dyn_cast<OpModel>(pagedUpdateCacheOp.getOperation());
+  ASSERT_TRUE(backend);
+
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(pagedUpdateCacheOp.getOperation()), OpConfig());
+  if (constraintsExp) {
+    auto constraints = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        constraints;
+    EXPECT_EQ(cbSize, 233536);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 32768);
+  } else {
+    FAIL() << "Missing constraints for PagedUpdateCacheOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(pagedUpdateCacheOp.getOperation()), OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for PagedUpdateCacheOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, QuantizeOpInterface) {
   llvm::SmallVector<int64_t> inputShape = {32, 64};
   llvm::SmallVector<int64_t> scaleShape = {64};
