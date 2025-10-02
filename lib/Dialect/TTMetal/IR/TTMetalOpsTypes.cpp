@@ -27,7 +27,6 @@ void TTMetalDialect::registerTypes() {
       >();
 }
 
-// CoreRangeAttr implementation
 CoreRangeAttr CoreRangeAttr::get(::mlir::tt::ttcore::GridAttr grid) {
   // Default offset is (0, 0) -- in the future, we can make it a parameter when
   // we need to offset differently.

@@ -277,13 +277,14 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
 
+  // Calculate ShardSpec.
   assert(stride[stride.size() - 1] % elementSize == 0);
   int32_t shardXElements = stride[stride.size() - 2] / elementSize;
   assert((memrefShardShape[0] * stride[0] / elementSize) % shardXElements == 0);
   int32_t collapsedShardYElements =
       (memrefShardShape[0] * stride[0] / elementSize) / shardXElements;
   // Shard shape is the fully collapsed shard down to 2D, so:
-  //   [d0 * ... * dN-2, dN-1]
+  //   [d0 * ... * dN-2, dN-1].
   target::Dim2d shardShape(collapsedShardYElements * elementShape.y() *
                                shardLayout.getBuffers(),
                            shardXElements * elementShape.x());

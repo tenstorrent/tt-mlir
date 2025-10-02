@@ -561,7 +561,7 @@ private:
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
 
-    // minus 1 for the scaler operand
+    // Minus 1 for the scaler operand.
     assert((numOperands - 1) == op->getNumOperands());
 
     ttcore::GridAttr grid =
@@ -804,7 +804,7 @@ private:
 
     const std::size_t rank = grid.getShape().size();
 
-    // TODO(#2591) handle 'transpose_{a,b}' attributes
+    // TODO(#2591) handle 'transpose_{a,b}' attributes.
 
     SmallVector<mlir::AffineMap> indexingMaps =
         getAffineMapsArray(rewriter, numOperands, rank);
@@ -886,7 +886,7 @@ private:
   getAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
                      std::size_t rank) {
     assert(arity == 3 && "expected 3 operands");
-    // TODO(#2592) handle higher ranks, if needed in this pass
+    // TODO(#2592) handle higher ranks, if needed in this pass.
     assert(rank == 2 && "expected a rank 2 operation");
     mlir::MLIRContext *ctx = builder.getContext();
 
@@ -1088,7 +1088,7 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
     auto resultType = op.getResult().getType();
     auto tensorType = cast<RankedTensorType>(resultType);
 
-    // Create d2m.empty with same shape and element type
+    // Create d2m.empty with same shape and element type.
     auto d2mEmpty = rewriter.create<d2m::EmptyOp>(
         op.getLoc(), tensorType.getShape(), tensorType.getElementType(),
         tensorType.getEncoding());
@@ -1193,7 +1193,7 @@ public:
     MLIRContext *ctx = &getContext();
     ModuleOp module = getOperation();
 
-    // Get target grid shape from device or override
+    // Get target grid shape from device or override.
     llvm::SmallVector<int64_t> gridShape = getTargetGridShape();
 
     TypeConverter typeConverter;
@@ -1212,7 +1212,7 @@ public:
     target.addLegalDialect<mlir::tt::d2m::D2MDialect>();
     target.addLegalDialect<mlir::tt::ttcore::TTCoreDialect>();
 
-    // Keep some TTIR ops legal if they don't have D2M equivalents
+    // Keep some TTIR ops legal if they don't have D2M equivalents.
     target.addLegalOp<mlir::tt::ttir::ConstantOp>();
     target.addLegalOp<mlir::tt::ttir::FullOp>();
     target.addLegalOp<ttir::MeshShardOp>();
