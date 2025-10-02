@@ -1,0 +1,10 @@
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#ifndef TT_RUNTIME_PYTHON_SCRIPTS_PATH_H
+#define TT_RUNTIME_PYTHON_SCRIPTS_PATH_H
+
+#define TTMLIR_PYTHON_SCRIPTS_PATH "@TTMLIR_PYTHON_SCRIPTS_PATH@"
+
+#endif

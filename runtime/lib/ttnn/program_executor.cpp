@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
+#include "python_scripts_path.h"
 
 #include <pybind11/embed.h>
 #include <pybind11/pybind11.h>
@@ -133,7 +134,7 @@ void ProgramExecutor::importGoldenModule() {
     // Add the scripts directory to Python path
     py::module_ sys = py::module_::import("sys");
     py::list path = sys.attr("path");
-    path.append("/localdev/dloke/src/tt-mlir/runtime/python/scripts");
+    path.append(TTMLIR_PYTHON_SCRIPTS_PATH);
 
     // Import the golden module
     py::module_ golden = py::module_::import("golden");

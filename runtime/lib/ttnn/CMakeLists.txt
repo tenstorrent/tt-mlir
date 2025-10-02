@@ -23,9 +23,19 @@ add_library(TTRuntimeTTNN
 set_property(TARGET TTRuntimeTTNN PROPERTY CXX_STANDARD 20)
 find_package(pybind11 CONFIG REQUIRED)
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
+
+# Configure path to Python scripts
+set(TTMLIR_PYTHON_SCRIPTS_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../python/scripts")
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/python_scripts_path.h.in
+  ${CMAKE_CURRENT_BINARY_DIR}/python_scripts_path.h
+  @ONLY
+)
+
 target_include_directories(TTRuntimeTTNN PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+  ${CMAKE_CURRENT_BINARY_DIR}
 )
 target_include_directories(TTRuntimeTTNN SYSTEM PRIVATE ${pybind11_INCLUDE_DIRS})
 target_link_libraries(TTRuntimeTTNN PRIVATE Python::Python)
