@@ -18,15 +18,15 @@ GenericOpBufferAnalysis::analyzeGenericOp(const Constraints &constraints,
   SmallVector<SmallVector<int64_t>> operandShardShapes =
       op.getOperandShardShapes(/*convertTileToScalar=*/false);
   for (auto [operandIndex, operand] : llvm::enumerate(op.getOperands())) {
-    size_t num_buffers = (constraints.bufferingStrategy ==
-                          Constraints::BufferStrategy::DoubleBuffered)
-                             ? 2
-                             : 1;
+    size_t numBuffers = (constraints.bufferingStrategy ==
+                         Constraints::BufferStrategy::DoubleBuffered)
+                            ? 2
+                            : 1;
 
     BufferSetting bufferSetting;
     bufferSetting.bufferShape = operandShardShapes[operandIndex];
-    bufferSetting.numBuffers = num_buffers;
-    result.operandBufferSettings.push_back(bufferSetting);
+    bufferSetting.numBuffers = numBuffers;
+    result.operandBufferSettings.push_back(std::move(bufferSetting));
   }
 
   results.push_back(result);
