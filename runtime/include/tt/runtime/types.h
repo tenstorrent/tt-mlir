@@ -6,6 +6,8 @@
 #define TT_RUNTIME_TYPES_H
 
 #include <cassert>
+#include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -67,7 +69,13 @@ inline std::string toString(HostRuntime runtime) {
 }
 
 enum class DistributedMode {
+  // Single process on the local host,
+  // mainly for testing and debugging
   LocalSubprocess,
+
+  // Multiple processes via MPI, may be same host or distributed
+  // across multiple hosts
+  MultiProcess,
 };
 
 enum class DispatchCoreType {
@@ -230,9 +238,54 @@ struct MeshDeviceOptions {
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
 };
 
+class MultiProcessArgs {
+public:
+  static MultiProcessArgs create(std::string_view rankBindingPath) {
+    return MultiProcessArgs(rankBindingPath);
+  }
+
+  MultiProcessArgs &withHosts(const std::vector<std::string> &hosts);
+  MultiProcessArgs &withHostsFilePath(std::string_view path);
+
+  std::string getRankBindingPath() const;
+  MultiProcessArgs &withRankFilePath(std::string_view path);
+
+  MultiProcessArgs &
+  withMcaOptions(const std::map<std::string, std::string> &mcaOptions);
+
+  MultiProcessArgs &withTagOutput(bool tagOutput);
+
+  MultiProcessArgs &withAllowRunAsRoot(bool allowRunAsRoot);
+
+  MultiProcessArgs &
+  withExtraMpiArgs(const std::vector<std::string> &extraMpiArgs);
+
+  std::string toArgString() const;
+
+private:
+  MultiProcessArgs(std::string_view rankBindingPath);
+
+  std::filesystem::path rankBindingPath_;
+
+  std::vector<std::string> hosts_;
+  std::filesystem::path hostsFilePath_;
+
+  std::filesystem::path rankFilePath_;
+
+  std::map<std::string, std::string> mcaOptions_;
+
+  bool tagOutput_ = true;
+
+  bool allowRunAsRoot_ = false;
+
+  std::vector<std::string> extraMpiArgs_;
+};
+
 struct DistributedOptions {
-  uint16_t port = 0;
+  uint16_t controllerPort = 0;
   DistributedMode mode = DistributedMode::LocalSubprocess;
+  // Required for MultiProcess mode
+  std::optional<MultiProcessArgs> multiProcessArgs = std::nullopt;
 };
 
 struct Flatbuffer : public detail::ObjectImpl {

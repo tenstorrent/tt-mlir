@@ -10,7 +10,7 @@
 namespace tt::runtime::ttnn::operations::tensor_serialization {
 
 void run(const ::tt::target::ttnn::DumpTensorOp *op, ProgramContext &context) {
-  ::ttnn::Tensor input =
+  const ::ttnn::Tensor &input =
       context.getTensorPool().getTTNNTensorAndValidate(op->in());
   std::string filePath = op->file_path()->str();
 

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Callable, List, Any
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
+TT_METAL_HOME_EXTERNAL = os.environ.get("TT_METAL_HOME_EXTERNAL", "")
 
 
 class Storage(Enum):

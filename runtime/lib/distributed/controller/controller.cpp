@@ -48,25 +48,77 @@ static bool isErrorResponse(const SizedBuffer &response) {
          ::tt::runtime::distributed::flatbuffer::ResponseType::ErrorResponse;
 }
 
-Controller::~Controller() { shutdown(); }
+Controller::~Controller() {
+  auto currentState = controllerState_.load(std::memory_order_relaxed);
+  if (currentState != ControllerState::Uninitialized &&
+      currentState != ControllerState::Shutdown) {
+    shutdown();
+  }
+}
 
-void Controller::launchLocalSubprocess(uint16_t controllerPort) {
-  constexpr size_t numWorkers = 1;
-  LOG_ASSERT(!controllerSocket_, "Controller already launched");
-  controllerSocket_ = std::make_unique<ControllerSocket>(controllerPort);
+void Controller::launch(const ::tt::runtime::DistributedOptions &options) {
+
+  LOG_ASSERT(controllerState_.load(std::memory_order_relaxed) ==
+                 ControllerState::Uninitialized,
+             "Controller must be uninitialized to launch");
+
+  controllerSocket_ =
+      std::make_unique<ControllerSocket>(options.controllerPort);
   uint16_t bindPort = controllerSocket_->port();
 
-  std::string command =
-      tt::runtime::distributed::utils::getWorkerExecutableCommand(bindPort);
+  controllerState_.store(ControllerState::ControllerSocketBound,
+                         std::memory_order_relaxed);
+
+  size_t numWorkers;
+  std::string command;
+
+  switch (options.mode) {
+  case DistributedMode::LocalSubprocess: {
+    LOG_ASSERT(
+        !options.multiProcessArgs.has_value(),
+        "MultiProcess args should not be populated for LocalSubprocess mode");
+    numWorkers = 1;
+    command =
+        ::tt::runtime::distributed::utils::getWorkerExecutableCommand(bindPort);
+    break;
+  }
+  case DistributedMode::MultiProcess: {
+    LOG_ASSERT(options.multiProcessArgs.has_value(),
+               "MultiProcess mode requires MultiProcessArgs to be populated");
+    const ::tt::runtime::MultiProcessArgs &multiProcessArgs =
+        options.multiProcessArgs.value();
+    const std::string rankBindingPath = multiProcessArgs.getRankBindingPath();
+    LOG_ASSERT(!rankBindingPath.empty(), "Rank binding path cannot be empty");
+    LOG_ASSERT(std::filesystem::exists(rankBindingPath), "Rank binding path ",
+               rankBindingPath, " does not exist");
+    numWorkers =
+        ::tt::runtime::distributed::utils::getNumProcesses(rankBindingPath);
+    command = ::tt::runtime::distributed::utils::getTTRunCommand(
+        bindPort, multiProcessArgs);
+    break;
+  }
+  }
+  LOG_INFO("Launching distributed controller with command: ", command, " on ",
+           numWorkers, " worker(s)");
 
   std::future<int> asyncFuture = std::async(
       std::launch::async, [command]() { return std::system(command.c_str()); });
-  exitCodeFutures_.emplace_back(std::move(asyncFuture));
+  exitCodeFuture_ = std::move(asyncFuture);
+
+  controllerState_.store(ControllerState::CommandLaunched,
+                         std::memory_order_relaxed);
 
   workerConnections_ =
       controllerSocket_->connectToWorkers(numWorkers, writeTimeout_);
+
+  controllerState_.store(ControllerState::ConnectedToWorkers,
+                         std::memory_order_relaxed);
+
   launchCommandDispatcher();
   launchResponseHandler();
+
+  controllerState_.store(ControllerState::FullyOperational,
+                         std::memory_order_relaxed);
 }
 
 void Controller::setWriteTimeout(const std::chrono::seconds &timeout) {
@@ -302,6 +354,8 @@ void Controller::launchCommandDispatcher() {
   LOG_ASSERT(!commandDispatcherThread_.joinable(),
              "Command dispatcher thread already running");
   commandDispatcherThread_ = std::thread([this]() { dispatchCommands(); });
+  controllerState_.store(ControllerState::DispatcherReady,
+                         std::memory_order_relaxed);
 }
 
 void Controller::dispatchCommand(
@@ -328,7 +382,8 @@ void Controller::dispatchCommand(
 void Controller::dispatchCommands() {
   std::vector<std::future<ssize_t>> writeFutures;
   writeFutures.reserve(workerConnections_.size());
-  while (!(shutdownRequested_.load(std::memory_order_relaxed) &&
+  while (!(controllerState_.load(std::memory_order_relaxed) ==
+               ControllerState::ShuttingDown &&
            commandQueue_.empty())) {
     std::optional<std::unique_ptr<CommandQueueEntry>> commandEntryOpt =
         commandQueue_.popWithTimeout();
@@ -347,10 +402,13 @@ void Controller::launchResponseHandler() {
   LOG_ASSERT(!responseHandlerThread_.joinable(),
              "Response handler thread already running");
   responseHandlerThread_ = std::thread([this]() { handleResponses(); });
+  controllerState_.store(ControllerState::ResponseHandlerReady,
+                         std::memory_order_relaxed);
 }
 
 void Controller::handleResponses() {
-  while (!(shutdownRequested_.load(std::memory_order_relaxed) &&
+  while (!(controllerState_.load(std::memory_order_relaxed) ==
+               ControllerState::ShuttingDown &&
            awaitingResponseQueue_.empty())) {
     std::optional<std::unique_ptr<AwaitingResponseQueueEntry>>
         awaitingResponseQueueEntryOpt = awaitingResponseQueue_.popWithTimeout();
@@ -621,11 +679,33 @@ void Controller::handleResponse(
   }
 }
 
-void Controller::shutdown() {
+ShutdownResult Controller::shutdown() {
   LOG_INFO("Shutting down distributed controller");
 
-  LOG_ASSERT(!shutdownRequested_.load(std::memory_order_relaxed),
-             "Controller already shutdown before shutdown()");
+  ControllerState currentState =
+      controllerState_.load(std::memory_order_relaxed);
+
+  // Abnormal shutdown
+  if (currentState < ControllerState::FullyOperational) {
+    controllerState_.store(ControllerState::Shutdown,
+                           std::memory_order_relaxed);
+    return ShutdownResult{
+        .success = false,
+        .errorMessage =
+            "Controller shutdown requested before fully operational, "
+            "indicating that an error occurred in an earlier stage."};
+  }
+
+  if (currentState != ControllerState::FullyOperational) {
+    controllerState_.store(ControllerState::Shutdown,
+                           std::memory_order_relaxed);
+    return ShutdownResult{
+        .success = false,
+        .errorMessage =
+            "Unexpected controller state: " +
+            std::to_string(static_cast<std::uint8_t>(currentState)) +
+            " during shutdown"};
+  }
 
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
   auto command = CommandFactory::buildShutdownCommand(*commandBuilder);
@@ -640,23 +720,35 @@ void Controller::shutdown() {
   // Wait for worker shutdown
   awaitingFuture.wait();
 
-  shutdownRequested_.store(true, std::memory_order_relaxed);
+  controllerState_.store(ControllerState::ShuttingDown,
+                         std::memory_order_relaxed);
   commandDispatcherThread_.join();
   responseHandlerThread_.join();
 
-  for (auto &exitCodeFuture : exitCodeFutures_) {
-    auto exitCodeResult =
-        exitCodeFuture.wait_for(std::chrono::seconds(workerShutdownTimeout_));
-    LOG_ASSERT(exitCodeResult == std::future_status::ready,
-               "Worker subprocess failed to exit");
+  auto exitCodeResult =
+      exitCodeFuture_.wait_for(std::chrono::seconds(workerShutdownTimeout_));
 
-    int exitCode = exitCodeFuture.get();
-    LOG_ASSERT(exitCode == 0,
-               "Worker subprocess failed with exit code: ", exitCode);
+  if (exitCodeResult == std::future_status::timeout) {
+    controllerState_.store(ControllerState::Shutdown,
+                           std::memory_order_relaxed);
+    return ShutdownResult{.success = false,
+                          .errorMessage = "Worker subprocess shutdown timeout"};
   }
 
-  exitCodeFutures_.clear();
-  LOG_INFO("Distributed controller shutdown complete");
+  int exitCode = exitCodeFuture_.get();
+  if (exitCode != 0) {
+    controllerState_.store(ControllerState::Shutdown,
+                           std::memory_order_relaxed);
+    return ShutdownResult{.success = false,
+                          .errorMessage =
+                              "Worker subprocess failed with exit code: " +
+                              std::to_string(exitCode)};
+  }
+
+  LOG_INFO("Distributed controller shutdown successfully");
+
+  controllerState_.store(ControllerState::Shutdown, std::memory_order_relaxed);
+  return ShutdownResult{.success = true, .errorMessage = ""};
 }
 
 } // namespace tt::runtime::distributed::controller
