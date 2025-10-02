@@ -21,29 +21,6 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MELEMENTWISEFUSION
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-/// Returns true if op or any of the operations nested within it's regions have
-/// the D2MSkipOpEltwiseFusionTrait, the op should be skipped.
-static bool hasSkipOpEltwiseFusionTrait(Operation *op) {
-  if (op->hasTrait<D2MSkipOpEltwiseFusionTrait>()) {
-    return true;
-  }
-
-  for (Region &region : op->getRegions()) {
-    for (Operation &opInner : region.getOps()) {
-      if (hasSkipOpEltwiseFusionTrait(&opInner)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-static bool hasCompatibleBlocking(GenericOp a, GenericOp b) {
-  return a.getGrid() == b.getGrid() &&
-         a.getBlockFactors() == b.getBlockFactors();
-}
-
 /// Returns true if, post-fusion, every dimension has at least one input
 /// that defines it.
 ///
@@ -55,8 +32,8 @@ static bool coversAllDimsAfterFusion(GenericOp producer, GenericOp consumer,
                                      OpOperand *fusedOperand) {
   // TODO(mbagherbeikTT) Revisit when adressing issue
   // https://github.com/tenstorrent/tt-mlir/issues/5188 once we add reductions.
-  // Currently it's just a slightly reformatted version of how the linalg fusion
-  // pass checks dimension coverage.
+  // Currently, what's commented out is just a slightly reformatted version of
+  // how the linalg fusion pass checks dimension coverage.
   //
   // already check if we're all-parallel coming into here
   assert(!consumer.hasReduction());
@@ -132,7 +109,7 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
   Type elementType = tensorType.getElementType();
   auto shape = tensorType.getShape();
 
-  int blockSize = shape[3];
+  int blockSize = shape.back();
   if (blockSize > static_cast<int>(dstRegisterSizeTiles)) {
     blockSize = dstRegisterSizeTiles;
   }
@@ -159,6 +136,7 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
   // Subtract # of intermediate tiles needed
   dstTilesRemaining -=
       blockSize * (countBinaryOps(consumer) + countBinaryOps(producer));
+
   if (dstTilesRemaining < 0) {
     return false;
   }
@@ -166,32 +144,41 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
   return true;
 }
 
-static bool isElementwiseFusable(GenericOp producer, GenericOp consumer,
-                                 OpOperand *use,
-                                 unsigned dstRegisterSizeTiles) {
-  // operand only has 1 user
-  if (llvm::range_size(use->get().getUsers()) > 1) {
+static bool isElementwiseFusable(OpOperand *fusionOperand,
+                                 unsigned dstRegisterSizeTiles,
+                                 bool checkConsumer = true,
+                                 bool checkProducer = true) {
+  if (!fusionOperand) {
     return false;
   }
 
-  if (producer.hasMultiUseInputOperand()) {
+  auto producer = fusionOperand->get().getDefiningOp<GenericOp>();
+  auto consumer = dyn_cast<GenericOp>(fusionOperand->getOwner());
+
+  if (!producer || !consumer) {
     return false;
   }
 
-  if (!fitsInDstPostFusion(producer, consumer, use, dstRegisterSizeTiles)) {
+  if (checkConsumer && !consumer.isValidElementwiseFusionTarget()) {
     return false;
   }
 
-  if (!hasCompatibleBlocking(producer, consumer)) {
+  if (checkProducer && !producer.isValidElementwiseFusionTarget()) {
     return false;
   }
 
-  if (!producer.isAllParallel()) {
+  if (!producer.hasCompatibleBlocking(consumer)) {
+    return false;
+  }
+
+  if (!fitsInDstPostFusion(producer, consumer, fusionOperand,
+                           dstRegisterSizeTiles)) {
     return false;
   }
 
   // Rank/perm checks
-  AffineMap consMap = consumer.getIndexingMap(use->getOperandNumber());
+  AffineMap consMap =
+      consumer.getIndexingMap(fusionOperand->getOperandNumber());
   if (consMap.getNumResults() != producer.getNumDims()) {
     return false;
   }
@@ -204,7 +191,7 @@ static bool isElementwiseFusable(GenericOp producer, GenericOp consumer,
     return false;
   }
 
-  if (!coversAllDimsAfterFusion(producer, consumer, use)) {
+  if (!coversAllDimsAfterFusion(producer, consumer, fusionOperand)) {
     return false;
   }
 
@@ -253,37 +240,21 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
 
   LogicalResult matchAndRewrite(GenericOp consumer,
                                 PatternRewriter &rewriter) const final {
-    if (hasSkipOpEltwiseFusionTrait(consumer)) {
-      return failure();
-    }
-
-    if (!consumer.isComputeOnlyForm()) {
-      return failure();
-    }
-
-    if (!consumer.hasPureTensorSemantics()) {
-      return failure();
-    }
-
-    if (consumer.hasMultiUseInputOperand()) {
+    if (!consumer.isValidElementwiseFusionTarget()) {
       return failure();
     }
 
     for (OpOperand *use : consumer.getDpsInputOperands()) {
-      auto producer = dyn_cast_or_null<GenericOp>(use->get().getDefiningOp());
-      if (!producer) {
+      if (!isElementwiseFusable(use, dstRegisterSizeTiles,
+                                // already checked consumer outside
+                                false, true)) {
         continue;
       }
 
-      if (hasSkipOpEltwiseFusionTrait(producer)) {
-        continue;
-      }
-
-      assert(producer.isComputeOnlyForm() && producer.hasPureTensorSemantics());
-      if (!isElementwiseFusable(producer, consumer, use,
-                                dstRegisterSizeTiles)) {
-        continue;
-      }
+      auto producer = use->get().getDefiningOp<GenericOp>();
+      // we already check that producer is a valid GenericOp,
+      // use assert instead of if()
+      assert(producer);
 
       // Build fused op operands, maps, results
       SmallVector<Value> fusedInputs;

@@ -18,6 +18,8 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include <functional>
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOps.cpp.inc"
 
@@ -1495,6 +1497,33 @@ d2m::GenericOp::getBufferType(mlir::Value value,
   return d2m::getBufferType(tensorType, /*isView=*/false);
 }
 
+bool d2m::GenericOp::hasCompatibleBlocking(GenericOp b) {
+  return this->getGrid() == b.getGrid() &&
+         this->getBlockFactors() == b.getBlockFactors();
+}
+
+/// Returns true if op or any of the operations nested within it's regions have
+/// the D2MSkipOpEltwiseFusionTrait.
+bool d2m::GenericOp::hasSkipOpEltwiseFusionTrait() {
+  std::function<bool(Operation *)> helper = [&](Operation *op) -> bool {
+    if (op->hasTrait<D2MSkipOpEltwiseFusionTrait>()) {
+      return true;
+    }
+
+    for (Region &region : op->getRegions()) {
+      for (Operation &opInner : region.getOps()) {
+        if (helper(&opInner)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  };
+
+  return helper(this->getOperation());
+}
+
 bool d2m::GenericOp::hasReduction() {
   SmallVector<Attribute> iters = llvm::to_vector(getIteratorTypes());
   return llvm::any_of(iters, [](Attribute it) {
@@ -1521,6 +1550,40 @@ bool d2m::GenericOp::isAllParallel() {
       return false;
     }
   }
+  return true;
+}
+
+bool d2m::GenericOp::isValidElementwiseFusionTarget() {
+  int count = 0;
+  if (!isComputeOnlyForm()) {
+    return false;
+  }
+  llvm::errs() << "V " << count++ << "\n";
+
+  if (!hasPureTensorSemantics()) {
+    return false;
+  }
+
+  llvm::errs() << "V " << count++ << "\n";
+
+  if (!isAllParallel()) {
+    return false;
+  }
+
+  llvm::errs() << "V " << count++ << "\n";
+
+  if (hasSkipOpEltwiseFusionTrait()) {
+    return false;
+  }
+
+  llvm::errs() << "V " << count++ << "\n";
+
+  if (hasMultiUseInputOperand()) {
+    return false;
+  }
+
+  llvm::errs() << "V " << count++ << "\n";
+
   return true;
 }
 
