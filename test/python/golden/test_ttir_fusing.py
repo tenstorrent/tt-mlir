@@ -238,9 +238,9 @@ def test_conv_activation_fusing(
                 input_tensor: input_tensor_data,
                 conv_weight: conv_weight_data,
                 conv_bias: conv_bias_data,
-            }
+            },
+            {conv: golden_output},
         )
-        builder.set_operand_goldens({conv: golden_output})
         return activation_op
 
     output = compile_ttir_to_flatbuffer(
@@ -329,9 +329,9 @@ def test_conv_silu_decomposed_fusing(
                 input_tensor: input_tensor_data,
                 conv_weight: conv_weight_data,
                 conv_bias: conv_bias_data,
-            }
+            },
+            {conv: golden_output},
         )
-        builder.set_operand_goldens({conv: golden_output})
         return silu_decomposed
 
     output = compile_ttir_to_flatbuffer(
