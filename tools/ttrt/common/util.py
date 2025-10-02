@@ -71,6 +71,18 @@ def get_ttrt_metal_home_path():
     return tt_metal_home
 
 
+def mask_torch_inf_nan(tensor):
+    import torch
+
+    tensor[
+        torch.logical_or(
+            torch.isnan(tensor),
+            torch.logical_or(torch.isinf(tensor), torch.isneginf(tensor)),
+        )
+    ] = 0
+    return tensor
+
+
 def get_atol_rtol_pcc(golden, calculated, logging):
     import numpy as np
     import torch
@@ -100,22 +112,8 @@ def get_atol_rtol_pcc(golden, calculated, logging):
             return 0.0
         else:
             # For now, mask all infs and nans so that we check the rest... TODO
-            golden = golden.clone()
-            golden[
-                torch.logical_or(
-                    torch.isnan(golden),
-                    torch.logical_or(torch.isinf(golden), torch.isneginf(golden)),
-                )
-            ] = 0
-            calculated = calculated.clone()
-            calculated[
-                torch.logical_or(
-                    torch.isnan(calculated),
-                    torch.logical_or(
-                        torch.isinf(calculated), torch.isneginf(calculated)
-                    ),
-                )
-            ] = 0
+            golden = mask_torch_inf_nan(golden)
+            calculated = mask_torch_inf_nan(calculated)
 
             if torch.equal(golden, calculated):
                 return 1.0

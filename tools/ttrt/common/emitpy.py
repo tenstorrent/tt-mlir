@@ -68,13 +68,6 @@ class EmitPy:
             help="number of loops",
         )
         EmitPy.register_arg(
-            name="--host-only",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="collect performance trace on host only",
-        )
-        EmitPy.register_arg(
             name="--result-file",
             type=str,
             default="emitpy_results.json",
@@ -122,20 +115,6 @@ class EmitPy:
             default=False,
             choices=[True, False],
             help="enable program cache in ttnn runtime",
-        )
-        EmitPy.register_arg(
-            name="--emitpy",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="toggles EmitPy testing",
-        )
-        EmitPy.register_arg(
-            name="--trace-region-size",
-            type=int,
-            default=0,
-            choices=None,
-            help="Device trace region size",
         )
         EmitPy.register_arg(
             name="--dump-device-rate",
@@ -276,9 +255,6 @@ class EmitPy:
                 if compare_to_ttnn:
                     command_options = f"--program-index {self['--program-index']} --loops {self['--loops']} --save-artifacts "
 
-                    if self["--clean-artifacts"]:
-                        command_options += f" --clean-artifacts "
-
                     if self["--log-file"]:
                         command_options += f" --log-file {self['--log-file']} "
 
@@ -290,9 +266,6 @@ class EmitPy:
 
                     if self["--memory"]:
                         command_options += " --memory "
-
-                    if self["--host-only"]:
-                        command_options += f" --host-only "
 
                     if self["--disable-eth-dispatch"]:
                         command_options += " --disable-eth-dispatch "
@@ -316,6 +289,9 @@ class EmitPy:
 
                     if self["--disable-ttrt-callbacks"]:
                         command_options += " --disable-ttrt-callbacks "
+
+                    if self["--print-input-output-tensors"]:
+                        command_options += " --print-input-output-tensors "
 
                     ttrt_executable_path = shutil.which("ttrt")
                     test_command = (
@@ -373,13 +349,25 @@ class EmitPy:
 
                 self.logging.debug(f"Program names found: {program_names}")
 
+                if self["--program-index"] != "all":
+                    if len(program_names) > int(self["--program-index"]):
+                        self.logging.warning(
+                            f"program index={int(self['--program-index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
+                        )
+                        return
+
                 if not compare_to_ttnn:
                     for program_index in range(len(program_names)):
+                        if self["--program-index"] != "all" and program_index != int(
+                            self["--program-index"]
+                        ):
+                            continue
+
+                        self.logging.debug(
+                            f"evaluating program={program_names[program_index]} for python file={dylib.file_path}"
+                        )
                         create_program_inputs = (
                             "create_inputs_for_" + program_names[program_index]
-                        )
-                        self.logging.debug(
-                            f"creating inputs using function: {create_program_inputs}"
                         )
                         create_inputs_func = getattr(module, create_program_inputs)
                         inputs = create_inputs_func()
@@ -403,6 +391,14 @@ class EmitPy:
                                         f"emitpy_input_{i}.pt",
                                     )
 
+                            if self["--print-input-output-tensors"]:
+                                for i, input_tensor in enumerate(inputs):
+                                    input_tensor = ttnn.from_device(input_tensor)
+                                    torch_input = input_tensor.to_torch()
+                                    self.logging.info(
+                                        f"Input tensor {i}: {torch_input}"
+                                    )
+
                             program_func = getattr(module, program_names[program_index])
                             dylib_outputs = program_func(inputs)
                             self.logging.debug(
@@ -411,7 +407,7 @@ class EmitPy:
 
                             if self["--save-artifacts"]:
                                 program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
-                                for output in dylib_outputs:
+                                for i, output in enumerate(dylib_outputs):
                                     ttnn_output = ttnn.from_device(output)
                                     torch_output = ttnn_output.to_torch()
 
@@ -420,9 +416,23 @@ class EmitPy:
                                         torch_output,
                                         f"emitpy_output_{i}.pt",
                                     )
+
+                            if self["--print-input-output-tensors"]:
+                                for i, output_tensor in enumerate(dylib_outputs):
+                                    output_tensor = ttnn.from_device(output_tensor)
+                                    torch_input = output_tensor.to_torch()
+                                    self.logging.info(
+                                        f"Output tensor {i}: {output_tensor}"
+                                    )
                 else:
                     with ttnn.manage_device(device_id=0) as device:
                         for program_index in range(len(program_names)):
+                            if self[
+                                "--program-index"
+                            ] != "all" and program_index != int(
+                                self["--program-index"]
+                            ):
+                                continue
                             self.logging.debug(
                                 f"evaluating program={program_names[program_index]} for python file={dylib.file_path}"
                             )
@@ -447,9 +457,24 @@ class EmitPy:
                                         ),
                                     )
                                 )
-                            self.logging.debug(
-                                f"converted {len(inputs)} torch tensors to ttnn tensors"
-                            )
+
+                            # Save artifacts before they get deallocated
+                            if self["--save-artifacts"]:
+                                program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
+                                for i, input_tensor in enumerate(torch_inputs):
+                                    self.artifacts.save_torch_tensor(
+                                        program_folder,
+                                        input_tensor,
+                                        f"emitpy_input_{i}.pt",
+                                    )
+
+                            if self["--print-input-output-tensors"]:
+                                for i, input_tensor in enumerate(inputs):
+                                    input_tensor = ttnn.from_device(input_tensor)
+                                    torch_input = input_tensor.to_torch()
+                                    self.logging.info(
+                                        f"Input tensor {i}: {torch_input}"
+                                    )
 
                             for loop in range(self["--loops"]):
                                 self.logging.debug(
@@ -477,12 +502,6 @@ class EmitPy:
 
                                 if self["--save-artifacts"]:
                                     program_folder = f"{self.artifacts.get_dylib_emitpy_folder_path(dylib)}/program_{program_index}"
-                                    for i, input_tensor in enumerate(torch_inputs):
-                                        self.artifacts.save_torch_tensor(
-                                            program_folder,
-                                            input_tensor,
-                                            f"emitpy_input_{i}.pt",
-                                        )
                                     for i, output in enumerate(torch_dylib_outputs):
                                         self.artifacts.save_torch_tensor(
                                             program_folder,
@@ -490,7 +509,24 @@ class EmitPy:
                                             f"emitpy_output_{i}.pt",
                                         )
 
+                                if self["--print-input-output-tensors"]:
+                                    for i, output_tensor in enumerate(dylib_outputs):
+                                        output_tensor = ttnn.from_device(output_tensor)
+                                        torch_input = output_tensor.to_torch()
+                                        self.logging.info(
+                                            f"Output tensor {i}: {output_tensor}"
+                                        )
+
+                                # Compare outputs
                                 for i in range(len(torch_fbb_outputs)):
+                                    # Nan and Inf handling
+                                    torch_dylib_outputs[i] = mask_torch_inf_nan(
+                                        torch_dylib_outputs[i]
+                                    )
+                                    torch_fbb_outputs[i] = mask_torch_inf_nan(
+                                        torch_fbb_outputs[i]
+                                    )
+
                                     if not torch.allclose(
                                         torch_dylib_outputs[i], torch_fbb_outputs[i]
                                     ):
