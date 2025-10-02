@@ -19,11 +19,14 @@ namespace mlir::tt {
 #define GEN_PASS_DECL_TTIRTOD2M
 #include "ttmlir/Conversion/Passes.h.inc"
 
+// Forward declaration for GridAnalysis.
+// Eventually this will support global analysis across op chains.
+class GridAnalysis;
+
 void populateTTIRToD2MPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     mlir::tt::ttcore::MemorySpace defaultInputMemSpace,
-    mlir::tt::ttcore::MemorySpace defaultOutputMemSpace,
-    const llvm::SmallVector<int64_t> &targetGridShape, bool ttnnMode,
+    mlir::tt::ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
     bool collapseTensors);
 
 std::unique_ptr<OperationPass<ModuleOp>> createTTIRToD2MPass();
