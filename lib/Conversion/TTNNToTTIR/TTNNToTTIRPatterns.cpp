@@ -70,7 +70,6 @@ public:
                   })))
             : nullptr;
 
-    // Use the utility function to handle DPS pattern with converted attributes
     mlir::tt::ttir::utils::replaceOpWithNewDPSOp<DestOp>(
         rewriter, srcOp, outputType, adaptor.getInput(), srcOp.getKeepDim(),
         dimArgAttr);
@@ -120,7 +119,11 @@ public:
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     auto keepDimAttr = rewriter.getBoolAttr(srcOp.getKeepDim());
-    // Prod uses I64Attr for TTNN dimArg, convert to I32ArrayAttr for TTIR
+
+    // TTNN_ProdOp uses I64Attr for TTNN dimArg (other reduction ops use
+    // I32ArrayAttr). Convert to a single-element I32ArrayAttr for TTIR.
+    // In both TTNN and TTIR, if dimArg is not provided, the reduction is
+    // performed over all dimensions.
     auto dimArgAttr = srcOp.getDimArg()
                           ? rewriter.getI32ArrayAttr(
                                 {static_cast<int32_t>(*srcOp.getDimArg())})
