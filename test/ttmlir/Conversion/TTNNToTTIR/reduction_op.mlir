@@ -108,6 +108,32 @@ module {
         return %3 : tensor<32x32xf32, #dram_layout>
     }
 
+    func.func @test_sum_all_dims(%arg0: tensor<64x32xf32, #dram_layout>) -> tensor<f32, #dram_layout> {
+        %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #memory_config_l1}> : (tensor<64x32xf32, #dram_layout>) -> tensor<64x32xf32, #l1_layout>
+
+        // CHECK: %{{[0-9]+}} = ttir.empty() : tensor<f32, #ttnn_layout{{[0-9]+}}>
+        // CHECK: %{{[0-9]+}} = "ttir.sum"(%{{[0-9]+}}, %{{[0-9]+}}) <{keep_dim = false}> : (tensor<64x32xf32, #ttnn_layout{{[0-9]+}}>, tensor<f32, #ttnn_layout{{[0-9]+}}>) -> tensor<f32, #ttnn_layout{{[0-9]+}}>
+        // CHECK-NOT: "ttnn.sum"
+        %2 = "ttnn.sum"(%1) {ttnn.hoist_generic_via_d2m, keep_dim = false} : (tensor<64x32xf32, #l1_layout>) -> tensor<f32, #l1_layout>
+
+        %3 = "ttnn.to_memory_config"(%2) <{memory_config = #memory_config_dram}> : (tensor<f32, #l1_layout>) -> tensor<f32, #dram_layout>
+
+        return %3 : tensor<f32, #dram_layout>
+    }
+
+    func.func @test_mean_all_dims(%arg0: tensor<32x64xbf16, #dram_layout>) -> tensor<1x1xbf16, #dram_layout> {
+        %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #memory_config_l1}> : (tensor<32x64xbf16, #dram_layout>) -> tensor<32x64xbf16, #l1_layout>
+
+        // CHECK: %{{[0-9]+}} = ttir.empty() : tensor<1x1xbf16, #ttnn_layout{{[0-9]+}}>
+        // CHECK: %{{[0-9]+}} = "ttir.mean"(%{{[0-9]+}}, %{{[0-9]+}}) <{keep_dim = true}> : (tensor<32x64xbf16, #ttnn_layout{{[0-9]+}}>, tensor<1x1xbf16, #ttnn_layout{{[0-9]+}}>) -> tensor<1x1xbf16, #ttnn_layout{{[0-9]+}}>
+        // CHECK-NOT: "ttnn.mean"
+        %2 = "ttnn.mean"(%1) {ttnn.hoist_generic_via_d2m, keep_dim = true} : (tensor<32x64xbf16, #l1_layout>) -> tensor<1x1xbf16, #l1_layout>
+
+        %3 = "ttnn.to_memory_config"(%2) <{memory_config = #memory_config_dram}> : (tensor<1x1xbf16, #l1_layout>) -> tensor<1x1xbf16, #dram_layout>
+
+        return %3 : tensor<1x1xbf16, #dram_layout>
+    }
+
     func.func @test_max_all_dims(%arg0: tensor<96x32xf16, #dram_layout>) -> tensor<f16, #dram_layout> {
         %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #memory_config_l1}> : (tensor<96x32xf16, #dram_layout>) -> tensor<96x32xf16, #l1_layout>
 
