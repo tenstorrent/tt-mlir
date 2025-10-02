@@ -58,6 +58,109 @@ class TTBuilderGoldenException(Exception):
     pass
 
 
+# ----- Shared Helper Functions -----
+
+
+def get_metal_tensor_layout(
+    ctx: Context,
+    logical_shape: Shape,
+    tiled=False,
+    oobVal=ttcore.OOBVal.Undef,
+    memorySpace=ttcore.MemorySpace.DeviceL1,
+    grid: Optional[Tuple[int, int]] = None,
+    index_map: Optional[AffineMap] = None,
+    memory_layout: Optional[
+        ttcore.TensorMemoryLayout
+    ] = ttcore.TensorMemoryLayout.Sharded,
+) -> RankedTensorType:
+    """
+    Create a metal tensor layout.
+
+    This function creates metal tensor layouts for both TTIR and D2M operations.
+    Previously duplicated between TTIRBuilder and D2MBuilder.
+
+    Parameters
+    ----------
+    ctx : Context
+        MLIR context
+    logical_shape : Shape
+        Logical shape of the tensor
+    tiled : bool
+        Whether to use tiled layout (32x32 tiles)
+    oobVal : ttcore.OOBVal
+        Out-of-bounds value handling
+    memorySpace : ttcore.MemorySpace
+        Memory space (L1, DRAM, etc.)
+    grid : Optional[Tuple[int, int]]
+        Grid shape for sharding
+    index_map : Optional[AffineMap]
+        Optional affine map for layout transformation
+
+    Returns
+    -------
+    RankedTensorType
+        The metal tensor type with layout
+    """
+    # Create grid shape by 1s filling logical rank.
+    if grid is None:
+        original_rank = len(logical_shape)
+        grid_shape = [1] * original_rank
+    else:
+        grid_shape = list(grid)
+
+    worker_grid = [8, 8]
+
+    # Create layout with original logical shape.
+    if index_map is None:
+        layout = ttcore.ir.MetalLayoutAttr.get(
+            ctx, logical_shape, worker_grid, oobVal, memorySpace, memory_layout
+        )
+    else:
+        layout = ttcore.ir.MetalLayoutAttr.get(
+            ctx,
+            logical_shape,
+            worker_grid,
+            oobVal,
+            memorySpace,
+            memory_layout,
+            index_map,
+        )
+
+    shard_shape = []
+    for l, g in zip(logical_shape, grid_shape):
+        assert l % g == 0, f"Logical shape {l} must be divisible by grid shape {g}"
+        shard_shape.append(l // g)
+
+    # Get sharded shape w/ proper collapse & alignment logic.
+    typed_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
+    if typed_layout is None:
+        raise RuntimeError("Failed to downcast MetalLayoutAttr")
+    device_shape = typed_layout.getDeviceShape(
+        grid_shape, [32, 32] if tiled else [1, 1]
+    )
+
+    elemType = F32Type.get(ctx)
+
+    # For tiled layouts, ensure the device shape accounts for tiles.
+    if tiled:
+        elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
+        if grid is None or grid == (1, 1):
+            # For default 1x1 grid, use exact tile count.
+            tile_count_h = (logical_shape[-2] + 31) // 32
+            tile_count_w = (logical_shape[-1] + 31) // 32
+            device_shape[-2] = tile_count_h
+            device_shape[-1] = tile_count_w
+        else:
+            # For explicit grids, calculate proper sharded tile count.
+            shard_h, shard_w = shard_shape[-2], shard_shape[-1]
+            tiles_per_shard_h = (shard_h + 31) // 32
+            tiles_per_shard_w = (shard_w + 31) // 32
+            device_shape[-2] = tiles_per_shard_h
+            device_shape[-1] = tiles_per_shard_w
+
+    return RankedTensorType.get(device_shape, elemType, layout, Location.unknown(ctx))
+
+
 # ----- Private APIs -----
 
 

@@ -5,7 +5,7 @@ This tool is intended to be a swiss army knife for working with flatbuffers gene
 ## Building
 ```bash
 source env/activate
-cmake --build build -- ttrt
+cmake --build build
 ttrt --help
 ```
 

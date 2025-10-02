@@ -503,6 +503,7 @@ Device openMeshDevice(const MeshDeviceOptions &options) {
 
   auto ttnnTraceCache =
       std::make_shared<::tt::runtime::ttnn::TraceCache>(meshDevice);
+
   auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
       std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
 
@@ -734,6 +735,12 @@ void wait(const std::vector<::tt::runtime::Tensor> &tensors,
   }
 }
 
+uint32_t getNumShards(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
+  return ::ttnn::distributed::get_device_tensors(ttnnTensor).size();
+}
+
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize, bool blocking) {
   const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
@@ -786,6 +793,16 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
     ::tt::runtime::ttnn::deallocateTensor(tensor);
   }
   return result;
+}
+
+bool hasLayout(::tt::runtime::Tensor tensor, Layout layout) {
+  const std::shared_ptr<LayoutDesc> tensorLayoutDesc =
+      LayoutDesc::fromTensor(tensor);
+
+  const LayoutDesc &desiredLayoutDesc =
+      layout.as<LayoutDesc>(DeviceRuntime::TTNN);
+
+  return *tensorLayoutDesc == desiredLayoutDesc;
 }
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
