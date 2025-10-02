@@ -70,16 +70,16 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
   return true;
 }
 
-static bool isElementwiseFusable(OpOperand *fusionOperand,
+static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
                                  unsigned dstRegisterSizeTiles,
                                  bool checkConsumer = true,
                                  bool checkProducer = true) {
-  if (!fusionOperand) {
+  if (!fusionTargetOperand) {
     return false;
   }
 
-  auto producer = fusionOperand->get().getDefiningOp<GenericOp>();
-  auto consumer = dyn_cast<GenericOp>(fusionOperand->getOwner());
+  auto producer = fusionTargetOperand->get().getDefiningOp<GenericOp>();
+  auto consumer = dyn_cast<GenericOp>(fusionTargetOperand->getOwner());
 
   if (!producer || !consumer) {
     return false;
@@ -97,14 +97,14 @@ static bool isElementwiseFusable(OpOperand *fusionOperand,
     return false;
   }
 
-  if (!fitsInDstPostFusion(producer, consumer, fusionOperand,
+  if (!fitsInDstPostFusion(producer, consumer, fusionTargetOperand,
                            dstRegisterSizeTiles)) {
     return false;
   }
 
   // Rank/perm checks
   AffineMap consMap =
-      consumer.getIndexingMap(fusionOperand->getOperandNumber());
+      consumer.getIndexingMap(fusionTargetOperand->getOperandNumber());
   if (consMap.getNumResults() != producer.getNumDims()) {
     return false;
   }
@@ -131,17 +131,11 @@ static AffineMap computeFusedArgMap(GenericOp producer, OpOperand *prodOpnd,
 }
 
 static void gatherAndComposeFusedOpIO(OpOperand *fusedOperand,
-
-                                      // Build fused op operands, maps, results
+                                      GenericOp producer, GenericOp consumer,
                                       SmallVector<Value> &fusedInputs,
                                       SmallVector<Value> &fusedOutputs,
                                       SmallVector<Type> &fusedResultTypes,
                                       SmallVector<AffineMap> &fusedMaps) {
-  assert(fusedOperand);
-  auto producer = fusedOperand->get().getDefiningOp<GenericOp>();
-  auto consumer = dyn_cast<GenericOp>(fusedOperand->getOwner());
-  assert(producer && consumer);
-
   AffineMap prodResMap = producer.getIndexingMap(
       producer.getDpsInitOperand(0)->getOperandNumber());
   AffineMap consMap = consumer.getIndexingMap(fusedOperand->getOperandNumber());
@@ -171,6 +165,131 @@ static void gatherAndComposeFusedOpIO(OpOperand *fusedOperand,
       fusedResultTypes.push_back(co.get().getType());
     }
   }
+}
+
+static void mapFusedOpIo(GenericOp fusedOp, OpOperand *fusedOperand,
+                         GenericOp producer, GenericOp consumer,
+                         IRMapping &irMap, Block &fusedBlock, Block &pb,
+                         Block &cb) {
+  // For each fused operand, pick the corresponding region block-argument
+  // type from the originating op (producer/consumer) to satisfy verifier.
+  SmallVector<Type> fusedBlockArgTypes;
+  SmallVector<Location> fusedBlockArgLocs;
+  fusedBlockArgTypes.reserve(fusedOp->getNumOperands());
+  fusedBlockArgLocs.reserve(fusedOp->getNumOperands());
+
+  // Helper to append a source (op, operandNumber)
+  SmallVector<std::pair<Operation *, unsigned>> argSources;
+  auto appendSource = [&](Operation *op, unsigned operandNumber) {
+    argSources.emplace_back(op, operandNumber);
+    Block *srcBlock = op == producer.getOperation() ? &pb : &cb;
+    BlockArgument srcArg = srcBlock->getArgument(operandNumber);
+    fusedBlockArgTypes.push_back(srcArg.getType());
+    fusedBlockArgLocs.push_back(srcArg.getLoc());
+  };
+
+  auto inputs = consumer.getInputs();
+  size_t fusedIdx = fusedOperand->getOperandNumber();
+
+  // Reconstruct argSources in the same order as fused operands.
+  // consumer inputs before fused
+  for (size_t i = 0; i < fusedIdx; ++i) {
+    appendSource(consumer.getOperation(), /*operandNumber=*/i);
+  }
+  // producer inputs
+  for (OpOperand *pi : producer.getDpsInputOperands()) {
+    appendSource(producer.getOperation(), pi->getOperandNumber());
+  }
+  // remaining consumer inputs after fused
+  for (size_t i = fusedIdx + 1; i < inputs.size(); ++i) {
+    appendSource(consumer.getOperation(), /*operandNumber=*/i);
+  }
+  // consumer outputs
+  for (OpOperand &co : consumer.getDpsInitsMutable()) {
+    appendSource(consumer.getOperation(), co.getOperandNumber());
+  }
+
+  (void)fusedBlock.addArguments(fusedBlockArgTypes, fusedBlockArgLocs);
+
+  // Map original region block arguments to fused region block arguments.
+  DenseMap<std::pair<Operation *, unsigned>, unsigned> sourceToFusedIdx;
+  for (auto it : llvm::enumerate(argSources)) {
+    sourceToFusedIdx[it.value()] = static_cast<unsigned>(it.index());
+  }
+  auto mapRegionArgs = [&](Operation *op, Block &orig) {
+    for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+      unsigned fusedIndex = sourceToFusedIdx[{op, i}];
+      irMap.map(orig.getArgument(i), fusedBlock.getArgument(fusedIndex));
+    }
+  };
+  mapRegionArgs(producer.getOperation(), pb);
+  mapRegionArgs(consumer.getOperation(), cb);
+}
+
+/// Build fused region: clone producer then consumer, map fused operand to
+/// producer yield value. Ensure fused block argument types match original
+/// region operand argument types (shard types), not the top-level types.
+static void populateFusedOpBody(GenericOp fused, OpOperand *fusedOperand,
+                                GenericOp producer, GenericOp consumer,
+                                IRMapping &irMap, Block &fusedBlock, Block &pb,
+                                Block &cb, PatternRewriter &rewriter) {
+  // Insert all cloned ops into the fused block, in order: producer then
+  // consumer.
+  rewriter.setInsertionPointToEnd(&fusedBlock);
+
+  // Clone producer body (skip explicit d2m.yield if present).
+  for (Operation &op : pb) {
+    if (isa<YieldOp>(op)) {
+      continue;
+    }
+    rewriter.clone(op, irMap);
+  }
+  YieldOp prodYield = nullptr;
+  for (Operation &op : pb) {
+    if (auto y = dyn_cast<YieldOp>(op)) {
+      prodYield = y;
+    }
+  }
+  int prodResultNumber = cast<OpResult>(fusedOperand->get()).getResultNumber();
+  Value repl = irMap.lookupOrDefault(prodYield.getOperand(prodResultNumber));
+
+  // Map consumer arg corresponding to fused operand number to repl.
+  // If `repl` is a tensor, and consumer block arg is tensor, direct map.
+  // If consumer expects a tensor but repl is produced by inner ops,
+  // ensure we cloned those inner ops already (we did by cloning pb body),
+  // so `repl` dominates this point.
+  irMap.map(cb.getArgument(fusedOperand->getOperandNumber()), repl);
+
+  // Clone remaining consumer body ops (except terminator). Treat nested
+  // operations opaquely; cloning preserves dominance as long as operands
+  // are mapped.
+  for (Operation &op : cb.without_terminator()) {
+    rewriter.clone(op, irMap);
+  }
+
+  // Build fused yield: kept producer yields then consumer yields
+  SmallVector<Value> fusedYields;
+  YieldOp consYield = nullptr;
+  for (Operation &op : cb) {
+    if (auto y = dyn_cast<YieldOp>(op)) {
+      consYield = y;
+    }
+  }
+  for (Value y : consYield.getOperands()) {
+    fusedYields.push_back(irMap.lookupOrDefault(y));
+  }
+  rewriter.setInsertionPointToEnd(&fusedBlock);
+  rewriter.create<YieldOp>(fused.getLoc(), fusedYields);
+
+  // Replace uses: from producer and consumer results to fused results.
+  int resIdx = 0;
+  // Consumer results
+  for (auto r : consumer->getResults()) {
+    r.replaceAllUsesWith(fused->getResult(resIdx++));
+  }
+
+  rewriter.eraseOp(consumer);
+  rewriter.eraseOp(producer);
 }
 
 namespace {
@@ -204,8 +323,8 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
       SmallVector<Type> fusedResultTypes;
       SmallVector<AffineMap> fusedMaps;
 
-      gatherAndComposeFusedOpIO(use, fusedInputs, fusedOutputs,
-                                fusedResultTypes, fusedMaps);
+      gatherAndComposeFusedOpIO(use, producer, consumer, fusedInputs,
+                                fusedOutputs, fusedResultTypes, fusedMaps);
 
       // Create fused op
       auto fused = rewriter.create<GenericOp>(
@@ -214,125 +333,16 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
           rewriter.getAffineMapArrayAttr(fusedMaps),
           consumer.getIteratorTypes(), consumer.getThreads(), /*regions=*/1);
 
-      // Build fused region: clone producer then consumer, map fused operand to
-      // producer yield value. Ensure fused block argument types match original
-      // region operand argument types (shard types), not the top-level types.
       IRMapping irMap;
       Block &fusedBlock = fused.getRegion(0).emplaceBlock();
       Block &pb = producer.getRegion(0).front();
       Block &cb = consumer.getRegion(0).front();
 
-      // For each fused operand, pick the corresponding region block-argument
-      // type from the originating op (producer/consumer) to satisfy verifier.
-      SmallVector<Type> fusedBlockArgTypes;
-      SmallVector<Location> fusedBlockArgLocs;
-      fusedBlockArgTypes.reserve(fused->getNumOperands());
-      fusedBlockArgLocs.reserve(fused->getNumOperands());
+      mapFusedOpIo(fused, use, producer, consumer, irMap, fusedBlock, pb, cb);
 
-      // Helper to append a source (op, operandNumber)
-      SmallVector<std::pair<Operation *, unsigned>> argSources;
-      auto appendSource = [&](Operation *op, unsigned operandNumber) {
-        argSources.emplace_back(op, operandNumber);
-        Block *srcBlock = op == producer.getOperation() ? &pb : &cb;
-        BlockArgument srcArg = srcBlock->getArgument(operandNumber);
-        fusedBlockArgTypes.push_back(srcArg.getType());
-        fusedBlockArgLocs.push_back(srcArg.getLoc());
-      };
+      populateFusedOpBody(fused, use, producer, consumer, irMap, fusedBlock, pb,
+                          cb, rewriter);
 
-      auto inputs = consumer.getInputs();
-      size_t fusedIdx = use->getOperandNumber();
-      // Reconstruct argSources in the same order as fused operands.
-      // consumer inputs before fused
-      for (size_t i = 0; i < fusedIdx; ++i) {
-        appendSource(consumer.getOperation(), /*operandNumber=*/i);
-      }
-      // producer inputs
-      for (OpOperand *pi : producer.getDpsInputOperands()) {
-        appendSource(producer.getOperation(), pi->getOperandNumber());
-      }
-      // remaining consumer inputs after fused
-      for (size_t i = fusedIdx + 1; i < inputs.size(); ++i) {
-        appendSource(consumer.getOperation(), /*operandNumber=*/i);
-      }
-      // consumer outputs
-      for (OpOperand &co : consumer.getDpsInitsMutable()) {
-        appendSource(consumer.getOperation(), co.getOperandNumber());
-      }
-
-      (void)fusedBlock.addArguments(fusedBlockArgTypes, fusedBlockArgLocs);
-
-      // Map original region block arguments to fused region block arguments.
-      DenseMap<std::pair<Operation *, unsigned>, unsigned> sourceToFusedIdx;
-      for (auto it : llvm::enumerate(argSources)) {
-        sourceToFusedIdx[it.value()] = static_cast<unsigned>(it.index());
-      }
-      auto mapRegionArgs = [&](Operation *op, Block &orig) {
-        for (unsigned i = 0; i < op->getNumOperands(); ++i) {
-          unsigned fusedIndex = sourceToFusedIdx[{op, i}];
-          irMap.map(orig.getArgument(i), fusedBlock.getArgument(fusedIndex));
-        }
-      };
-      mapRegionArgs(producer.getOperation(), pb);
-      mapRegionArgs(consumer.getOperation(), cb);
-
-      // Insert all cloned ops into the fused block, in order: producer then
-      // consumer.
-      rewriter.setInsertionPointToEnd(&fusedBlock);
-
-      // Clone producer body (skip explicit d2m.yield if present).
-      for (Operation &op : pb) {
-        if (isa<YieldOp>(op)) {
-          continue;
-        }
-        rewriter.clone(op, irMap);
-      }
-      YieldOp prodYield = nullptr;
-      for (Operation &op : pb) {
-        if (auto y = dyn_cast<YieldOp>(op)) {
-          prodYield = y;
-        }
-      }
-      int prodResultNumber = cast<OpResult>(use->get()).getResultNumber();
-      Value repl =
-          irMap.lookupOrDefault(prodYield.getOperand(prodResultNumber));
-
-      // Map consumer arg corresponding to fused operand number to repl.
-      // If `repl` is a tensor, and consumer block arg is tensor, direct map.
-      // If consumer expects a tensor but repl is produced by inner ops,
-      // ensure we cloned those inner ops already (we did by cloning pb body),
-      // so `repl` dominates this point.
-      irMap.map(cb.getArgument(fusedIdx), repl);
-
-      // Clone remaining consumer body ops (except terminator). Treat nested
-      // operations opaquely; cloning preserves dominance as long as operands
-      // are mapped.
-      for (Operation &op : cb.without_terminator()) {
-        rewriter.clone(op, irMap);
-      }
-
-      // Build fused yield: kept producer yields then consumer yields
-      SmallVector<Value> fusedYields;
-      YieldOp consYield = nullptr;
-      for (Operation &op : cb) {
-        if (auto y = dyn_cast<YieldOp>(op)) {
-          consYield = y;
-        }
-      }
-      for (Value y : consYield.getOperands()) {
-        fusedYields.push_back(irMap.lookupOrDefault(y));
-      }
-      rewriter.setInsertionPointToEnd(&fusedBlock);
-      rewriter.create<YieldOp>(fused.getLoc(), fusedYields);
-
-      // Replace uses: from producer and consumer results to fused results.
-      int resIdx = 0;
-      // Consumer results
-      for (auto r : consumer->getResults()) {
-        r.replaceAllUsesWith(fused->getResult(resIdx++));
-      }
-
-      rewriter.eraseOp(consumer);
-      rewriter.eraseOp(producer);
       return success();
     }
 
