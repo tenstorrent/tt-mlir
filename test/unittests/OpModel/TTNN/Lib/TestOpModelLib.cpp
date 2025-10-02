@@ -519,7 +519,7 @@ TEST_F(OpModelTest, ArgMax) {
       layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_EQ(opCstr.cbL1PeakSize, 160);
+  EXPECT_EQ(opCstr.cbL1PeakSize, 132);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
