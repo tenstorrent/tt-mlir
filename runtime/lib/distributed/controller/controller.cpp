@@ -50,21 +50,51 @@ static bool isErrorResponse(const SizedBuffer &response) {
 
 Controller::~Controller() { shutdown(); }
 
-void Controller::launchLocalSubprocess(uint16_t controllerPort) {
-  constexpr size_t numWorkers = 1;
+void Controller::launch(const ::tt::runtime::DistributedOptions &options) {
+
   LOG_ASSERT(!controllerSocket_, "Controller already launched");
-  controllerSocket_ = std::make_unique<ControllerSocket>(controllerPort);
+
+  controllerSocket_ =
+      std::make_unique<ControllerSocket>(options.controllerPort);
   uint16_t bindPort = controllerSocket_->port();
 
-  std::string command =
-      tt::runtime::distributed::utils::getWorkerExecutableCommand(bindPort);
+  size_t numWorkers;
+  std::string command;
+
+  switch (options.mode) {
+  case DistributedMode::LocalSubprocess: {
+    LOG_ASSERT(
+        !options.multiProcessArgs.has_value(),
+        "MultiProcess args should not be populated for LocalSubprocess mode");
+    numWorkers = 1;
+    command =
+        ::tt::runtime::distributed::utils::getWorkerExecutableCommand(bindPort);
+    break;
+  }
+  case DistributedMode::MultiProcess: {
+    LOG_ASSERT(options.multiProcessArgs.has_value(),
+               "MultiProcess mode requires MultiProcessArgs to be populated");
+    const ::tt::runtime::MultiProcessArgs &multiProcessArgs =
+        options.multiProcessArgs.value();
+    LOG_ASSERT(!multiProcessArgs.getRankBindingPath().empty(),
+               "Rank binding path cannot be empty");
+    numWorkers = ::tt::runtime::distributed::utils::getNumProcesses(
+        multiProcessArgs.getRankBindingPath());
+    command = ::tt::runtime::distributed::utils::getTTRunCommand(
+        bindPort, multiProcessArgs);
+    break;
+  }
+  }
+  LOG_INFO("Launching distributed controller with command: ", command, " on ",
+           numWorkers, " worker(s)");
 
   std::future<int> asyncFuture = std::async(
       std::launch::async, [command]() { return std::system(command.c_str()); });
-  exitCodeFutures_.emplace_back(std::move(asyncFuture));
+  exitCodeFuture_ = std::move(asyncFuture);
 
   workerConnections_ =
       controllerSocket_->connectToWorkers(numWorkers, writeTimeout_);
+
   launchCommandDispatcher();
   launchResponseHandler();
 }
@@ -644,18 +674,15 @@ void Controller::shutdown() {
   commandDispatcherThread_.join();
   responseHandlerThread_.join();
 
-  for (auto &exitCodeFuture : exitCodeFutures_) {
-    auto exitCodeResult =
-        exitCodeFuture.wait_for(std::chrono::seconds(workerShutdownTimeout_));
-    LOG_ASSERT(exitCodeResult == std::future_status::ready,
-               "Worker subprocess failed to exit");
+  auto exitCodeResult =
+      exitCodeFuture_.wait_for(std::chrono::seconds(workerShutdownTimeout_));
+  LOG_ASSERT(exitCodeResult == std::future_status::ready,
+             "Worker subprocess failed to exit");
 
-    int exitCode = exitCodeFuture.get();
-    LOG_ASSERT(exitCode == 0,
-               "Worker subprocess failed with exit code: ", exitCode);
-  }
+  int exitCode = exitCodeFuture_.get();
+  LOG_ASSERT(exitCode == 0,
+             "Worker subprocess failed with exit code: ", exitCode);
 
-  exitCodeFutures_.clear();
   LOG_INFO("Distributed controller shutdown complete");
 }
 

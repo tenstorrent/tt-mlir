@@ -41,11 +41,7 @@ void launchDistributedRuntime(const DistributedOptions &options) {
       "Distributed controller already launched, please shutdown the controller "
       "before launching a new one");
   Controller &controller = ControllerSingleton::get();
-  switch (options.mode) {
-  case DistributedMode::LocalSubprocess:
-    controller.launchLocalSubprocess(options.port);
-    break;
-  }
+  controller.launch(options);
 }
 
 void shutdownDistributedRuntime() {

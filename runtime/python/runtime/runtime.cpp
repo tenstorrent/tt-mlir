@@ -117,10 +117,40 @@ void registerRuntimeBindings(nb::module_ &m) {
                           nb::cast<tt::runtime::DispatchCoreType>(value));
           });
 
+  nb::class_<tt::runtime::MultiProcessArgs>(m, "MultiProcessArgs")
+      .def_static("create", &tt::runtime::MultiProcessArgs::create)
+      .def("with_rank_binding_path",
+           &tt::runtime::MultiProcessArgs::withRankBindingPath)
+      .def("with_hosts", &tt::runtime::MultiProcessArgs::withHosts)
+      .def("with_hosts_file_path",
+           &tt::runtime::MultiProcessArgs::withHostsFilePath)
+      .def("with_rank_file_path",
+           &tt::runtime::MultiProcessArgs::withRankFilePath)
+      .def("with_mca_options", &tt::runtime::MultiProcessArgs::withMcaOptions)
+      .def("with_tag_output", &tt::runtime::MultiProcessArgs::withTagOutput)
+      .def("with_extra_mpi_args",
+           &tt::runtime::MultiProcessArgs::withExtraMpiArgs)
+      .def("to_arg_string", &tt::runtime::MultiProcessArgs::toArgString);
+
   nb::class_<tt::runtime::DistributedOptions>(m, "DistributedOptions")
       .def(nb::init<>())
-      .def_rw("port", &tt::runtime::DistributedOptions::port)
-      .def_rw("mode", &tt::runtime::DistributedOptions::mode);
+      .def_rw("controller_port",
+              &tt::runtime::DistributedOptions::controllerPort)
+      .def_rw("mode", &tt::runtime::DistributedOptions::mode)
+      .def_prop_rw(
+          "multi_process_args",
+          [](const tt::runtime::DistributedOptions &o) {
+            return o.multiProcessArgs.has_value()
+                       ? nb::cast(o.multiProcessArgs.value())
+                       : nb::none();
+          },
+          [](tt::runtime::DistributedOptions &o, nb::handle value) {
+            o.multiProcessArgs =
+                value.is_none()
+                    ? std::nullopt
+                    : std::make_optional(
+                          nb::cast<tt::runtime::MultiProcessArgs>(value));
+          });
 
   nb::class_<tt::runtime::Tensor>(m, "Tensor")
       .def("is_allocated",
@@ -211,8 +241,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("Distributed", ::tt::runtime::HostRuntime::Distributed);
 
   nb::enum_<::tt::runtime::DistributedMode>(m, "DistributedMode")
-      .value("LocalSubprocess",
-             ::tt::runtime::DistributedMode::LocalSubprocess);
+      .value("LocalSubprocess", ::tt::runtime::DistributedMode::LocalSubprocess)
+      .value("MultiProcess", ::tt::runtime::DistributedMode::MultiProcess);
 
   nb::enum_<::tt::runtime::DispatchCoreType>(m, "DispatchCoreType")
       .value("WORKER", ::tt::runtime::DispatchCoreType::WORKER)

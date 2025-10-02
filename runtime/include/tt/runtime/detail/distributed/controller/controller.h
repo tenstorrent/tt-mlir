@@ -57,11 +57,7 @@ public:
   Controller(Controller &&) = delete;
   Controller &operator=(Controller &&) = delete;
 
-  // Launches a local subprocess that will connect to the controller
-  void launchLocalSubprocess(uint16_t controllerPort);
-
-  // TODO (#5135): Add support for launching worker subprocesses
-  // on remote hosts through MPI/TTRun
+  void launch(const ::tt::runtime::DistributedOptions &options);
 
   void setWriteTimeout(const std::chrono::seconds &timeout);
   void setReadTimeout(const std::chrono::seconds &timeout);
@@ -111,7 +107,7 @@ private:
   std::chrono::seconds workerShutdownTimeout_{60};
 
   std::atomic<bool> shutdownRequested_{false};
-  std::vector<std::future<int>> exitCodeFutures_;
+  std::future<int> exitCodeFuture_;
 
   std::unique_ptr<ControllerSocket> controllerSocket_;
   std::vector<std::unique_ptr<Socket>> workerConnections_;

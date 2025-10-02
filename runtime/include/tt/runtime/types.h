@@ -6,6 +6,8 @@
 #define TT_RUNTIME_TYPES_H
 
 #include <cassert>
+#include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -67,7 +69,9 @@ inline std::string toString(HostRuntime runtime) {
 }
 
 enum class DistributedMode {
-  LocalSubprocess,
+  LocalSubprocess, // Single process on the local host
+  MultiProcess, // Multiple processes via MPI, may be same host or distributed
+                // across multiple hosts
 };
 
 enum class DispatchCoreType {
@@ -230,9 +234,50 @@ struct MeshDeviceOptions {
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
 };
 
+class MultiProcessArgs {
+public:
+  static MultiProcessArgs create() { return MultiProcessArgs(); }
+
+  MultiProcessArgs &withRankBindingPath(std::string_view path);
+
+  MultiProcessArgs &withHosts(const std::vector<std::string> &hosts);
+  MultiProcessArgs &withHostsFilePath(std::string_view path);
+
+  std::string getRankBindingPath() const;
+  MultiProcessArgs &withRankFilePath(std::string_view path);
+
+  MultiProcessArgs &
+  withMcaOptions(const std::map<std::string, std::string> &mcaOptions);
+
+  MultiProcessArgs &withTagOutput(bool tagOutput);
+
+  MultiProcessArgs &
+  withExtraMpiArgs(const std::vector<std::string> &extraMpiArgs);
+
+  std::string toArgString() const;
+
+private:
+  MultiProcessArgs() = default;
+
+  std::filesystem::path rankBindingPath_;
+
+  std::vector<std::string> hosts_;
+  std::filesystem::path hostsFilePath_;
+
+  std::filesystem::path rankFilePath_;
+
+  std::map<std::string, std::string> mcaOptions_;
+
+  bool tagOutput_ = true;
+
+  std::vector<std::string> extraMpiArgs_;
+};
+
 struct DistributedOptions {
-  uint16_t port = 0;
+  uint16_t controllerPort = 0;
   DistributedMode mode = DistributedMode::LocalSubprocess;
+  // Required for MultiProcess mode
+  std::optional<MultiProcessArgs> multiProcessArgs = std::nullopt;
 };
 
 struct Flatbuffer : public detail::ObjectImpl {
