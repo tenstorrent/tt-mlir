@@ -435,9 +435,6 @@ private:
 // The pattern matches both operand orders:
 // - multiply(sigmoid(x), x)
 // - multiply(x, sigmoid(x))
-//
-// When multiply inputs and output are typecasted, the typecasts are ignored and
-// silu op is done in the type of the sigmoid input.
 class SiluFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
@@ -447,18 +444,6 @@ public:
                   mlir::PatternRewriter &rewriter) const final {
     mlir::Value lhs = multiplyOp.getLhs();
     mlir::Value rhs = multiplyOp.getRhs();
-
-    // If either operand is a typecast, we want to look through it.
-    if (auto lhsTypecast = lhs.getDefiningOp<TypecastOp>()) {
-      lhs = lhsTypecast.getInput();
-    }
-    if (auto rhsTypecast = rhs.getDefiningOp<TypecastOp>()) {
-      rhs = rhsTypecast.getInput();
-    }
-
-    if (lhs.getType() != rhs.getType()) {
-      return mlir::failure();
-    }
 
     SigmoidOp sigmoidOp = nullptr;
     mlir::Value otherOperand;
@@ -479,24 +464,10 @@ public:
       return mlir::failure();
     }
 
-    // Check that the types match, accounting for possible typecasts after
-    Operation *finalOp = multiplyOp;
-    auto finalType = multiplyOp.getResult().getType();
-    for (Operation *user : multiplyOp.getResult().getUsers()) {
-      if (auto typecastOp = dyn_cast<TypecastOp>(user)) {
-        finalOp = typecastOp;
-        finalType = typecastOp.getResult().getType();
-        break;
-      }
-    }
-
-    if (sigmoidOp.getInput().getType() != finalType) {
-      return mlir::failure();
-    }
-
+    rewriter.setInsertionPoint(multiplyOp);
     // Replace multiply with silu.
-    utils::replaceOpWithNewDPSOp<SiluOp>(rewriter, finalOp, finalType,
-                                         otherOperand);
+    utils::replaceOpWithNewDPSOp<SiluOp>(
+        rewriter, multiplyOp, multiplyOp.getResult().getType(), otherOperand);
     return mlir::success();
   }
 };
