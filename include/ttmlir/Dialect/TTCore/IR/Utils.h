@@ -105,6 +105,8 @@ ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType);
 
 ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
 
+llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape);
+
 // Retrieve the layout from the shaped type (ie. getEncoding for tensors and
 // getLayout for memrefs).
 inline DeviceLayoutInterface getDeviceLayout(ShapedType shapedType) {
