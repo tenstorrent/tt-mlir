@@ -92,7 +92,7 @@ protected:
     assert(ttnnLayout.isDeviceBufferType() && "Must be a device tensor");
 
     // With these assumptions we can use the default alignment and dim
-    // collapsing behaviour in the MetalLayoutAttr
+    // collapsing behavior in the MetalLayoutAttr.
     assert(ttnnLayout.isTiled() &&
            "Row major TTNN layouts are not supported yet");
     assert(
@@ -461,7 +461,7 @@ private:
               mlir::Value yield;
 
               if constexpr (isComparisonOp) {
-                // For comparison ops, first subtract then compare with zero
+                // For comparison ops, first subtract then compare with zero.
                 mlir::Value subResult = bbBuilder.create<d2m::TileSubOp>(
                     loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
                     /*operands=*/bbArgs.take_front(numInputs));
@@ -469,7 +469,7 @@ private:
                     loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
                     /*operands=*/subResult);
               } else {
-                // For regular elementwise ops, create TileOp directly
+                // For regular elementwise ops, create TileOp directly.
                 yield = bbBuilder.create<TileOp>(
                     loc,
                     /* resultTypes */ bbArgs.take_back(numOutputs).getTypes(),
@@ -1241,4 +1241,3 @@ createTTIRToD2MPass(const TTIRToD2MOptions &options) {
 }
 
 } // namespace mlir::tt
-// ----------------------------------------------------------------------------
