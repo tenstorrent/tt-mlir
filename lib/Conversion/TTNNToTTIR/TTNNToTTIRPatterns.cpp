@@ -3,12 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTNNToTTIR/TTNNToTTIR.h"
-
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTCore/Utils/Mesh.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -24,6 +18,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 namespace {
+
 template <typename SrcOp, typename DestOp>
 class TTNNToTTIRElementwiseConversionPattern
     : public mlir::OpConversionPattern<SrcOp> {
@@ -35,13 +30,38 @@ public:
   mlir::LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    if (mlir::tt::ttnn::utils::isTTNNHoistGenericViaD2MOp(srcOp)) {
-      auto outputType = mlir::cast<mlir::RankedTensorType>(
-          this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+    auto outputType = mlir::cast<mlir::RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-      mlir::tt::ttir::utils::replaceOpWithNewDPSOp<DestOp>(
-          rewriter, srcOp, outputType, adaptor.getOperands());
-    }
+    mlir::tt::ttir::utils::replaceOpWithNewDPSOp<DestOp>(
+        rewriter, srcOp, outputType, adaptor.getOperands());
+
+    return mlir::success();
+  }
+};
+
+class TTNNMatmulToTTIRMatmulConversionPattern
+    : public mlir::OpConversionPattern<mlir::tt::ttnn::MatmulOp> {
+
+  using mlir::OpConversionPattern<
+      mlir::tt::ttnn::MatmulOp>::OpConversionPattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MatmulOp srcOp,
+                  mlir::tt::ttnn::MatmulOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+
+    auto outputType = mlir::cast<mlir::RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    mlir::tt::ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MatmulOp>(
+        rewriter, srcOp, outputType, adaptor.getA(), adaptor.getB(),
+        adaptor.getTransposeA(), adaptor.getTransposeB());
+
+    // Note that TTNN attributes that have no TTIR equivalents are simply
+    // dropped
+
     return mlir::success();
   }
 };
@@ -134,6 +154,7 @@ void populateTTNNToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                 TypeConverter &typeConverter) {
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  patterns.add<TTNNMatmulToTTIRMatmulConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

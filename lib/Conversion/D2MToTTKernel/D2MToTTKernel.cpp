@@ -197,7 +197,8 @@ static Value getOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
 }
 
 static void setInsertionPointAfterOperands(OpBuilder &rewriter,
-                                           llvm::ArrayRef<Value> operands) {
+                                           llvm::ArrayRef<Value> operands,
+                                           bool allowHoisting) {
   Operation *latestDefOp = nullptr;
   for (Value operand : operands) {
     Operation *definingOp = operand.getDefiningOp();
@@ -212,8 +213,9 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
   // Only move the insertion point if we're pushing it downward in the
   // topological order.
   auto currentInsertionPoint = rewriter.getInsertionPoint();
-  if (latestDefOp->getBlock() != currentInsertionPoint->getBlock() ||
-      currentInsertionPoint->isBeforeInBlock(latestDefOp)) {
+  if (allowHoisting ||
+      (latestDefOp->getBlock() == currentInsertionPoint->getBlock() &&
+       currentInsertionPoint->isBeforeInBlock(latestDefOp))) {
     rewriter.setInsertionPointAfter(latestDefOp);
   }
 }
@@ -399,7 +401,8 @@ public:
       auto cbA = getCB(rewriter, op.getLhs());
       auto cbB = getCB(rewriter, op.getRhs());
       auto outCB = getOutCB(rewriter, op);
-      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB});
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
+                                     /*allowHoisting*/ true);
       rewriter.create<ttkernel::BinaryOpInitCommonOp>(op->getLoc(), cbA, cbB,
                                                       outCB);
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
@@ -414,7 +417,8 @@ public:
       auto cbA = getCB(rewriter, op.getA());
       auto cbB = getCB(rewriter, op.getB());
       auto outCB = getOutCB(rewriter, op);
-      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB});
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
+                                     /*allowHoisting*/ true);
       auto transpose = i32(rewriter, op->getLoc(), 0);
       rewriter.create<ttkernel::MatmulInitOp>(op->getLoc(), cbA, cbB, outCB,
                                               transpose);
@@ -429,7 +433,8 @@ public:
       auto cbA = getCB(rewriter, op.getA());
       auto cbB = getCB(rewriter, op.getB());
       auto outCB = getCB(rewriter, op.getOutput());
-      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB});
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
+                                     /*allowHoisting*/ true);
 
       // destIndex is always 0 because we call an experimental LLK that fills up
       // the entire dest in a loop.
@@ -522,7 +527,8 @@ public:
     auto inCB = getInCB(rewriter, op);
     auto outCB = getOutCB(rewriter, op);
     rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
-    setInsertionPointAfterOperands(rewriter, {inCB, outCB});
+    setInsertionPointAfterOperands(rewriter, {inCB, outCB},
+                                   /*allowHoisting*/ true);
     rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
@@ -611,7 +617,8 @@ public:
       OpBuilder::InsertionGuard guard(rewriter);
       const auto dstIdx = getDstIdxFromResult(op.getResult());
       setInsertionPointAfterOperands(
-          rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx});
+          rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
+          /*allowHoisting*/ false);
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs(),
                               dstIdx);
     }
@@ -705,7 +712,8 @@ public:
     Value outCB = getOutCB(rewriter, op);
 
     auto insertionPoint = rewriter.getInsertionPoint();
-    setInsertionPointAfterOperands(rewriter, {inCB, outCB});
+    setInsertionPointAfterOperands(rewriter, {inCB, outCB},
+                                   /*allowHoisting*/ true);
     rewriter.create<ttkernel::TransposeInitOp>(op->getLoc(), inCB, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
