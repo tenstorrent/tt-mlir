@@ -5502,15 +5502,28 @@ static mlir::Region *getParentRegionOfType(mlir::Operation *op) {
 // GlobalAvgPool2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GlobalAvgPool2dOp::verify() {
   RankedTensorType inputType = getInput().getType();
-  if (inputType.getRank() != 4) {
-    return emitOpError("input tensor must be a 4D tensor");
+  RankedTensorType outputType = getResult().getType();
+  
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+  
+  int64_t rank = inputType.getRank();
+  if (rank < 2) {
+    return emitOpError("input tensor must have at least 2 dimensions for global average pooling over 2 spatial dimensions");
   }
+  
+  // For global average pooling, batch and channel dimensions should remain the same
+  
+  if (inputShape[0] != outputShape[0]) {
+    return emitOpError("batch dimension must remain the same between input and output");
+  }
+  
+  if (inputShape[rank - 1] != outputShape[rank - 1]) {
+    return emitOpError("channel dimension must remain the same between input and output");
+  }
+  
 
   return success();
 }
-
-//===----------------------------------------------------------------------===//
-// GlobalAvgPool2dOp folding
-//===----------------------------------------------------------------------===//
 
 } // namespace mlir::tt::ttir

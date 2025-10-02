@@ -1431,7 +1431,7 @@ private:
   PermuteOp createWrappedGlobalAvgPool(mlir::PatternRewriter &rewriter,
                                  SumOp sumOp) const {
 
-    // Input must be permuted from NCHW to NHWC for AvgPool2dOp, and then back
+    // Input must be permuted from NCHW to NHWC for GlobalAvgPool2dOp, and then back
     // to NCHW after pooling.
     std::vector<int64_t> currentLayout{0, CHANNEL_DIM, SPATIAL_HEIGHT_DIM,
                                        SPATIAL_WIDTH_DIM};
