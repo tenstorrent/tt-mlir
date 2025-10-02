@@ -1,5 +1,6 @@
 add_mlir_extension_library(TTMLIRTransforms
         ConstEvalHoist.cpp
+        EmbedCudaTargetAttributes.cpp
         ReenableLostDPS.cpp
         RemoveReturnValues.cpp
         WrapAffineFor.cpp

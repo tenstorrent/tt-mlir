@@ -153,4 +153,38 @@ def WrapSingleAffineLoops : Pass<"wrap-single-affine-loops", "::mlir::func::Func
   let dependentDialects = ["mlir::affine::AffineDialect"];
 }
 
+def EmbedCudaTargetAttributes : Pass<"embed-cuda-target-attributes", "::mlir::ModuleOp"> {
+  let summary = "Embed CUDA target attributes into module for flatbuffer translation.";
+  let description = [{
+    This pass embeds CUDA target information (chip, features, optimization level)
+    as module attributes so they can be read during flatbuffer translation instead
+    of relying on command-line options.
+
+    The pass adds these attributes to the module:
+    - cuda.chip: Target GPU architecture (e.g., "sm_80", "sm_90")
+    - cuda.features: PTX features (e.g., "+ptx70")
+    - cuda.opt_level: Optimization level (0-3)
+
+    Example:
+    ```mlir
+    module attributes {
+      cuda.chip = "sm_50",
+      cuda.features = "+ptx50",
+      cuda.opt_level = 2 : i32
+    } {
+      // module content
+    }
+    ```
+  }];
+
+  let options = [
+    Option<"chip", "chip", "std::string", /*default=*/"\"sm_50\"",
+           "Target GPU chip architecture">,
+    Option<"features", "features", "std::string", /*default=*/"\"+ptx50\"",
+           "PTX features string">,
+    Option<"opt_level", "opt-level", "int32_t", /*default=*/"2",
+           "Optimization level (0-3)">
+  ];
+}
+
 #endif
