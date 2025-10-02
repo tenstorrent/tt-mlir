@@ -176,7 +176,6 @@ TEST_P(BlockFactorAnalysisParamTest, CanPerformBlockFactorAnalysis) {
   EXPECT_EQ(config.operandBufferSettings[0].bufferShape, params.expectedBufferShape);
 }
 
-// Register test instances
 INSTANTIATE_TEST_SUITE_P(
     BlockFactorAnalysisTests, BlockFactorAnalysisParamTest,
     ::testing::Values(
