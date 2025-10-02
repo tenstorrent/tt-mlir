@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/Analysis/BlockFactorAnalysis.h"
+#include "ttmlir/Dialect/D2M/Analysis/GenericOpBufferAnalysis.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
@@ -20,7 +20,7 @@
 
 namespace mlir::tt::d2m {
 
-class BlockFactorAnalysisTest : public ::testing::Test {
+class GenericOpBufferAnalysisTest : public ::testing::Test {
 protected:
   mlir::MLIRContext context;
   mlir::OwningOpRef<mlir::ModuleOp> module;
@@ -120,10 +120,9 @@ GenericOp createGenericOp(mlir::OpBuilder &builder, mlir::MLIRContext &context,
   return genericOp;
 }
 
-using Constraints = mlir::tt::d2m::BlockFactorAnalysisConstraints;
-using Strategy = Constraints::BufferStrategy;
+using Constraints = mlir::tt::d2m::GenericOpBufferAnalysis::Constraints;
 
-TEST_F(BlockFactorAnalysisTest, CanCreateGenericOpsWithDifferentGrids) {
+TEST_F(GenericOpBufferAnalysisTest, CanCreateGenericOpsWithDifferentGrids) {
 
   auto genericOp1 = createGenericOp(builder, context, {1, 1}, {2, 4});
   EXPECT_TRUE(genericOp1);
@@ -147,64 +146,69 @@ TEST_F(BlockFactorAnalysisTest, CanCreateGenericOpsWithDifferentGrids) {
 }
 
 // Value-parameterized tests for different sharding configurations
-struct BlockFactorAnalysisTestParams {
+struct GenericOpBufferAnalysisTestParams {
   llvm::SmallVector<int64_t> grid;
   llvm::SmallVector<int64_t> dims;
   llvm::SmallVector<int64_t> expectedBufferShape;
   std::string testName;
 };
 
-class BlockFactorAnalysisParamTest : public BlockFactorAnalysisTest,
-                                     public ::testing::WithParamInterface<BlockFactorAnalysisTestParams> {};
+class GenericOpBufferAnalysisParamTest
+    : public GenericOpBufferAnalysisTest,
+      public ::testing::WithParamInterface<GenericOpBufferAnalysisTestParams> {
+};
 
-TEST_P(BlockFactorAnalysisParamTest, CanPerformBlockFactorAnalysis) {
+TEST_P(GenericOpBufferAnalysisParamTest, CanPerformGenericOpBufferAnalysis) {
   auto params = GetParam();
-  
+
   auto genericOp = createGenericOp(builder, context, params.grid, params.dims);
 
-  BlockFactorAnalysis analysis;
-  auto bufferConfigs = analysis.analyzeGenericOp(genericOp);
+  GenericOpBufferAnalysis analysis;
+  auto opconfigs = analysis.analyzeGenericOp(Constraints(), genericOp);
 
-  ASSERT_FALSE(bufferConfigs.empty());
-  const auto &config = bufferConfigs[0];
+  ASSERT_FALSE(opconfigs.empty());
+  const auto &config = opconfigs[0];
   EXPECT_EQ(config.operandBufferSettings.size(), 3u);
 
   for (const auto &setting : config.operandBufferSettings) {
     EXPECT_FALSE(setting.bufferShape.empty());
     EXPECT_GT(setting.numBuffers, 0u);
   }
-  EXPECT_EQ(config.operandBufferSettings[0].bufferShape, params.expectedBufferShape);
+  EXPECT_EQ(config.operandBufferSettings[0].bufferShape,
+            params.expectedBufferShape);
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    BlockFactorAnalysisTests, BlockFactorAnalysisParamTest,
+    GenericOpBufferAnalysisTests, GenericOpBufferAnalysisParamTest,
     ::testing::Values(
-        BlockFactorAnalysisTestParams{{1, 1}, {2, 4}, {2, 4}, "1x1Sharded"},
-        BlockFactorAnalysisTestParams{{2, 2}, {4, 8}, {2, 4}, "2x2Sharded"},
-        BlockFactorAnalysisTestParams{{1, 4}, {2, 8}, {2, 2}, "1x4Sharded"}
-    ));
+        GenericOpBufferAnalysisTestParams{{1, 1}, {2, 4}, {2, 4}, "1x1Sharded"},
+        GenericOpBufferAnalysisTestParams{{2, 2}, {4, 8}, {2, 4}, "2x2Sharded"},
+        GenericOpBufferAnalysisTestParams{
+            {1, 4}, {2, 8}, {2, 2}, "1x4Sharded"}));
 
-TEST_F(BlockFactorAnalysisTest, CanAnalyzeBufferingStrategies) {
+TEST_F(GenericOpBufferAnalysisTest, CanAnalyzeBufferingStrategies) {
 
   auto genericOp = createGenericOp(builder, context, {1, 1}, {2, 4});
 
-  BlockFactorAnalysisConstraints singleBufferConstraints{
+  Constraints singleBufferConstraints{
       Constraints::BufferStrategy::SingleBuffered};
-  mlir::tt::d2m::BlockFactorAnalysis analysisSingle(singleBufferConstraints);
-  auto bufferConfigsSingle = analysisSingle.analyzeGenericOp(genericOp);
 
-  ASSERT_FALSE(bufferConfigsSingle.empty());
-  for (const auto &setting : bufferConfigsSingle[0].operandBufferSettings) {
+  GenericOpBufferAnalysis analysis;
+  auto opconfigsSingle =
+      analysis.analyzeGenericOp(singleBufferConstraints, genericOp);
+
+  ASSERT_FALSE(opconfigsSingle.empty());
+  for (const auto &setting : opconfigsSingle[0].operandBufferSettings) {
     EXPECT_EQ(setting.numBuffers, 1u);
   }
 
   Constraints doubleBufferConstraints{
       Constraints::BufferStrategy::DoubleBuffered};
-  mlir::tt::d2m::BlockFactorAnalysis analysisDouble(doubleBufferConstraints);
-  auto bufferConfigsDouble = analysisDouble.analyzeGenericOp(genericOp);
+  auto opconfigsDouble =
+      analysis.analyzeGenericOp(doubleBufferConstraints, genericOp);
 
-  ASSERT_FALSE(bufferConfigsDouble.empty());
-  const auto &configDouble = bufferConfigsDouble[0];
+  ASSERT_FALSE(opconfigsDouble.empty());
+  const auto &configDouble = opconfigsDouble[0];
   EXPECT_EQ(configDouble.operandBufferSettings.size(), 3u);
   for (const auto &setting : configDouble.operandBufferSettings) {
     EXPECT_EQ(setting.numBuffers, 2u);
