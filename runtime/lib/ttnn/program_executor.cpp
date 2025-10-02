@@ -4,6 +4,9 @@
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
 
+#include <pybind11/embed.h>
+#include <pybind11/pybind11.h>
+
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/collective_permute.h"
@@ -80,6 +83,8 @@
 
 namespace tt::runtime::ttnn {
 
+namespace py = pybind11;
+
 using LogType = ::tt::runtime::logger::LogType;
 
 ProgramExecutor::ProgramExecutor(
@@ -112,6 +117,44 @@ ProgramExecutor::ProgramExecutor(
       programInputIds, programOutputIds, std::move(liveTensors),
       common::DylibManager(program->dylibs()), std::move(deviceHandle),
       executableHandle, programIndex);
+
+  // Import the golden Python module
+  importGoldenModule();
+}
+
+void ProgramExecutor::importGoldenModule() {
+  try {
+    // Initialize Python interpreter if not already initialized
+    if (!Py_IsInitialized()) {
+      py::initialize_interpreter();
+    }
+
+    // Import the golden module from the scripts directory
+    // Add the scripts directory to Python path
+    py::module_ sys = py::module_::import("sys");
+    py::list path = sys.attr("path");
+    path.append("/localdev/dloke/src/tt-mlir/runtime/python/scripts");
+
+    // Import the golden module
+    py::module_ golden = py::module_::import("golden");
+    LOG_DEBUG(LogType::LogRuntimeTTNN,
+              "Successfully imported golden Python module");
+
+    // Optional: Call a function from the module to verify it works
+    if (py::hasattr(golden, "hello_from_golden")) {
+      py::object result = golden.attr("hello_from_golden")();
+      LOG_DEBUG(LogType::LogRuntimeTTNN,
+                "Golden module test function returned: ",
+                py::str(result).cast<std::string>());
+    }
+
+  } catch (const py::error_already_set &e) {
+    LOG_WARNING(LogType::LogRuntimeTTNN,
+                "Failed to import golden Python module: ", e.what());
+  } catch (const std::exception &e) {
+    LOG_WARNING(LogType::LogRuntimeTTNN,
+                "Failed to import golden Python module: ", e.what());
+  }
 }
 
 void ProgramExecutor::runCallback(

@@ -70,6 +70,11 @@ private:
    * Dumps device profile counters if needed
    */
   void dumpPerfCountersIfNeeded();
+
+  /**
+   * Imports the golden Python module
+   */
+  void importGoldenModule();
 };
 
 } // namespace tt::runtime::ttnn
