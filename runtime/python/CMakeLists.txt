@@ -78,6 +78,14 @@ if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   )
 endif()
 
+# Copy Python scripts to build directory for C++ runtime to use
+add_custom_command(TARGET _ttmlir_runtime POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts
+    ${CMAKE_CURRENT_BINARY_DIR}/python/scripts
+  COMMENT "Copying Python runtime scripts to build directory"
+)
+
 # Install the Python runtime module
 install(TARGETS _ttmlir_runtime
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
