@@ -32,6 +32,7 @@
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
 #include "operations/pool/upsample/upsample.hpp"
+#include "operations/pool/global_avg_pool2d/global_avg_pool2d.hpp"
 #include "operations/rand/rand.hpp"
 #include "operations/reduction/argmax/argmax.hpp"
 #include "operations/reduction/generic/generic_reductions.hpp"
