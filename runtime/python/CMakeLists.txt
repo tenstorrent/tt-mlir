@@ -77,3 +77,16 @@ if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
       -Wno-covered-switch-default
   )
 endif()
+
+# Install the Python runtime module
+install(TARGETS _ttmlir_runtime
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  COMPONENT SharedLib
+)
+
+# Install Python runtime scripts
+install(DIRECTORY scripts/
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/ttmlir/runtime
+  COMPONENT SharedLib
+  FILES_MATCHING PATTERN "*.py"
+)
