@@ -77,7 +77,8 @@ public:
 
   uint16_t port() const { return port_; }
   std::vector<std::unique_ptr<Socket>>
-  connectToWorkers(size_t numWorkers) const;
+  connectToWorkers(size_t numWorkers,
+                   const std::chrono::milliseconds &timeout) const;
 
 private:
   std::unique_ptr<Socket> listenSocket_;
