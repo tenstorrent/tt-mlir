@@ -202,9 +202,9 @@ def test_execute_mnist_with_overrides():
         'loc("relu_3"("MNISTLinear":4294967295:6))': {
             "named_location": "relu_3",
             "attributes": [
-                {"key": "data_type", "value": "f32"},  
+                {"key": "data_type", "value": "f32"},
                 {"key": "memory_layout", "value": "tile"},
-                {"key": "buffer_type", "value": "dram"}, 
+                {"key": "buffer_type", "value": "dram"},
                 {"key": "tensor_memory_layout", "value": "interleaved"},
             ],
         }
