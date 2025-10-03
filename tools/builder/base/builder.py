@@ -305,19 +305,41 @@ class Builder:
 
     def _get_loc_of_extra_file_callee(self, id: int = 0) -> Location:
         stack = inspect.stack()
-        caller_filename = stack[1].filename
 
-        while len(stack) > 0 and stack[0].filename == caller_filename:
-            stack = stack[1:]
+        # Skip frames from builder files to find the actual caller
+        builder_files = {
+            "builder.py",
+            "ttir_builder.py",
+            "stablehlo_builder.py",
+            "d2m_builder.py",
+        }
+        caller_frame = None
 
-        if len(stack) == 0:
+        for frame in stack:
+            if not any(
+                builder_file in frame.filename for builder_file in builder_files
+            ):
+                caller_frame = frame
+                break
+
+        if caller_frame is None:
             raise RuntimeError(
                 "Top of callstack to builder funcs must be outside the caller's file"
             )
 
-        return Location.name(
-            f"{stack[0].filename}:{str(stack[0].lineno)}:id({str(id)})"
-        )
+        filename = caller_frame.filename
+        line_no = caller_frame.lineno
+        col_no = getattr(caller_frame, "colno", 0)
+
+        # Use more precise position information if available
+        if hasattr(caller_frame, "positions") and caller_frame.positions:
+            positions = caller_frame.positions
+            if positions.lineno is not None:
+                line_no = positions.lineno
+            if positions.col_offset is not None:
+                col_no = positions.col_offset
+
+        return Location.name(f"{filename}:{line_no}:{col_no}")
 
     def _get_loc_from_str(self, loc: Union[str, Location]) -> Location:
         if isinstance(loc, str):
