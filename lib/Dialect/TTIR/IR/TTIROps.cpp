@@ -2890,9 +2890,9 @@ void mlir::tt::ttir::TTNNMetalLayoutCastOp::getCanonicalizationPatterns(
   // cast, we necessarily have one of:
   //   1. metal_0->ttnn->metal_1
   //   2. ttnn_0->metal->ttnn_1
-  // The cast is purely representational and no layout conversion is performed.
+  // The cast is purely representational and no layout change is performed.
   // At op creation time it is guaranteed that the input and output are the same
-  // tensor. Therefore we can assume that:
+  // tensor in the same underlying layout. Therefore we can be sure that:
   //   metal_0 == metal_1 in 1
   //   ttnn_0 == ttnn_1 in 2
 
@@ -2919,7 +2919,6 @@ void mlir::tt::ttir::TTNNMetalLayoutCastOp::getCanonicalizationPatterns(
       return failure();
     }
 
-    // Because of the verifier, we know that
     rewriter.replaceOp(op, producerOp.getInput());
     return success();
   });

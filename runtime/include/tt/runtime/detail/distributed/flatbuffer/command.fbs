@@ -6,7 +6,7 @@ namespace tt.runtime.distributed.flatbuffer;
 
 table GetSystemDescCommand {
   device: tt.target.DeviceRef;
-  dispatch_core_type: tt.target.DispatchCoreType;
+  dispatch_core_type: tt.target.DispatchCoreType = null;
 }
 
 table MeshDeviceOptions {
@@ -21,7 +21,7 @@ table MeshDeviceOptions {
 }
 
 table OpenMeshDeviceCommand {
-  device_global_id: uint64;
+  device_global_id: uint32;
   options: MeshDeviceOptions;
 }
 
@@ -63,6 +63,11 @@ table SubmitCommand {
   device: tt.target.DeviceRef;
 }
 
+
+table GetNumShardsCommand {
+  input_global_id: uint64;
+}
+
 table ToHostCommand {
   input_global_id: uint64;
   output_global_ids: [uint64];
@@ -72,7 +77,7 @@ table ToHostCommand {
 
 table MemcpyCommand {
   src_global_id: uint64;
-  dst_global_id: uint64 = null; // If null, will send raw data to the server in the response
+  dst_global_id: uint64 = null; // If null, will send raw data to the controller in the response
   dst_data_type: tt.target.DataType = null;
 }
 
@@ -87,6 +92,7 @@ union CommandType {
   GetLayoutCommand,
   ToLayoutCommand,
   SubmitCommand,
+  GetNumShardsCommand,
   ToHostCommand,
   MemcpyCommand,
   ShutdownCommand,

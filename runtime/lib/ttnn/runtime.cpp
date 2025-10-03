@@ -503,6 +503,7 @@ Device openMeshDevice(const MeshDeviceOptions &options) {
 
   auto ttnnTraceCache =
       std::make_shared<::tt::runtime::ttnn::TraceCache>(meshDevice);
+
   auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
       std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
 
@@ -732,6 +733,12 @@ void wait(const std::vector<::tt::runtime::Tensor> &tensors,
   for (const ::tt::runtime::Tensor &tensor : tensors) {
     ::tt::runtime::ttnn::wait(tensor, cqId);
   }
+}
+
+uint32_t getNumShards(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
+  return ::ttnn::distributed::get_device_tensors(ttnnTensor).size();
 }
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
@@ -1225,6 +1232,7 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::EndTraceCaptureOp:
   case ::tt::target::ttnn::OpType::ExecuteTraceOp:
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
+  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
@@ -1567,6 +1575,12 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->sin_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->trans_mat()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {
+    tensorRefs = {
+        opContext.type_as_NLPCreateQKVHeadsDecodeOp()->input(),
+        opContext.type_as_NLPCreateQKVHeadsDecodeOp()->batch_offset()};
     break;
   }
   case ::tt::target::ttnn::OpType::DumpTensorOp: {

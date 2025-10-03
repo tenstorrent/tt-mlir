@@ -22,35 +22,28 @@ SystemDesc getCurrentSystemDesc(
 } // namespace system_desc
 
 namespace detail {
-void deallocateBuffers(Device device);
-void dumpMemoryReport(Device device);
-void readDeviceProfilerResults(Device device);
 
-/*
-This function get the memory view per device
-  {
-    "DRAM": MemoryView,
-    "L1": MemoryView,
-    "L1Small": MemoryView,
-    "Trace": MemoryView
-  }
-*/
-std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device device);
+uint32_t getNumShards(Tensor tensor);
 
 } // namespace detail
 
-std::vector<DeviceRuntime> getAvailableRuntimes();
+void setMlirHome(std::string_view mlirHome);
 
-DeviceRuntime getCurrentRuntime();
+std::vector<DeviceRuntime> getAvailableDeviceRuntimes();
+DeviceRuntime getCurrentDeviceRuntime();
+void setCurrentDeviceRuntime(const DeviceRuntime &runtime);
+void setCompatibleDeviceRuntime(const Binary &binary);
 
-void setCurrentRuntime(const DeviceRuntime &runtime);
-
-void setCompatibleRuntime(const Binary &binary);
+std::vector<HostRuntime> getAvailableHostRuntimes();
+HostRuntime getCurrentHostRuntime();
+void setCurrentHostRuntime(const HostRuntime &runtime);
 
 SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
+
+void launchDistributedRuntime(const DistributedOptions &options = {});
+void shutdownDistributedRuntime();
 
 // Creates host tensor with a view of the input data (the buffer of the tensor
 // is on the host and it was borrowed from an external buffer which is
@@ -163,6 +156,22 @@ size_t getL1SizePerCore(Device meshDevice);
 
 void releaseTrace(Device meshDevice, std::uint64_t binaryId,
                   size_t mainProgramId);
+
+void deallocateBuffers(Device device);
+void dumpMemoryReport(Device device);
+void readDeviceProfilerResults(Device device);
+
+/*
+This function gets the memory view per device
+  {
+    "DRAM": MemoryView,
+    "L1": MemoryView,
+    "L1Small": MemoryView,
+    "Trace": MemoryView
+  }
+*/
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device device);
 
 void setFabricConfig(FabricConfig config);
 

@@ -94,7 +94,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- ttrt
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }}
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4

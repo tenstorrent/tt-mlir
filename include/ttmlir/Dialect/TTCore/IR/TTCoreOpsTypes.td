@@ -396,7 +396,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     AttrParameter<"OOBVal", "Out of bounds fill value">:$oob_val,
 
     // Memory space for the tensor.
-    DefaultValuedParameter<"MemorySpace", "MemorySpace::System">:$memory_space,
+    DefaultValuedParameter<"MemorySpace",
+                            "MemorySpace::System">:$memory_space,
 
     DefaultValuedParameter<"TensorMemoryLayout", "TensorMemoryLayout::Sharded">:$memory_layout,
 

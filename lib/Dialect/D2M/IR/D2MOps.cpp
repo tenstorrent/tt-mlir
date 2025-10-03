@@ -213,103 +213,70 @@ struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
 };
 
 static ::mlir::LogicalResult
-verifyLayoutOp(mlir::Operation *op, mlir::Type inputTensorOrMemrefTy,
-               mlir::Type outputTensorOrMemrefTy, bool allowFormatChange,
-               bool allowMemorySpaceChange, bool checkMemrefRank = false,
-               bool checkMemrefGridShardForm = false,
-               bool checkMemrefShardShape = false) {
-  if (mlir::RankedTensorType inputTy =
-          mlir::dyn_cast<mlir::RankedTensorType>(inputTensorOrMemrefTy)) {
-    mlir::RankedTensorType outputTy =
-        mlir::dyn_cast<mlir::RankedTensorType>(outputTensorOrMemrefTy);
-    if (!outputTy) {
-      return op->emitOpError("Input and output types must be the same");
-    }
-
-    auto inputLayout =
-        mlir::dyn_cast_if_present<mlir::tt::ttcore::MetalLayoutAttr>(
-            inputTy.getEncoding());
-    auto outputLayout =
-        mlir::dyn_cast_if_present<mlir::tt::ttcore::MetalLayoutAttr>(
-            outputTy.getEncoding());
-
-    if (!inputLayout || !outputLayout) {
-      // If the input/output tensor does not have a layout, we can early exit.
-      return mlir::success();
-    }
-
-    const bool isFormatChange =
-        inputTy.getElementType() != outputTy.getElementType();
-    if (isFormatChange && !allowFormatChange) {
-      return op->emitOpError(
-          "Input and output tensor element types must be the same");
-    }
-
-    const bool isMemorySpaceChange =
-        inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
-    if (!allowMemorySpaceChange && isMemorySpaceChange) {
-      return op->emitOpError(
-          "Input and output layout memory spaces must be the same");
-    }
+verifyLayoutOp(mlir::Operation *op, const char *aName, const char *bName,
+               mlir::Type aType, mlir::Type bType, bool checkSameElementType,
+               bool checkSameMemorySpace, bool checkSameRank,
+               bool checkSameGridShape, bool checkSameShardShape) {
+  mlir::ShapedType a = mlir::cast<mlir::ShapedType>(aType);
+  mlir::ShapedType b = mlir::cast<mlir::ShapedType>(bType);
+  ttcore::DeviceLayoutInterface aLayout = ttcore::getDeviceLayout(a);
+  ttcore::DeviceLayoutInterface bLayout = ttcore::getDeviceLayout(b);
+  if (!aLayout || !bLayout) {
+    // If no layout present, we can early exit.
     return mlir::success();
   }
 
-  if (mlir::MemRefType inputTy =
-          mlir::dyn_cast<mlir::MemRefType>(inputTensorOrMemrefTy)) {
-    mlir::MemRefType outputTy =
-        mlir::dyn_cast<mlir::MemRefType>(outputTensorOrMemrefTy);
-    if (!outputTy) {
-      return op->emitOpError("Input and output types must be the same");
-    }
-
-    const bool isFormatChange =
-        inputTy.getElementType() != outputTy.getElementType();
-    if (!allowFormatChange && isFormatChange) {
-      return op->emitOpError(
-          "Input and output layout element types must be the same");
-    }
-
-    const bool isMemorySpaceChange =
-        inputTy.getMemorySpace() != outputTy.getMemorySpace();
-    if (!allowMemorySpaceChange && isMemorySpaceChange) {
-      return op->emitOpError(
-          "Input and output memref memory spaces must be the same");
-    }
-
-    const bool sameRank = inputTy.getRank() == outputTy.getRank();
-    if (checkMemrefRank && !sameRank) {
-      return op->emitOpError("Input and output memref ranks must be the same");
-    }
-
-    auto inputDeviceLayout =
-        mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
-            inputTy.getLayout());
-    if (checkMemrefGridShardForm && !inputDeviceLayout) {
-      return op->emitOpError(
-          "input memref must have device layout, i.e. have even rank, grid "
-          "shape followed by shard shape of equal rank, e.g. GxGxSxS");
-    }
-
-    auto outputDeviceLayout =
-        mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
-            outputTy.getLayout());
-    if (checkMemrefGridShardForm && !outputDeviceLayout) {
-      return op->emitOpError(
-          "output memref must have device layout, i.e. have even rank, grid "
-          "shape followed by shard shape of equal rank, e.g. GxGxSxS");
-    }
-
-    return mlir::success();
+  if (checkSameElementType && (a.getElementType() != b.getElementType())) {
+    return op->emitOpError()
+           << aName << " and " << bName << "'s element types must be the same ("
+           << a.getElementType() << " != " << b.getElementType() << ")";
   }
 
-  return op->emitOpError("Unsupported input type for view");
+  if (checkSameMemorySpace && mlir::isa<MemRefType>(a)) {
+    if (mlir::cast<MemRefType>(a).getMemorySpace() !=
+        mlir::cast<MemRefType>(b).getMemorySpace()) {
+      return op->emitOpError()
+             << aName << " and " << bName
+             << "'s memref memory spaces must be the same ("
+             << mlir::cast<MemRefType>(a).getMemorySpace()
+             << " != " << mlir::cast<MemRefType>(b).getMemorySpace() << ")";
+    }
+  }
+
+  if (checkSameRank && a.getRank() != b.getRank()) {
+    return op->emitOpError()
+           << aName << " and " << bName << "'s ranks must be the same ("
+           << a.getRank() << " != " << b.getRank() << ")";
+  }
+
+  if (checkSameGridShape &&
+      (aLayout.getGridShape(a) != bLayout.getGridShape(b))) {
+    return op->emitOpError()
+           << aName << " and " << bName << "'s grid shape must be the same ("
+           << aLayout.getGridShape(a) << " != " << bLayout.getGridShape(b)
+           << ")";
+  }
+
+  if (checkSameShardShape &&
+      (aLayout.getShardShape(a) != bLayout.getShardShape(b))) {
+    return op->emitOpError()
+           << aName << " and " << bName << "'s shard shape must be the same ("
+           << aLayout.getShardShape(a) << " != " << bLayout.getShardShape(b)
+           << ")";
+  }
+
+  return mlir::success();
 }
 
 // ToLayoutOp verification
 ::mlir::LogicalResult ToLayoutOp::verify() {
-  return verifyLayoutOp(*this, getInput().getType(), getOutput().getType(),
-                        /*allowFormatChange*/ true,
-                        /*allowMemorySpaceChange*/ true);
+  return verifyLayoutOp(*this, "input", "output", getInput().getType(),
+                        getOutput().getType(),
+                        /*checkSameElementType*/ false,
+                        /*checkSameMemorySpace*/ false,
+                        /*checkSameRank*/ false,
+                        /*checkSameGridShape*/ false,
+                        /*checkSameShardShape*/ false);
 }
 
 // ToLayoutOp utility methods
@@ -644,35 +611,37 @@ void d2m::StreamLayoutOp::getCanonicalizationPatterns(
 }
 
 mlir::LogicalResult StreamLayoutOp::verify() {
-  auto inputStorageVerification =
-      verifyLayoutOp(*this, getInput().getType(), getStorage().getType(),
-                     /*allowFormatChange*/ false,
-                     /*allowMemorySpaceChange*/ true,
-                     /*checkMemrefRank*/ true,
-                     /*checkMemrefGridShardForm */ true,
-                     /*checkMemrefShardShape*/ false);
+  auto inputStorageVerification = verifyLayoutOp(
+      *this, "input", "storage", getInput().getType(), getStorage().getType(),
+      /*checkSameElementType*/ true,
+      /*checkSameMemorySpace*/ false,
+      /*checkSameRank*/ true,
+      /*checkSameGridShape*/ false,
+      /*checkSameShardShape*/ false);
   if (failed(inputStorageVerification)) {
     return inputStorageVerification;
   }
 
-  auto storageResultVerification =
-      verifyLayoutOp(*this, getStorage().getType(), getResult().getType(),
-                     /*allowFormatChange*/ false,
-                     /*allowMemorySpaceChange*/ true,
-                     /*checkMemrefRank*/ true,
-                     /*checkMemrefGridShardForm */ true,
-                     /*checkMemrefShardShape*/ true);
+  auto storageResultVerification = verifyLayoutOp(
+      *this, "storage", "result", getStorage().getType(), getResult().getType(),
+      /*checkSameElementType*/ true,
+      /*checkSameMemorySpace*/ false,
+      /*checkSameRank*/ true,
+      /*checkSameGridShape*/ false,
+      /*checkSameShardShape*/ true);
   if (failed(storageResultVerification)) {
     return storageResultVerification;
   }
 
-  MemRefType inputMemrefType = mlir::dyn_cast<MemRefType>(getInput().getType());
-  MemRefType resultMemrefType =
-      mlir::dyn_cast<MemRefType>(getResult().getType());
-  if (inputMemrefType && resultMemrefType &&
-      (inputMemrefType.getMemorySpace() != resultMemrefType.getMemorySpace())) {
-    return this->emitOpError(
-        "Input and result memref memory spaces must be the same");
+  auto inputResultVerification = verifyLayoutOp(
+      *this, "input", "result", getInput().getType(), getResult().getType(),
+      /*checkSameElementType*/ true,
+      /*checkSameMemorySpace*/ true,
+      /*checkSameRank*/ true,
+      /*checkSameGridShape*/ false,
+      /*checkSameShardShape*/ false);
+  if (failed(inputResultVerification)) {
+    return inputResultVerification;
   }
 
   return success();
