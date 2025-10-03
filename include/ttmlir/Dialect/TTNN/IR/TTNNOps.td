@@ -2451,25 +2451,35 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
 ]>{
   let summary = "A global average pooling 2d operation";
   let description = [{
-    The `global_avg_pool2d` operation is <context>
-
-    <More description>
+    The `global_avg_pool2d` operation applies global average pooling over the spatial dimensions 
+    (height and width) of a 4D input tensor. In essence, it should be realised as the sum-reduce style operation
+    under the hood, for performance reasons (since we include all elements, there is no need for kernel allocation).
+    It reduces spatial dimensions to 1. 
     
     Example:
     ```mlir
-    <code>
+    %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+    %output = "ttnn.empty"(%device) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, 
+                                      memory_config = #ttnn.memory_config<#dram, <interleaved>>, 
+                                      shape = #ttnn.shape<1x1x1x32>}> : (!ttnn.device) -> tensor<1x1x1x32xbf16>
+    %result = "ttnn.global_avg_pool2d"(%input, %output) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>, 
+                                                           dtype = #ttcore.supportedDataTypes<bf16>}> 
+              : (tensor<1x128x128x32xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x1x1x32xbf16>
     ```
 
     Inputs:
-    - <input(s)>
+    - `input`: 4D tensor with shape [N, H, W, C] where N is batch size, H is height, W is width, and C is channels
+    - `output`: Pre-allocated output tensor with shape [N, 1, 1, C] to store the result
 
     Attributes:
-    - <attribute(s)>
+    - `memory_config` (optional): Memory configuration specifying where the operation should be performed
+    - `dtype` (optional): Data type for the output tensor (e.g., bf16, f32)
 
     Outputs:
-    - <output(s)>
+    - `result`: 4D tensor with shape [N, 1, 1, C] containing the global average pooled values
 
-    Note: <note>
+    Note: The operation reduces spatial dimensions (H, W) to (1, 1) by computing the average across 
+    all spatial locations for each channel independently.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
