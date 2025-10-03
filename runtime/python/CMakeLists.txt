@@ -92,9 +92,9 @@ install(TARGETS _ttmlir_runtime
   COMPONENT SharedLib
 )
 
-# Install Python runtime scripts to build directory (for embedded Python to find)
-install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/python/
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/../runtime/python
+# Install Python runtime scripts preserving directory structure (for embedded Python to find)
+install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/python
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/../runtime
   COMPONENT SharedLib
   FILES_MATCHING PATTERN "*.py"
 )
