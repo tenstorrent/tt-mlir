@@ -1075,7 +1075,7 @@ PowScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
-  const auto inputShape = getInput().getType().getShape();
+  const auto inputShape = getLhs().getType().getShape();
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -1086,7 +1086,7 @@ PowScalarOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<PowScalarOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], getExponent(), opConfig.outputLayout);
+      inputShape, inputs[0], getRhs(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1094,11 +1094,11 @@ PowScalarOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
-  const auto inputShape = getInput().getType().getShape();
+  const auto inputShape = getLhs().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<PowScalarOp>::getOpRuntime, *this, inputShape,
-      inputs[0], getExponent(), opConfig.outputLayout);
+      inputs[0], getRhs(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

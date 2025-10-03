@@ -219,6 +219,28 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
     ];
 }
 
+class TTNN_ElementwiseBinaryCompositeScalarOp<string mnemonic, list<Trait> traits = []> :
+  TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
+  let summary = "Eltwise binary composite op.";
+  let description = [{
+    Eltwise binary composite op where the first input is a tensor and the second is a scalar.
+    It applies the op independently to each element of the tensor using the scalar.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$lhs,
+                        AnyAttrOf<[F32Attr, I32Attr]>:$rhs,
+                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+  let results = (outs AnyRankedTensor:$result);
+
+  let builders =
+  [
+    OpBuilder<(ins "Type": $resultType, "Value": $lhs, "::mlir::Attribute": $rhs),
+    [{
+      build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr);
+    }]>
+  ];
+}
+
 class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
     let summary = "Eltwise ternary op.";
@@ -753,7 +775,7 @@ def TTNN_PowTensorOp : TTNN_ElementwiseBinaryCompositeOp<"pow_tensor"> {
     }];
 }
 
-def TTNN_PowScalarOp : TTNN_Op<"pow_scalar"> {
+def TTNN_PowScalarOp : TTNN_ElementwiseBinaryCompositeScalarOp<"pow_scalar"> {
   let summary = "Eltwise power OP.";
   let description = [{
     The `pow_scalar` operation performs an exponentiation of each element of an
@@ -770,12 +792,6 @@ def TTNN_PowScalarOp : TTNN_Op<"pow_scalar"> {
 
     Restriction: TTNN API supports expoenent ≥ 0 only.
   }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyAttrOf<[F32Attr, I32Attr]>:$exponent,
-                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
-
-  let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
 }

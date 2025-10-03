@@ -15,7 +15,6 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
-#include <iostream>
 #include <numeric>
 
 namespace mlir::tt::ttnn {
@@ -615,9 +614,8 @@ TEST_F(OpModelBase, PowScalarOp) {
   // Input params
   const auto exponent = builder.getF32FloatAttr(2.0f);
 
-  PowScalarOp powScalarOp =
-      builder.create<PowScalarOp>(builder.getUnknownLoc(), outputType, input,
-                                  exponent, /*memoryConfig=*/nullptr);
+  PowScalarOp powScalarOp = builder.create<PowScalarOp>(
+      builder.getUnknownLoc(), outputType, input, exponent);
   powScalarOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(powScalarOp.getOperation());
@@ -627,8 +625,10 @@ TEST_F(OpModelBase, PowScalarOp) {
   }
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
+
   EXPECT_EQ(cbSize, 8192);
   EXPECT_EQ(l1PeakSize, 2048);
+  EXPECT_EQ(totalPeakSize, 10240);
   EXPECT_EQ(outputSize, 2048);
 
   auto runtimeExp = getOpRuntime(powScalarOp.getOperation());

@@ -34,7 +34,7 @@
 #include "operations/deletion/deallocate.h"
 #include "operations/eltwise/binary/binary.h"
 #include "operations/eltwise/binary/binary_composite.h"
-#include "operations/eltwise/binary/binary_composite_params.h"
+#include "operations/eltwise/binary/binary_composite_scalar.h"
 #include "operations/eltwise/quantization/quantization.h"
 #include "operations/eltwise/ternary/where.h"
 #include "operations/eltwise/unary/unary.h"
@@ -198,9 +198,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::eltwise::binary::run(
         op->type_as_EltwiseBinaryCompositeOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeParamsOp: {
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
     return operations::eltwise::binary::run(
-        op->type_as_EltwiseBinaryCompositeParamsOp(), getContext());
+        op->type_as_EltwiseBinaryCompositeScalarOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
     return operations::eltwise::ternary::run(
