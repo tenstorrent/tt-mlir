@@ -962,6 +962,32 @@ def TTNN_UpdateCacheOp : TTNN_InplaceOp<"update_cache"> {
   let hasVerifier = 1;
 }
 
+def TTNN_PagedUpdateCacheOp : TTNN_InplaceOp<"paged_update_cache"> {
+  let summary = "Paged update cache op.";
+  let description = [{
+      Inputs:
+        - `cache`: The cache tensor to be updated. This tensor is modified in place
+        - `input`: The input tensor containing new values.
+        - `update_index`: Indices specifying where to update the cache.
+        - `share_cache`: Whether the cache tensors share memory regions. Defaults to False.
+        - `page_table`: The page table for managing memory regions during updates.
+  }];
+
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$update_index,
+                       DefaultValuedAttr<BoolAttr, "false">:$share_cache,
+                       AnyRankedTensor:$page_table);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(getContext());
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
   let summary = "Fill static cache tensor.";
   let description = [{
