@@ -31,7 +31,7 @@ private:
   }
 
   scf::ParallelOp createNewParallelOp(PatternRewriter &rewriter,
-                                      scf::ParallelOp &oldParallelOp,
+                                      scf::ParallelOp oldParallelOp,
                                       uint64_t collapsedSize) const {
     // Last dimensions are collapsed into a single dimension.
     // Because the order of the dimensions is reversed, the first dimension is
@@ -64,9 +64,8 @@ private:
     return newParallelOp;
   }
 
-  uint64_t
-  calculateProductOfRemainingDims(uint64_t startIdx, uint64_t endIdx,
-                                  SmallVector<int64_t> &dimSizes) const {
+  uint64_t calculateProductOfRemainingDims(uint64_t startIdx, uint64_t endIdx,
+                                           ArrayRef<int64_t> dimSizes) const {
     uint64_t productOfRemainingDims = 1;
     for (uint64_t i = startIdx; i < endIdx; ++i) {
       productOfRemainingDims *= dimSizes[i - startIdx];
