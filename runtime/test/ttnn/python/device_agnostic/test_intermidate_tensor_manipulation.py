@@ -55,7 +55,7 @@ def identity(binary, programContext, opContext):
 def postop(binary, programContext, opContext):
     debug_op_str = ttrt.runtime.get_op_debug_str(opContext)
 
-    if "ttnn.matmul" not in debug_op_str:
+    if "ttnn.linear" not in debug_op_str:
         return
 
     tensor_ref: ttrt.runtime.TensorRef = ttrt.runtime.get_op_output_ref(
@@ -73,7 +73,9 @@ def postop(binary, programContext, opContext):
     torch_tensor = get_torch_tensor(tensor)
 
     print(torch_tensor)
-    assert torch.allclose(torch_tensor, torch.ones_like(torch_tensor) * 10)
+    # For linear operation with all-ones inputs: input(10x10) @ weight(10x10) + bias(10)
+    # Each element will be 10 (from matmul) + 1 (from bias) = 11
+    assert torch.allclose(torch_tensor, torch.ones_like(torch_tensor) * 11)
 
     update_device_tensor(
         programContext, tensor_ref, tensor, torch.ones_like(torch_tensor)
@@ -92,7 +94,7 @@ def test_intermidate_tensor_manipulation(helper: Helper, request):
     helper.check_constraints()
 
     test_config = ProgramTestConfig(
-        name="linear", expected_num_inputs=3, compute_golden=None
+        name="linear", expected_num_inputs=4, compute_golden=None
     )
 
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)

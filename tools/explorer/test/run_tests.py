@@ -199,8 +199,8 @@ def test_execute_mnist_stablehlo():
 
 def test_execute_mnist_with_overrides():
     overrides = {
-        'loc("matmul_1"("MNISTLinear":4294967295:10))__17': {
-            "named_location": "matmul_1",
+        'loc("relu_3"("MNISTLinear":4294967295:6))': {
+            "named_location": "relu_3",
             "attributes": [
                 {"key": "data_type", "value": "f32"},
                 {"key": "memory_layout", "value": "tile"},

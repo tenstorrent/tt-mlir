@@ -12,20 +12,18 @@ module @"tt-forge-graph" attributes {} {
     // CHECK-DAG: #[[LAYOUT_11:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, (d0, d1) -> (0, d1 floordiv 8, d1 mod 8)>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, <width_sharded>>
     %0 = ttir.empty() : tensor<1x256xf32> loc(#loc8)
     // TODO(#3242): Revert to sharded layout we are able to query backend for matmul.
-    // CHECK: %{{.*}} = "ttnn.matmul"{{.*}} -> {{.*}}
     %1 = "ttir.matmul"(%arg0, %arg4, %0) : (tensor<1x784xf32>, tensor<784x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc8)
     %2 = ttir.empty() : tensor<1x256xf32> loc(#loc9)
-    // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x256xf32, #[[LAYOUT_10]]>
+    // CHECK: %{{.*}} = "ttnn.linear"{{.*}} -> tensor<1x256xf32, #[[LAYOUT_10]]>
     %3 = "ttir.add"(%1, %arg3, %2) : (tensor<1x256xf32>, tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc9)
     %4 = ttir.empty() : tensor<1x256xf32> loc(#loc10)
     // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<1x256xf32, #[[LAYOUT_10]]>
     %5 = "ttir.relu"(%3, %4) : (tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc10)
     %6 = ttir.empty() : tensor<1x10xf32> loc(#loc11)
     // TODO(#3242): Revert to sharded layout we are able to query backend for matmul.
-    // CHECK: %{{.*}} = "ttnn.matmul"{{.*}} -> {{.*}}
     %7 = "ttir.matmul"(%5, %arg2, %6) : (tensor<1x256xf32>, tensor<256x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc11)
     %8 = ttir.empty() : tensor<1x10xf32> loc(#loc12)
-    // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<1x10xf32, #[[LAYOUT_11]]>
+    // CHECK: %{{.*}} = "ttnn.linear"{{.*}} -> tensor<1x10xf32, #[[LAYOUT_11]]>
     %9 = "ttir.add"(%7, %arg1, %8) : (tensor<1x10xf32>, tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc12)
     %10 = ttir.empty() : tensor<1x10xf32> loc(#loc13)
     %11 = "ttir.softmax"(%9, %10) <{dimension = 1 : si32}> : (tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc13)
