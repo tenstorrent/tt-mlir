@@ -1362,10 +1362,18 @@ public:
     // GlobalAvgPool2d is essentially a much simpler operation than AvgPool2d andd MaxPool2d.
     // under the hood, we just perform a sum reduction across the spatial dimensions on metal
     // and we dont take stride/padding/dilation as params.
-    // That is why we don't inherit from the Pooling2dOpConversionPattern. 
+    // That is why we don't inherit from the Pooling2dOpConversionPattern.
+
+    // Extract output layout and dtype from the result type
+    auto outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    auto outputDtypeAttr =
+        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
+
     rewriter.replaceOpWithNewOp<ttnn::GlobalAvgPool2dOp>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), adaptor.getOutput());
+        adaptor.getInput(), adaptor.getOutput(),
+        /*memory_config=*/nullptr, outputDtypeAttr);
 
     return success();
   }

@@ -2474,9 +2474,18 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
 
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$output,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let builders = [
+    OpBuilder<(ins "Type":$resultType, "Value":$input, "Value":$output),
+    [{
+      build($_builder, $_state, resultType, input, output,
+            /*memory_config=*/nullptr, /*dtype=*/nullptr);
+    }]>
+  ];
 
   let hasVerifier = 1;
 }
