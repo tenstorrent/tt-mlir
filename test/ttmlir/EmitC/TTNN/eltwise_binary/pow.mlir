@@ -9,15 +9,15 @@ func.func @pow_tensor(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> t
   return %1 : tensor<64x128xf32>
 }
 
-func.func @power_scalar_float(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+func.func @pow_scalar_float(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   %0 = "ttir.constant"() <{value = dense<2.0> : tensor<64x128xf32>}> : () -> tensor<64x128xf32>
   %1 = ttir.empty() : tensor<64x128xf32>
   %2 = "ttir.pow"(%arg0, %0, %1) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %2 : tensor<64x128xf32>
 }
 
-func.func @power_scalar_integer(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-  %0 = "ttir.constant"() <{value = dense<2> : tensor<64x128xi32>}> : () -> tensor<64x128xi32>
+func.func @pow_scalar_integer(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  %0 = "ttir.constant"() <{value = dense<3> : tensor<64x128xi32>}> : () -> tensor<64x128xi32>
   %1 = ttir.empty() : tensor<64x128xf32>
   %2 = "ttir.pow"(%arg0, %0, %1) : (tensor<64x128xf32>, tensor<64x128xi32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %2 : tensor<64x128xf32>

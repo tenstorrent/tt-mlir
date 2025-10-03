@@ -329,6 +329,64 @@ public:
 };
 } // namespace
 
+// PowScalar op conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (memcfg).
+//
+namespace {
+class PowScalarOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::PowScalarOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.pow_scalar";
+  }
+
+  std::string getPrefixSwapPattern() const override { return "ttnn::pow"; }
+
+  template <typename ExponentT>
+  LogicalResult matchAndRewriteImpl(mlir::tt::ttnn::PowScalarOp srcOp,
+                                    ExponentT exponent, OpAdaptor adaptor,
+                                    ConversionPatternRewriter &rewriter) const {
+    static_assert(llvm::is_one_of<ExponentT, float, uint32_t>::value,
+                  "ExponentT must be float or uint32_t");
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PowScalarOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getLhs()),
+        emitter.template emit<ExponentT>(exponent),
+        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult())),
+    };
+
+    emitter.replaceOp(*this, args);
+    return mlir::success();
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::PowScalarOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PowScalarOp srcOp,
+                  mlir::tt::ttnn::PowScalarOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (auto exponentAttr = mlir::dyn_cast<FloatAttr>(srcOp.getRhs())) {
+      auto exponent = exponentAttr.getValue().convertToFloat();
+      return matchAndRewriteImpl(srcOp, exponent, adaptor, rewriter);
+    }
+    if (auto exponentAttr = mlir::dyn_cast<IntegerAttr>(srcOp.getRhs())) {
+      auto exponent =
+          static_cast<uint32_t>(exponentAttr.getValue().getSExtValue());
+      return matchAndRewriteImpl(srcOp, exponent, adaptor, rewriter);
+    }
+    return failure();
+  }
+};
+} // namespace
+
 // Eltwise Ternary op conversion pattern
 //
 namespace {
@@ -2258,7 +2316,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>,
                EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::PowTensorOp>,
                EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::MinimumOp>,
-               EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::MaximumOp>>(typeConverter, ctx);
+               EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::MaximumOp>,
+               PowScalarOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   patterns.add<EltwiseTernaryOpConversionPattern<ttnn::WhereOp>>(typeConverter,
