@@ -6,10 +6,8 @@ module {
   // CHECK-LABEL: @add(
 
   // CHECK-LABEL: @create_inputs_for_add
-  // CHECK: "ttnn.ones"
-  // CHECK-NEXT: %[[ARG0:.*]] = "ttnn.to_device"
-  // CHECK: "ttnn.ones"
-  // CHECK-NEXT: %[[ARG1:.*]] = "ttnn.to_device"
+  // CHECK: %[[ARG0:.*]] = "ttnn.ones"
+  // CHECK: %[[ARG1:.*]] = "ttnn.ones"
   // CHECK: %[[RES:.*]] = ttcore.tuple %[[ARG0]], %[[ARG1]]
 
   func.func @add(%arg0 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<constant>}, %arg1 : tensor<32x32xbf16> { ttcore.argument_type = #ttcore.argument_type<input> }) -> tensor<32x32xbf16> {
