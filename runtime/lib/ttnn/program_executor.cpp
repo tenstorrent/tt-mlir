@@ -138,7 +138,25 @@ void safe_python_call(const char *message) {
 
   // Add the runtime directory to Python path
   PyObject *sys_path = PySys_GetObject("path");
-  PyObject *runtime_path = PyUnicode_FromString("./runtime");
+  
+  // Get the runtime python path from environment variable or construct it from TT_MLIR_HOME
+  const char *runtime_python_path = std::getenv("TTMLIR_RUNTIME_PYTHON_PATH");
+  std::string path_to_add;
+  
+  if (runtime_python_path != nullptr) {
+    path_to_add = runtime_python_path;
+  } else {
+    // Fallback: try to construct from TT_MLIR_HOME
+    const char *tt_mlir_home = std::getenv("TT_MLIR_HOME");
+    if (tt_mlir_home != nullptr) {
+      path_to_add = std::string(tt_mlir_home) + "/build/runtime/python";
+    } else {
+      // Last resort: try relative path (for backwards compatibility)
+      path_to_add = "./runtime";
+    }
+  }
+  
+  PyObject *runtime_path = PyUnicode_FromString(path_to_add.c_str());
   PyList_Append(sys_path, runtime_path);
   Py_DECREF(runtime_path);
 
@@ -179,7 +197,25 @@ void safe_python_log_operation(const char *operation_info) {
 
   // Add the runtime directory to Python path
   PyObject *sys_path = PySys_GetObject("path");
-  PyObject *runtime_path = PyUnicode_FromString("./runtime");
+  
+  // Get the runtime python path from environment variable or construct it from TT_MLIR_HOME
+  const char *runtime_python_path = std::getenv("TTMLIR_RUNTIME_PYTHON_PATH");
+  std::string path_to_add;
+  
+  if (runtime_python_path != nullptr) {
+    path_to_add = runtime_python_path;
+  } else {
+    // Fallback: try to construct from TT_MLIR_HOME
+    const char *tt_mlir_home = std::getenv("TT_MLIR_HOME");
+    if (tt_mlir_home != nullptr) {
+      path_to_add = std::string(tt_mlir_home) + "/build/runtime/python";
+    } else {
+      // Last resort: try relative path (for backwards compatibility)
+      path_to_add = "./runtime";
+    }
+  }
+  
+  PyObject *runtime_path = PyUnicode_FromString(path_to_add.c_str());
   PyList_Append(sys_path, runtime_path);
   Py_DECREF(runtime_path);
 
