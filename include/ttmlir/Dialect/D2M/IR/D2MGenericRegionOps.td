@@ -281,6 +281,67 @@ def D2M_TileAbsOp : D2M_GenericRegionComputeUnaryDstOp<"tile_abs"> {
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileCbrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_cbrt"> {
+    let summary = "D2M Tile Cbrt Op";
+    let description = [{
+        The `tile_cbrt` operation computes the cube root of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileExpm1Op : D2M_GenericRegionComputeUnaryDstOp<"tile_expm1"> {
+    let summary = "D2M Tile Expm1 Op";
+    let description = [{
+        The `tile_expm1` operation computes exp(x) - 1 for each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileIsFiniteOp : D2M_GenericRegionComputeUnaryDstOp<"tile_is_finite"> {
+    let summary = "D2M Tile IsFinite Op";
+    let description = [{
+        The `tile_is_finite` operation checks if each element in the input tile is finite (not infinity or NaN).
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileLog1pOp : D2M_GenericRegionComputeUnaryDstOp<"tile_log1p"> {
+    let summary = "D2M Tile Log1p Op";
+    let description = [{
+        The `tile_log1p` operation computes log(1 + x) for each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileSignOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sign"> {
+    let summary = "D2M Tile Sign Op";
+    let description = [{
+        The `tile_sign` operation computes the sign of each element in the input tile.
+        Returns -1 for negative values, 0 for zero, and 1 for positive values.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileTanhOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tanh"> {
+    let summary = "D2M Tile Tanh Op";
+    let description = [{
+        The `tile_tanh` operation computes the hyperbolic tangent of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileLogicalNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_logical_not"> {
     let summary = "D2M Tile Logical Not Op";
     let description = [{
