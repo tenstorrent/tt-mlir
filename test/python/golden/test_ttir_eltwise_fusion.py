@@ -23,9 +23,27 @@ from test_utils import (
 
 pytestmark = pytest.mark.frontend("ttir")
 
-# ### ------------------------------------------------------------------------ ###
-# # Utilities
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
+# Test Manifest
+### ----------------------------------------------------------------------- ###
+
+
+### ----------------------------------------------------------------------- ###
+# Main Parameter Sets to Reduce Verbiage
+### ----------------------------------------------------------------------- ###
+
+enablePrintIR = True
+
+gridParams = [
+    "override-device-shape=1,1",
+    "override-device-shape=2,2",
+    "override-device-shape=4,4",
+    "override-device-shape=8,8",
+]
+
+### ----------------------------------------------------------------------- ###
+# Utilities
+### ----------------------------------------------------------------------- ###
 
 # Generic utility to build a repeated op chain for unary or binary ops
 def repeat_op_chain(
@@ -69,74 +87,41 @@ def repeat_op_chain(
     return result
 
 
-# # ##--##-------------------------------------------------------------------##--##
+##--##-------------------------------------------------------------------##--##
 
-# ### ------------------------------------------------------------------------ ###
-# # Key Composite Ops
-# ### ------------------------------------------------------------------------ ###
+# Generic utility to build a binary reduction tree for binary ops
+def binary_reduction_tree(
+    op: Callable[[Operand, Operand], Operand],
+    inputs: Sequence[Operand],
+    num_inputs: Optional[int] = None,
+) -> Operand:
+    """
+    Reduce `inputs` using a binary tree pattern.
 
+    Pairs adjacent operands and applies `op` to each pair, carrying forward the
+    last unpaired operand when the count is odd, and repeats until a single
+    result remains.
+    """
+    if len(inputs) < 2:
+        raise ValueError("binary op requires at least two inputs")
+    if num_inputs is not None and num_inputs != len(inputs):
+        raise ValueError("num_inputs must equal len(inputs)")
 
-def eltwise_fuse_cosh(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    shape: Shape,
-    dtype: torch.dtype,
-    unit_attrs: Optional[List[str]] = None,
-):
-    neg_x = builder.neg(in0)
+    level: List[Operand] = list(inputs)
+    while len(level) > 1:
+        next_level: List[Operand] = []
+        i = 0
+        while i + 1 < len(level):
+            next_level.append(op(level[i], level[i + 1]))
+            i += 2
+        if i < len(level):
+            next_level.append(level[i])
+        level = next_level
 
-    e_neg_x = builder.exp(neg_x)
-    e_pos_x = builder.exp(in0)
-
-    nr_term = builder.add(e_pos_x, e_neg_x)
-    ret_val = builder.multiply(nr_term, in1)
-
-    return ret_val
-
-
-# Everything should pass
-@pytest.mark.parametrize(
-    "grid",
-    [
-        "override-device-shape=1,1",
-        "override-device-shape=2,2",
-        "override-device-shape=4,4",
-        "override-device-shape=8,8",
-    ],
-)
-@pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_eltwise_fuse_cosh(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
-):
-    def eltwise_fuse_cosh_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return eltwise_fuse_cosh(in0, in1, builder, shape, dtype, unit_attrs)
-
-    options = [grid]
-    compile_ttir_to_flatbuffer(
-        eltwise_fuse_cosh_wrapper,
-        [shape] * 2,
-        [dtype] * 2,
-        target=target,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        module_dump=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=True,
-    )
+    return level[0]
 
 
-# ### ------------------------------------------------------------------------ ###
-# # Unary Op Sanity Checks
-# ### ------------------------------------------------------------------------ ###
+##--##-------------------------------------------------------------------##--##
 
 
 def unary_op_builder(op_name: str, builder: TTIRBuilder):
@@ -184,24 +169,88 @@ def unary_op_builder(op_name: str, builder: TTIRBuilder):
         return builder.lez
 
 
+##--##-------------------------------------------------------------------##--##
+
+
+def binary_op_builder(op_name: str, builder: TTIRBuilder):
+    if op_name == "add":
+        return builder.add
+    # if op_name == "div":
+    #     return builder.div
+    # if op_name == "maximum":
+    #     return builder.max
+    # if op_name == "pow":
+    #     return builder.pow
+    # if op_name == "sub":
+    #     return builder.sub
+
+
+### ----------------------------------------------------------------------- ###
+# # Test: Key Composite Ops
+### ----------------------------------------------------------------------- ###
+
+
+def cosh(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    neg_x = builder.neg(in0)
+
+    e_neg_x = builder.exp(neg_x)
+    e_pos_x = builder.exp(in0)
+
+    nr_term = builder.add(e_pos_x, e_neg_x)
+    ret_val = builder.multiply(nr_term, in1)
+
+    return ret_val
+
+
+# Everything should pass
+@pytest.mark.parametrize("grid", gridParams)
+@pytest.mark.parametrize(
+    "shape", [(128, 128)]
+)  # , (32, 64), (64, 64), (64, 128), (128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_cosh(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+):
+    options = [grid]
+
+    compile_ttir_to_flatbuffer(
+        cosh,
+        [shape] * 2,
+        [dtype] * 2,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=enablePrintIR,
+    )
+
+
+### ----------------------------------------------------------------------- ###
+# # Test: Unary Op Sanity Checks
+### ----------------------------------------------------------------------- ###
+
+
 @pytest.mark.parametrize(
     "op_name",
     [
-        "abs",  # passes 128x128, chain 1
-        "ceil",  # passes 128x128, chain 1
-        "cos",  # passes 128x128, chain 1
-        "exp",  # passes 128x128, chain 1
-        "floor",  # passes 128x128, chain 1
-        # "gelu", # fails 128x128, chain 1
-        # "log", # fails 128x128, chain 1
-        "logical_not",  # passes 128x128, chain 1
-        "negative",  # passes 128x128, chain 1
+        "abs",  # passes 128x128
+        "ceil",  # passes 128x128
+        "cos",  # passes 128x128
+        "exp",  # passes 128x128
+        "floor",  # passes 128x128
+        # "gelu", # fails 128x128
+        # "log", # fails 128x128
+        "logical_not",  # passes 128x128
+        "negative",  # passes 128x128
         # "recip",
-        # "rsqrt",  # fails 128x128, chain 1
-        # "sqrt",  # fails 128x128, chain 1
-        # "sigmoid", # fails 128x128, chain 1
-        "sin",  # passes 128x128, chain 1
-        # "tan", # fails 128x128, chain 1
+        # "rsqrt",  # fails 128x128
+        # "sqrt",  # fails 128x128
+        # "sigmoid", # fails 128x128
+        "sin",  # passes 128x128
+        # "tan", # fails 128x128
         # "eqz", # fails
         # "nez", # fails
         # "gtz", # fails
@@ -210,19 +259,11 @@ def unary_op_builder(op_name: str, builder: TTIRBuilder):
         # "lez", # fails
     ],
 )
-@pytest.mark.parametrize(
-    "grid",
-    [
-        "override-device-shape=1,1",
-        "override-device-shape=2,2",
-        "override-device-shape=4,4",
-        "override-device-shape=8,8",
-    ],
-)
+@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_sanity_check_unary_op(
+def test_eltwise_sanity_check_unary_op(
     op_name: str,
     grid: str,
     shape: Shape,
@@ -244,6 +285,7 @@ def test_sanity_check_unary_op(
         )
 
     options = [grid]
+
     compile_ttir_to_flatbuffer(
         unary_op_wrapper,
         [shape],
@@ -254,101 +296,194 @@ def test_sanity_check_unary_op(
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        # print_ir=True,
+        print_ir=enablePrintIR,
     )
 
 
-# @pytest.mark.parametrize(
-#     "grid",
-#     [
-#         # "override-device-shape=1,1",
-#         # "override-device-shape=2,2",
-#         "override-device-shape=4,4",
-#         # "override-device-shape=8,8",
-#     ],
-# )
-# @pytest.mark.parametrize("shape", [(128, 128)])
-# @pytest.mark.parametrize("dtype", [torch.bfloat16])
-# @pytest.mark.parametrize("target", ["ttmetal"])
-# def test_x(
-#     grid: str,
-#     shape: Shape,
-#     dtype: torch.dtype,
-#     target: str,
-#     request,
-# ):
-#     def unary_op_chain_wrapper(
-#         in0: Operand,
-#         builder: TTIRBuilder,
-#         unit_attrs: Optional[List[str]] = None,
-#     ):
-#         input_0 = torch.full(shape, 2).to(dtype)
-#         output_0 = torch.log(input_0).to(dtype)
+### ----------------------------------------------------------------------- ###
+# Test: Long Unary Chain
+### ----------------------------------------------------------------------- ###
 
-#         out0 = builder.log(in0)
+# unary ops are done in place, should be able to fuse
+# indefinitely
+def unary_chain(in0: Operand, builder: TTIRBuilder):
+    res_0 = builder.abs(in0)
+    res_1 = builder.sin(res_0)
+    res_2 = builder.neg(res_1)
+    res_3 = builder.exp(res_2)
 
-#         builder.set_goldens(
-#             {in0: input_0},
-#             {out0: output_0}
-#         )
+    res_4 = builder.abs(res_3)
+    res_5 = builder.cos(res_4)
+    res_6 = builder.neg(res_5)
+    res_7 = builder.exp(res_6)
 
-#         return out0
+    res_8 = builder.neg(res_7)
+    res_9 = builder.sin(res_8)
+    res_10 = builder.neg(res_9)
+    res_11 = builder.exp(res_10)
 
-#     options = [grid]
-#     compile_ttir_to_flatbuffer(
-#         unary_op_chain_wrapper,
-#         [shape],
-#         [dtype],
-#         target=target,
-#         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-#         test_base=request.node.name,
-#         module_dump=True,
-#         output_root=request.config.getoption("--path"),
-#         system_desc_path=request.config.getoption("--sys-desc"),
-#         # print_ir=True,
-#     )
+    res_12 = builder.abs(res_11)
+    res_13 = builder.cos(res_12)
+    res_14 = builder.neg(res_13)
+    res_15 = builder.exp(res_14)
 
-# ### ------------------------------------------------------------------------ ###
-# #
-# ### ------------------------------------------------------------------------ ###
+    res_16 = builder.neg(res_15)
+    res_17 = builder.sin(res_16)
+    res_18 = builder.neg(res_17)
+    res_19 = builder.exp(res_18)
 
-# def converging_unary_branches(
-#     in0: Operand,
-#     in1: Operand,
-#     builder: TTIRBuilder,
-# ):
-#     branch_0_0 = builder.abs(in0)
-#     branch_0_1 = builder.exp(branch_0_0)
-#     branch_0_2 = builder.neg(branch_0_1)
-
-#     branch_1_0 = builder.neg(in1)
-#     branch_1_1 = builder.exp(branch_1_0)
-#     branch_1_2 = builder.abs(branch_1_1)
-
-#     return builder.div(branch_0_2, branch_1_2)
-
-# @pytest.mark.parametrize("shape", [(128, 128)])
-# @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-# @pytest.mark.parametrize("target", ["ttmetal"])
-# def test_converging_unary_branches(shape: Shape, dtype: torch.dtype, target: str, request):
-#     options = ["override-device-shape=4,4"]
-#     compile_ttir_to_flatbuffer(
-#         converging_unary_branches,
-#         [shape]*2,
-#         [dtype]*2,
-#         target=target,
-#         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-#         test_base=request.node.name,
-#         module_dump=True,
-#         output_root=request.config.getoption("--path"),
-#         system_desc_path=request.config.getoption("--sys-desc"),
-#         print_ir=True,
-#     )
+    return res_19
 
 
-# ### ------------------------------------------------------------------------ ###
+@pytest.mark.parametrize("grid", gridParams)
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_unary_chain(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+):
+
+    options = [grid]
+
+    compile_ttir_to_flatbuffer(
+        unary_chain,
+        [shape],
+        [dtype],
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=enablePrintIR,
+    )
+
+
+### ----------------------------------------------------------------------- ###
+# Test: Joins and Binary Reduction Trees
+### ----------------------------------------------------------------------- ###
+
+
+def converging_unary_branches(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+):
+    branch_0_0 = builder.abs(in0)
+    branch_0_1 = builder.exp(branch_0_0)
+    branch_0_2 = builder.neg(branch_0_1)
+
+    branch_1_0 = builder.neg(in1)
+    branch_1_1 = builder.exp(branch_1_0)
+    branch_1_2 = builder.abs(branch_1_1)
+
+    return builder.div(branch_0_2, branch_1_2)
+
+
+@pytest.mark.parametrize("grid", gridParams)
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_converging_unary_branches(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+):
+
+    options = [grid]
+
+    compile_ttir_to_flatbuffer(
+        converging_unary_branches,
+        [shape] * 2,
+        [dtype] * 2,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=enablePrintIR,
+    )
+
+
+##--##-------------------------------------------------------------------##--##
+
+# TODO(mbagherbeikTT): figure out why a 4 input add fails without setting goldens
+# so we can use the helper functions and not have to manually copy paste
+# the same code for different tests. Or any way of setting goldens easily in
+# the tree and ladder buidlers
+@pytest.mark.parametrize("grid", gridParams)
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_binary_reduction_tree(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+):
+    options = [grid]
+
+    def add_tree_8_to_1(
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        in3: Operand,
+        in4: Operand,
+        in5: Operand,
+        in6: Operand,
+        in7: Operand,
+        builder: TTIRBuilder,
+    ):
+        input_0 = torch.full(shape, 1).to(dtype)
+        input_1 = torch.full(shape, 2).to(dtype)
+        input_2 = torch.full(shape, 3).to(dtype)
+        input_3 = torch.full(shape, 4).to(dtype)
+        input_4 = torch.full(shape, 5).to(dtype)
+        input_5 = torch.full(shape, 6).to(dtype)
+        input_6 = torch.full(shape, 7).to(dtype)
+        input_7 = torch.full(shape, 8).to(dtype)
+
+        add_0_0 = builder.add(in0, in1)
+        add_0_1 = builder.add(in2, in3)
+        add_1_0 = builder.add(add_0_0, add_0_1)
+
+        add_0_2 = builder.add(in4, in5)
+        add_0_3 = builder.add(in6, in7)
+        add_1_1 = builder.add(add_0_2, add_0_3)
+
+        add_2_0 = builder.add(add_1_0, add_1_1)
+
+        output_0 = torch.full(shape, 36).to(dtype)
+
+        builder.set_goldens(
+            {
+                in0: input_0,
+                in1: input_1,
+                in2: input_2,
+                in3: input_3,
+                in4: input_4,
+                in5: input_5,
+                in6: input_6,
+                in7: input_7,
+            },
+            {add_2_0: output_0},
+        )
+
+        return add_2_0
+
+    compile_ttir_to_flatbuffer(
+        add_tree_8_to_1,
+        [shape] * 8,
+        [dtype] * 8,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=enablePrintIR,
+    )
+
+
+### ----------------------------------------------------------------------- ###
 # # Elementwise SFPU Binary - Ladder Fusion Methods : max inputs
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
 
 # def eltwise_fuse_div_ladder_max_inputs(
 #     in0: Operand, in1: Operand, in2: Operand, in3: Operand,
@@ -393,9 +528,9 @@ def test_sanity_check_unary_op(
 #         print_ir=True,
 #     )
 
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
 # # Elementwise SFPU Binary - Ladder Fusion Methods : max inputs PLUS ONE MORE
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
 
 # def eltwise_fuse_div_ladder_max_inputs_plus_1(
 #     in0: Operand, in1: Operand, in2: Operand, in3: Operand,
@@ -440,44 +575,9 @@ def test_sanity_check_unary_op(
 #         print_ir=True,
 #     )
 
-# ### ------------------------------------------------------------------------ ###
-# # Elementwise SFPU Binary - Tree Fusion Methods - max pow2 inputs fusable
-# ### ------------------------------------------------------------------------ ###
-
-# # Generic utility to build a binary reduction tree for binary ops
-# def reduction_op_tree(
-#     op: Callable[[Operand, Operand], Operand],
-#     inputs: Sequence[Operand],
-#     num_inputs: Optional[int] = None,
-# ) -> Operand:
-#     """
-#     Reduce `inputs` using a binary tree pattern.
-
-#     Pairs adjacent operands and applies `op` to each pair, carrying forward the
-#     last unpaired operand when the count is odd, and repeats until a single
-#     result remains.
-#     """
-#     if len(inputs) < 2:
-#         raise ValueError("binary op requires at least two inputs")
-#     if num_inputs is not None and num_inputs != len(inputs):
-#         raise ValueError("num_inputs must equal len(inputs)")
-
-#     level: List[Operand] = list(inputs)
-#     while len(level) > 1:
-#         next_level: List[Operand] = []
-#         i = 0
-#         while i + 1 < len(level):
-#             next_level.append(op(level[i], level[i + 1]))
-#             i += 2
-#         if i < len(level):
-#             next_level.append(level[i])
-#         level = next_level
-
-#     return level[0]
-
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
 # # Elementwise SFPU Binary - Tree Fusion Methods - max inputs
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
 
 # def eltwise_fuse_div_tree_max_inputs(
 #     in0: Operand, in1: Operand, in2: Operand, in3: Operand,
@@ -521,9 +621,9 @@ def test_sanity_check_unary_op(
 #         print_ir=True,
 #     )
 
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
 # # Elementwise SFPU Binary - Tree Fusion Methods - max inputs
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
 
 # def eltwise_fuse_div_tree_max_inputs_plus_1(
 #     in0: Operand, in1: Operand, in2: Operand, in3: Operand,
@@ -646,9 +746,9 @@ def test_sanity_check_unary_op(
 #     )
 
 
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
 # #
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
 
 # def diamond_unary_op_fanout(
 #     in0: Operand,
@@ -722,65 +822,14 @@ def test_sanity_check_unary_op(
 #         print_ir=True,
 #     )
 
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
 # #
-# ### ------------------------------------------------------------------------ ###
-
-# # unary ops are done in place, should be able to fuse
-# # indefinitely
-# def eltwise_unary_chain(
-#     in0: Operand,
-#     builder: TTIRBuilder
-# ):
-#     res_0 = builder.abs(in0)
-#     res_1 = builder.sin(res_0)
-#     res_2 = builder.neg(res_1)
-#     res_3 = builder.exp(res_2)
-
-#     res_4 = builder.abs(res_3)
-#     res_5 = builder.cos(res_4)
-#     res_6 = builder.neg(res_5)
-#     res_7 = builder.exp(res_6)
-
-#     res_8 = builder.neg(res_7)
-#     res_9 = builder.sin(res_8)
-#     res_10 = builder.neg(res_9)
-#     res_11 = builder.exp(res_10)
-
-#     res_12 = builder.abs(res_11)
-#     res_13 = builder.cos(res_12)
-#     res_14 = builder.neg(res_13)
-#     res_15 = builder.exp(res_14)
-
-#     res_16 = builder.neg(res_15)
-#     res_17 = builder.sin(res_16)
-#     res_18 = builder.neg(res_17)
-#     res_19 = builder.exp(res_18)
-
-#     return res_19
-
-# @pytest.mark.parametrize("shape", [(128, 128)])
-# @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-# @pytest.mark.parametrize("target", ["ttmetal"])
-# def test_eltwise_unary_chain(shape: Shape, dtype: torch.dtype, target: str, request):
-#     options = ["override-device-shape=2,2"]
-#     compile_ttir_to_flatbuffer(
-#         eltwise_unary_chain,
-#         [shape],
-#         [dtype],
-#         target=target,
-#         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-#         test_base=request.node.name,
-#         module_dump=True,
-#         output_root=request.config.getoption("--path"),
-#         system_desc_path=request.config.getoption("--sys-desc"),
-#         print_ir=True,
-#     )
+### ----------------------------------------------------------------------- ###
 
 
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
 # #
-# ### ------------------------------------------------------------------------ ###
+### ----------------------------------------------------------------------- ###
 
 # def big_one(
 #     in0: Operand, in1: Operand, in2: Operand, in3: Operand,

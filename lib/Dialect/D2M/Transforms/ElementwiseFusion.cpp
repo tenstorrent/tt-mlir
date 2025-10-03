@@ -44,11 +44,8 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
 
   auto shape = tensorType.getShape();
   int blockSize = shape.back();
-  llvm::errs() << "N " << shape.back() << "\n";
   shape = shape.drop_back(1);
   blockSize *= shape.back();
-  llvm::errs() << "N-1 " << shape.back() << "\n";
-  llvm::errs() << "BS " << blockSize << "\n";
 
   if (blockSize > static_cast<int>(dstRegisterSizeTiles)) {
     blockSize = dstRegisterSizeTiles;
