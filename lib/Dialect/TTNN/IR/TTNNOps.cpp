@@ -3812,7 +3812,6 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
   return success();
 }
 
-
 //===----------------------------------------------------------------------===//
 // GlobalAvgPool2dOp
 //===----------------------------------------------------------------------===//
@@ -3826,6 +3825,5 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
 
   return success();
 }
-
 
 } // namespace mlir::tt::ttnn

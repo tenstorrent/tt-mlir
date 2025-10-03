@@ -1728,10 +1728,11 @@ createGlobalAvgPool2dOp(FlatbufferObjectCache &cache, GlobalAvgPool2dOp op) {
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
 
   // Get memory config from the output tensor
-  auto memoryConfig = getMemoryConfigFromTensorTypeIfNeeded(cache, op.getResult());
+  auto memoryConfig =
+      getMemoryConfigFromTensorTypeIfNeeded(cache, op.getResult());
 
   return ::tt::target::ttnn::CreateGlobalAvgPool2dOp(*cache.fbb, in, out,
-                                                      memoryConfig);
+                                                     memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>

@@ -1387,7 +1387,6 @@ private:
   static constexpr int64_t SPATIAL_WIDTH_DIM = 3;
   static constexpr int64_t CHANNEL_DIM = 1;
 
-
 public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
@@ -1490,10 +1489,10 @@ private:
   }
 
   PermuteOp createWrappedGlobalAvgPool(mlir::PatternRewriter &rewriter,
-                                 SumOp sumOp) const {
+                                       SumOp sumOp) const {
 
-    // Input must be permuted from NCHW to NHWC for GlobalAvgPool2dOp, and then back
-    // to NCHW after pooling.
+    // Input must be permuted from NCHW to NHWC for GlobalAvgPool2dOp, and then
+    // back to NCHW after pooling.
     std::vector<int64_t> currentLayout{0, CHANNEL_DIM, SPATIAL_HEIGHT_DIM,
                                        SPATIAL_WIDTH_DIM};
     std::vector<int64_t> desiredLayout{0, SPATIAL_HEIGHT_DIM, SPATIAL_WIDTH_DIM,
@@ -1503,13 +1502,12 @@ private:
     auto permuteOp = createPermuteOp(rewriter, currentLayout, desiredLayout,
                                      sumOp.getInput());
 
-
     auto outputType = createPoolingOutputType(permuteOp.getOutput().getType());
 
     auto loc = sumOp.getLoc();
     auto poolingOp = ttir::utils::createDPSOp<ttir::GlobalAvgPool2dOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_global_avg_pool"), outputType,
-        permuteOp.getResult());
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_global_avg_pool"),
+        outputType, permuteOp.getResult());
 
     // Permute output from NHWC back to NCHW
     auto inversePermuteOp = createPermuteOp(
@@ -1517,7 +1515,6 @@ private:
 
     return inversePermuteOp;
   }
-
 
   RankedTensorType createPoolingOutputType(RankedTensorType inputType) const {
     SmallVector<int64_t> poolOutputShape(inputType.getShape());

@@ -5437,7 +5437,7 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
 def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
   let summary = "A global average pooling 2d operation";
   let description = [{
-    The `global_avg_pool2d` operation applies global average pooling over the spatial dimensions 
+    The `global_avg_pool2d` operation applies global average pooling over the spatial dimensions
     (height and width) of a 4D input tensor. In essence, it should be realised as the sum-reduce style operation
     under the hood, for performance reasons (since we include all elements, there is no need for kernel allocation).
     It reduces spatial dimensions to 1.
@@ -5445,7 +5445,7 @@ def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
     This operation yields the same result as the standard avg_pool_2d operation when kernel_size == [input_height, input_width].
     However, it is much more memory efficient, as the underlying implementation doesn't need to allocate
     the kernel for pooling (since the operation boils down to a simple sum-reduce).
-    
+
     Example:
     ```mlir
     // Basic global average pooling reducing 32x32 spatial dimensions to 1x1
@@ -5454,7 +5454,7 @@ def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
     %output = ttir.empty() : tensor<1x1x1x64xbf16>
     %result = "ttir.global_avg_pool2d"(%input, %output) : (tensor<1x32x32x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x1x1x64xbf16>
     // Result: tensor<1x1x1x64xbf16> where each channel contains the average of all 32*32=1024 spatial locations
-    
+
     // Example with different input sizes
     %large_input = ... : tensor<1x128x128x32xbf16>  // Large spatial dimensions
     %large_output = ttir.empty() : tensor<1x1x1x32xbf16>
@@ -5472,8 +5472,8 @@ def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
     Outputs:
     - `result`: 4D tensor with shape [N, 1, 1, C] containing the global average pooled values
 
-    Note: The operation reduces spatial dimensions (H, W) to (1, 1) by computing the average across 
-    all spatial locations for each channel independently. This is equivalent to avg_pool2d with 
+    Note: The operation reduces spatial dimensions (H, W) to (1, 1) by computing the average across
+    all spatial locations for each channel independently. This is equivalent to avg_pool2d with
     kernel_size=[H, W], stride=[1, 1], and no padding, but implemented more efficiently.
   }];
 

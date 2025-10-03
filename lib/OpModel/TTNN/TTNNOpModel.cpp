@@ -4412,9 +4412,10 @@ llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> OpModel<GlobalAvgPool2dOp>::getOpRuntime(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    TTNNLayoutAttr outputLayout) {
+llvm::Expected<size_t>
+OpModel<GlobalAvgPool2dOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                         TTNNLayoutAttr inputLayout,
+                                         TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
