@@ -127,6 +127,28 @@ void populatePassesModule(nb::module_ &m) {
       nb::arg("module"), nb::arg("options") = "");
 
   m.def(
+      "ttnn_to_ttmetal_pipeline",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getName());
+
+        pm.addPass(tt::createConvertTTNNToTTIRPass());
+
+        const auto *pipeline =
+            mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-pipeline");
+        std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+            [](const llvm::Twine &) { return mlir::failure(); };
+        if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      nb::arg("module"), nb::arg("options") = "");
+
+  m.def(
       "stablehlo_to_ttir_pipeline",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));

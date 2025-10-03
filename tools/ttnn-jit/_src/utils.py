@@ -4,6 +4,7 @@
 
 import textwrap
 import inspect
+import importlib
 from typing import Callable
 
 
@@ -11,7 +12,10 @@ def _discover_dialect_ops(dialect, denylist=None):
     """
     Return a mapping Dict[str, Callable] of available pybounded dialect ops.
     """
-    # TODO (#5044): match ttnn.* ops instead of just python ops.
+    # Convert string dialect names to their corresponding objects
+    if isinstance(dialect, str):
+        dialect = importlib.import_module(f"ttmlir.dialects.{dialect}")
+
     denylist = set() if denylist is None else denylist
     op_map = {}
     ns = dialect.__name__.removeprefix("ttmlir.dialects.")
@@ -42,8 +46,35 @@ def _discover_dialect_ops(dialect, denylist=None):
 def _cleanup_source_code(f: Callable):
     source_code = inspect.getsource(f)
     source_code = textwrap.dedent(source_code)
-    cleaned = [
-        line for line in source_code.splitlines() if not line.strip().startswith("@")
-    ]
-    source_code = "\n".join(cleaned)
+
+    # Find the line that starts the function definition and keep from there
+    lines = source_code.splitlines()
+    def_line_idx = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("def "):
+            def_line_idx = i
+            break
+
+    if def_line_idx is None:
+        # Fallback to old behavior if we can't find def line
+        cleaned = [line for line in lines if not line.strip().startswith("@")]
+        source_code = "\n".join(cleaned)
+    else:
+        # Keep only from the def line onwards (removes all decorator lines)
+        source_code = "\n".join(lines[def_line_idx:])
+
     return source_code
+
+
+def _get_num_pos_args(func: Callable):
+    sig = inspect.signature(func)
+    num_pos_args = len(
+        [
+            p
+            for p in sig.parameters.values()
+            if p.default == inspect.Parameter.empty
+            and p.kind != inspect.Parameter.VAR_KEYWORD
+        ]
+    )
+    return num_pos_args
