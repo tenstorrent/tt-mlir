@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Set up PYTHONPATH to include the built packages
-export PYTHONPATH="$BUILD_DIR/python_packages:${{ steps.strings.outputs.install-output-dir }}/tt-metal/ttnn:${{ steps.strings.outputs.install-output-dir }}/tt-metal:$PYTHONPATH"
+export PYTHONPATH="$BUILD_DIR/python_packages:$INSTALL_DIR/tt-metal/ttnn:$INSTALL_DIR/tt-metal:$PYTHONPATH"
 mkdir -p $WORK_DIR/third_party/tt-metal
 mkdir -p $WORK_DIR/third_party/tt-metal/src
 ln -sf $INSTALL_DIR/tt-metal third_party/tt-metal/src/tt-metal

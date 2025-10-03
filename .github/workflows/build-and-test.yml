@@ -47,6 +47,9 @@ jobs:
         id: generate-test-matrix
         shell: bash
         run: |
+          cat << 'EOF' > _test_durations
+            ${{ vars.TEST_DURATIONS }}
+          EOF
           python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json 25
           echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
 
