@@ -2040,7 +2040,7 @@ private:
                                         SmallVectorImpl<Operation *> &collected,
                                         DenseSet<Operation *> &visited) const {
     if (Operation *defOp = val.getDefiningOp()) {
-      // Only consider ops after op1 in the block
+      // Only consider ops after queryLinearOp in the block
       if (defOp->getBlock() == QueryLinearOp->getBlock()) {
         if (defOp->isBeforeInBlock(QueryLinearOp)) {
           // Skip ops that appear before Query LinearOp.
@@ -2063,13 +2063,14 @@ private:
   }
 
   void hoistPreprocessingOps(llvm::SmallVector<LinearOp> linearOps) const {
-    LinearOp op0 = linearOps[0];
+    LinearOp queryLinearOp = linearOps[0];
     llvm::SmallVector<Operation *> preOpsToMove;
     llvm::DenseSet<Operation *> visited;
 
     auto collectFromOperands = [&](Operation *targetOp) {
       for (Value operand : targetOp->getOperands()) {
-        collectRecursivePreprocessingOps(operand, op0, preOpsToMove, visited);
+        collectRecursivePreprocessingOps(operand, queryLinearOp, preOpsToMove,
+                                         visited);
       }
     };
 
@@ -2081,7 +2082,7 @@ private:
     // Hoist preprocessing ops before Query LinearOp — all of which are after
     // Query LinearOp.
     for (Operation *preOp : preOpsToMove) {
-      preOp->moveBefore(op0);
+      preOp->moveBefore(queryLinearOp);
     }
   }
 
