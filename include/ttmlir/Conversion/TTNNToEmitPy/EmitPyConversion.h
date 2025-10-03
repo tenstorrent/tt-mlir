@@ -1354,6 +1354,17 @@ public:
     llvm_unreachable("Invalid operand range");
   }
 
+  mlir::Attribute emitMeshCoordinate(const mlir::ArrayRef<int64_t> &coords,
+                                     std::string attrName = "") {
+    std::string code = "ttnn.MeshCoordinate((";
+    llvm::raw_string_ostream rso(code);
+    llvm::interleaveComma(coords, rso);
+    rso << "))";
+
+    addKeywordArgument(attrName);
+    return rewriter.getAttr<emitpy::OpaqueAttr>(rso.str());
+  }
+
   // Handles the case when a source type is convertible to `mlir::Attribute` and
   // there exists a `EmitPyTypeConverter` specialization for the TTNN target
   // type of the attribute.
