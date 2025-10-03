@@ -247,12 +247,13 @@ class StableHLOBuilder(Builder):
         (*OpView*)
             A tensor with elements converted to the target type
         """
+        operand_type = operand.type
         return self._op_proxy(
             stablehlo.ConvertOp,
             [],
             unit_attrs=unit_attrs,
             skip_golden=True,
-            stablehlo_kwargs={"operand": operand},
+            stablehlo_kwargs={"operand": operand, "result": operand_type},
         )
 
     def ceil(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
