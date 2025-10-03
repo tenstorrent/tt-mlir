@@ -290,7 +290,23 @@ public:
   LogicalResult
   matchAndRewrite(memref::StoreOp op, memref::StoreOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto load = mlir::dyn_cast<memref::LoadOp>(op.getValue().getDefiningOp());
+    // Look for the load operation, potentially through an unrealized conversion
+    // cast
+    Operation *definingOp = op.getValue().getDefiningOp();
+    auto load = mlir::dyn_cast<memref::LoadOp>(definingOp);
+
+    // If not a direct load, check if it's an unrealized cast wrapping a load
+    if (!load && definingOp) {
+      if (auto unrealizedCast =
+              mlir::dyn_cast<UnrealizedConversionCastOp>(definingOp)) {
+        // Look through the unrealized cast to find the actual load
+        if (unrealizedCast.getNumOperands() == 1) {
+          load = mlir::dyn_cast_or_null<memref::LoadOp>(
+              unrealizedCast.getOperand(0).getDefiningOp());
+        }
+      }
+    }
+
     bool storeToDst = ttcore::getMemorySpace(op.getMemRef()) ==
                       ttcore::MemorySpace::RegisterDst;
 
@@ -298,6 +314,10 @@ public:
       // If we are coming from a load, then we are a copy tile. Pattern:
       //    %0 = memref.load %arg0, %c0 : memref<1x!tt.tile, l1>
       //    tt.store %0, %arg1, %c0 : memref<1x!tt.tile, dst>
+      // OR with unrealized cast:
+      //    %0 = memref.load %arg0, %c0 : memref<1x!tt.tile, l1>
+      //    %1 = unrealized_conversion_cast %0 : type1 -> type2
+      //    tt.store %1, %arg1, %c0 : memref<1x!tt.tile, dst>
       return lowerCopyTile(load, op, adaptor, rewriter);
     }
 
@@ -794,13 +814,15 @@ public:
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const final {
-    if (mlir::isa<d2m::TileTypecastOp>(op)) {
+    if (auto typecastOp = mlir::dyn_cast<d2m::TileTypecastOp>(op)) {
       rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc());
 
       auto inDtype =
-          mlir::cast<ttcore::TileType>(operands[0].getType()).getDataType();
-      auto outDtype = mlir::cast<ttcore::TileType>(op->getResult(0).getType())
-                          .getDataType();
+          mlir::cast<ttcore::TileType>(typecastOp.getInput().getType())
+              .getDataType();
+      auto outDtype =
+          mlir::cast<ttcore::TileType>(typecastOp.getResult().getType())
+              .getDataType();
       rewriter.create<ttkernel::TypecastTileOp>(
           op->getLoc(), i32(rewriter, op->getLoc(), 0), inDtype, outDtype);
     } else {

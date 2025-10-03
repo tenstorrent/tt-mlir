@@ -105,9 +105,4 @@ createConvertD2MToTTMetalPass(const d2m::ConvertD2MToTTMetalOptions &options) {
   return std::make_unique<ConvertD2MToTTMetal>(options);
 }
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToTTMetalPass(
-    const ttir::ConvertTTIRToTTMetalOptions &options) {
-  return std::make_unique<ConvertTTIRToTTMetal>(options);
-}
-
 } // namespace mlir::tt

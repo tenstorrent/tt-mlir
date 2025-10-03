@@ -17,6 +17,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
@@ -464,14 +465,37 @@ public:
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             auto dstLoad = rewriter.create<affine::AffineLoadOp>(
                 loc, dst, dstAccessMap, dstAccessIndices);
+            Value valueToStore = dstLoad.getResult();
+
+            // Insert unrealized conversion cast if destination CB type differs
+            // from dst type
+            auto cbType = mlir::cast<MemRefType>(cb.getType());
+            if (valueToStore.getType() != cbType.getElementType()) {
+              valueToStore = rewriter
+                                 .create<UnrealizedConversionCastOp>(
+                                     loc, cbType.getElementType(), valueToStore)
+                                 .getResult(0);
+            }
+
             rewriter.create<affine::AffineStoreOp>(
-                loc, dstLoad.getResult(), cb, l1AccessMap, l1AccessIndices);
+                loc, valueToStore, cb, l1AccessMap, l1AccessIndices);
           },
           // Replacement of the original store with one from dst.
           [&](PatternRewriter &rewriter, affine::AffineStoreOp op,
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
+            Value valueToStore = op.getValue();
+            // Insert unrealized conversion cast if value type differs from dst
+            // type
+            auto dstType = mlir::cast<MemRefType>(dst.getType());
+            if (valueToStore.getType() != dstType.getElementType()) {
+              valueToStore =
+                  rewriter
+                      .create<UnrealizedConversionCastOp>(
+                          op.getLoc(), dstType.getElementType(), valueToStore)
+                      .getResult(0);
+            }
             rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
-                op, op.getValue(), dst, dstAccessMap, dstAccessIndices);
+                op, valueToStore, dst, dstAccessMap, dstAccessIndices);
           });
     }
   }
@@ -628,8 +652,18 @@ public:
 
       rewriter.setInsertionPointAfter(op);
 
+      // Insert unrealized conversion cast if compute result type differs from
+      // dst type
+      Value valueToStore = op->getResult(0);
+      if (valueToStore.getType() != dstType.getElementType()) {
+        valueToStore = rewriter
+                           .create<UnrealizedConversionCastOp>(
+                               loc, dstType.getElementType(), valueToStore)
+                           .getResult(0);
+      }
+
       auto storeOp = rewriter.create<affine::AffineStoreOp>(
-          loc, op->getResult(0), dst, storeMap, storeIndices);
+          loc, valueToStore, dst, storeMap, storeIndices);
 
       auto loadedResult = rewriter.create<affine::AffineLoadOp>(
           loc, dst, storeMap, storeIndices);
