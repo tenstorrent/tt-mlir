@@ -145,9 +145,11 @@ def golden(callback_runtime_config, binary, program_context, op_context):
         op_output_tensor = op_output_tensor_map[device_id]
         rt_buffer = op_output_tensor.get_data_buffer()
         dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
-        golden_tensor_torch = golden_tensor_to_torch(op_golden_tensor).flatten()
+        golden_tensor_torch = golden_tensor_to_torch(op_golden_tensor)
 
-        output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).flatten()
+        output_tensor_torch = torch.frombuffer(rt_buffer, dtype=dtype).reshape(
+            op_output_tensor.get_shape()
+        )
         if callback_runtime_config.save_golden_tensors:
             golden_tensor_torch_name = get_sanitized_filename(
                 f"{loc}_{device_id}_golden.pt"
@@ -209,8 +211,9 @@ def golden(callback_runtime_config, binary, program_context, op_context):
             torch.mean((golden_tensor_torch.float() - output_tensor_torch.float()) ** 2)
         ).item()
         results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
-            golden_tensor_torch.float().unsqueeze(0),
-            output_tensor_torch.float().unsqueeze(0),
+            golden_tensor_torch.float().flatten(),
+            output_tensor_torch.float().flatten(),
+            dim=0,
         ).item()
 
         device_results[device_id] = results
