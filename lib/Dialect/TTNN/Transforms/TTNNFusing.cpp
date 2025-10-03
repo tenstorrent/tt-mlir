@@ -87,81 +87,82 @@ private:
       static_assert(ttmlir::utils::always_false<ActivationOp>(),
                     "Unsupported activation op");
     }
+  }
 
-    bool isFusable(Conv2dOp srcOp) const {
-      if (srcOp.getConv2dConfig() && srcOp.getConv2dConfig()->hasActivation()) {
-        return false;
-      }
-
-      // Conv2d has multiple uses so we cannot fuse.
-      if (!srcOp.getResult().hasOneUse()) {
-        return false;
-      }
-
-      // Conv2d only user is activation so we can fuse.
-      if (ttmlir::utils::allUsersOfType<ActivationOp>(srcOp)) {
-        return true;
-      }
-
-      // Since window flattening will add rehape after conv we need to check
-      // if there is reshape right after conv2d.
-      if (!ttmlir::utils::allUsersOfType<ReshapeOp>(srcOp)) {
-        return false;
-      }
-
-      ReshapeOp reshapeOp =
-          mlir::cast<ReshapeOp>(*srcOp.getResult().getUsers().begin());
-
-      // If we want to fuse activation to conv we need to make sure that reshape
-      // has only one user and that user is activation.
-      return reshapeOp.getResult().hasOneUse() &&
-             ttmlir::utils::allUsersOfType<ActivationOp>(reshapeOp);
+  bool isFusable(Conv2dOp srcOp) const {
+    if (srcOp.getConv2dConfig() && srcOp.getConv2dConfig()->hasActivation()) {
+      return false;
     }
 
-    bool isMatmul(Conv2dOp srcOp) const {
-      RankedTensorType weightType =
-          mlir::cast<RankedTensorType>(srcOp.getWeight().getType());
-      llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
+    // Conv2d has multiple uses so we cannot fuse.
+    if (!srcOp.getResult().hasOneUse()) {
+      return false;
+    }
 
-      // Check kernel size is 1x1.
-      if (weightShape[2] != 1 || weightShape[3] != 1) {
-        return false;
-      }
-
-      // Check stride is 1.
-      llvm::ArrayRef<int32_t> strideAttr = srcOp.getStride();
-      if (strideAttr.size() != 2 || strideAttr[0] != 1 || strideAttr[1] != 1) {
-        return false;
-      }
-
-      // Check padding is 0.
-      llvm::ArrayRef<int32_t> paddingAttr = srcOp.getPadding();
-      if (llvm::any_of(paddingAttr, [](int32_t v) { return v != 0; })) {
-        return false;
-      }
-
-      // only groups = 1 is supported for now
-      if (srcOp.getGroups() != 1) {
-        return false;
-      }
+    // Conv2d only user is activation so we can fuse.
+    if (ttmlir::utils::allUsersOfType<ActivationOp>(srcOp)) {
       return true;
     }
-  };
 
-  class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
-  public:
-    using impl::TTNNFusingBase<TTNNFusingPass>::TTNNFusingBase;
-
-    void runOnOperation() final {
-      RewritePatternSet patterns(&getContext());
-      patterns.add<TTNNConv2dWithActivation<ReluOp>,
-                   TTNNConv2dWithActivation<Relu6Op>,
-                   TTNNConv2dWithActivation<SiluOp>>(&getContext());
-      GreedyRewriteConfig config;
-      config.setUseTopDownTraversal(true);
-      (void)applyPatternsGreedily(getOperation(), std::move(patterns));
+    // Since window flattening will add rehape after conv we need to check
+    // if there is reshape right after conv2d.
+    if (!ttmlir::utils::allUsersOfType<ReshapeOp>(srcOp)) {
+      return false;
     }
-  };
+
+    ReshapeOp reshapeOp =
+        mlir::cast<ReshapeOp>(*srcOp.getResult().getUsers().begin());
+
+    // If we want to fuse activation to conv we need to make sure that reshape
+    // has only one user and that user is activation.
+    return reshapeOp.getResult().hasOneUse() &&
+           ttmlir::utils::allUsersOfType<ActivationOp>(reshapeOp);
+  }
+
+  bool isMatmul(Conv2dOp srcOp) const {
+    RankedTensorType weightType =
+        mlir::cast<RankedTensorType>(srcOp.getWeight().getType());
+    llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
+
+    // Check kernel size is 1x1.
+    if (weightShape[2] != 1 || weightShape[3] != 1) {
+      return false;
+    }
+
+    // Check stride is 1.
+    llvm::ArrayRef<int32_t> strideAttr = srcOp.getStride();
+    if (strideAttr.size() != 2 || strideAttr[0] != 1 || strideAttr[1] != 1) {
+      return false;
+    }
+
+    // Check padding is 0.
+    llvm::ArrayRef<int32_t> paddingAttr = srcOp.getPadding();
+    if (llvm::any_of(paddingAttr, [](int32_t v) { return v != 0; })) {
+      return false;
+    }
+
+    // only groups = 1 is supported for now
+    if (srcOp.getGroups() != 1) {
+      return false;
+    }
+    return true;
+  }
+};
+
+class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
+public:
+  using impl::TTNNFusingBase<TTNNFusingPass>::TTNNFusingBase;
+
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTNNConv2dWithActivation<ReluOp>,
+                 TTNNConv2dWithActivation<Relu6Op>,
+                 TTNNConv2dWithActivation<SiluOp>>(&getContext());
+    GreedyRewriteConfig config;
+    config.setUseTopDownTraversal(true);
+    (void)applyPatternsGreedily(getOperation(), std::move(patterns));
+  }
+};
 } // namespace
 
 } // namespace mlir::tt::ttnn
