@@ -831,4 +831,8 @@ def TTNN_TraceIdAttr : TTNN_Attr<"TraceId", "trace_id"> {
   }];
 }
 
+def TTNN_TopologyAttr : EnumAttr<TTNN_Dialect, TTNN_Topology, "topology"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD
