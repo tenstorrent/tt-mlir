@@ -11,6 +11,8 @@
 
 namespace tt::runtime::ttnn::operations::pool {
 void run(const ::tt::target::ttnn::Pool2dOp *op, ProgramContext &context);
+void run(const ::tt::target::ttnn::GlobalAvgPool2dOp *op,
+         ProgramContext &context);
 } // namespace tt::runtime::ttnn::operations::pool
 
 #endif // RUNTIME_LIB_TTNN_OPERATIONS_POOL_POOL2D_H

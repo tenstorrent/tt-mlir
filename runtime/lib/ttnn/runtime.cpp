@@ -1131,6 +1131,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_Pool2dOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
+    tensorRef = opContext.type_as_GlobalAvgPool2dOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
     tensorRef = opContext.type_as_PrepareConv2dWeightsOp()->out();
     break;
@@ -1419,6 +1423,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::Pool2dOp: {
     tensorRefs = {opContext.type_as_Pool2dOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
+    tensorRefs = {opContext.type_as_GlobalAvgPool2dOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
