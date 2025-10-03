@@ -1,2 +1,0 @@
-# Requirements for bulk_update_issues.py
-httpx>=0.24.0
