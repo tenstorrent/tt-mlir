@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/common/socket.h"
 #include "tt/runtime/detail/distributed/controller/command_factory.h"
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
@@ -18,6 +19,14 @@
 #include <future>
 
 using tt::runtime::distributed::controller::CommandFactory;
+
+static std::string mlirHomeEnv() {
+  const char *mlirHome = std::getenv("TT_MLIR_HOME");
+  if (mlirHome == nullptr) {
+    return "";
+  }
+  return std::string(mlirHome);
+}
 
 static auto runWorkerSubprocess(uint16_t port) {
   std::string command =
@@ -57,6 +66,7 @@ static void sendShutdownCommandAndValidate(
 }
 
 TEST(RuntimeWorkerTest, TestSystemDesc) {
+  ::tt::runtime::setMlirHome(mlirHomeEnv());
 
   tt::runtime::ControllerSocket controllerSocket;
 
@@ -64,8 +74,8 @@ TEST(RuntimeWorkerTest, TestSystemDesc) {
 
   auto futureResult = runWorkerSubprocess(port);
 
-  std::unique_ptr<tt::runtime::Socket> workerSocket =
-      std::move(controllerSocket.connectToWorkers(1)[0]);
+  std::unique_ptr<tt::runtime::Socket> workerSocket = std::move(
+      controllerSocket.connectToWorkers(1, std::chrono::seconds(5))[0]);
 
   flatbuffers::FlatBufferBuilder fbb;
 
@@ -102,20 +112,23 @@ TEST(RuntimeWorkerTest, TestSystemDesc) {
 }
 
 TEST(RuntimeWorkerTest, TestSubmit) {
+  ::tt::runtime::setMlirHome(mlirHomeEnv());
+
   tt::runtime::ControllerSocket controllerSocket;
 
   uint16_t port = controllerSocket.port();
 
   auto futureResult = runWorkerSubprocess(port);
 
-  std::unique_ptr<tt::runtime::Socket> workerSocket =
-      std::move(controllerSocket.connectToWorkers(1)[0]);
+  std::unique_ptr<tt::runtime::Socket> workerSocket = std::move(
+      controllerSocket.connectToWorkers(1, std::chrono::seconds(5))[0]);
 
   flatbuffers::FlatBufferBuilder fbb;
 
-  std::string binaryPath = ::tt::runtime::utils::getMlirHome() +
-                           "/build/test/ttmlir/Runtime/TTNN/n150/consteval/"
-                           "Output/binary_ops.mlir.tmp.ttnn";
+  std::string binaryPath =
+      ::tt::runtime::RuntimeContext::instance().getMlirHome() +
+      "/build/test/ttmlir/Runtime/TTNN/n150/consteval/"
+      "Output/binary_ops.mlir.tmp.ttnn";
   ::tt::runtime::Binary binary =
       ::tt::runtime::Binary::loadFromPath(binaryPath.c_str());
 
