@@ -2445,7 +2445,10 @@ def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
   let hasVerifier = 1;
 }
 
-def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d">{
+def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
+    TTNN_MemoryConfigOpInterface,
+    TTNN_DtypeOpInterface
+]>{
   let summary = "A global average pooling 2d operation";
   let description = [{
     The `global_avg_pool2d` operation is <context>
@@ -2470,7 +2473,8 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d">{
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$output);
+                       AnyRankedTensor:$output,
+                       OptionalAttr<TTCore_DataTypeAttr>:$dtype);
 
   let results = (outs AnyRankedTensor:$result);
 
