@@ -1941,7 +1941,13 @@ public:
       return mlir::failure();
     }
 
+    // Hoist preprocessing ops for key and value operands to appear before the
+    // query op. Insert the fused op immediately after the query op. This
+    // ensures all preprocessing for query, key, and value happens before the
+    // fused op, and any uses of their results remain correctly ordered after
+    // the fused op.
     hoistPreprocessingOps(linearOps);
+    rewriter.setInsertionPointAfter(linearOps.front());
 
     // Concatenate weights along dimension 1.
     // Weights are the second input (B) of linear op, shape [hidden, hidden].
@@ -1961,13 +1967,9 @@ public:
         mlir::cast<RankedTensorType>(queryWeightMatrix.getType())
             .getElementType());
 
-    // TODO: Do I need this?
-    Operation *lastWeightOp = valueWeightMatrix.getDefiningOp();
-    rewriter.setInsertionPointAfter(linearOps.front());
-
     ConcatOp concatenatedWeightMatrix =
         ttir::utils::createDPSOp<ttir::ConcatOp>(
-            rewriter, lastWeightOp->getLoc(), concatenatedWeightType,
+            rewriter, valueWeightMatrix.getLoc(), concatenatedWeightType,
             ValueRange{queryWeightMatrix, keyWeightMatrix, valueWeightMatrix},
             rewriter.getSI32IntegerAttr(1) /* axis */);
 
@@ -1976,7 +1978,6 @@ public:
     Value queryBias = linearOps[0].getBias();
     Value keyBias = linearOps[1].getBias();
     Value valueBias = linearOps[2].getBias();
-    Operation *lastBiasOp = valueBias.getDefiningOp();
 
     ArrayRef<int64_t> biasShape =
         mlir::cast<RankedTensorType>(queryBias.getType()).getShape();
@@ -1987,7 +1988,7 @@ public:
         mlir::cast<RankedTensorType>(queryBias.getType()).getElementType());
 
     ConcatOp concatenatedBias = ttir::utils::createDPSOp<ttir::ConcatOp>(
-        rewriter, lastBiasOp->getLoc(), concatenatedBiasType,
+        rewriter, valueBias.getLoc(), concatenatedBiasType,
         ValueRange{queryBias, keyBias, valueBias},
         rewriter.getSI32IntegerAttr(1) /* axis */);
 
@@ -1996,7 +1997,7 @@ public:
         {batchSize * sequenceLength, hiddenSize * 3},
         mlir::cast<RankedTensorType>(reshapeOutput.getType()).getElementType());
     LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
-        rewriter, lastBiasOp->getLoc(), linearOutputType, reshapeOutput,
+        rewriter, valueBias.getLoc(), linearOutputType, reshapeOutput,
         concatenatedWeightMatrix.getResult(), concatenatedBias.getResult(),
         /*transpose_a=*/false, /*transpose_b=*/false);
 
