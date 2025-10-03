@@ -2826,11 +2826,6 @@ public:
       results.push_back(tupleGetResult.getResult(0));
     }
 
-    llvm::SmallVector<mlir::Type, 3> resultTypes;
-    for (auto result : results) {
-      resultTypes.push_back(result.getType());
-    }
-
     rewriter.replaceOp(srcOp, results);
     return success();
   }
