@@ -238,6 +238,31 @@ struct EmitPyTypeConverter<std::string> {
   static std::string convert(std::string value) { return "\"" + value + "\""; }
 };
 
+template <>
+struct EmitPyTypeConverter<mlir::tt::ttnn::Topology> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto topologyAttr =
+            mlir::dyn_cast_if_present<mlir::tt::ttnn::TopologyAttr>(attr)) {
+      return convert(topologyAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::tt::ttnn::TopologyAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(::mlir::tt::ttnn::Topology topology) {
+    switch (topology) {
+    case ::mlir::tt::ttnn::Topology::Linear:
+      return "ttnn.Topology.Linear";
+    case ::mlir::tt::ttnn::Topology::Ring:
+      return "ttnn.Topology.Ring";
+    }
+    llvm_unreachable("Unknown ttnn.Topology");
+  }
+};
+
 // Converter for integral types.
 template <typename T>
 struct EmitPyTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {
