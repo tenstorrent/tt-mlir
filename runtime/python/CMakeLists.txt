@@ -93,8 +93,9 @@ install(TARGETS _ttmlir_runtime
 )
 
 # Install Python runtime scripts preserving directory structure (for embedded Python to find)
-install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/python
+# Need to install the nested python/python/ structure for import to work
+install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/../runtime
   COMPONENT SharedLib
-  FILES_MATCHING PATTERN "*.py"
+  FILES_MATCHING PATTERN "python/scripts/*.py"
 )
