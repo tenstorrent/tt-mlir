@@ -174,6 +174,7 @@ protected:
 // Type aliases for unary operations
 using OpModelReluParam = OpModelUnaryEltwiseParam<ReluOp>;
 using OpModelRelu6Param = OpModelUnaryEltwiseParam<Relu6Op>;
+using OpModelSiluParam = OpModelUnaryEltwiseParam<SiluOp>;
 using OpModelSqrtParam = OpModelUnaryEltwiseParam<SqrtOp>;
 using OpModelSigmoidParam = OpModelUnaryEltwiseParam<SigmoidOp>;
 using OpModelSinParam = OpModelUnaryEltwiseParam<SinOp>;
@@ -202,6 +203,7 @@ using OpModelBitwiseNotParam = OpModelUnaryEltwiseParam<BitwiseNotOp>;
 
 TEST_P(OpModelReluParam, ReluOp) { RunTest(); }
 TEST_P(OpModelRelu6Param, Relu6Op) { RunTest(); }
+TEST_P(OpModelSiluParam, SiluOp) { RunTest(); }
 TEST_P(OpModelSqrtParam, SqrtOp) { RunTest(); }
 TEST_P(OpModelSigmoidParam, SigmoidOp) { RunTest(); }
 TEST_P(OpModelSinParam, SinOp) { RunTest(); }
@@ -315,6 +317,8 @@ INSTANTIATE_TEST_SUITE_P(ReluTests, OpModelReluParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(Relu6Tests, OpModelRelu6Param,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(SiluTests, OpModelSiluParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(SqrtTests, OpModelSqrtParam,
