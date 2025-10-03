@@ -108,6 +108,7 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
       bool isCompound() { return compoundComponents().isCompound(); }
       ttcore::MetalLayoutAttr getOrCreateInputLayout();
       ttcore::MetalLayoutAttr getOrCreateOutputLayout();
+      Value getInitOperand() { return getOperand(1); }
 
       bool isHostToDevice();
       bool isDeviceToHost();
@@ -189,6 +190,7 @@ def D2M_GenericOp : D2M_Op<"generic",
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
+                     "ArrayRef<int64_t>": $targetGrid,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
@@ -196,12 +198,14 @@ def D2M_GenericOp : D2M_Op<"generic",
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
+                     "ArrayRef<int64_t>": $targetGrid,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
+                     "ArrayRef<int64_t>": $targetGrid,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,

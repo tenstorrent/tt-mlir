@@ -5,9 +5,11 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -71,7 +73,15 @@ MemRefType getBufferType(Type type, bool isView,
     layoutAttr = ttcore::ViewLayoutAttr::get(ctx, map);
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-    layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+
+    auto indexMap = layout.getIndexAffineMap();
+    if (!indexMap || indexMap.isIdentity() || indexMap.getNumResults() == 0) {
+      layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
+                                                /*buffered=*/1);
+    } else {
+      layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
+                                                /*buffered=*/1, indexMap);
+    }
   }
 
   return MemRefType::get(
@@ -488,8 +498,9 @@ ToLayoutOp::bufferize(mlir::RewriterBase &rewriter,
     MemRefType alignedHostMemref = mlir::cast<MemRefType>(
         *getBufferType(getOutput(), options, state, invocationStack));
 
-    if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
-            .isPadded()) {
+    auto host_layout =
+        mlir::dyn_cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout());
+    if (host_layout && host_layout.isPadded()) {
       rewriter.setInsertionPoint(toLayoutOp);
       auto alignedHostTensor =
           rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
@@ -788,19 +799,46 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 void d2m::GenericOp::build(mlir::OpBuilder &builder,
                            mlir::OperationState &state, ValueRange inputs,
                            ValueRange outputs, ArrayAttr indexingMaps,
-                           ArrayAttr iteratorTypes, ThreadType singleThreadType,
-                           ttcore::GridAttr grid,
+                           ArrayAttr iteratorTypes,
+                           ArrayRef<int64_t> targetGridShape,
+                           ThreadType singleThreadType, ttcore::GridAttr grid,
                            ArrayRef<int64_t> blockFactors) {
   TT_assertv(!indexingMaps.empty(), "expected non-empty indexing maps");
   TT_assertv(outputs.size() == 1u, "expected single output");
 
   if (!grid) {
-    auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
-    ttcore::DeviceLayoutInterface layout = ttcore::getDeviceLayout(shapedType);
-    TT_assertv(
-        layout,
-        "This generic constructor expects operands to be in device layout");
-    grid = builder.getAttr<ttcore::GridAttr>(layout.getGridShape(shapedType));
+    auto gridShape = d2m::utils::getGridShape(outputs[0]);
+
+    // Check if output operand has a virtual grid and IS NOT a view. If so,
+    // infer a physical grid shape and inverse map for the grid attr such that
+    // invMap(physGrid) = virtGrid
+    bool outputIsView = mlir::isa<ViewOpInterface>(outputs[0].getDefiningOp());
+    auto layout = ttcore::getDeviceLayout(
+        mlir::dyn_cast<ShapedType>(outputs[0].getType()));
+    auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(layout);
+    if (!outputIsView && metalLayout &&
+        !metalLayout.getIndexAffineMap().isEmpty()) {
+      // For now, assume virtual grid phys shape is the target grid shape.
+      // Virtual grids will not be inferred that assume anything but a full
+      // compute grid; in the future it will be necessary to *choose* a compute
+      // grid here that satisfies the following constraints:
+      //   vgrid = evalShape(gridInvMap,pgrid)
+      //   pgrid = evalShape(tensorFwdMap,vgrid)
+      auto physGridShape = llvm::to_vector(targetGridShape);
+
+      auto [_, invMap] = ttmlir::d2m::VirtualGridUtil::createCoreVirtMaps(
+          builder.getContext(), gridShape, targetGridShape);
+
+      TT_assertv(
+          ttmlir::utils::volume(ArrayRef<int64_t>(physGridShape)) ==
+              ttmlir::utils::volume(targetGridShape),
+          "target grid shape volume must match virtual grid phys shape volume");
+
+      grid =
+          builder.getAttr<ttcore::GridAttr>(gridShape, physGridShape, invMap);
+    } else {
+      grid = builder.getAttr<ttcore::GridAttr>(gridShape);
+    }
   }
 
   ArrayAttr blockFactorsAttr;
@@ -849,12 +887,13 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
 void d2m::GenericOp::build(
     mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
     ValueRange outputs, ArrayAttr indexingMaps, ArrayAttr iteratorTypes,
+    ArrayRef<int64_t> targetGridShape,
     llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
         singleThreadRegionBuilder,
     ThreadType singleThreadType, ttcore::GridAttr grid,
     ArrayRef<int64_t> blockFactors) {
   build(builder, state, inputs, outputs, indexingMaps, iteratorTypes,
-        singleThreadType, grid, blockFactors);
+        targetGridShape, singleThreadType, grid, blockFactors);
   llvm::SmallVector<Type> blockTypes =
       llvm::map_to_vector(TypeRange(state.operands), [&](Type t) -> Type {
         mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
@@ -873,7 +912,7 @@ void d2m::GenericOp::build(
 
 void d2m::GenericOp::build(
     mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
-    ValueRange outputs,
+    ValueRange outputs, ArrayRef<int64_t> targetGridShape,
     llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
         singleThreadRegionBuilder,
     ThreadType singleThreadType, ttcore::GridAttr grid,
@@ -889,7 +928,7 @@ void d2m::GenericOp::build(
   auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes(
       builder, inputs.size() + outputs.size(), rank);
   build(builder, state, inputs, outputs, indexingMaps, iteratorTypes,
-        singleThreadRegionBuilder, singleThreadType, grid);
+        targetGridShape, singleThreadRegionBuilder, singleThreadType, grid);
 }
 
 bool d2m::GenericOp::bufferizesToMemoryRead(
@@ -963,7 +1002,7 @@ static mlir::LogicalResult verifyAffineBlocking(
     const char *shapeName, mlir::ArrayRef<mlir::AffineMap> indexingMaps,
     mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes,
     mlir::ArrayRef<int64_t> blockingFactors, mlir::AffineMap opGridIndexingMap,
-    mlir::ArrayRef<int64_t> opGridShape,
+    mlir::ArrayRef<int64_t> computeGridShape,
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
   assert(indexingMaps.size() == shapes.size());
 
@@ -977,7 +1016,8 @@ static mlir::LogicalResult verifyAffineBlocking(
   // the expected operand grid shapes.
   auto inverseOpGridMap =
       inverseAndBroadcastProjectedPermutation(opGridIndexingMap);
-  mlir::SmallVector<int64_t> factors = inverseOpGridMap.compose(opGridShape);
+  mlir::SmallVector<int64_t> factors =
+      inverseOpGridMap.compose(computeGridShape);
   assert(factors.size() == blockingFactors.size());
   for (size_t i = 0; i < blockingFactors.size(); ++i) {
     if (factors[i] == 0) {
@@ -1028,10 +1068,6 @@ static mlir::LogicalResult verifyAffineBlocking(
       return emitOpError("yield terminator must have the same number of "
                          "arguments as generic results");
     }
-  }
-
-  if (!getGrid().getMapping().isEmpty()) {
-    return emitOpError("grid mapping is not supported");
   }
 
   if (getOutputs().size() != 1) {

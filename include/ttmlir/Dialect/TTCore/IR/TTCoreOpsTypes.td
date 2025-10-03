@@ -32,19 +32,26 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
     TT grid attribute
   }];
 
-  let parameters = (ins ArrayRefParameter<"int64_t">:$shape,
+  let parameters = (ins
+                        ArrayRefParameter<"int64_t">:$shape,
+                        ArrayRefParameter<"int64_t">:$physShape,
                         DefaultValuedParameter<
                           "AffineMap",
                           "$_builder.getEmptyAffineMap()">:$mapping);
-  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` $mapping^)? `>`";
+  let assemblyFormat = "`<` custom<DimensionList>($shape) `,` custom<DimensionList>($physShape) (`,` $mapping^)? `>`";
 
   let extraClassDeclaration = [{
       static GridAttr get(::mlir::MLIRContext *context) {
         return GridAttr::get(context, {1, 1});
       }
 
+      static GridAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, AffineMap map) {
+        return GridAttr::get(context, shape, shape, map);
+      }
+
       static GridAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape) {
-        return GridAttr::get(context, shape, AffineMap::get(context));
+        // note: grid shape is assumed equal to physical grid shape
+        return GridAttr::get(context, shape, shape, AffineMap::get(context));
       }
 
       static GridAttr get(::mlir::MLIRContext *context, std::int64_t rank) {
@@ -268,14 +275,17 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     a grid of cores.
   }];
   let parameters = (ins ArrayRefParameter<"int64_t">:$stride,
-                        DefaultValuedParameter<"uint32_t", "1">:$buffers);
+                        "uint32_t":$buffers,
+                        OptionalParameter<"AffineMap">:$coreVirtualizationMap
+                        );
 
-  let assemblyFormat = "`<` custom<DimensionList>($stride) (`,` $buffers^)? `>`";
+  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers (`,` $coreVirtualizationMap^)? `>`";
 
   let extraClassDeclaration = [{
     static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
     static ShardLayoutAttr get(ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
     static ShardLayoutAttr get(MemRefType memrefType, uint32_t buffers);
+    static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> strides, uint32_t buffers);
 
     bool isView() { return false; }
 

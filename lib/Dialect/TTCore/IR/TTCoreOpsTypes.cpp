@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Target/Common/Target.h"
@@ -550,7 +551,7 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
   return get(
       context,
       ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize)),
-      buffers);
+      buffers, AffineMap::get(context));
 }
 
 ShardLayoutAttr ShardLayoutAttr::get(ArrayRef<int64_t> shape, Type elementType,
@@ -567,6 +568,12 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MemRefType memrefType,
     shape = layout.getShardShape(memrefType);
   }
   return get(shape, memrefType.getElementType(), buffers);
+}
+
+ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> strides,
+                                     uint32_t buffers) {
+  return get(context, strides, buffers, AffineMap::get(context));
 }
 
 mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
@@ -1378,11 +1385,18 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
   MemorySpace memorySpace =
       mlir::cast<MemorySpaceAttr>(memrefType.getMemorySpace()).getValue();
   AffineMap affineMap = memrefType.getLayout().getAffineMap();
-  if (view) {
-    affineMap = affineMap.compose(*view);
-  }
 
-  if (mlir::isa<ShardLayoutAttr>(memrefType.getLayout())) {
+  if (auto shardLayout =
+          mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout())) {
+
+    // Core virtualization map must be composed before other maps.
+    if (auto coreVirtMap = shardLayout.getCoreVirtualizationMap();
+        !coreVirtMap.isEmpty()) {
+      affineMap = affineMap.compose(coreVirtMap);
+    }
+    if (view) {
+      affineMap = affineMap.compose(*view);
+    }
 
     switch (memorySpace) {
     case MemorySpace::DeviceL1: {
@@ -1407,6 +1421,10 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     }
     }
   } else if (mlir::isa<ttcore::InterleavedLayoutAttr>(memrefType.getLayout())) {
+
+    if (view) {
+      affineMap = affineMap.compose(*view);
+    }
 
     assert(memorySpace == MemorySpace::DeviceDRAM &&
            "interleavedLayoutAttr only supported for deviceDRAM memory space");
@@ -1435,7 +1453,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     return ttmlir::utils::replaceAffineMapSymbols(getDramMap(), symbols)
         .compose(affineMap);
   } else {
-    llvm_unreachable("Unsupported memory space");
+    llvm_unreachable("Unsupported memory layout");
   }
 }
 

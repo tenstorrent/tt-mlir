@@ -3,6 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
+#include "ttmlir/Utils.h"
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
@@ -107,6 +111,50 @@ AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
   // Invert the permutation to get a map that we can use to get the loop
   // bounds. Above example becomes: (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
   return mlir::inversePermutation(concat);
+}
+
+Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref) {
+
+  TT_assertv((mlir::isa<mlir::RankedTensorType>(tensorOrMemref.getType()) ||
+              mlir::isa<mlir::MemRefType>(tensorOrMemref.getType())),
+             "Expected a tensor or memref type");
+  auto physTensor = tensorOrMemref;
+
+  if (auto viewOp = mlir::dyn_cast<mlir::tt::d2m::ViewOpInterface>(
+          tensorOrMemref.getDefiningOp())) {
+    physTensor = viewOp.getInput();
+  } else if (auto toLayoutOp = mlir::dyn_cast<mlir::tt::d2m::ToLayoutOp>(
+                 tensorOrMemref.getDefiningOp())) {
+    return getPhysicalTensorOrMemref(toLayoutOp.getInitOperand());
+
+  } else if (auto genericOp = mlir::dyn_cast<mlir::tt::d2m::GenericOp>(
+                 tensorOrMemref.getDefiningOp())) {
+    // Assume that if the defining op is a generic op, the output is the first
+    // of the outputs.
+    physTensor = getPhysicalTensorOrMemref(genericOp.getOutputs()[0]);
+  }
+
+  return physTensor;
+}
+
+ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
+  TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
+              mlir::isa<MemRefType>(tensorOrMemref.getType())),
+             "Expected a tensor or memref type");
+
+  Attribute layout =
+      (mlir::isa<RankedTensorType>(tensorOrMemref.getType())
+           ? mlir::dyn_cast<RankedTensorType>(tensorOrMemref.getType())
+                 .getEncoding()
+           : mlir::dyn_cast<MemRefType>(tensorOrMemref.getType()).getLayout());
+
+  if (auto deviceLayout =
+          mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(layout)) {
+    return deviceLayout.getGridShape(
+        mlir::dyn_cast<ShapedType>(tensorOrMemref.getType()));
+  } else {
+    return {};
+  }
 }
 
 } // namespace mlir::tt::d2m::utils

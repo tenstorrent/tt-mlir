@@ -42,6 +42,13 @@ Type getRegionLargestDstElemType(Region &region);
 AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
                                       bool reverse);
 
+// Traces IR to find underlying physical (non-view) tensor/memref.
+Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref);
+
+// Helper function to derive grid shape from tensor OR memref using underlying
+// layout attr.
+ArrayRef<int64_t> getGridShape(Value tensorOrMemref);
+
 } // namespace mlir::tt::d2m::utils
 
 #endif
