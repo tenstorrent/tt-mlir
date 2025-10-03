@@ -528,26 +528,6 @@ private:
 
   std::string getPrefixSwapPattern() const override { return "ttnn::pow"; }
 
-  template <typename ExponentT>
-  LogicalResult matchAndRewriteImpl(mlir::tt::ttnn::PowScalarOp srcOp,
-                                    ExponentT exponent, OpAdaptor adaptor,
-                                    ConversionPatternRewriter &rewriter) const {
-    static_assert(llvm::is_one_of<ExponentT, float, uint32_t>::value,
-                  "ExponentT must be float or uint32_t");
-
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PowScalarOp> emitter(
-        srcOp, adaptor, rewriter);
-
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getLhs()),
-        emitter.emit(exponent),
-        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-    };
-
-    emitter.replaceOp(*this, args);
-    return mlir::success();
-  }
-
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::PowScalarOp>::TTNNToEmitCBaseOpConversionPattern;
@@ -556,16 +536,31 @@ public:
   matchAndRewrite(mlir::tt::ttnn::PowScalarOp srcOp,
                   mlir::tt::ttnn::PowScalarOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (auto exponentAttr = mlir::dyn_cast<FloatAttr>(srcOp.getRhs())) {
-      auto exponent = exponentAttr.getValue().convertToFloat();
-      return matchAndRewriteImpl(srcOp, exponent, adaptor, rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PowScalarOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    mlir::Attribute exponentAttr;
+    if (auto attr = mlir::dyn_cast<FloatAttr>(srcOp.getRhs())) {
+      auto exponent = attr.getValue().convertToFloat();
+      exponentAttr = emitter.template emit<float>(exponent);
+    } else if (auto attr = mlir::dyn_cast<IntegerAttr>(srcOp.getRhs())) {
+      auto exponent = static_cast<uint32_t>(attr.getValue().getSExtValue());
+      // An explicit cast to uint32_t is required here to avoid ambiguous
+      // function overload resolution during C++ code generation.
+      std::string exponentStr = "uint32_t(" + std::to_string(exponent) + ")";
+      exponentAttr = emitc::OpaqueAttr::get(rewriter.getContext(), exponentStr);
+    } else {
+      return failure();
     }
-    if (auto exponentAttr = mlir::dyn_cast<IntegerAttr>(srcOp.getRhs())) {
-      auto exponent =
-          static_cast<uint32_t>(exponentAttr.getValue().getSExtValue());
-      return matchAndRewriteImpl(srcOp, exponent, adaptor, rewriter);
-    }
-    return failure();
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getLhs()),
+        exponentAttr,
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return mlir::success();
   }
 };
 } // namespace
