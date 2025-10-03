@@ -482,6 +482,50 @@ def test_eltwise_fuse_binary_reduction_tree(
 
 
 ### ----------------------------------------------------------------------- ###
+# # Diamond Fork and Join Patterns
+### ----------------------------------------------------------------------- ###
+
+
+def diamond_unary_op_fanout(
+    in0: Operand,
+    builder: TTIRBuilder,
+):
+    abs_0 = builder.abs(in0)
+
+    ceil_0 = builder.ceil(abs_0)
+    neg_0 = builder.neg(ceil_0)
+
+    floor_0 = builder.floor(abs_0)
+    neg_1 = builder.neg(floor_0)
+
+    return builder.add(neg_0, neg_1)
+
+
+@pytest.mark.parametrize("grid", gridParams)
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_diamond_unary_op_fanout(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+):
+
+    options = [grid]
+
+    compile_ttir_to_flatbuffer(
+        diamond_unary_op_fanout,
+        [shape],
+        [dtype],
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=enablePrintIR,
+    )
+
+
+### ----------------------------------------------------------------------- ###
 # # Elementwise SFPU Binary - Ladder Fusion Methods : max inputs
 ### ----------------------------------------------------------------------- ###
 
@@ -749,38 +793,6 @@ def test_eltwise_fuse_binary_reduction_tree(
 ### ----------------------------------------------------------------------- ###
 # #
 ### ----------------------------------------------------------------------- ###
-
-# def diamond_unary_op_fanout(
-#     in0: Operand,
-#     builder: TTIRBuilder,
-# ):
-#     exp_0 = builder.exp(in0)
-
-#     abs_0 = builder.abs(exp_0)
-#     sin_0 = builder.sin(abs_0)
-
-#     neg_1 = builder.neg(exp_0)
-#     cos_1 = builder.cos(neg_1)
-
-#     return builder.div(sin_0, cos_1)
-
-# @pytest.mark.parametrize("shape", [(128, 128)])
-# @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-# @pytest.mark.parametrize("target", ["ttmetal"])
-# def test_diamond_unary_op_fanout(shape: Shape, dtype: torch.dtype, target: str, request):
-#     options = []
-#     compile_ttir_to_flatbuffer(
-#         diamond_unary_op_fanout,
-#         [shape],
-#         [dtype],
-#         target=target,
-#         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-#         test_base=request.node.name,
-#         module_dump=True,
-#         output_root=request.config.getoption("--path"),
-#         system_desc_path=request.config.getoption("--sys-desc"),
-#         print_ir=True,
-#     )
 
 # def diamond_binary_op_fanout(
 #     in0: Operand,
