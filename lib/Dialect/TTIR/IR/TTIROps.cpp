@@ -4518,6 +4518,151 @@ mlir::tt::ttir::CollectiveBroadcastOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// SplitQueryKeyValueAndSplitHeadsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult
+mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
+
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  // Input tensor must be 3D tensor
+  if (inputType.getRank() != 3) {
+    return emitOpError() << "expected rank of input tensor is 3, got rank "
+                         << inputType.getRank();
+  }
+
+  ::mlir::RankedTensorType queryOutputType = getQueryOutput().getType();
+  ::mlir::RankedTensorType keyOutputType = getKeyOutput().getType();
+  ::mlir::RankedTensorType valueOutputType = getValueOutput().getType();
+  // Output tensors must be 4D tensors
+  if (queryOutputType.getRank() != 4 || keyOutputType.getRank() != 4 ||
+      valueOutputType.getRank() != 4) {
+    return emitOpError() << "expected rank of query/key/value output tensor is "
+                            "4, got query rank: "
+                         << queryOutputType.getRank()
+                         << ", key rank: " << keyOutputType.getRank()
+                         << ", value rank: " << valueOutputType.getRank();
+  }
+  enum InputDimensions {
+    BATCH_SIZE = 0,
+    SEQUENCE_LENGTH = 1,
+    HIDDEN_DIMENSION_X_3 = 2,
+  };
+
+  // Query - result 0
+  enum QueryDimensions {
+    Q_BATCH_SIZE = 0,
+    Q_NUM_KV_HEADS = 1,
+    Q_SEQUENCE_LENGTH = 2,
+    Q_HEAD_SIZE = 3,
+  };
+  // Key - result 1
+  enum KeyDimensions {
+    K_BATCH_SIZE = 0,
+    K_NUM_KV_HEADS = 1,
+    K_HEAD_SIZE = 2,
+    K_SEQUENCE_LENGTH = 3,
+  };
+  // Value - result 2
+  enum ValueDimensions {
+    V_BATCH_SIZE = 0,
+    V_NUM_KV_HEADS = 1,
+    V_SEQUENCE_LENGTH = 2,
+    V_HEAD_SIZE = 3,
+  };
+
+  // Check equal batch size:
+  if (inputType.getShape()[InputDimensions::BATCH_SIZE] !=
+          queryOutputType.getShape()[QueryDimensions::Q_BATCH_SIZE] ||
+      inputType.getShape()[InputDimensions::BATCH_SIZE] !=
+          keyOutputType.getShape()[KeyDimensions::K_BATCH_SIZE] ||
+      inputType.getShape()[InputDimensions::BATCH_SIZE] !=
+          valueOutputType.getShape()[ValueDimensions::V_BATCH_SIZE]) {
+    return emitOpError()
+           << "expected query output batch dimension to be "
+           << inputType.getShape()[InputDimensions::BATCH_SIZE]
+           << ", got query batch size: "
+           << queryOutputType.getShape()[QueryDimensions::Q_BATCH_SIZE]
+           << ", key batch size: "
+           << keyOutputType.getShape()[KeyDimensions::K_BATCH_SIZE]
+           << ", value batch size: "
+           << valueOutputType.getShape()[ValueDimensions::V_BATCH_SIZE];
+  }
+
+  // Check equal sequence length:
+  if (inputType.getShape()[InputDimensions::SEQUENCE_LENGTH] !=
+          queryOutputType.getShape()[QueryDimensions::Q_SEQUENCE_LENGTH] ||
+      inputType.getShape()[InputDimensions::SEQUENCE_LENGTH] !=
+          keyOutputType.getShape()[KeyDimensions::K_SEQUENCE_LENGTH] ||
+      inputType.getShape()[InputDimensions::SEQUENCE_LENGTH] !=
+          valueOutputType.getShape()[ValueDimensions::V_SEQUENCE_LENGTH]) {
+    return emitOpError()
+           << "expected query output sequence dimension to be "
+           << inputType.getShape()[InputDimensions::SEQUENCE_LENGTH]
+           << ", got query sequence size: "
+           << queryOutputType.getShape()[QueryDimensions::Q_SEQUENCE_LENGTH]
+           << ", key sequence size: "
+           << keyOutputType.getShape()[KeyDimensions::K_SEQUENCE_LENGTH]
+           << ", value sequence size: "
+           << valueOutputType.getShape()[ValueDimensions::V_SEQUENCE_LENGTH];
+  }
+
+  // Check num_kv_heads:
+  if (queryOutputType.getShape()[QueryDimensions::Q_NUM_KV_HEADS] !=
+          keyOutputType.getShape()[KeyDimensions::K_NUM_KV_HEADS] ||
+      queryOutputType.getShape()[QueryDimensions::Q_NUM_KV_HEADS] !=
+          valueOutputType.getShape()[ValueDimensions::V_NUM_KV_HEADS]) {
+    return emitOpError()
+           << "expected num_kv_heads to be the same for query, key and value, "
+              "got query num_kv_heads: "
+           << queryOutputType.getShape()[QueryDimensions::Q_NUM_KV_HEADS]
+           << ", key num_kv_heads: "
+           << keyOutputType.getShape()[KeyDimensions::K_NUM_KV_HEADS]
+           << ", value num_kv_heads: "
+           << valueOutputType.getShape()[ValueDimensions::V_NUM_KV_HEADS];
+  }
+
+  // Check num_heads == num_kv_heads:
+  if (getNumHeads() !=
+      queryOutputType.getShape()[QueryDimensions::Q_NUM_KV_HEADS]) {
+    return emitOpError()
+           << "expected num_heads attribute to be equal to num_kv_heads = "
+           << queryOutputType.getShape()[QueryDimensions::Q_NUM_KV_HEADS]
+           << ", got num_heads = " << getNumHeads();
+  }
+
+  // Check head_size:
+  if (queryOutputType.getShape()[QueryDimensions::Q_HEAD_SIZE] !=
+          keyOutputType.getShape()[KeyDimensions::K_HEAD_SIZE] ||
+      queryOutputType.getShape()[QueryDimensions::Q_HEAD_SIZE] !=
+          valueOutputType.getShape()[ValueDimensions::V_HEAD_SIZE]) {
+    return emitOpError()
+           << "expected head_size to be the same for query, key and value, got "
+              "query head_size: "
+           << queryOutputType.getShape()[QueryDimensions::Q_HEAD_SIZE]
+           << ", key head_size: "
+           << keyOutputType.getShape()[KeyDimensions::K_HEAD_SIZE]
+           << ", value head_size: "
+           << valueOutputType.getShape()[ValueDimensions::V_HEAD_SIZE];
+  }
+
+  // Check hidden dimension:
+  if (inputType.getShape()[InputDimensions::HIDDEN_DIMENSION_X_3] !=
+      3 * queryOutputType.getShape()[QueryDimensions::Q_NUM_KV_HEADS] *
+          queryOutputType.getShape()[QueryDimensions::Q_HEAD_SIZE]) {
+    return emitOpError()
+           << "expected input[2] to be 3 * hidden dimension ( = 3 * "
+              "num_kv_heads * head_size) = "
+           << 3 * queryOutputType.getShape()[QueryDimensions::Q_NUM_KV_HEADS] *
+                  queryOutputType.getShape()[QueryDimensions::Q_HEAD_SIZE]
+           << ", got "
+           << inputType.getShape()[InputDimensions::HIDDEN_DIMENSION_X_3];
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // RMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::RMSNormOp::verify() {
