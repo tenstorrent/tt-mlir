@@ -146,13 +146,13 @@ void safe_python_call(const char *message) {
   if (runtime_python_path != nullptr) {
     path_to_add = runtime_python_path;
   } else {
-    // Fallback: try to construct from TT_MLIR_HOME
+    // Fallback: try to construct from TT_MLIR_HOME build directory
     const char *tt_mlir_home = std::getenv("TT_MLIR_HOME");
     if (tt_mlir_home != nullptr) {
       path_to_add = std::string(tt_mlir_home) + "/build/runtime/python";
     } else {
       // Last resort: try relative path (for backwards compatibility)
-      path_to_add = "./runtime";
+      path_to_add = "./build/runtime/python";
     }
   }
   
@@ -205,13 +205,13 @@ void safe_python_log_operation(const char *operation_info) {
   if (runtime_python_path != nullptr) {
     path_to_add = runtime_python_path;
   } else {
-    // Fallback: try to construct from TT_MLIR_HOME
+    // Fallback: try to construct from TT_MLIR_HOME build directory
     const char *tt_mlir_home = std::getenv("TT_MLIR_HOME");
     if (tt_mlir_home != nullptr) {
       path_to_add = std::string(tt_mlir_home) + "/build/runtime/python";
     } else {
       // Last resort: try relative path (for backwards compatibility)
-      path_to_add = "./runtime";
+      path_to_add = "./build/runtime/python";
     }
   }
   
