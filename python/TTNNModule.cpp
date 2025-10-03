@@ -107,28 +107,24 @@ void populateTTNNModule(nb::module_ &m) {
   tt_attribute_class<tt::ttnn::TTNNLayoutAttr>(m, "TTNNLayoutAttr")
       .def_static(
           "get",
-          [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
-             MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
-             std::optional<tt::ttcore::TensorMeshAttr> tensorMesh =
-                 std::nullopt) {
+          [](MlirContext ctx, std::vector<std::int64_t> shape, MlirType type,
+             uint32_t bufferType, MlirAttribute gridAttr,
+             std::optional<unsigned> memLayout = std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
               memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
                   unwrap(ctx),
                   static_cast<tt::ttnn::TensorMemoryLayout>(memLayout.value()));
             }
-            tt::ttcore::TensorMeshAttr tensorMeshAttr;
-            if (tensorMesh.has_value()) {
-              tensorMeshAttr = tensorMesh.value();
-            }
             return wrap(tt::ttnn::TTNNLayoutAttr::get(
-                unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
-                mlir::cast<tt::ttcore::GridAttr>(unwrap(grid)),
-                mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
-                tensorMeshAttr));
+                unwrap(ctx), shape, mlir::cast<Type>(unwrap(type)),
+                static_cast<tt::ttnn::BufferType>(bufferType),
+                mlir::cast<tt::ttcore::GridAttr>(unwrap(gridAttr)),
+                memLayoutAttr));
           },
-          nb::arg("ctx"), nb::arg("linear"), nb::arg("grid"), nb::arg("memref"),
-          nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none())
+          nb::arg("ctx"), nb::arg("shape"), nb::arg("grid"),
+          nb::arg("memrefType"), nb::arg("memLayout") = nb::none(),
+          nb::arg("tensorMesh") = nb::none())
       .def_prop_ro(
           "linear",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })
