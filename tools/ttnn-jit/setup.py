@@ -23,13 +23,6 @@ TTNN_SUBPACKAGES = [
     "ttnn.distributed",
 ]
 
-TTLIB_SUBPACKAGES = [
-    "tt_lib",
-    "tt_lib._internal",
-    "tt_lib.fallback_ops",
-    "tt_lib.fused_ops",
-]
-
 TTMLIR_SUBPACKAGES = [
     "dialects",
     "dialects.linalg",
@@ -202,7 +195,7 @@ def generate_package_configuration(config):
 
     # Add ttnn packages
     runtime_ttnn_base = f"{rel_build_dir}/python_packages/ttnn_jit/runtime"
-    for sub in TTNN_SUBPACKAGES + TTLIB_SUBPACKAGES:
+    for sub in TTNN_SUBPACKAGES:
         full_package = f"ttnn.{sub}"
         packages.append(full_package)
         # Convert dot notation to filesystem path (e.g., "ttnn.operations" -> "ttnn/operations")
@@ -289,7 +282,7 @@ def generate_package_data(all_runtime_libs):
     base_ttnn_patterns = ["*.py", "*.so"]
 
     package_data["ttnn"] = base_ttnn_patterns
-    for sub in TTNN_SUBPACKAGES + TTLIB_SUBPACKAGES:
+    for sub in TTNN_SUBPACKAGES:
         package_data[f"ttnn.{sub}"] = base_ttnn_patterns
 
     return package_data
