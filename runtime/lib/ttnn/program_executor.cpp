@@ -221,7 +221,10 @@ void ProgramExecutor::execute() {
 
   // Initialize Python interpreter and print hello world
   if (!Py_IsInitialized()) {
+    std::cout << "Initializing New Python interpreter" << std::endl;
     Py_Initialize();
+  } else {
+    std::cout << "Python interpreter already initialized" << std::endl;
   }
   safe_python_call("Hello world from python interpreter in runtime!");
 
