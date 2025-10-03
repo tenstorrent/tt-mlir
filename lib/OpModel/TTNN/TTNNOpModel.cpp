@@ -447,6 +447,8 @@ auto getOpSymbol() {
     return ::ttnn::quantize;
   } else if constexpr (std::is_same_v<OpTy, DequantizeOp>) {
     return ::ttnn::dequantize;
+  } else if constexpr (std::is_same_v<OpTy, SiluOp>) {
+    return ::ttnn::silu;
   } else if constexpr (std::is_same_v<OpTy, GlobalAvgPool2dOp>) {
     return ::ttnn::global_avg_pool2d;
   } else {
@@ -904,6 +906,7 @@ template struct UnaryEltwiseOpModel<AtanOp>;
 template struct UnaryEltwiseOpModel<ReciprocalOp>;
 template struct UnaryEltwiseOpModel<CbrtOp>;
 template struct UnaryEltwiseOpModel<BitwiseNotOp>;
+template struct UnaryEltwiseOpModel<SiluOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseOpModel<RsqrtOp>;
