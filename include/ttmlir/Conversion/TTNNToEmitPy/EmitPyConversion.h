@@ -250,6 +250,122 @@ struct EmitPyTypeConverter<std::string> {
   static std::string convert(std::string value) { return "\"" + value + "\""; }
 };
 
+template <>
+struct EmitPyTypeConverter<mlir::tt::ttcore::MeshShardDirection> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto meshShardDirectionAttr =
+            mlir::dyn_cast_if_present<mlir::tt::ttcore::MeshShardDirectionAttr>(
+                attr)) {
+      return convert(meshShardDirectionAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::tt::ttcore::MeshShardDirectionAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string
+  convert(::mlir::tt::ttcore::MeshShardDirection meshShardDirection) {
+    switch (meshShardDirection) {
+    case ::mlir::tt::ttcore::MeshShardDirection::FullToShard:
+      return "ttnn.MeshShardDirection.FullToShard";
+    case ::mlir::tt::ttcore::MeshShardDirection::ShardToFull:
+      return "ttnn.MeshShardDirection.ShardToFull";
+    }
+    llvm_unreachable("Unknown ttnn.MeshShardDirection");
+  }
+};
+
+template <>
+struct EmitPyTypeConverter<mlir::tt::ttcore::MeshShardType> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto meshShardTypeAttr =
+            mlir::dyn_cast_if_present<mlir::tt::ttcore::MeshShardTypeAttr>(
+                attr)) {
+      return convert(meshShardTypeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::tt::ttcore::MeshShardTypeAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(::mlir::tt::ttcore::MeshShardType meshShardType) {
+    switch (meshShardType) {
+    case ::mlir::tt::ttcore::MeshShardType::Identity:
+      return "ttnn.MeshShardType.Identity";
+    case ::mlir::tt::ttcore::MeshShardType::Replicate:
+      return "ttnn.MeshShardType.Replicate";
+    case ::mlir::tt::ttcore::MeshShardType::Maximal:
+      return "ttnn.MeshShardType.Maximal";
+    case ::mlir::tt::ttcore::MeshShardType::Devices:
+      return "ttnn.MeshShardType.Devices";
+    }
+    llvm_unreachable("Unknown ttnn.MeshShardType");
+  }
+};
+
+template <>
+struct EmitPyTypeConverter<mlir::tt::ttnn::Topology> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto topologyAttr =
+            mlir::dyn_cast_if_present<mlir::tt::ttnn::TopologyAttr>(attr)) {
+      return convert(topologyAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::tt::ttnn::TopologyAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(::mlir::tt::ttnn::Topology topology) {
+    switch (topology) {
+    case ::mlir::tt::ttnn::Topology::Linear:
+      return "ttnn.Topology.Linear";
+    case ::mlir::tt::ttnn::Topology::Ring:
+      return "ttnn.Topology.Ring";
+    }
+    llvm_unreachable("Unknown ttnn.Topology");
+  }
+};
+
+template <>
+struct EmitPyTypeConverter<mlir::tt::ttcore::ReduceType> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto topologyAttr =
+            mlir::dyn_cast_if_present<mlir::tt::ttcore::ReduceTypeAttr>(attr)) {
+      return convert(topologyAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::tt::ttcore::ReduceTypeAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(::mlir::tt::ttcore::ReduceType topology) {
+    std::string base = "ttnn.ReduceType";
+    switch (topology) {
+    case ::mlir::tt::ttcore::ReduceType::Sum:
+      return base + ".Sum";
+    case ::mlir::tt::ttcore::ReduceType::Mean:
+      return base + ".Mean";
+    case ::mlir::tt::ttcore::ReduceType::Max:
+      return base + ".Max";
+    case ::mlir::tt::ttcore::ReduceType::Min:
+      return base + ".Min";
+    case ::mlir::tt::ttcore::ReduceType::Std:
+      return base + ".Std";
+    case ::mlir::tt::ttcore::ReduceType::Var:
+      return base + ".Var";
+    }
+    llvm_unreachable("Unknown ttnn.ReduceType");
+  }
+};
+
 // Converter for integral types.
 template <typename T>
 struct EmitPyTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {
@@ -1486,6 +1602,17 @@ public:
       return rewriter.getIndexAttr(this->operands.size() - 1);
     }
     llvm_unreachable("Invalid operand range");
+  }
+
+  mlir::Attribute emitMeshCoordinate(const mlir::ArrayRef<int64_t> &coords,
+                                     std::string attrName = "") {
+    std::string code = "ttnn.MeshCoordinate((";
+    llvm::raw_string_ostream rso(code);
+    llvm::interleaveComma(coords, rso);
+    rso << "))";
+
+    addKeywordArgument(attrName);
+    return rewriter.getAttr<emitpy::OpaqueAttr>(rso.str());
   }
 
   // Handles the case when a source type is convertible to `mlir::Attribute` and
