@@ -12,7 +12,6 @@ from ttmlir.ir import *
 from ttmlir.passes import (
     ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,
-    ttir_to_ttnn_backend_pipeline,
     ttnn_to_flatbuffer_file,
     ttnn_to_ttmetal_pipeline,
 )
@@ -86,11 +85,12 @@ def jit(
                     # TODO: hook up metal runtime here
                     raise NotImplementedError("Metal runtime is not implemented yet")
             elif backend == "ttnn":
+                # TODO (#5224): use pipeline once hooked up
                 ttnn_to_ttmetal_pipeline(
                     ir, f"system-desc-path={system_desc_path} ttnn-mode=true"
                 )
                 if debug:
-                    print("---- After ttir_to_ttnn_backend_pipeline ----")
+                    print("---- After ttnn_to_ttmetal_pipeline ----")
                     print(ir)
 
                 flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttnn")
