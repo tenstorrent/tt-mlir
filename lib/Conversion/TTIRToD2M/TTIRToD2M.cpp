@@ -11,6 +11,8 @@
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
+#include "ttmlir/Asserts.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -48,6 +50,65 @@ protected:
         targetSquareGridShape(d2m::utils::getSquareTargetGrid(targetGridShape)),
         ttnnMode(ttnnMode), collapseTensors(collapseTensors) {
     assert(!targetGridShape.empty());
+  }
+
+  std::pair<unsigned, double>
+  findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) const {
+
+    // find max aspect ratio between any dim and the other dims combined
+    double aspectRatio = 1.0;
+    unsigned maxDimIndex = 0;
+    for (size_t i = 0; i < physicalShape.size(); ++i) {
+      double ratio = physicalShape[i];
+      for (size_t j = 0; j < physicalShape.size(); ++j) {
+        if (i == j) {
+          continue;
+        }
+        ratio /= physicalShape[j];
+      }
+      if (ratio > aspectRatio) {
+        aspectRatio = ratio;
+        maxDimIndex = i;
+      }
+    }
+    return {maxDimIndex, aspectRatio};
+  }
+
+  bool shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape) const {
+    auto [maxRatioIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
+    constexpr double HIGH_ASPECT_RATIO_THRESHOLD = 8.0;
+    return aspectRatio > HIGH_ASPECT_RATIO_THRESHOLD &&
+           physicalShape[maxRatioIndex] % getTargetGridVolume() == 0;
+  }
+
+  llvm::SmallVector<int64_t>
+  computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
+                            unsigned shardedDimIndex) const {
+
+    // for now, can only support if largest dim is divisible by grid volume
+    int64_t gridVolume = getTargetGridVolume();
+    TT_assertv((physicalShape[shardedDimIndex] % gridVolume == 0),
+               "Sharded dimension in virtual gridPhysical shape dimension is not divisible by grid volume {1}",
+               shardedDimIndex, gridVolume);
+
+    llvm::SmallVector<int64_t> grid;
+    for (size_t i = 0; i < physicalShape.size(); ++i) {
+      if (i == shardedDimIndex) {
+        grid.push_back(gridVolume);
+      } else {
+        grid.push_back(1);
+      }
+    }
+    int64_t virtualGridVolume = std::accumulate(grid.begin(), grid.end(), 1, std::multiplies<int64_t>());
+    TT_assertv((virtualGridVolume % gridVolume == 0),
+               "Virtual grid volume should be divisible by target grid volume");
+    return grid;
+  }
+
+  int64_t getTargetGridVolume() const {
+    return std::accumulate(targetSquareGridShape.begin(),
+                           targetSquareGridShape.end(), uint64_t{1},
+                           std::multiplies<uint64_t>());
   }
 
   // Compute optimal grid shape that works for all provided layout infos.
@@ -155,6 +216,57 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
+  Value
+  createVirtualGridToLayoutOp(Value value, ttcore::MetalLayoutAttr layout,
+                             ArrayRef<int64_t> logicalShape,
+                             ArrayRef<int64_t> unshardedShape,
+                             ArrayRef<int64_t> tileShape,
+                             ttcore::MemorySpace memSpace,
+                             Type elementType,
+                             mlir::ConversionPatternRewriter &rewriter) const {
+
+    auto [maxRatioIndex, aspectRatio] = findMaxDimAndAspectRatio(unshardedShape);
+    auto optimalGrid = computeOptimalVirtualGrid(unshardedShape, maxRatioIndex);
+
+    auto [coreVirtMap, invCoreVirtMap] = createCoreVirtMaps(
+        rewriter.getContext(), optimalGrid, targetSquareGridShape);
+
+      // Get optimal sharded, on-device shape.
+      llvm::SmallVector<int64_t> shardedShape =
+          layout.getDeviceShape(optimalGrid, tileShape);
+
+    // create underlying physical buffer
+    size_t numShardDims = targetSquareGridShape.size();
+    llvm::SmallVector<int64_t> physicalShape;
+    physicalShape.append(targetSquareGridShape);
+    physicalShape.append(llvm::to_vector(
+        ArrayRef<int64_t>(shardedShape).drop_front(numShardDims)));
+
+    auto physicalLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), logicalShape, targetSquareGridShape,
+        ttcore::OOBVal::Undef, memSpace, ttcore::TensorMemoryLayout::Sharded,
+        invCoreVirtMap);
+
+    auto emptyOp = rewriter.create<d2m::EmptyOp>(value.getLoc(), physicalShape,
+                                                 elementType, physicalLayout);
+
+    // create virtual view layout of the physical buffer
+    auto virtualLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), logicalShape, targetSquareGridShape,
+        ttcore::OOBVal::Undef, memSpace, ttcore::TensorMemoryLayout::Sharded,
+        coreVirtMap);
+    auto resultTy =
+        RankedTensorType::get(shardedShape, elementType, virtualLayout);
+
+    auto view =
+        rewriter
+            .create<d2m::ViewLayoutOp>(value.getLoc(), resultTy, emptyOp, false)
+            ->getResult(0);
+
+    return rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, view)
+                    ->getResult(0);
+  }
+
   // Create a ToLayout op for a value using the provided layout info and grid.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled,
@@ -201,17 +313,28 @@ protected:
     llvm::SmallVector<int64_t> unshardedShape =
         layout.getPhysicalShape(tileShape);
 
-    // Calculate optimal grid for given physical shape.
-    llvm::SmallVector<int64_t> optimalGrid = computeOptimalGrid(unshardedShape);
+    Value to_layout;
+    if (shouldImplementAsVirtualGrid(unshardedShape)) {
+      to_layout = createVirtualGridToLayoutOp(value, layout, logicalShape,
+                                             unshardedShape, tileShape,
+                                             memSpace, elementType, rewriter);
+    } else {
 
-    // Get optimal sharded, on-device shape.
-    llvm::SmallVector<int64_t> shardedShape =
-        layout.getDeviceShape(optimalGrid, tileShape);
+      // Calculate optimal grid for given physical shape.
+      llvm::SmallVector<int64_t> optimalGrid =
+          computeOptimalGrid(unshardedShape);
 
-    auto emptyOp = rewriter.create<d2m::EmptyOp>(value.getLoc(), shardedShape,
-                                                 elementType, layout);
-    return rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, emptyOp)
-        ->getResult(0);
+      // Get optimal sharded, on-device shape.
+      llvm::SmallVector<int64_t> shardedShape =
+          layout.getDeviceShape(optimalGrid, tileShape);
+
+      auto emptyOp = rewriter.create<d2m::EmptyOp>(value.getLoc(), shardedShape,
+                                                   elementType, layout);
+      to_layout =
+          rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, emptyOp)
+              ->getResult(0);
+    }
+    return to_layout;
   }
 
   // Insert toLayout ops for a genericOp's operands and results; this includes

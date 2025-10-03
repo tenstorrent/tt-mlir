@@ -6,6 +6,8 @@
 #define TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 
 #include "mlir/IR/BuiltinAttributes.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 
 namespace mlir::tt::d2m::utils {
 
@@ -41,6 +43,18 @@ Type getRegionLargestDstElemType(Region &region);
 //        (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2)
 AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
                                       bool reverse);
+// Trace IR to find underlying physical (non-view) tensor/memref
+Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref);
+
+// Trace IR to find underlying physical (non-view) tensor/memref and return its
+// grid shape
+llvm::SmallVector<int64_t> getPhysicalGridShape(mlir::Value tensorOrMemref);
+
+// Get grid shape of a tensor or memref using layout attribute
+llvm::SmallVector<int64_t> getGridShape(mlir::Value tensorOrMemref);
+
+// Get device layout interface if it exists
+ttcore::DeviceLayoutInterface getDeviceLayoutInterfaceIfExists(mlir::Value tensorOrMemref);
 
 } // namespace mlir::tt::d2m::utils
 

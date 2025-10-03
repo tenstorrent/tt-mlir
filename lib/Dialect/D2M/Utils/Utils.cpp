@@ -3,6 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
+#include "ttmlir/Utils.h"
+#include "ttmlir/Asserts.h"
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
@@ -44,7 +48,8 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   }
   auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
 
-  return canonicalToInput.compose(outputToCanonical);
+  auto map = canonicalToInput.compose(outputToCanonical);
+  return map;
 }
 
 llvm::SmallVector<int64_t>
@@ -107,6 +112,65 @@ AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
   // Invert the permutation to get a map that we can use to get the loop
   // bounds. Above example becomes: (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
   return mlir::inversePermutation(concat);
+}
+
+Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref) {
+
+  TT_assertv((mlir::isa<mlir::RankedTensorType>(tensorOrMemref.getType()) ||
+              mlir::isa<mlir::MemRefType>(tensorOrMemref.getType())),
+             "Expected a tensor or memref type");
+  auto physTensor = tensorOrMemref;
+
+  if (auto viewOp = mlir::dyn_cast<mlir::tt::d2m::ViewOpInterface>(
+          tensorOrMemref.getDefiningOp())) {
+    physTensor = viewOp.getInput();
+  } else if (auto toLayoutOp = mlir::dyn_cast<mlir::tt::d2m::ToLayoutOp>(
+                 tensorOrMemref.getDefiningOp())) {
+    physTensor = toLayoutOp.getInitOperand();
+
+    if (auto viewOp = mlir::dyn_cast<mlir::tt::d2m::ViewOpInterface>(
+            physTensor.getDefiningOp())) {
+      physTensor = viewOp.getInput();
+    }
+  } else if (auto genericOp = mlir::dyn_cast<mlir::tt::d2m::GenericOp>(tensorOrMemref.getDefiningOp())) {
+    // Assume that if the defining op is a generic op, the output is the first of the outputs.
+    auto genericOutput = genericOp.getOutputs()[0];
+    physTensor = getPhysicalTensorOrMemref(genericOutput);
+  }
+
+  return physTensor;
+}
+
+ttcore::DeviceLayoutInterface
+getDeviceLayoutInterfaceIfExists(mlir::Value tensorOrMemref) {
+  if (auto tensorType =
+          mlir::dyn_cast<mlir::RankedTensorType>(tensorOrMemref.getType())) {
+    return mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+        tensorType.getEncoding());
+  } else if (auto memrefType =
+                 mlir::dyn_cast<mlir::MemRefType>(tensorOrMemref.getType())) {
+    return mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+        memrefType.getLayout());
+  } else {
+    return nullptr;
+  }
+}
+
+SmallVector<int64_t> getGridShape(mlir::Value tensorOrMemref) {
+  auto shapedType = mlir::dyn_cast<ShapedType>(tensorOrMemref.getType());
+  TT_assertv(shapedType, "Expected a shaped type");
+
+  // Assume a default grid shape of {1, 1} if the layout is not found.
+  auto layout = getDeviceLayoutInterfaceIfExists(tensorOrMemref);
+  return (layout) ? llvm::SmallVector<int64_t>(layout.getGridShape(shapedType))
+                  : llvm::SmallVector<int64_t>({1, 1});
+}
+
+SmallVector<int64_t> getPhysicalGridShape(mlir::Value tensorOrMemref) {
+  auto physTensorOrMemref = getPhysicalTensorOrMemref(tensorOrMemref);
+  auto gridShape = getGridShape(physTensorOrMemref);
+  return gridShape;
+>>>>>>> 52cc58c73 (virtual grid support)
 }
 
 } // namespace mlir::tt::d2m::utils

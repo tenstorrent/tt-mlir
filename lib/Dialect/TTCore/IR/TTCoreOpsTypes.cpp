@@ -9,6 +9,7 @@
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
 #include "ttmlir/Utils.h"
+#include "ttmlir/AffineMapUtils.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -550,7 +551,7 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
   return get(
       context,
       ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize)),
-      buffers);
+      buffers, mlir::AffineMap{});
 }
 
 ShardLayoutAttr ShardLayoutAttr::get(ArrayRef<int64_t> shape, Type elementType,
@@ -567,6 +568,12 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MemRefType memrefType,
     shape = layout.getShardShape(memrefType);
   }
   return get(shape, memrefType.getElementType(), buffers);
+}
+
+ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> strides,
+                                     uint32_t buffers) {
+  return get(context, strides, buffers, mlir::AffineMap{});
 }
 
 mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
@@ -1435,7 +1442,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     return ttmlir::utils::replaceAffineMapSymbols(getDramMap(), symbols)
         .compose(affineMap);
   } else {
-    llvm_unreachable("Unsupported memory space");
+    llvm_unreachable("Unsupported memory layout");
   }
 }
 

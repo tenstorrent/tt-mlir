@@ -6,11 +6,15 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/Support/raw_ostream.h"
+#include <algorithm>
+#include <string>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERTOLAYOUT
@@ -20,6 +24,7 @@ namespace mlir::tt::d2m {
 // MetalLayoutAttr as optional gracefully.
 namespace {
 struct TensorInfo {
+  Value val; 
   RankedTensorType type;
   std::optional<ttcore::MetalLayoutAttr> layout;
 
@@ -27,7 +32,7 @@ struct TensorInfo {
     auto type = mlir::cast<RankedTensorType>(val.getType());
     auto layout =
         mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(type.getEncoding());
-    return {type, layout ? std::optional(layout) : std::nullopt};
+    return {val, type, layout ? std::optional(layout) : std::nullopt};
   }
 
   bool hasLayout() const { return layout.has_value(); }
@@ -51,9 +56,9 @@ struct TensorInfo {
            layout->getMemorySpace() == ttcore::MemorySpace::System;
   }
 
-  ArrayRef<int64_t> getGridShape() const {
+  llvm::SmallVector<int64_t> getGridShape() const {
     assert(hasLayout() && "Cannot get grid shape without layout");
-    return layout->getGridShape(type);
+    return d2m::utils::getPhysicalGridShape(val);
   }
 };
 } // namespace
@@ -134,15 +139,22 @@ public:
     auto buildConcreteView = [&](Value fromVal, RankedTensorType fromTy,
                                  RankedTensorType toTy) -> Value {
       auto *ctx = rewriter.getContext();
-      AffineMap map = mlir::tt::d2m::utils::calculateReblockMap(
+      AffineMap reblockMap = mlir::tt::d2m::utils::calculateReblockMap(
           fromTy.getShape(), toTy.getShape(), ctx);
+      auto toLayout = mlir::cast<ttcore::MetalLayoutAttr>(toTy.getEncoding());
+
+      // compose reblocking map with existing index map on toTy
+      auto toIndexMap =
+          toLayout.getIndexAffineMapOrIdentity(toTy.getShape().size());
+      AffineMap mergedMap = toIndexMap.compose(reblockMap);
+
       auto baseLayout =
           mlir::cast<ttcore::MetalLayoutAttr>(fromTy.getEncoding());
 
       auto enc = ttcore::MetalLayoutAttr::get(
           ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
           baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
-          baseLayout.getMemorySpace(), baseLayout.getMemoryLayout(), map);
+          baseLayout.getMemorySpace(), baseLayout.getMemoryLayout(), mergedMap);
       auto resultTy =
           RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
       return rewriter
@@ -164,6 +176,10 @@ public:
 
     const size_t gridRank = outputInfo.getGridShape().size();
 
+    // TODO: cleanup
+    ttcore::GridAttr grid =
+        ttcore::GridAttr::get(rewriter.getContext(), outputInfo.getGridShape());
+
     ArrayAttr indexingMaps, iteratorTypes;
     std::tie(indexingMaps, iteratorTypes) =
         GenericOp::buildParallelAffineMapsAndIteratorTypes(
@@ -181,7 +197,7 @@ public:
           builder.create<d2m::DMAWaitOp>(loc, dma);
           builder.create<YieldOp>(loc, blockArgs[1]);
         },
-        ThreadType::Datamovement);
+        ThreadType::Datamovement, grid);
 
     return success();
   }
@@ -195,6 +211,14 @@ public:
     assert(inputTiled != outputTiled &&
            "one of input or output must be tiled for now");
 
+    // TODO: cleanup
+    ArrayRef<int64_t> outputShape = outputType.getShape();
+    assert(outputShape.size() % 2 == 0);
+    auto gridShape = utils::getPhysicalGridShape(op.getOutput());
+
+    ttcore::GridAttr grid =
+        ttcore::GridAttr::get(rewriter.getContext(), gridShape);
+
     rewriter.replaceOpWithNewOp<GenericOp>(
         op, op.getInput(), op.getOutput(),
         [=](OpBuilder &builder, Location loc, ValueRange blockArgs) {
@@ -205,7 +229,8 @@ public:
             builder.create<TileTilizeBlockOp>(loc, blockArgs[0], blockArgs[1]);
           }
           builder.create<YieldOp>(loc, blockArgs[1]);
-        });
+        },
+        ThreadType::Compute, grid);
 
     return success();
   }
@@ -245,6 +270,62 @@ public:
   }
 };
 } // namespace
+
+// namespace {
+// class D2MVirtualGridRewriter : public OpRewritePattern<GenericOp> {
+// public:
+//   using OpRewritePattern<GenericOp>::OpRewritePattern;
+//
+//   static bool hasVirtualGrid(ArrayRef<int64_t> tensorGrid,
+//                             ArrayRef<int64_t> deviceGrid2D) {
+//     if (tensorGrid.size() > 2) {
+//       return true;
+//     }
+//     int64_t gy = tensorGrid.size() >= 1 ? tensorGrid[0] : 1;
+//     int64_t gx = tensorGrid.size() >= 2 ? tensorGrid[1] : 1;
+//     return gy > deviceGrid2D[0] || gx > deviceGrid2D[1];
+//   }
+//
+//   static bool opHasRawVirtualGridOutput(GenericOp op, ArrayRef<int64_t>
+//   deviceGrid2D) {
+//     for (Value res : op.getResults()) {
+//       auto t = dyn_cast<RankedTensorType>(res.getType());
+//       if (!t) {
+//         return false;
+//       }
+//       auto layout =
+//           dyn_cast_if_present<tt::ttcore::MetalLayoutAttr>(t.getEncoding());
+//       if (!layout) {
+//         return false;
+//       }
+//       ArrayRef<int64_t> grid = layout.getGridShape(t);
+//       return hasVirtualGrid(grid, deviceGrid2D);
+//     }
+//     return false;
+//   }
+//
+//   LogicalResult matchAndRewrite(GenericOp op,
+//                                 PatternRewriter &rewriter) const final {
+//     SmallVector<int64_t, 2> deviceGrid2D = {8,8};//getDeviceGrid2D(root);
+//
+//     size_t changesMade = 0;
+//     for (Value res : op.getResults()) {
+//       auto t = dyn_cast<RankedTensorType>(res.getType());
+//       if (!t) continue;
+//       auto layout =
+//       dyn_cast_if_present<tt::ttcore::MetalLayoutAttr>(t.getEncoding()); if
+//       (!layout) continue; ArrayRef<int64_t> grid = layout.getGridShape(t);
+//       return hasVirtualGrid(grid, deviceGrid2D);
+//     }
+//
+//     if (changesMade) {
+//       return success();
+//     } else {
+//       return failure();
+//     }
+//   }
+// };
+// } // namespace
 
 namespace {
 class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
@@ -329,8 +410,43 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
   };
 
 public:
-  D2MSplitCompoundLayoutRewriter(MLIRContext *context)
-      : OpRewritePattern(context, PatternBenefit(2)) {}
+  D2MSplitCompoundLayoutRewriter(MLIRContext *context,
+                                 ArrayRef<int64_t> targetGridShape)
+      : OpRewritePattern(context, PatternBenefit(2)) {
+    this->targetGridShape.assign(targetGridShape.begin(),
+                                 targetGridShape.end());
+  }
+
+  // computes a workable bounce shape grid for a virtual grid
+  llvm::SmallVector<int64_t>
+  computeVirtualGridBounceShape(ArrayRef<int64_t> virtualGridShape,
+                                ArrayRef<int64_t> deviceGridShape) const {
+    // TODO: generalize to N dimensions
+    assert(virtualGridShape.size() == 2);
+    assert(virtualGridShape[0] > deviceGridShape[0] ^
+           virtualGridShape[1] > deviceGridShape[1]);
+
+    // Helper lambda for finding the greatest divisor <= maxDivisor for n
+    auto findMaxDivisor = [](int64_t n, int64_t maxDivisor) -> int64_t {
+      for (int64_t i = maxDivisor; i > 0; --i) {
+        if (n % i == 0) {
+          return i;
+        }
+      }
+      llvm_unreachable("No greatest divisor found");
+    };
+
+    llvm::SmallVector<int64_t> ret;
+    if (virtualGridShape[0] > deviceGridShape[0]) {
+      int64_t divisor = findMaxDivisor(virtualGridShape[0], deviceGridShape[0]);
+      ret = {divisor, virtualGridShape[1]};
+    } else {
+      int64_t divisor = findMaxDivisor(virtualGridShape[1], deviceGridShape[1]);
+      ret = {virtualGridShape[0], divisor};
+    }
+    assert(ret.size());
+    return ret;
+  }
 
   d2m::ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
                                    Value input,
@@ -338,9 +454,44 @@ public:
     // Create empty tensor with desired type and layout
     auto layout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
         desiredType.getEncoding());
-    auto output = rewriter.create<d2m::EmptyOp>(
-        loc, desiredType.getShape(), desiredType.getElementType(), layout);
-    return rewriter.create<d2m::ToLayoutOp>(loc, input, output);
+
+    SmallVector<int64_t> emptyShape(desiredType.getShape());
+
+    // compute underlying shape for virtual grid if needed
+    auto gridShape = layout.getGridShape(desiredType);
+    if (gridShape[0] > 8 || gridShape[1] > 8) {
+
+      SmallVector<int64_t> tileShape = {1, 1};
+      if (ttcore::isTiled(desiredType)) {
+        constexpr std::array<int64_t, 2> defaultShape =
+            ttcore::TileType::getDefaultShape();
+        tileShape =
+            SmallVector<int64_t>(defaultShape.begin(), defaultShape.end());
+      }
+      llvm::SmallVector<int64_t> unshardedShape =
+          layout.getPhysicalShape(tileShape);
+
+      auto bounceGridShape =
+          computeVirtualGridBounceShape(gridShape, targetGridShape);
+      llvm::SmallVector<int64_t> shardedShape =
+          layout.getDeviceShape(bounceGridShape, tileShape);
+
+      emptyShape = shardedShape;
+
+      // remove index affine map from layout, preserving everything else
+      auto map = rewriter.getMultiDimIdentityMap(emptyShape.size());
+      layout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), layout.getLogicalShape(),
+          layout.getDimAlignments(), layout.getCollapsedIntervals(),
+          layout.getOobVal(), layout.getMemorySpace(), layout.getMemoryLayout(),
+          map);
+    }
+
+    auto emptyOp = rewriter.create<d2m::EmptyOp>(
+        loc, emptyShape, desiredType.getElementType(), layout);
+    Value toLayoutDest = emptyOp;
+
+    return rewriter.create<d2m::ToLayoutOp>(loc, input, toLayoutDest);
   }
 
   Value bounce(PatternRewriter &rewriter, ToLayoutOp op,
@@ -380,6 +531,7 @@ public:
         // Device -> System: need intermediate in L1 with input's
         // characteristics.
         assert(inputInfo.layout && "Input must have layout for device->system");
+
         auto bounceType = typeBuilder.modifyDeviceType(
             inputInfo.type, *inputInfo.layout, ttcore::MemorySpace::DeviceL1,
             /*newTensorGrid=*/{}, outputInfo.type.getElementType());
@@ -460,6 +612,9 @@ public:
 
     return success();
   }
+
+private:
+  llvm::SmallVector<int64_t> targetGridShape;
 };
 } // namespace
 
@@ -468,11 +623,26 @@ class D2MLowerToLayout : public impl::D2MLowerToLayoutBase<D2MLowerToLayout> {
 public:
   using impl::D2MLowerToLayoutBase<D2MLowerToLayout>::D2MLowerToLayoutBase;
 
+  llvm::SmallVector<int64_t> getTargetGridShape() {
+    ::mlir::ModuleOp moduleOp = getOperation();
+    mlir::tt::ttcore::DeviceAttr device =
+        mlir::tt::ttcore::lookupDevice(moduleOp);
+    assert(device && "Device not found");
+    return llvm::to_vector(device.getWorkerGrid().getShape());
+  }
+
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<D2MSplitCompoundLayoutRewriter, D2MLowerToLayoutRewriter>(
-        &getContext());
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+
+    llvm::SmallVector<int64_t> targetGridShape = getTargetGridShape();
+
+    patterns.add<D2MSplitCompoundLayoutRewriter>(&getContext(),
+                                                 targetGridShape);
+    patterns.add<D2MLowerToLayoutRewriter>(&getContext());
+    GreedyRewriteConfig config;
+    config.setMaxNumRewrites(2);
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
+                                     config))) {
       signalPassFailure();
       return;
     }
