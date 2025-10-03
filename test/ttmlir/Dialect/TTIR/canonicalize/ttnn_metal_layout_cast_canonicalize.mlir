@@ -68,4 +68,3 @@ module {
     return %0 : tensor<32x32xf32, #ttnn_layout>
   }
 }
-

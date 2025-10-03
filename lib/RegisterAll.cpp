@@ -32,9 +32,11 @@
 #include "mlir/Dialect/Bufferization/IR/DstBufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Linalg/Transforms/SubsetInsertionOpInterfaceImpl.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Tensor/Transforms/SubsetInsertionOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/InitAllDialects.h"
@@ -114,6 +116,8 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
   cf::registerConvertControlFlowToLLVMInterface(registry);
   registerConvertFuncToLLVMInterface(registry);
   registerAllToLLVMIRTranslations(registry);
+  tensor::registerSubsetOpInterfaceExternalModels(registry);
+  linalg::registerSubsetOpInterfaceExternalModels(registry);
 }
 
 void mlir::tt::registerAllPasses() {

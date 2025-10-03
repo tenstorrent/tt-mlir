@@ -64,6 +64,12 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Use ttir.tile_matmul instead of ttir.tile_matmul_block"),
       llvm::cl::init(false)};
 
+  // Option to control whether we collapse tensors to 2D or not.
+  //
+  Option<bool> collapseTensors{*this, "collapse-tensors-2d",
+                               llvm::cl::desc("Collapse all tensors to 2d."),
+                               llvm::cl::init(true)};
+
   // Options to control the default memspaces for placing input/output tensors.
   //
   Option<ttcore::MemorySpace> defaultInputMemSpace{

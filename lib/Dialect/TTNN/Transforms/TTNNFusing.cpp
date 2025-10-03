@@ -29,6 +29,15 @@ public:
     Value activationInput = activationOp.getInput();
 
     auto activation = getActivationOpType(rewriter);
+
+    // For conv2d that will be converted to matmul, we cannot fuse relu6 as
+    // tt-metal doesn't support relu6 fusion for matmul.
+    // TODO(mvasiljevic): remove this once tt-metal supports relu6 fusion for
+    // matmul (https://github.com/tenstorrent/tt-metal/issues/29886)
+    if (isMatmul(srcOp) && activation == ttnn::UnaryOpType::Relu6) {
+      return failure();
+    }
+
     ttcore::DataType weightDtype = ttcore::elementTypeToDataType(
         srcOp.getWeight().getType().getElementType());
     Conv2dConfigAttr conv2dConfigAttr =
@@ -72,6 +81,8 @@ private:
       return ttnn::UnaryOpType::Relu;
     } else if constexpr (std::is_same_v<ActivationOp, Relu6Op>) {
       return ttnn::UnaryOpType::Relu6;
+    } else if constexpr (std::is_same_v<ActivationOp, SiluOp>) {
+      return ttnn::UnaryOpType::Silu;
     } else {
       static_assert(ttmlir::utils::always_false<ActivationOp>(),
                     "Unsupported activation op");
@@ -107,6 +118,35 @@ private:
     return reshapeOp.getResult().hasOneUse() &&
            ttmlir::utils::allUsersOfType<ActivationOp>(reshapeOp);
   }
+
+  bool isMatmul(Conv2dOp srcOp) const {
+    RankedTensorType weightType =
+        mlir::cast<RankedTensorType>(srcOp.getWeight().getType());
+    llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
+
+    // Check kernel size is 1x1.
+    if (weightShape[2] != 1 || weightShape[3] != 1) {
+      return false;
+    }
+
+    // Check stride is 1.
+    llvm::ArrayRef<int32_t> strideAttr = srcOp.getStride();
+    if (strideAttr.size() != 2 || strideAttr[0] != 1 || strideAttr[1] != 1) {
+      return false;
+    }
+
+    // Check padding is 0.
+    llvm::ArrayRef<int32_t> paddingAttr = srcOp.getPadding();
+    if (llvm::any_of(paddingAttr, [](int32_t v) { return v != 0; })) {
+      return false;
+    }
+
+    // only groups = 1 is supported for now
+    if (srcOp.getGroups() != 1) {
+      return false;
+    }
+    return true;
+  }
 };
 
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
@@ -116,7 +156,8 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<TTNNConv2dWithActivation<ReluOp>,
-                 TTNNConv2dWithActivation<Relu6Op>>(&getContext());
+                 TTNNConv2dWithActivation<Relu6Op>,
+                 TTNNConv2dWithActivation<SiluOp>>(&getContext());
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));

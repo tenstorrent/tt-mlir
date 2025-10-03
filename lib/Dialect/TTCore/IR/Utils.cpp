@@ -132,4 +132,20 @@ ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType) {
                              : ArrayRef<int64_t>{};
 }
 
+llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape) {
+  if (gridShape.size() <= 2) {
+    return llvm::to_vector(gridShape);
+  }
+
+  // Collapse all leading dimensions into the first dimension.
+  // e.g., [3, 2, 4] -> [6, 4].
+  int64_t collapsedHeight = 1;
+  for (size_t i = 0; i < gridShape.size() - 1; ++i) {
+    collapsedHeight *= gridShape[i];
+  }
+  int64_t width = gridShape.back();
+
+  return {collapsedHeight, width};
+}
+
 } // namespace mlir::tt::ttcore

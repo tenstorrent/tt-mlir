@@ -92,8 +92,11 @@ void DFShardingPolicy::run() {
 
         // Consider sharding only if we found at least single legal config for
         // the current op.
-        bool validForSharding = llvm::isa<ttnn::Conv2dOp>(currentOp) &&
-                                legalConfigs.lookup(currentOp).size() > 0;
+        bool validForSharding =
+            llvm::isa<ttnn::Conv2dOp, ttnn::AddOp, ttnn::MultiplyOp,
+                      ttnn::ReluOp, ttnn::Relu6Op, ttnn::TypecastOp,
+                      ttnn::MinimumOp>(currentOp) &&
+            legalConfigs.lookup(currentOp).size() > 0;
 
         if (validForSharding) {
           OpL1MemSpec shardSpec;
@@ -108,8 +111,18 @@ void DFShardingPolicy::run() {
           if (nextOp && currentOp->hasOneUse()) {
             // Only if nextOp is valid and currentOp is not a fork keep
             // growing the chain.
-            currentOp = nextOp;
-            continue;
+            if (nextOp->getOperand(0).getDefiningOp() != currentOp) {
+              // Only continue chain if nextOp uses currentOp as first operand.
+              // Here we break the chain if not.
+              TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                           "Breaking L1 chain at op {} as it is not first "
+                           "operand of next op {}",
+                           currentOp->getName(), nextOp->getName());
+              currentOp = nullptr;
+            } else {
+              currentOp = nextOp;
+              continue;
+            }
           }
         }
 
