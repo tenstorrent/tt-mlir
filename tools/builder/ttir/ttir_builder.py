@@ -84,6 +84,15 @@ class TTIRBuilder(Builder):
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
+
+        # Prepare location for the op
+        id = self._get_next_global_id()
+        loc = (
+            self._get_loc_from_str(loc)
+            if loc is not None
+            else self._get_loc_of_extra_file_callee(id=id)
+        )
+
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
 
@@ -126,14 +135,6 @@ class TTIRBuilder(Builder):
             else:
                 output = self._empty(output_shape, output_type)
 
-            # Prepare location for the op.
-            id = self._get_next_global_id()
-            loc = (
-                self._get_loc_from_str(loc)
-                if loc is not None
-                else self._get_loc_of_extra_file_callee(id=id)
-            )
-
             # Organize arguments and create the TTIR op.
             if organize_ttir_args(inputs, output, output_shape) == 0:
                 op = op_ttir_function(
@@ -170,7 +171,11 @@ class TTIRBuilder(Builder):
     # ----- Public Op Generators ----
 
     def get_dimension_size(
-        self, in0: Operand, dimension: int = 0, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        dimension: int = 0,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.get_dimension_size``.
@@ -204,6 +209,7 @@ class TTIRBuilder(Builder):
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             output_type=self._get_type_from_torch_dtype(torch.int32),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def dot_general(
@@ -215,6 +221,7 @@ class TTIRBuilder(Builder):
         batch_dims_rhs: List[int],
         contract_dims_rhs: List[int],
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.dot_general``.
@@ -263,6 +270,7 @@ class TTIRBuilder(Builder):
                 self._get_golden_tensor(in0).dtype
             ),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def where(
@@ -271,6 +279,7 @@ class TTIRBuilder(Builder):
         in1: Operand,
         in2: Operand,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.where``.
@@ -332,11 +341,17 @@ class TTIRBuilder(Builder):
                 self._get_golden_tensor(i[2]),
             ),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     # class TTIR_ElementwiseUnaryOp
 
-    def abs(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def abs(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.abs``.
 
@@ -372,9 +387,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
         """
 
-        return self._op_proxy(ttir.AbsOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.AbsOp, [in0], unit_attrs, loc=loc)
 
-    def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def cbrt(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.cbrt``.
 
@@ -405,9 +425,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the cubic root of each element in the input tensor
         """
-        return self._op_proxy(ttir.CbrtOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.CbrtOp, [in0], unit_attrs, loc=loc)
 
-    def ceil(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def ceil(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.ceil``.
 
@@ -428,9 +453,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with ceiling values
         """
-        return self._op_proxy(ttir.CeilOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.CeilOp, [in0], unit_attrs, loc=loc)
 
-    def cos(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def cos(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.cos``.
 
@@ -460,9 +490,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the cosine of each element in the input tensor
         """
-        return self._op_proxy(ttir.CosOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.CosOp, [in0], unit_attrs, loc=loc)
 
-    def floor(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def floor(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.floor``.
 
@@ -487,9 +522,15 @@ class TTIRBuilder(Builder):
             ttir.FloorOp,
             [in0],
             unit_attrs,
+            loc=loc,
         )
 
-    def gelu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def gelu(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.gelu``.
 
@@ -522,9 +563,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the GELU values of each element in the input tensor
         """
-        return self._op_proxy(ttir.GeluOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.GeluOp, [in0], unit_attrs, loc=loc)
 
-    def is_finite(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def is_finite(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.is_finite``.
 
@@ -560,10 +606,14 @@ class TTIRBuilder(Builder):
             [in0],
             unit_attrs,
             output_type=F32Type.get(self._ctx),
+            loc=loc,
         )
 
     def logical_not(
-        self, in0: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.logical_not``.
@@ -598,10 +648,14 @@ class TTIRBuilder(Builder):
             ttir.LogicalNotOp,
             [in0],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def bitwise_not(
-        self, in0: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.bitwise_not``.
@@ -645,9 +699,15 @@ class TTIRBuilder(Builder):
             ttir.BitwiseNotOp,
             [in0],
             unit_attrs,
+            loc=loc,
         )
 
-    def neg(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def neg(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.neg``.
 
@@ -679,9 +739,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the negation of each input element
         """
-        return self._op_proxy(ttir.NegOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.NegOp, [in0], unit_attrs, loc=loc)
 
-    def tan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def tan(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.tan``.
 
@@ -701,9 +766,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with tangent values
         """
-        return self._op_proxy(ttir.TanOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.TanOp, [in0], unit_attrs, loc=loc)
 
-    def atan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def atan(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.atan``.
 
@@ -723,9 +793,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with arctangent values
         """
-        return self._op_proxy(ttir.AtanOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.AtanOp, [in0], unit_attrs, loc=loc)
 
-    def tanh(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def tanh(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.tanh``.
 
@@ -745,10 +820,13 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with hyperbolic tangent values
         """
-        return self._op_proxy(ttir.TanhOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.TanhOp, [in0], unit_attrs, loc=loc)
 
     def reciprocal(
-        self, in0: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.reciprocal``.
@@ -774,9 +852,15 @@ class TTIRBuilder(Builder):
             ttir.ReciprocalOp,
             [in0],
             unit_attrs,
+            loc=loc,
         )
 
-    def relu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def relu(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.relu``.
 
@@ -797,9 +881,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with ReLU activation values
         """
-        return self._op_proxy(ttir.ReluOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.ReluOp, [in0], unit_attrs, loc=loc)
 
-    def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def relu6(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.relu6``.
 
@@ -831,9 +920,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with ReLU6 activation values
         """
-        return self._op_proxy(ttir.Relu6Op, [in0], unit_attrs)
+        return self._op_proxy(ttir.Relu6Op, [in0], unit_attrs, loc=loc)
 
-    def rsqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def rsqrt(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.rsqrt``.
 
@@ -857,9 +951,15 @@ class TTIRBuilder(Builder):
             ttir.RsqrtOp,
             [in0],
             unit_attrs,
+            loc=loc,
         )
 
-    def sigmoid(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def sigmoid(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.sigmoid``.
 
@@ -883,9 +983,15 @@ class TTIRBuilder(Builder):
             ttir.SigmoidOp,
             [in0],
             unit_attrs,
+            loc=loc,
         )
 
-    def sign(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def sign(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.sign``.
 
@@ -906,9 +1012,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with sign values
         """
-        return self._op_proxy(ttir.SignOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.SignOp, [in0], unit_attrs, loc=loc)
 
-    def sin(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def sin(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.sin``.
 
@@ -928,9 +1039,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with sine values
         """
-        return self._op_proxy(ttir.SinOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.SinOp, [in0], unit_attrs, loc=loc)
 
-    def sqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def sqrt(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.sqrt``.
 
@@ -950,10 +1066,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with square root values
         """
-        return self._op_proxy(ttir.SqrtOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.SqrtOp, [in0], unit_attrs, loc=loc)
 
     def typecast(
-        self, in0: Operand, out: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        out: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.typecast``.
@@ -998,9 +1118,15 @@ class TTIRBuilder(Builder):
             golden_kwargs={"dtype": self._get_golden_tensor(out).dtype},
             output_type=output_type,
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
-    def log(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def log(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.log``.
 
@@ -1030,9 +1156,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the natural logarithm of each element in the input tensor
         """
-        return self._op_proxy(ttir.LogOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.LogOp, [in0], unit_attrs, loc=loc)
 
-    def log1p(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def log1p(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """Elementwise natural logarithm of one plus input operation.
 
         The `log1p` operation computes the natural logarithm of one plus each element in the
@@ -1066,9 +1197,15 @@ class TTIRBuilder(Builder):
             ttir.Log1pOp,
             [in0],
             unit_attrs,
+            loc=loc,
         )
 
-    def expm1(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def expm1(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.expm1``.
 
@@ -1103,6 +1240,7 @@ class TTIRBuilder(Builder):
             ttir.Expm1Op,
             [in0],
             unit_attrs,
+            loc=loc,
         )
 
     # class TTIR_ElementwiseUnaryWithFloatParameterOp
@@ -1112,6 +1250,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         parameter: float = 0.01,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.leaky_relu``.
@@ -1155,12 +1294,17 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs=ttir_kwargs,
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     # class TTIR_ElementwiseBinaryOp
 
     def eq(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.eq``.
@@ -1204,10 +1348,15 @@ class TTIRBuilder(Builder):
             ttir.EqualOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def ne(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.ne``.
@@ -1251,10 +1400,15 @@ class TTIRBuilder(Builder):
             ttir.NotEqualOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def ge(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.ge``.
@@ -1295,10 +1449,15 @@ class TTIRBuilder(Builder):
             ttir.GreaterEqualOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def gt(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.gt``.
@@ -1339,10 +1498,15 @@ class TTIRBuilder(Builder):
             ttir.GreaterThanOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def le(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.le``.
@@ -1383,10 +1547,15 @@ class TTIRBuilder(Builder):
             ttir.LessEqualOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def lt(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.lt``.
@@ -1427,10 +1596,15 @@ class TTIRBuilder(Builder):
             ttir.LessThanOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def logical_and(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.logical_and``.
@@ -1471,10 +1645,15 @@ class TTIRBuilder(Builder):
             ttir.LogicalAndOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def logical_or(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.logical_or``.
@@ -1517,10 +1696,15 @@ class TTIRBuilder(Builder):
             ttir.LogicalOrOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def logical_xor(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.logical_xor``.
@@ -1561,10 +1745,15 @@ class TTIRBuilder(Builder):
             ttir.LogicalXorOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def bitwise_and(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.bitwise_and``.
@@ -1607,10 +1796,15 @@ class TTIRBuilder(Builder):
             ttir.BitwiseAndOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def bitwise_or(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.bitwise_or``.
@@ -1653,10 +1847,15 @@ class TTIRBuilder(Builder):
             ttir.BitwiseOrOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def bitwise_xor(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.bitwise_xor``.
@@ -1698,10 +1897,15 @@ class TTIRBuilder(Builder):
             ttir.BitwiseXorOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def minimum(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.minimum``.
@@ -1729,10 +1933,15 @@ class TTIRBuilder(Builder):
             ttir.MinimumOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def subtract(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.subtract``.
@@ -1773,10 +1982,15 @@ class TTIRBuilder(Builder):
             ttir.SubtractOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def remainder(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.remainder``.
@@ -1803,10 +2017,15 @@ class TTIRBuilder(Builder):
             ttir.RemainderOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def pow(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.pow``.
@@ -1833,6 +2052,7 @@ class TTIRBuilder(Builder):
             ttir.PowOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     # class TTIR_ReductionOp
@@ -1843,6 +2063,7 @@ class TTIRBuilder(Builder):
         dim_arg: List[int],
         keep_dim: bool = False,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.argmax``.
@@ -1874,6 +2095,7 @@ class TTIRBuilder(Builder):
             ttir_kwargs=kwargs,
             output_type=IntegerType.get_signless(32, self._ctx),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def sum(
@@ -1882,6 +2104,7 @@ class TTIRBuilder(Builder):
         dim_arg: List[int] = [0],
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.sum``.
@@ -1923,6 +2146,7 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def mean(
@@ -1931,6 +2155,7 @@ class TTIRBuilder(Builder):
         dim_arg: List[int] = [0],
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.mean``.
@@ -1961,6 +2186,7 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def max(
@@ -1969,6 +2195,7 @@ class TTIRBuilder(Builder):
         dim_arg: int = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.max``.
@@ -2013,6 +2240,7 @@ class TTIRBuilder(Builder):
             ttir_kwargs=ttir_kwargs,
             output_shape=output_shape,
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def min(
@@ -2021,6 +2249,7 @@ class TTIRBuilder(Builder):
         dim_arg: int = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.min``.
@@ -2059,6 +2288,7 @@ class TTIRBuilder(Builder):
             ttir_kwargs=ttir_kwargs,
             output_shape=output_shape,
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     # NOTE: Not useable. Boolean tensors are not supported by the runtime. Issue #1775
@@ -2068,6 +2298,7 @@ class TTIRBuilder(Builder):
         keep_dim: bool = True,
         dim_args: Optional[List] = None,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.reduce_and``.
@@ -2097,6 +2328,7 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     # NOTE: Not useable. Boolean tensors are not supported by the runtime. Issue #1775
@@ -2106,6 +2338,7 @@ class TTIRBuilder(Builder):
         keep_dim: bool = True,
         dim_args: Optional[List] = None,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.reduce_or``.
@@ -2136,6 +2369,7 @@ class TTIRBuilder(Builder):
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
             output_type=F32Type.get(self._ctx),
+            loc=loc,
         )
 
     def prod(
@@ -2144,6 +2378,7 @@ class TTIRBuilder(Builder):
         dim_arg: List[int],
         keep_dim: bool = False,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.prod``.
@@ -2173,10 +2408,15 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs={"keep_dim": keep_dim, "dim_arg": dim_arg},
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def embedding(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.embedding``.
@@ -2223,6 +2463,7 @@ class TTIRBuilder(Builder):
                 self._get_golden_tensor(i[1]),
             ),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def cumsum(
@@ -2231,6 +2472,7 @@ class TTIRBuilder(Builder):
         in1: Operand,
         dim: int,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.cumsum``.
@@ -2275,6 +2517,7 @@ class TTIRBuilder(Builder):
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def softmax(
@@ -2283,6 +2526,7 @@ class TTIRBuilder(Builder):
         dimension: int = 1,
         numeric_stable: bool = False,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.softmax``.
@@ -2323,6 +2567,7 @@ class TTIRBuilder(Builder):
                 o,
             ),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def transpose(
@@ -2331,6 +2576,7 @@ class TTIRBuilder(Builder):
         dim0: int = 0,
         dim1: int = 1,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.transpose``.
@@ -2364,7 +2610,11 @@ class TTIRBuilder(Builder):
         )
 
     def concat(
-        self, ins: List[Operand], dim: int = 0, unit_attrs: Optional[List[str]] = None
+        self,
+        ins: List[Operand],
+        dim: int = 0,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.concat``.
@@ -2399,10 +2649,15 @@ class TTIRBuilder(Builder):
             ),
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i, o),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def repeat(
-        self, in0: Operand, dims: List[int], unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        dims: List[int],
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.repeat``.
@@ -2430,6 +2685,7 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs={"repeat_dimensions": dims},
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def repeat_interleave(
@@ -2439,6 +2695,7 @@ class TTIRBuilder(Builder):
         repeats: int,
         dim: int,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.repeat_interleave``.
@@ -2473,6 +2730,7 @@ class TTIRBuilder(Builder):
                 self._get_golden_tensor(in1).dtype
             ),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def fill_cache(
@@ -2481,6 +2739,7 @@ class TTIRBuilder(Builder):
         in1: Operand,
         batch_offset: int = 0,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.fill_cache``.
@@ -2535,6 +2794,7 @@ class TTIRBuilder(Builder):
                 self._get_golden_tensor(i[1]),
             ),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def update_cache(
@@ -2544,6 +2804,7 @@ class TTIRBuilder(Builder):
         in2: Operand,
         batch_offset: int = 0,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.update_cache``.
@@ -2604,6 +2865,7 @@ class TTIRBuilder(Builder):
                 self._get_golden_tensor(i[2]),
             ),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def broadcast(
@@ -2612,6 +2874,7 @@ class TTIRBuilder(Builder):
         in1: Operand,
         broadcast_dimensions: List[int],
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.broadcast``.
@@ -2654,6 +2917,7 @@ class TTIRBuilder(Builder):
             golden_kwargs={"size": self.get_shape(in1)},
             ttir_kwargs={"broadcast_dimensions": broadcast_dimensions},
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def conv2d(
@@ -2666,6 +2930,7 @@ class TTIRBuilder(Builder):
         dilation: Union[int, List[int]],
         groups: int,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.conv2d``.
@@ -2739,6 +3004,7 @@ class TTIRBuilder(Builder):
             },
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def conv_transpose2d(
@@ -2753,6 +3019,7 @@ class TTIRBuilder(Builder):
         dilation: Union[int, List[int]],
         groups: int,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.conv_transpose2d``.
@@ -2837,6 +3104,7 @@ class TTIRBuilder(Builder):
                 "bias": bias,
             },
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def max_pool2d(
@@ -2849,6 +3117,7 @@ class TTIRBuilder(Builder):
         padding: Union[int, List[int]],
         ceil_mode: bool,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.max_pool2d``.
@@ -2907,6 +3176,7 @@ class TTIRBuilder(Builder):
                 "ceil_mode": ceil_mode,
             },
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def avg_pool2d(
@@ -2920,6 +3190,7 @@ class TTIRBuilder(Builder):
         ceil_mode: bool,
         count_include_pad: bool = True,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.max_pool2d``.
@@ -2981,6 +3252,7 @@ class TTIRBuilder(Builder):
                 "count_include_pad": count_include_pad,
             },
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def batch_norm(
@@ -2994,6 +3266,7 @@ class TTIRBuilder(Builder):
         dimension: int = 1,
         training: bool = False,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.batch_norm``.
@@ -3046,10 +3319,15 @@ class TTIRBuilder(Builder):
             },
             # organize_ttir_args=lambda i, o, _: (self._get_type(o), *i, o),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def reshape(
-        self, in0: Operand, shape: Shape, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        shape: Shape,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.reshape``.
@@ -3088,6 +3366,7 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def pad(
@@ -3097,6 +3376,7 @@ class TTIRBuilder(Builder):
         padding: List[int],
         value: int,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.pad``.
@@ -3128,6 +3408,7 @@ class TTIRBuilder(Builder):
             ttir.PadOp,
             [in0, in1],
             ttir_kwargs={"padding": padding, "value": value},
+            loc=loc,
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
             unit_attrs=unit_attrs,
@@ -3141,6 +3422,7 @@ class TTIRBuilder(Builder):
         length: int = 2,
         stride: int = 2,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.select``.
@@ -3179,6 +3461,7 @@ class TTIRBuilder(Builder):
                 "stride": stride,
             },
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def index(
@@ -3189,6 +3472,7 @@ class TTIRBuilder(Builder):
         end: int,
         step: int,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.index``.
@@ -3222,6 +3506,7 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs={"dim": dim, "begin": begin, "end": end, "step": step},
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def squeeze(
@@ -3229,6 +3514,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         dim: Optional[int] = 0,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.squeeze``.
@@ -3258,6 +3544,7 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def unsqueeze(
@@ -3265,6 +3552,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         dim: Optional[int] = 0,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.unsqueeze``.
@@ -3293,6 +3581,7 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def clamp_scalar(
@@ -3301,6 +3590,7 @@ class TTIRBuilder(Builder):
         min_arg: Optional[float] = None,
         max_arg: Optional[float] = None,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         kwargs = {"min": min_arg, "max": max_arg}
         return self._op_proxy(
@@ -3308,6 +3598,7 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def clamp_tensor(
@@ -3316,6 +3607,7 @@ class TTIRBuilder(Builder):
         in1: Operand,
         in2: Operand,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         return self._op_proxy(
             ttir.ClampTensorOp,
@@ -3326,6 +3618,7 @@ class TTIRBuilder(Builder):
                 self._get_golden_tensor(in2),
             ],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def zeros(
@@ -3333,6 +3626,7 @@ class TTIRBuilder(Builder):
         shape: Shape,
         data_type: Optional[Type] = None,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.zeros``.
@@ -3364,9 +3658,15 @@ class TTIRBuilder(Builder):
             organize_ttir_args=lambda i, o, shape: 0,
             output_type=dtype,
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
-    def ones(self, shape: Shape, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def ones(
+        self,
+        shape: Shape,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.ones``.
 
@@ -3393,10 +3693,15 @@ class TTIRBuilder(Builder):
             ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def reverse(
-        self, in0: Operand, dims: List[int], unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        dims: List[int],
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.reverse``.
@@ -3425,6 +3730,7 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs={"dimensions": dims},
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def linear(
@@ -3435,6 +3741,7 @@ class TTIRBuilder(Builder):
         transpose_a: bool = False,
         transpose_b: bool = False,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.linear``.
@@ -3480,6 +3787,7 @@ class TTIRBuilder(Builder):
                 "bias": bias,
             },
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def matmul(
@@ -3503,6 +3811,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         permutation: List[int],
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.permute``.
@@ -3540,6 +3849,7 @@ class TTIRBuilder(Builder):
         scale_factor: Union[int, List[int]],
         mode: str = "nearest",
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         output_shape = self._get_golden_tensor(in1).shape
         kwargs = {
@@ -3557,6 +3867,7 @@ class TTIRBuilder(Builder):
             organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], o),
             output_shape=output_shape,
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def arange(
@@ -3567,6 +3878,7 @@ class TTIRBuilder(Builder):
         step: int,
         arange_dimension: int,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.arange``.
@@ -3638,9 +3950,15 @@ class TTIRBuilder(Builder):
                 self._get_golden_tensor(result).dtype
             ),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
-    def exp(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def exp(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
+    ) -> OpView:
         """
         Creates ``ttir.exp``.
 
@@ -3674,12 +3992,17 @@ class TTIRBuilder(Builder):
             ttir.ExpOp,
             [in0],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     # class TTIR_GenericElementwiseBinaryOp
 
     def add(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.add``.
@@ -3720,10 +4043,15 @@ class TTIRBuilder(Builder):
             ttir.AddOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def multiply(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.multiply``.
@@ -3764,10 +4092,15 @@ class TTIRBuilder(Builder):
             ttir.MultiplyOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def div(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.div``.
@@ -3810,10 +4143,15 @@ class TTIRBuilder(Builder):
             ttir.DivOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def maximum(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.maximum``.
@@ -3840,6 +4178,7 @@ class TTIRBuilder(Builder):
             ttir.MaximumOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def quantize(
@@ -3849,6 +4188,7 @@ class TTIRBuilder(Builder):
         zero_point: int,
         dtype: torch.dtype,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.quantize``.
@@ -3898,6 +4238,7 @@ class TTIRBuilder(Builder):
                 dtype=dtype, scale=scale, zero_point=zero_point
             ),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def dequantize(
@@ -3907,6 +4248,7 @@ class TTIRBuilder(Builder):
         zero_point: int,
         dtype: torch.dtype,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.dequantize``.
@@ -3951,6 +4293,7 @@ class TTIRBuilder(Builder):
             [in0],
             output_type=self._get_type_from_torch_dtype(dtype=dtype),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def requantize(
@@ -3960,6 +4303,7 @@ class TTIRBuilder(Builder):
         zero_point: int,
         dtype: torch.dtype,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.requantize``.
@@ -4008,6 +4352,7 @@ class TTIRBuilder(Builder):
                 dtype=dtype, scale=scale, zero_point=zero_point
             ),
             unit_attrs=unit_attrs,
+            loc=loc,
         )
 
     def to_layout(
@@ -4015,6 +4360,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         output_type: RankedTensorType,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
         **kwargs,
     ) -> OpView:
         """
@@ -4062,6 +4408,7 @@ class TTIRBuilder(Builder):
                 o,
             ),
             unit_attrs=unit_attrs,
+            loc=loc,
             **kwargs,
         )
 
@@ -4070,6 +4417,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         output_type: RankedTensorType,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.tilize``.
@@ -4116,6 +4464,7 @@ class TTIRBuilder(Builder):
             ),
             unit_attrs=unit_attrs,
             golden_kwargs={"tilize": True},
+            loc=loc,
         )
 
     def untilize(
@@ -4123,6 +4472,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         output_type: RankedTensorType,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.untilize``.
@@ -4168,6 +4518,7 @@ class TTIRBuilder(Builder):
             ),
             unit_attrs=unit_attrs,
             golden_kwargs={"tilize": False},
+            loc=loc,
         )
 
     def gather(
@@ -4183,6 +4534,7 @@ class TTIRBuilder(Builder):
         slice_sizes: List[int],
         indices_are_sorted: bool = False,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.gather``.
@@ -4312,6 +4664,7 @@ class TTIRBuilder(Builder):
             output_shape=output_shape,
             unit_attrs=unit_attrs,
             ttir_kwargs=ttir_kwargs,
+            loc=loc,
         )
 
     def slice(
@@ -4321,6 +4674,7 @@ class TTIRBuilder(Builder):
         ends: List[int],
         step: List[int] = None,
         unit_attrs: List[str] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         # If step is not provided, use 1 for each dimension
         if step is None:
@@ -4397,6 +4751,7 @@ class TTIRBuilder(Builder):
             output_shape=output_shape,
             unit_attrs=unit_attrs,
             ttir_kwargs={"begins": begins_attr, "ends": ends_attr, "step": step_attr},
+            loc=loc,
         )
 
     # CCL ops
@@ -4408,6 +4763,7 @@ class TTIRBuilder(Builder):
         shard_direction: str,
         shard_shape: Tuple[int, ...],
         shard_dims: Tuple[int, ...],
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.mesh_shard``.
@@ -4466,6 +4822,7 @@ class TTIRBuilder(Builder):
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             ttir_kwargs=ttir_kwargs,
             golden_kwargs=golden_kwargs,
+            loc=loc,
         )
 
     def all_gather(
@@ -4473,6 +4830,7 @@ class TTIRBuilder(Builder):
         input: Operand,
         all_gather_dim: int = None,
         cluster_axis: int = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.all_gather``.
@@ -4522,6 +4880,7 @@ class TTIRBuilder(Builder):
             [input],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
+            loc=loc,
         )
 
     def all_reduce(
@@ -4529,6 +4888,7 @@ class TTIRBuilder(Builder):
         input: Operand,
         reduce_type: str,
         cluster_axis: int,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.all_reduce``.
@@ -4559,6 +4919,7 @@ class TTIRBuilder(Builder):
             [input],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
+            loc=loc,
         )
 
     def reduce_scatter(
@@ -4567,6 +4928,7 @@ class TTIRBuilder(Builder):
         reduce_type: str,
         scatter_dim: int,
         cluster_axis: int,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.reduce_scatter``.
@@ -4600,12 +4962,14 @@ class TTIRBuilder(Builder):
             [input],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
+            loc=loc,
         )
 
     def collective_permute(
         self,
         input: Operand,
         source_target_pairs: List[Tuple[int, int]],
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.collective_permute``.
@@ -4640,6 +5004,7 @@ class TTIRBuilder(Builder):
             [input],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
+            loc=loc,
         )
 
     def all_to_all(
@@ -4649,6 +5014,7 @@ class TTIRBuilder(Builder):
         concat_dim: int,
         split_count: int,
         replica_groups: List[List[int]],
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.all_to_all``.
@@ -4694,12 +5060,14 @@ class TTIRBuilder(Builder):
             [input],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
+            loc=loc,
         )
 
     def collective_broadcast(
         self,
         input: Operand,
         replica_groups: List[Tuple[int, int]],
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.collective_broadcast``.
@@ -4729,6 +5097,7 @@ class TTIRBuilder(Builder):
             [input],
             golden_kwargs=kwargs,
             ttir_kwargs=kwargs,
+            loc=loc,
         )
 
     def rms_norm(
@@ -4739,6 +5108,7 @@ class TTIRBuilder(Builder):
         bias: Optional[Operand] = None,
         epsilon: float = 1e-5,
         unit_attrs: Optional[List[str]] = None,
+        loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
         """
         Creates ``ttir.rms_norm``.
@@ -4802,4 +5172,5 @@ class TTIRBuilder(Builder):
             ),
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
             unit_attrs=unit_attrs,
+            loc=loc,
         )
