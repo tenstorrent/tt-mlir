@@ -88,6 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Check if the needed jobs succeeded or failed
+      id: check-jobs
       uses: re-actors/alls-green@release/v1
       with:
         allowed-skips: build-and-test
