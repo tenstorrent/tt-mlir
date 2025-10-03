@@ -151,8 +151,10 @@ LogicalResult LoadCachedOp::verify() {
   FunctionType fnType = funcOp.getFunctionType();
 
   // Check if we have tuple inputs/outputs.
-  bool hasTupleInput = fnType.getNumInputs() == 1 &&
-                       mlir::isa<mlir::TupleType>(fnType.getInput(0));
+  // If input is empty, treat it logically as a tuple with no elements.
+  bool hasTupleInput = fnType.getNumInputs() == 0 ||
+                       (fnType.getNumInputs() == 1 &&
+                        mlir::isa<mlir::TupleType>(fnType.getInput(0)));
   bool hasTupleResult = fnType.getNumResults() == 1 &&
                         mlir::isa<mlir::TupleType>(fnType.getResult(0));
 
