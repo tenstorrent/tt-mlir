@@ -43,13 +43,12 @@ public:
     builder->create<emitc::IncludeOp>(loc, "tools/profiler/kernel_profiler.hpp",
                                       /*isStandard=*/false);
 
-    emitDebugPrint();
-
     if (threadType == ThreadType::Noc) {
 
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
                                         /*isStandard=*/false);
       emitExperimentalLLKs();
+      emitDebugPrint();
     }
     if (threadType == ThreadType::Compute) {
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
@@ -132,6 +131,7 @@ public:
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
                                         /*isStandard=*/false);
       emitExperimentalLLKs();
+      emitDebugPrint();
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
   }
@@ -150,7 +150,8 @@ public:
 
   void emitDebugPrint() {
     if (!hasOp<emitc::CallOpaqueOp>([](emitc::CallOpaqueOp op) {
-          return op.getCallee() == "ttmlir::dprint";
+          return op.getCallee() == "ttmlir::dprint" ||
+                 op.getCallee() == "ttmlir::print_cb_details";
         })) {
       return;
     }
@@ -174,6 +175,24 @@ void dprint(Arg &&arg, ArgV&&... argv) {
   DPRINT << arg;
   dprint(argv...);
 }
+
+inline void print_cb_details_(uint32_t cb_id) {
+  DPRINT << "cb_id " << cb_id << ": { ";
+  DPRINT << "size: " << get_local_cb_interface(cb_id).fifo_size << ", ";
+  DPRINT << "limit: " << get_local_cb_interface(cb_id).fifo_limit << ", ";
+  DPRINT << "page_size: " << get_local_cb_interface(cb_id).fifo_page_size << ", ";
+  DPRINT << "num_pages: " << get_local_cb_interface(cb_id).fifo_num_pages << ", ";
+  DPRINT << "rd_ptr: " << get_local_cb_interface(cb_id).fifo_rd_ptr << ", ";
+  DPRINT << "wr_ptr: " << get_local_cb_interface(cb_id).fifo_wr_ptr << ", ";
+  DPRINT << "wr_tile_ptr: " << get_local_cb_interface(cb_id).fifo_wr_tile_ptr;
+  DPRINT << " }" << ENDL();
+}
+
+inline void print_cb_details(uint32_t cb_id) {
+  UNPACK((print_cb_details_(cb_id)));
+  PACK((print_cb_details_(cb_id)));
+}
+
 } // namespace ttmlir
 )"""");
   }
