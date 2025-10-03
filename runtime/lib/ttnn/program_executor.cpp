@@ -143,11 +143,16 @@ void safe_python_call(const char *message) {
   const char *runtime_python_path = std::getenv("TTMLIR_RUNTIME_PYTHON_PATH");
   std::string path_to_add;
   
+  std::cerr << "[DEBUG] TTMLIR_RUNTIME_PYTHON_PATH: " 
+            << (runtime_python_path ? runtime_python_path : "NOT SET") << std::endl;
+  
   if (runtime_python_path != nullptr) {
     path_to_add = runtime_python_path;
   } else {
     // Fallback: try to construct from TT_MLIR_HOME build directory
     const char *tt_mlir_home = std::getenv("TT_MLIR_HOME");
+    std::cerr << "[DEBUG] TT_MLIR_HOME: " 
+              << (tt_mlir_home ? tt_mlir_home : "NOT SET") << std::endl;
     if (tt_mlir_home != nullptr) {
       path_to_add = std::string(tt_mlir_home) + "/build/runtime/python";
     } else {
@@ -156,13 +161,17 @@ void safe_python_call(const char *message) {
     }
   }
   
+  std::cerr << "[DEBUG] Adding Python path: " << path_to_add << std::endl;
+  
   PyObject *runtime_path = PyUnicode_FromString(path_to_add.c_str());
   PyList_Append(sys_path, runtime_path);
   Py_DECREF(runtime_path);
 
   // Import the logger module
+  std::cerr << "[DEBUG] Importing python.scripts.logger..." << std::endl;
   PyObject *logger_module = PyImport_ImportModule("python.scripts.logger");
   if (logger_module == nullptr) {
+    std::cerr << "[DEBUG] FAILED to import!" << std::endl;
     PyErr_Print();
     PyGILState_Release(gstate);
     return;
@@ -202,11 +211,16 @@ void safe_python_log_operation(const char *operation_info) {
   const char *runtime_python_path = std::getenv("TTMLIR_RUNTIME_PYTHON_PATH");
   std::string path_to_add;
   
+  std::cerr << "[DEBUG] TTMLIR_RUNTIME_PYTHON_PATH: " 
+            << (runtime_python_path ? runtime_python_path : "NOT SET") << std::endl;
+  
   if (runtime_python_path != nullptr) {
     path_to_add = runtime_python_path;
   } else {
     // Fallback: try to construct from TT_MLIR_HOME build directory
     const char *tt_mlir_home = std::getenv("TT_MLIR_HOME");
+    std::cerr << "[DEBUG] TT_MLIR_HOME: " 
+              << (tt_mlir_home ? tt_mlir_home : "NOT SET") << std::endl;
     if (tt_mlir_home != nullptr) {
       path_to_add = std::string(tt_mlir_home) + "/build/runtime/python";
     } else {
@@ -215,13 +229,17 @@ void safe_python_log_operation(const char *operation_info) {
     }
   }
   
+  std::cerr << "[DEBUG] Adding Python path: " << path_to_add << std::endl;
+  
   PyObject *runtime_path = PyUnicode_FromString(path_to_add.c_str());
   PyList_Append(sys_path, runtime_path);
   Py_DECREF(runtime_path);
 
   // Import the logger module
+  std::cerr << "[DEBUG] Importing python.scripts.logger..." << std::endl;
   PyObject *logger_module = PyImport_ImportModule("python.scripts.logger");
   if (logger_module == nullptr) {
+    std::cerr << "[DEBUG] FAILED to import!" << std::endl;
     PyErr_Print();
     PyGILState_Release(gstate);
     return;
