@@ -309,4 +309,17 @@ def TTNN_KernelCoreType : I32EnumAttr<"KernelCoreType", "TT KernelCoreType",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+
+def TTNN_Topology_Linear : I32EnumAttrCase<"Linear",  0, "linear">;
+def TTNN_Topology_Ring  : I32EnumAttrCase<"Ring",  1, "ring">;
+
+def TTNN_Topology: I32EnumAttr<"Topology", "TTNN Topology",
+                          [
+                           TTNN_Topology_Linear,
+                           TTNN_Topology_Ring,
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 #endif
