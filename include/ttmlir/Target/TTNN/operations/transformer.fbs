@@ -20,3 +20,40 @@ table RotaryEmbeddingLlamaOp {
   memcfg: tt.target.ttnn.MemoryConfig;
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
+
+table NLPConcatHeadsOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
+table NLPConcatHeadsDecodeOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  num_heads: uint32;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
+table ScaledDotProductAttentionDecodeOp {
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  value: tt.target.ttnn.TensorRef;
+  is_causal: bool;
+  attention_mask: tt.target.ttnn.TensorRef;
+  cur_pos_tensor: tt.target.ttnn.TensorRef;
+  attention_sink: tt.target.ttnn.TensorRef;
+  scale: float = null;
+  out: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
+table ScaledDotProductAttentionOp {
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  value: tt.target.ttnn.TensorRef;
+  is_causal: bool;
+  attention_mask: tt.target.ttnn.TensorRef;
+  scale: float = null;
+  out: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}

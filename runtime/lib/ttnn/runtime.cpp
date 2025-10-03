@@ -155,7 +155,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
     std::optional<::ttnn::MeshEvent> meshEvent = std::nullopt;
     if (!blocking) {
       meshEvent =
-          ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::DefaultQueueId);
+          ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::QueueId{0});
     }
 
     return utils::createRuntimeTensorFromTTNN(hostTensor, meshEvent,
@@ -183,7 +183,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
   // in this case we need to populate the event
   if (!untilize && !blocking) {
     meshEvent =
-        ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::DefaultQueueId);
+        ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::QueueId{0});
   }
 
   return utils::createRuntimeTensorFromTTNN(hostTensor, /*meshEvent=*/meshEvent,
@@ -503,6 +503,7 @@ Device openMeshDevice(const MeshDeviceOptions &options) {
 
   auto ttnnTraceCache =
       std::make_shared<::tt::runtime::ttnn::TraceCache>(meshDevice);
+
   auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
       std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
 
@@ -734,6 +735,12 @@ void wait(const std::vector<::tt::runtime::Tensor> &tensors,
   }
 }
 
+uint32_t getNumShards(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(tensor);
+  return ::ttnn::distributed::get_device_tensors(ttnnTensor).size();
+}
+
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize, bool blocking) {
   const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
@@ -786,6 +793,16 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
     ::tt::runtime::ttnn::deallocateTensor(tensor);
   }
   return result;
+}
+
+bool hasLayout(::tt::runtime::Tensor tensor, Layout layout) {
+  const std::shared_ptr<LayoutDesc> tensorLayoutDesc =
+      LayoutDesc::fromTensor(tensor);
+
+  const LayoutDesc &desiredLayoutDesc =
+      layout.as<LayoutDesc>(DeviceRuntime::TTNN);
+
+  return *tensorLayoutDesc == desiredLayoutDesc;
 }
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
@@ -1190,8 +1207,24 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RotaryEmbeddingLlamaOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
+    tensorRef = opContext.type_as_NLPConcatHeadsOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::LoadTensorOp: {
     tensorRef = opContext.type_as_LoadTensorOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
+    tensorRef = opContext.type_as_ScaledDotProductAttentionDecodeOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
+    tensorRef = opContext.type_as_ScaledDotProductAttentionOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
+    tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::SortOp:
@@ -1511,10 +1544,37 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_ConcatenateHeadsOp()->in()};
     break;
   }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
+    tensorRefs = {opContext.type_as_NLPConcatHeadsOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
+    tensorRefs = {opContext.type_as_NLPConcatHeadsDecodeOp()->in()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::GenericOp: {
     for (const auto *input : *opContext.type_as_GenericOp()->io_tensors()) {
       tensorRefs.push_back(input);
     }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
+    tensorRefs = {
+        opContext.type_as_ScaledDotProductAttentionDecodeOp()->query(),
+        opContext.type_as_ScaledDotProductAttentionDecodeOp()->key(),
+        opContext.type_as_ScaledDotProductAttentionDecodeOp()->value(),
+        opContext.type_as_ScaledDotProductAttentionDecodeOp()->attention_mask(),
+        opContext.type_as_ScaledDotProductAttentionDecodeOp()->cur_pos_tensor(),
+        opContext.type_as_ScaledDotProductAttentionDecodeOp()
+            ->attention_sink()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
+    tensorRefs = {
+        opContext.type_as_ScaledDotProductAttentionOp()->query(),
+        opContext.type_as_ScaledDotProductAttentionOp()->key(),
+        opContext.type_as_ScaledDotProductAttentionOp()->value(),
+        opContext.type_as_ScaledDotProductAttentionOp()->attention_mask()};
     break;
   }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {

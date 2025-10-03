@@ -211,7 +211,7 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, OptionNames::tensorL1UsageCap,
       llvm::cl::desc("Override tensor L1 usage cap in L1 Interleaved Fallback "
                      "Analysis and Memory Layout Analysis. [0.0-1.0]"),
-      llvm::cl::init(0.8f)};
+      llvm::cl::init(1.0f)};
 
   // Option to enable/disable the workaround pass.
   //
@@ -247,6 +247,12 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> enableFusingConv2dWithMultiplyPattern{
       *this, "enable-fusing-conv2d-with-multiply-pattern",
       llvm::cl::desc("Enable Conv2dWithMultiply pattern in the fusing pass."),
+      llvm::cl::init(false)};
+
+  Option<bool> enableFusingGlobalPoolPattern{
+      *this, "enable-fusing-global-avg-pool-pattern",
+      llvm::cl::desc(
+          "Enable GlobalAveragePoolingPattern pattern in the fusing pass."),
       llvm::cl::init(false)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>

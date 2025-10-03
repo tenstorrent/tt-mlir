@@ -11,7 +11,21 @@ from enum import Enum, auto
 import re
 from collections import OrderedDict
 
-from ttmlir.ir import *
+from ttmlir.ir import (
+    Context,
+    Location,
+    Value,
+    OpView,
+    Operation,
+    RankedTensorType,
+    Type,
+    Attribute,
+    BF16Type,
+    F16Type,
+    F32Type,
+    F64Type,
+    IntegerType,
+)
 from ttmlir.dialects import tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 from builder.base.builder_golden import BuilderGoldenTensor
@@ -143,8 +157,8 @@ class Builder:
 
     def set_goldens(
         self,
-        inputs: Dict[operand, Union[torch.tensor, Dict[int : torch.tensor]]],
-        outputs: Dict[operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
+        inputs: Dict[Operand, Union[Callable, torch.tensor, Dict[int : torch.tensor]]],
+        outputs: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
     ):
         self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
 
@@ -154,8 +168,8 @@ class Builder:
 
     def set_goldens_from_builder_tensor(
         self,
-        inputs: Dict[operand, BuilderGoldenTensor],
-        outputs: Dict[operand, BuilderGoldenTensor] = None,
+        inputs: Dict[Operand, BuilderGoldenTensor],
+        outputs: Dict[Operand, BuilderGoldenTensor] = None,
     ):
         self._set_goldens(inputs)
 
@@ -164,12 +178,12 @@ class Builder:
             self._set_goldens(outputs)
 
     def set_operand_goldens(
-        self, operands: Dict[operand, Union[torch.tensor, Dict[int : torch.tensor]]]
+        self, operands: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]]
     ):
         self._set_goldens(self._create_builder_golden_from_torch_tensor(operands))
         self.set_goldens_to_check(operands.keys())
 
-    def set_goldens_to_check(self, operands: List[operands], override: bool = False):
+    def set_goldens_to_check(self, operands: List[Operand], override: bool = False):
         if override:
             self._goldens_to_store = operands
         else:
@@ -372,17 +386,32 @@ class Builder:
 
     def _create_builder_golden_from_torch_tensor(
         self,
-        inputs: Union[torch.Tensor, Dict[int, torch.Tensor]],
-    ) -> BuilderGoldenTensor:
+        inputs: Dict[Operand, Union[Callable, torch.Tensor, Dict[int, torch.Tensor]]],
+    ) -> Dict[Operand, BuilderGoldenTensor]:
         input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
-        for operand, tensor_or_shard_map in inputs.items():
-            if isinstance(tensor_or_shard_map, torch.Tensor):
+        for operand, tensor_or_shard_map_or_callable in inputs.items():
+            if callable(tensor_or_shard_map_or_callable):
+                operand_shape = self.get_shape(operand)
+                try:
+                    generated_tensor = tensor_or_shard_map_or_callable(operand_shape)
+                    if not isinstance(generated_tensor, torch.Tensor):
+                        raise TypeError(
+                            f"Callable must return a torch.Tensor, got {type(generated_tensor)}"
+                        )
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Error calling initialization function for operand {operand}: {e}"
+                    )
                 golden_tensor = BuilderGoldenTensor(
-                    {0: tensor_or_shard_map}, mesh_shape=self._mesh_shape
+                    {0: generated_tensor}, mesh_shape=self._mesh_shape
+                )
+            elif isinstance(tensor_or_shard_map_or_callable, torch.Tensor):
+                golden_tensor = BuilderGoldenTensor(
+                    {0: tensor_or_shard_map_or_callable}, mesh_shape=self._mesh_shape
                 )
             else:
                 golden_tensor = BuilderGoldenTensor(
-                    tensor_or_shard_map, mesh_shape=self._mesh_shape
+                    tensor_or_shard_map_or_callable, mesh_shape=self._mesh_shape
                 )
             input_goldens[operand] = golden_tensor
 
@@ -420,3 +449,59 @@ class Builder:
 
     def _set_output_ordering(self, outputs: List[Operand]):
         self._ordered_outputs = outputs
+
+    # ----- Shared Empty Operations -----
+
+    def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
+        """Create an empty operation using the dialect-specific EmptyOp."""
+        dtype = data_type if data_type is not None else F32Type.get(self._ctx)
+        return self._create_empty_from_tensor_type(
+            shape, self._create_ranked_tensor_type(shape, dtype)
+        )
+
+    def _create_empty_from_tensor_type(
+        self, shape: Shape, tensor_type: RankedTensorType
+    ) -> OpView:
+        """Create empty operation from tensor type using dialect-specific EmptyOp."""
+        with self._ctx, self._loc:
+            op = self._get_empty_op(tensor_type)
+            return op
+
+    def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
+        """Get dialect-specific empty operation. Must be implemented by subclasses."""
+        raise NotImplementedError("Subclasses must implement _get_empty_op")
+
+    # ----- Shared Metal Tensor Layout -----
+
+    def get_metal_tensor_layout(
+        self,
+        logical_shape: Shape,
+        tiled=False,
+        oobVal=None,  # Will default to ttcore.OOBVal.Undef in the utility
+        memorySpace=None,  # Will default to ttcore.MemorySpace.DeviceL1 in the utility
+        grid: Optional[Tuple[int, int]] = None,
+        index_map: Optional[AffineMap] = None,
+        memory_layout=None,  # Will default to ttcore.TensorMemoryLayout.Sharded in the utility
+    ):
+        """Create a metal tensor layout using the shared implementation."""
+        from builder.base.builder_utils import get_metal_tensor_layout
+        from ttmlir.dialects import ttcore
+
+        # Set defaults if not provided
+        if oobVal is None:
+            oobVal = ttcore.OOBVal.Undef
+        if memorySpace is None:
+            memorySpace = ttcore.MemorySpace.DeviceL1
+        if memory_layout is None:
+            memory_layout = ttcore.TensorMemoryLayout.Sharded
+
+        return get_metal_tensor_layout(
+            self._ctx,
+            logical_shape,
+            tiled,
+            oobVal,
+            memorySpace,
+            grid,
+            index_map,
+            memory_layout,
+        )

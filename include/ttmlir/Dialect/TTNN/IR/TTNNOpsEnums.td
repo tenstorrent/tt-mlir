@@ -253,18 +253,6 @@ def TTNN_ShardOrientation : I32EnumAttr<"ShardOrientation", "TTNN ShardOrientati
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
-def TTNN_ShardMode_Physical : I32EnumAttrCase<"Physical", 0, "physical">;
-def TTNN_ShardMode_Logical : I32EnumAttrCase<"Logical", 1, "logical">;
-
-def TTNN_ShardMode : I32EnumAttr<"ShardMode", "TTNN ShardMode",
-                           [
-                            TTNN_ShardMode_Physical,
-                            TTNN_ShardMode_Logical
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt::ttnn";
-}
-
 def TTNN_MathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
 def TTNN_MathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
 def TTNN_MathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;

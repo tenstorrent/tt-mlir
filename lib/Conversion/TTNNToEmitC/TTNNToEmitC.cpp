@@ -2442,6 +2442,109 @@ public:
 };
 } // namespace
 
+// ScaledDotProductAttentionDecodeOp conversion pattern
+//
+namespace {
+class ScaledDotProductAttentionDecodeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.scaled_dot_product_attention_decode";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::scaled_dot_product_attention_decode";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<
+        mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    // ttnn::transformer::scaled_dot_product_attention_decode requires current
+    // position information per batch. This can either be passed as a tensor or
+    // as a uint vector. We will use the tensor argument as this is a runtime
+    // input. Since the uint vector is not wrapped in a std::optional, we must
+    // pass an empty uint vector for that argument.
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getIsCausal()),
+        emitter.emit(srcOp.getAttentionMask()),
+        emitc::OpaqueAttr::get(rewriter.getContext(),
+                               "std::vector<uint32_t>()"),
+        emitter.emit(srcOp.getCurPosTensor()),
+        emitter.emit(srcOp.getAttentionSink()),
+        emitter.emit(srcOp.getScale()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// ScaledDotProductAttentionOp conversion pattern
+//
+namespace {
+class ScaledDotProductAttentionOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::ScaledDotProductAttentionOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.scaled_dot_product_attention";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::scaled_dot_product_attention";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ScaledDotProductAttentionOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ScaledDotProductAttentionOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ScaledDotProductAttentionOp>
+        emitter(srcOp, adaptor, rewriter);
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getAttentionMask()),
+        emitter.emit(srcOp.getIsCausal()),
+        emitter.emit(srcOp.getScale()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // RMSNormOp conversion pattern
 //
 namespace {
@@ -2610,6 +2713,81 @@ public:
         emitter.emit(srcOp.getSinCache()),
         emitter.emit(srcOp.getTransMat()),
         emitter.emit(srcOp.getIsDecodeMode()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class NLPConcatHeadsOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::NLPConcatHeadsOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.nlp_concat_heads";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::nlp_concat_heads";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::NLPConcatHeadsOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::NLPConcatHeadsOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::NLPConcatHeadsOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class NLPConcatHeadsDecodeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::NLPConcatHeadsDecodeOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.nlp_concat_heads_decode";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::nlp_concat_heads_decode";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::NLPConcatHeadsDecodeOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::NLPConcatHeadsDecodeOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::NLPConcatHeadsDecodeOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getNumHeads()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),
     };
@@ -3127,6 +3305,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::NegOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Relu6Op>,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<
                mlir::tt::ttnn::LeakyReluOp>,
            EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
@@ -3294,6 +3473,11 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<ConcatenateHeadsOpConversionPattern>(typeConverter, ctx);
   patterns.add<RotaryEmbeddingLlamaOpConversionPattern>(typeConverter, ctx);
+  patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
+      typeConverter, ctx);
+  patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
+                                                             ctx);
 }
 // ANCHOR_END: op_rewriter_pattern_set_emitc
 

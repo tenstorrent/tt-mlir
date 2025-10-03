@@ -220,16 +220,7 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
   const auto *bufferDesc = command->dst()->desc();
   LOG_ASSERT(bufferDesc->shape()->size() > 0);
 
-  const std::vector<uint32_t> shape(bufferDesc->shape()->begin(),
-                                    bufferDesc->shape()->end());
-  const std::vector<uint32_t> stride(bufferDesc->host_strides()->begin(),
-                                     bufferDesc->host_strides()->end());
-  const uint64_t physicalVolume = bufferDesc->host_volume();
-  assert(shape.size() == stride.size());
-  const auto dataType = bufferDesc->data_type();
-
-  TensorDesc desc(shape, dataType, utils::dataTypeElementSize(dataType), stride,
-                  physicalVolume);
+  TensorDesc desc = createTensorDescFromBufferDesc(bufferDesc);
   const size_t size = desc.sizeBytes();
 
   // Default to zero-fill.
@@ -243,7 +234,7 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
   }
 
   auto meshShape = meshDevice->shape();
-  if (meshShape.mesh_size() == 1) {
+  if (meshShape.mesh_size() == 1 || !bufferDesc->mesh()) {
     auto [_, inserted] = hostBuffers.try_emplace(
         command->dst()->global_id(),
         std::static_pointer_cast<void>(std::make_shared<MetalTensor>(desc)),
@@ -255,8 +246,8 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
             tt_metal::DistributedHostBuffer::create(meshDevice->shape()));
     for (const auto &coord :
          tt_metal::distributed::MeshCoordinateRange(meshShape)) {
-      const auto hostBuffer =
-          createMetalHostBuffer(data.get(), shape, bufferDesc->data_type());
+      const auto hostBuffer = createMetalHostBuffer(
+          data.get(), desc.shape, desc.sizeBytes(), desc.dataType);
       distributedHostBufferPtr->emplace_shard(
           coord, [&buffer = *hostBuffer]() { return buffer; });
     }
@@ -321,7 +312,8 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
         createKernelConfig(kernelConfig, command->buffers(), meshBuffers,
                            command->cbs(), deviceAddressValidator,
                            createSemaphore),
-        currentProgramName, debugInfo, kernelConfig->debug_info()->c_str());
+        currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
+        kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
 
     std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
         kernelConfig->args()->rt_args(), command->buffers(), meshBuffers,
@@ -353,11 +345,10 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
     tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
   }
 
-  auto meshWorkload = distributed::CreateMeshWorkload();
+  auto meshWorkload = distributed::MeshWorkload();
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
 
-  distributed::AddProgramToMeshWorkload(meshWorkload, std::move(program),
-                                        deviceRange);
+  meshWorkload.add_program(deviceRange, std::move(program));
 
   if (perf::Env::get().enablePerfTrace) {
     for (auto &[range, program] : meshWorkload.get_programs()) {
@@ -382,9 +373,8 @@ void MCQExecutor::execute(
 
   auto input = hostBuffers.at(command->src()->global_id());
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
-  assert(meshBuffer.get()->size() ==
-         std::get<TensorDesc>(input.as<MetalTensor>(DeviceRuntime::TTMetal))
-             .sizeBytes());
+  tt::runtime::ttmetal::checkHostTensorSizeMatchWithMeshBufferSize(input,
+                                                                   meshBuffer);
   tt::runtime::ttmetal::writeHostTensorToMeshBuffer(mcq, input, meshBuffer,
                                                     blockingCQ);
 }
@@ -395,9 +385,8 @@ void MCQExecutor::execute(
 
   auto meshBuffer = meshBuffers.at(command->src()->global_id());
   auto output = hostBuffers.at(command->dst()->global_id());
-  assert(meshBuffer.get()->size() ==
-         std::get<TensorDesc>(output.as<MetalTensor>(DeviceRuntime::TTMetal))
-             .sizeBytes());
+  tt::runtime::ttmetal::checkHostTensorSizeMatchWithMeshBufferSize(output,
+                                                                   meshBuffer);
   tt::runtime::ttmetal::readHostTensorFromMeshBuffer(mcq, meshBuffer, output,
                                                      blockingCQ);
 }
@@ -433,7 +422,7 @@ void MCQExecutor::execute(
     const target::metal::EnqueueWaitForEventCommand *command) {
   ZoneScopedN("EnqueueWaitForEventCommand");
   auto mesh_event = meshEvents.at(command->ref()->global_id());
-  distributed::EnqueueWaitForEvent(*mcq, *mesh_event);
+  mcq->enqueue_wait_for_event(*mesh_event);
 }
 
 void MCQExecutor::execute(
@@ -448,7 +437,9 @@ void MCQExecutor::execute(const target::metal::MemrefCopyCommand *command) {
   LOG_ASSERT(srcIt != hostBuffers.end());
   auto dstIt = hostBuffers.find(command->dst()->global_id());
   LOG_ASSERT(dstIt != hostBuffers.end());
-  ttmetal::memcpy(dstIt->second, srcIt->second);
+  ttmetal::memcpy(
+      dstIt->second, createTensorDescFromBufferDesc(command->dst()->desc()),
+      srcIt->second, createTensorDescFromBufferDesc(command->src()->desc()));
 }
 
 void MCQExecutor::execute(const target::metal::CpuCommand *command) {
@@ -483,8 +474,6 @@ void MCQExecutor::execute(const target::metal::FinishCommand *) {
 }
 
 void MCQExecutor::execute(const target::metal::MeshShardCommand *command) {
-  ZoneScopedN("MeshShardCommand");
-
   LOG_ASSERT(command->src()->desc()->buffer_detail_type() ==
                  tt::target::metal::BufferDetail::SystemBuffer,
              "MeshShardCommand requries system memory as input");

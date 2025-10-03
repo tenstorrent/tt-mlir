@@ -149,6 +149,20 @@ class Run:
             help="pickup the kernels from disk (/tmp) instead of the flatbuffer, must have previously run with --dump-kernels-to-disk",
         )
         Run.register_arg(
+            name="--use-loc-for-kernel-name",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Use the location information to derive the kernel's filename when dumping to disk",
+        )
+        Run.register_arg(
+            name="--kernel-source-dir",
+            type=str,
+            default="",
+            choices=None,
+            help="test dir to save kernels to",
+        )
+        Run.register_arg(
             name="--disable-device-address-validation",
             type=bool,
             default=False,
@@ -566,6 +580,8 @@ class Run:
             debug_env = ttrt.runtime.DebugEnv.get(
                 self["--dump-kernels-to-disk"],
                 self["--load-kernels-from-disk"],
+                self["--use-loc-for-kernel-name"],
+                self["--kernel-source-dir"],
                 not self["--disable-device-address-validation"],
                 self["--blocking-cq"],
             )
@@ -590,8 +606,8 @@ class Run:
             self.logging.debug(f"setting tt runtime perf env={perf_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
             torch.manual_seed(self["--seed"])
-            ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
-            current_runtime = ttrt.runtime.get_current_runtime()
+            ttrt.runtime.set_compatible_device_runtime(binaries[0].fbb)
+            current_runtime = ttrt.runtime.get_current_device_runtime()
             self.logging.debug(f"opening devices={self.query.device_ids}")
             dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
 

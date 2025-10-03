@@ -34,6 +34,7 @@
 #include "ttnn/operations/eltwise/ternary/where/where.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
 #include "ttnn/operations/generic/generic_op.hpp"
 #include "ttnn/operations/kv_cache/kv_cache.hpp"
@@ -50,6 +51,8 @@
 #include "ttnn/operations/reduction/prod/prod.hpp"
 #include "ttnn/operations/trace.hpp"
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
+#include "ttnn/operations/transformer/sdpa/sdpa.hpp"
+#include "ttnn/operations/transformer/sdpa_decode/sdpa_decode.hpp"
 #include "ttnn/tensor/host_buffer/functions.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
@@ -194,6 +197,7 @@ void wait(::tt::runtime::Tensor tensor,
 void wait(const std::vector<::tt::runtime::Tensor> &tensors,
           std::optional<uint8_t> cqId = std::nullopt);
 
+uint32_t getNumShards(::tt::runtime::Tensor tensor);
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize = false,
                                           bool blocking = true);
@@ -201,6 +205,8 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
                                Layout layout,
                                std::optional<bool> retain = std::nullopt);
+
+bool hasLayout(Tensor tensor, Layout layout);
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);

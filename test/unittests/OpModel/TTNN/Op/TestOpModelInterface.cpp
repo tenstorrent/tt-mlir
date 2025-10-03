@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpsModelCache.h"
 
@@ -197,13 +196,17 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
 }
 
 const ExpectedResult expected{true, 8192, 2048, 10240, 2048};
-const ExpectedResult cbrtExpected{true, 12288, 6144, 18432, 2048};
+const ExpectedResult cbrtExpected{true, 12288, 2048, 14336, 2048};
 const ExpectedResult tanhExpected{true, 28672, 2048, 28672 + 2048, 2048};
 
 //===---------------------------------------------------------===
 const auto createRelu = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
   return b.create<ReluOp>(loc, type, ops).getOperation();
+};
+const auto createRelu6 = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<Relu6Op>(loc, type, ops).getOperation();
 };
 const auto createSin = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
@@ -298,6 +301,7 @@ const auto createCbrt = [](OpBuilder &b, Location loc, Type type,
 // Define the test parameters
 const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Relu", createRelu, expected},
+    {"Relu6", createRelu6, expected},
     {"Sin", createSin, expected},
     {"Cos", createCos, expected},
     {"Exp", createExp, expected},
@@ -1658,6 +1662,208 @@ TEST_F(OpModelBase, RotaryEmbeddingLlamaOpInterface) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
     FAIL() << "Runtime test failed for RotaryEmbeddingLlamaOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
+  int64_t batch_size = 1;
+  int64_t num_heads = 1;
+  int64_t kv_len = 128;
+  int64_t head_size = 32;
+
+  llvm::SmallVector<int64_t> queryShape{1, batch_size, num_heads, head_size};
+  llvm::SmallVector<int64_t> keyValueShape{batch_size, num_heads, kv_len,
+                                           head_size};
+
+  llvm::SmallVector<int64_t> curPosShape{batch_size};
+  // Provide an attention mask to satisfy optional-arg handling in the
+  // interface. Use broadcastable mask shape [B, 1, nH, T].
+  llvm::SmallVector<int64_t> maskShape{batch_size, 1, num_heads, kv_len};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+  auto tiledCurPosType = ttcore::TileType::get(builder.getI32Type());
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto queryLayout =
+      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto keyValueLayout =
+      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto curPosLayout =
+      TTNNLayoutAttr::get(&context, curPosShape, tiledCurPosType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto maskLayout =
+      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto value = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto curPos = createEmptyTensor(curPosShape, tiledCurPosType, curPosLayout);
+  auto attentionMask = createEmptyTensor(maskShape, tiledElemType, maskLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto sdpAttentionDecode = builder.create<ScaledDotProductAttentionDecodeOp>(
+      builder.getUnknownLoc(), outputType, query, key, value,
+      /*is_causal=*/false,
+      /*attention_mask=*/attentionMask,
+      /*cur_pos_tensor=*/curPos,
+      /*attention_sink=*/nullptr,
+      /*scale=*/nullptr,
+      /*memory_config=*/nullptr);
+
+  OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(sdpAttentionDecode), OpConfig(queryLayout));
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        constraintsExp.get();
+
+    EXPECT_LE(cbSize, 483328);
+    EXPECT_LE(totalPeakSize, 483328);
+    EXPECT_LE(l1PeakSize, 2048);
+    EXPECT_EQ(outputSize, 0);
+
+    ASSERT_TRUE(outputLayout);
+    EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+    EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
+  } else {
+    FAIL() << "Missing L1 constraints for ScaledDotProductAttentionDecodeOp; "
+              "Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(sdpAttentionDecode.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL()
+        << "Runtime test failed for ScaledDotProductAttentionDecodeOp; Error="
+        << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
+  int64_t batch_size = 1;
+  int64_t num_heads = 1;
+  int64_t seq_len = 32;
+  int64_t kv_len = 128;
+  int64_t head_size = 32;
+
+  llvm::SmallVector<int64_t> queryShape{batch_size, num_heads, seq_len,
+                                        head_size};
+  llvm::SmallVector<int64_t> keyValueShape{batch_size, num_heads, kv_len,
+                                           head_size};
+
+  llvm::SmallVector<int64_t> curPosShape{batch_size};
+  // Provide an attention mask to satisfy optional-arg handling in the
+  // interface. Use broadcastable mask shape [B, 1, nH, T].
+  llvm::SmallVector<int64_t> maskShape{batch_size, 1, seq_len, kv_len};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto queryLayout =
+      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto keyValueLayout =
+      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto maskLayout =
+      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto value = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto attentionMask = createEmptyTensor(maskShape, tiledElemType, maskLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto sdpAttention = builder.create<ScaledDotProductAttentionOp>(
+      builder.getUnknownLoc(), outputType, query, key, value,
+      /*attention_mask=*/attentionMask,
+      /*is_causal=*/false,
+      /*scale=*/nullptr,
+      /*memory_config=*/nullptr);
+
+  OpModel backend = dyn_cast<OpModel>(sdpAttention.getOperation());
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(sdpAttention),
+                                                 OpConfig(queryLayout));
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        constraintsExp.get();
+
+    EXPECT_LE(cbSize, 483328);
+    EXPECT_LE(totalPeakSize, 483328);
+    EXPECT_LE(l1PeakSize, 2048);
+    EXPECT_EQ(outputSize, 0);
+
+    ASSERT_TRUE(outputLayout);
+    EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+    EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
+  } else {
+    FAIL() << "Missing L1 constraints for ScaledDotProductAttentionOp; "
+              "Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(sdpAttention.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for ScaledDotProductAttentionOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, NLPConcatHeadsOpInterface) {
+  int64_t batch_size = 1;
+  int64_t num_heads = 8;
+  int64_t sequence_size = 512;
+  int64_t head_size = 64;
+
+  llvm::SmallVector<int64_t> inputShape = {batch_size, num_heads, sequence_size,
+                                           head_size};
+  llvm::SmallVector<int64_t> outputShape = {batch_size, 1, sequence_size,
+                                            num_heads * head_size};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  auto nlpConcatHeads = builder.create<NLPConcatHeadsOp>(
+      builder.getUnknownLoc(), outputType, input);
+
+  auto constraintsExp = getOpConstraints(nlpConcatHeads.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 65536);
+    EXPECT_EQ(l1PeakSize, 8192);
+    EXPECT_EQ(outputSize, 8192);
+    EXPECT_TRUE(outputLayout != nullptr);
+  } else {
+    FAIL() << "Missing L1 constraints for NLPConcatHeadsOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(nlpConcatHeads.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for NLPConcatHeadsOp; Error="
            << llvm::toString(runtimeExp.takeError());
   }
 }

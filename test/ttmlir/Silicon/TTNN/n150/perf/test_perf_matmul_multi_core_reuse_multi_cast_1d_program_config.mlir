@@ -16,7 +16,7 @@
   per_core_m = 8,
   per_core_n = 6,
   fuse_batch = true,
-  fused_activation = #ttnn.unary_with_param<op_type = add_unary_sfpu, params = [1.0 : f32]>,
+  fused_activation = #ttnn.unary_with_param<op_type = sub_unary_sfpu, params = [1.0 : f32]>,
   mcast_in0 = true,
   gather_in0 = false,
   hop_cores = #ttnn.core_range_set<>,
