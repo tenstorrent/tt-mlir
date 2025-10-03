@@ -82,8 +82,8 @@ MemRefType getBufferType(Type type, bool isView,
   fullMemrefShape.append(shardShape.begin(), shardShape.end());
 
   MemRefLayoutAttrInterface layoutAttr;
+  const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
   if (isView) {
-    const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
     mlir::AffineMap map = layout.getIndexAffineMap();
     assert(map && map.getNumResults() == rank && map.getNumDims() == rank &&
            "expected tensor encoding to provide a concrete index_map for view");
@@ -91,8 +91,9 @@ MemRefType getBufferType(Type type, bool isView,
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
     if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Sharded) {
-      layoutAttr =
-          ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+      layoutAttr = ttcore::ShardLayoutAttr::get(
+          ctx, shardStride, /*buffered=*/1,
+          mlir::AffineMap::getMultiDimIdentityMap(rank, ctx));
     } else if (layout.getMemoryLayout() ==
                ttcore::TensorMemoryLayout::Interleaved) {
       layoutAttr = ttcore::InterleavedLayoutAttr::get(ctx, shardStride);

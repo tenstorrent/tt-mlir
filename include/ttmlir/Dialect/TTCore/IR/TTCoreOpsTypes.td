@@ -267,9 +267,11 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     a grid of cores.
   }];
   let parameters = (ins ArrayRefParameter<"int64_t">:$stride,
-                        DefaultValuedParameter<"uint32_t", "1">:$buffers);
+                        DefaultValuedParameter<"uint32_t", "1">:$buffers,
+                        OptionalParameter<"AffineMap">:$virt2physmap
+                        );
 
-  let assemblyFormat = "`<` custom<DimensionList>($stride) (`,` $buffers^)? `>`";
+  let assemblyFormat = "`<` custom<DimensionList>($stride) (`,` $buffers^)? (`,` $virt2physmap^)?`>`";
 
   let extraClassDeclaration = [{
     static ShardLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
