@@ -16,6 +16,7 @@
 #include "llvm/ADT/APFloat.h"
 #include "llvm/Support/raw_ostream.h"
 #include <optional>
+#include <tuple>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MELEMENTWISEFUSION
@@ -27,7 +28,7 @@ static int countBinaryOps(Operation *op) {
   for (Region &region : op->getRegions()) {
     for (Operation &opInner : region.getOps()) {
       if (opInner.hasTrait<D2MGenericRegionComputeOpTrait>()) {
-        if (opInner.getNumOperands() > 1) {
+        if (opInner.getNumOperands() == 2) {
           ++count;
         }
       }
@@ -35,12 +36,11 @@ static int countBinaryOps(Operation *op) {
     }
   }
   return count;
-};
+}
 
 static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
                                 OpOperand *use, unsigned dstRegisterSizeTiles) {
-  auto tensorType = dyn_cast<RankedTensorType>(use->get().getType());
-  assert(tensorType); // use MUST be a tensorType unless something got borked
+  auto tensorType = mlir::cast<RankedTensorType>(use->get().getType());
 
   auto shape = tensorType.getShape();
   int blockSize = shape.back();
@@ -51,7 +51,12 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
 
   int dstTilesRemaining = dstRegisterSizeTiles;
 
-  // Account for number of tiles needed to store input operands after fusion
+  // Account for number of tiles needed to store input operands after fusion.
+  // -2 accounts for removal of producer init/output operand and consumer
+  // input operand since we're fusing over them.
+  // -1 accounts for the final output tile which is only needed for binary
+  // ops, unaries do everything in place. Will be added back in next part of
+  // check.
   dstTilesRemaining -= blockSize * (consumer->getNumOperands() +
                                     producer->getNumOperands() - 2 - 1);
 
@@ -64,6 +69,30 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
       blockSize * (countBinaryOps(consumer) + countBinaryOps(producer));
 
   if (dstTilesRemaining < 0) {
+    return false;
+  }
+
+  return true;
+}
+
+static bool isValidElementwiseFusionTarget(GenericOp gOp) {
+  if (!gOp.isComputeOnlyForm()) {
+    return false;
+  }
+
+  if (!gOp.hasPureTensorSemantics()) {
+    return false;
+  }
+
+  if (!gOp.isAllParallel()) {
+    return false;
+  }
+
+  if (gOp.hasSkipOpEltwiseFusionTrait()) {
+    return false;
+  }
+
+  if (gOp.hasMultiUseInputOperand()) {
     return false;
   }
 
@@ -85,11 +114,11 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
     return false;
   }
 
-  if (checkConsumer && !consumer.isValidElementwiseFusionTarget()) {
+  if (checkConsumer && !isValidElementwiseFusionTarget(consumer)) {
     return false;
   }
 
-  if (checkProducer && !producer.isValidElementwiseFusionTarget()) {
+  if (checkProducer && !isValidElementwiseFusionTarget(producer)) {
     return false;
   }
 
@@ -120,8 +149,8 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   return true;
 }
 
-// Compute producer operand map in fused coordinates: argMap ∘ inv(resMap) ∘
-// consMap
+// Compute producer operand map in fused coordinates:
+// argMap ∘ inv(resMap) ∘ consMap
 static AffineMap computeFusedArgMap(GenericOp producer, OpOperand *prodOpnd,
                                     AffineMap prodResMap,
                                     AffineMap consMapForFused) {
@@ -130,12 +159,15 @@ static AffineMap computeFusedArgMap(GenericOp producer, OpOperand *prodOpnd,
   return arg.compose(inv).compose(consMapForFused);
 }
 
-static void gatherAndComposeFusedOpIO(OpOperand *fusedOperand,
-                                      GenericOp producer, GenericOp consumer,
-                                      SmallVector<Value> &fusedInputs,
-                                      SmallVector<Value> &fusedOutputs,
-                                      SmallVector<Type> &fusedResultTypes,
-                                      SmallVector<AffineMap> &fusedMaps) {
+static std::tuple<SmallVector<Value>, SmallVector<Value>,
+                  SmallVector<AffineMap>>
+getFusedOperands(OpOperand *fusedOperand, GenericOp producer,
+                 GenericOp consumer) {
+  SmallVector<Value> fusedInputs;
+  SmallVector<Value> fusedOutputs;
+  SmallVector<Type> fusedResultTypes;
+  SmallVector<AffineMap> fusedMaps;
+
   AffineMap prodResMap = producer.getIndexingMap(
       producer.getDpsInitOperand(0)->getOperandNumber());
   AffineMap consMap = consumer.getIndexingMap(fusedOperand->getOperandNumber());
@@ -165,12 +197,36 @@ static void gatherAndComposeFusedOpIO(OpOperand *fusedOperand,
       fusedResultTypes.push_back(co.get().getType());
     }
   }
+
+  return std::make_tuple(std::move(fusedInputs), std::move(fusedOutputs),
+                         std::move(fusedMaps));
 }
 
-static void mapFusedOpIo(GenericOp fusedOp, OpOperand *fusedOperand,
-                         GenericOp producer, GenericOp consumer,
-                         IRMapping &irMap, Block &fusedBlock, Block &pb,
-                         Block &cb) {
+static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
+                                    GenericOp consumer,
+                                    SmallVector<Value> &fusedInputs,
+                                    SmallVector<Value> &fusedOutputs,
+                                    SmallVector<AffineMap> &fusedMaps,
+                                    PatternRewriter &rewriter) {
+  /////////////////////////////////////////////////////////////////////////////
+  // Create fused op
+  /////////////////////////////////////////////////////////////////////////////
+  auto fusedResultTypes = TypeRange(fusedOutputs);
+
+  auto fusedOp = rewriter.create<GenericOp>(
+      consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
+      consumer.getGrid(), consumer.getBlockFactors(),
+      rewriter.getAffineMapArrayAttr(fusedMaps), consumer.getIteratorTypes(),
+      consumer.getThreads(), /*regions=*/1);
+
+  /////////////////////////////////////////////////////////////////////////////
+  // Map the block arguments of the fusedOp
+  /////////////////////////////////////////////////////////////////////////////
+  IRMapping irMap;
+  Block &fusedBlock = fusedOp.getRegion(0).emplaceBlock();
+  Block &pb = producer.getRegion(0).front();
+  Block &cb = consumer.getRegion(0).front();
+
   // For each fused operand, pick the corresponding region block-argument
   // type from the originating op (producer/consumer) to satisfy verifier.
   SmallVector<Type> fusedBlockArgTypes;
@@ -224,15 +280,13 @@ static void mapFusedOpIo(GenericOp fusedOp, OpOperand *fusedOperand,
   };
   mapRegionArgs(producer.getOperation(), pb);
   mapRegionArgs(consumer.getOperation(), cb);
-}
 
-/// Build fused region: clone producer then consumer, map fused operand to
-/// producer yield value. Ensure fused block argument types match original
-/// region operand argument types (shard types), not the top-level types.
-static void populateFusedOpBody(GenericOp fused, OpOperand *fusedOperand,
-                                GenericOp producer, GenericOp consumer,
-                                IRMapping &irMap, Block &fusedBlock, Block &pb,
-                                Block &cb, PatternRewriter &rewriter) {
+  /////////////////////////////////////////////////////////////////////////////
+  // Build fused region: clone producer then consumer, map fused operand to
+  // producer yield value. Ensure fused block argument types match original
+  // region operand argument types (shard types), not the top-level types.
+  /////////////////////////////////////////////////////////////////////////////
+
   // Insert all cloned ops into the fused block, in order: producer then
   // consumer.
   rewriter.setInsertionPointToEnd(&fusedBlock);
@@ -279,17 +333,9 @@ static void populateFusedOpBody(GenericOp fused, OpOperand *fusedOperand,
     fusedYields.push_back(irMap.lookupOrDefault(y));
   }
   rewriter.setInsertionPointToEnd(&fusedBlock);
-  rewriter.create<YieldOp>(fused.getLoc(), fusedYields);
+  rewriter.create<YieldOp>(fusedOp.getLoc(), fusedYields);
 
-  // Replace uses: from producer and consumer results to fused results.
-  int resIdx = 0;
-  // Consumer results
-  for (auto r : consumer->getResults()) {
-    r.replaceAllUsesWith(fused->getResult(resIdx++));
-  }
-
-  rewriter.eraseOp(consumer);
-  rewriter.eraseOp(producer);
+  return fusedOp;
 }
 
 namespace {
@@ -301,50 +347,51 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
 
   LogicalResult matchAndRewrite(GenericOp consumer,
                                 PatternRewriter &rewriter) const final {
-    if (!consumer.isValidElementwiseFusionTarget()) {
+    if (!isValidElementwiseFusionTarget(consumer)) {
       return failure();
     }
 
-    for (OpOperand *use : consumer.getDpsInputOperands()) {
-      if (!isElementwiseFusable(use, dstRegisterSizeTiles,
-                                // already checked consumer outside
-                                false, true)) {
-        continue;
+    auto findFusableOperand = [&]() -> OpOperand * {
+      for (OpOperand *use : consumer.getDpsInputOperands()) {
+        if (isElementwiseFusable(use, dstRegisterSizeTiles,
+                                 // already checked consumer outside
+                                 false, true)) {
+          return use;
+        }
       }
+      return nullptr;
+    };
 
-      auto producer = use->get().getDefiningOp<GenericOp>();
-      // we already check that producer is a valid GenericOp,
-      // use assert instead of if()
-      assert(producer);
+    OpOperand *fusedOperand = findFusableOperand();
 
-      // Build fused op operands, maps, results
-      SmallVector<Value> fusedInputs;
-      SmallVector<Value> fusedOutputs;
-      SmallVector<Type> fusedResultTypes;
-      SmallVector<AffineMap> fusedMaps;
-
-      gatherAndComposeFusedOpIO(use, producer, consumer, fusedInputs,
-                                fusedOutputs, fusedResultTypes, fusedMaps);
-
-      // Create fused op
-      auto fused = rewriter.create<GenericOp>(
-          consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
-          consumer.getGrid(), consumer.getBlockFactors(),
-          rewriter.getAffineMapArrayAttr(fusedMaps),
-          consumer.getIteratorTypes(), consumer.getThreads(), /*regions=*/1);
-
-      IRMapping irMap;
-      Block &fusedBlock = fused.getRegion(0).emplaceBlock();
-      Block &pb = producer.getRegion(0).front();
-      Block &cb = consumer.getRegion(0).front();
-
-      mapFusedOpIo(fused, use, producer, consumer, irMap, fusedBlock, pb, cb);
-
-      populateFusedOpBody(fused, use, producer, consumer, irMap, fusedBlock, pb,
-                          cb, rewriter);
-
-      return success();
+    if (!fusedOperand) {
+      return failure();
     }
+
+    auto producer = fusedOperand->get().getDefiningOp<GenericOp>();
+    // we already check that producer is a valid GenericOp,
+    // use assert instead of if()
+    assert(producer);
+
+    // Build fused op operands, maps, results
+    auto [fusedInputs, fusedOutputs, fusedMaps] =
+        getFusedOperands(fusedOperand, producer, consumer);
+
+    auto fusedOp =
+        createFusedGeneric(fusedOperand, producer, consumer, fusedInputs,
+                           fusedOutputs, fusedMaps, rewriter);
+
+    // Replace uses: from producer and consumer results to fused results.
+    int resIdx = 0;
+    // Consumer results
+    for (auto r : consumer->getResults()) {
+      r.replaceAllUsesWith(fusedOp->getResult(resIdx++));
+    }
+
+    rewriter.eraseOp(consumer);
+    rewriter.eraseOp(producer);
+
+    return success();
 
     return failure();
   }

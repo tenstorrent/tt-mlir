@@ -28,7 +28,7 @@ def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
   ];
 }
 
-def D2MLinalgLoopFission : Pass<"d2m-linalg-loop-fission", "::mlir::ModuleOp"> {
+def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleOp"> {
   let summary = "Perform loop fission inside d2m.generic compute regions for load→compute→store triplets";
   let description = [{
     This pass scans `d2m.generic` compute regions that do not contain any tilize/untilize ops,

@@ -1505,23 +1505,14 @@ bool d2m::GenericOp::hasCompatibleBlocking(GenericOp b) {
 /// Returns true if op or any of the operations nested within it's regions have
 /// the D2MSkipOpEltwiseFusionTrait.
 bool d2m::GenericOp::hasSkipOpEltwiseFusionTrait() {
-  std::function<bool(Operation *)> helper = [&](Operation *op) -> bool {
-    if (op->hasTrait<D2MSkipOpEltwiseFusionTrait>()) {
-      return true;
-    }
+  bool skipFusion = false;
 
-    for (Region &region : op->getRegions()) {
-      for (Operation &opInner : region.getOps()) {
-        if (helper(&opInner)) {
-          return true;
-        }
-      }
-    }
+  walk([&](Operation *op) {
+    skipFusion |= op->hasTrait<D2MSkipOpEltwiseFusionTrait>();
+    return skipFusion ? WalkResult::interrupt() : WalkResult::advance();
+  });
 
-    return false;
-  };
-
-  return helper(this->getOperation());
+  return skipFusion;
 }
 
 bool d2m::GenericOp::hasReduction() {
@@ -1542,39 +1533,10 @@ bool d2m::GenericOp::hasMultiUseInputOperand() {
 }
 
 bool d2m::GenericOp::isAllParallel() {
-  ArrayAttr iteratorTypes = getIteratorTypes();
-
-  for (Attribute it : iteratorTypes) {
+  return llvm::all_of(getIteratorTypes(), [](Attribute it) {
     auto itAttr = mlir::cast<mlir::tt::ttcore::IteratorTypeAttr>(it);
-    if (itAttr.getValue() != mlir::tt::ttcore::IteratorType::Parallel) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool d2m::GenericOp::isValidElementwiseFusionTarget() {
-  if (!isComputeOnlyForm()) {
-    return false;
-  }
-
-  if (!hasPureTensorSemantics()) {
-    return false;
-  }
-
-  if (!isAllParallel()) {
-    return false;
-  }
-
-  if (hasSkipOpEltwiseFusionTrait()) {
-    return false;
-  }
-
-  if (hasMultiUseInputOperand()) {
-    return false;
-  }
-
-  return true;
+    return itAttr.getValue() == mlir::tt::ttcore::IteratorType::Parallel;
+  });
 }
 
 } // namespace mlir::tt::d2m

@@ -18,7 +18,7 @@ using namespace mlir;
 using namespace mlir::tt::d2m;
 
 namespace mlir::tt::d2m {
-#define GEN_PASS_DEF_D2MLINALGLOOPFISSION
+#define GEN_PASS_DEF_D2MSFPUTILELOOPFISSION
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 } // namespace mlir::tt::d2m
 
@@ -210,9 +210,9 @@ static bool fissionAtStore(affine::AffineForOp outerFor,
   return true;
 }
 
-struct D2MLinalgLoopFission
-    : public tt::d2m::impl::D2MLinalgLoopFissionBase<D2MLinalgLoopFission> {
-  using D2MLinalgLoopFissionBase::D2MLinalgLoopFissionBase;
+struct D2MSFPUTileLoopFission
+    : public tt::d2m::impl::D2MSFPUTileLoopFissionBase<D2MSFPUTileLoopFission> {
+  using D2MSFPUTileLoopFissionBase::D2MSFPUTileLoopFissionBase;
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
