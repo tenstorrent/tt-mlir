@@ -57,4 +57,8 @@ class D2M_Trait<string name, list<Trait> traits = []> : NativeOpTrait<name, trai
 def D2M_GenericRegionComputeOpTrait : D2M_Trait<"D2MGenericRegionComputeOpTrait">;
 def D2M_GenericRegionDatamovementOpTrait : D2M_Trait<"D2MGenericRegionDatamovementOpTrait">;
 
+// SkipOpEltwiseFusion is a trait that can be used to mark specific compute operations
+// to skip the ElementwiseFusion pass
+def D2M_SkipOpEltwiseFusionTrait : D2M_Trait<"D2MSkipOpEltwiseFusionTrait">;
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MDIALECT_TD
