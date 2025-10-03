@@ -259,6 +259,40 @@ struct EmitPyTypeConverter<mlir::tt::ttnn::Topology> {
   }
 };
 
+template <>
+struct EmitPyTypeConverter<mlir::tt::ttcore::ReduceType> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto topologyAttr =
+            mlir::dyn_cast_if_present<mlir::tt::ttcore::ReduceTypeAttr>(attr)) {
+      return convert(topologyAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::tt::ttcore::ReduceTypeAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(::mlir::tt::ttcore::ReduceType topology) {
+    std::string base = "ttnn.ReduceType";
+    switch (topology) {
+    case ::mlir::tt::ttcore::ReduceType::Sum:
+      return base + ".Sum";
+    case ::mlir::tt::ttcore::ReduceType::Mean:
+      return base + ".Mean";
+    case ::mlir::tt::ttcore::ReduceType::Max:
+      return base + ".Max";
+    case ::mlir::tt::ttcore::ReduceType::Min:
+      return base + ".Min";
+    case ::mlir::tt::ttcore::ReduceType::Std:
+      return base + ".Std";
+    case ::mlir::tt::ttcore::ReduceType::Var:
+      return base + ".Var";
+    }
+    llvm_unreachable("Unknown ttnn.ReduceType");
+  }
+};
+
 // Converter for integral types.
 template <typename T>
 struct EmitPyTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {
