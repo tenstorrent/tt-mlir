@@ -399,8 +399,6 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     rewriter.eraseOp(producer);
 
     return success();
-
-    return failure();
   }
 
   unsigned dstRegisterSizeTiles;
