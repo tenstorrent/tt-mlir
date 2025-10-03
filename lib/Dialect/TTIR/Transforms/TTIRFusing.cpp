@@ -1931,108 +1931,159 @@ public:
     llvm::SmallVector<LinearOp> linearOps =
         {}; // Linear ops that use the reshape op output.
     populateLinearOps(reshapeOp, linearOps);
-
-    if (!linearOps.empty() && validateLinearOps(reshapeOp, linearOps)) {
-      llvm::SmallVector<PermuteOp> permuteOps = {};
-      populatePermuteOps(linearOps, permuteOps);
-      if (!validatePermuteOps(permuteOps)) {
-        return mlir::failure();
-      }
-
-      // Concatenate weights along dimension 1.
-      // Weights are the second input (B) of linear op, shape [hidden, hidden].
-      Value queryWeightMatrix = linearOps[0].getB();
-      Value keyWeightMatrix = linearOps[1].getB();
-      Value valueWeightMatrix = linearOps[2].getB();
-
-      Value reshapeOutput = reshapeOp.getResult();
-      ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
-      int32_t batchSize = inputShape[BATCH_SIZE];
-      int32_t sequenceLength = inputShape[SEQUENCE_LENGTH];
-      int32_t hiddenSize = inputShape[HIDDEN_DIMENSION];
-
-      SmallVector<int64_t> concatenatedWeightShape = {hiddenSize,
-                                                      hiddenSize * 3};
-      RankedTensorType concatenatedWeightType = RankedTensorType::get(
-          concatenatedWeightShape,
-          mlir::cast<RankedTensorType>(queryWeightMatrix.getType())
-              .getElementType());
-
-      // TODO: Do I need this?
-      Operation *lastWeightOp = valueWeightMatrix.getDefiningOp();
-      rewriter.setInsertionPointAfter(lastWeightOp);
-
-      ConcatOp concatenatedWeightMatrix =
-          ttir::utils::createDPSOp<ttir::ConcatOp>(
-              rewriter, lastWeightOp->getLoc(), concatenatedWeightType,
-              ValueRange{queryWeightMatrix, keyWeightMatrix, valueWeightMatrix},
-              rewriter.getSI32IntegerAttr(1) /* axis */);
-
-      // Concatenate bias along dimension 1 (last dimension).
-      // TODO: What happens if bias is 1D?
-      Value queryBias = linearOps[0].getBias();
-      Value keyBias = linearOps[1].getBias();
-      Value valueBias = linearOps[2].getBias();
-      Operation *lastBiasOp = valueBias.getDefiningOp();
-      rewriter.setInsertionPointAfter(lastBiasOp);
-      ArrayRef<int64_t> biasShape =
-          mlir::cast<RankedTensorType>(queryBias.getType()).getShape();
-      SmallVector<int64_t> concatenatedBiasShape = {biasShape[0],
-                                                    biasShape[1] * 3};
-      RankedTensorType concatenatedBiasType = RankedTensorType::get(
-          concatenatedBiasShape,
-          mlir::cast<RankedTensorType>(queryBias.getType()).getElementType());
-
-      ConcatOp concatenatedBias = ttir::utils::createDPSOp<ttir::ConcatOp>(
-          rewriter, lastBiasOp->getLoc(), concatenatedBiasType,
-          ValueRange{queryBias, keyBias, valueBias},
-          rewriter.getSI32IntegerAttr(1) /* axis */);
-
-      // Create linear operation with concatenated weights and bias.
-      RankedTensorType linearOutputType = RankedTensorType::get(
-          {batchSize * sequenceLength, hiddenSize * 3},
-          mlir::cast<RankedTensorType>(reshapeOutput.getType())
-              .getElementType());
-      LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
-          rewriter, lastBiasOp->getLoc(), linearOutputType, reshapeOutput,
-          concatenatedWeightMatrix.getResult(), concatenatedBias.getResult(),
-          /*transpose_a=*/false, /*transpose_b=*/false);
-
-      // Create split qkv op.
-      auto queryType = permuteOps[0].getOutput().getType();
-      auto keyType = permuteOps[1].getOutput().getType();
-      auto valueType = permuteOps[2].getOutput().getType();
-      int32_t numHeads = queryType.getShape()[Q_NUM_KV_HEADS];
-
-      Value queryOutput = rewriter.create<EmptyOp>(
-          linearOp.getLoc(), queryType.getShape(), queryType.getElementType(),
-          queryType.getEncoding());
-      Value keyOutput = rewriter.create<EmptyOp>(
-          linearOp.getLoc(), keyType.getShape(), keyType.getElementType(),
-          keyType.getEncoding());
-      Value valueOutput = rewriter.create<EmptyOp>(
-          linearOp.getLoc(), valueType.getShape(), valueType.getElementType(),
-          valueType.getEncoding());
-
-      auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
-          linearOp.getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
-          linearOp.getResult(), Value(), queryOutput, keyOutput, valueOutput,
-          rewriter.getUI32IntegerAttr(numHeads), IntegerAttr(),
-          rewriter.getBoolAttr(false));
-
-      rewriter.replaceAllUsesWith(permuteOps[0].getResult(),
-                                  splitOp.getResult(0));
-      rewriter.replaceAllUsesWith(permuteOps[1].getResult(),
-                                  splitOp.getResult(1));
-      rewriter.replaceAllUsesWith(permuteOps[2].getResult(),
-                                  splitOp.getResult(2));
-
-      return mlir::success();
+    if (linearOps.empty() || !validateLinearOps(reshapeOp, linearOps)) {
+      return mlir::failure();
     }
-    return mlir::failure();
+
+    llvm::SmallVector<PermuteOp> permuteOps = {};
+    populatePermuteOps(linearOps, permuteOps);
+    if (!validatePermuteOps(permuteOps)) {
+      return mlir::failure();
+    }
+
+    hoistPreprocessingOps(linearOps);
+
+    // Concatenate weights along dimension 1.
+    // Weights are the second input (B) of linear op, shape [hidden, hidden].
+    Value queryWeightMatrix = linearOps[0].getB();
+    Value keyWeightMatrix = linearOps[1].getB();
+    Value valueWeightMatrix = linearOps[2].getB();
+
+    Value reshapeOutput = reshapeOp.getResult();
+    ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
+    int32_t batchSize = inputShape[BATCH_SIZE];
+    int32_t sequenceLength = inputShape[SEQUENCE_LENGTH];
+    int32_t hiddenSize = inputShape[HIDDEN_DIMENSION];
+
+    SmallVector<int64_t> concatenatedWeightShape = {hiddenSize, hiddenSize * 3};
+    RankedTensorType concatenatedWeightType = RankedTensorType::get(
+        concatenatedWeightShape,
+        mlir::cast<RankedTensorType>(queryWeightMatrix.getType())
+            .getElementType());
+
+    // TODO: Do I need this?
+    Operation *lastWeightOp = valueWeightMatrix.getDefiningOp();
+    rewriter.setInsertionPointAfter(linearOps.front());
+
+    ConcatOp concatenatedWeightMatrix =
+        ttir::utils::createDPSOp<ttir::ConcatOp>(
+            rewriter, lastWeightOp->getLoc(), concatenatedWeightType,
+            ValueRange{queryWeightMatrix, keyWeightMatrix, valueWeightMatrix},
+            rewriter.getSI32IntegerAttr(1) /* axis */);
+
+    // Concatenate bias along dimension 1 (last dimension).
+    // TODO: What happens if bias is 1D?
+    Value queryBias = linearOps[0].getBias();
+    Value keyBias = linearOps[1].getBias();
+    Value valueBias = linearOps[2].getBias();
+    Operation *lastBiasOp = valueBias.getDefiningOp();
+
+    ArrayRef<int64_t> biasShape =
+        mlir::cast<RankedTensorType>(queryBias.getType()).getShape();
+    SmallVector<int64_t> concatenatedBiasShape = {biasShape[0],
+                                                  biasShape[1] * 3};
+    RankedTensorType concatenatedBiasType = RankedTensorType::get(
+        concatenatedBiasShape,
+        mlir::cast<RankedTensorType>(queryBias.getType()).getElementType());
+
+    ConcatOp concatenatedBias = ttir::utils::createDPSOp<ttir::ConcatOp>(
+        rewriter, lastBiasOp->getLoc(), concatenatedBiasType,
+        ValueRange{queryBias, keyBias, valueBias},
+        rewriter.getSI32IntegerAttr(1) /* axis */);
+
+    // Create linear operation with concatenated weights and bias.
+    RankedTensorType linearOutputType = RankedTensorType::get(
+        {batchSize * sequenceLength, hiddenSize * 3},
+        mlir::cast<RankedTensorType>(reshapeOutput.getType()).getElementType());
+    LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
+        rewriter, lastBiasOp->getLoc(), linearOutputType, reshapeOutput,
+        concatenatedWeightMatrix.getResult(), concatenatedBias.getResult(),
+        /*transpose_a=*/false, /*transpose_b=*/false);
+
+    // Create split qkv op.
+    auto queryType = permuteOps[0].getOutput().getType();
+    auto keyType = permuteOps[1].getOutput().getType();
+    auto valueType = permuteOps[2].getOutput().getType();
+    int32_t numHeads = queryType.getShape()[Q_NUM_KV_HEADS];
+
+    Value queryOutput = rewriter.create<EmptyOp>(
+        linearOp.getLoc(), queryType.getShape(), queryType.getElementType(),
+        queryType.getEncoding());
+    Value keyOutput = rewriter.create<EmptyOp>(
+        linearOp.getLoc(), keyType.getShape(), keyType.getElementType(),
+        keyType.getEncoding());
+    Value valueOutput = rewriter.create<EmptyOp>(
+        linearOp.getLoc(), valueType.getShape(), valueType.getElementType(),
+        valueType.getEncoding());
+
+    auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
+        linearOp.getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
+        linearOp.getResult(), Value(), queryOutput, keyOutput, valueOutput,
+        rewriter.getUI32IntegerAttr(numHeads), IntegerAttr(),
+        rewriter.getBoolAttr(false));
+
+    rewriter.replaceAllUsesWith(permuteOps[0].getResult(),
+                                splitOp.getResult(0));
+    rewriter.replaceAllUsesWith(permuteOps[1].getResult(),
+                                splitOp.getResult(1));
+    rewriter.replaceAllUsesWith(permuteOps[2].getResult(),
+                                splitOp.getResult(2));
+
+    return mlir::success();
   }
 
 private:
+  // Recursively collect all defining ops of a value and their dependencies.
+  // Avoid cycles or duplicates using a visited set.
+  void collectRecursivePreprocessingOps(Value val, Operation *QueryLinearOp,
+                                        SmallVectorImpl<Operation *> &collected,
+                                        DenseSet<Operation *> &visited) const {
+    if (Operation *defOp = val.getDefiningOp()) {
+      // Only consider ops after op1 in the block
+      if (defOp->getBlock() == QueryLinearOp->getBlock()) {
+        if (defOp->isBeforeInBlock(QueryLinearOp)) {
+          // Skip ops that appear before Query LinearOp.
+          return;
+        }
+      }
+
+      if (!visited.insert(defOp).second) {
+        return; // Already visited
+      }
+
+      // Recurse through operands first
+      for (Value operand : defOp->getOperands()) {
+        collectRecursivePreprocessingOps(operand, QueryLinearOp, collected,
+                                         visited);
+      }
+
+      collected.push_back(defOp);
+    }
+  }
+
+  void hoistPreprocessingOps(llvm::SmallVector<LinearOp> linearOps) const {
+    LinearOp op0 = linearOps[0];
+    llvm::SmallVector<Operation *> preOpsToMove;
+    llvm::DenseSet<Operation *> visited;
+
+    auto collectFromOperands = [&](Operation *targetOp) {
+      for (Value operand : targetOp->getOperands()) {
+        collectRecursivePreprocessingOps(operand, op0, preOpsToMove, visited);
+      }
+    };
+
+    // Collect prepocessing ops for Key LinearOp.
+    collectFromOperands(linearOps[1]);
+    // Collect prepocessing ops for Value LinearOp.
+    collectFromOperands(linearOps[2]);
+
+    // Hoist preprocessing ops before Query LinearOp — all of which are after
+    // Query LinearOp.
+    for (Operation *preOp : preOpsToMove) {
+      preOp->moveBefore(op0);
+    }
+  }
+
   PermuteOp getPermuteOp(mlir::Operation *op) const {
     // permute op comes from: linear/ matmul op -> reshape op -> permute op
     auto users = op->getResult(0).getUsers();
@@ -2069,8 +2120,8 @@ private:
 
   void populateLinearOps(ReshapeOp reshapeOp,
                          llvm::SmallVector<LinearOp> &linearOps) const {
-    for (auto user : reshapeOp.getResult().getUsers()) {
-      if (LinearOp linearOp = llvm::dyn_cast<LinearOp>(user)) {
+    for (auto *user : reshapeOp.getResult().getUsers()) {
+      if (LinearOp linearOp = mlir::dyn_cast<LinearOp>(user)) {
         linearOps.push_back(linearOp);
       }
     }
