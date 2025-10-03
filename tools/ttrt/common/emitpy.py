@@ -211,11 +211,11 @@ class EmitPy:
             dylib = EmitPyDylib(self.logger, self.file_manager, path)
             self.emitpy_dylibs.append(dylib)
             corresponding_ttnn_path = self.file_manager.find_py_corresponding_ttnn(path)
-            self.logging.debug(
-                f"Found ttnn path corresponding to .py dylib ={corresponding_ttnn_path}"
-            )
 
             if corresponding_ttnn_path:
+                self.logging.debug(
+                    f"Found ttnn file corresponding to .py dylib ={corresponding_ttnn_path}"
+                )
                 bin = Binary(self.logger, self.file_manager, corresponding_ttnn_path)
                 try:
                     bin.check_version(ignore=self["--ignore-version"])

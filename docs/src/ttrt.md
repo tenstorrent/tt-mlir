@@ -433,7 +433,7 @@ ttrt emitpy out.py --memory --save-artifacts
 ```
 
 For info on generating EmitPy tests through `ttmlir-opt` and `ttmlir-translate`, see [EmitPy](./emitpy.md).
-For info on generating EmitPy tests through `ttir-builder`, see [EmitPy](./builder/ttir-builder.md).
+For info on generating EmitPy tests through `ttir-builder`, see [ttir-builder](./builder/ttir-builder.md).
 
 #### emitpy results
 The `emitpy` api saves a `emitpy_results.json` file that records information about the run including any errors that were thrown and location of other saved data.
