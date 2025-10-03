@@ -38,6 +38,10 @@ public:
               operand.get().getDefiningOp())) {
         continue;
       }
+      auto memref = mlir::cast<MemRefType>(operand.get().getType());
+      if (ttcore::getMemorySpace(memref) == ttcore::MemorySpace::DeviceL1) {
+        continue;
+      }
       insertStream(rewriter, operand, op);
       modified = true;
     }
