@@ -1139,7 +1139,6 @@ class TTIRBuilder(Builder):
         self,
         in0: Operand,
         out: Operand,
-        unit_attrs: Optional[List[str]] = None,
         output_type: torch.dtype,
         unit_attrs: Optional[List[str]] = None,
         loc: Optional[Union[str, Location]] = None,

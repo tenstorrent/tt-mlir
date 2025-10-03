@@ -3879,15 +3879,20 @@ def test_collective_broadcast(
         system_desc_path=request.config.getoption("--sys-desc"),
     )
 
+
 @pytest.mark.parametrize("shape", [(64, 64)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.parametrize("loc", [
-    None, 
-    "src/tt-mlir/tools/builder/ttir/ttir_builder.py:1234:5",
-    "test/python/golden/test_ttir_ops.py:3920:15",
-    "examples/binary_ops_example.py:45:12"
-], ids=["no_loc", "builder_loc", "test_loc", "example_loc"])
+@pytest.mark.parametrize(
+    "loc",
+    [
+        None,
+        "src/tt-mlir/tools/builder/ttir/ttir_builder.py:1234:5",
+        "test/python/golden/test_ttir_ops.py:3920:15",
+        "examples/binary_ops_example.py:45:12",
+    ],
+    ids=["no_loc", "builder_loc", "test_loc", "example_loc"],
+)
 @pytest.mark.parametrize("test_fn", [add, multiply, subtract])
 def test_binary_ops_with_location_parameter(
     test_fn: Callable,
@@ -3898,17 +3903,21 @@ def test_binary_ops_with_location_parameter(
     request,
 ):
     """Test that location parameter is properly handled.
-    
+
     This is a utility test to verify the framework correctly handles the loc parameter,
     not to test the correctness of the operations themselves.
     """
+
     def test_fn_with_loc(
-        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
     ):
         return test_fn(in0, in1, builder, unit_attrs=unit_attrs, loc=loc)
-    
+
     test_fn_with_loc.__name__ = f"{test_fn.__name__}_with_loc_{loc or 'none'}"
-    
+
     compile_ttir_to_flatbuffer(
         test_fn_with_loc,
         [shape, shape],
