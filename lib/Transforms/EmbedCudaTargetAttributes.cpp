@@ -14,7 +14,7 @@ namespace mlir::tt::transforms {
 
 namespace {
 
-// Simple pass implementation that embeds CUDA target attributes into module
+// Simple pass that embeds CUDA target attributes into the module.
 class EmbedCudaTargetAttributesPass
     : public impl::EmbedCudaTargetAttributesBase<
           EmbedCudaTargetAttributesPass> {
@@ -25,7 +25,6 @@ public:
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
     OpBuilder builder(moduleOp.getContext());
-    // Use the inherited option members from the base class
     moduleOp->setAttr("cuda.chip", builder.getStringAttr(this->chip));
     moduleOp->setAttr("cuda.features", builder.getStringAttr(this->features));
     moduleOp->setAttr("cuda.opt_level",
