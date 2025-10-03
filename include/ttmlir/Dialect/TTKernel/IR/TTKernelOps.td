@@ -747,11 +747,20 @@ def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
     let description = [{
       Performs element-wise computation of exponential on each element of a tile
       in DST register at index tile_index. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call. This call is blocking and is only
-      available on the compute engine.
+      acquired state via *tile_regs_acquire* call. This call is blocking and is
+      only available on the compute engine. `approx` enables approximate mode.
+      `fast_and_approx` enables use of a faster approximation algorithm and only
+      takes effect if `approx` is also set. `scale_enable` Enables input
+      scaling by a constant factor in approximate or non-approximate mode.
+      `skip_positive_check` skips the check for large-positive input values.
     }];
 
-    let arguments = (ins IndexLike:$tile_index);
+    let arguments = (ins IndexLike:$tile_index,
+                         UnitAttr:$approx,
+                         UnitAttr:$fast_and_approx,
+                         UnitAttr:$scale_enable,
+                         UnitAttr:$skip_positive_check
+                    );
 
     let assemblyFormat = [{
       `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
