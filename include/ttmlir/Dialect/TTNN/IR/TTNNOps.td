@@ -1076,6 +1076,8 @@ def TTNN_SplitQueryKeyValueAndSplitHeadsOp: TTNN_Op<"split_qkv_and_split_heads",
     let results = (outs AnyRankedTensor:$query,
                         AnyRankedTensor:$key,
                         AnyRankedTensor:$value);
+
+    let hasVerifier = 1;
 }
 
 def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {

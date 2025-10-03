@@ -26,10 +26,14 @@ module {
     // CHECK: "ttir.linear"
     // CHECK-SAME: (tensor<68x1024xf32>, tensor<1024x3072xf32>, tensor<68x3072xf32>, tensor<68x3072xf32>) -> tensor<68x3072xf32>
 
+    // Check reshape [batch*seq, hidden*3] to [batch, seq, hidden*3]
+    // CHECK: "ttir.reshape"
+    // CHECK-SAME: (tensor<68x3072xf32>, tensor<2x34x3072xf32>) -> tensor<2x34x3072xf32>
+
     // Split Q, K, V heads:
-    // CHECK: "ttir.split_query_key_values_and_split_heads"
+    // CHECK: "ttir.split_query_key_value_and_split_heads"
     // CHECK-SAME: <{num_heads = 16 : ui32, transpose_key = false}>
-    // CHECK-SAME: (tensor<68x3072xf32>, tensor<2x16x34x64xf32>, tensor<2x16x64x34xf32>, tensor<2x16x34x64xf32>) -> (tensor<2x16x34x64xf32>, tensor<2x16x64x34xf32>, tensor<2x16x34x64xf32>)
+    // CHECK-SAME: (tensor<2x34x3072xf32>, tensor<2x16x34x64xf32>, tensor<2x16x64x34xf32>, tensor<2x16x34x64xf32>) -> (tensor<2x16x34x64xf32>, tensor<2x16x64x34xf32>, tensor<2x16x34x64xf32>)
 
 
     // Reshape input to 2D for linear operations

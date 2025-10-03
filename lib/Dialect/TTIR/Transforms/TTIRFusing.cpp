@@ -2001,6 +2001,25 @@ public:
         concatenatedWeightMatrix.getResult(), concatenatedBias.getResult(),
         /*transpose_a=*/false, /*transpose_b=*/false);
 
+    // Create reshape operation to convert from [batch*seq, hidden*3] to [batch,
+    // seq, hidden*3]
+    SmallVector<int64_t> reshapeToSplitShape = {batchSize, sequenceLength,
+                                                hiddenSize * 3};
+    auto reshapeElementType =
+        mlir::cast<RankedTensorType>(linearOp.getResult().getType())
+            .getElementType();
+    auto reshapeEncoding =
+        mlir::cast<RankedTensorType>(linearOp.getResult().getType())
+            .getEncoding();
+
+    SmallVector<int32_t> reshapeToSplitShapeI32(reshapeToSplitShape.begin(),
+                                                reshapeToSplitShape.end());
+
+    ReshapeOp reshapeToSplit = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, linearOp.getLoc(), reshapeToSplitShape, reshapeElementType,
+        reshapeEncoding, linearOp.getResult(),
+        rewriter.getI32ArrayAttr(reshapeToSplitShapeI32));
+
     // Create split qkv op.
     auto queryType = permuteOps[0].getOutput().getType();
     auto keyType = permuteOps[1].getOutput().getType();
@@ -2019,8 +2038,8 @@ public:
 
     auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
         linearOp.getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
-        linearOp.getResult(), Value(), queryOutput, keyOutput, valueOutput,
-        rewriter.getUI32IntegerAttr(numHeads), IntegerAttr(),
+        reshapeToSplit.getResult(), Value(), queryOutput, keyOutput,
+        valueOutput, rewriter.getUI32IntegerAttr(numHeads), IntegerAttr(),
         rewriter.getBoolAttr(false));
 
     rewriter.replaceAllUsesWith(permuteOps[0].getResult(),
