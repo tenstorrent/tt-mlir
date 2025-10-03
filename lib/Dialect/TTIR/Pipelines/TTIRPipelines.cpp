@@ -106,22 +106,23 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   mlir::bufferization::buildBufferDeallocationPipeline(manager,
                                                        deallocationOptions);
 
-  // This transforms high-level linalg operations into affine loop nests that
+  // This transforms high-level linalg operations into parallel loop nests that
   //  explicitly iterate over tensor elements.
-  manager.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+  manager.addPass(mlir::createConvertLinalgToParallelLoopsPass());
 
-  // Performs loop-invariant code motion on affine loops, moving computations
-  //  outside loops when possible to reduce redundant calculations.
-  manager.addPass(affine::createAffineLoopInvariantCodeMotionPass());
+  // Fuses parallel loops to reduce the number of parallel loops.
+  manager.addPass(createParallelLoopFusionPass());
 
-  // Wrap single AffineFor loops with outer dummy loops to ensure proper
-  // nesting structure required for GPU kernel generation.
-  manager.addNestedPass<func::FuncOp>(
-      transforms::createWrapSingleAffineLoops());
+  // Collapses parallel loops to suit GPU mapping.
+  manager.addPass(transforms::createCollapseParallelLoops());
 
-  // Maps affine loops to GPU execution model, distributing iterations across
+  // Tiles parallel loops to improve GPU occupancy.
+  manager.addPass(createParallelLoopTilingPass({32}, true));
+
+  // Maps parallel loops to GPU execution model, distributing iterations across
   //   GPU threads and blocks.
-  manager.addNestedPass<func::FuncOp>(mlir::createConvertAffineForToGPUPass());
+  manager.addPass(createGpuMapParallelLoopsPass());
+  manager.addPass(createConvertParallelLoopToGpuPass());
 
   // Extracts GPU kernel regions into separate GPU functions that can be
   // launched from host code.
@@ -163,6 +164,14 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
   // Converts remaining SCF operations to control flow and LLVM dialect.
   manager.addPass(mlir::createSCFToControlFlowPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
+
+  // Embed CUDA target attributes for flatbuffer translation.
+  transforms::EmbedCudaTargetAttributesOptions embedCudaTargetAttributesOptions;
+  embedCudaTargetAttributesOptions.chip = options.chip;
+  embedCudaTargetAttributesOptions.features = options.features;
+  embedCudaTargetAttributesOptions.opt_level = options.optLevel;
+  manager.addPass(transforms::createEmbedCudaTargetAttributes(
+      embedCudaTargetAttributesOptions));
 }
 
 void createLinalgToLLVMPipeline(OpPassManager &manager,
