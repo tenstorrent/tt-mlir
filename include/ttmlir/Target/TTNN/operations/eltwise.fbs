@@ -63,12 +63,12 @@ union rhsParams {
   UI32: UIntegralType,
 }
 
-enum EltwiseBinaryCompositeParamsOpType: uint32 {
+enum EltwiseBinaryCompositeScalarOpType: uint32 {
   PowScalar,
 }
 
-table EltwiseBinaryCompositeParamsOp {
-  type: EltwiseBinaryCompositeParamsOpType;
+table EltwiseBinaryCompositeScalarOp {
+  type: EltwiseBinaryCompositeScalarOpType;
   lhs: tt.target.ttnn.TensorRef;
   rhs: rhsParams;
   memory_config: tt.target.ttnn.MemoryConfig;

@@ -528,21 +528,24 @@ private:
 
   std::string getPrefixSwapPattern() const override { return "ttnn::pow"; }
 
-  template <typename ExponentT,
-            typename = std::void_t<llvm::is_one_of<ExponentT, float, uint32_t>>>
+  template <typename ExponentT>
   LogicalResult matchAndRewriteImpl(mlir::tt::ttnn::PowScalarOp srcOp,
                                     ExponentT exponent, OpAdaptor adaptor,
                                     ConversionPatternRewriter &rewriter) const {
+    static_assert(llvm::is_one_of<ExponentT, float, uint32_t>::value,
+                  "ExponentT must be float or uint32_t");
+
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PowScalarOp> emitter(
         srcOp, adaptor, rewriter);
+
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getLhs()),
         emitter.emit(exponent),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
     emitter.replaceOp(*this, args);
-    return success();
+    return mlir::success();
   }
 
 public:
@@ -553,11 +556,11 @@ public:
   matchAndRewrite(mlir::tt::ttnn::PowScalarOp srcOp,
                   mlir::tt::ttnn::PowScalarOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (auto exponentAttr = mlir::dyn_cast<FloatAttr>(srcOp.getExponent())) {
+    if (auto exponentAttr = mlir::dyn_cast<FloatAttr>(srcOp.getRhs())) {
       auto exponent = exponentAttr.getValue().convertToFloat();
       return matchAndRewriteImpl(srcOp, exponent, adaptor, rewriter);
     }
-    if (auto exponentAttr = mlir::dyn_cast<IntegerAttr>(srcOp.getExponent())) {
+    if (auto exponentAttr = mlir::dyn_cast<IntegerAttr>(srcOp.getRhs())) {
       auto exponent =
           static_cast<uint32_t>(exponentAttr.getValue().getSExtValue());
       return matchAndRewriteImpl(srcOp, exponent, adaptor, rewriter);

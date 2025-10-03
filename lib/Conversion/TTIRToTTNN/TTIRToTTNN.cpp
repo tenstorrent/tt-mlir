@@ -569,7 +569,7 @@ public:
     if (exponent) {
       rewriter.replaceOpWithNewOp<ttnn::PowScalarOp>(
           op, this->getTypeConverter()->convertType(op.getType()),
-          adaptor.getLhs(), exponent, nullptr);
+          adaptor.getLhs(), exponent);
       return success();
     }
 
@@ -1983,7 +1983,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::MinimumOp, ttnn::MinimumOp>,
            ElementwiseOpConversionPattern<ttir::RemainderOp, ttnn::RemainderOp>,
            ElementwiseOpConversionPattern<ttir::Atan2Op, ttnn::Atan2Op>,
-           // ElementwiseOpConversionPattern<ttir::PowTensorOp, ttnn::PowTensorOp>,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
            ElementwiseOpConversionPattern<ttir::CbrtOp, ttnn::CbrtOp>,
            ElementwiseOpConversionPattern<ttir::FloorOp, ttnn::FloorOp>,

@@ -1059,23 +1059,23 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
       *cache.fbb, type, lhs, rhs, memoryConfig, out);
 }
 
-template <typename EltwiseBinaryCompositeParamsOp>
-::flatbuffers::Offset<::tt::target::ttnn::EltwiseBinaryCompositeParamsOp>
-createEltwiseBinaryCompositeParamsOp(FlatbufferObjectCache &cache,
-                                     EltwiseBinaryCompositeParamsOp op) {
+template <typename EltwiseBinaryCompositeScalarOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseBinaryCompositeScalarOp>
+createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
+                                     EltwiseBinaryCompositeScalarOp op) {
 
-  ::tt::target::ttnn::EltwiseBinaryCompositeParamsOpType type;
+  ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType type;
   ::tt::target::ttnn::rhsParams rhsType;
   ::flatbuffers::Offset<void> rhsValue;
-  if (std::is_same_v<EltwiseBinaryCompositeParamsOp, PowScalarOp>) {
-    type = ::tt::target::ttnn::EltwiseBinaryCompositeParamsOpType::PowScalar;
-    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getExponent())) {
+  if (std::is_same_v<EltwiseBinaryCompositeScalarOp, PowScalarOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar;
+    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getRhs())) {
       rhsType = ::tt::target::ttnn::rhsParams::FP;
       rhsValue = ::tt::target::ttnn::CreateFloatingPointType(
                      *cache.fbb, floatAttr.getValue().convertToFloat())
                      .Union();
     } else if (auto integerAttr =
-                   mlir::dyn_cast<mlir::IntegerAttr>(op.getExponent())) {
+                   mlir::dyn_cast<mlir::IntegerAttr>(op.getRhs())) {
       rhsType = ::tt::target::ttnn::rhsParams::UI32;
       rhsValue = ::tt::target::ttnn::CreateIntegralType(
                      *cache.fbb, integerAttr.getValue().getSExtValue())
@@ -1084,16 +1084,16 @@ createEltwiseBinaryCompositeParamsOp(FlatbufferObjectCache &cache,
       llvm_unreachable("Exponent must be float or integer");
     }
   } else {
-    llvm_unreachable("unhandled EltwiseBinaryCompositeParamsOp");
+    llvm_unreachable("unhandled EltwiseBinaryCompositeScalarOp");
   }
   auto lhs = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInput()));
+      getOperandThroughDPSOps(op.getLhs()));
 
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
 
-  return ::tt::target::ttnn::CreateEltwiseBinaryCompositeParamsOp(
+  return ::tt::target::ttnn::CreateEltwiseBinaryCompositeScalarOp(
       *cache.fbb, type, lhs, rhsType, rhsValue, memoryConfig, out);
 }
 
@@ -2388,7 +2388,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto powScalarOp = dyn_cast<PowScalarOp>(op); powScalarOp) {
     return createOperation(
-        cache, createEltwiseBinaryCompositeParamsOp(cache, powScalarOp),
+        cache, createEltwiseBinaryCompositeScalarOp(cache, powScalarOp),
         debugString, locInfo);
   }
   if (auto whereOp = dyn_cast<WhereOp>(op); whereOp) {

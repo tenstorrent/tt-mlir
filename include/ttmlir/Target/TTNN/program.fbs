@@ -47,7 +47,7 @@ union OpType {
   CpuOp,
   DeallocateOp,
   EltwiseBinaryCompositeOp,
-  EltwiseBinaryCompositeParamsOp,
+  EltwiseBinaryCompositeScalarOp,
   EltwiseBinaryOp,
   EltwiseQuantizationOp,
   EltwiseTernaryWhereOp,

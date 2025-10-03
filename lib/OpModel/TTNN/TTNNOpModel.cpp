@@ -3,8 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/BuiltinAttributes.h"
 #include "ttmlir/Utils.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -430,8 +428,6 @@ auto getOpSymbol() {
   } else if constexpr (std::is_same_v<OpTy, Atan2Op>) {
     return ::ttnn::atan2;
   } else if constexpr (std::is_same_v<OpTy, PowTensorOp>) {
-    return ::ttnn::pow;
-  } else if constexpr (std::is_same_v<OpTy, PowScalarOp>) {
     return ::ttnn::pow;
   } else if constexpr (std::is_same_v<OpTy, WhereOp>) {
     return ::ttnn::where;
@@ -1269,7 +1265,7 @@ llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
   };
 
   // The invoke function of PowScalarOp is templated over the exponent value
-  // type. That's why the following code is aranged in this way.
+  // type. That's why the following code is arranged in this way.
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
     uint32_t convertedExponent = static_cast<uint32_t>(value.getInt());
     auto query = powScalarQuery(convertedExponent);
@@ -1313,7 +1309,7 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
   };
 
   // The invoke function of PowScalarOp is templated over the exponent value
-  // type. That's why the following code is aranged in this way.
+  // type. That's why the following code is arranged in this way.
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
     uint32_t convertedExponent = static_cast<uint32_t>(value.getInt());
     auto query = powScalarQuery(convertedExponent);
@@ -5455,7 +5451,7 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
   };
 
   // The invoke function of fullOp is templated over the fill value type. That's
-  // why the following code is aranged in this way.
+  // why the following code is arranged in this way.
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(fillValue)) {
     int convertedFillValue = static_cast<int>(value.getInt());
     auto query = createFullOpQuery(convertedFillValue);
