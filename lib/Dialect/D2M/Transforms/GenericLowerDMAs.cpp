@@ -35,7 +35,7 @@ public:
   buildStreamIndex(OpBuilder &builder, Location loc,
                    ArrayRef<int64_t> gridShape, ArrayRef<int64_t> blockFactors,
                    ArrayRef<int64_t> shardShape, AffineMap dmaIndexingMap,
-                   AffineMap gridIndexingMap) {
+                   AffineMap gridIndexingMap, AffineMap virt2PhysMap) {
     assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
     assert(dmaIndexingMap.getNumResults() == gridIndexingMap.getNumResults());
     assert(dmaIndexingMap.getNumResults() == shardShape.size());
@@ -46,6 +46,63 @@ public:
     SmallVector<int64_t> indexBounds;
     streamIndex.reserve(dmaIndexingMap.getNumResults());
     indexBounds.reserve(dmaIndexingMap.getNumResults());
+
+    // create all physical core indices in advance
+    SmallVector<Value> physicalCoreIndices(gridIndexingMap.getNumResults());
+    for (unsigned gridIndex = 0; gridIndex < gridIndexingMap.getNumResults();
+         gridIndex++) {
+      physicalCoreIndices[gridIndex] = builder.create<CoreIndexOp>(
+          loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex));
+    }
+    llvm::dbgs() << "buildStreamIndex | physicalCoreIndices: {";
+    for (auto index : physicalCoreIndices) {
+      llvm::dbgs() << index << ", ";
+    }
+    llvm::dbgs() << "}\n";
+
+    // Translate physical core index into virtual core index.
+    Value zero = builder.create<arith::ConstantOp>(
+        loc, builder.getIndexType(), builder.getI64IntegerAttr(0));
+    SmallVector<Value> virt2PhysIndex;
+    for (unsigned dim = 0; dim < virt2PhysMap.getNumDims(); dim++) {
+      if (dim < gridIndexingMap.getNumDims()) {
+        virt2PhysIndex.push_back(physicalCoreIndices[dim]);
+      } else {
+        virt2PhysIndex.push_back(zero);
+      }
+    }
+    llvm::dbgs() << "buildStreamIndex | virt2PhysIndex: {";
+    for (auto index : virt2PhysIndex) {
+      llvm::dbgs() << index << ", ";
+    }
+    llvm::dbgs() << "}\n";
+
+    auto affineApply = [&](AffineMap map, ValueRange index) {
+      return builder.create<affine::AffineApplyOp>(loc, map, index);
+    };
+    auto dropEverythingBut = [&](AffineMap map, unsigned keepIndex) {
+      SmallVector<int64_t> drop;
+      for (unsigned i = 0; i < virt2PhysMap.getNumResults(); i++) {
+        if (i != keepIndex) {
+          drop.push_back(i);
+        }
+      }
+      ArrayRef<int64_t> dropRef = drop;
+      return map.dropResults(dropRef);
+    };
+
+    SmallVector<Value> virtualGridValues;
+    for (unsigned gridIndex = 0; gridIndex < gridIndexingMap.getNumResults();
+         gridIndex++) {
+      auto tmpMap = dropEverythingBut(virt2PhysMap, gridIndex);
+      virtualGridValues.push_back(affineApply(tmpMap, virt2PhysIndex));
+    }
+    llvm::dbgs() << "buildStreamIndex | virtualGridValues: {";
+    for (auto value : virtualGridValues) {
+      llvm::dbgs() << value << ", ";
+    }
+    llvm::dbgs() << "}\n";
+
     for (unsigned result = 0; result < dmaIndexingMap.getNumResults();
          result++) {
       unsigned dim = dmaIndexingMap.getDimPosition(result);
@@ -84,8 +141,12 @@ public:
         Value blockFactor = builder.create<arith::ConstantOp>(
             loc, builder.getIndexType(),
             builder.getIndexAttr(blockFactors[dim]));
+
+        // XXX use virtual grid values instead of core indices
         index = builder.create<CoreIndexOp>(loc, builder.getIndexType(),
                                             builder.getI64IntegerAttr(gridDim));
+        // index = virtualGridValues[gridDim];
+
         index = builder.create<arith::MulIOp>(loc, builder.getIndexType(),
                                               index, blockFactor);
         index = builder.create<arith::AddIOp>(loc, builder.getIndexType(),
@@ -262,6 +323,28 @@ public:
     ArrayRef<int64_t> memrefGridShape = layout.getGridShape(memref);
     ArrayRef<int64_t> memrefShardShape = layout.getShardShape(memref);
 
+    // TODO: cleanup
+    AffineMap virt2PhysMap = AffineMap::getMultiDimIdentityMap(
+        memref.getShape().size(), rewriter.getContext());
+    if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
+            memref.getLayout())) {
+      virt2PhysMap = shardLayout.getVirt2physmap();
+    }
+    llvm::dbgs() << "analyzeStream | virt2phys_map: " << virt2PhysMap << "\n";
+
+    // remove
+    size_t overallShapeSize = memref.getShape().size();
+    size_t numShardDims = memrefShardShape.size();
+    SmallVector<int64_t> droppedShardDims;
+    for (size_t i = overallShapeSize - numShardDims; i < overallShapeSize;
+         ++i) {
+      droppedShardDims.push_back(i);
+    }
+    virt2PhysMap = virt2PhysMap.dropResults(droppedShardDims);
+
+    llvm::dbgs() << "analyzeStream | grid virt2PhysMap: " << virt2PhysMap
+                 << "\n";
+
     unsigned outputOperandsIndex =
         genericParent.getOutputs().getBeginOperandIndex();
     // The output and the grid indexing must always be aligned.
@@ -272,11 +355,15 @@ public:
 
     auto [streamIndices, indexBounds] = buildStreamIndex(
         rewriter, loc, memrefGridShape, genericParent.getBlockFactorsValue(),
-        memrefShardShape, dmaIndexingMap, gridIndexingMap);
+        memrefShardShape, dmaIndexingMap, gridIndexingMap, virt2PhysMap);
 
     ttcore::DeviceAttr device = genericParent.getDevice();
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         viewInterface.applyViews();
+    llvm::dbgs() << "analyzeStream | underlyingMemref "
+                 << underlyingMemrefAndView.first << "\n";
+    llvm::dbgs() << "analyzeStream | underlyingView: "
+                 << underlyingMemrefAndView.second << "\n";
     AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
                                               0 /* use default page size*/);
     size_t coalescingFactor =

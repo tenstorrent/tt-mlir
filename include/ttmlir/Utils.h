@@ -625,6 +625,27 @@ denseElementsAttrTo2D(mlir::DenseElementsAttr attr) {
   return result;
 }
 
+//
+template <typename Iterable>
+std::string shapeToString(const Iterable &shape) {
+  std::string result;
+  for (const auto &dim : shape) {
+    result.append(std::to_string(dim).append("x"));
+  }
+  return result;
+}
+
+template <typename Iterable>
+std::string vecToString(const Iterable &vec) {
+  std::string result;
+  result.append("{");
+  for (const auto &elem : vec) {
+    result.append(std::to_string(elem).append(", "));
+  }
+  result.append("}");
+  return result;
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_UTILS_H

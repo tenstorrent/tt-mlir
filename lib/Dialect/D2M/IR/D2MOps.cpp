@@ -1354,11 +1354,17 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
 
   // Divide out the compute grid dims and re-eval
   ArrayRef<int64_t> computeGrid = getGrid().getShape();
+  auto computeGridVolume = ttmlir::utils::volume(computeGrid);
   for (size_t i = 0; i < computeGrid.size(); ++i) {
-    assert(flattenedGridShapes[i] % computeGrid[i] == 0 &&
+    assert((flattenedGridShapes[i] == 1 ||
+            flattenedGridShapes[i] % computeGridVolume == 0) &&
            "Output grid shape must be divisible by compute grid shape");
-    flattenedGridShapes[i] /= computeGrid[i];
+    if (flattenedGridShapes[i] != 1) {
+      flattenedGridShapes[i] /= computeGridVolume;
+    }
   }
+  llvm::dbgs() << "getLoopBounds | flattenedGridShapes: "
+               << ttmlir::utils::shapeToString(flattenedGridShapes) << "\n";
 
   return inverse.compose(flattenedGridShapes);
 }

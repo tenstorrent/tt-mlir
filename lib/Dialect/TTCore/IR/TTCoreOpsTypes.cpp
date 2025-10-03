@@ -557,7 +557,7 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MemRefType memrefType,
 mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
   auto map = ttmlir::utils::generateAffineMapFromShardStrides(getStride(),
                                                               getContext());
-  return map.compose(getVirt2physmap());
+  return (getVirt2physmap()) ? map.compose(getVirt2physmap()) : map;
 }
 
 InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MLIRContext *context,
@@ -1351,6 +1351,8 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
   MemorySpace memorySpace =
       mlir::cast<MemorySpaceAttr>(memrefType.getMemorySpace()).getValue();
   AffineMap affineMap = memrefType.getLayout().getAffineMap();
+  llvm::dbgs() << "getMemoryMap | memrefType: " << memrefType << "\n";
+  llvm::dbgs() << "getMemoryMap | affineMap: " << affineMap << "\n";
   if (view) {
     affineMap = affineMap.compose(*view);
   }
@@ -1408,7 +1410,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     return ttmlir::utils::replaceAffineMapSymbols(getDramMap(), symbols)
         .compose(affineMap);
   } else {
-    llvm_unreachable("Unsupported memory space");
+    llvm_unreachable("Unsupported memory layout");
   }
 }
 
