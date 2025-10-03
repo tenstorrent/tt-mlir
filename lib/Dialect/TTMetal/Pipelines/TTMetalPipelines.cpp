@@ -105,6 +105,8 @@ void createTTIRToTTMetalFrontendPipeline(
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   createTTIRBufferizationPipeline(pm, options);
+  pm.addPass(createCanonicalizerPassWithOptions(options));
+  pm.addPass(d2m::createD2MInsertExplicitStreams());
   if (options.ttnnMode) {
     d2m::D2MInsertStreamsOptions insertStreamsOptions;
     { insertStreamsOptions.numStreamBuffers = options.numStreamBuffers; }

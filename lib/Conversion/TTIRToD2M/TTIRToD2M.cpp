@@ -1056,7 +1056,7 @@ public:
       const llvm::SmallVector<int64_t> &targetGridShape, bool ttnnMode)
       : OpConversionPattern<d2m::TileMatmulBlockOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                                targetGridShape, ttnnMode) {}
+                               targetGridShape, ttnnMode) {}
 
 private:
   LogicalResult

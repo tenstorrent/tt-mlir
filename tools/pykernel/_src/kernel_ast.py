@@ -1726,7 +1726,7 @@ def pykernel_gen(
                 program_index = 0
                 device_options = runtime.MeshDeviceOptions()
                 device_options.mesh_shape = fbb.get_program_mesh_shape(program_index)
-                runtime.set_compatible_runtime(fbb)
+                runtime.set_compatible_device_runtime(fbb)
 
                 if kernel_source_dir is None:
                     kernel_source_dir = f".pykernel_gen/{f.__name__}/"
