@@ -59,7 +59,7 @@ runs:
           -DTTMLIR_ENABLE_RUNTIME=ON \
           -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
           -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ inputs.enable-perf }} \
-          -DTTMLIR_ENABLE_PYKERNEL=ON \
+          -DTTMLIR_ENABLE_PYKERNEL=${{ inputs.enable-pykernel }} \
           -DTTMLIR_ENABLE_STABLEHLO=ON \
           -DTTMLIR_ENABLE_OPMODEL=${{ inputs.enable-op-model }} \
           -DTT_RUNTIME_DEBUG=${{ inputs.enable-runtime-debug }} \

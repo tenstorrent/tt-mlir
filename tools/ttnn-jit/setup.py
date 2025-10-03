@@ -21,10 +21,6 @@ TTNN_SUBPACKAGES = [
     "ttnn",
     "ttnn.operations",
     "ttnn.distributed",
-    "ttnn.examples",
-    "ttnn.examples.bert",
-    "ttnn.examples.usage",
-    "ttnn.experimental_loader",
 ]
 
 TTLIB_SUBPACKAGES = [
