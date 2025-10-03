@@ -1058,7 +1058,7 @@ def TTNN_NLPConcatHeadsDecodeOp: TTNN_Op<"nlp_concat_heads_decode", [TTNN_Memory
     let hasVerifier = 1;
 }
 
-def TTNN_SplitQueryKeyValueAndSplitHeadsOp: TTNN_Op<"split_qkv_and_split_heads", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_SplitQueryKeyValueAndSplitHeadsOp: TTNN_Op<"split_query_key_value_and_split_heads", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Split query, key, values and split heads op used in attention layer.";
     let description = [{
       Splits input_tensor of shape [batch_size, sequence_size, 3 * hidden_size] into 3 tensors (Query, Key, Value) of shape [batch_size, sequence_size, hidden_size]. Then, reshapes and permutes the output tensors, to make them ready for computing attention scores.
