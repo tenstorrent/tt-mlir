@@ -15,9 +15,9 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -94,12 +94,14 @@ struct TTIRToTTIRDecompositionPass
       target.addLegalOp<ttir::RequantizeOp>();
       target.addLegalOp<ttir::DequantizeOp>();
 
-      target.addDynamicallyLegalOp<ttir::DotGeneralOp>([&](ttir::DotGeneralOp op) {
-        return !ttir::utils::hasShouldHoistAttr(op);
-      });
-      target.addDynamicallyLegalOp<ttir::ReduceAndOp>([&](ttir::ReduceAndOp op) {
-        return !ttir::utils::hasShouldHoistAttr(op);
-      });
+      target.addDynamicallyLegalOp<ttir::DotGeneralOp>(
+          [&](ttir::DotGeneralOp op) {
+            return !ttir::utils::hasShouldHoistAttr(op);
+          });
+      target.addDynamicallyLegalOp<ttir::ReduceAndOp>(
+          [&](ttir::ReduceAndOp op) {
+            return !ttir::utils::hasShouldHoistAttr(op);
+          });
       target.addDynamicallyLegalOp<ttir::ReduceOrOp>([&](ttir::ReduceOrOp op) {
         return !ttir::utils::hasShouldHoistAttr(op);
       });
