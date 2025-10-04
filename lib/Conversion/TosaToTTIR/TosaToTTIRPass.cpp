@@ -38,6 +38,9 @@ struct ConvertTosaToTTIRPass
 
     target.addIllegalDialect<tosa::TosaDialect>();
 
+    target.addDynamicallyLegalOp<tosa::ConstShapeOp>(
+        [](tosa::ConstShapeOp op) { return op.use_empty(); });
+
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<mlir::tt::ttir::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();
