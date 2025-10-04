@@ -49,7 +49,7 @@ void createTTNNPipelineTTIRPasses(
   if (options.enableQuantDequantConversion) {
     pm.addPass(mlir::tt::ttir::createTTIRQuantDequantConversion());
   }
-  //pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -165,7 +165,9 @@ void createTTIRToTTNNBackendPipeline(
   // Create DeviceModule to wrap all ops.
 
   // Add Decomposition pass here to ensure it runs before hoisting.
-  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  TTIRToTTIRDecompositionOptions decompOptions;
+  decompOptions.decompConfig = DecompMode::HoistedOnly;
+  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
 
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).

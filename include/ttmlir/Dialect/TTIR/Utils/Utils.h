@@ -263,6 +263,11 @@ inline void addShouldHoistAttr(mlir::Operation *op,
                                mlir::PatternRewriter &rewriter) {
   op->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
 }
+
+/// Check if the "ttir.should_hoist" attribute is present on an operation.
+inline bool hasShouldHoistAttr(mlir::Operation *op) {
+  return op->hasAttr("ttir.should_hoist");
+}
 } // namespace mlir::tt::ttir::utils
 
 #endif // TTMLIR_DIALECT_TTIR_UTILS_UTILS_H
