@@ -163,6 +163,12 @@ void createTTIRToTTNNBackendPipeline(
   pm.addPass(
       ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
   // Create DeviceModule to wrap all ops.
+
+  // Add Decomposition pass here to ensure it runs before hoisting.
+  TTIRToTTIRDecompositionOptions decompOptions;
+  decompOptions.decompConfig = DecompMode::HoistedOnly;
+  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
+
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).
   pm.addPass(ttir::createTTIRHoistTransform());

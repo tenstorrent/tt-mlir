@@ -2357,7 +2357,8 @@ def test_hoisted_permute(shapes, permutation, request, target: str):
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return permute(in0, in1, builder, permutation, unit_attrs=["ttir.should_hoist"])
+        _ = in1  # Unused, but required to match shapes
+        return permute(in0, builder, permutation, unit_attrs=["ttir.should_hoist"])
 
     permute_wrapper.__name__ = "hoisted_permute"
 
@@ -3328,9 +3329,6 @@ def test_hoisted_gather(
     ids=["standard_matmul", "batched_matmul", "3d_tensor_2d_tensor"],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.skip(
-    "Need to rework this, https://github.com/tenstorrent/tt-mlir/issues/3851"
-)
 def test_hoisted_dot_general(
     shapes: List[Shape],
     batch_dims_lhs: List[int],
@@ -3347,10 +3345,10 @@ def test_hoisted_dot_general(
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
+        _ = out0  # Unused, but keeps the signature consistent.
         return builder.dot_general(
             in0,
             in1,
-            out0,
             batch_dims_lhs,
             contract_dims_lhs,
             batch_dims_rhs,
@@ -3361,6 +3359,39 @@ def test_hoisted_dot_general(
     compile_ttir_to_flatbuffer(
         dot_general_wrapper,
         shapes,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(10, 20), (20, 30)],
+        [(5, 10, 20), (5, 20, 30)],
+    ],
+    ids=["standard_2D_matmul", "3D_batched_matmul"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_hoisted_matmul(shapes: List[Shape], dtype: torch.dtype, target: str, request):
+    def hoisted_matmul_wrapper(
+        in0: Operand,
+        in1: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return matmul(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+
+    hoisted_matmul_wrapper.__name__ = "hoisted_matmul"
+
+    compile_ttir_to_flatbuffer(
+        hoisted_matmul_wrapper,
+        shapes,
+        [dtype] * len(shapes),
         test_base=request.node.name,
         target=target,
         output_root=request.config.getoption("--path"),
