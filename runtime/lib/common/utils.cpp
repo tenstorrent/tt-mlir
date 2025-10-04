@@ -135,14 +135,6 @@ void handleBFloat16ToFloat16(const uint16_t *oldBuffer, uint16_t *newBuffer,
 }
 } // namespace detail
 
-std::string getMlirHome() {
-  const char *mlirHomeEnv = std::getenv("TT_MLIR_HOME");
-  if (!mlirHomeEnv) {
-    return "";
-  }
-  return std::string(mlirHomeEnv);
-}
-
 std::shared_ptr<void> mallocShared(const size_t size) {
   return std::shared_ptr<void>(std::malloc(size), std::free);
 }

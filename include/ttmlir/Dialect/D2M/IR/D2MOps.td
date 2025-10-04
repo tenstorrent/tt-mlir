@@ -295,7 +295,7 @@ def D2M_GenericOp : D2M_Op<"generic",
 // Simple creation op needed by LowerToLayout splitting
 
 def D2M_EmptyOp : D2M_Op<"empty", [
-    Pure,
+    MemoryEffects<[MemAlloc]>,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",

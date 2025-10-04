@@ -245,6 +245,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("BLACKHOLE", ::tt::runtime::Arch::BLACKHOLE)
       .value("QUASAR", ::tt::runtime::Arch::QUASAR);
 
+  m.def("set_mlir_home", &tt::runtime::setMlirHome, nb::arg("mlir_home"),
+        "Set the MLIR home directory");
   m.def("get_current_device_runtime", &tt::runtime::getCurrentDeviceRuntime,
         "Get the backend device runtime type");
   m.def("get_available_device_runtimes",
