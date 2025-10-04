@@ -54,6 +54,27 @@ table EltwiseBinaryCompositeOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table UIntegralType {
+  value: uint32;
+}
+
+union rhsParams {
+  FP: FloatingPointType,
+  UI32: UIntegralType,
+}
+
+enum EltwiseBinaryCompositeScalarOpType: uint32 {
+  PowScalar,
+}
+
+table EltwiseBinaryCompositeScalarOp {
+  type: EltwiseBinaryCompositeScalarOpType;
+  lhs: tt.target.ttnn.TensorRef;
+  rhs: rhsParams;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
 enum EltwiseQuantizationOpType: uint32 {
   Quantize,
   Dequantize,

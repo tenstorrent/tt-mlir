@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <optional>
 #include <tuple>
+#include <variant>
 
 namespace mlir::tt::ttnn::op_model {
 
@@ -1607,7 +1608,7 @@ using OpModelLessThanParam = OpModelBinaryEltwiseParam<LessThanOp>;
 using OpModelLogicalAndParam = OpModelBinaryEltwiseParam<LogicalAndOp>;
 using OpModelLogicalOrParam = OpModelBinaryEltwiseParam<LogicalOrOp>;
 using OpModelLogicalXorParam = OpModelBinaryEltwiseParam<LogicalXorOp>;
-using OpModelPowParam = OpModelBinaryEltwiseParam<PowOp>;
+using OpModelPowParam = OpModelBinaryEltwiseParam<PowTensorOp>;
 using OpModelBitwiseAndParam = OpModelBinaryEltwiseParam<BitwiseAndOp>;
 using OpModelBitwiseOrParam = OpModelBinaryEltwiseParam<BitwiseOrOp>;
 using OpModelBitwiseXorParam = OpModelBinaryEltwiseParam<BitwiseXorOp>;
@@ -1634,7 +1635,7 @@ TEST_P(OpModelLogicalXorParam, LogicalXorOp) { RunTest(); }
 TEST_P(OpModelBitwiseAndParam, BitwiseAndOp) { RunTestInt32(); }
 TEST_P(OpModelBitwiseOrParam, BitwiseOrOp) { RunTestInt32(); }
 TEST_P(OpModelBitwiseXorParam, BitwiseXorOp) { RunTestInt32(); }
-TEST_P(OpModelPowParam, PowOp) { RunTest(); }
+TEST_P(OpModelPowParam, PowTensorOp) { RunTest(); }
 TEST_P(OpModelRemainderParam, RemainderOp) { RunTest(); }
 TEST_P(OpModelAtan2Param, Atan2Op) { RunTest(); }
 
@@ -1823,6 +1824,89 @@ INSTANTIATE_TEST_SUITE_P(
 INSTANTIATE_TEST_SUITE_P(
     Atan2Tests, OpModelAtan2Param,
     generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
+
+class OpModelPowScalarParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,            // input
+                     detail::TestTensor,            // output
+                     std::variant<float, uint32_t>, // exponent
+                     detail::ExpectedResult         // expected legal
+                     >> {};
+
+TEST_P(OpModelPowScalarParam, PowScalarParam) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  mlir::Attribute exponent;
+  if (std::holds_alternative<float>(std::get<2>(params))) {
+    exponent = builder.getF32FloatAttr(std::get<float>(std::get<2>(params)));
+  } else {
+    exponent =
+        builder.getI32IntegerAttr(std::get<uint32_t>(std::get<2>(params)));
+  }
+  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+              expectedTotalPeakSize, expectedOutputSize] = std::get<3>(params);
+
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  auto constraintsExp = OpModel<PowScalarOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, exponent, outputLayout);
+  if (!constraintsExp) {
+    std::cout << "Error: " << llvm::toString(constraintsExp.takeError())
+              << std::endl;
+  }
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+
+  if (constraintsExp) {
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
+
+    EXPECT_EQ(cbSize, expectedCbSize);
+    EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
+    EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
+    EXPECT_EQ(outputSize, expectedOutputSize);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = OpModel<PowScalarOp>::getOpRuntime(inputShape, inputLayout,
+                                                       exponent, outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    PowScalarTests, OpModelPowScalarParam,
+    ::testing::Values(
+        std::make_tuple(detail::TestTensor{{1, 1, 128 * 128, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{1, 1, 128 * 128, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        float(2.0),
+                        detail::ExpectedResult{true, 8192, 16384, 24576,
+                                               16384}),
+        std::make_tuple(detail::TestTensor{{1, 1, 128 * 128, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{1, 1, 128 * 128, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        uint32_t(3),
+                        detail::ExpectedResult{true, 8192, 16384, 24576,
+                                               16384})));
 
 // ==== Binary Eltwise Ops Ends ====
 
