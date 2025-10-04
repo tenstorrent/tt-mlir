@@ -271,9 +271,11 @@ public:
           if (dstRegInPlace) {
             bool isUnaryOp = op->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(op);
-            assert((isUnaryOp || isTileMatmul) &&
-                   "Only unary ops and tile matmul supported for destination "
-                   "register in "
+            bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(op) ||
+                               mlir::isa<d2m::TileReduceSumOp>(op);
+            assert((isUnaryOp || isTileMatmul || isReduction) &&
+                   "Only unary ops, tile matmul, and reductions supported for "
+                   "destination register in "
                    "place, multi-operand ops would reference wrong tile, but "
                    "those ops should be setting output tile.");
             dstIndex = dstRegisterAllocationState.getCurrDstIndex();
@@ -651,6 +653,75 @@ public:
 } // namespace
 
 namespace {
+template <typename TileReduceOp>
+class D2MPackerMaskResetRewriter : public OpRewritePattern<TileReduceOp> {
+public:
+  using OpRewritePattern<TileReduceOp>::OpRewritePattern;
+
+  Value index(OpBuilder &rewriter, Location loc, int64_t val) const {
+    return rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
+                                              rewriter.getIndexAttr(val));
+  }
+
+  LogicalResult matchAndRewrite(TileReduceOp op,
+                                PatternRewriter &rewriter) const final {
+
+    bool packerResetFound = false;
+    op->getBlock()->walk([&](Operation *op) {
+      if (auto packerReset =
+              mlir::dyn_cast_or_null<d2m::PackerMaskResetOp>(op)) {
+        packerResetFound = true;
+      }
+    });
+    if (packerResetFound) {
+      return failure();
+    }
+
+    rewriter.setInsertionPointAfter(op);
+    ReduceDim reduceDim = op.getReduceDim();
+    SmallVector<int64_t> loopBounds =
+        op->template getParentOfType<GenericOp>().getLoopBounds();
+
+    scf::IfOp ifOp;
+    if (reduceDim == ReduceDim::R) {
+      auto iterIndex = rewriter.create<d2m::IterIndexOp>(
+          op.getLoc(), static_cast<int64_t>(1));
+      auto condOp = rewriter.create<arith::CmpIOp>(
+          op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
+          index(rewriter, op.getLoc(), loopBounds[1] - 1));
+      ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condOp);
+    } else if (reduceDim == ReduceDim::C) {
+      auto iterIndex = rewriter.create<d2m::IterIndexOp>(
+          op.getLoc(), static_cast<int64_t>(0));
+      auto condOp = rewriter.create<arith::CmpIOp>(
+          op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
+          index(rewriter, op.getLoc(), loopBounds[0] - 1));
+      ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condOp);
+    } else if (reduceDim == ReduceDim::RC) {
+      auto iterIndexR = rewriter.create<d2m::IterIndexOp>(
+          op.getLoc(), static_cast<int64_t>(1));
+      auto iterIndexC = rewriter.create<d2m::IterIndexOp>(
+          op.getLoc(), static_cast<int64_t>(0));
+      auto condOp = rewriter.create<arith::CmpIOp>(
+          op.getLoc(), arith::CmpIPredicate::ne, iterIndexR,
+          index(rewriter, op.getLoc(), loopBounds[1] - 1));
+      auto condOp2 = rewriter.create<arith::CmpIOp>(
+          op.getLoc(), arith::CmpIPredicate::ne, iterIndexC,
+          index(rewriter, op.getLoc(), loopBounds[0] - 1));
+      auto finalCondOp =
+          rewriter.create<arith::OrIOp>(op.getLoc(), condOp, condOp2);
+      ifOp = rewriter.create<scf::IfOp>(op.getLoc(), finalCondOp);
+    }
+    rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    rewriter.create<d2m::PackerMaskResetOp>(op.getLoc());
+
+    return success();
+  }
+};
+
+} // namespace
+
+namespace {
 class D2MInsertDstRegisterAccess
     : public impl::D2MInsertDstRegisterAccessBase<D2MInsertDstRegisterAccess> {
 public:
@@ -662,6 +733,9 @@ public:
     patterns.add<D2MInsertDstRegisterAccessRewriter<GenericOp>,
                  D2MInsertDstRegisterAccessRewriter<func::FuncOp>>(
         &getContext(), useTileMatmul);
+
+    patterns.add<D2MPackerMaskResetRewriter<TileReduceSumOp>,
+                 D2MPackerMaskResetRewriter<TileReduceMaxOp>>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }
