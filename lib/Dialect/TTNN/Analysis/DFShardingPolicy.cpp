@@ -111,8 +111,18 @@ void DFShardingPolicy::run() {
           if (nextOp && currentOp->hasOneUse()) {
             // Only if nextOp is valid and currentOp is not a fork keep
             // growing the chain.
-            currentOp = nextOp;
-            continue;
+            if (nextOp->getOperand(0).getDefiningOp() != currentOp) {
+              // Only continue chain if nextOp uses currentOp as first operand.
+              // Here we break the chain if not.
+              TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                           "Breaking L1 chain at op {} as it is not first "
+                           "operand of next op {}",
+                           currentOp->getName(), nextOp->getName());
+              currentOp = nullptr;
+            } else {
+              currentOp = nextOp;
+              continue;
+            }
           }
         }
 

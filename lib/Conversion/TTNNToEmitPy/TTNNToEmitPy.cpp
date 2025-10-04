@@ -1421,6 +1421,40 @@ public:
 };
 } // namespace
 
+// NLPCreateQKVHeadsDecodeOp conversion pattern
+namespace {
+class NLPCreateQKVHeadsDecodeOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getNumHeads(), "num_heads"),
+        emitter.emit(srcOp.getNumKvHeads(), "num_kv_heads"),
+        emitter.emit(srcOp.getOverlapQkCoregrid(), "overlap_qk_coregrid"),
+        emitter.emit(srcOp.getBatchOffset(), "batch_offset"),
+        emitter.emit(srcOp.getSliceSize(), "slice_size"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config")};
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -1602,6 +1636,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   patterns.add<NLPConcatHeadsOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
+  patterns.add<NLPCreateQKVHeadsDecodeOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

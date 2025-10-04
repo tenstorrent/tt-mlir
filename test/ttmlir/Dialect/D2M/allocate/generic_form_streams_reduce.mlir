@@ -30,6 +30,8 @@ module {
 
     // CHECK: %[[STREAM_A:.+]] = "d2m.stream_layout"(%{{[^}]+}}, %{{[^}]+}}) : (memref<2x3x1x1x!ttcore.tile
     // CHECK: %[[STREAM_B:.+]] = "d2m.stream_layout"(%{{[^}]+}}, %{{[^}]+}}) : (memref<1x1x1x1x!ttcore.tile
+    // at the moment, outputs should not be streamed:
+    // CHECK-NOT: %[[STREAM_OUT:.+]] = "d2m.stream_layout"(%{{[^}]+}}, %{{[^}]+}}) : (memref<2x1x1x1x!ttcore.tile
     // CHECK: ins(%[[STREAM_A]], %[[STREAM_B]] : memref
 
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x1>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<compute>]}

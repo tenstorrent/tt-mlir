@@ -80,6 +80,18 @@ runs:
         cmake --build ${{ inputs.build-output-dir }}
         cmake --build ${{ inputs.build-output-dir }} -- compile-ttmlir-tests
 
+    - name: Build ttnn-jit wheel
+      if: inputs.enable-pykernel == 'ON'
+      shell: bash
+      run: |
+        source env/activate
+        export CURRENT_DIR=$(pwd)
+        cd ${{ inputs.work-dir }}/tools/ttnn-jit
+        mkdir -p dist
+        pip install build setuptools wheel
+        python3 -m build --wheel
+        cd $CURRENT_DIR
+
     - name: Build tt-alchemist
       shell: bash
       run: |
@@ -134,6 +146,14 @@ runs:
       with:
         name: ttrt-whl-${{ inputs.build-name }}
         path: build/tools/ttrt/build/ttrt*.whl
+
+    - name: Upload ttnn-jit .whl
+      if: inputs.enable-pykernel == 'ON'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ttnn-jit-whl-${{ inputs.build-name }}
+        path: ${{ inputs.work-dir }}/tools/ttnn-jit/dist/ttnn_jit*.whl
+        if-no-files-found: error
 
     - name: Upload tt-alchemist .whl
       uses: actions/upload-artifact@v4
