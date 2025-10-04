@@ -116,7 +116,7 @@ module {
   // CHECK: func.func @forward_reuse_zeros(
   func.func @forward_reuse_zeros(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
       // CHECK: = ttcore.load_cached(@forward_reuse_zeros_const_eval_0, [%arg1, %arg2])
-      %0 = "ttir.zeros"() <{shape = array<i32:32, 32>}> : () -> tensor<32x32xbf16>
+      %0 = "ttir.zeros"() <{shape = array<i32:32, 32>,dtype = i64}> : () -> tensor<32x32xbf16>
       // CHECK: = ttir.empty()
       %1 = ttir.empty() : tensor<32x32xbf16>
       // CHECK: = "ttir.add"(%arg0, %{{.*}}, %{{.*}})

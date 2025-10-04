@@ -4,6 +4,6 @@
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
 func.func @zeros() -> tensor<13x24x56x42xbf16> {
-  %0 = "ttir.zeros"() <{shape = array<i32:13, 24, 56, 42>}> : () -> tensor<13x24x56x42xbf16>
+  %0 = "ttir.zeros"() <{shape = array<i32:13, 24, 56, 42>, dtype = i64}> : () -> tensor<13x24x56x42xbf16>
   return %0 : tensor<13x24x56x42xbf16>
 }

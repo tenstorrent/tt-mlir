@@ -116,8 +116,8 @@ module {
     // CHECK: "ttir.multiply"
     // CHECK: "ttir.conv2d"
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %weight = "ttir.zeros"() <{shape = array<i32: 64, 64, 3, 3>}> : () -> tensor<64x64x3x3xbf16>
-    %scale = "ttir.ones"() <{shape = array<i32: 1, 1, 1, 64>}> : () -> tensor<1x1x1x64xbf16>
+    %weight = "ttir.zeros"() <{shape = array<i32: 64, 64, 3, 3>, dtype = bf16}> : () -> tensor<64x64x3x3xbf16>
+    %scale = "ttir.ones"() <{shape = array<i32: 1, 1, 1, 64>, dtype = bf16}> : () -> tensor<1x1x1x64xbf16>
     %conv = "ttir.conv2d"(%input, %weight, %0)
             <{
               stride = 1: i32,
@@ -140,7 +140,7 @@ module {
     // CHECK: "ttir.multiply"
     // CHECK: "ttir.conv2d"
     %0 = ttir.empty() : tensor<1x30x30x64xbf16>
-    %weight = "ttir.zeros"() <{shape = array<i32: 64, 64, 3, 3>}> : () -> tensor<64x64x3x3xbf16>
+    %weight = "ttir.zeros"() <{shape = array<i32: 64, 64, 3, 3>,dtype = bf16}> : () -> tensor<64x64x3x3xbf16>
     %conv = "ttir.conv2d"(%input, %weight, %0)
             <{
               stride = 1: i32,
@@ -148,7 +148,7 @@ module {
               dilation = 1: i32,
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
-    %scale = "ttir.ones"() <{shape = array<i32: 1, 1, 1, 64>}> : () -> tensor<1x1x1x64xbf16>
+    %scale = "ttir.ones"() <{shape = array<i32: 1, 1, 1, 64>, dtype = bf16}> : () -> tensor<1x1x1x64xbf16>
     %1 = ttir.empty() : tensor<1x30x30x64xbf16>
     %2 = "ttir.multiply"(%conv, %scale, %1) : (tensor<1x30x30x64xbf16>, tensor<1x1x1x64xbf16>, tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
