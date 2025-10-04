@@ -12,6 +12,15 @@ table AllGatherOp {
   num_links: uint32;
 }
 
+table AllReduceOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  reduce_type: uint32;
+  cluster_axis: uint32;
+  num_links: uint32;
+}
+
 table CollectivePermuteOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;

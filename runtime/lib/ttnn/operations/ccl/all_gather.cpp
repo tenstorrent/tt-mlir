@@ -33,17 +33,8 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
   ::ttnn::Tensor out;
 
-  std::vector<::ttnn::GlobalSemaphore> semaphores;
-  semaphores.push_back(::ttnn::global_semaphore::create_global_semaphore(
-      &meshDevice,
-      meshDevice.worker_cores(::tt::tt_metal::HalProgrammableCoreType::TENSIX,
-                              tt::tt_metal::SubDeviceId{0}),
-      0, tt::tt_metal::BufferType::L1));
-  semaphores.push_back(::ttnn::global_semaphore::create_global_semaphore(
-      &meshDevice,
-      meshDevice.worker_cores(::tt::tt_metal::HalProgrammableCoreType::TENSIX,
-                              tt::tt_metal::SubDeviceId{0}),
-      0, tt::tt_metal::BufferType::L1));
+  std::vector<::ttnn::GlobalSemaphore> semaphores =
+      ttnn::utils::createGlobalSemaphores(meshDevice, 2);
 
   out = ::ttnn::experimental::all_gather_async(
       input, allGatherDim, clusterAxis, meshDevice,

@@ -158,6 +158,11 @@ inline T getScalarFromTensor(const ::ttnn::Tensor &tensor) {
   return data[0];
 }
 
+::ttnn::GlobalSemaphore createGlobalSemaphore(::ttnn::MeshDevice &meshDevice);
+
+std::vector<::ttnn::GlobalSemaphore>
+createGlobalSemaphores(::ttnn::MeshDevice &meshDevice, size_t count);
+
 } // namespace tt::runtime::ttnn::utils
 
 #endif
