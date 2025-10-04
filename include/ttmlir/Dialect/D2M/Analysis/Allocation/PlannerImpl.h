@@ -7,12 +7,10 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
 
-#include "llvm/Support/Format.h"
-#include "llvm/Support/raw_ostream.h"
-
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
