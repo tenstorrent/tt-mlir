@@ -44,10 +44,9 @@ struct TTIRToTTMetalPipelineOptions
                                   "Use mock blackhole system desc.")),
       llvm::cl::init(ttcore::Arch::WormholeB0)};
 
-  Option<unsigned> maxDstRegisterSizeTiles{
-      *this, "max-dst-register-size-tiles",
-      llvm::cl::desc("Clamp the maximum destination register size in tiles. 0 "
-                     "means unset."),
+  Option<unsigned> maxDstPhysicalSizeTiles{
+      *this, "max-dst-physical-size-tiles",
+      llvm::cl::desc("Clamp DST's max physical size in tiles. 0 means unset."),
       llvm::cl::init(0)};
 
   ListOption<int64_t> matmulInterchange{

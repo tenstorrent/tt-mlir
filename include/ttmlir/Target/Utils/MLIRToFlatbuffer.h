@@ -409,7 +409,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttcore::ChipDescAttr chipDesc) {
       chipDesc.getDramUnreservedEnd(),
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
-      chipDesc.getDstRegisterSizeTiles(), chipDesc.getNumCBs(),
+      chipDesc.getDstPhysicalSizeTiles(), chipDesc.getNumCBs(),
       chipDesc.getNumComputeThreads(), chipDesc.getNumDatamovementThreads());
 }
 

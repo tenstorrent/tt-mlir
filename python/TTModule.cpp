@@ -162,7 +162,7 @@ void populateTTModule(nb::module_ &m) {
              unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
              unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
              unsigned dramUnreservedEnd, MlirAttribute supportedDataTypes,
-             MlirAttribute supportedTileSizes, unsigned dstRegisterSizeTiles,
+             MlirAttribute supportedTileSizes, unsigned dstPhysicalSizeTiles,
              unsigned numCBs, unsigned numComputeThreads,
              unsigned numDatamovementThreads) {
             return wrap(tt::ttcore::ChipDescAttr::get(
@@ -175,7 +175,7 @@ void populateTTModule(nb::module_ &m) {
                     unwrap(supportedDataTypes)),
                 mlir::cast<tt::ttcore::TileSizeAttr>(
                     unwrap(supportedTileSizes)),
-                dstRegisterSizeTiles, numCBs, numComputeThreads,
+                dstPhysicalSizeTiles, numCBs, numComputeThreads,
                 numDatamovementThreads));
           })
       .def_prop_ro("usable_l1_size", &tt::ttcore::ChipDescAttr::getUsableL1Size)

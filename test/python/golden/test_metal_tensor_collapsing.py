@@ -98,7 +98,7 @@ def test_uncollapsed_tensors(
 ):
     """Test tensor operations with and without tensor collapsing to 2D."""
 
-    pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()} max-dst-register-size-tiles=1}}"
+    pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()}}}"
     pipeline = f"ttir-to-ttmetal-pipeline{pipeline_options}"
 
     compile_ttir_to_flatbuffer(

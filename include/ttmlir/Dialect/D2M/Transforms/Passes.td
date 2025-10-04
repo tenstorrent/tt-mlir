@@ -13,10 +13,6 @@ def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir:
     This pass tiles affine compute loops according to the generic's subblock factors.
   }];
 
-  list<Option> options = [
-    Option<"maxDstRegisterSizeTiles", "max-dst-register-size-tiles", "unsigned", "0", "Override the max dst size tiles or 0 if unset.">,
-  ];
-
   let dependentDialects = ["mlir::tt::d2m::D2MDialect"];
 }
 
@@ -79,7 +75,7 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
     ```
 
     Notes:
-       - All loads and stores to L1 are replaced with ones to dst.
+       - Operand loads & stores that implicitly uses the DST are replaced with explicit affine loads & stores that go through the DST.
        - Generic op automatically inserts conditional guard for reload.
        - This pass only works on affine ops.
   }];
