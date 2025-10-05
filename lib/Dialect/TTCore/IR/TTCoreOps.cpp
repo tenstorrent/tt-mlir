@@ -151,18 +151,10 @@ LogicalResult LoadCachedOp::verify() {
   FunctionType fnType = funcOp.getFunctionType();
 
   // Check if we have tuple inputs/outputs.
-  // If input is empty, treat it logically as a tuple with no elements.
-  bool hasTupleInput = fnType.getNumInputs() == 0 ||
-                       (fnType.getNumInputs() == 1 &&
-                        mlir::isa<mlir::TupleType>(fnType.getInput(0)));
+  bool hasTupleInput = fnType.getNumInputs() == 1 &&
+                       mlir::isa<mlir::TupleType>(fnType.getInput(0));
   bool hasTupleResult = fnType.getNumResults() == 1 &&
                         mlir::isa<mlir::TupleType>(fnType.getResult(0));
-
-  // Enforce consistency in tuple usage between inputs and outputs.
-  if (hasTupleInput != hasTupleResult) {
-    return emitOpError("Inconsistent use of tuples: cannot mix tuple and "
-                       "non-tuple for inputs and outputs");
-  }
 
   if (LogicalResult result = verifyTensorList(
           this, this->getOperands(),
