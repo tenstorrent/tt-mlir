@@ -652,3 +652,45 @@ mlir::LogicalResult AwaitOp::verify() {
       ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
           getOperation()));
 }
+
+mlir::LogicalResult PopOp::verify() {
+  // Verify that the circular buffer operand is in the region arguments
+  mlir::Value cb = getCb();
+  mlir::Region *region =
+      ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
+          getOperation());
+
+  if (!valueInRegionArguments(cb, region)) {
+    return emitOpError() << "circular buffer operand not in region arguments";
+  }
+
+  // Verify that the result type matches the wrapped memref type
+  auto cbType = llvm::cast<CBType>(cb.getType());
+  if (cbType.getUnderlying() != getResult().getType()) {
+    return emitOpError() << "result type does not match circular buffer's "
+                            "wrapped memref type";
+  }
+
+  return ::mlir::success();
+}
+
+mlir::LogicalResult ReserveOp::verify() {
+  // Verify that the circular buffer operand is in the region arguments
+  mlir::Value cb = getCb();
+  mlir::Region *region =
+      ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
+          getOperation());
+
+  if (!valueInRegionArguments(cb, region)) {
+    return emitOpError() << "circular buffer operand not in region arguments";
+  }
+
+  // Verify that the result type matches the wrapped memref type
+  auto cbType = llvm::cast<CBType>(cb.getType());
+  if (cbType.getUnderlying() != getResult().getType()) {
+    return emitOpError() << "result type does not match circular buffer's "
+                            "wrapped memref type";
+  }
+
+  return ::mlir::success();
+}
