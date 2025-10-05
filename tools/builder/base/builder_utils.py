@@ -13,7 +13,7 @@ from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
 from ttmlir.ir import *
-from ttmlir.dialects import func, ttcore
+from ttmlir.dialects import func, ttcore, ttnn
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
@@ -32,6 +32,7 @@ from ttmlir.passes import (
 from builder.base.builder import *
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
+from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.d2m.d2m_builder import D2MBuilder
 
 # Imports for runtime execution
@@ -1039,6 +1040,181 @@ def compile_ttir_to_flatbuffer(
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
+
+
+def build_ttnn_module(
+    fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_types: List[torch.dtype],
+):
+    """
+    Builds mlir module containing TTNN ops defined by `fn`.
+
+    Parameters
+    ----------
+    fn : Callable
+        Python function to be converted to MLIR
+
+    inputs_shapes : *List[Shape]*
+        Shapes of the respective ranked tensor inputs of the test function.
+
+    inputs_types: *Optional[List[Union[torch.dtype, TypeInfo]]]*
+        Data types of the input tensors
+
+    Returns
+    -------
+    Module
+        MLIR module containing MLIR op graph defined by `fn`
+    """
+
+    if len(inputs_shapes) != len(inputs_types):
+        raise ValueError(
+            f"inputs_shapes and inputs_types must have the same length: "
+            f"{len(inputs_shapes)} != {len(inputs_types)}"
+        )
+
+    ctx = Context()
+
+    # Grab the location of the test function in python for later debugging
+    try:
+        fname = inspect.getfile(fn)
+        line_no = inspect.getsourcelines(fn)[1]
+        loc = Location.file(fname, line_no, 0, ctx)
+    except (OSError, TypeError):
+        loc = Location.unknown(ctx)
+
+    with ctx, loc:
+        ttnn_builder = TTNNBuilder(ctx, loc)
+
+        # Converts input dtype such as torch.float32 to f32
+        # or torch.bfloat16 to bf16.
+        element_types = [
+            ttnn_builder._get_type_from_torch_dtype(dtype) for dtype in inputs_types
+        ]
+        input_shapes_and_types = list(zip(inputs_shapes, element_types))
+
+        # TTNN ops operate on RankedTensorType but require encoding attribute
+        # so we call create_ttnn_tensor to create the correct type.
+        fn_input_types = [
+            ttnn_builder.create_ttnn_tensor(shape, elem_type)
+            for (shape, elem_type) in input_shapes_and_types
+        ]
+
+        # Wrap everything in a mlir module.
+        module = Module.create()
+        with InsertionPoint(module.body):
+            # Wrap everything in a mlir function.
+            @func.func(*fn_input_types, name=fn.__name__)
+            def decorated_func(*inputs):
+                input_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                for _, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
+                    input_goldens[operand] = ttnn_builder._generate_golden_tensor(
+                        operand, dtype
+                    )
+
+                ttnn_builder._set_goldens(input_goldens)
+                ttnn_builder._set_input_ordering(inputs)
+
+                result = fn(*inputs, ttnn_builder)
+                output_ops = result if hasattr(result, "__iter__") else (result,)
+                output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
+                for op in output_ops:
+                    output_goldens[op] = ttnn_builder._get_golden_tensor(op)
+                ttnn_builder._set_goldens(output_goldens)
+                ttnn_builder._set_output_ordering(output_ops)
+                return result
+
+        print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
+
+        return module, ttnn_builder
+
+
+def compile_ttnn_to_flatbuffer(
+    fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    test_base: str = "test",
+    output_root: str = ".",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    pipeline_options: List[str] = [],
+) -> str:
+    """
+    Compiles a TTNN function to flatbuffer format.
+
+    This helper function generates a TTNN mlir module runs the compilation
+    pipeline using ttir-to-ttnn-backend-pipeline and finally generates a flatbuffer.
+
+    Parameters
+    ----------
+    fn : Callable
+        The TTNN function to compile
+
+    inputs_shapes : *List[Shape]*
+        Shapes of the respective ranked tensor inputs of the test function
+
+    inputs_types : *Optional[List[Union[torch.dtype, TypeInfo]]]*, optional
+        The dtypes to use for the inputs to `fn`
+
+    system_desc_path : str, optional
+        Path to the system descriptor file
+
+    test_base : str, optional
+        The string to be used as the test_base name for dumped files
+
+    output_root : str, optional
+        The path to dump all generated files under
+
+    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
+        The target backend to use. Default is "ttnn"
+
+    mesh_name : str, optional
+        Name of the mesh to be used in the module
+
+    mesh_dict : *OrderedDict[str, int]*, optional
+        Dictionary that defines the mesh shape
+
+    pipeline_options: *List[str]*
+        Additional pipeline options to pass to the pipeline
+
+    Returns
+    -------
+    str
+        The path to the generated TTNN MLIR file.
+
+    Raises
+    ------
+    ValueError
+        If inputs_shapes and inputs_types have different lengths
+    TTBuilderCompileException
+        If compilation fails at any stage
+    """
+
+    if inputs_types is not None:
+        if len(inputs_shapes) != len(inputs_types):
+            raise ValueError("inputs_shapes and inputs_types must have the same length")
+
+    # Create module containing TTNN ops
+    try:
+        module, builder = build_ttnn_module(
+            fn,
+            inputs_shapes,
+            inputs_types,
+        )
+    except Exception as e:
+        raise TTBuilderCompileException(e)
+
+    return compile_ttir_module_to_flatbuffer(
+        module,
+        builder,
+        system_desc_path=system_desc_path,
+        test_base=test_base,
+        output_root=output_root,
+        target="ttnn",
+        builder_dir="ttnn-builder-artifacts",
+        mesh_dict=mesh_dict,
+        pipeline_options=pipeline_options,
+    )
 
 
 def compile_d2m_to_flatbuffer(
