@@ -181,17 +181,6 @@ public:
   struct FuncBodyTypeConverter : mlir::TypeConverter {
     FuncBodyTypeConverter() {
       addConversion([](mlir::RankedTensorType type) -> mlir::RankedTensorType {
-        mlir::Type elementType = type.getElementType();
-        if (!mlir::isa<BFloat16Type>(elementType)) {
-          assert(mlir::isa<ttcore::TileType>(elementType) &&
-                 "Expected TileType for non-bfloat16 element type.");
-          assert(
-              mlir::cast<ttcore::TileType>(elementType).getDataType() ==
-                  ttcore::DataType::BFP_BFloat8 &&
-              "Expected BFP_BFloat8 TileType for non-bfloat16 element type.");
-          return type;
-        }
-
         return type.clone(ttcore::TileType::get(
             type.getContext(), ttcore::TileType::getDefaultShape(),
             ttcore::DataType::BFP_BFloat8));
