@@ -1642,13 +1642,11 @@ public:
     RankedTensorType arangeOutputType = RankedTensorType::get(
         requiredShape, outputType.getElementType(), outputType.getEncoding());
     
-    // Create TypeAttr for the dtype argument
-
     Value output =
         rewriter
             .create<ttir::ArangeOp>( // perform arange on the last dimension to
                                      // match how ttnn behaves
-                op.getLoc(), arangeOutputType, start, end, step, 0,outputType.getElementType())
+                op.getLoc(), arangeOutputType, start, end, step, 0, outputType.getElementType())
             .getResult();
 
     std::vector<int64_t> outputShape = arangeOutputType.getShape().vec();

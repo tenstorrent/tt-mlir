@@ -23,7 +23,7 @@ module {
 
   func.func @ones_f32() -> tensor<32x64x128xf32> {
     // CHECK: {{.*}} = "ttnn.ones"({{.*}}) {{.*}} -> tensor<32x64x128xf32{{.*}}>
-    %0 = "ttir.ones"() <{shape = array<i32:32, 64, 128>, dtype = bf16}> : () -> tensor<32x64x128xf32>
+    %0 = "ttir.ones"() <{shape = array<i32:32, 64, 128>, dtype = f32}> : () -> tensor<32x64x128xf32>
     return %0 : tensor<32x64x128xf32>
   }
 }

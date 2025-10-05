@@ -103,7 +103,7 @@ module {
   // CHECK: func.func @forward_reuse_zeros(
   func.func @forward_reuse_zeros(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
     // CHECK: = ttcore.load_cached(@forward_reuse_zeros_const_eval_0, [%arg1, %arg2])
-    %0 = "ttir.zeros"() <{shape = array<i32:32, 32>,dtype = i64}> : () -> tensor<32x32xbf16>
+    %0 = "ttir.zeros"() <{shape = array<i32:32, 32>, dtype = bf16}> : () -> tensor<32x32xbf16>
     %1 = ttir.empty() : tensor<32x32xbf16>
     // CHECK: = "ttnn.add"(%arg0, %{{.*}})
     %2 = "ttir.add"(%arg0, %0, %1)  : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
@@ -175,14 +175,14 @@ module {
   // CHECK-LABEL: func.func @creation_ops(
   func.func @creation_ops() -> tensor<4x4xbf16> {
     // CHECK: = ttcore.load_cached(@creation_ops_const_eval_0, [])
-    %0 = "ttir.zeros"() <{shape = array<i32: 4, 4>, dtype = i64}> : () -> tensor<4x4xbf16>
-    %1 = "ttir.ones"() <{shape = array<i32: 4, 4>,dtype = bf16}> : () -> tensor<4x4xbf16>
+    %0 = "ttir.zeros"() <{shape = array<i32: 4, 4>, dtype = bf16}> : () -> tensor<4x4xbf16>
+    %1 = "ttir.ones"() <{shape = array<i32: 4, 4>, dtype = bf16}> : () -> tensor<4x4xbf16>
 
     %2 = ttir.empty() : tensor<4x4xbf16>
     %3 = "ttir.add"(%0, %1, %2) : (tensor<4x4xbf16>, tensor<4x4xbf16>, tensor<4x4xbf16>) -> tensor<4x4xbf16>
 
     %4 = ttir.empty() : tensor<4x4xbf16>
-    %5 = "ttir.arange"() {start = 0 : si64, dtype = i64, end = 4 : si64, step = 1 : si64, arange_dimension = 0 : i64} : () -> tensor<4x4xbf16>
+    %5 = "ttir.arange"() {start = 0 : si64, dtype = bf16, end = 4 : si64, step = 1 : si64, arange_dimension = 0 : i64} : () -> tensor<4x4xbf16>
     %6 = "ttir.add"(%3, %5, %4) : (tensor<4x4xbf16>, tensor<4x4xbf16>, tensor<4x4xbf16>) -> tensor<4x4xbf16>
 
     return %6 : tensor<4x4xbf16>

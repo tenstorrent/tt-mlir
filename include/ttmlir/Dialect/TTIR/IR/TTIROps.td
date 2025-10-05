@@ -4755,7 +4755,7 @@ class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
     by providing common argument and result definitions.
   }];
 
-  let arguments = (ins DenseI32ArrayAttr:$shape,TypeAttr:$dtype);
+  let arguments = (ins DenseI32ArrayAttr:$shape, TypeAttr:$dtype);
 
   let results = (outs AnyRankedTensor:$result);
 }
@@ -4795,8 +4795,7 @@ def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
     This operation is useful for initializing tensors before filling them with computed values or as a
     starting point for accumulation operations.
   }];
-  let arguments = (ins DenseI32ArrayAttr:$shape,
-                       TypeAttr:$dtype);  // Added dtype argument
+  let arguments = (ins DenseI32ArrayAttr:$shape);
 
 }
 
