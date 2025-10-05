@@ -1292,7 +1292,11 @@ unsigned d2m::GenericOp::getNumDims() {
       .getNumDims();
 }
 
-mlir::AffineMap d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
+std::optional<mlir::AffineMap>
+d2m::GenericOp::getIndexingMap(int64_t operandIndex) {
+  if (getIndexingMaps().empty()) {
+    return std::nullopt;
+  }
   return mlir::cast<AffineMapAttr>(getIndexingMaps()[operandIndex]).getValue();
 }
 
@@ -1419,9 +1423,12 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
 
 mlir::SmallVector<int64_t>
 d2m::GenericOp::getParticipatingLoopDims(int64_t operandIndex) {
-  AffineMap indexingMap = getIndexingMap(operandIndex);
+  if (getIndexingMaps().empty()) {
+    return {};
+  }
+  std::optional<AffineMap> indexingMap = getIndexingMap(operandIndex);
   auto dimExprs =
-      llvm::make_filter_range(indexingMap.getResults(), [](AffineExpr expr) {
+      llvm::make_filter_range(indexingMap->getResults(), [](AffineExpr expr) {
         return mlir::isa<AffineDimExpr>(expr);
       });
   return llvm::map_to_vector(dimExprs, [](AffineExpr expr) {
@@ -1434,10 +1441,10 @@ d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
   if (getIndexingMaps().empty()) {
     return {};
   }
-  AffineMap indexingMap = getIndexingMap(operandIndex);
+  std::optional<AffineMap> indexingMap = getIndexingMap(operandIndex);
   SmallVector<int64_t> participatingDims =
       getParticipatingLoopDims(operandIndex);
-  llvm::BitVector nonParticipatingDims(indexingMap.getNumDims(), true);
+  llvm::BitVector nonParticipatingDims(indexingMap->getNumDims(), true);
   llvm::for_each(participatingDims, [&nonParticipatingDims](int64_t dim) {
     nonParticipatingDims.reset(dim);
   });

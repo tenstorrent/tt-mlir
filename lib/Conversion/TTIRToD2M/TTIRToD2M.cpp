@@ -1117,10 +1117,10 @@ public:
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       ttcore::MemorySpace defaultInputMemSpace,
       ttcore::MemorySpace defaultOutputMemSpace,
-      const llvm::SmallVector<int64_t> &targetGridShape, bool ttnnMode)
+      const llvm::SmallVector<int64_t> &targetGridShape, bool ttnnMode, bool collapseTensors)
       : OpConversionPattern<d2m::TileMatmulBlockOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                                targetGridShape, ttnnMode) {}
+                               targetGridShape, ttnnMode, collapseTensors) {}
 
 private:
   LogicalResult
