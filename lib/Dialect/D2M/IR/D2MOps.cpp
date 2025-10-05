@@ -942,27 +942,14 @@ static mlir::LogicalResult verifyAffineBlocking(
   // Output grid shape must equal the GenericOp grid shape.
   auto opGridShape = getGrid().getShape();
   for (auto output : getOutputs()) {
-    Type operandType = output.getType();
-    ArrayRef<int64_t> outputGridShape;
-    if (RankedTensorType tensorType =
-            mlir::dyn_cast<RankedTensorType>(operandType)) {
-      if (!tensorType.getEncoding()) {
-        // Skip layout checks if the tensor type does not have a layout yet.
-        continue;
-      }
-      ttcore::MetalLayoutAttr layout =
-          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-      outputGridShape = layout.getGridShape(tensorType);
-    } else {
-      auto memref = mlir::cast<MemRefType>(operandType);
-      // If the top level operand is a memref, the front half of its shape
-      // is the grid shape, so we cut it off the back to get just the grid
-      // shape.
-      mlir::tt::ttcore::DeviceLayoutInterface layout =
-          mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
-              memref.getLayout());
-      outputGridShape = layout.getGridShape(memref);
+    mlir::ShapedType outputType =
+        mlir::cast<mlir::ShapedType>(output.getType());
+    ttcore::DeviceLayoutInterface layout = ttcore::getDeviceLayout(outputType);
+    if (!layout) {
+      // Skip layout checks if the tensor type does not have a layout yet.
+      continue;
     }
+    ArrayRef<int64_t> outputGridShape = layout.getGridShape(outputType);
     if (!llvm::all_of(llvm::zip(outputGridShape, opGridShape), [](auto pair) {
           auto [out, op] = pair;
           return out % op == 0;
@@ -1056,56 +1043,21 @@ static mlir::LogicalResult verifyAffineBlocking(
 
     auto valueArguments = region.getArguments().take_front(operandTypes.size());
     for (BlockArgument arg : valueArguments) {
-      Type blockArgType = arg.getType();
-
-      Type operandType = operandTypes[arg.getArgNumber()];
-      ArrayRef<int64_t> expectedShardShape;
-      std::optional<Attribute> expectedMemorySpace;
-      bool isStream = false;
-      if (RankedTensorType tensorType =
-              mlir::dyn_cast<RankedTensorType>(operandType)) {
-        if (!tensorType.getEncoding()) {
-          // Skip layout checks if the tensor type does not have a layout yet
-          continue;
-        }
-        ttcore::MetalLayoutAttr layout =
-            mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-        expectedMemorySpace =
-            ttcore::MemorySpaceAttr::get(getContext(), layout.getMemorySpace());
-        expectedShardShape = layout.getShardShape(tensorType);
-      } else {
-        auto memref = mlir::cast<MemRefType>(operandType);
-        expectedMemorySpace = memref.getMemorySpace();
-        // If the top level operand is a memref, the front half of its shape
-        // will include the grid shape, so we cut it off to get just the shard
-        // shape.
-        mlir::tt::ttcore::DeviceLayoutInterface layout =
-            mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
-                memref.getLayout());
-        expectedShardShape = layout.getShardShape(memref);
-        isStream = mlir::isa<ttcore::ViewLayoutAttr>(memref.getLayout());
+      mlir::ShapedType operandType =
+          mlir::cast<mlir::ShapedType>(operandTypes[arg.getArgNumber()]);
+      ttcore::DeviceLayoutInterface layout =
+          ttcore::getDeviceLayout(operandType);
+      if (!layout) {
+        continue;
       }
 
-      if (auto blockMemref = mlir::dyn_cast<MemRefType>(blockArgType)) {
-        if (!isStream && expectedMemorySpace &&
-            *expectedMemorySpace != blockMemref.getMemorySpace()) {
-          return emitOpError("region argument memory space must match "
-                             "the memory space of the corresponding operand");
-        }
-        if (expectedShardShape != blockMemref.getShape()) {
-          return emitOpError("region argument shape must match the "
-                             "shape of the corresponding operand");
-        }
-      } else if (auto blockTensor =
-                     mlir::dyn_cast<RankedTensorType>(blockArgType)) {
-        if (expectedShardShape != blockTensor.getShape()) {
-          return emitOpError("region argument shape must match the "
-                             "shape of the corresponding operand");
-        }
-        // Memory space is not encoded in tensor types; skip that check.
-      } else {
-        return emitOpError(
-            "region arguments must be of RankedTensorType or MemRefType");
+      mlir::ShapedType blockArgType =
+          mlir::cast<mlir::ShapedType>(arg.getType());
+
+      ArrayRef<int64_t> expectedShardShape = layout.getShardShape(operandType);
+      if (expectedShardShape != blockArgType.getShape()) {
+        return emitOpError("region argument shape must match the "
+                           "shape of the corresponding operand");
       }
     }
 
@@ -1356,6 +1308,8 @@ void d2m::GenericOp::getAsmBlockArgumentNames(
   int semIndex = 0;
   for (BlockArgument arg : region.getArguments()) {
     if (mlir::isa<MemRefType>(arg.getType())) {
+      setNameFn(arg, "cb" + std::to_string(cbIndex++));
+    } else if (mlir::isa<CBType>(arg.getType())) {
       setNameFn(arg, "cb" + std::to_string(cbIndex++));
     } else if (mlir::isa<RankedTensorType>(arg.getType())) {
       setNameFn(arg, "t" + std::to_string(cbIndex++));

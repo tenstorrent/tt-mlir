@@ -636,3 +636,61 @@ mlir::LogicalResult AwaitOp::verify() {
       ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
           getOperation()));
 }
+
+mlir::LogicalResult PopOp::verify() {
+  auto generic = getOperation()->getParentOfType<GenericOp>();
+  if (generic && generic.hasPureTensorSemantics()) {
+    return emitOpError(
+        "pop op illegal to use inside generic with pure tensor semantics");
+  }
+
+  // Verify that the circular buffer operand is in the region arguments
+  mlir::Value cb = getCb();
+  mlir::Region *region =
+      ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
+          getOperation());
+
+  if (!valueInRegionArguments(cb, region)) {
+    return emitOpError() << "circular buffer operand not in region arguments";
+  }
+
+  // Verify that the result type matches the wrapped memref type
+  auto cbType = llvm::cast<CBType>(cb.getType());
+  auto resultType = llvm::cast<MemRefType>(getResult().getType());
+
+  if (cbType.getMemref() != resultType) {
+    return emitOpError() << "result type does not match circular buffer's "
+                            "wrapped memref type";
+  }
+
+  return ::mlir::success();
+}
+
+mlir::LogicalResult ReserveOp::verify() {
+  auto generic = getOperation()->getParentOfType<GenericOp>();
+  if (generic && generic.hasPureTensorSemantics()) {
+    return emitOpError(
+        "reserve op illegal to use inside generic with pure tensor semantics");
+  }
+
+  // Verify that the circular buffer operand is in the region arguments
+  mlir::Value cb = getCb();
+  mlir::Region *region =
+      ttmlir::utils::getRegionWithParentOfType<GenericOp, func::FuncOp>(
+          getOperation());
+
+  if (!valueInRegionArguments(cb, region)) {
+    return emitOpError() << "circular buffer operand not in region arguments";
+  }
+
+  // Verify that the result type matches the wrapped memref type
+  auto cbType = llvm::cast<CBType>(cb.getType());
+  auto resultType = llvm::cast<MemRefType>(getResult().getType());
+
+  if (cbType.getMemref() != resultType) {
+    return emitOpError() << "result type does not match circular buffer's "
+                            "wrapped memref type";
+  }
+
+  return ::mlir::success();
+}

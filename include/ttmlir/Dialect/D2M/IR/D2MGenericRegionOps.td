@@ -52,6 +52,12 @@ def DeviceOrRegisterMemRefOrAnyRankedTensor : AnyTypeOf<[
   AnyRankedTensor
 ]>;
 
+// Allow circular buffer or ranked tensors for generic region block ops with new semantics.
+def CBOrAnyRankedTensor : AnyTypeOf<[
+  D2M_CB,
+  AnyRankedTensor
+]>;
+
 class D2M_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     D2M_Op<mnemonic, [D2M_GenericParent] # traits> {}
 
@@ -991,6 +997,68 @@ def D2M_AwaitOp : D2M_GenericRegionOp<"await", [MemoryEffects<[MemRead, MemWrite
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
 
     let hasVerifier = 1;
+}
+
+def D2M_PopOp : D2M_GenericRegionOp<"pop", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Pop from circular buffer.";
+    let description = [{
+      Pop operation, extracts the enclosing memref from a circular buffer.
+      This operation is used by consumer threads to access data from the circular buffer.
+      It replaces the d2m.await operation when using the new circular buffer semantics.
+
+      Example:
+      ```mlir
+      %memref = d2m.pop %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      ```
+    }];
+
+    let arguments = (ins D2M_CB:$cb);
+    let results = (outs AnyMemRef:$result);
+
+    let assemblyFormat = [{ $cb attr-dict `:` type($cb) `->` type($result) }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      /// Get the circular buffer operand
+      Value getCircularBuffer() { return getCb(); }
+
+      /// Get the wrapped memref type from the circular buffer
+      MemRefType getMemRefType() {
+        return llvm::cast<CBType>(getCb().getType()).getMemref();
+      }
+    }];
+}
+
+def D2M_ReserveOp : D2M_GenericRegionOp<"reserve", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Reserve from circular buffer.";
+    let description = [{
+      Reserve operation, extracts the enclosing memref from a circular buffer.
+      This operation is used by producer threads to reserve space in the circular buffer.
+      It replaces the d2m.yield operation when using the new circular buffer semantics.
+
+      Example:
+      ```mlir
+      %memref = d2m.reserve %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      ```
+    }];
+
+    let arguments = (ins D2M_CB:$cb);
+    let results = (outs AnyMemRef:$result);
+
+    let assemblyFormat = [{ $cb attr-dict `:` type($cb) `->` type($result) }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      /// Get the circular buffer operand
+      Value getCircularBuffer() { return getCb(); }
+
+      /// Get the wrapped memref type from the circular buffer
+      MemRefType getMemRefType() {
+        return llvm::cast<CBType>(getCb().getType()).getMemref();
+      }
+    }];
 }
 
 //===----------------------------------------------------------------------===//

@@ -25,4 +25,35 @@ def D2M_Semaphore : D2M_Type<"Semaphore", "semaphore"> {
     let description = "Semaphore primitive type used with semaphore ops to synchronize cores.";
 }
 
+def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface]> {
+    let summary = "D2M circular buffer type.";
+    let description = [{
+        Circular buffer type that wraps a memref for non-pure semantics.
+        Used in d2m.generic region arguments to represent post-bufferization
+        circular buffer semantics instead of raw memref types.
+    }];
+    let parameters = (ins "MemRefType":$memref);
+    let assemblyFormat = "`<` $memref `>`";
+
+    let extraClassDeclaration = [{
+      mlir::ShapedType cloneWith(std::optional<llvm::ArrayRef<int64_t>> shape,
+                                 mlir::Type elementType) {
+        auto memrefClone = mlir::cast<MemRefType>(getMemref().cloneWith(shape, elementType));
+        return mlir::cast<mlir::ShapedType>(get(getContext(), memrefClone));
+      }
+
+      mlir::Type getElementType() {
+        return getMemref().getElementType();
+      }
+
+      bool hasRank() {
+        return getMemref().hasRank();
+      }
+
+      llvm::ArrayRef<int64_t> getShape() {
+        return getMemref().getShape();
+      }
+    }];
+}
+
 #endif  // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSTYPES_TD
