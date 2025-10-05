@@ -3237,7 +3237,7 @@ public:
 
     // The `update_index` is modeled as a tensor in the IR, but the
     // `ttnn::update_cache` expects a `uint32_t` scalar.
-    auto updateIndex =
+    mlir::Value updateIndex =
         rewriter
             .create<emitc::CallOpaqueOp>(
                 srcOp.getLoc(), rewriter.getI32Type(),
