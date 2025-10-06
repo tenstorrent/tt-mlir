@@ -41,7 +41,7 @@ createCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cbDesc,
   // Right now, metal assumes only one CBFormatDescriptor per KernelDescriptor
   tt::tt_metal::Buffer *buffer = nullptr;
   if (cbDesc.buffer()) {
-    uint32_t tensorIdx = cbDesc.buffer()->buffer_index();
+    uint32_t tensorIdx = cbDesc.buffer()->tensor_index();
     LOG_DEBUG("cbdescriptor getting buffer of tensor: ", tensorIdx);
     buffer = ioTensors[tensorIdx].buffer();
   }

@@ -149,7 +149,7 @@ public:
         ios[i] = castOp.getOperand();
         cbs[i] = operand;
       } else {
-        llvm_unreachable("Expected stream_layout op for the input.");
+        llvm_unreachable("Expected stream_layout or cast op as operand.");
       }
       cbPorts[i] = cbPort++;
     }
@@ -160,8 +160,6 @@ public:
     }
 
     // Create CBDescriptor.
-    // TODO (vtangTT) #5031: support setting buffer ptr in CBDescriptor for
-    // aliasing.
     ttnn::KernelCBAttr cbDescriptor;
     for (auto [i, cb] : llvm::enumerate(cbs)) {
       auto cb_memref = dyn_cast<MemRefType>(cb.getType());
