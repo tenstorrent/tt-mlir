@@ -361,7 +361,7 @@ jobs:
       - name: Download ttnn-jit whl
         uses: actions/download-artifact@v4
         with:
-          name: ttnn-jit-whl-speedy
+          name: ttnn-jit-whl-tracy
       - name: Install ttnn-jit whl
         shell: bash
         run: |
