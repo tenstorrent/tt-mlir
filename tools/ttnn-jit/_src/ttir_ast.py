@@ -104,41 +104,57 @@ class TTIRCompiler(ast.NodeVisitor):
     def _create_tensor_layout(self, tensor_arg):
         # Only rank 2 tensors supported
         assert len(tensor_arg.shape) == 2
+        if tensor_arg.memory_config().is_sharded():
+            shard_spec = tensor_arg.memory_config().shard_spec
+            shard_shape = shard_spec.shape
 
-        shard_spec = tensor_arg.memory_config().shard_spec
-        shard_shape = shard_spec.shape
+            # Create identity affine map, should be based of tensor shape
+            # default to rank 2, don't support shape collapse.
+            identity_map = AffineMap.get_identity(2, self.ctx)
 
-        # Create identity affine map, should be based of tensor shape
-        # default to rank 2, don't support shape collapse.
-        identity_map = AffineMap.get_identity(2, self.ctx)
+            # Create ttcore grid atttr based off max_grid passed by user
+            # Can't pull grid info from tensor unless it's sharded
+            grid_size_x = self.max_grid[0] + 1
+            grid_size_y = self.max_grid[1] + 1
+            grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_x, grid_size_y])
 
-        # Create ttcore grid atttr based off max_grid passed by user
-        # Can't pull grid info from tensor unless it's sharded
-        grid_size_x = self.max_grid[0] + 1
-        grid_size_y = self.max_grid[1] + 1
-        grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_x, grid_size_y])
+            # Create memref, tile type only.
+            # Only L1 buffer supported. NO DRAM yet.
+            data_type = self._ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
+            shard_shape_tile_x = shard_shape[0] // 32
+            shard_shape_tile_y = shard_shape[1] // 32
+            tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type)
+            buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.L1)
+            memref = MemRefType.get(
+                [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
+            )
 
-        # Create memref, tile type only.
-        # Only L1 buffer supported. NO DRAM yet.
-        data_type = self._ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
-        shard_shape_tile_x = shard_shape[0] // 32
-        shard_shape_tile_y = shard_shape[1] // 32
-        tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type)
-        buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.L1)
-        memref = MemRefType.get(
-            [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
-        )
-
-        # Either L1 block sharded or DRAM interleaved. (No DRAM for now)
-        ttnn_layout = ttnn.ir.TTNNLayoutAttr.get(
-            self.ctx,
-            identity_map,
-            grid,
-            memref,
-            ttnn.TensorMemoryLayout.BlockSharded,
-            None,
-        )
-        return ttnn_layout
+            # Either L1 block sharded or DRAM interleaved. (No DRAM for now)
+            ttnn_layout = ttnn.ir.TTNNLayoutAttr.get(
+                self.ctx,
+                identity_map,
+                grid,
+                memref,
+                ttnn.TensorMemoryLayout.BlockSharded,
+                None,
+            )
+            return ttnn_layout
+        else:
+            print("tensor_arg", tensor_arg)
+            dtype = self._ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
+            tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, dtype)
+            buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.DRAM)
+            grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
+            return ttnn.ir.TTNNLayoutAttr.get(
+                self.ctx,
+                list(tensor_arg.shape),
+                len(list(tensor_arg.shape)),
+                tile_type,
+                dtype,
+                buffer_type,
+                grid,
+                ttnn.TensorMemoryLayout.Interleaved,
+            )
 
     def visit_Module(self, node):
         # Set default basic block
