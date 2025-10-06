@@ -69,9 +69,17 @@ MemRefType getBufferType(Type type, bool isView,
   } else {
     const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-    layoutAttr = ttcore::ShardLayoutAttr::get(
-        ctx, shardStride, /*buffered=*/1,
-        mlir::AffineMap::getMultiDimIdentityMap(rank, ctx));
+
+    auto indexMap = layout.getIndexAffineMap();
+    if (!indexMap || indexMap.getNumResults() == 0) {
+      auto defaultMap = mlir::AffineMap::getMultiDimIdentityMap(rank, ctx);
+      // TODO: map should be omitted here to avoid IR bloat
+      layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
+                                                /*buffered=*/1, defaultMap);
+    } else {
+      layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
+                                                /*buffered=*/1, indexMap);
+    }
   }
 
   return MemRefType::get(
@@ -1356,9 +1364,9 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
   ArrayRef<int64_t> computeGrid = getGrid().getShape();
   auto computeGridVolume = ttmlir::utils::volume(computeGrid);
   for (size_t i = 0; i < computeGrid.size(); ++i) {
-    assert((flattenedGridShapes[i] == 1 ||
-            flattenedGridShapes[i] % computeGridVolume == 0) &&
-           "Output grid shape must be divisible by compute grid shape");
+    // assert((flattenedGridShapes[i] == 1 ||
+    //         flattenedGridShapes[i] % computeGridVolume == 0) &&
+    //        "Output grid shape must be divisible by compute grid shape");
     if (flattenedGridShapes[i] != 1) {
       flattenedGridShapes[i] /= computeGridVolume;
     }

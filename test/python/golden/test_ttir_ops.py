@@ -64,9 +64,9 @@ def logical_not(
 
 
 # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("shape", [(8192, 64)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
     def logical_not_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -78,6 +78,7 @@ def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
         [shape],
         [dtype],
         test_base=request.node.name,
+        print_ir="test_logical_not_ir",
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,

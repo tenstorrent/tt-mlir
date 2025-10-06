@@ -60,6 +60,43 @@ protected:
 
     assert(physicalShape.size() == targetSquareGridShape.size());
 
+    // find max aspect ratio between any dim and the other dims combined
+    constexpr double HIGH_ASPECT_RATIO_THRESHOLD = 8.0;
+    double maxRatio = 1.0;
+    int64_t maxRatioVal = 0;
+    unsigned maxRatioIndex = 0;
+    for (size_t i = 0; i < physicalShape.size(); ++i) {
+      double ratio = physicalShape[i];
+      for (size_t j = 0; j < physicalShape.size(); ++j) {
+        if (i == j) {
+          continue;
+        }
+        ratio /= physicalShape[j];
+      }
+      if (ratio > maxRatio) {
+        maxRatio = ratio;
+        maxRatioVal = physicalShape[i];
+        maxRatioIndex = i;
+      }
+    }
+
+    uint64_t gridVolume = std::accumulate(
+        targetSquareGridShape.begin(), targetSquareGridShape.end(), uint64_t{1},
+        std::multiplies<uint64_t>());
+
+    if (maxRatio > HIGH_ASPECT_RATIO_THRESHOLD) {
+      // for now, can only support if largest dim is divisible by grid volume
+      assert(maxRatioVal % gridVolume == 0);
+      for (size_t i = 0; i < physicalShape.size(); ++i) {
+        if (i == maxRatioIndex) {
+          grid.push_back(gridVolume);
+        } else {
+          grid.push_back(1);
+        }
+      }
+      return grid;
+    }
+
     for (size_t i = 0; i < physicalShape.size(); ++i) {
       const int64_t dim = physicalShape[i];
       assert(dim > 0);

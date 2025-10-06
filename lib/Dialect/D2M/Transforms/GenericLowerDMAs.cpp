@@ -328,8 +328,8 @@ public:
         memrefGridShape.size(), rewriter.getContext());
     if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
             underlyingMemrefAndView.first.getLayout())) {
-      if (shardLayout.getPhys2virtCoordMap()) {
-        coreVirtualizationMap = shardLayout.getPhys2virtCoordMap();
+      if (shardLayout.getCoreVirtualizationMap()) {
+        coreVirtualizationMap = shardLayout.getCoreVirtualizationMap();
       }
     }
     llvm::dbgs() << "analyzeStream | grid coreVirtualizationMap: "
