@@ -1194,11 +1194,6 @@ static mlir::LogicalResult verifyAffineBlocking(
       }
 
       if (auto blockMemref = mlir::dyn_cast<MemRefType>(blockArgType)) {
-        if (!isStream && expectedMemorySpace &&
-            *expectedMemorySpace != blockMemref.getMemorySpace()) {
-          return emitOpError("region argument memory space must match "
-                             "the memory space of the corresponding operand");
-        }
         if (expectedShardShape != blockMemref.getShape()) {
           return emitOpError("region argument shape must match the "
                              "shape of the corresponding operand");
