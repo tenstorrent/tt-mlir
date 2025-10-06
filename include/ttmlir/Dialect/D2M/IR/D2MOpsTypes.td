@@ -8,6 +8,7 @@
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
+include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.td"
 include "ttmlir/Dialect/D2M/IR/D2MBase.td"
 
 class D2M_Type<string name, string typeMnemonic, list<Trait> traits = []>
@@ -25,7 +26,7 @@ def D2M_Semaphore : D2M_Type<"Semaphore", "semaphore"> {
     let description = "Semaphore primitive type used with semaphore ops to synchronize cores.";
 }
 
-def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface]> {
+def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLikeTypeInterface, Bufferization_BufferLikeTypeInterface]> {
     let summary = "D2M circular buffer type.";
     let description = [{
         Circular buffer type that wraps a memref for non-pure semantics.
@@ -56,6 +57,19 @@ def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface]> {
 
       llvm::ArrayRef<int64_t> getShape() {
         return getUnderlying().getShape();
+      }
+
+      mlir::FailureOr<mlir::bufferization::BufferLikeType> getBufferType(
+        const mlir::bufferization::BufferizationOptions &,
+        llvm::function_ref<mlir::InFlightDiagnostic()>) {
+        return mlir::cast<bufferization::BufferLikeType>(get(getContext(),
+                mlir::tt::d2m::utils::getBufferType(getUnderlying(), /*isView=*/false)));
+      }
+
+      mlir::LogicalResult verifyCompatibleBufferType(
+        mlir::bufferization::BufferLikeType bufferType,
+        llvm::function_ref<mlir::InFlightDiagnostic()>) {
+        return success(*this == mlir::dyn_cast<CBType>(bufferType));
       }
     }];
 }
