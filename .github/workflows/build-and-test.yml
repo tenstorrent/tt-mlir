@@ -43,6 +43,8 @@ jobs:
           echo "all_changed_files=${{ steps.prepare-run.outputs.all_changed_files }}"
           echo "other_deleted_files=${{ steps.prepare-run.outputs.other_deleted_files }}"
       - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Generate test matrix
         id: generate-test-matrix
         shell: bash
@@ -257,21 +259,6 @@ jobs:
         pip show ttrt && pip uninstall -y ttrt
         pip install ttrt-${{ env.version }}*.whl --upgrade
 
-    - name: Download ttnn-jit whl
-      if: matrix.build.type == 'pykernel'
-      uses: actions/download-artifact@v4
-      with:
-        name: ttnn-jit-whl-${{ matrix.build.image }}
-
-    - name: Install ttnn-jit whl
-      if: matrix.build.type == 'pykernel'
-      shell: bash
-      run: |
-        source env/activate
-        pip install ttnn_jit-*.whl --force-reinstall
-        python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
-        python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
-
     - name: Download Build Artifacts
       uses: ./.github/actions/download-artifact
       with:
@@ -357,6 +344,32 @@ jobs:
         report_paths: ${{ steps.strings.outputs.test_report_path }}
         check_name: ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ strategy.job-index }} Tests
 
+
+test-ttnn-jit:
+    timeout-minutes: 45
+    needs:
+      - build-image
+      - build-ttmlir
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+            fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download ttnn-jit whl
+        uses: actions/download-artifact@v4
+        with:
+          name: ttnn-jit-whl-speedy
+      - name: Install ttnn-jit whl
+        shell: bash
+        run: |
+          python3 -m venv testenv
+          source testenv/bin/activate
+          pip install ttnn_jit-*.whl --upgrade
+          python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
+          python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
 
 
   # Dedicated job for tt-alchemist tests
