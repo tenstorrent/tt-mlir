@@ -1444,7 +1444,7 @@ operator|(std::optional<ttnn::MemoryConfigAttr> lhs,
 }
 
 // Helper function that serves as an alternative to the
-// `emit<std::variant<...>>` member function of the `EmitCTTNNEmitter` class.
+// `emit<std::variant<...>>` member function of the `EmitPyTTNNEmitter` class.
 // For example, instead of calling `emit<std::variant<int32_t, float>>(attr)`,
 // one can call `emit<int32_t>(attr) | emit<float>(attr)`.
 inline mlir::Attribute operator|(mlir::Attribute lhs, mlir::Attribute rhs) {

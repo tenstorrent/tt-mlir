@@ -89,7 +89,8 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getMin()),
         emitter.emit(srcOp.getMax()),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
     };
 
@@ -514,7 +515,8 @@ public:
         emitter.emit(srcOp.getCeilMode()),
         emitter.emit(srcOp.getCountIncludePad()),
         emitter.emit(/*divisor_override=*/std::nullopt),
-        emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
         emitter.emit(srcOp.getAppliedShardScheme(), "applied_shard_scheme"),
         emitter.emit(srcOp.getInPlaceHalo(), "in_place_halo"),
@@ -1430,21 +1432,20 @@ public:
       mlir::tt::ttnn::RepeatInterleaveOp>::TTNNToEmitPyBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::RepeatInterleaveOp repeatInterleaveOp,
+  matchAndRewrite(mlir::tt::ttnn::RepeatInterleaveOp srcOp,
                   mlir::tt::ttnn::RepeatInterleaveOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::RepeatInterleaveOp>
-        emitter(repeatInterleaveOp, adaptor, rewriter);
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(repeatInterleaveOp.getInput()),
-        emitter.emit(repeatInterleaveOp.getRepeats()),
-        emitter.emit(repeatInterleaveOp.getDim()),
-        emitter.emit(
-            repeatInterleaveOp.getMemoryConfig() |
-                emitter.getMemoryConfig(repeatInterleaveOp.getResult()),
-            "memory_config"),
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getRepeats()),
+        emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
