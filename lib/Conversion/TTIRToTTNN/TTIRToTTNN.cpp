@@ -1373,7 +1373,7 @@ public:
 
     rewriter.replaceOpWithNewOp<ttnn::GlobalAvgPool2dOp>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInput(), adaptor.getOutput(),
+        adaptor.getInput(),
         /*memory_config=*/nullptr, outputDtypeAttr);
 
     return success();
