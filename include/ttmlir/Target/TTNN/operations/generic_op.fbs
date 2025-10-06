@@ -35,7 +35,7 @@ table KernelCBFormat {
 }
 
 table KernelGlobalCBIndexOfTensor {
-  tensor_index: uint32;
+  tensor_operand_index: uint32;
 }
 
 table KernelCBDescriptor {

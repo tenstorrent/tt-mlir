@@ -2108,7 +2108,7 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
         buffer;
     if (kernelCbAttr.getBuffer()) {
       buffer = ::tt::target::ttnn::CreateKernelGlobalCBIndexOfTensor(
-          *cache.fbb, kernelCbAttr.getBuffer().getTensorIndex());
+          *cache.fbb, kernelCbAttr.getBuffer().getTensorOperandIndex());
     }
 
     cbs.push_back(::tt::target::ttnn::CreateKernelCBDescriptorDirect(

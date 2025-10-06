@@ -733,8 +733,8 @@ def TTNN_KernelCBGlobalBufferAddressOfTensorAttr : TTNN_Attr<"KernelCBGlobalBuff
   let description = [{
     TTNN Generic CB Descriptor argument for address aliased global buffer.
   }];
-  let parameters = (ins "size_t":$tensor_index);
-  let assemblyFormat = "`<` $tensor_index `>`";
+  let parameters = (ins "size_t":$tensor_operand_index);
+  let assemblyFormat = "`<` $tensor_operand_index `>`";
 }
 
 def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
