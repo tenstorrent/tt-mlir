@@ -365,12 +365,12 @@ jobs:
       - name: Install openmpi-ulfm
         shell: bash
         run: |
-          apt-get update
-          apt-get install -y -f wget ca-certificates
+          sudo apt-get update
+          sudo apt-get install -y -f wget ca-certificates
           TMP_DIR="$(mktemp -d)"
           DEB_URL="https://github.com/dmakoviichuk-tt/mpi-ulfm/releases/download/v5.0.7-ulfm/openmpi-ulfm_5.0.7-1_amd64.deb"
           wget -qO "$TMP_DIR/ompi.deb" "$DEB_URL"
-          apt-get install -f -y "$TMP_DIR/ompi.deb"
+          sudo apt-get install -f -y "$TMP_DIR/ompi.deb"
           rm -rf "$TMP_DIR"
       - name: Install ttnn-jit whl
         shell: bash

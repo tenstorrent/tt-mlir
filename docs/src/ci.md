@@ -117,26 +117,28 @@ In some cases your test might not fit to any of the existing test types.
 It is enough to add file inside `.github/test_scripts` directory.
 > Please remember to add execution file flag (`chmod +x <script_name>`) and bash shebang (`#!/bin/bash`) to the test script.
 
-A good practice is to put some comments how script interpret `path`, `args`, and `flags` parameters.
+A good practice is to put some comments how script interpret arguments (and requirements if applicable).
 
 The best way to describe how to design your test script is to look at existing ones. For example `builder.sh`:
 
 ```bash
-# path: path to pytest test files
-# args: pytest marker expression to select tests to run
-# flags: "run-ttrt" or predefined additional flags for pytest and ttrt
+# arg $1: path to pytest test files
+# arg $2: pytest marker expression to select tests to run
+# arg $3: "run-ttrt" or predefined additional flags for pytest and ttrt
 
 runttrt=""
 TTRT_ARGS=""
 PYTEST_ARGS=""
+
+[[ "$RUNS_ON" != "n150" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-exact-mesh"
+[[ "$RUNS_ON" == "p150" ]] && TTRT_ARGS="$TTRT_ARGS --disable-eth-dispatch"
+
 for flag in $3; do
     [[ "$flag" == "run-ttrt" ]] && runttrt=1
-    [[ "$flag" == "disable-eth-dispatch" ]] && TTRT_ARGS="$TTRT_ARGS --disable-eth-dispatch"
     [[ "$flag" == "require-opmodel" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-opmodel"
-    [[ "$flag" == "require-exact-mesh" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-exact-mesh"
 done
 
-pytest $1 -m "$2" $PYTEST_ARGS -v --junit-xml=$TEST_REPORT_PATH
+pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=$TEST_REPORT_PATH
 if [[ "$runttrt" == "1" ]]; then
     ttrt run $TTRT_ARGS ttir-builder-artifacts/
     cp run_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
@@ -145,25 +147,20 @@ if [[ "$runttrt" == "1" ]]; then
 fi
 ```
 
-This script has several types of flags that can be stated concurently `run-ttrt` is used if you want to perform ttrt run after pytest and other
-possible flags are additional flags for pytest or ttrt. `args` are used as pytest marker string because it contains spaces.
-This test uses TTRT_REPORT_PATH but due to the fact that it has two ttrt runs it inserts its type inside filename.
+This script has several types of flags that can be stated concurently. Argument is parsed as `run-ttrt` and other
+possible flags for pytest or ttrt. This test uses TTRT_REPORT_PATH but due to the fact that it has two ttrt runs it inserts its type inside filename.
 
 The second example is `pytest.sh` script:
 
 ```bash
-# path: path to pytest test files
-# args: additional arguments to pass to pytest
-# flags: python packages to install before running tests
-
-if [ -n "$3" ]; then
-    eval "pip install $3"
+if [ -n "$REQUIREMENTS" ]; then
+    eval "pip install $REQUIREMENTS"
 fi
 export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=$BUILD_DIR/test/ttmlir/Silicon/TTNN/n150/perf,$BUILD_DIR/test/python/golden/ttnn
 export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=$BUILD_DIR/test/python/golden/ttnn
-pytest -ssv $1 $2 --junit-xml=$TEST_REPORT_PATH
+pytest -ssv "$@" --junit-xml=$TEST_REPORT_PATH
 ```
-
+This script uses $REQUIREMENTS to specify additional wheel to be installed.
 Note how it uses eval command to expand bash variables where it is suitable. It also define some additional environment variables using provided ones.
 
 ## CI Run (under the hood)
