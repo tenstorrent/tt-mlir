@@ -27,7 +27,7 @@ class D2MGenericCompiler(TTCompilerBase):
         self.captures = captures
         self.streams = set()
         self.supported_nodes.append(ast.AsyncFunctionDef)
-        self._fn_map = _discover_dialect_ops(d2m)
+        self._fn_map = {}
         self._fn_map["iter_index"] = (
             d2m.iter_index,
             [True],
@@ -36,12 +36,8 @@ class D2MGenericCompiler(TTCompilerBase):
             d2m.core_index,
             [True],
         )  # True for arg as attribute
-        self._fn_map["index_cast"] = lambda x: arith.index_cast(
-            IndexType.get(self.ctx), x
-        )
         for name, val in D2MGenericCompiler._syntax.items():
             self._fn_map[name] = val
-        print("asdf", D2MGenericCompiler._syntax.items())
 
     def _emit_entry(self, node):
         # TODO: add alloca args name into symbol table
@@ -57,6 +53,11 @@ class D2MGenericCompiler(TTCompilerBase):
                 shape = self.args[i].shape
                 dtype = F32Type.get(self.ctx)
                 func_operand_types.append(RankedTensorType.get(shape, dtype))
+            elif arg.annotation.id == "CircularBuffer":
+                shape = self.args[i].shape
+                dtype = F32Type.get(self.ctx)
+                tensor = RankedTensorType.get(shape, dtype)
+                func_operand_types.append(d2m.ir.CBType.get(self.ctx, tensor))
             elif arg.annotation.id == "Semaphore":
                 func_operand_types.append(d2m.ir.SemaphoreType.get(self.ctx))
             else:
