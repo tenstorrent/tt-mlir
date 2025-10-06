@@ -6,7 +6,7 @@
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #parallel = #ttcore.iterator_type<parallel>
 
-!physT = memref<8x8x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #ttcore.memory_space<l1>>
+!physT = memref<8x8x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096,1,(d0, d1) -> (0, 8 * d0 + d1)>, #ttcore.memory_space<l1>>
 
 !virtT = memref<1x64x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<(d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>, #ttcore.memory_space<l1>>
 

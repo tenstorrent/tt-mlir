@@ -555,9 +555,8 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MemRefType memrefType,
 }
 
 mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
-  auto map = ttmlir::utils::generateAffineMapFromShardStrides(getStride(),
-                                                              getContext());
-  return (getVirt2physmap()) ? map.compose(getVirt2physmap()) : map;
+  return ttmlir::utils::generateAffineMapFromShardStrides(getStride(),
+                                                          getContext());
 }
 
 InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MLIRContext *context,
