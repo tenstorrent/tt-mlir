@@ -2,10 +2,11 @@
 // source env/activate
 // cd test/ttmlir/EmitC/TTNN/load_input
 // tt-alchemist generate-cpp --pipeline-options 'load-input-tensors-from-disk=true' ttnn_load_input_tensors.mlir --output load_input_cpp --standalone
-// cp dump_inputs.py load_input_cpp
+// cp arg0.tensorbin arg1.tensorbin load_input_cpp
 // cd !$
-// python dump_inputs.py
 // ./run
+//
+// `arg0.tensorbin` and `arg1.tensorbin` are serialized `ttnn.full(3)` and `ttnn.full(5)`, respectively
 
 module {
   func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {

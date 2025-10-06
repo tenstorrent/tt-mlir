@@ -559,10 +559,9 @@ jobs:
         OUTPUT_DIR=/tmp/test-load-tensors
         rm -rf $OUTPUT_DIR
         tt-alchemist generate-cpp --pipeline-options 'load-input-tensors-from-disk=true' test/ttmlir/EmitC/TTNN/load_input/ttnn_load_input_tensors.mlir --output $OUTPUT_DIR --standalone
-        cp test/ttmlir/EmitC/TTNN/load_input/dump_inputs.py $OUTPUT_DIR
+        cp test/ttmlir/EmitC/TTNN/load_input/arg0.tensorbin test/ttmlir/EmitC/TTNN/load_input/arg1.tensorbin $OUTPUT_DIR
         cd $OUTPUT_DIR
         [ -d $OUTPUT_DIR ] || { echo "Directory not found: $OUTPUT_DIR" >&2; exit 1; }
-        python dump_inputs.py
         ./run
 
     - name: Run tt-alchemist API test - generate-cpp (mnist)
