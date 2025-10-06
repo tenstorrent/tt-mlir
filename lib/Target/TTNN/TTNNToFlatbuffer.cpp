@@ -1065,18 +1065,18 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
                                      EltwiseBinaryCompositeScalarOp op) {
 
   ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType type;
-  ::tt::target::ttnn::rhsParams rhsType;
+  ::tt::target::ttnn::RhsParams rhsType;
   ::flatbuffers::Offset<void> rhsValue;
   if (std::is_same_v<EltwiseBinaryCompositeScalarOp, PowScalarOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar;
     if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getRhs())) {
-      rhsType = ::tt::target::ttnn::rhsParams::FP;
+      rhsType = ::tt::target::ttnn::RhsParams::FP;
       rhsValue = ::tt::target::ttnn::CreateFloatingPointType(
                      *cache.fbb, floatAttr.getValue().convertToFloat())
                      .Union();
     } else if (auto integerAttr =
                    mlir::dyn_cast<mlir::IntegerAttr>(op.getRhs())) {
-      rhsType = ::tt::target::ttnn::rhsParams::UI32;
+      rhsType = ::tt::target::ttnn::RhsParams::UI32;
       rhsValue = ::tt::target::ttnn::CreateIntegralType(
                      *cache.fbb, integerAttr.getValue().getSExtValue())
                      .Union();

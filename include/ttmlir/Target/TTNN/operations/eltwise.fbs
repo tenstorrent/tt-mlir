@@ -58,7 +58,7 @@ table UIntegralType {
   value: uint32;
 }
 
-union rhsParams {
+union RhsParams {
   FP: FloatingPointType,
   UI32: UIntegralType,
 }
@@ -70,7 +70,7 @@ enum EltwiseBinaryCompositeScalarOpType: uint32 {
 table EltwiseBinaryCompositeScalarOp {
   type: EltwiseBinaryCompositeScalarOpType;
   lhs: tt.target.ttnn.TensorRef;
-  rhs: rhsParams;
+  rhs: RhsParams;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }

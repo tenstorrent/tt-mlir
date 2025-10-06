@@ -553,7 +553,7 @@ private:
 
     mlir::Attribute fillValueAttr = fullOp.getFillValueAttr();
 
-    if (!isa<FloatAttr>(fillValueAttr) && !isa<IntegerAttr>(fillValueAttr)) {
+    if (!isa<FloatAttr, IntegerAttr>(fillValueAttr)) {
       return {};
     }
     return fillValueAttr;
