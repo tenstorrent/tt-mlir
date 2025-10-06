@@ -12,6 +12,12 @@ import test_common
 
 
 def main(machine, image, jobid):
+    def load_argument(arg):
+        try:
+            return json.loads(arg)
+        except json.JSONDecodeError:
+            return [arg]
+
     json_file = "_test_to_run.json"
     work_dir = os.getcwd()
 
@@ -27,17 +33,14 @@ def main(machine, image, jobid):
 
     test_no = 1
     for test in tests:
-        test_type = test.get("type", "")
-        path = test.get("path", "")
-        args = test.get("args", "")
-        flags = test.get("flags", "")
+        test_type = test.get("script", "")
+        args = load_argument(test.get("args", "[]"))
+        reqs = load_argument(test.get("reqs", "[]"))
         hash, hash_string = test_common.compute_hash(test, machine, image)
         test["hash"] = hash
         test["hash_string"] = hash_string
 
-        script_path = f".github/test_scripts/{test_type}.sh"
-        cmd = [script_path, path, args, flags]
-
+        cmd = [test_type] + args
         start_time = time.time()
         try:
             ttrt_report_path = f"{work_dir}/ttrt_results/{machine}_{image}_{test_no}_{hash}_{jobid}.json"
@@ -45,6 +48,7 @@ def main(machine, image, jobid):
             env = os.environ.copy()
             env["TTRT_REPORT_PATH"] = ttrt_report_path
             env["TEST_REPORT_PATH"] = test_report_path
+            env["REQUIREMENTS"] = " ".join(reqs)
             print(
                 f"\033[1;96m====================================\n\033[1;96mRunning test {test_no}-{hash}:\n\033[1;96m{hash_string}\n\033[1;96m{cmd}\n\033[1;96m====================================\n\n\n\n\033[0m"
             )

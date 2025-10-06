@@ -7,6 +7,6 @@
 # args: additional arguments to pass to ttrt
 # flags: either "run" or "perf"
 
-eval ttrt $3 $2 $BUILD_DIR/test/ttmlir/$1
-cp ${3}_results.json ${TTRT_REPORT_PATH} || true
+eval ttrt "$1" "$BUILD_DIR/test/ttmlir/$2" "$3"
+cp ${1}_results.json ${TTRT_REPORT_PATH} || true
 cp ttrt_report.xml $TEST_REPORT_PATH || true

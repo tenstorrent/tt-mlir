@@ -31,8 +31,8 @@ Each row in the matrix array represents test that will execute on a specific mac
 Example:
 
 ```json
-  {"runs-on": "n150",   "image": "tracy",  "type": "pykernel"},
-  {"runs-on": "n300",   "image": "speedy", "type": "ttrt", "path": "Silicon", "args": "--non-zero", "flags": "run"},
+  { "runs-on": "n150",   "image": "tracy",  "script": "pykernel.sh" },
+  { "runs-on": "n300",   "image": "speedy", "script": "ttrt.sh", "args": ["run", "Silicon", "--non-zero"] },
 ```
 
 #### runs-on
@@ -55,50 +55,32 @@ Specify which release build image to use. It can be:
 
 Please take a look at the [Builds](#builds) section for a more detailed description of the builds.
 
-#### type
+#### script
 Test type. It is name of the BASH script that executes the test. Scripts are located in `.github/test_scripts` directory and it is possible to create new test types simply
 by adding scripts to the directory.
 
-#### path (optional)
-This field represents the path.
-It is up to the test script how it will use this argument.
-
 #### args (optional)
-Specify additional arguments for test execution.
-It is up to the test script how it will use this argument.
+This field represents the arguments for the script. This can be ommited, string or json array.
 
-#### flags (optional)
-Additional flags may be used when running tests.
-It is up to the test script how it will use this argument.
+#### reqs (optional)
+Specify additional requirements for test execution.
+This arguments are passed as REQUIREMENTS environment variable to test script.
 
 ### Using JSON arrays
-Each of the field can be passed as JSON array. With arrays one can define test to execute on multiple
-machines, images, paths, or whatever combination is needed.
+**runs-on** and **image** fields can be passed as JSON array. With arrays one can define test to execute on multiple machines and images.
 Examples:
 
 ```json
 { "runs-on": ["n150","n300"],
     "image": ["speedy","tracy"],
-        "type": "unit" }
+        "script": "unit" }
 ```
-
-In this example "unit" test will be executed on both "n150" and "n300" machines using both images
-("speedy" and "tracy"). In reality it will execute four times on different machine/image combinations.
-
-```json
-{ "runs-on": "n150",
-    "image": "tracy",
-        "type": "pytest",
-            "path": ["tools/ttrt/test", "test/python/op_by_op"] },
-```
-
-This will execute pytest with two different paths.
 
 ## Adding New Test
 Usually, it is enough to add a single line to the test matrix and your tests will become part of tt-mlir CI.
 Here is a checklist of what you should decide before adding it:
 - On which TT hardware should your tests run? Put the specific hardware in "runs-on" field. If you want your test to run on multiple hardware types add multiple lines to the matrix, one for each hardware type.
-- Are your test run with `ttrt` or `pytest` or any other standard type that other tests also use? Put this decision in "type" field.
+- Are your test run with `ttrt` or `pytest` or any other standard type that other tests also use? Put this decision in "script" field.
 - Refer to test script you've put in type for interpretation of `path`, `args`, and `flags` parameters.
 > __Each line__ in matrix __MUST__ be __unique__! There is no point to run the same test with same build image on the same type of the hardware.
 

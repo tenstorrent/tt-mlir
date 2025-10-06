@@ -8,10 +8,9 @@ import hashlib
 
 
 def compute_hash(test, machine, image):
-    test_type = test.get("type", "")
-    path = test.get("path", "")
+    test_type = test.get("script", "")
     args = test.get("args", "")
-    flags = test.get("flags", "")
-    hash_string = f"{machine}-{image}-{test_type}-{path}-{args}-{flags}"
+    reqs = test.get("reqs", "")
+    hash_string = f"{machine}-{image}-{test_type}-{args}-{reqs}"
     hash = hashlib.md5(hash_string.encode()).hexdigest()
     return hash, hash_string

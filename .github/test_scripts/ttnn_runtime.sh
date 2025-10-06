@@ -6,4 +6,4 @@
 echo "Generating tests"
 llvm-lit $BUILD_DIR/test
 echo "Running TTNN Runtime Python tests"
-.github/test_scripts/pytest.sh "$1" "$2" "$3"
+.github/test_scripts/pytest.sh "$@"

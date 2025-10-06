@@ -292,6 +292,7 @@ jobs:
         export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
         export RUNS_ON="${{ matrix.build.runs-on }}"
         export IMAGE_NAME="${{ matrix.build.image }}"
+        export PATH="$WORK_DIR/.github/test_scripts:$PATH"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         rm -rf test_reports || true
         mkdir -p test_reports

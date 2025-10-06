@@ -9,6 +9,10 @@ import test_common
 from itertools import product
 
 default_duration = 150.0  # default duration in seconds if not found in _test_durations
+do_array_unroll_for = [
+    "runs-on",
+    "image",
+]  # only unroll arrays for these fields
 
 
 def unroll_arrays(tests):
@@ -19,6 +23,11 @@ def unroll_arrays(tests):
         if not array_fields:
             unrolled_tests.append(test)
             continue
+
+        # Support unroll of arrays only for predefine fields
+        array_fields = {
+            k: v for k, v in array_fields.items() if k in do_array_unroll_for
+        }
 
         # Create a list of all combinations of array fields
         keys, values = zip(*array_fields.items())
