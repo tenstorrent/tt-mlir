@@ -34,7 +34,6 @@
 #include "operations/deletion/deallocate.h"
 #include "operations/eltwise/binary/binary.h"
 #include "operations/eltwise/binary/binary_composite.h"
-#include "operations/eltwise/binary/binary_composite_scalar.h"
 #include "operations/eltwise/quantization/quantization.h"
 #include "operations/eltwise/ternary/where.h"
 #include "operations/eltwise/unary/unary.h"

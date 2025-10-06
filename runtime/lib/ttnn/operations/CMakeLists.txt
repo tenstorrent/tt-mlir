@@ -35,7 +35,6 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/deletion/deallocate.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary_composite.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary_composite_scalar.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/quantization/quantization.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/ternary/where.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary/unary.cpp
