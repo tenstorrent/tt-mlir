@@ -2312,7 +2312,7 @@ public:
 
     // TODO: complete this
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getInput()),
         emitter.emitMeshCoordinate(srcOp.getSendCoord(), "send_coord"),
         emitter.emitMeshCoordinate(srcOp.getReceiveCoord(), "receive_coord"),
         emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
@@ -2343,9 +2343,13 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MeshShardOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // TODO: complete this
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getShardDirection()),
+        emitter.emit(srcOp.getShardType()),
+        emitter.emit(srcOp.getShardShape()),
+        emitter.emit(srcOp.getShardDims()),
     };
 
     emitter.replaceOp(*this, args);

@@ -239,6 +239,63 @@ struct EmitPyTypeConverter<std::string> {
 };
 
 template <>
+struct EmitPyTypeConverter<mlir::tt::ttcore::MeshShardDirection> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto meshShardDirectionAttr =
+            mlir::dyn_cast_if_present<mlir::tt::ttcore::MeshShardDirectionAttr>(
+                attr)) {
+      return convert(meshShardDirectionAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::tt::ttcore::MeshShardDirectionAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string
+  convert(::mlir::tt::ttcore::MeshShardDirection meshShardDirection) {
+    switch (meshShardDirection) {
+    case ::mlir::tt::ttcore::MeshShardDirection::FullToShard:
+      return "ttnn.MeshShardDirection.FullToShard";
+    case ::mlir::tt::ttcore::MeshShardDirection::ShardToFull:
+      return "ttnn.MeshShardDirection.ShardToFull";
+    }
+    llvm_unreachable("Unknown ttnn.MeshShardDirection");
+  }
+};
+
+template <>
+struct EmitPyTypeConverter<mlir::tt::ttcore::MeshShardType> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto meshShardTypeAttr =
+            mlir::dyn_cast_if_present<mlir::tt::ttcore::MeshShardTypeAttr>(
+                attr)) {
+      return convert(meshShardTypeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::tt::ttcore::MeshShardTypeAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(::mlir::tt::ttcore::MeshShardType meshShardType) {
+    switch (meshShardType) {
+    case ::mlir::tt::ttcore::MeshShardType::Identity:
+      return "ttnn.MeshShardType.Identity";
+    case ::mlir::tt::ttcore::MeshShardType::Replicate:
+      return "ttnn.MeshShardType.Replicate";
+    case ::mlir::tt::ttcore::MeshShardType::Maximal:
+      return "ttnn.MeshShardType.Maximal";
+    case ::mlir::tt::ttcore::MeshShardType::Devices:
+      return "ttnn.MeshShardType.Devices";
+    }
+    llvm_unreachable("Unknown ttnn.MeshShardType");
+  }
+};
+
+template <>
 struct EmitPyTypeConverter<mlir::tt::ttnn::Topology> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto topologyAttr =

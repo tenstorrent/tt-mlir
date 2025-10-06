@@ -13,6 +13,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/InlinerInterfaceImpl.h"
 #include "mlir/IR/MLIRContext.h"
+#include "shardy/dialect/sdy/ir/dialect.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -35,7 +36,7 @@ TTAlchemist::TTAlchemist() {
   registry.insert<mlir::tt::ttcore::TTCoreDialect, mlir::tt::ttir::TTIRDialect,
                   mlir::tt::d2m::D2MDialect, mlir::tt::ttnn::TTNNDialect,
                   mlir::func::FuncDialect, mlir::emitc::EmitCDialect,
-                  mlir::LLVM::LLVMDialect>();
+                  mlir::LLVM::LLVMDialect, mlir::sdy::SdyDialect>();
   context.appendDialectRegistry(registry);
 
   context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
@@ -45,6 +46,7 @@ TTAlchemist::TTAlchemist() {
   context.loadDialect<mlir::func::FuncDialect>();
   context.loadDialect<mlir::emitc::EmitCDialect>();
   context.loadDialect<mlir::LLVM::LLVMDialect>();
+  context.loadDialect<mlir::sdy::SdyDialect>();
 
   // Register TTNN pipelines to make them available for lookup
   mlir::tt::ttnn::registerTTNNPipelines();
