@@ -2694,8 +2694,6 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor to broadcast
-        output_shape : *List[int]*
-            Desired output shape after broadcasting
         broadcast_dimensions : *List[int]*
             List of dimension mappings from input to output
         unit_attrs : *Optional[List[str]]*, optional

@@ -1185,11 +1185,11 @@ def test_conv_transpose2d(
     "kernel,stride,dilation,padding,ceil_mode",
     [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
 )
-@pytest.mark.parametrize("shapes", [[(1, 128, 128, 32)]])
-@pytest.mark.parametrize("dtypes", [[torch.float32]])
+@pytest.mark.parametrize("shape", [(1, 128, 128, 32)])
+@pytest.mark.parametrize("dtype", [torch.float32])
 def test_max_pool2d(
-    shapes: List[Shape],
-    dtypes: List[torch.dtype],
+    shape: Shape,
+    dtype: torch.dtype,
     kernel: List[int],
     stride: List[int],
     dilation: List[int],
@@ -1214,8 +1214,8 @@ def test_max_pool2d(
 
     compile_ttir_to_flatbuffer(
         max_pool2d,
-        shapes,
-        dtypes,
+        [shape],
+        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1227,13 +1227,13 @@ def test_max_pool2d(
     "kernel,stride,dilation,padding,ceil_mode",
     [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
 )
-@pytest.mark.parametrize("shapes", [[(1, 128, 128, 32), (1, 64, 64, 32)]])
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+@pytest.mark.parametrize("shape", [(1, 128, 128, 32)])
+@pytest.mark.parametrize("dtype", [torch.float32])
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.run_error  # Issue #5133.
 def test_hoisted_max_pool2d(
-    shapes: List[Shape],
-    dtypes: List[torch.dtype],
+    shape: Shape,
+    dtype: torch.dtype,
     kernel: List[int],
     stride: List[int],
     dilation: List[int],
@@ -1246,13 +1246,11 @@ def test_hoisted_max_pool2d(
 
     def hoisted_max_pool2d(
         in0: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         return builder.max_pool2d(
             in0,
-            in1,
             kernel=kernel,
             stride=stride,
             dilation=dilation,
@@ -1265,8 +1263,8 @@ def test_hoisted_max_pool2d(
 
     compile_ttir_to_flatbuffer(
         hoisted_max_pool2d,
-        shapes,
-        dtypes,
+        [shape],
+        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1288,11 +1286,11 @@ def test_hoisted_max_pool2d(
         ),  # This test will produce a different output if count_include_pad is True for spatial dims (31, 31)
     ],
 )
-@pytest.mark.parametrize("shapes", [[(1, 31, 31, 32)]])
-@pytest.mark.parametrize("dtypes", [[torch.float32]])
+@pytest.mark.parametrize("shape", [(1, 31, 31, 32)])
+@pytest.mark.parametrize("dtype", [torch.float32])
 def test_avg_pool2d(
-    shapes: List[Shape],
-    dtypes: List[torch.dtype],
+    shape: Shape,
+    dtype: torch.dtype,
     kernel: List[int],
     stride: List[int],
     dilation: List[int],
@@ -1319,8 +1317,8 @@ def test_avg_pool2d(
 
     compile_ttir_to_flatbuffer(
         avg_pool2d,
-        shapes,
-        dtypes,
+        [shape],
+        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
