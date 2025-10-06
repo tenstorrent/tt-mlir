@@ -109,7 +109,7 @@ class TTIRCompiler(ast.NodeVisitor):
         # Create identity affine map, should be based of tensor shape
         # default to rank 2, don't support shape collapse.
         identity_map = AffineMap.get_identity(2, self.ctx)
-        
+
         if tensor_arg.memory_config().is_sharded():
             shard_spec = tensor_arg.memory_config().shard_spec
             shard_shape = shard_spec.shape
@@ -143,9 +143,7 @@ class TTIRCompiler(ast.NodeVisitor):
             buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.DRAM)
             grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
             shape = [tensor_arg.shape[0] // 32, tensor_arg.shape[1] // 32]
-            memref = MemRefType.get(
-                shape, tile_type, None, buffer_type
-            )
+            memref = MemRefType.get(shape, tile_type, None, buffer_type)
             return ttnn.ir.TTNNLayoutAttr.get(
                 self.ctx,
                 identity_map,
