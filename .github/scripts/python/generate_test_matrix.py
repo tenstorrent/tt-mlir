@@ -19,15 +19,15 @@ def unroll_arrays(tests):
     # Unroll tests with array fields into multiple tests
     unrolled_tests = []
     for test in tests:
-        array_fields = {k: v for k, v in test.items() if isinstance(v, list)}
+        # Find all fields that are arrays and support unroll only for predefined fields
+        array_fields = {
+            k: v
+            for k, v in test.items()
+            if isinstance(v, list) and k in do_array_unroll_for
+        }
         if not array_fields:
             unrolled_tests.append(test)
             continue
-
-        # Support unroll of arrays only for predefine fields
-        array_fields = {
-            k: v for k, v in array_fields.items() if k in do_array_unroll_for
-        }
 
         # Create a list of all combinations of array fields
         keys, values = zip(*array_fields.items())
