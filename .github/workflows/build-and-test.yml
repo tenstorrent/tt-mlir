@@ -65,6 +65,7 @@ jobs:
       docker-image: ${{ steps.build.outputs.docker-image }}
       docker-tag: ${{ steps.build.outputs.docker-tag }}
       runner: ${{ steps.build.outputs.runner }}
+      sh_builder: ${{ steps.build.outputs.sh_builder }}
     steps:
 
       - name: Fix permissions
@@ -96,7 +97,17 @@ jobs:
           echo "docker-image-harbor=harbor.ci.tenstorrent.net/$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
           echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
           echo "docker-tag=$DOCKER_TAG" >> "$GITHUB_OUTPUT"
-          echo "runner=builder" >> "$GITHUB_OUTPUT"
+          sh_builder=false
+          if [[ "${{ inputs.builder_build }}" == "true" ]]; then
+              # Only use builder runner for uplift jobs
+              # REF: https://github.com/tenstorrent/tt-mlir/pull/5114/files/480d8b9216ab7b578d07d500d9fc16f448135f75#r2405470436
+              echo "runner=builder" >> "$GITHUB_OUTPUT"
+            else
+              echo "runner=tt-ubuntu-2204-large-stable" >> "$GITHUB_OUTPUT"
+              sh_builder=true
+          fi
+          echo sh_builder=$sh_builder
+          echo "sh_builder=$sh_builder" >> "$GITHUB_OUTPUT"
 
   # Build tt-mlir images
 
@@ -116,7 +127,7 @@ jobs:
 
 
     container:
-      image: ${{ needs.build-image.outputs.docker-image }}
+      image: ${{ needs.build-image.outputs.sh_builder == 'true' && needs.build-image.outputs.docker-image-harbor || needs.build-image.outputs.docker-image }}
 
     steps:
 
