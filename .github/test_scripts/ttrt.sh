@@ -3,9 +3,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# path: path inside test/ttmlir directory to the input ttmlir files
-# args: additional arguments to pass to ttrt
-# flags: either "run" or "perf"
+# arg1: either "run" or "perf"
+# arg2: path inside test/ttmlir directory to the input ttmlir files
+# arg3...: additional arguments to pass to ttrt
 
 eval ttrt "$1" "$BUILD_DIR/test/ttmlir/$2" "$3"
 cp ${1}_results.json ${TTRT_REPORT_PATH} || true

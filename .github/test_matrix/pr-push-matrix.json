@@ -13,7 +13,7 @@
 
   { "runs-on": "n150",
         "image": "tracy",
-            "script": "pytest.sh", "args": "tools/ttrt/test" },
+            "script": "test-ttrt.sh" },
 
   { "runs-on": "n150",
         "image": "tracy",

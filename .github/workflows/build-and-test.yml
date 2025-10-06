@@ -362,13 +362,27 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ttnn-jit-whl-tracy
+      - name: Install openmpi-ulfm
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y -f wget ca-certificates
+          TMP_DIR="$(mktemp -d)"
+          DEB_URL="https://github.com/dmakoviichuk-tt/mpi-ulfm/releases/download/v5.0.7-ulfm/openmpi-ulfm_5.0.7-1_amd64.deb"
+          wget -qO "$TMP_DIR/ompi.deb" "$DEB_URL"
+          apt-get install -f -y "$TMP_DIR/ompi.deb"
+          rm -rf "$TMP_DIR"
       - name: Install ttnn-jit whl
         shell: bash
         run: |
           python3 -m venv testenv
           source testenv/bin/activate
+
+          # ----- remove after solving issue: https://github.com/tenstorrent/tt-mlir/issues/5232
           pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0
           pip install numpy
+          # -----
+
           pip install ttnn_jit-*.whl --upgrade
           python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
           python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
