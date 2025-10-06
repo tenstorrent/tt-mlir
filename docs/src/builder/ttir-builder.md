@@ -616,10 +616,10 @@ builder.set_graph_input_output([input_0], [output_0], override=True)
 
 ### Running flatbuffer with golden data in ttrt
 
-Running flatbuffers in `ttrt` requires additional building and setting up the environment. Run these commands before creating MLIR modules or flatbuffers so the system description in the flatbuffers match your device.
+Running flatbuffers in `ttrt` requires building and setting up the environment. Run these commands before creating MLIR modules or flatbuffers so the system description in the flatbuffers match your device.
 
 ```bash
-cmake --build build -- ttrt
+cmake --build build
 ttrt query --save-artifacts
 export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys
 ```

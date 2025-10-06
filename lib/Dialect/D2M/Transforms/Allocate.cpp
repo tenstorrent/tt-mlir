@@ -160,6 +160,8 @@ struct OperandContext {
   // possible spilling (e.g. because of an intra-core data movement
   // pattern.)
   bool requiresStream = false;
+  // Index of this operand for the associated generic op.
+  size_t operandIndex = 0;
 
   // Fields used to link this Value to a `Planner` decision variable.
 
@@ -268,7 +270,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
-    if (failed(analyzeOperandStreams(funcOp, analysis))) {
+    if (failed(analyzeGenericOps(funcOp, analysis))) {
       return failure();
     }
 
@@ -392,7 +394,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
          operandIndex < genericOp.getNumOperands(); ++operandIndex) {
       OperandContext &operandCtx = result.emplace_back();
 
+      operandCtx.operandIndex = operandIndex;
       operandCtx.isOutput = (operandIndex >= outputsStart);
+
+      if (operandCtx.isOutput) {
+        // Outputs are currently allocated in L1 so won't use streams unless
+        // allowed to do so in `allowOutputSpilling` mode.
+        continue;
+      }
 
       // A core participating in a reduction dim necessarily requires
       // non-local data movement unless it is the only core involved
@@ -426,8 +435,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return result;
   }
 
-  LogicalResult analyzeOperandStreams(func::FuncOp funcOp,
-                                      FuncAnalysisData &analysis) {
+  LogicalResult analyzeGenericOps(func::FuncOp funcOp,
+                                  FuncAnalysisData &analysis) {
 
     [[maybe_unused]] AsOperandPrinter asOperand{funcOp};
 
@@ -619,7 +628,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                     // In principle, buffer shape/size could depend on whether
                     // the stream is out of L1 or DRAM... but not right now.
                     operandCtx.bufferType = selectStreamBuffer(
-                        rewriter, memrefCtx.type, numStreamBuffers);
+                        rewriter,
+                        mlir::cast<MemRefType>(
+                            user.getOperand(operandCtx.operandIndex).getType()),
+                        numStreamBuffers);
                   }
                   const AllocSizeT bufferSize =
                       getStreamBufferSizeBytes(operandCtx.bufferType, device);

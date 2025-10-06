@@ -25,6 +25,7 @@ FLATBUFFER_BASE_PATH = (
 
 
 def test_system_desc(helper: Helper, request):
+    ttrt.runtime.set_mlir_home(TT_MLIR_HOME)
     ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Distributed)
     ttrt.runtime.launch_distributed_runtime()
     system_desc = ttrt.runtime.get_current_system_desc()
@@ -53,6 +54,7 @@ def test_flatbuffer_execution(helper: Helper, request, num_loops):
 
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)
 
+    ttrt.runtime.set_mlir_home(TT_MLIR_HOME)
     ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Distributed)
     ttrt.runtime.launch_distributed_runtime()
 

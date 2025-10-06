@@ -456,6 +456,13 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
     }];
 }
 
+def TTNN_SiluOp : TTNN_ElementwiseUnaryOp<"silu"> {
+  let summary = "Eltwise SiLU.";
+  let description = [{
+    Eltwise SiLU (Swish) operation.
+  }];
+}
+
 def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log"> {
     let summary = "Eltwise logarithm.";
     let description = [{
@@ -2460,6 +2467,30 @@ def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor"> {
 
   let arguments = (ins StrAttr:$file_path,
                        AnyRankedTensor:$input);
+
+  let hasVerifier = 1;
+}
+
+def NLPCreateQKVHeadsDecodeOp : TTNN_Op<"nlp_create_qkv_heads_decode", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "nlp_create_qkv_heads_decode op in TTNN dialect.";
+  let description = [{
+    Shuffles [1, S=1, B, head_dim * (num_heads + 2*num_kv_heads)] fused qkv matrix into Q, K, and V heads with shape [S, B, num_heads, head_dim] for Q and [S, B, num_kv_heads, head_dim] for K and V, where num_heads and num_kv_heads will be padded to nearest 32.
+      - Input must be sharded, B=32 and S=1.
+      - overlap_qk_coregrid is a boolean flag that determines whether the output Q and K heads are on same core grid. If true, then Q, K, and V heads are on the same core grid. If false, the Q and K heads are on non-overlapping core-grid useful for processing Q and K in parallel.
+      - Batch offset is used to fuse batch slicing. If provided slice size must also be provided in which batch dim of QKV output will be slice_size.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$batch_offset,
+                       UI32Attr:$num_heads,
+                       OptionalAttr<UI32Attr>:$num_kv_heads,
+                       OptionalAttr<BoolAttr>:$overlap_qk_coregrid,
+                       OptionalAttr<UI32Attr>:$slice_size,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$query,
+                      AnyRankedTensor:$key,
+                      AnyRankedTensor:$value);
 
   let hasVerifier = 1;
 }

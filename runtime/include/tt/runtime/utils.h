@@ -156,8 +156,6 @@ void handleBFloat16ToFloat16(const uint16_t *oldBuffer, uint16_t *newBuffer,
 
 } // namespace detail
 
-std::string getMlirHome();
-
 std::shared_ptr<void> mallocShared(const size_t size);
 std::shared_ptr<void> callocShared(const size_t size);
 

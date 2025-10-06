@@ -27,6 +27,8 @@ uint32_t getNumShards(Tensor tensor);
 
 } // namespace detail
 
+void setMlirHome(std::string_view mlirHome);
+
 std::vector<DeviceRuntime> getAvailableDeviceRuntimes();
 DeviceRuntime getCurrentDeviceRuntime();
 void setCurrentDeviceRuntime(const DeviceRuntime &runtime);
