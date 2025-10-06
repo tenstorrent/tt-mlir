@@ -232,8 +232,6 @@ class TTIRBuilder(Builder):
             Left-hand side input tensor
         in1 : Operand
             Right-hand side input tensor
-        out0 : Operand
-            Output tensor
         batch_dims_lhs : *List[int]*
             Batch dimensions for the left-hand side tensor
         contract_dims_lhs : *List[int]*
@@ -1022,7 +1020,10 @@ class TTIRBuilder(Builder):
         return self._op_proxy(ttir.SqrtOp, [in0], unit_attrs)
 
     def typecast(
-        self, in0: Operand, out: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        output_type: torch.dtype,
+        unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
         Creates ``ttir.typecast``.
@@ -1047,8 +1048,6 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor to cast
-        out : Operand
-            Output tensor with desired type
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -1057,15 +1056,11 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the input values cast to the output type
         """
-        output_type = self._get_type_from_torch_dtype(
-            self._get_golden_tensor(out).dtype
-        )
-        # kwargs passed thru output type
         return self._op_proxy(
             ttir.TypecastOp,
             [in0],
-            golden_kwargs={"dtype": self._get_golden_tensor(out).dtype},
-            output_type=output_type,
+            golden_kwargs={"dtype": output_type},
+            output_type=self._get_type_from_torch_dtype(output_type),
             unit_attrs=unit_attrs,
         )
 
@@ -2297,7 +2292,6 @@ class TTIRBuilder(Builder):
     def cumsum(
         self,
         in0: Operand,
-        in1: Operand,
         dim: int,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2325,8 +2319,6 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor
-        in1 : Operand
-            Output tensor
         dim : int
             Dimension along which to compute cumulative sum
         unit_attrs : *Optional[List[str]]*, optional
@@ -2339,10 +2331,8 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.CumSumOp,
-            [in0, in1],
-            ttir_kwargs={"dim": dim, "output": in1},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            [in0],
+            ttir_kwargs={"dim": dim},
             unit_attrs=unit_attrs,
         )
 
@@ -2678,7 +2668,6 @@ class TTIRBuilder(Builder):
     def broadcast(
         self,
         in0: Operand,
-        in1: Operand,
         broadcast_dimensions: List[int],
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2705,8 +2694,8 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor to broadcast
-        in1 : Operand
-            Output tensor with target shape
+        output_shape : *List[int]*
+            Desired output shape after broadcasting
         broadcast_dimensions : *List[int]*
             List of dimension mappings from input to output
         unit_attrs : *Optional[List[str]]*, optional
@@ -2717,11 +2706,18 @@ class TTIRBuilder(Builder):
         (*OpView*)
             The broadcasted tensor
         """
+        output_shape = []
+        for i in range(len(broadcast_dimensions)):
+            if broadcast_dimensions[i] != 1:
+                output_shape.append(broadcast_dimensions[i])
+            else:
+                output_shape.append(self.get_shape(in0)[i])
         return self._op_proxy(
             ttir.BroadcastOp,
             [in0],
-            golden_kwargs={"size": self.get_shape(in1)},
+            golden_kwargs={"size": output_shape},
             ttir_kwargs={"broadcast_dimensions": broadcast_dimensions},
+            output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
 
@@ -2815,7 +2811,6 @@ class TTIRBuilder(Builder):
         in0: Operand,
         weight: Operand,
         bias: Optional[Operand],
-        in1: Operand,
         stride: Union[int, List[int]],
         padding: Union[int, List[int]],
         output_padding: Union[int, List[int]],
@@ -2852,8 +2847,6 @@ class TTIRBuilder(Builder):
             Weight tensor of shape (in_channels, out_channels/groups, kernel_height, kernel_width)
         bias : Optional[Operand]
             Optional bias tensor of shape (out_channels)
-        in1 : Operand
-            Output tensor shape reference
         stride : *Union[int, List[int]]*
             Stride of the convolution
         padding : *Union[int, List[int]]*
@@ -2911,7 +2904,6 @@ class TTIRBuilder(Builder):
     def max_pool2d(
         self,
         in0: Operand,
-        in1: Operand,
         kernel: Union[int, List[int]],
         stride: Union[int, List[int]],
         dilation: Union[int, List[int]],
@@ -2981,7 +2973,6 @@ class TTIRBuilder(Builder):
     def avg_pool2d(
         self,
         in0: Operand,
-        in1: Operand,
         kernel: Union[int, List[int]],
         stride: Union[int, List[int]],
         dilation: Union[int, List[int]],
@@ -3162,7 +3153,6 @@ class TTIRBuilder(Builder):
     def pad(
         self,
         in0: Operand,
-        in1: Operand,
         padding: List[int],
         value: int,
         unit_attrs: Optional[List[str]] = None,
@@ -3193,12 +3183,16 @@ class TTIRBuilder(Builder):
         (*OpView*)
             The padded tensor
         """
+        output_shape = []
+        for i in range(len(padding) // 2):
+            output_shape.append(
+                self.get_shape(in0)[i] + padding[2 * i] + padding[2 * i + 1]
+            )
         return self._op_proxy(
             ttir.PadOp,
-            [in0, in1],
+            [in0],
             ttir_kwargs={"padding": padding, "value": value},
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
 
