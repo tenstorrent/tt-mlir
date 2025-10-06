@@ -155,18 +155,6 @@ def unary_op_builder(op_name: str, builder: TTIRBuilder):
         return builder.sin
     if op_name == "tan":
         return builder.tan
-    if op_name == "eqz":
-        return builder.eqz
-    if op_name == "nez":
-        return builder.nez
-    if op_name == "gtz":
-        return builder.gtz
-    if op_name == "gez":
-        return builder.gez
-    if op_name == "ltz":
-        return builder.ltz
-    if op_name == "lez":
-        return builder.lez
 
 
 ##--##-------------------------------------------------------------------##--##
@@ -251,12 +239,6 @@ def test_eltwise_fuse_cosh(
         # "sigmoid", # fails 128x128
         "sin",  # passes 128x128
         # "tan", # fails 128x128
-        # "eqz", # fails
-        # "nez", # fails
-        # "gtz", # fails
-        # "gez", # fails
-        # "ltz", # fails
-        # "lez", # fails
     ],
 )
 @pytest.mark.parametrize("grid", gridParams)
