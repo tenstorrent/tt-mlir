@@ -396,16 +396,6 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     StringRef fmt = op.getFmt();
 
-    if (fmt.empty() && adaptor.getOperands().size() == 1) {
-      Value cbOperand = op.getOperands()[0];
-      if (mlir::isa<ttkernel::CBType>(cbOperand.getType())) {
-        rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-            op, TypeRange(), "ttmlir::print_cb_details", nullptr, nullptr,
-            ValueRange{rewriter.getRemappedValue(cbOperand)});
-        return success();
-      }
-    }
-
     auto stringlit = [&](StringRef str) {
       return rewriter
           .create<emitc::LiteralOp>(
@@ -424,7 +414,20 @@ public:
         vargs.push_back(stringlit(fmt));
       }
       if (operandsIter != operandsEnd) {
-        vargs.push_back(*operandsIter++);
+        if (mlir::isa<ttkernel::CBType>(
+                op.getOperands()[operandsIter.getIndex()].getType())) {
+          auto cbPrinter =
+              rewriter
+                  .create<emitc::CallOpaqueOp>(
+                      op.getLoc(),
+                      rewriter.getType<emitc::OpaqueType>("ttmlir::CBPrinter"),
+                      "ttmlir::CBPrinter", nullptr, nullptr,
+                      ValueRange{*operandsIter++})
+                  .getResult(0);
+          vargs.push_back(cbPrinter);
+        } else {
+          vargs.push_back(*operandsIter++);
+        }
       }
       fmt = rest;
     } while (!fmt.empty());

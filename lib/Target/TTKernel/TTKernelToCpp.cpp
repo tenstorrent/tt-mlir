@@ -176,21 +176,28 @@ void dprint(Arg &&arg, ArgV&&... argv) {
   dprint(argv...);
 }
 
-inline void print_cb_details_(uint32_t cb_id) {
-  DPRINT << "cb_id " << cb_id << ": { ";
-  DPRINT << "size: " << get_local_cb_interface(cb_id).fifo_size << ", ";
-  DPRINT << "limit: " << get_local_cb_interface(cb_id).fifo_limit << ", ";
-  DPRINT << "page_size: " << get_local_cb_interface(cb_id).fifo_page_size << ", ";
-  DPRINT << "num_pages: " << get_local_cb_interface(cb_id).fifo_num_pages << ", ";
-  DPRINT << "rd_ptr: " << get_local_cb_interface(cb_id).fifo_rd_ptr << ", ";
-  DPRINT << "wr_ptr: " << get_local_cb_interface(cb_id).fifo_wr_ptr << ", ";
-  DPRINT << "wr_tile_ptr: " << get_local_cb_interface(cb_id).fifo_wr_tile_ptr;
-  DPRINT << " }" << ENDL();
+inline void print_cb_details_(DebugPrinter dp, uint32_t cb_id) {
+  dp << "cb_id " << cb_id << ": { ";
+  dp << "size: " << get_local_cb_interface(cb_id).fifo_size << ", ";
+  dp << "limit: " << get_local_cb_interface(cb_id).fifo_limit << ", ";
+  dp << "page_size: " << get_local_cb_interface(cb_id).fifo_page_size << ", ";
+  dp << "num_pages: " << get_local_cb_interface(cb_id).fifo_num_pages << ", ";
+  dp << "rd_ptr: " << get_local_cb_interface(cb_id).fifo_rd_ptr << ", ";
+  dp << "wr_ptr: " << get_local_cb_interface(cb_id).fifo_wr_ptr << ", ";
+  dp << "wr_tile_ptr: " << get_local_cb_interface(cb_id).fifo_wr_tile_ptr;
+  dp << " }" << ENDL();
 }
 
-inline void print_cb_details(uint32_t cb_id) {
-  UNPACK((print_cb_details_(cb_id)));
-  PACK((print_cb_details_(cb_id)));
+struct CBPrinter {
+    uint32_t cb_id;
+
+    constexpr CBPrinter(uint32_t cb_id) : cb_id(cb_id) {}
+};
+
+DebugPrinter operator<<(DebugPrinter dp, CBPrinter cb) {
+    UNPACK((print_cb_details_(dp, cb.cb_id)));
+    PACK((print_cb_details_(dp, cb.cb_id)));
+    return dp;
 }
 
 } // namespace ttmlir
