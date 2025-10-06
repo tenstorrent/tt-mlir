@@ -1082,6 +1082,71 @@ def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads", [TTNN_MemoryConfigOpIn
     let hasVerifier = 1;
 }
 
+def TTNN_NLPCreateQKVHeadsOp: TTNN_Op<"nlp_create_qkv_heads", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Create query, key, value heads for attention layer.";
+    let description = [{
+      Shuffles a fused QKV matrix into separate Q, K, and V head tensors for multi-head attention.
+      This operation is essential for transformer-based models and supports both single-input mode
+      (where QKV are fused) and dual-input mode (where Q and KV are separate).
+
+      Inputs:
+        - `input_q` (AnyRankedTensor): Query input tensor (or fused QKV if input_kv not provided).
+          Expected format: [B, 1, S, H * Nh_q] in dual mode, or [B, 1, S, 3 * H * Nh] in single mode, where:
+          - B is the batch size
+          - S is the sequence length
+          - H is the head dimension
+          - Nh is the number of heads
+        - `input_kv` (Optional<AnyRankedTensor>): Optional key-value input tensor.
+          Expected format: [B, 1, S, 2 * H * Nh_kv] where:
+          - Nh_kv is the number of key-value heads
+
+      Attributes:
+        - `num_q_heads` (UI32Attr): Number of query heads.
+        - `num_kv_heads` (OptionalAttr<UI32Attr>): Number of key-value heads. Defaults to `num_q_heads` if not provided.
+        - `transpose_k_heads` (BoolAttr): Whether to transpose key heads along the last two dimensions.
+          Default is false in IR (true in tt-metal runtime).
+        - `memory_config` (OptionalAttr<TTNN_MemoryConfigAttr>): Memory configuration for output tensors.
+
+      Returns:
+        - `query`: Query heads tensor with shape [B, num_q_heads, S, H]
+        - `key`: Key heads tensor with shape [B, num_kv_heads, H, S] if transpose_k_heads=true,
+                else [B, num_kv_heads, S, H]
+        - `value`: Value heads tensor with shape [B, num_kv_heads, S, H]
+
+      Example:
+      ```mlir
+      // Single input mode: fused QKV tensor
+      %input_qkv = ... : tensor<1x1x32x4608xf32>  // B=1, S=32, 3*H*Nh = 3*64*24 = 4608
+      %query, %key, %value = ttnn.nlp_create_qkv_heads(%input_qkv) {
+          num_q_heads = 24 : ui32,
+          transpose_k_heads = false
+      } : tensor<1x1x32x4608xf32> -> (tensor<1x24x32x64xf32>, tensor<1x24x64x32xf32>, tensor<1x24x32x64xf32>)
+
+      // Dual input mode: separate Q and KV tensors
+      %input_q = ... : tensor<1x1x32x1536xf32>    // B=1, S=32, H*Nh_q = 64*24 = 1536
+      %input_kv = ... : tensor<1x1x32x1024xf32>   // B=1, S=32, 2*H*Nh_kv = 2*64*8 = 1024
+      %query, %key, %value = ttnn.nlp_create_qkv_heads(%input_q, %input_kv) {
+          num_q_heads = 24 : ui32,
+          num_kv_heads = 8 : ui32,
+          transpose_k_heads = false
+      } : (tensor<1x1x32x1536xf32>, tensor<1x1x32x1024xf32>) -> (tensor<1x24x32x64xf32>, tensor<1x8x64x32xf32>, tensor<1x8x32x64xf32>)
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_q,
+                         Optional<AnyRankedTensor>:$input_kv,
+                         UI32Attr:$num_q_heads,
+                         OptionalAttr<UI32Attr>:$num_kv_heads,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_k_heads,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$query,
+                        AnyRankedTensor:$key,
+                        AnyRankedTensor:$value);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_NLPConcatHeadsDecodeOp: TTNN_Op<"nlp_concat_heads_decode", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Concatenate heads op used in attention layer.";
     let description = [{

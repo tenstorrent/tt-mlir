@@ -283,6 +283,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::transformer::run(op->type_as_NLPConcatHeadsDecodeOp(),
                                         getContext());
   }
+  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsOp: {
+    return operations::transformer::run(op->type_as_NLPCreateQKVHeadsOp(),
+                                        getContext());
+  }
   case ::tt::target::ttnn::OpType::WriteTensorOp: {
     return operations::data_movement::run(op->type_as_WriteTensorOp(),
                                           getContext());

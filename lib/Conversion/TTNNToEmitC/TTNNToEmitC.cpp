@@ -2810,6 +2810,50 @@ public:
 } // namespace
 
 namespace {
+class NLPCreateQKVHeadsOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::NLPCreateQKVHeadsOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.nlp_create_qkv_heads";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::nlp_create_qkv_heads";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::NLPCreateQKVHeadsOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::NLPCreateQKVHeadsOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::NLPCreateQKVHeadsOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputQ()),
+        emitter.emit(srcOp.getInputKv()),
+        emitter.emit(srcOp.getNumQHeads()),
+        emitter.emit(srcOp.getNumKvHeads()),
+        emitter.emit(srcOp.getTransposeKHeads()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getQuery()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+
+} // namespace
+
+namespace {
+
 class NLPConcatHeadsDecodeOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
           mlir::tt::ttnn::NLPConcatHeadsDecodeOp> {
@@ -3626,6 +3670,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<ConcatenateHeadsOpConversionPattern>(typeConverter, ctx);
   patterns.add<RotaryEmbeddingLlamaOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
+  patterns.add<NLPCreateQKVHeadsOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,

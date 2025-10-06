@@ -74,6 +74,7 @@ union OpType {
   MorehCumSumOp,
   NamedFullOp,
   NLPConcatHeadsDecodeOp,
+  NLPCreateQKVHeadsOp,
   PadOp,
   PermuteOp,
   PointToPointOp,

@@ -3446,6 +3446,184 @@ void CaptureOrExecuteTraceOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
+// NLPCreateQKVHeadsOp
+//===----------------------------------------------------------------------===//
+
+// NLPCreateQKVHeadsOp verification
+::mlir::LogicalResult NLPCreateQKVHeadsOp::verify() {
+  ::mlir::RankedTensorType inputQType = getInputQ().getType();
+  ::mlir::RankedTensorType queryType = getQuery().getType();
+  ::mlir::RankedTensorType keyType = getKey().getType();
+  ::mlir::RankedTensorType valueType = getValue().getType();
+
+  // Check that all tensors are 4D
+  // Expected shapes:
+  // input_q: [B, 1, S, 3*H*Nh] or [B, 1, S, H*Nh_q] (with input_kv)
+  // input_kv (optional): [B, 1, S, 2*H*Nh_kv]
+  // query: [B, num_q_heads, S, H]
+  // key: [B, num_kv_heads, H, S] if transpose_k_heads, else [B, num_kv_heads, S, H]
+  // value: [B, num_kv_heads, S, H]
+
+  if (inputQType.getRank() != 4) {
+    return emitOpError() << "input_q tensor must be a 4D tensor";
+  }
+  if (queryType.getRank() != 4) {
+    return emitOpError() << "query tensor must be a 4D tensor";
+  }
+  if (keyType.getRank() != 4) {
+    return emitOpError() << "key tensor must be a 4D tensor";
+  }
+  if (valueType.getRank() != 4) {
+    return emitOpError() << "value tensor must be a 4D tensor";
+  }
+
+  // If input_kv is provided, verify it's also 4D
+  if (getInputKv()) {
+    ::mlir::RankedTensorType inputKVType = getInputKv().getType();
+    if (inputKVType.getRank() != 4) {
+      return emitOpError() << "input_kv tensor must be a 4D tensor";
+    }
+  }
+
+  llvm::ArrayRef<int64_t> inputQShape = inputQType.getShape();
+  llvm::ArrayRef<int64_t> queryShape = queryType.getShape();
+  llvm::ArrayRef<int64_t> keyShape = keyType.getShape();
+  llvm::ArrayRef<int64_t> valueShape = valueType.getShape();
+
+  // Define dimension indices for each tensor
+  enum InputQDimensions {
+    INPUTQ_BATCH = 0,
+    INPUTQ_ONE = 1,
+    INPUTQ_SEQ = 2,
+    INPUTQ_HIDDEN = 3
+  };
+
+  enum QueryDimensions {
+    QUERY_BATCH = 0,
+    QUERY_NUM_HEADS = 1,
+    QUERY_SEQ = 2,
+    QUERY_HEAD_DIM = 3
+  };
+
+  enum KeyDimensions {
+    KEY_BATCH = 0,
+    KEY_NUM_HEADS = 1,
+    KEY_DIM2 = 2,
+    KEY_DIM3 = 3
+  };
+
+  enum ValueDimensions {
+    VALUE_BATCH = 0,
+    VALUE_NUM_HEADS = 1,
+    VALUE_SEQ = 2,
+    VALUE_HEAD_DIM = 3
+  };
+
+  uint32_t numQHeads = getNumQHeads();
+  uint32_t numKVHeads = getNumKvHeads().value_or(numQHeads);
+
+  // Verify batch size consistency across all tensors
+  if (inputQShape[INPUTQ_BATCH] != queryShape[QUERY_BATCH]) {
+    return emitOpError()
+           << "batch size must match between input_q and query, got input_q batch = "
+           << inputQShape[INPUTQ_BATCH]
+           << ", query batch = " << queryShape[QUERY_BATCH];
+  }
+
+  if (inputQShape[INPUTQ_BATCH] != keyShape[KEY_BATCH]) {
+    return emitOpError()
+           << "batch size must match between input_q and key, got input_q batch = "
+           << inputQShape[INPUTQ_BATCH] << ", key batch = " << keyShape[KEY_BATCH];
+  }
+
+  if (inputQShape[INPUTQ_BATCH] != valueShape[VALUE_BATCH]) {
+    return emitOpError()
+           << "batch size must match between input_q and value, got input_q batch = "
+           << inputQShape[INPUTQ_BATCH]
+           << ", value batch = " << valueShape[VALUE_BATCH];
+  }
+
+  // Verify number of heads
+  if (queryShape[QUERY_NUM_HEADS] != numQHeads) {
+    return emitOpError()
+           << "query tensor dimension 1 must match num_q_heads, got "
+           << queryShape[QUERY_NUM_HEADS] << ", expected " << numQHeads;
+  }
+
+  if (keyShape[KEY_NUM_HEADS] != numKVHeads) {
+    return emitOpError()
+           << "key tensor dimension 1 must match num_kv_heads, got "
+           << keyShape[KEY_NUM_HEADS] << ", expected " << numKVHeads;
+  }
+
+  if (valueShape[VALUE_NUM_HEADS] != numKVHeads) {
+    return emitOpError()
+           << "value tensor dimension 1 must match num_kv_heads, got "
+           << valueShape[VALUE_NUM_HEADS] << ", expected " << numKVHeads;
+  }
+
+  // Verify head dimension consistency
+  int64_t headDim = queryShape[QUERY_HEAD_DIM];
+
+  // Verify query dimensions: [B, num_q_heads, S, H]
+  if (queryShape[QUERY_SEQ] != inputQShape[INPUTQ_SEQ]) {
+    return emitOpError()
+           << "query sequence length must match input_q sequence, got query seq = "
+           << queryShape[QUERY_SEQ]
+           << ", input_q seq = " << inputQShape[INPUTQ_SEQ];
+  }
+
+  // Verify value dimensions: [B, num_kv_heads, S, H]
+  if (valueShape[VALUE_SEQ] != inputQShape[INPUTQ_SEQ]) {
+    return emitOpError()
+           << "value sequence length must match input_q sequence, got value seq = "
+           << valueShape[VALUE_SEQ]
+           << ", input_q seq = " << inputQShape[INPUTQ_SEQ];
+  }
+
+  if (valueShape[VALUE_HEAD_DIM] != headDim) {
+    return emitOpError()
+           << "value head dimension must match query head dimension, got value head_dim = "
+           << valueShape[VALUE_HEAD_DIM] << ", query head_dim = " << headDim;
+  }
+
+  // Verify key dimensions based on transpose_k_heads
+  // If transpose_k_heads=true: [B, num_kv_heads, H, S]
+  // If transpose_k_heads=false: [B, num_kv_heads, S, H]
+  bool transposeKHeads = getTransposeKHeads();
+
+  if (transposeKHeads) {
+    // Key should be [B, num_kv_heads, H, S]
+    if (keyShape[KEY_DIM2] != headDim) {
+      return emitOpError() << "key dimension 2 must be head_dim when transpose_k_heads=true, got "
+                           << keyShape[KEY_DIM2] << ", expected " << headDim;
+    }
+    if (keyShape[KEY_DIM3] != inputQShape[INPUTQ_SEQ]) {
+      return emitOpError()
+             << "key dimension 3 must be sequence length when transpose_k_heads=true, got "
+             << keyShape[KEY_DIM3]
+             << ", expected " << inputQShape[INPUTQ_SEQ];
+    }
+  } else {
+    // Key should be [B, num_kv_heads, S, H]
+    if (keyShape[KEY_DIM2] != inputQShape[INPUTQ_SEQ]) {
+      return emitOpError() << "key sequence length must match input_q sequence when "
+                              "transpose_k_heads=false, got key seq = "
+                           << keyShape[KEY_DIM2]
+                           << ", input_q seq = " << inputQShape[INPUTQ_SEQ];
+    }
+    if (keyShape[KEY_DIM3] != headDim) {
+      return emitOpError()
+             << "key head dimension must match query head dimension when "
+                "transpose_k_heads=false, got key head_dim = "
+             << keyShape[KEY_DIM3] << ", query head_dim = " << headDim;
+    }
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // NLPConcatHeadsDecodeOp
 //===----------------------------------------------------------------------===//
 
