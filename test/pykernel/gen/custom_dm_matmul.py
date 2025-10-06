@@ -39,9 +39,9 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
 
     @compute()
     async def mm(
-        lhs_shard: TensorBlock,
-        rhs_shard: TensorBlock,
-        out_shard: TensorBlock,
+        lhs_cb: CircularBuffer,
+        rhs_cb: CircularBuffer,
+        out_cb: CircularBuffer,
         lhs_receiver_ready: Semaphore,
         lhs_sender_sent: Semaphore,
         rhs_receiver_ready: Semaphore,
@@ -49,18 +49,18 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
     ):
         for k in range(K):
             for m in range(M):
-                await lhs_shard
+                lhs_shard = lhs_cb.pop()
                 for n in range(N):
-                    await rhs_shard
-                    out_shard = lhs_shard @ rhs_shard
-                    yield out_shard
-                    # await out_shard # this is hacky for now
+                    rhs_shard = rhs_cb.pop()
+                    out_shard = out_cb.reserve()
+                    out = lhs_shard + rhs_shard
+                    out_shard.store(out)
 
     @datamovement()
     async def dm0(
-        lhs_shard: TensorBlock,
-        rhs_shard: TensorBlock,
-        out_shard: TensorBlock,
+        lhs_cb: CircularBuffer,
+        rhs_cb: CircularBuffer,
+        out_cb: CircularBuffer,
         lhs_receiver_ready: Semaphore,
         lhs_sender_sent: Semaphore,
         rhs_receiver_ready: Semaphore,
@@ -70,6 +70,7 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
         cx = core_index(1)
         for k in range(K):
             for m in range(M):
+                lhs_shard = lhs_cb.reserve()
                 if cx == 0:
                     tx = dma(lhs_stream[cy * M + m, k], lhs_shard)
                     tx.wait()
@@ -85,13 +86,12 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
                 else:
                     lhs_receiver_ready.inc(1, core=(cy, 0))
                     lhs_sender_sent.wait(1, reset=0)
-                yield lhs_shard
 
     @datamovement()
     async def dm1(
-        lhs_shard: TensorBlock,
-        rhs_shard: TensorBlock,
-        out_shard: TensorBlock,
+        lhs_cb: CircularBuffer,
+        rhs_cb: CircularBuffer,
+        out_cb: CircularBuffer,
         lhs_receiver_ready: Semaphore,
         lhs_sender_sent: Semaphore,
         rhs_receiver_ready: Semaphore,
@@ -102,6 +102,7 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
         for k in range(K):
             for m in range(M):
                 for n in range(N):
+                    rhs_shard = rhs_cb.reserve()
                     if cy == 0:
                         tx = dma(rhs_stream[k, cx * N + n], rhs_shard)
                         tx.wait()
@@ -117,7 +118,6 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
                     else:
                         rhs_receiver_ready.inc(1, core=(0, cx))
                         rhs_sender_sent.wait(1, reset=0)
-                    yield rhs_shard
 
     return Program(mm, dm0, dm1)(lhs, rhs, out)
 

@@ -414,7 +414,7 @@ class TTCompilerBase(PyKernelAstBase):
             kwargs = {}
             for kw in node.keywords:
                 kwargs[kw.arg] = _load_func_arg(self.visit(kw.value))
-            self.visit(node.func, func_args=func_args, kwargs=kwargs)  # visit_Attribute
+            return self.visit(node.func, func_args=func_args, kwargs=kwargs)  # visit_Attribute
 
     def visit_Print(self, node):
         fmt = ""
@@ -734,8 +734,7 @@ class TTCompilerBase(PyKernelAstBase):
         qualified_object_syntax = f"{mlir_type}.{node.attr}"
         fn = self._fn_map.get(qualified_object_syntax, None)
         if fn is not None:
-            fn(mlir_value, *func_args, **kwargs)
-            return
+            return fn(mlir_value, *func_args, **kwargs)
         elif not mlir_type.startswith("!ttkernel."):
             raise ValueError(
                 f"{node.value.id} is not a ttkernel type, thus can not have attributes."

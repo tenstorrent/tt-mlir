@@ -62,6 +62,18 @@ class TensorBlock:
         d2m.tile_matmul_block(lhs, rhs, out)
         return out
 
+    def store(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        return d2m.store(ast_self, rhs)
+
+
+@syntax("!d2m.cb")
+class CircularBuffer:
+    def pop(ast_self) -> TensorBlock:
+        return d2m.pop(d2m.ir.CBType.get_underlying(ast_self.type), ast_self)
+
+    def reserve(ast_self) -> TensorBlock:
+        return d2m.reserve(d2m.ir.CBType.get_underlying(ast_self.type), ast_self)
+
 
 @syntax("!d2m.mem_tx")
 class MemTx:
@@ -240,11 +252,12 @@ def _create_generic_func(
     # Some passes still rely on the compute thread being last.
     compiled_threads.sort(key=lambda ct: ct.kernel_type == "compute")
 
-    ordered_tensor_args = [
-        t
-        for t in compiled_threads[0].func_entry.arguments.types
-        if isinstance(t, RankedTensorType)
-    ]
+    ordered_tensor_args = []
+    for t in compiled_threads[0].func_entry.arguments.types:
+        if isinstance(t, RankedTensorType):
+            ordered_tensor_args.append(t)
+        elif str(t).startswith("!d2m.cb"):
+            ordered_tensor_args.append(d2m.ir.CBType.get_underlying(t))
     arg_types = ordered_tensor_args
     ret_type = ordered_tensor_args[-1]
     func_entry = func.FuncOp(name=name, type=(arg_types, [ret_type]))
