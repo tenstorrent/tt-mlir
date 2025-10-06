@@ -66,11 +66,11 @@ public:
           auto elemType = ttcore::getOperandInnerElementType(operands[i]);
 
           ttcore::DataType dataType;
-          if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elemType)) {
-            dataType = tileType.getDataType();
-          } else {
-            dataType = ttcore::elementTypeToDataType(elemType);
-          }
+          // if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elemType)) {
+          //   dataType = tileType.getDataType();
+          // } else {
+          dataType = ttcore::elementTypeToDataType(elemType);
+          //}
 
           if (ttcore::getNumberOfBits(dataType) == 32) {
             fp32DestAccum = true;
