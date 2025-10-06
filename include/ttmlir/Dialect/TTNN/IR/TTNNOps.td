@@ -2576,17 +2576,14 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
     Example:
     ```mlir
     %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %output = "ttnn.empty"(%device) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>,
-                                      memory_config = #ttnn.memory_config<#dram, <interleaved>>,
-                                      shape = #ttnn.shape<1x1x1x32>}> : (!ttnn.device) -> tensor<1x1x1x32xbf16>
-    %result = "ttnn.global_avg_pool2d"(%input, %output) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>,
+
+    %result = "ttnn.global_avg_pool2d"(%input) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>,
                                                            dtype = #ttcore.supportedDataTypes<bf16>}>
-              : (tensor<1x128x128x32xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x1x1x32xbf16>
+              : (tensor<1x128x128x32xbf16>) -> tensor<1x1x1x32xbf16>
     ```
 
     Inputs:
     - `input`: 4D tensor with shape [N, H, W, C] where N is batch size, H is height, W is width, and C is channels
-    - `output`: Pre-allocated output tensor with shape [N, 1, 1, C] to store the result
 
     Attributes:
     - `memory_config` (optional): Memory configuration specifying where the operation should be performed
@@ -2600,16 +2597,15 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$output,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype);
 
   let results = (outs AnyRankedTensor:$result);
 
   let builders = [
-    OpBuilder<(ins "Type":$resultType, "Value":$input, "Value":$output),
+    OpBuilder<(ins "Type":$resultType, "Value":$input),
     [{
-      build($_builder, $_state, resultType, input, output,
+      build($_builder, $_state, resultType, input,
             /*memory_config=*/nullptr, /*dtype=*/nullptr);
     }]>
   ];
