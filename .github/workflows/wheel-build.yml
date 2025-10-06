@@ -34,7 +34,6 @@ jobs:
           docker-images: true
           swap-storage: true
 
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
