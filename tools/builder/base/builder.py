@@ -107,6 +107,14 @@ class Builder:
         return self._mesh_shape
 
     @property
+    def ordered_inputs(self) -> Tuple[int, int]:
+        return self._ordered_inputs
+
+    @property
+    def ordered_outputs(self) -> Tuple[int, int]:
+        return self._ordered_outputs
+
+    @property
     def golden_map(self) -> Dict[str, Dict[int, GoldenTensor]]:
         golden_info: Dict[str, Dict[int, GoldenTensor]] = {}
 
