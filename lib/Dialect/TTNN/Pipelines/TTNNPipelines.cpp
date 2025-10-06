@@ -224,10 +224,15 @@ void createTTNNBackendToEmitCPipeline(
     tuplifyOptions.tuplifyInputIfEmpty = true;
     pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
   } else {
-    // In canonical path, run tuplification + create input generators.
+    // In canonical path, run tuplification + input generation/loading.
     //
     pm.addPass(createTTNNTuplifyTensors());
-    pm.addPass(createTTNNCreateInputGenerators());
+
+    if (options.loadInputTensorsFromDisk) {
+      pm.addPass(createTTNNLoadInputTensors());
+    } else {
+      pm.addPass(createTTNNCreateInputGenerators());
+    }
   }
 
   pm.addPass(createConvertTTNNToEmitCPass());
@@ -242,7 +247,12 @@ void createTTNNBackendToEmitPyPipeline(
   pm.addPass(createTTNNEmitPyWorkarounds());
 
   pm.addPass(createTTNNTuplifyTensors());
-  pm.addPass(createTTNNCreateInputGenerators());
+
+  if (options.loadInputTensorsFromDisk) {
+    pm.addPass(createTTNNLoadInputTensors());
+  } else {
+    pm.addPass(createTTNNCreateInputGenerators());
+  }
 
   pm.addPass(createConvertTTNNToEmitPyPass());
 }

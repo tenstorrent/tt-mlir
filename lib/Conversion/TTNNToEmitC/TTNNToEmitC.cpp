@@ -3222,6 +3222,45 @@ public:
 } // namespace
 
 namespace {
+class UpdateCacheOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::UpdateCacheOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::UpdateCacheOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::UpdateCacheOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::UpdateCacheOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // The `update_index` is modeled as a tensor in the IR, but the
+    // `ttnn::update_cache` expects a `uint32_t` scalar.
+    mlir::Value updateIndex =
+        rewriter
+            .create<emitc::CallOpaqueOp>(
+                srcOp.getLoc(), rewriter.getI32Type(),
+                ttnn_to_emitc::kGetScalarFromTensorFunctionName,
+                /*args=*/nullptr,
+                /*template_args=*/nullptr, adaptor.getUpdateIndex())
+            .getResult(0);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getCache()),
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(updateIndex, /*index=*/2),
+        emitter.emit(srcOp.getBatchOffset()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class DumpTensorOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::DumpTensorOp> {
 private:
@@ -3463,8 +3502,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // KV Cache ops
   //
-  patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::UpdateCacheOp>>(
-      typeConverter, ctx);
+  patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::FillCacheOp>>(
       typeConverter, ctx);
 
