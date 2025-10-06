@@ -2326,6 +2326,35 @@ public:
 };
 } // namespace
 
+// MeshShardOp conversion pattern
+//
+namespace {
+class MeshShardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::MeshShardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::MeshShardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MeshShardOp srcOp,
+                  mlir::tt::ttnn::MeshShardOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MeshShardOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // TODO: complete this
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -2534,6 +2563,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<TTNN_ReduceScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<TTNN_AllReduceOpConversionPattern>(typeConverter, ctx);
   patterns.add<TTNN_PointToPointOpConversionPattern>(typeConverter, ctx);
+  patterns.add<MeshShardOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 }
 
