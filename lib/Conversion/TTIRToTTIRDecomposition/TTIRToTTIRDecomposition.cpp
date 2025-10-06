@@ -677,12 +677,14 @@ struct GatherToEmbeddingConversionPattern
     llvm::SmallVector<int64_t> startIndexMap;
     for (size_t i = 0; i < originalStartIndexMap.size(); ++i) {
       int64_t dim = originalStartIndexMap[i];
-      if (sliceSizes[dim] != inputShape[dim]) {
-        startIndexMap.push_back(dim);
-        actualIndexedDim = i;
-        if (sliceSizes[dim] != 1) {
-          needsExpansion = true;
-        }
+      if (sliceSizes[dim] == inputShape[dim]) {
+        continue;
+      }
+
+      startIndexMap.push_back(dim);
+      actualIndexedDim = i;
+      if (sliceSizes[dim] != 1) {
+        needsExpansion = true;
       }
     }
     auto numIndexingDims = startIndexMap.size();
@@ -976,16 +978,17 @@ private:
   static ttir::PermuteOp
   reshapeAndPermuteOutput(ConversionPatternRewriter &rewriter,
                           ::mlir::TypedValue<::mlir::RankedTensorType> output,
-                          int64_t specialDim, ttir::GatherOp op) {
+                          int64_t indexedDim, ttir::GatherOp op) {
     auto expectedOutputType = op.getOutput().getType();
     auto expectedOutputShape = expectedOutputType.getShape();
     auto offsetDims = op.getOffsetDims();
-    // In case there were full indexed dims, we permuted input to move the
-    // actual indexed dims to the front, so is is before other offset dims in
-    // the output, as well.
-    bool specialCase = false;
-    if (op.getCollapsedSliceDims().empty()) {
-      specialCase = true;
+    // Because of permuting input to put the indexing dims first, the output has
+    // corresponding dims in front of (other) offsetDims, as well. When size of
+    // these dims in output is not 1, we need to move them to their correct
+    // spot.
+    bool needsOffsetReordering = false;
+    if (op.getSliceSizes()[indexedDim] != 1) {
+      needsOffsetReordering = true;
     }
 
     llvm::SmallVector<int64_t> outputPermutation;
@@ -994,11 +997,11 @@ private:
         outputPermutation.push_back(i);
       }
     }
-    if (specialCase) {
-      outputPermutation.push_back(op.getOffsetDims()[specialDim]);
+    if (needsOffsetReordering) {
+      outputPermutation.push_back(op.getOffsetDims()[indexedDim]);
     }
     for (size_t i = 0; i < offsetDims.size(); ++i) {
-      if (!(specialCase && i == static_cast<size_t>(specialDim))) {
+      if (!(needsOffsetReordering && i == static_cast<size_t>(indexedDim))) {
         outputPermutation.push_back(offsetDims[i]);
       }
     }
