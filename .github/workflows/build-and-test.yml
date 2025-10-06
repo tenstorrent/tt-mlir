@@ -345,7 +345,7 @@ jobs:
         check_name: ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ strategy.job-index }} Tests
 
 
-test-ttnn-jit:
+  test-ttnn-jit:
     timeout-minutes: 45
     needs:
       - build-image
