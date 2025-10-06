@@ -12,12 +12,6 @@ import test_common
 
 
 def main(machine, image, jobid):
-    def load_argument(arg):
-        try:
-            return json.loads(arg)
-        except json.JSONDecodeError:
-            return [arg]
-
     json_file = "_test_to_run.json"
     work_dir = os.getcwd()
 
@@ -34,8 +28,10 @@ def main(machine, image, jobid):
     test_no = 1
     for test in tests:
         test_type = test.get("script", "")
-        args = load_argument(test.get("args", "[]"))
-        reqs = load_argument(test.get("reqs", "[]"))
+        args = test.get("args", "")
+        args = [args] if isinstance(args, str) else args
+        reqs = test.get("reqs", "")
+        reqs = [reqs] if isinstance(reqs, str) else reqs
         hash, hash_string = test_common.compute_hash(test, machine, image)
         test["hash"] = hash
         test["hash_string"] = hash_string

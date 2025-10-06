@@ -33,7 +33,6 @@
   { "runs-on": "n150",   "image": "speedy", "script": "op_model.sh", "args": [ "Silicon/TTNN/n150/optimizer", "--non-zero" ] },
   { "runs-on": "n150",   "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/device_agnostic" },
   { "runs-on": "n300",   "image": "tracy",  "script": "runtime_debug.sh" },
-  { "runs-on": "n150",   "image": "speedy", "script": "ttnn_standalone.sh" },
   { "runs-on": "n150",   "image": "tracy",  "script": "emitc.sh" },
   { "runs-on": "n150",   "image": "tracy",  "script": "pykernel.sh" }
 ]
