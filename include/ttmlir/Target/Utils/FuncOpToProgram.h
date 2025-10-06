@@ -58,7 +58,8 @@ inline Value getOperandThroughDPSOps(Value value) {
 template <typename OpT, typename FnT, typename TensorFnT>
 Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
                              FnT fn, TensorFnT tensorValueToFlatbuffer,
-                             const llvm::StringMap<uint32_t> &programIndexMap) {
+                             const llvm::StringMap<uint32_t> &programIndexMap,
+                             const std::string &kernelDumpDir = "") {
   OpPrintingFlags printFlags;
   printFlags = printFlags.elideLargeElementsAttrs()
                    .elideLargeResourceString()
@@ -83,7 +84,8 @@ Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
     } else {
       std::string debugStr = getOpDebugString(op, printState);
       std::string locInfo = getOpLocInfo(op);
-      program.ops.push_back(fn(cache, op, programIndexMap, debugStr, locInfo));
+      program.ops.push_back(
+          fn(cache, op, programIndexMap, debugStr, locInfo, kernelDumpDir));
     }
   });
 
