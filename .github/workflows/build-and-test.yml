@@ -400,6 +400,7 @@ jobs:
         sparse-checkout: |
           test/ttmlir/models
           tools/tt-alchemist/test
+          test/ttmlir/EmitC/TTNN/load_input
 
     - name: Fetch job id
       id: fetch-job-id
@@ -440,6 +441,18 @@ jobs:
       run: |
         source testenv/bin/activate
         tt-alchemist model-to-python tools/tt-alchemist/test/models/mnist.mlir
+
+    - name: Run tt-alchemist API test - generate-cpp (load tensors)
+      shell: bash
+      run: |
+        source testenv/bin/activate
+        OUTPUT_DIR=/tmp/test-load-tensors
+        rm -rf $OUTPUT_DIR
+        tt-alchemist generate-cpp --pipeline-options 'load-input-tensors-from-disk=true' test/ttmlir/EmitC/TTNN/load_input/ttnn_load_input_tensors.mlir --output $OUTPUT_DIR --standalone
+        cp test/ttmlir/EmitC/TTNN/load_input/arg0.tensorbin test/ttmlir/EmitC/TTNN/load_input/arg1.tensorbin $OUTPUT_DIR
+        cd $OUTPUT_DIR
+        [ -d $OUTPUT_DIR ] || { echo "Directory not found: $OUTPUT_DIR" >&2; exit 1; }
+        ./run
 
     - name: Run tt-alchemist API test - generate-cpp (mnist)
       shell: bash
