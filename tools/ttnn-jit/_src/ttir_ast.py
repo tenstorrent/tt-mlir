@@ -140,7 +140,6 @@ class TTIRCompiler(ast.NodeVisitor):
             )
             return ttnn_layout
         else:
-            print("tensor_arg", tensor_arg)
             buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.DRAM)
             grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
             shape = [tensor_arg.shape[0] // 32, tensor_arg.shape[1] // 32]
