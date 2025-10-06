@@ -51,15 +51,15 @@ def main(machine, image, jobid):
             sys.stdout.flush()
             sys.stderr.flush()
             result = subprocess.run(cmd, check=True, env=env)
-            print(f"\n\033[92m SUCCESS running {script_path} \033[0m")
+            print(f"\n\033[92m SUCCESS running {test_type} \033[0m")
             test["result"] = "SUCCESS"
             test["returncode"] = 0
         except subprocess.CalledProcessError as e:
-            print(f"\n\033[91m FAILURE running {script_path}: {e}\033[0m")
+            print(f"\n\033[91m FAILURE running {test_type}: {e}\033[0m")
             test["result"] = "FAILURE"
             test["returncode"] = e.returncode
         except FileNotFoundError:
-            print(f"\n\033[91m ERROR: Script {script_path} not found\033[0m")
+            print(f"\n\033[91m ERROR: Script {test_type} not found\033[0m")
             test["result"] = "ERROR"
             test["returncode"] = 1
 

@@ -367,6 +367,8 @@ jobs:
         run: |
           python3 -m venv testenv
           source testenv/bin/activate
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0
+          pip install numpy
           pip install ttnn_jit-*.whl --upgrade
           python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
           python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
