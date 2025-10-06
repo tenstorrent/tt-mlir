@@ -5,6 +5,9 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 #define TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 
 namespace mlir::tt::d2m::utils {
@@ -17,6 +20,10 @@ mlir::AffineMap calculateReblockMap(ArrayRef<int64_t> fromTensorShape,
 // Get square target grid shape.
 llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape);
+
+MemRefType
+getBufferType(Type type, bool isView,
+              std::optional<ttcore::MetalLayoutAttr> hostInfo = std::nullopt);
 
 } // namespace mlir::tt::d2m::utils
 

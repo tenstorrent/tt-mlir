@@ -314,7 +314,7 @@ DMAOp::getBufferType(mlir::Value value,
                      const mlir::bufferization::BufferizationState &,
                      ::llvm::SmallVector<mlir::Value> &) {
   auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-  return mlir::tt::d2m::getBufferType(rankedTensorType, /*isView=*/true);
+  return mlir::tt::d2m::utils::getBufferType(rankedTensorType, /*isView=*/true);
 }
 
 mlir::LogicalResult

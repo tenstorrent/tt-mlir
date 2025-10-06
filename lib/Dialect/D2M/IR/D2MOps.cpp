@@ -184,7 +184,7 @@ d2m::EmptyOp::getBufferType(mlir::Value value,
                             const mlir::bufferization::BufferizationOptions &,
                             const mlir::bufferization::BufferizationState &,
                             ::llvm::SmallVector<mlir::Value> &) {
-  return d2m::getBufferType(value.getType(), /*isView=*/false);
+  return d2m::utils::getBufferType(value.getType(), /*isView=*/false);
 }
 
 //===----------------------------------------------------------------------===//
@@ -522,7 +522,7 @@ ToLayoutOp::getBufferType(mlir::Value value,
                           const mlir::bufferization::BufferizationOptions &,
                           const mlir::bufferization::BufferizationState &,
                           ::llvm::SmallVector<mlir::Value> &) {
-  return d2m::getBufferType(value.getType(), /*isView=*/false, getLayout());
+  return d2m::utils::getBufferType(value.getType(), /*isView=*/false, getLayout());
 }
 
 //===----------------------------------------------------------------------===//
@@ -583,7 +583,7 @@ d2m::StreamLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return d2m::getBufferType(value.getType(), /*isView=*/true);
+  return d2m::utils::getBufferType(value.getType(), /*isView=*/true);
 }
 
 void d2m::StreamLayoutOp::getCanonicalizationPatterns(
@@ -808,7 +808,7 @@ d2m::ViewLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return d2m::getBufferType(value.getType(), /*isView=*/true);
+  return d2m::utils::getBufferType(value.getType(), /*isView=*/true);
 }
 
 mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
@@ -1513,7 +1513,7 @@ d2m::GenericOp::getBufferType(mlir::Value value,
         ttcore::MemorySpaceAttr::get(tensorType.getContext(),
                                      ttcore::MemorySpace::DeviceL1)));
   }
-  return d2m::getBufferType(tensorType, /*isView=*/false);
+  return d2m::utils::getBufferType(tensorType, /*isView=*/false);
 }
 
 bool d2m::GenericOp::hasCompatibleBlocking(GenericOp b) {

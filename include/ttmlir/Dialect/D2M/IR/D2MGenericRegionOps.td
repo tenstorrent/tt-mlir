@@ -1058,105 +1058,187 @@ def D2M_AwaitOp : D2M_AsyncOp<"await"> {
     let hasVerifier = 1;
 }
 
-def D2M_PopOp : D2M_GenericRegionOp<"pop", [MemoryEffects<[MemRead, MemWrite]>]> {
-    let summary = "Pop from circular buffer.";
-    let description = [{
-      Pop operation, extracts the enclosing memref from a circular buffer.
-      This operation is used by consumer threads to access data from the circular buffer.
-      It replaces the d2m.await operation when using the new circular buffer semantics.
+class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<mnemonic,
+  traits #
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "isNotConflicting"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
+  let arguments = (ins D2M_CB:$cb);
+  let results = (outs AnyRankedTensorOrMemRef:$result);
 
-      Example:
-      ```mlir
-      %memref = d2m.pop %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-      ```
-    }];
+  let builders =
+  [
+    OpBuilder<(ins "Value":$cb),
+    [{
+      build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(), cb);
+    }]>
+  ];
 
-    let arguments = (ins D2M_CB:$cb);
-    let results = (outs AnyRankedTensorOrMemRef:$result);
+  let assemblyFormat = [{ $cb attr-dict `:` type($cb) `->` type($result) }];
 
-    let builders =
-    [
-      OpBuilder<(ins "Value":$cb),
-      [{
-        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(), cb);
-      }]>
-    ];
+  let hasVerifier = 1;
 
-    let assemblyFormat = [{ $cb attr-dict `:` type($cb) `->` type($result) }];
+  let extraClassDeclaration = [{
+    ShapedType getUnderlyingType() {
+      return llvm::cast<CBType>(getCb().getType()).getUnderlying();
+    }
 
-    let hasVerifier = 1;
+    // Get the wrapped memref type from the circular buffer
+    MemRefType getMemRefType() {
+      return llvm::cast<MemRefType>(getUnderlyingType());
+    }
 
-    let extraClassDeclaration = [{
-      ShapedType getUnderlyingType() {
-        return llvm::cast<CBType>(getCb().getType()).getUnderlying();
-      }
+    // Get the wrapped tensor type from the circular buffer
+    RankedTensorType getTensorType() {
+      return llvm::cast<RankedTensorType>(getUnderlyingType());
+    }
+  }];
 
-      // Get the wrapped memref type from the circular buffer
-      MemRefType getMemRefType() {
-        return llvm::cast<MemRefType>(getUnderlyingType());
-      }
+  let extraClassDefinition = [{
+    bool $cppClass::bufferizesToMemoryRead(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
 
-      // Get the wrapped tensor type from the circular buffer
-      RankedTensorType getTensorType() {
-        return llvm::cast<RankedTensorType>(getUnderlyingType());
-      }
-    }];
+    bool $cppClass::bufferizesToMemoryWrite(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
+
+    bool $cppClass::isNotConflicting(mlir::OpOperand *, mlir::OpOperand *,
+                                 const mlir::bufferization::AnalysisState &) {
+      // Return true to avoid forcing out of place bufferization.
+      return true;
+    }
+
+    mlir::bufferization::AliasingValueList $cppClass::getAliasingValues(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      mlir::bufferization::AliasingValueList result;
+      return result;
+    }
+
+    mlir::FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+        mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+        const mlir::bufferization::BufferizationState &,
+        ::llvm::SmallVector<mlir::Value> &) {
+      llvm_unreachable("intentionally unimplemented, this op can only accept block arguments which should have already been converted");
+    }
+
+    mlir::LogicalResult $cppClass::bufferize(
+        mlir::RewriterBase &rewriter,
+        const mlir::bufferization::BufferizationOptions &options,
+        mlir::bufferization::BufferizationState &state) {
+      auto bufferizedCb =
+          bufferization::getBuffer(rewriter, getCb(), options, state);
+      assert(succeeded(bufferizedCb));
+      mlir::bufferization::replaceOpWithNewBufferizedOp<$cppClass>(
+          rewriter, *this, *bufferizedCb);
+      return mlir::success();
+    }
+  }];
 }
 
-def D2M_ReserveOp : D2M_GenericRegionOp<"reserve", [MemoryEffects<[MemRead, MemWrite]>]> {
-    let summary = "Reserve from circular buffer.";
-    let description = [{
-      Reserve operation, extracts the enclosing memref from a circular buffer.
-      This operation is used by producer threads to reserve space in the circular buffer.
-      It replaces the d2m.yield operation when using the new circular buffer semantics.
+def D2M_PopOp : D2M_CBOp<"pop"> {
+  let summary = "Pop from circular buffer.";
+  let description = [{
+    Pop operation, extracts the enclosing memref from a circular buffer.
+    This operation is used by consumer threads to access data from the circular buffer.
+    It replaces the d2m.await operation when using the new circular buffer semantics.
 
-      Example:
-      ```mlir
-      %memref = d2m.reserve %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-      ```
-    }];
-
-    let arguments = (ins D2M_CB:$cb);
-    let results = (outs AnyRankedTensorOrMemRef:$result);
-
-    let builders =
-    [
-      OpBuilder<(ins "Value":$cb),
-      [{
-        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(), cb);
-      }]>
-    ];
-
-    let assemblyFormat = [{ $cb attr-dict `:` type($cb) `->` type($result) }];
-
-    let hasVerifier = 1;
-
-    let extraClassDeclaration = [{
-      ShapedType getUnderlyingType() {
-        return llvm::cast<CBType>(getCb().getType()).getUnderlying();
-      }
-
-      // Get the wrapped memref type from the circular buffer
-      MemRefType getMemRefType() {
-        return llvm::cast<MemRefType>(getUnderlyingType());
-      }
-
-      // Get the wrapped tensor type from the circular buffer
-      RankedTensorType getTensorType() {
-        return llvm::cast<RankedTensorType>(getUnderlyingType());
-      }
-    }];
+    Example:
+    ```mlir
+    %memref = d2m.pop %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    ```
+  }];
 }
 
-def D2M_StoreOp : D2M_GenericRegionOp<"store", [MemoryEffects<[MemRead, MemWrite]>, SameTypeOperands]> {
-    let summary = "TODO.";
-    let description = [{
-      TODO
-    }];
+def D2M_ReserveOp : D2M_CBOp<"reserve"> {
+  let summary = "Reserve from circular buffer.";
+  let description = [{
+    Reserve operation, extracts the enclosing memref from a circular buffer.
+    This operation is used by producer threads to reserve space in the circular buffer.
+    It replaces the d2m.yield operation when using the new circular buffer semantics.
 
-    let arguments = (ins AnyRankedTensorOrMemRef:$dst, AnyRankedTensorOrMemRef:$src);
+    Example:
+    ```mlir
+    %memref = d2m.reserve %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    ```
+  }];
+}
 
-    let assemblyFormat = [{ $dst `,` $src attr-dict `:` type($dst) }];
+def D2M_StoreOp : D2M_GenericRegionOp<"store",
+  [ SameTypeOperands
+  , MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "isNotConflicting"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
+  let summary = "TODO.";
+  let description = [{
+    TODO
+  }];
+
+  let arguments = (ins AnyRankedTensorOrMemRef:$dst, AnyRankedTensorOrMemRef:$src);
+
+  let assemblyFormat = [{ $dst `,` $src attr-dict `:` type($dst) }];
+
+  let extraClassDefinition = [{
+    bool mlir::tt::d2m::StoreOp::bufferizesToMemoryRead(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
+
+    bool mlir::tt::d2m::StoreOp::bufferizesToMemoryWrite(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
+
+    bool mlir::tt::d2m::StoreOp::isNotConflicting(mlir::OpOperand *, mlir::OpOperand *,
+                                 const mlir::bufferization::AnalysisState &) {
+      // Return true to avoid forcing out of place bufferization.
+      return true;
+    }
+
+    mlir::bufferization::AliasingValueList mlir::tt::d2m::StoreOp::getAliasingValues(
+        mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+      mlir::bufferization::AliasingValueList result;
+      return result;
+    }
+
+    mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::d2m::StoreOp::getBufferType(
+        mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+        const mlir::bufferization::BufferizationState &,
+        ::llvm::SmallVector<mlir::Value> &) {
+      llvm_unreachable("intentionally unimplemented, this op will be erased during bufferization");
+    }
+
+    mlir::LogicalResult mlir::tt::d2m::StoreOp::bufferize(
+        mlir::RewriterBase &rewriter,
+        const mlir::bufferization::BufferizationOptions &options,
+        mlir::bufferization::BufferizationState &state) {
+      auto src = bufferization::getBuffer(rewriter, getSrc(), options, state);
+      if (failed(src)) {
+        return mlir::failure();
+      }
+      auto dst = bufferization::getBuffer(rewriter, getDst(), options, state);
+      if (failed(dst)) {
+        return mlir::failure();
+      }
+      rewriter.replaceAllUsesWith(*src, *dst);
+      rewriter.eraseOp(*this);
+      return mlir::success();
+    }
+  }];
 }
 
 //===----------------------------------------------------------------------===//
