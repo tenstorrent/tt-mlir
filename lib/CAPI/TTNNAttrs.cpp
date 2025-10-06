@@ -180,3 +180,17 @@ MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
                           mlir::cast<mlir::MemRefType>(unwrap(memref)),
                           memLayoutAttr, tensorMeshAttr));
 }
+
+MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, int64_t *tensorShape, int tensorShapeSize, MlirType elementType, MlirAttribute bufferType, MlirAttribute grid, MlirAttribute memLayout) {
+  llvm::SmallVector<int64_t> tensorShapeArray(tensorShape, tensorShape + tensorShapeSize);
+
+  mlir::tt::ttnn::BufferType bufferTypeValue = mlir::cast<mlir::tt::ttnn::BufferTypeAttr>(unwrap(bufferType)).getValue();
+  mlir::tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr = mlir::cast<mlir::tt::ttnn::TensorMemoryLayoutAttr>(unwrap(memLayout));
+
+  return wrap(TTNNLayoutAttr::get(
+      unwrap(ctx), tensorShapeArray,
+      unwrap(elementType),
+      bufferTypeValue,
+      mlir::cast<mlir::tt::ttcore::GridAttr>(unwrap(grid)),
+      memLayoutAttr));
+}
