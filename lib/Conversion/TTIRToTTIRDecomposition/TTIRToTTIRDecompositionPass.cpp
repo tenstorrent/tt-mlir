@@ -15,7 +15,6 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
@@ -79,32 +78,6 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::QuantizeOp>();
       target.addIllegalOp<ttir::RequantizeOp>();
       target.addIllegalOp<ttir::DequantizeOp>();
-      break;
-
-    case DecompMode::HoistedOnly:
-      // Only Decompose operations marked for hoisting.
-      // All other ops are legal by default.
-      target.addLegalOp<ttir::IndexOp>();
-      target.addLegalOp<ttir::ConvolutionOp>();
-      target.addLegalOp<ttir::GetDimensionSizeOp>();
-      target.addLegalOp<ttir::PoolingOp>();
-      target.addLegalOp<ttir::GatherOp>();
-      target.addLegalOp<ttir::IndexSelectOp>();
-      target.addLegalOp<ttir::QuantizeOp>();
-      target.addLegalOp<ttir::RequantizeOp>();
-      target.addLegalOp<ttir::DequantizeOp>();
-
-      target.addDynamicallyLegalOp<ttir::DotGeneralOp>(
-          [&](ttir::DotGeneralOp op) {
-            return !ttir::utils::hasShouldHoistAttr(op);
-          });
-      target.addDynamicallyLegalOp<ttir::ReduceAndOp>(
-          [&](ttir::ReduceAndOp op) {
-            return !ttir::utils::hasShouldHoistAttr(op);
-          });
-      target.addDynamicallyLegalOp<ttir::ReduceOrOp>([&](ttir::ReduceOrOp op) {
-        return !ttir::utils::hasShouldHoistAttr(op);
-      });
       break;
     }
 

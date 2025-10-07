@@ -56,9 +56,7 @@ def TTIRToTTIRDecomposition: Pass<"ttir-to-ttir-decomposition", "::mlir::ModuleO
              clEnumValN(::mlir::tt::DecompMode::TTMetal, "ttmetal",
                         "Configuration for TTMetal backend"),
              clEnumValN(::mlir::tt::DecompMode::CPUFallback, "cpu-fallback",
-                        "Configuration for CPU fallback path"),
-             clEnumValN(::mlir::tt::DecompMode::HoistedOnly, "hoisted-only",
-                        "Decompose only operations marked  for hoisting")
+                        "Configuration for CPU fallback path")
            )}]>
   ];
 }

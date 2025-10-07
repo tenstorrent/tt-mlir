@@ -922,7 +922,7 @@ struct DotGeneralToMatmulConversionPattern
                   ConversionPatternRewriter &rewriter) const override {
 
     // Check if the original op should be hoisted.
-    bool shouldHoist = op->hasAttr("ttir.should_hoist");
+    bool shouldHoist = ttir::utils::hasShouldHoistAttr(op);
 
     Value lhs = adaptor.getLhs();
     auto lhsType = mlir::cast<RankedTensorType>(lhs.getType());
