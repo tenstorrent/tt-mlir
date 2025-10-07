@@ -1730,6 +1730,50 @@ public:
       return sortOp.getResult(0);
     }
 
+    // SplitQueryKeyValueAndSplitHeadsOp returns a std::vector<ttnn::Tensor>
+    // containing three elements: [0] = query tensor, [1] = key tensor, [2] =
+    // value tensor. Extract all three elements to replace the original
+    // SplitQueryKeyValueAndSplitHeadsOp.
+    if constexpr (std::is_same_v<TTNNOp,
+                                 tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>) {
+      assert(op.getNumResults() == 3 &&
+             "Expected three outputs for SplitQueryKeyValueAndSplitHeadsOp "
+             "(query, key, value).");
+      using ReturnTy = std::vector<::ttnn::Tensor>;
+      auto splitOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          /*template_args=*/nullptr, operands);
+
+      SmallVector<Value> results;
+      for (unsigned i = 0; i < op.getNumResults(); ++i) {
+        // Create index to access i-th element.
+        auto indexType = rewriter.getIndexType();
+        auto indexOp = rewriter.create<emitc::LiteralOp>(op.getLoc(), indexType,
+                                                         std::to_string(i));
+        Value indexVal = indexOp.getResult();
+
+        // Create LValue type for the tensor reference.
+        auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
+            rewriter.getContext(), TypeNameV<ReturnTy::value_type>));
+
+        // Get reference to the i-th element in the result vector.
+        auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+            op.getLoc(), lvalueType, splitOp.getResult(0), indexVal);
+
+        // Load the actual tensor value from the reference.
+        auto loadOp = rewriter.create<emitc::LoadOp>(
+            op.getLoc(),
+            emitc::OpaqueType::get(rewriter.getContext(),
+                                   TypeNameV<ReturnTy::value_type>),
+            subscriptOp.getResult());
+        results.push_back(loadOp.getResult());
+      }
+
+      rewriter.replaceOp(op, results);
+      return splitOp.getResult(0);
+    }
+
     auto resultTypes = llvm::to_vector(
         llvm::map_range(op->getResultTypes(), [&](Type type) -> Type {
           return opConversionPattern.getTypeConverter()->convertType(type);

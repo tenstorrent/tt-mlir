@@ -1873,6 +1873,47 @@ createOp(FlatbufferObjectCache &cache, ConcatenateHeadsOp op) {
                                                       memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
+createOp(FlatbufferObjectCache &cache, SplitQueryKeyValueAndSplitHeadsOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+
+  // Handle optional kv_input_tensor
+  // Check if we have more than 1 operand (input_tensor is operand 0)
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> kv_input = 0;
+  if (op->getNumOperands() > 1) {
+    kv_input = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op->getOperand(1)));
+  }
+
+  // Get the three output tensors (query, key, value)
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  outputs.push_back(
+      cache.getOrCreate(op.getResult(0), tensorValueToFlatbuffer)); // query
+  outputs.push_back(
+      cache.getOrCreate(op.getResult(1), tensorValueToFlatbuffer)); // key
+  outputs.push_back(
+      cache.getOrCreate(op.getResult(2), tensorValueToFlatbuffer)); // value
+
+  // Create the flatbuffers vector from the std::vector
+  auto outputs_fb = cache.fbb->CreateVector(outputs);
+
+  // Use the first result (query) for memory config
+  auto memoryConfig =
+      op.getMemoryConfig()
+          ? toFlatbuffer(cache, *op.getMemoryConfig())
+          : getMemoryConfigFromTensorTypeIfNeeded(cache, op.getResult(0));
+
+  // Get num_kv_heads as Optional
+  auto numKvHeadsOpt = op.getNumKvHeads();
+  uint32_t numKvHeads = numKvHeadsOpt.has_value() ? numKvHeadsOpt.value() : 0;
+
+  return ::tt::target::ttnn::CreateSplitQueryKeyValueAndSplitHeadsOp(
+      *cache.fbb, in, kv_input, op.getNumHeads(), numKvHeads,
+      op.getTransposeKey(), memoryConfig,
+      outputs_fb); // Pass the flatbuffers vector offset, not a pointer
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::NLPConcatHeadsOp>
 createOp(FlatbufferObjectCache &cache, NLPConcatHeadsOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2708,6 +2749,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto concatenateHeadsOp = dyn_cast<ConcatenateHeadsOp>(op);
       concatenateHeadsOp) {
     return createOperation(cache, createOp(cache, concatenateHeadsOp),
+                           debugString, locInfo);
+  }
+  if (auto splitQueryKeyValueAndSplitHeadsOp =
+          dyn_cast<SplitQueryKeyValueAndSplitHeadsOp>(op);
+      splitQueryKeyValueAndSplitHeadsOp) {
+    return createOperation(cache,
+                           createOp(cache, splitQueryKeyValueAndSplitHeadsOp),
                            debugString, locInfo);
   }
   if (auto nlpConcatHeadsOp = dyn_cast<NLPConcatHeadsOp>(op)) {
