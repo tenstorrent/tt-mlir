@@ -351,8 +351,6 @@ jobs:
       - build-image
       - build-ttmlir
     runs-on: ubuntu-latest
-    container: # this should work on base image https://github.com/tenstorrent/tt-mlir/issues/5232
-      image: ${{ needs.build-image.outputs.docker-image }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -364,30 +362,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ttnn-jit-whl-tracy
-      # - name: Install openmpi-ulfm
-      #   shell: bash
-      #   run: |
-      #     sudo apt-get update
-      #     sudo apt-get install -y -f wget ca-certificates
-      #     # get openmpi-ulfm deb package and install it
-      #     TMP_DIR="$(mktemp -d)"
-      #     DEB_URL="https://github.com/dmakoviichuk-tt/mpi-ulfm/releases/download/v5.0.7-ulfm/openmpi-ulfm_5.0.7-1_amd64.deb"
-      #     wget -qO "$TMP_DIR/ompi.deb" "$DEB_URL"
-      #     sudo apt-get install -f -y "$TMP_DIR/ompi.deb"
-      #     rm -rf "$TMP_DIR"
       - name: Install ttnn-jit whl
         shell: bash
         run: |
-          # ----- remove comments after solving issue: https://github.com/tenstorrent/tt-mlir/issues/5232
-          # python3 -m venv testenv
-          # source testenv/bin/activate
-          # pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0
-          # pip install numpy
-          # -----
-          source env/activate
-          pip install ttnn_jit-*.whl --upgrade
+          python3 -m venv testenv
+          source testenv/bin/activate
+          pip install --upgrade pip
+          pip install ttnn_jit-*.whl --force-reinstall
           python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
           python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
+          # Verify torch version is correct
+          python -c "import torch; print('PyTorch version:', torch.__version__)"
+          # Verify numpy is available
+          python -c "import numpy; print('NumPy version:', numpy.__version__)"
 
 
   # Dedicated job for tt-alchemist tests

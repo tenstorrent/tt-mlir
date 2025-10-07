@@ -235,7 +235,8 @@ def get_dynamic_dependencies():
     """Get dependencies needed for TTNN JIT functionality"""
     return [
         "nanobind",  # Python binding framework
-        "torch",  # PyTorch for tensor operations
+        "torch==2.7.0",  # PyTorch for tensor operations - specific version required
+        "numpy",  # Required for tensor operations
     ]
 
 
