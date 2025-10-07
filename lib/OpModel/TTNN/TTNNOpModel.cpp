@@ -449,6 +449,8 @@ auto getOpSymbol() {
     return ::ttnn::dequantize;
   } else if constexpr (std::is_same_v<OpTy, GlobalAvgPool2dOp>) {
     return ::ttnn::global_avg_pool2d;
+  } else if constexpr (std::is_same_v<OpTy, SiluOp>) {
+    return ::ttnn::silu;
   } else {
     static_assert(ttmlir::utils::always_false(),
                   "add mapping from TTNN dialect to TTNN lib op");
@@ -673,6 +675,9 @@ getPrepareConv2dBiasOpOutputTensorSpec(
       localConfig = *conv2dConfigConverted;
     }
 
+    std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+        sliceConfig = std::nullopt;
+
     return ::ttnn::graph::query_op_constraints(
         prepare_fn, device, biasTensor, inputSpec.memory_config(),
         inputSpec.layout(), in_channels, out_channels, batch_size, input_height,
@@ -683,7 +688,7 @@ getPrepareConv2dBiasOpOutputTensorSpec(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, *inputDtype, outputDtype, localConfig,
-        /*compute_config_=*/std::nullopt);
+        /*compute_config_=*/std::nullopt, sliceConfig);
   };
 
   auto output = operation::executeConstraintQuery(prepareConv2dBiasOpQuery);
@@ -904,6 +909,7 @@ template struct UnaryEltwiseOpModel<AtanOp>;
 template struct UnaryEltwiseOpModel<ReciprocalOp>;
 template struct UnaryEltwiseOpModel<CbrtOp>;
 template struct UnaryEltwiseOpModel<BitwiseNotOp>;
+template struct UnaryEltwiseOpModel<SiluOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseOpModel<RsqrtOp>;
@@ -2582,6 +2588,99 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// NLPCreateQKVHeadsDecodeOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<op_model::OpConstraints>
+OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
+    std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
+    std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
+    std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  std::optional<::ttnn::TensorSpec> batchOffsetSpec = std::nullopt;
+  if (batchOffsetShape && batchOffsetLayout) {
+    auto batchOffsetSpecExp = detail::convertToTensorSpec(
+        device, batchOffsetShape.value(), batchOffsetLayout.value());
+    if (!batchOffsetSpecExp) {
+      return batchOffsetSpecExp.takeError();
+    }
+    batchOffsetSpec = batchOffsetSpecExp.get();
+  }
+
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto nlpCreateQKVHeadsDecode = [&]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::experimental::nlp_create_qkv_heads_decode, device, inputSpec,
+        numHeads, numKVHeads, std::optional<const bool>(overlapQKCoregrid),
+        batchOffsetSpec, sliceSize,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     nlpCreateQKVHeadsDecode);
+
+#else
+  return OpConstraints{};
+#endif
+}
+
+llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
+    std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
+    std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
+    std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  std::optional<::ttnn::TensorSpec> batchOffsetSpec = std::nullopt;
+  if (batchOffsetShape && batchOffsetLayout) {
+    auto batchOffsetSpecExp = detail::convertToTensorSpec(
+        device, batchOffsetShape.value(), batchOffsetLayout.value());
+    if (!batchOffsetSpecExp) {
+      return batchOffsetSpecExp.takeError();
+    }
+    batchOffsetSpec = batchOffsetSpecExp.get();
+  }
+
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto nlpCreateQKVHeadsDecode = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::experimental::nlp_create_qkv_heads_decode, device, inputSpec,
+        numHeads, numKVHeads, std::optional<const bool>(overlapQKCoregrid),
+        batchOffsetSpec, sliceSize,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(nlpCreateQKVHeadsDecode);
+#else
+  return llvm::createStringError("Not implemented");
+#endif
+}
+
+//===----------------------------------------------------------------------===//
 // NLPConcatHeadsOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsOp>::getOpConstraints(
@@ -3793,6 +3892,10 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
       deviceComputeKernelConfigConverted =
           conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfig = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig();
+  sliceConfig->slice_type =
+      ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_FULL;
   // Create query closure
   auto conv2dOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -3805,7 +3908,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         deviceComputeKernelConfigConverted,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout), sliceConfig);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -4083,7 +4186,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
   }
   // The following parameter does not exist in the op yet.
   std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfigConverted = std::nullopt;
+      sliceConfig = std::nullopt;
 
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -4099,7 +4202,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
         hasBias, groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
         conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
-        sliceConfigConverted);
+        sliceConfig);
   };
 
   return operation::getOpConstraints(weightLayout.getContext(), deviceGrid,
@@ -4152,6 +4255,9 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
     convertedOutputDtype = conversion::getDataType(outputDtype.value());
   }
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfig = std::nullopt;
+
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         &::ttnn::operations::conv::conv2d::prepare_conv_bias, device,
@@ -4165,7 +4271,8 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
-        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig));
+        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
+        sliceConfig);
   };
 
   return operation::getOpConstraints(biasLayout.getContext(), deviceGrid,

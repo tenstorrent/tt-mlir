@@ -771,6 +771,22 @@ SigmoidOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// SiluOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+SiluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  return detail::getUnaryOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+SiluOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+  return detail::getUnaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
 // ExpOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -2022,6 +2038,59 @@ RotaryEmbeddingLlamaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime, *this,
       inputShape, inputs[0], cosShape, inputs[1], sinShape, inputs[2],
       transMatShape, inputs[3], isDecodeMode, opConfig.outputLayout);
+}
+
+//===-----------------------------------------------------------------------===//
+// NLPCreateQKVHeadsDecodeOp - TTNN Op Model Interface
+// ===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+NLPCreateQKVHeadsDecodeOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == (1 + (getBatchOffset() == nullptr ? 0 : 1)));
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  auto inputShape = getInput().getType().getShape();
+
+  std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape;
+  std::optional<TTNNLayoutAttr> batchOffsetEncoding;
+  if (inputs.size() == 2) {
+    batchOffsetShape = getBatchOffset().getType().getShape();
+    batchOffsetEncoding = inputs[1];
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], batchOffsetShape, batchOffsetEncoding,
+      getNumHeads(), getNumKvHeads(), getOverlapQkCoregrid(), getSliceSize(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t> NLPCreateQKVHeadsDecodeOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == (1 + (getBatchOffset() == nullptr ? 0 : 1)));
+
+  auto inputShape = getInput().getType().getShape();
+
+  std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape;
+  std::optional<TTNNLayoutAttr> batchOffsetEncoding;
+  if (inputs.size() == 2) {
+    batchOffsetShape = getBatchOffset().getType().getShape();
+    batchOffsetEncoding = inputs[1];
+  }
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime, *this,
+      inputShape, inputs[0], batchOffsetShape, batchOffsetEncoding,
+      getNumHeads(), getNumKvHeads(), getOverlapQkCoregrid(), getSliceSize(),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

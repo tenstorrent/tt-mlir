@@ -211,7 +211,7 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, OptionNames::tensorL1UsageCap,
       llvm::cl::desc("Override tensor L1 usage cap in L1 Interleaved Fallback "
                      "Analysis and Memory Layout Analysis. [0.0-1.0]"),
-      llvm::cl::init(1.0f)};
+      llvm::cl::init(0.95f)};
 
   // Option to enable/disable the workaround pass.
   //
@@ -324,6 +324,12 @@ struct TTNNBackendToEmitCPipelineOptions
                      "function. This should only be used if the `target-dylib` "
                      "option is set to `true`"),
       llvm::cl::init(false)};
+
+  Option<bool> loadInputTensorsFromDisk{
+      *this, "load-input-tensors-from-disk",
+      llvm::cl::desc("Load input tensors from disk using ttnn.load_tensor "
+                     "instead of generating synthetic inputs with ttnn.ones"),
+      llvm::cl::init(false)};
 };
 
 // TTNN Backend to EmitPy PipelineOptions.
@@ -333,6 +339,12 @@ struct TTNNBackendToEmitPyPipelineOptions
   // TTNNToEmitC pipeline options contain "target-dylib" and
   // "tuplify-input-if-empty" options. There's no dylib (or equivalent) path in
   // EmitPy yet, so these options are removed.
+
+  Option<bool> loadInputTensorsFromDisk{
+      *this, "load-input-tensors-from-disk",
+      llvm::cl::desc("Load input tensors from disk using ttnn.load_tensor "
+                     "instead of generating synthetic inputs with ttnn.ones"),
+      llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.

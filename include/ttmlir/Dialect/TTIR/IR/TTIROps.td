@@ -801,6 +801,28 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
       Mathematical definition: sigmoid(x) = 1 / (1 + exp(-x))
     }];
 }
+def TTIR_SiluOp: TTIR_ElementwiseUnaryOp<"silu"> {
+  let summary = "Elementwise SiLU (Sigmoid Linear Unit) operation.";
+  let description = [{
+    The `silu` operation computes the SiLU (Sigmoid Linear Unit) activation function of each element in the input tensor.
+
+    SiLU, also known as Swish, is defined as x * sigmoid(x). It combines the properties of both
+    linear and sigmoid functions, providing smooth, non-monotonic activation that has shown good
+    performance in deep learning applications.
+
+    Example:
+    ```mlir
+    // Compute SiLU of all elements in %input
+    %result = ttir.silu(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [[-2.0, -1.0, 0.0, 1.0], ... ]
+    // Output tensor:
+    // [[-0.238, -0.269, 0.0, 0.731], ... ]
+    ```
+
+    Mathematical definition: silu(x) = x * sigmoid(x) = x * (1 / (1 + exp(-x)))
+  }];
+}
 
 def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign", [TTIR_Idempotence]> {
     let summary = "Eltwise sign operation.";
@@ -5075,6 +5097,7 @@ def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
     }];
 
     let hasVerifier = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {

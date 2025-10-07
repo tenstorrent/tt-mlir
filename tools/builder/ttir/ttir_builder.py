@@ -232,8 +232,6 @@ class TTIRBuilder(Builder):
             Left-hand side input tensor
         in1 : Operand
             Right-hand side input tensor
-        out0 : Operand
-            Output tensor
         batch_dims_lhs : *List[int]*
             Batch dimensions for the left-hand side tensor
         contract_dims_lhs : *List[int]*
@@ -833,6 +831,75 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(ttir.Relu6Op, [in0], unit_attrs)
 
+    def silu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.silu``.
+
+        *Elementwise SiLU (Swish) activation operation.*
+
+        Computes the SiLU (Sigmoid Linear Unit) activation function for each element in the input tensor.
+        SiLU is also known as Swish activation and is defined as: silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+
+        This activation function is smooth, non-monotonic, and has been shown to work well
+        in deep neural networks, particularly in transformer architectures.
+
+        .. code-block:: mlir
+
+            // Compute SiLU activation of all elements
+            %result = ttir.silu(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [1.0, -0.5, 2.0, -2.0]
+            // Output tensor:
+            // [0.731, -0.193, 1.762, -0.238]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the SiLU activation values of each element in the input tensor
+        """
+        return self._op_proxy(ttir.SiluOp, [in0], unit_attrs)
+
+    def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.relu6``.
+
+        *Elementwise ReLU6 activation operation.*
+
+        Computes the ReLU6 function for each element in the input tensor.
+        ReLU6 is defined as: min(max(0, x), 6)
+        This activation function clips values between 0 and 6, making it useful
+        for quantized neural networks and mobile applications.
+
+        .. code-block:: mlir
+
+            // Compute ReLU6 of all elements
+            %result = ttir.relu6(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [-2.0, 3.0, 8.0, 1.5]
+            // Output tensor:
+            // [0.0, 3.0, 6.0, 1.5]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with ReLU6 activation values
+        """
+        return self._op_proxy(ttir.Relu6Op, [in0], unit_attrs)
+
     def rsqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
         Creates ``ttir.rsqrt``.
@@ -953,7 +1020,10 @@ class TTIRBuilder(Builder):
         return self._op_proxy(ttir.SqrtOp, [in0], unit_attrs)
 
     def typecast(
-        self, in0: Operand, out: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        output_type: torch.dtype,
+        unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
         Creates ``ttir.typecast``.
@@ -978,8 +1048,6 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor to cast
-        out : Operand
-            Output tensor with desired type
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -988,15 +1056,11 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the input values cast to the output type
         """
-        output_type = self._get_type_from_torch_dtype(
-            self._get_golden_tensor(out).dtype
-        )
-        # kwargs passed thru output type
         return self._op_proxy(
             ttir.TypecastOp,
             [in0],
-            golden_kwargs={"dtype": self._get_golden_tensor(out).dtype},
-            output_type=output_type,
+            golden_kwargs={"dtype": output_type},
+            output_type=self._get_type_from_torch_dtype(output_type),
             unit_attrs=unit_attrs,
         )
 
@@ -2228,7 +2292,6 @@ class TTIRBuilder(Builder):
     def cumsum(
         self,
         in0: Operand,
-        in1: Operand,
         dim: int,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2256,8 +2319,6 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor
-        in1 : Operand
-            Output tensor
         dim : int
             Dimension along which to compute cumulative sum
         unit_attrs : *Optional[List[str]]*, optional
@@ -2270,10 +2331,8 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.CumSumOp,
-            [in0, in1],
-            ttir_kwargs={"dim": dim, "output": in1},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            [in0],
+            ttir_kwargs={"dim": dim},
             unit_attrs=unit_attrs,
         )
 
@@ -2609,7 +2668,6 @@ class TTIRBuilder(Builder):
     def broadcast(
         self,
         in0: Operand,
-        in1: Operand,
         broadcast_dimensions: List[int],
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2636,8 +2694,6 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor to broadcast
-        in1 : Operand
-            Output tensor with target shape
         broadcast_dimensions : *List[int]*
             List of dimension mappings from input to output
         unit_attrs : *Optional[List[str]]*, optional
@@ -2648,11 +2704,18 @@ class TTIRBuilder(Builder):
         (*OpView*)
             The broadcasted tensor
         """
+        output_shape = []
+        for i in range(len(broadcast_dimensions)):
+            if broadcast_dimensions[i] != 1:
+                output_shape.append(broadcast_dimensions[i])
+            else:
+                output_shape.append(self.get_shape(in0)[i])
         return self._op_proxy(
             ttir.BroadcastOp,
             [in0],
-            golden_kwargs={"size": self.get_shape(in1)},
+            golden_kwargs={"size": output_shape},
             ttir_kwargs={"broadcast_dimensions": broadcast_dimensions},
+            output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
 
@@ -2746,7 +2809,6 @@ class TTIRBuilder(Builder):
         in0: Operand,
         weight: Operand,
         bias: Optional[Operand],
-        in1: Operand,
         stride: Union[int, List[int]],
         padding: Union[int, List[int]],
         output_padding: Union[int, List[int]],
@@ -2783,8 +2845,6 @@ class TTIRBuilder(Builder):
             Weight tensor of shape (in_channels, out_channels/groups, kernel_height, kernel_width)
         bias : Optional[Operand]
             Optional bias tensor of shape (out_channels)
-        in1 : Operand
-            Output tensor shape reference
         stride : *Union[int, List[int]]*
             Stride of the convolution
         padding : *Union[int, List[int]]*
@@ -2842,7 +2902,6 @@ class TTIRBuilder(Builder):
     def max_pool2d(
         self,
         in0: Operand,
-        in1: Operand,
         kernel: Union[int, List[int]],
         stride: Union[int, List[int]],
         dilation: Union[int, List[int]],
@@ -2912,7 +2971,6 @@ class TTIRBuilder(Builder):
     def avg_pool2d(
         self,
         in0: Operand,
-        in1: Operand,
         kernel: Union[int, List[int]],
         stride: Union[int, List[int]],
         dilation: Union[int, List[int]],
@@ -3093,7 +3151,6 @@ class TTIRBuilder(Builder):
     def pad(
         self,
         in0: Operand,
-        in1: Operand,
         padding: List[int],
         value: int,
         unit_attrs: Optional[List[str]] = None,
@@ -3124,12 +3181,16 @@ class TTIRBuilder(Builder):
         (*OpView*)
             The padded tensor
         """
+        output_shape = []
+        for i in range(len(padding) // 2):
+            output_shape.append(
+                self.get_shape(in0)[i] + padding[2 * i] + padding[2 * i + 1]
+            )
         return self._op_proxy(
             ttir.PadOp,
-            [in0, in1],
+            [in0],
             ttir_kwargs={"padding": padding, "value": value},
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
 

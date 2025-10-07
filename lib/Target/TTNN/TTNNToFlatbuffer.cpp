@@ -605,10 +605,10 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
       getOperandThroughDPSOps(op.getInput()));
   auto weight = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getWeight()));
-  auto bias = op.getODSOperands(2).empty()
-                  ? flatbuffers::Offset<::tt::target::ttnn::TensorRef>()
-                  : cache.at<::tt::target::ttnn::TensorRef>(
-                        getOperandThroughDPSOps(op.getBias()));
+  auto bias = op.getBias()
+                  ? cache.at<::tt::target::ttnn::TensorRef>(
+                        getOperandThroughDPSOps(op.getBias()))
+                  : flatbuffers::Offset<::tt::target::ttnn::TensorRef>();
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
 
   auto device = getOperandThroughDPSOps(op.getDevice());
@@ -1321,6 +1321,8 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Rsqrt;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SigmoidOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sigmoid;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, SiluOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Silu;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SinOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sin;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, ReciprocalOp>) {
@@ -2149,6 +2151,36 @@ createOp(FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op) {
       memoryConfig, computeConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::NLPCreateQKVHeadsDecodeOp>
+createOp(FlatbufferObjectCache &cache, NLPCreateQKVHeadsDecodeOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto batchOffset = op.getBatchOffset()
+                         ? cache.at<::tt::target::ttnn::TensorRef>(
+                               getOperandThroughDPSOps(op.getBatchOffset()))
+                         : flatbuffers::Offset<::tt::target::ttnn::TensorRef>();
+
+  uint32_t numHeads = op.getNumHeads();
+  ::flatbuffers::Optional<uint32_t> numKVHeads =
+      toFlatbuffer(cache, op.getNumKvHeads());
+  ::flatbuffers::Optional<bool> overlapQKCoregrid =
+      toFlatbuffer(cache, op.getOverlapQkCoregrid());
+  ::flatbuffers::Optional<uint32_t> sliceSize =
+      toFlatbuffer(cache, op.getSliceSize());
+
+  auto outQuery = cache.getOrCreate(op.getQuery(), tensorValueToFlatbuffer);
+  auto outKey = cache.getOrCreate(op.getKey(), tensorValueToFlatbuffer);
+  auto outValue = cache.getOrCreate(op.getValue(), tensorValueToFlatbuffer);
+
+  auto memoryConfig = op.getMemoryConfig()
+                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                          : 0;
+
+  return ::tt::target::ttnn::CreateNLPCreateQKVHeadsDecodeOp(
+      *cache.fbb, in, outQuery, outKey, outValue, numHeads, numKVHeads,
+      overlapQKCoregrid, batchOffset, sliceSize, memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::DumpTensorOp>
 createOp(FlatbufferObjectCache &cache, DumpTensorOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2413,6 +2445,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto sigmoidOp = dyn_cast<SigmoidOp>(op); sigmoidOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, sigmoidOp),
+                           debugString, locInfo);
+  }
+  if (auto siluOp = dyn_cast<SiluOp>(op); siluOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, siluOp),
                            debugString, locInfo);
   }
   if (auto reciprocalOp = dyn_cast<ReciprocalOp>(op); reciprocalOp) {
@@ -2710,6 +2746,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto rotaryEmbeddingLlamaOp = dyn_cast<RotaryEmbeddingLlamaOp>(op);
       rotaryEmbeddingLlamaOp) {
     return createOperation(cache, createOp(cache, rotaryEmbeddingLlamaOp),
+                           debugString, locInfo);
+  }
+  if (auto nlpCreateQKVHeadsDecodeOp = dyn_cast<NLPCreateQKVHeadsDecodeOp>(op);
+      nlpCreateQKVHeadsDecodeOp) {
+    return createOperation(cache, createOp(cache, nlpCreateQKVHeadsDecodeOp),
                            debugString, locInfo);
   }
   if (auto dumpTensorOp = dyn_cast<DumpTensorOp>(op); dumpTensorOp) {

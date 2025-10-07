@@ -95,6 +95,15 @@ void populateTTNNModule(nb::module_ &m) {
       .def_prop_ro("y", &tt::ttnn::MeshShapeAttr::getY)
       .def_prop_ro("x", &tt::ttnn::MeshShapeAttr::getX);
 
+  tt_attribute_class<tt::ttnn::MeshOffsetAttr>(m, "MeshOffsetAttr")
+      .def_static("get",
+                  [](MlirContext ctx, int64_t y, int64_t x) {
+                    return wrap(
+                        tt::ttnn::MeshOffsetAttr::get(unwrap(ctx), y, x));
+                  })
+      .def_prop_ro("y", &tt::ttnn::MeshOffsetAttr::getY)
+      .def_prop_ro("x", &tt::ttnn::MeshOffsetAttr::getX);
+
   tt_attribute_class<tt::ttnn::TTNNLayoutAttr>(m, "TTNNLayoutAttr")
       .def_static(
           "get",
