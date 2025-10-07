@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -16,6 +17,8 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
+
+#include <functional>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOps.cpp.inc"
@@ -1154,7 +1157,8 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           }
 
           Operation *origDefiningOp = initOperand.get().getDefiningOp();
-          if (origDefiningOp && !mlir::isa<EmptyOp>(origDefiningOp)) {
+          if (origDefiningOp &&
+              !mlir::isa<EmptyOp, mlir::tensor::EmptyOp>(origDefiningOp)) {
             return false;
           }
 
@@ -1162,7 +1166,8 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
             initOperand.assign(region.getArgument(dpsIOBoundary));
           });
 
-          if (mlir::isa_and_nonnull<EmptyOp>(origDefiningOp)) {
+          if (mlir::isa_and_nonnull<EmptyOp, mlir::tensor::EmptyOp>(
+                  origDefiningOp)) {
             rewriter.replaceAllUsesWith(origDefiningOp->getResult(0),
                                         initOperand.get());
           }
@@ -1459,6 +1464,48 @@ d2m::GenericOp::getBufferType(mlir::Value value,
                                      ttcore::MemorySpace::DeviceL1));
   }
   return d2m::getBufferType(tensorType, /*isView=*/false);
+}
+
+bool d2m::GenericOp::hasCompatibleBlocking(GenericOp b) {
+  return this->getGrid() == b.getGrid() &&
+         this->getBlockFactors() == b.getBlockFactors();
+}
+
+/// Returns true if op or any of the operations nested within it's regions have
+/// the D2MSkipOpEltwiseFusionTrait.
+bool d2m::GenericOp::hasSkipOpEltwiseFusionTrait() {
+  bool skipFusion = false;
+
+  walk([&](Operation *op) {
+    skipFusion |= op->hasTrait<D2MSkipOpEltwiseFusionTrait>();
+    return skipFusion ? WalkResult::interrupt() : WalkResult::advance();
+  });
+
+  return skipFusion;
+}
+
+bool d2m::GenericOp::hasReduction() {
+  SmallVector<Attribute> iters = llvm::to_vector(getIteratorTypes());
+  return llvm::any_of(iters, [](Attribute it) {
+    auto itAttr = cast<mlir::tt::ttcore::IteratorTypeAttr>(it);
+    return itAttr.getValue() == mlir::tt::ttcore::IteratorType::Reduction;
+  });
+}
+
+bool d2m::GenericOp::hasMultiUseInputOperand() {
+  for (OpOperand *input : getDpsInputOperands()) {
+    if (llvm::range_size(input->get().getUsers()) > 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool d2m::GenericOp::isAllParallel() {
+  return llvm::all_of(getIteratorTypes(), [](Attribute it) {
+    auto itAttr = mlir::cast<mlir::tt::ttcore::IteratorTypeAttr>(it);
+    return itAttr.getValue() == mlir::tt::ttcore::IteratorType::Parallel;
+  });
 }
 
 } // namespace mlir::tt::d2m
