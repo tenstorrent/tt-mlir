@@ -259,6 +259,77 @@ def build_module(
     base: Optional[str] = None,
     output_root: str = ".",
 ):
+    """
+    Define a MLIR module specified as a python function.
+
+    It will wrap `fn` in a MLIR FuncOp and then wrap that in a MLIR
+    module, and finally tie arguments of that FuncOp to test function inputs. It will
+    also pass a builder object as the last argument of test function.
+
+    Parameters
+    ----------
+    fn : Callable
+        Python function to be converted to MLIR
+
+    builder_type : *Literal["ttir", "stablehlo", "ttnn", "d2m"]*
+        The type of builder to use for constructing the MLIR module.
+
+    inputs_shapes : *List[Shape]*
+        Shapes of the respective ranked tensor inputs of the test function.
+
+    inputs_types: *Optional[List[Union[torch.dtype, TypeInfo]]]*
+        Data types of the input tensors
+
+    encoding_fn : *Optional[Callable]*
+        Optional function to create tensor encoding for input tensors.
+
+    mesh_name: *str*
+        Name of the mesh to be used in the module. Default is "mesh".
+
+    mesh_dict: *OrderedDict[str, int]*
+        Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
+
+    module_dump : bool
+        Set to True to print out generated MLIR module. Default is True.
+
+    base : *Optional[str]*
+        Output file name
+
+    output_root: str = ".",
+        Output file path
+
+    Returns
+    -------
+    Tuple[Module, TTIRBuilder]
+        A tuple containing the MLIR module and the TTIRBuilder instance
+
+    Example
+    -------
+    >>> def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    ...     return builder.add(in0, in1)
+    ...
+    >>> build_module(test_add, "ttir", ((32, 32), (32, 32)))
+
+    This returns:
+
+    .. code-block:: mlir
+
+        #any = #ttcore.operand_constraint<...>
+        module {
+            func.func @test_add(
+                %arg0: tensor<32x32xf32>,
+                %arg1: tensor<32x32xf32>
+            ) -> tensor<32x32xf32> {
+                %0 = ttir.empty() : tensor<32x32xf32>
+                %1 = "ttir.add"(%arg0, %arg1, %0) ...
+                return %1 : tensor<32x32xf32>
+            }
+        }
+
+    Check out:
+    https://github.com/llvm/llvm-project/blob/main/mlir/test/python/dialects/tensor.py
+    """
+
     ctx = Context()
 
     # Grab the location of the test function in python for later debugging
