@@ -133,6 +133,7 @@ def cos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 
 
 # Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
+@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -170,7 +171,7 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 
 # Special handling for log PCC checks. Due to the vertical asymptote on the log graph, small changes in input values result in large changes in output values at negative values, so both graph and golden tensors must be constrained accordingly.
-@pytest.mark.fails_golden
+@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -694,7 +695,7 @@ def pow(
     return pow0
 
 
-@pytest.mark.fails_golden
+@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -712,7 +713,7 @@ def test_pow(shape: Shape, dtype: torch.dtype, target: str, request, device):
 
 
 @x86_only
-@pytest.mark.fails_golden
+@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -784,7 +785,7 @@ def squeeze(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] 
     return builder.squeeze(in0, unit_attrs=unit_attrs)
 
 
-@pytest.mark.fails_golden
+@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dim_arg", [0])
 @pytest.mark.parametrize("keep_dim", [False])
@@ -1431,7 +1432,7 @@ def test_batch_norm(
     )
 
 
-@pytest.mark.fails_golden
+@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
 @pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
 @pytest.mark.parametrize("value", [0])
@@ -1793,8 +1794,7 @@ def reduce_or(
     )
 
 
-# Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775.
-@pytest.mark.run_error
+@pytest.mark.xfail(reason="only floats are supported in runtime. See issue #1775")
 @pytest.mark.parametrize("shape", [(4, 4)], ids=shape_str)
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_or(shape: Shape, dim_args: List[int], request, device):
@@ -1898,7 +1898,7 @@ def test_arange(
     )
 
 
-@pytest.mark.fails_golden
+@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
 @pytest.mark.parametrize(
     "from_type,to_type", [(torch.int32, torch.float32)], ids=["i32-f32"]
@@ -1959,7 +1959,7 @@ def prod(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return builder.prod(in0, [1], False, unit_attrs=unit_attrs)
 
 
-@pytest.mark.fails_golden
+@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize(
     "shapes", [[(1, 32, 64, 512), (1, 32, 3, 512)]], ids=shapes_list_str
 )
@@ -2017,7 +2017,7 @@ def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request, de
     )
 
 
-@pytest.mark.run_error
+@pytest.mark.xfail(reason="run error")
 @pytest.mark.parametrize(
     "shapes", [[(1, 32, 64, 512), (1, 32, 1, 512), (1,)]], ids=shapes_list_str
 )
@@ -2436,7 +2436,7 @@ def test_cpu_hoistable_binary_ops(
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.fails_golden
+@pytest.mark.xfail(reason="Fails Golden")
 def test_hoisted_permute(shapes, permutation, request, target: str, device):
     def permute_wrapper(
         in0: Operand,
@@ -2676,7 +2676,7 @@ def test_hoisted_squeeze(shape: Shape, dim: int, target: str, request):
 unary_ops = [
     exp,
     expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
-    floor | Marks(pytest.mark.fails_golden),
+    floor | Marks(pytest.mark.xfail(reason="Fails Golden")),
     abs,
     neg,
     sign | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -2685,16 +2685,24 @@ unary_ops = [
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
     relu | Marks(pytest.mark.skip_config(["ttmetal"])),
-    gelu | Marks(pytest.mark.fails_golden),
+    gelu | Marks(pytest.mark.xfail(reason="Fails Golden")),
     leaky_relu | Marks(pytest.mark.skip_config(["ttmetal"])),
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
-    sigmoid | Marks(pytest.mark.fails_golden),
+    sigmoid | Marks(pytest.mark.xfail(reason="Fails Golden")),
     is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
     ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
     sum | Marks(pytest.mark.skip_config(["ttmetal"])),
     mean | Marks(pytest.mark.skip_config(["ttmetal"])),
-    max | Marks(pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])),
-    min | Marks(pytest.mark.fails_golden, pytest.mark.skip_config(["ttmetal"])),
+    max
+    | Marks(
+        pytest.mark.xfail(reason="Shape mismatch on golden"),
+        pytest.mark.skip_config(["ttmetal"]),
+    ),
+    min
+    | Marks(
+        pytest.mark.xfail(reason="Shape mismatch on golden"),
+        pytest.mark.skip_config(["ttmetal"]),
+    ),
     get_dimension_size
     | Marks(
         pytest.mark.skip_config(["ttmetal"]),
@@ -2875,7 +2883,7 @@ def test_binary_ops(
     )
 
 
-@pytest.mark.run_error
+@pytest.mark.xfail(reason="run error")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("test_fn", [bitwise_and, bitwise_or, bitwise_xor])
 def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request, device):
@@ -2980,7 +2988,7 @@ def test_comparison_ops(
         lt,
         ge,
         gt,
-        div | Marks(pytest.mark.run_error),
+        div | Marks(pytest.mark.xfail(reason="run error")),
         remainder,
         maximum,
         minimum,
@@ -3013,7 +3021,7 @@ def test_binary_eltwise_ops_implicit_broadcast(
     )
 
 
-@pytest.mark.fails_golden
+@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -3162,7 +3170,7 @@ def test_unaligned_shapes_add(
             [(64, 64)] * 3,
             [torch.float32, torch.float32, torch.float32],
             marks=[
-                pytest.mark.fails_golden,
+                pytest.mark.xfail(reason="Fails Golden"),
                 pytest.mark.skip_config(["ttmetal"]),
             ],
         ),
@@ -3236,7 +3244,7 @@ def test_slice(
 @pytest.mark.parametrize("shape", [(4, 4)], ids=shape_str)
 @pytest.mark.parametrize("dim_args", [[0]])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.run_error  # Issue #3883.
+@pytest.mark.xfail(reason="Issue #3883")
 def test_hoisted_reduce_or(
     shape: Shape, dim_args: List[int], target: str, request, device
 ):
@@ -3411,8 +3419,9 @@ def test_gather(
     ids=["simple_1d", "complex_indices"],
 )
 # Note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device.
-# Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849.
-@pytest.mark.run_error
+@pytest.mark.xfail(
+    reason="Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849."
+)
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_gather(
     input_shape: Shape,
@@ -3686,8 +3695,10 @@ def test_mesh_shard_devices(
         (32, 32),
         (32, 40),
         (40, 32),
-        pytest.param((1, 1, 32, 32, 32), marks=pytest.mark.run_error),
-        pytest.param((1, 1, 1, 1, 1, 1, 32, 32, 32), marks=pytest.mark.run_error),
+        pytest.param((1, 1, 32, 32, 32), marks=pytest.mark.xfail(reason="run error")),
+        pytest.param(
+            (1, 1, 1, 1, 1, 1, 32, 32, 32), marks=pytest.mark.xfail(reason="run error")
+        ),
     ],
     ids=shape_str,
 )
@@ -3697,6 +3708,9 @@ def test_mesh_shard_devices(
 @pytest.mark.parametrize("all_gather_dim", range(4))
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.xfail(
+    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
+)
 def test_all_gather(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
@@ -3730,13 +3744,14 @@ def test_all_gather(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        skip_exec=True,
     )
 
 
 @pytest.mark.parametrize(
     "test_shape",
     [
-        pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.run_error),
+        pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.xfail(reason="run error")),
         (1, 1, 256, 256),
         (1, 1, 256, 257),
         (1, 1, 256, 255),
@@ -3748,7 +3763,7 @@ def test_all_gather(
         (64, 65),
         (32, 64),
         pytest.param(
-            (33, 65), marks=pytest.mark.run_error
+            (33, 65), marks=pytest.mark.xfail(reason="run error")
         ),  # all_gather + local reduce case
     ],
     ids=shape_str,
@@ -3758,6 +3773,9 @@ def test_all_gather(
 )
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.xfail(
+    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
+)
 def test_all_reduce(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
@@ -3789,13 +3807,14 @@ def test_all_reduce(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        skip_exec=True,
     )
 
 
 @pytest.mark.parametrize(
     "test_shape",
     [
-        pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.run_error),
+        pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.xfail(reason="run error")),
         (1, 1, 256, 256),
         (1, 1, 256, 257),
         (1, 1, 256, 255),
@@ -3816,6 +3835,9 @@ def test_all_reduce(
 @pytest.mark.parametrize("scatter_dim", [0, 1, 2, 3])
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.xfail(
+    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
+)
 def test_reduce_scatter(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
@@ -3853,6 +3875,7 @@ def test_reduce_scatter(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        skip_exec=True,
     )
 
 
@@ -3870,7 +3893,7 @@ def test_reduce_scatter(
     "mesh_shape, source_target_pairs",
     [
         pytest.param(
-            (1, 2), [(0, 1)], marks=pytest.mark.fails_golden
+            (1, 2), [(0, 1)], marks=pytest.mark.xfail(reason="Fails Golden")
         ),  # https://github.com/tenstorrent/tt-mlir/issues/4323
         ((1, 2), [(0, 1), (1, 0)]),
         ((2, 4), [(0, 1), (1, 2), (2, 3), (3, 0)]),

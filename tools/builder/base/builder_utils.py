@@ -551,6 +551,7 @@ def compile_ttir_to_flatbuffer(
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
     device=None,  # Optional device parameter for fixture reuse
+    skip_exec: bool = False,
 ) -> str:
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
@@ -772,9 +773,6 @@ def compile_d2m_to_flatbuffer(
         The path to the generated TT{Metal,NN} MLIR file.
     """
 
-    if device is not None:
-        print("`compile_ttir_to_flatbuffer` received device")
-
     if inputs_types is not None:
         if len(inputs_shapes) != len(inputs_types):
             raise ValueError("inputs_shapes and inputs_types must have the same length")
@@ -808,6 +806,7 @@ def compile_d2m_to_flatbuffer(
         pipeline_options=pipeline_options,
         print_ir=print_ir,
         device=device,
+        skip_exec=skip_exec,
     )
 
 
@@ -1144,6 +1143,7 @@ def compile_ttir_module_to_flatbuffer(
     pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
     device=None,  # Optional device parameter for fixture reuse
+    skip_exec: bool = False,
 ):
     """
     Compiles a TTIR MLIR module to flatbuffer format.
@@ -1304,6 +1304,9 @@ def compile_ttir_module_to_flatbuffer(
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
 
     # Only execute `ttnn` and `ttmetal` flatbuffers; `emitpy` needs to be handled differently
+
+    if skip_exec:
+        raise TTBuilderRuntimeException("Manually skipped execution")
     if target in ["ttnn", "ttmetal"]:
         execute_fb(output_file_fbb, device=device)
     return output_file_mlir

@@ -13,8 +13,6 @@ from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
 
-from test_utils import Marks, shape_str
-
 pytestmark = pytest.mark.frontend("ttir")
 
 
@@ -42,11 +40,13 @@ def compile_dma_test(test_func, shape, request, device):
     )
 
 
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("shape", [(256, 256)])
 @pytest.mark.parametrize("memory_space", [ttcore.MemorySpace.DeviceDRAM])
 def test_host_interop_single_bank_dram_dma(
     shape: Shape,
     memory_space: ttcore.MemorySpace,
+    target: str,
     request,
     device,
 ):
@@ -75,11 +75,7 @@ def test_host_interop_single_bank_dram_dma(
 
         return system_out
 
-    compile_dma_test(
-        tilize,
-        shape,
-        request,
-    )
+    compile_dma_test(tilize, shape, request, device=device)
 
 
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -157,13 +153,10 @@ def test_roundtrip_dma_tiled(
 
         return untilize_out
 
-    compile_dma_test(
-        tilize,
-        shape,
-        request,
-    )
+    compile_dma_test(tilize, shape, request, device=device)
 
 
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "shape",
     [(128, 128)],
@@ -178,6 +171,7 @@ def test_roundtrip_dma_rowmajor(
     start_grid: tuple[int, int],
     end_grid: tuple[int, int],
     memory_space: ttcore.MemorySpace,
+    target: str,
     request,
     device,
 ):
@@ -237,15 +231,17 @@ def test_roundtrip_dma_rowmajor(
 
         return system_out
 
-    compile_dma_test(dram_write, shape, request, device)
+    compile_dma_test(dram_write, shape, request, device=device)
 
 
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("shape", [(64, 64), (64, 128), (128, 64), (128, 128)])
 @pytest.mark.parametrize("end_grid", [(1, 1), (2, 2), (1, 2), (2, 1)])
 def test_interleaved_dma(
     shape: Shape,
     end_grid: tuple[int, int],
     request,
+    target,
     device
 ):
     def interleaved_dma(
@@ -304,4 +300,4 @@ def test_interleaved_dma(
 
         return untilize_out
 
-    compile_dma_test(interleaved_dma, shape, request, device)
+    compile_dma_test(interleaved_dma, shape, request, device=device)
