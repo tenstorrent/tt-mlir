@@ -1064,7 +1064,6 @@ static mlir::LogicalResult verifyAffineBlocking(
       Type operandType = operandTypes[arg.getArgNumber()];
       ArrayRef<int64_t> expectedShardShape;
       std::optional<Attribute> expectedMemorySpace;
-      bool isStream = false;
       if (RankedTensorType tensorType =
               mlir::dyn_cast<RankedTensorType>(operandType)) {
         if (!tensorType.getEncoding()) {
@@ -1086,7 +1085,6 @@ static mlir::LogicalResult verifyAffineBlocking(
             mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
                 memref.getLayout());
         expectedShardShape = layout.getShardShape(memref);
-        isStream = mlir::isa<ttcore::ViewLayoutAttr>(memref.getLayout());
       }
 
       if (auto blockMemref = mlir::dyn_cast<MemRefType>(blockArgType)) {
