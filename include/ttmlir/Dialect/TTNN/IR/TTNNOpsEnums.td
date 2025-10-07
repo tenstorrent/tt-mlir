@@ -309,4 +309,12 @@ def TTNN_KernelCoreType : I32EnumAttr<"KernelCoreType", "TT KernelCoreType",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_Conv2dSliceType : I32EnumAttr<"Conv2dSliceType", "Conv2d slice type", [
+  I32EnumAttrCase<"DramHeight", 0, "dram_height">,
+  I32EnumAttrCase<"DramWidth", 1, "dram_width">,
+  I32EnumAttrCase<"L1Full", 2, "l1_full">,
+]> {
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 #endif
