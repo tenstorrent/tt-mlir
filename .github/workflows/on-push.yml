@@ -25,6 +25,23 @@ jobs:
       - spdx
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
+  save-durations:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: success() && github.ref == 'refs/heads/main'
+    steps:
+      - name: Set test durations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "This is main branch, getting test durations"
+          rm -rf _test_durations_d
+          rm -rf _test_durations
+          gh run download ${{ github.run_id }} --repo tenstorrent/tt-mlir --pattern "test-durations*" --dir _test_durations_d
+          find _test_durations_d -name "_test_duration" -exec cat {} + > _test_durations
+          gh variable set test_durations --body "$(cat _test_durations)" --repo tenstorrent/tt-mlir
+          rm -rf _test_durations*
   docs:
     needs:
       - build-and-test

@@ -19,32 +19,45 @@ permissions:
 
 jobs:
 
-  ignore-files:
+  prepare-run:
     runs-on: ubuntu-latest
     outputs:
-      other_changed_files: ${{ steps.ignore-files.outputs.other_changed_files }}
-      other_deleted_files: ${{ steps.ignore-files.outputs.other_deleted_files }}
+      other_changed_files: ${{ steps.prepare-run.outputs.other_changed_files }}
+      other_deleted_files: ${{ steps.prepare-run.outputs.other_deleted_files }}
+      test_matrix: ${{ steps.generate-test-matrix.outputs.test-matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Ignore files
-        id: ignore-files
+        id: prepare-run
         uses: tj-actions/changed-files@v46
         with:
           files: |
             docs/**
       - name: echo ignore_files
         run: |
-          echo "any_changed=${{ steps.ignore-files.outputs.any_changed }}"
-          echo "only_changed=${{ steps.ignore-files.outputs.only_changed }}"
-          echo "other_changed_files=${{ steps.ignore-files.outputs.other_changed_files }}"
-          echo "all_changed_files=${{ steps.ignore-files.outputs.all_changed_files }}"
-          echo "other_deleted_files=${{ steps.ignore-files.outputs.other_deleted_files }}"
+          echo "any_changed=${{ steps.prepare-run.outputs.any_changed }}"
+          echo "only_changed=${{ steps.prepare-run.outputs.only_changed }}"
+          echo "other_changed_files=${{ steps.prepare-run.outputs.other_changed_files }}"
+          echo "all_changed_files=${{ steps.prepare-run.outputs.all_changed_files }}"
+          echo "other_deleted_files=${{ steps.prepare-run.outputs.other_deleted_files }}"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Generate test matrix
+        id: generate-test-matrix
+        shell: bash
+        run: |
+          cat << 'EOF' > _test_durations
+            ${{ vars.TEST_DURATIONS }}
+          EOF
+          python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json 25
+          echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
 
   build-image:
-    needs: ignore-files
-    if: ${{ needs.ignore-files.outputs.other_changed_files || needs.ignore-files.outputs.other_deleted_files }}
+    needs: prepare-run
+    if: ${{ needs.prepare-run.outputs.other_changed_files || needs.prepare-run.outputs.other_deleted_files }}
     runs-on:
       - builder
     outputs:
@@ -169,48 +182,16 @@ jobs:
 
   run-tests:
 
-    timeout-minutes: 70
+    timeout-minutes: 60
     needs:
       - build-image
       - build-ttmlir
+      - prepare-run
     strategy:
       fail-fast: false
       matrix:
-        build: [
-          # When sh-run is true, the runner will use TT-shared GH infra and pull from harbor for image cache pull through
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "unit",           image: "speedy", type: "unit"},
-          {runs-on: n300,         sh-run: true,  name: "run",  suite: "unit",           image: "tracy",  type: "unit"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttnn_standalone", path: "tools/ttnn-standalone"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
-          {runs-on: n150,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n150/perf"},
-          {runs-on: n150,         sh-run: false, name: "perf", suite: "optimizer",      image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n150/optimizer"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "emitc",          image: "tracy",  type: "ttrt",            path: "EmitC",                       flags: "--emitc"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "op_model",       image: "speedy", type: "ttrt",            path: "Silicon/TTNN/n150/optimizer", flags: "--non-zero"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "runtime_debug",  image: "tracy",  type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
-          {runs-on: n300,         sh-run: true,  name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
-          {runs-on: n300,         sh-run: true,  name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/n300/perf"},
-          {runs-on: llmbox,       sh-run: false, name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon",                     flags: "--non-zero"},
-          {runs-on: llmbox,       sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/llmbox/perf"},
-          # {runs-on: tg,           sh-run: false, name: "run",  suite: "run",            image: "speedy", type: "ttrt",            path: "Silicon", ttrt_flags: "--non-zero --disable-eth-dispatch"},
-          # {runs-on: tg,           sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "ttrt",            path: "Silicon/TTNN/tg/perf", ttrt_flags: "--disable-eth-dispatch"},
-          {runs-on: n150,         sh-run: false, name: "perf", suite: "perf",           image: "tracy",  type: "pytest",          path: "tools/ttrt/test"},
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true},
-          {runs-on: n300,         sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
-          {runs-on: n300-llmbox,  sh-run: true,  name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\" --require-exact-mesh", run-ttrt: true},
-          {runs-on: p150,         sh-run: false, name: "run",  suite: "silicon",        image: "tracy",  type: "builder",         path: "test/python/golden",          flags: "-m \"not run_error and not fails_golden\"", run-ttrt: true, ttrt-flags: "--disable-eth-dispatch"},
-          # Optimizer builder tests need opmodel
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "silicon",        image: "speedy",  type: "builder",         path: "test/python/golden/optimizer",          flags: "-m \"not run_error and not fails_golden\" --require-opmodel", run-ttrt: true},
-          # Although these runtime tests are device agnostic, they depend on n150 compiled mlir artifacts
-          # Therefore running these tests on n150 specifically
-          {runs-on: n150,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/device_agnostic"},
-          {runs-on: n150,         sh-run: false, name: "perf", suite: "explorer",       image: "tracy",  type: "pytest",          path: "tools/explorer/test/run_tests.py"},
-          {runs-on: n150,         sh-run: false, name: "run",  suite: "op_by_op",       image: "tracy",  type: "pytest",          path: "test/python/op_by_op"},
-          {runs-on: n300,         sh-run: true,  name: "run",  suite: "ttnn_runtime",   image: "tracy",  type: "pytest",          path: "runtime/test/ttnn/python/multi_device"},
-          {runs-on: n150,         sh-run: false, name: "run",  suite: "chisel",         image: "tracy",  type: "pytest",          path: "runtime/tools/chisel/test"},
-          {runs-on: n150,         sh-run: false,  name: "run",  suite: "run",            image: "tracy",  type: "pykernel"},
-          {runs-on: n300,         sh-run: false, name: "run",  suite: "runtime_debug",  image: "tracy",  type: "unit"},
-        ]
-    name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
+        build: ${{ fromJson(needs.prepare-run.outputs.test_matrix) }}
+    name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ strategy.job-index }})"
 
     runs-on: ${{ matrix.build.sh-run && format('tt-ubuntu-2204-{0}-tt-mlir', matrix.build.runs-on) || fromJson(format('["{0}", "in-service"]', matrix.build.runs-on)) }}
 
@@ -237,7 +218,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ matrix.build.suite }},${{ matrix.build.type }},${{ strategy.job-index }})"
+        job_name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ strategy.job-index }})"
 
     - name: Set reusable strings
       id: strings
@@ -277,24 +258,6 @@ jobs:
         source env/activate
         pip show ttrt && pip uninstall -y ttrt
         pip install ttrt-${{ env.version }}*.whl --upgrade
-        if [ "${{ matrix.build.type }}" == "pytest" ]; then
-          pip install pytest
-        fi
-
-    - name: Download ttnn-jit whl
-      if: matrix.build.type == 'pykernel'
-      uses: actions/download-artifact@v4
-      with:
-        name: ttnn-jit-whl-${{ matrix.build.image }}
-
-    - name: Install ttnn-jit whl
-      if: matrix.build.type == 'pykernel'
-      shell: bash
-      run: |
-        source env/activate
-        pip install ttnn_jit-*.whl --force-reinstall
-        python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
-        python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
 
     - name: Download Build Artifacts
       uses: ./.github/actions/download-artifact
@@ -314,162 +277,63 @@ jobs:
           ttrt query --save-artifacts
         fi
 
-    - name: Generate tests
+    - name: Run Tests
       shell: bash
       run: |
         source env/activate
+        export WORK_DIR="$(pwd)"
+        export BUILD_DIR="${{ steps.strings.outputs.build-output-dir }}"
+        export INSTALL_DIR="${{ steps.strings.outputs.install-output-dir }}"
+
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
-        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        llvm-lit -v --xunit-xml-output ${{ steps.strings.outputs.test_report_path }} ${{ steps.strings.outputs.build-output-dir }}/test
-
-        if [ "${{ matrix.build.suite }}" == "op_model" ] || [ "${{ matrix.build.suite }}" == "unit" ]; then
-          echo "Running optimizer tests"
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/Optimizer/OptimizerTests --gtest_brief=1
-        fi
-
-        if [ "${{ matrix.build.suite }}" == "op_model" ]; then
-          export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
-          echo "Running op-model test Conversion"
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
-          echo "Running op-model test Lib"
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
-          echo "Running op-model test Interface"
-          ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
-        fi
-
-    - name: Run Runtime Unit Tests
-      shell: bash
-      if: ${{ matrix.build.suite == 'runtime_debug' && matrix.build.type == 'unit' }}
-      run: |
-        source env/activate
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export RUNS_ON="${{ matrix.build.runs-on }}"
+        export IMAGE_NAME="${{ matrix.build.image }}"
+        export PATH="$WORK_DIR/.github/test_scripts:$PATH"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        echo "Running TTNN Runtime Unit Tests"
-        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_generate_sys_desc
-        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_float_bfloat_buffer_cast
-        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/common/gtest/test_handle_integer_buffer_cast
-        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/ttnn/gtest/test_runtime_worker
-        ${{ steps.strings.outputs.build-output-dir }}/runtime/test/ttnn/gtest/test_tensor_serialization
+        rm -rf test_reports || true
+        mkdir -p test_reports
+        rm -rf ttrt_results || true
+        mkdir -p ttrt_results
 
-    - name: Builder Tests
-      if: matrix.build.type == 'builder'
-      shell: bash
-      run: |
-        source env/activate
-        pytest ${{ matrix.build.path }} ${{ matrix.build.flags }} -v --junit-xml=${{ steps.strings.outputs.test_report_path }}
-        if [[ "${{ matrix.build.run-ttrt }}" == "true" ]]; then
-          ttrt run ${{ matrix.build.ttrt-flags }} ttir-builder-artifacts/
-          ttrt run ${{ matrix.build.ttrt-flags }} stablehlo-builder-artifacts/
-        fi
+        echo "Running tests on ${{ matrix.build.runs-on }} with image ${{ matrix.build.image }}"
+        cat << 'EOF' > _test_to_run.json
+          ${{ toJson(matrix.build.tests) }}
+        EOF
+        cat _test_to_run.json
 
+        python .github/scripts/python/run_tests_from_json.py "${{ matrix.build.runs-on }}" "${{ matrix.build.image }}" "${{ steps.fetch-job-id.outputs.job_id }}"
 
-    - name: Generate EmitC tests
-      shell: bash
-      if: matrix.build.suite == 'emitc'
-      run: |
-        source env/activate
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
-        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
-
-    # TTRT test runner
-    - name: Run TTRT tests
-      if: matrix.build.type == 'ttrt'
-      shell: bash
-      run: |
-        source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/${{ matrix.build.path }}
-        if [ "${{ matrix.build.name }}" = "perf" ]; then
-          # collect ops_perf_results.csv
-          cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
-        fi
-
-    # Optimizer models perf tests
-    - name: Run Optimizer Models Perf Tests
-      if: matrix.build.type == 'ttrt' && matrix.build.image == 'speedy' && matrix.build.runs-on == 'n150' && matrix.build.suite == 'op_model'
-      shell: bash
-      run: |
-        source env/activate
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
-        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-
-        llvm-lit -v --param TTMLIR_ENABLE_OPTIMIZER_MODELS_PERF_TESTS=1 ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/optimizer/models_perf_tests
-
-    - name: Prepare tt-explorer Test
-      if: matrix.build.suite == 'explorer'
-      shell: bash
-      run: |
-        source env/activate
-        pip uninstall -y ai-edge-model-explorer
-        pip install --upgrade ${{ steps.strings.outputs.build-output-dir }}/bin/wheels/tt_adapter*.whl
-        pip install --upgrade ${{ steps.strings.outputs.build-output-dir }}/bin/wheels/ai_edge_model_explorer*.whl
-
-    - name: Prepare chisel Test
-      if: matrix.build.suite == 'chisel'
-      shell: bash
-      run: |
-        source env/activate
-        python -m pip install -e runtime/tools/chisel/
-
-    # PyKernel & ttnn-jitTest Runner
-    - name: PyKernel & ttnn-jit test runner
-      if: matrix.build.type == 'pykernel'
-      shell: bash
-      run: |
-        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
-        source env/activate
-
-        # Set up PYTHONPATH to include the built packages
-        export PYTHONPATH="${{ steps.strings.outputs.build-output-dir }}/python_packages:${{ steps.strings.outputs.install-output-dir }}/tt-metal/ttnn:${{ steps.strings.outputs.install-output-dir }}/tt-metal:$PYTHONPATH"
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        mkdir -p third_party/tt-metal
-        mkdir -p third_party/tt-metal/src
-        ln -sf ${{ steps.strings.outputs.install-output-dir }}/tt-metal third_party/tt-metal/src/tt-metal
-
-        echo "Running PyKernel tests..."
-        pytest -v ${{ steps.strings.outputs.work-dir }}/test/pykernel/demo/test.py
-        pytest -v ${{ steps.strings.outputs.work-dir }}/test/ttnn-jit/test_unary_composite.py
-        rm -rf third_party/tt-metal
-
-    # pytest runner
-    - name: Run pytest ttrt tests
-      if: matrix.build.type == 'pytest'
-      shell: bash
-      run: |
-        source env/activate
-        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
-        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        export TT_EXPLORER_GENERATED_MLIR_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/n150/perf,${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
-        export TT_EXPLORER_GENERATED_TTNN_TEST_DIRS=${{ steps.strings.outputs.build-output-dir }}/test/python/golden/ttnn
-        pytest -ssv ${{ matrix.build.path }} ${{ matrix.build.flags }} --junit-xml=${{ steps.strings.outputs.test_report_path }}
+    - name: Upload Test Durations
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-durations-${{ matrix.build.runs-on }}-${{ matrix.build.image }}-${{ steps.fetch-job-id.outputs.job_id }}
+        path: _test_duration
+        if-no-files-found: 'ignore'
 
     - name: Collect and Upload Perf Reports
-      if: matrix.build.name == 'perf'
       uses: ./.github/actions/collect-and-upload-perf-reports
       with:
         reports_dir: ttrt-artifacts
         perf_report_path: ${{ steps.strings.outputs.perf_report_path }}
-        artifact_name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ matrix.build.suite }}
+        artifact_name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ steps.fetch-job-id.outputs.job_id }}
 
     - name: Upload ttrt test report json
-      if: (success() || failure()) && matrix.build.type == 'ttrt'
+      if: (success() || failure())
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ matrix.build.suite }}_results.json
-        path: ${{ matrix.build.suite }}_results.json
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ steps.fetch-job-id.outputs.job_id }}_results
+        path: ttrt_results
+        if-no-files-found: 'ignore'
 
     - name: Upload Test Report xml
       uses: actions/upload-artifact@v4
       if: success() || failure()
       with:
-        name: test-reports-${{ matrix.build.type }}-${{ matrix.build.runs-on }}-${{ matrix.build.image }}-${{ matrix.build.suite }}-${{ steps.fetch-job-id.outputs.job_id }}
-        path: ${{ steps.strings.outputs.test_report_path }}
+        name: test-reports-${{ matrix.build.runs-on }}-${{ matrix.build.image }}-${{ steps.fetch-job-id.outputs.job_id }}
+        path: test_reports
         if-no-files-found: 'ignore'
 
     - name: Show Test Report
@@ -478,8 +342,52 @@ jobs:
       if: success() || failure()
       with:
         report_paths: ${{ steps.strings.outputs.test_report_path }}
-        check_name: ${{ matrix.build.type }} ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ matrix.build.suite }} Tests
+        check_name: ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ strategy.job-index }} Tests
 
+
+  test-ttnn-jit:
+    timeout-minutes: 45
+    needs:
+      - build-image
+      - build-ttmlir
+    runs-on: ubuntu-latest
+    container: # this should work on base image https://github.com/tenstorrent/tt-mlir/issues/5232
+      image: ${{ needs.build-image.outputs.docker-image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+            fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download ttnn-jit whl
+        uses: actions/download-artifact@v4
+        with:
+          name: ttnn-jit-whl-tracy
+      # - name: Install openmpi-ulfm
+      #   shell: bash
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y -f wget ca-certificates
+      #     # get openmpi-ulfm deb package and install it
+      #     TMP_DIR="$(mktemp -d)"
+      #     DEB_URL="https://github.com/dmakoviichuk-tt/mpi-ulfm/releases/download/v5.0.7-ulfm/openmpi-ulfm_5.0.7-1_amd64.deb"
+      #     wget -qO "$TMP_DIR/ompi.deb" "$DEB_URL"
+      #     sudo apt-get install -f -y "$TMP_DIR/ompi.deb"
+      #     rm -rf "$TMP_DIR"
+      - name: Install ttnn-jit whl
+        shell: bash
+        run: |
+          # ----- remove comments after solving issue: https://github.com/tenstorrent/tt-mlir/issues/5232
+          # python3 -m venv testenv
+          # source testenv/bin/activate
+          # pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0
+          # pip install numpy
+          # -----
+          source env/activate
+          pip install ttnn_jit-*.whl --upgrade
+          python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
+          python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
 
 
   # Dedicated job for tt-alchemist tests

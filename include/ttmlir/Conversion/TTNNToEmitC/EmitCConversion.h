@@ -87,6 +87,7 @@ using OptionalMeshDevice =
 
 namespace conv::conv2d {
 struct Conv2dConfig;
+struct Conv2dSliceConfig;
 } // namespace conv::conv2d
 
 namespace reduction {
@@ -232,6 +233,12 @@ template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
   inline static const std::string value =
       "::ttnn::operations::conv::conv2d::Conv2dConfig";
+};
+
+template <>
+struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
+  inline static const std::string value =
+      "::ttnn::operations::conv::conv2d::Conv2dSliceConfig";
 };
 
 template <>
@@ -1265,6 +1272,51 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
   }
 };
 
+template <>
+struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto conv2dSliceConfigAttr =
+            mlir::dyn_cast_if_present<ttnn::Conv2dSliceConfigAttr>(attr)) {
+      return convert(conv2dSliceConfigAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::Conv2dSliceConfigAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<
+               ::ttnn::operations::conv::conv2d::Conv2dSliceConfig> << "{";
+    rso << ".slice_type = ";
+    // Convert enum to proper C++ enum value instead of integer
+    switch (attr.getSliceType()) {
+    case ttnn::Conv2dSliceType::DramHeight:
+      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::"
+             "DRAM_HEIGHT";
+      break;
+    case ttnn::Conv2dSliceType::DramWidth:
+      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::"
+             "DRAM_WIDTH";
+      break;
+    case ttnn::Conv2dSliceType::L1Full:
+      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_"
+             "FULL";
+      break;
+    }
+    rso << ", ";
+    rso << ".num_slices = "
+        << EmitCTypeConverter<uint32_t>::convert(attr.getNumSlices());
+    rso << "}";
+
+    return buf;
+  }
+};
+
 // This template struct is used to retrieve the single most relevant C++ type in
 // TTNN for a given template type.
 template <typename T>
@@ -1353,6 +1405,11 @@ struct TTNNTarget<tt::ttnn::MemoryConfigAttr> {
 template <>
 struct TTNNTarget<tt::ttnn::Conv2dConfigAttr> {
   using type = ::ttnn::operations::conv::conv2d::Conv2dConfig;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::Conv2dSliceConfigAttr> {
+  using type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig;
 };
 
 template <typename T>
