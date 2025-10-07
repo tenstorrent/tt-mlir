@@ -104,11 +104,9 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
                                     llvm::StringRef outputFilename) {
 
   //  Initialize LLVM targets.
-  LLVMInitializeAllTargetInfos();
-  LLVMInitializeAllTargets();
-  LLVMInitializeAllTargetMCs();
-  LLVMInitializeAllAsmParsers();
-  LLVMInitializeAllAsmPrinters();
+  LLVMInitializeNativeTarget();
+  LLVMInitializeNativeAsmParser();
+  LLVMInitializeNativeAsmPrinter();
 
   // Set target triple if not already set.
   if (module.getTargetTriple().empty()) {
