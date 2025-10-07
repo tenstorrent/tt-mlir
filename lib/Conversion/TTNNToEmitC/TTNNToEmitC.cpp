@@ -2772,8 +2772,6 @@ public:
 };
 } // namespace
 
-// SplitQueryKeyValueAndSplitHeadsOp conversion pattern
-//
 namespace {
 class NLPCreateQKVHeadsDecodeOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
@@ -2838,7 +2836,6 @@ public:
 };
 } // namespace
 
-// SplitQueryKeyValueAndSplitHeadsOp conversion pattern
 namespace {
 class SplitQueryKeyValueAndSplitHeadsOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
@@ -2866,28 +2863,41 @@ public:
         mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
         emitter(srcOp, adaptor, rewriter);
 
-    // Prepare optional kv_input_tensor
-    auto kvInput = (srcOp->getNumOperands() > 1)
-                       ? emitter.emit(srcOp->getOperand(1))
-                       : emitter.emit(std::nullopt);
-
-    // Prepare optional num_kv_heads
-    auto numKvHeadsOpt = srcOp.getNumKvHeads();
-    auto numKvHeads = numKvHeadsOpt.has_value()
-                          ? emitter.emit(numKvHeadsOpt.value())
-                          : emitter.emit(std::nullopt);
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputTensor()),
-        kvInput,
+        emitter.emit(srcOp.getKvInputTensor()),
         emitter.emit(srcOp.getNumHeads()),
-        numKvHeads,
+        emitter.emit(srcOp.getNumKvHeads()),
         emitter.emit(srcOp.getTransposeKey()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult(0)),
     };
 
-    emitter.replaceOp(*this, args);
+    using OpReturnType =
+        std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor>;
+
+    auto splitQueryKeyValueAndSplitHeadsOp =
+        rewriter.create<emitc::CallOpaqueOp>(
+            srcOp.getLoc(),
+            rewriter.getType<emitc::OpaqueType>(
+                ttnn_to_emitc::TypeNameV<OpReturnType>),
+            convertOpName(srcOp), rewriter.getArrayAttr(args),
+            /*template_args=*/nullptr, adaptor.getOperands());
+
+    llvm::SmallVector<mlir::Value, 3> results;
+    for (std::size_t i = 0; i < srcOp.getNumResults(); ++i) {
+      auto tupleGetResult = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(
+              ttnn_to_emitc::TypeNameV<::ttnn::Tensor>),
+          "::std::get", /*args=*/nullptr,
+          /*template_args=*/
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(i)}),
+          splitQueryKeyValueAndSplitHeadsOp.getResult(0));
+      results.push_back(tupleGetResult.getResult(0));
+    }
+
+    rewriter.replaceOp(srcOp, results);
     return success();
   }
 };

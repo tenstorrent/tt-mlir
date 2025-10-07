@@ -1873,47 +1873,6 @@ createOp(FlatbufferObjectCache &cache, ConcatenateHeadsOp op) {
                                                       memoryConfig);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
-createOp(FlatbufferObjectCache &cache, SplitQueryKeyValueAndSplitHeadsOp op) {
-  auto in = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInputTensor()));
-
-  // Handle optional kv_input_tensor
-  // Check if we have more than 1 operand (input_tensor is operand 0)
-  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> kv_input = 0;
-  if (op->getNumOperands() > 1) {
-    kv_input = cache.at<::tt::target::ttnn::TensorRef>(
-        getOperandThroughDPSOps(op->getOperand(1)));
-  }
-
-  // Get the three output tensors (query, key, value)
-  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
-  outputs.push_back(
-      cache.getOrCreate(op.getResult(0), tensorValueToFlatbuffer)); // query
-  outputs.push_back(
-      cache.getOrCreate(op.getResult(1), tensorValueToFlatbuffer)); // key
-  outputs.push_back(
-      cache.getOrCreate(op.getResult(2), tensorValueToFlatbuffer)); // value
-
-  // Create the flatbuffers vector from the std::vector
-  auto outputs_fb = cache.fbb->CreateVector(outputs);
-
-  // Use the first result (query) for memory config
-  auto memoryConfig =
-      op.getMemoryConfig()
-          ? toFlatbuffer(cache, *op.getMemoryConfig())
-          : getMemoryConfigFromTensorTypeIfNeeded(cache, op.getResult(0));
-
-  // Get num_kv_heads as Optional
-  auto numKvHeadsOpt = op.getNumKvHeads();
-  uint32_t numKvHeads = numKvHeadsOpt.has_value() ? numKvHeadsOpt.value() : 0;
-
-  return ::tt::target::ttnn::CreateSplitQueryKeyValueAndSplitHeadsOp(
-      *cache.fbb, in, kv_input, op.getNumHeads(), numKvHeads,
-      op.getTransposeKey(), memoryConfig,
-      outputs_fb); // Pass the flatbuffers vector offset, not a pointer
-}
-
 ::flatbuffers::Offset<::tt::target::ttnn::NLPConcatHeadsOp>
 createOp(FlatbufferObjectCache &cache, NLPConcatHeadsOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2206,6 +2165,33 @@ createOp(FlatbufferObjectCache &cache, NLPCreateQKVHeadsDecodeOp op) {
   return ::tt::target::ttnn::CreateNLPCreateQKVHeadsDecodeOp(
       *cache.fbb, in, outQuery, outKey, outValue, numHeads, numKVHeads,
       overlapQKCoregrid, batchOffset, sliceSize, memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
+createOp(FlatbufferObjectCache &cache, SplitQueryKeyValueAndSplitHeadsOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto inputKVTensor = op.getKvInputTensor()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getKvInputTensor()))
+                           : 0;
+
+  auto outQuery = cache.getOrCreate(op.getQuery(), tensorValueToFlatbuffer);
+  auto outKey = cache.getOrCreate(op.getKey(), tensorValueToFlatbuffer);
+  auto outValue = cache.getOrCreate(op.getValue(), tensorValueToFlatbuffer);
+
+  uint32_t numHeads = op.getNumHeads();
+  ::flatbuffers::Optional<uint32_t> numKVHeads =
+      toFlatbuffer(cache, op.getNumKvHeads());
+  bool transposeKey = op.getTransposeKey();
+
+  auto memoryConfig = op.getMemoryConfig()
+                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                          : 0;
+
+  return ::tt::target::ttnn::CreateSplitQueryKeyValueAndSplitHeadsOp(
+      *cache.fbb, inputTensor, inputKVTensor, outQuery, outKey, outValue,
+      numHeads, numKVHeads, transposeKey, memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::DumpTensorOp>

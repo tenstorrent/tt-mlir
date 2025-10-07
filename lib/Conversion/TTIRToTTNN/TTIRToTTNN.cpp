@@ -1784,11 +1784,8 @@ public:
     // Create the TTNN op with 3 results
     auto ttnnOp = rewriter.create<ttnn::SplitQueryKeyValueAndSplitHeadsOp>(
         op.getLoc(), TypeRange{queryType, keyType, valueType},
-        adaptor.getInputTensor(),
-        adaptor.getKvInputTensor(), // This is optional, will be nullptr if not
-                                    // present
-        adaptor.getNumHeadsAttr(),
-        adaptor.getNumKvHeadsAttr(), // This is optional
+        adaptor.getInputTensor(), adaptor.getKvInputTensor(),
+        adaptor.getNumHeadsAttr(), adaptor.getNumKvHeadsAttr(),
         adaptor.getTransposeKeyAttr(),
         /*memory_config=*/nullptr);
 

@@ -2170,64 +2170,47 @@ NLPConcatHeadsDecodeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 SplitQueryKeyValueAndSplitHeadsOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::ArchitecturalMismatch);
+  assert(inputs.size() == (1 + (getKvInputTensor() ? 1 : 0)));
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  auto inputShape = getInputTensor().getType().getShape();
+
+  // Handle optional kv input tensor
+  std::optional<llvm::ArrayRef<int64_t>> kvInputShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> kvInputLayout = std::nullopt;
+
+  if (getKvInputTensor()) {
+    kvInputShape = getKvInputTensor().getType().getShape();
+    kvInputLayout = inputs[1];
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints,
+      *this, deviceGrid, inputShape, inputs[0], kvInputShape, kvInputLayout,
+      getNumHeads(), getNumKvHeads(), getTransposeKey());
 }
 
 llvm::Expected<size_t> SplitQueryKeyValueAndSplitHeadsOp::getOpRuntime(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::ArchitecturalMismatch);
+  assert(inputs.size() == (1 + (getKvInputTensor() ? 1 : 0)));
+  auto inputShape = getInputTensor().getType().getShape();
+  // Handle optional kv input tensor
+  std::optional<llvm::ArrayRef<int64_t>> kvInputShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> kvInputLayout = std::nullopt;
+  if (getKvInputTensor()) {
+    kvInputShape = getKvInputTensor().getType().getShape();
+    kvInputLayout = inputs[1];
+  }
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime, *this,
+      inputShape, inputs[0], kvInputShape, kvInputLayout, getNumHeads(),
+      getNumKvHeads(), getTransposeKey());
 }
-// llvm::Expected<op_model::OpConstraints>
-// SplitQueryKeyValueAndSplitHeadsOp::getOpConstraints(const
-// std::vector<TTNNLayoutAttr> &inputs,
-//                          const OpConfig &opConfig) {
-
-//   assert(inputs.size() >= 3 && inputs.size() <= 6);
-//   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-//   if (!check) {
-//     return check.takeError();
-//   }
-//   ttcore::GridAttr deviceGrid =
-//       ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
-//   uint32_t numHeads = getNumHeads();
-//   std::optional<uint32_t> numKvHeads = getNumKvHeads();
-//   bool transposeKey = getTransposeKey();
-
-//   auto inputTensorType = getInputTensor().getType().cast<RankedTensorType>();
-//   llvm::ArrayRef<int64_t> inputShape = inputTensorType.getShape();
-
-//   // Handle optional kv input tensor
-//   std::optional<llvm::ArrayRef<int64_t>> kvInputShape = std::nullopt;
-//   std::optional<TTNNLayoutAttr> kvInputLayout = std::nullopt;
-
-//   if (getKvInputTensor()) {
-//     auto kvInputTensorType =
-//     getKvInputTensor().getType().cast<RankedTensorType>(); kvInputShape =
-//     kvInputTensorType.getShape(); kvInputLayout = inputs[1];
-//   }
-
-//   TTNNLayoutAttr queryLayout = opConfig.getOutputLayout(0);
-//   TTNNLayoutAttr keyLayout = opConfig.getOutputLayout(1);
-//   TTNNLayoutAttr valueLayout = opConfig.getOutputLayout(2);
-
-//   return opConstraintsCache().getOrCompute(
-//     op_model::OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints,
-//     *this, deviceGrid, inputShape, inputs[0], kvInputShape, kvInputLayout,
-//     numHeads, numKvHeads, transposeKey, queryLayout, keyLayout, valueLayout);
-// }
-
-// llvm::Expected<size_t>
-// SplitQueryKeyValueAndSplitHeadsOp::getOpRuntime(const
-// std::vector<TTNNLayoutAttr> &inputs,
-//                      const OpConfig &opConfig) {
-//   // Similar to the previous function.
-//   return opRuntimeCache().getOrCompute(
-//       op_model::OpModel<YourOp>::getOpRuntime, *this,
-//       /* other parameters */);
-// }
 
 //===----------------------------------------------------------------------===//
 // RepeatInterleaveOp - TTNN Op Model Interface
