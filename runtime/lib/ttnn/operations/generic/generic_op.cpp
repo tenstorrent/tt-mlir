@@ -36,15 +36,22 @@ static ::tt::tt_metal::SemaphoreDescriptor createSemaphoreDescriptor(
 }
 
 static ::tt::tt_metal::CBDescriptor
-createCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cbDesc) {
+createCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cbDesc,
+                   const std::vector<::ttnn::Tensor> &ioTensors) {
   // Right now, metal assumes only one CBFormatDescriptor per KernelDescriptor
+  tt::tt_metal::Buffer *buffer = nullptr;
+  if (cbDesc.buffer()) {
+    uint32_t tensorIdx = cbDesc.buffer()->tensor_operand_index();
+    buffer = ioTensors[tensorIdx].buffer();
+  }
   tt::tt_metal::CBDescriptor cbDescriptor = {
       .total_size = cbDesc.total_size(),
       .core_ranges =
           tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*cbDesc.core_range()),
       .format_descriptors = {createCBFormatDescriptor(
           *cbDesc.formats()->Get(0))},
-      .remote_format_descriptors = {}};
+      .remote_format_descriptors = {},
+      .buffer = buffer};
   return cbDescriptor;
 }
 
@@ -227,7 +234,7 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   }
   for (const tt::target::ttnn::KernelCBDescriptor *cbDesc :
        *programDesc->cbs()) {
-    programDescriptor.cbs.push_back(createCBDescriptor(*cbDesc));
+    programDescriptor.cbs.push_back(createCBDescriptor(*cbDesc, ioTensors));
   }
   for (const tt::target::ttnn::SemaphoreDescriptor *semaphoreDesc :
        *programDesc->semaphores()) {
