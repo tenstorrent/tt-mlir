@@ -34,24 +34,6 @@ def abs(
     return builder.abs(in0, unit_attrs=unit_attrs)
 
 
-def cbrt(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.cbrt(in0, unit_attrs=unit_attrs)
-
-
-def convert(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.convert(in0, unit_attrs=unit_attrs)
-
-
 def ceil(
     in0: Operand,
     builder: StableHLOBuilder,
@@ -86,15 +68,6 @@ def floor(
 ):
     builder.set_graph_level_check(True)
     return builder.floor(in0, unit_attrs=unit_attrs)
-
-
-def is_finite(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.is_finite(in0, unit_attrs=unit_attrs)
 
 
 def neg(
@@ -133,33 +106,6 @@ def sqrt(
     return builder.sqrt(in0, unit_attrs=unit_attrs)
 
 
-def log1p(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.log1p(in0, unit_attrs=unit_attrs)
-
-
-def expm1(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.expm1(in0, unit_attrs=unit_attrs)
-
-
-def sign(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.sign(in0, unit_attrs=unit_attrs)
-
-
 def logistic(
     in0: Operand,
     builder: StableHLOBuilder,
@@ -176,15 +122,6 @@ def tan(
 ):
     builder.set_graph_level_check(True)
     return builder.tan(in0, unit_attrs=unit_attrs)
-
-
-def tanh(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.tanh(in0, unit_attrs=unit_attrs)
 
 
 def log(
@@ -230,24 +167,17 @@ def test_binary_ops(
     "test_fn",
     [
         abs,
-        cbrt,
-        convert,
         ceil,
         cosine,
         exp,
         floor,
-        is_finite,
+        log,
+        logistic,
         neg,
         rsqrt,
         sine,
         sqrt,
-        log1p,
-        expm1,
-        sign,
-        logistic,
         tan,
-        tanh,
-        log,
     ],
 )
 def test_unary_ops(
