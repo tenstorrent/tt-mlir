@@ -10,6 +10,8 @@
 
 namespace tt::runtime::ttnn::operations::batch_norm {
 void run(const ::tt::target::ttnn::BatchNormOp *op, ProgramContext &context);
+void run(const ::tt::target::ttnn::BatchNormTrainingOp *op,
+         ProgramContext &context);
 } // namespace tt::runtime::ttnn::operations::batch_norm
 
 #endif

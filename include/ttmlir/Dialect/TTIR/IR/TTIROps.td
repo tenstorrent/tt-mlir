@@ -1888,11 +1888,11 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
 }
 
 def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
-  let summary = "BatchNormInference operation";
+  let summary = "BatchNorm inference operation";
   let description = [{
-    Performs batch normalization on the input tensor. Normalizes the `operand` tensor
+    Performs batch normalization inference on the input tensor. Normalizes the `operand` tensor
     across all dimensions except for the specified `dimension` (feature dimension) and
-    produces the normalized result.
+    produces the normalized result using pre-computed mean and variance.
 
     Inputs:
     - `operand` (Tensor): The input tensor to be normalized.
@@ -1904,16 +1904,15 @@ def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
     Attributes:
     - `epsilon` is a small constant added to variance for numerical stability.
     - `dimension` specifies which dimension represents the features/channels.
-    - `training` (Bool): Whether the operation is in training mode.
 
     Output:
     - `result` (Tensor): The normalized output tensor.
 
     Example:
     ```mlir
-      // Normalize a batch of activations
+      // Normalize a batch of activations (inference)
       %result = ttir.batch_norm(%operand, %scale, %offset, %mean, %variance, %output,
-                              epsilon = 0.001, dimension = 1, training = false) :
+                              epsilon = 0.001, dimension = 1) :
             (tensor<8x16x32x32xf32>, tensor<16xf32>, tensor<16xf32>,
               tensor<16xf32>, tensor<16xf32>, tensor<8x16x32x32xf32>) -> tensor<8x16x32x32xf32>
     ```
@@ -1929,10 +1928,70 @@ def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
                        AnyRankedTensor:$variance,
                        AnyRankedTensor:$output,
                        F32Attr:$epsilon,
-                       I32Attr:$dimension,
-                       BoolAttr:$training);
+                       I32Attr:$dimension);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_BatchNormTrainingOp : TTIR_DPSOp<"batch_norm_training"> {
+  let summary = "BatchNorm training operation";
+  let description = [{
+    Performs batch normalization during training on the input tensor. Normalizes the `operand` tensor
+    across all dimensions except for the specified `dimension` (feature dimension) and
+    produces the normalized result along with batch statistics. Updates the running mean and variance.
+
+    Inputs:
+    - `operand` (Tensor): The input tensor to be normalized.
+    - `scale` (Tensor): The scale parameter (gamma).
+    - `offset` (Tensor): The offset parameter (beta).
+    - `running_mean` (Tensor): The running mean (updated during training).
+    - `running_variance` (Tensor): The running variance (updated during training).
+
+    Attributes:
+    - `epsilon` is a small constant added to variance for numerical stability.
+    - `dimension` specifies which dimension represents the features/channels.
+    - `momentum` is the momentum factor for updating running statistics.
+
+    Outputs:
+    - `result` (Tensor): The normalized output tensor.
+    - `batch_mean` (Tensor): The computed batch mean.
+    - `batch_variance` (Tensor): The computed batch variance.
+
+    Example:
+    ```mlir
+      // Normalize a batch of activations (training)
+      %result, %batch_mean, %batch_variance = ttir.batch_norm_training(%operand, %scale, %offset, %running_mean, %running_variance,
+                                           %output, %batch_mean_output, %batch_variance_output :
+                                           epsilon = 0.001, dimension = 1, momentum = 0.1) :
+            (tensor<8x16x32x32xf32>, tensor<16xf32>, tensor<16xf32>,
+              tensor<16xf32>, tensor<16xf32>, tensor<8x16x32x32xf32>,
+              tensor<16xf32>, tensor<16xf32>, tensor<16xf32>, tensor<16xf32>) ->
+            (tensor<8x16x32x32xf32>, tensor<16xf32>, tensor<16xf32>)
+    ```
+
+    Mathematical definition:
+      batch_mean = mean(x, dimension)
+      batch_variance = variance(x, dimension)
+      normalized = (x - batch_mean) / sqrt(batch_variance + epsilon) * scale + offset
+      running_mean = momentum * batch_mean + (1 - momentum) * running_mean
+      running_variance = momentum * batch_variance + (1 - momentum) * running_variance
+  }];
+
+  let arguments = (ins AnyRankedTensor:$operand,
+                       AnyRankedTensor:$scale,
+                       AnyRankedTensor:$offset,
+                       AnyRankedTensor:$running_mean,
+                       AnyRankedTensor:$running_variance,
+                       Variadic<AnyRankedTensor>:$outputs,
+                       F32Attr:$epsilon,
+                       I32Attr:$dimension,
+                       F32Attr:$momentum);
+
+  let results = (outs AnyRankedTensor:$result,
+                      AnyRankedTensor:$batch_mean,
+                      AnyRankedTensor:$batch_variance);
 
   let hasVerifier = 1;
 }

@@ -685,11 +685,95 @@ public:
     mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
     IntegerAttr dimensionAttr =
         mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
-    BoolAttr trainingAttr = mlir::BoolAttr::get(rewriter.getContext(), false);
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getScale(),
         adaptor.getOffset(), adaptor.getMean(), adaptor.getVariance(),
-        adaptor.getEpsilonAttr(), dimensionAttr, trainingAttr);
+        adaptor.getEpsilonAttr(), dimensionAttr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToBatchNormTrainingOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::BatchNormTrainingOp> {
+
+  using OpConversionPattern<
+      mlir::stablehlo::BatchNormTrainingOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::BatchNormTrainingOp srcOp,
+                  mlir::stablehlo::BatchNormTrainingOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = srcOp.getLoc();
+
+    // Get input operand and check rank
+    mlir::Value inputOperand = adaptor.getOperand();
+    auto inputType = mlir::cast<RankedTensorType>(inputOperand.getType());
+
+    // If input is 3D, unsqueeze to 4D on first dimension
+    if (inputType.getRank() == 3) {
+      auto shape = inputType.getShape();
+      llvm::SmallVector<int64_t> newShape = {1};
+      newShape.append(shape.begin(), shape.end());
+      auto newInputType =
+          RankedTensorType::get(newShape, inputType.getElementType());
+      inputOperand = rewriter.create<ttir::UnsqueezeOp>(
+          loc, newInputType, inputOperand, rewriter.getI32IntegerAttr(0));
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    // If original output was 3D, update to 4D for the operation
+    auto originalOutputType = outputType;
+    if (outputType.getRank() == 3) {
+      auto shape = outputType.getShape();
+      llvm::SmallVector<int64_t> newShape = {1};
+      newShape.append(shape.begin(), shape.end());
+      outputType = RankedTensorType::get(newShape, outputType.getElementType());
+    }
+
+    // Get mean and variance types from the outputs (results 1 and 2)
+    auto meanType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(1).getType()));
+    auto varianceType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(2).getType()));
+
+    mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
+    IntegerAttr dimensionAttr =
+        mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
+
+    // Default momentum for batch norm training
+    mlir::APFloat defaultMomentum(0.1f);
+    FloatAttr momentumAttr = rewriter.getF32FloatAttr(0.1f);
+
+    // Create empty tensors for running mean and variance
+    // These will be updated during training
+    auto runningMean =
+        rewriter.create<ttir::EmptyOp>(loc, meanType).getResult();
+    auto runningVariance =
+        rewriter.create<ttir::EmptyOp>(loc, varianceType).getResult();
+
+    // Create empty output tensors
+    auto outputEmpty =
+        rewriter.create<ttir::EmptyOp>(loc, outputType).getResult();
+    auto batchMeanEmpty =
+        rewriter.create<ttir::EmptyOp>(loc, meanType).getResult();
+    auto batchVarianceEmpty =
+        rewriter.create<ttir::EmptyOp>(loc, varianceType).getResult();
+
+    auto batchNormTrainingOp =
+        rewriter.create<mlir::tt::ttir::BatchNormTrainingOp>(
+            loc, TypeRange{outputType, meanType, varianceType}, inputOperand,
+            adaptor.getScale(), adaptor.getOffset(), runningMean,
+            runningVariance,
+            ValueRange{outputEmpty, batchMeanEmpty, batchVarianceEmpty},
+            adaptor.getEpsilonAttr(), dimensionAttr, momentumAttr);
+
+    rewriter.replaceOp(srcOp, batchNormTrainingOp.getResults());
+
     return success();
   }
 };
@@ -3605,6 +3689,8 @@ static void addBatchNormOpConversionPattern(MLIRContext *ctx,
                                             RewritePatternSet &patterns,
                                             TypeConverter &typeConverter) {
   patterns.add<StableHLOToBatchNormOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToBatchNormTrainingOpConversionPattern>(typeConverter,
+                                                                ctx);
 }
 
 static void addRngOpConversionPattern(MLIRContext *ctx,
