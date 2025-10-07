@@ -119,7 +119,6 @@ class StableHLOBuilder(Builder):
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
     ) -> Any:
-
         if not golden_kwargs:
             golden_kwargs = stablehlo_kwargs
 
