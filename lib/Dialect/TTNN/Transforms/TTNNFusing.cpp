@@ -34,9 +34,9 @@ public:
     // tt-metal doesn't support relu6 fusion for matmul.
     // TODO(mvasiljevic): remove this once tt-metal supports relu6 fusion for
     // matmul (https://github.com/tenstorrent/tt-metal/issues/29886)
-    if (isMatmul(srcOp) && activation == ttnn::UnaryOpType::Relu6) {
-      return failure();
-    }
+    // if (isMatmul(srcOp) && activation == ttnn::UnaryOpType::Relu6) {
+    //   return failure();
+    // }
 
     ttcore::DataType weightDtype = ttcore::elementTypeToDataType(
         srcOp.getWeight().getType().getElementType());
