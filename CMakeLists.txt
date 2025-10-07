@@ -183,4 +183,6 @@ add_subdirectory(runtime)
 add_subdirectory(docs)
 add_subdirectory(cmake/modules)
 
+add_subdirectory(ttnn_supplemental)
+
 include(LintTools)
