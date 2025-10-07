@@ -101,10 +101,8 @@ def test_sharding_annotation(
         sharding_attr = builder.create_sharding_attr_from_tuples("mesh", sharding)
         return builder.add(in0, in1, unit_attrs=unit_attrs, sharding_attr=sharding_attr)
 
-    test_bundle = sharding_annotation_wrap_factory()
-
     compile_stablehlo_to_flatbuffer(
-        test_bundle.test_fn,
+        sharding_annotation,
         [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,
