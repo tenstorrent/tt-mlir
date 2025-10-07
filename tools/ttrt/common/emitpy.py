@@ -452,6 +452,7 @@ class EmitPy:
                                 bin, "input"
                             )["program_" + str(program_index)]
                             inputs = []
+                            # ***** TODO: find a way to get memory config and layout from flatbuffer or dylib *****
                             for i in torch_inputs:
                                 inputs.append(
                                     ttnn.as_tensor(
