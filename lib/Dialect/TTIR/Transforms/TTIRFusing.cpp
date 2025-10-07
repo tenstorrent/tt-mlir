@@ -2686,7 +2686,6 @@ public:
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern>(&getContext());
 
       patterns.add<PadPoolingFusionPattern>(&getContext());
-      patterns.add<MatmulWithBiasFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
       if (globalPoolFusingEnabled) {
