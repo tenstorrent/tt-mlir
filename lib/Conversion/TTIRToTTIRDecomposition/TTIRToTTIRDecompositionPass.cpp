@@ -97,6 +97,16 @@ struct TTIRToTTIRDecompositionPass
               meanType.getRank() == 4 && varType.getRank() == 4);
     });
 
+    target.addDynamicallyLegalOp<ttir::BatchNormTrainingOp>(
+        [&](ttir::BatchNormTrainingOp op) {
+          auto scaleType = op.getScale().getType();
+          auto offsetType = op.getOffset().getType();
+          auto meanType = op.getRunningMean().getType();
+          auto varType = op.getRunningVariance().getType();
+          return (scaleType.getRank() == 4 && offsetType.getRank() == 4 &&
+                  meanType.getRank() == 4 && varType.getRank() == 4);
+        });
+
     target.addDynamicallyLegalOp<ttir::ProdOp>([&](ttir::ProdOp op) {
       auto dimArg = op.getDimArg();
       if (!dimArg) {

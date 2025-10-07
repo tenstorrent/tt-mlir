@@ -14,13 +14,25 @@ table BatchNormOp {
   input: tt.target.ttnn.TensorRef;
   running_mean: tt.target.ttnn.TensorRef;
   running_var: tt.target.ttnn.TensorRef;
-  training: bool;
+  epsilon: float;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table BatchNormTrainingOp {
+  input: tt.target.ttnn.TensorRef;
+  running_mean: tt.target.ttnn.TensorRef;
+  running_var: tt.target.ttnn.TensorRef;
   epsilon: float;
   momentum: float;
   weight: tt.target.ttnn.TensorRef;
   bias: tt.target.ttnn.TensorRef;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
+  batch_mean: tt.target.ttnn.TensorRef;
+  batch_variance: tt.target.ttnn.TensorRef;
 }
 
 table RMSNormOp {

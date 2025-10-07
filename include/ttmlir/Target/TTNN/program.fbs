@@ -33,6 +33,7 @@ union OpType {
   AllGatherOp,
   ArangeOp,
   BatchNormOp,
+  BatchNormTrainingOp,
   BeginTraceCaptureOp,
   CaptureOrExecuteTraceOp,
   CollectivePermuteOp,

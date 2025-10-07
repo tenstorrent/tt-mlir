@@ -2395,6 +2395,31 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// BatchNormTrainingOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::BatchNormTrainingOp::verify() {
+
+  // Verify that all inputs have dimension 4.
+  if (getInput().getType().getRank() != 4) {
+    return emitOpError("Input tensor must have rank 4");
+  }
+  if (getRunningMean().getType().getRank() != 4) {
+    return emitOpError("Scale tensor must have rank 4");
+  }
+  if (getRunningVar().getType().getRank() != 4) {
+    return emitOpError("Bias tensor must have rank 4");
+  }
+  if (getWeight().getType().getRank() != 4) {
+    return emitOpError("Weight tensor must have rank 4");
+  }
+  if (getBias().getType().getRank() != 4) {
+    return emitOpError("Bias tensor must have rank 4");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // RMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::RMSNormOp::verify() {

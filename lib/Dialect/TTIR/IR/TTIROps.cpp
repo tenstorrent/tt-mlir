@@ -4432,6 +4432,20 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
+// BatchNormTrainingOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::BatchNormTrainingOp::verify() {
+  if (getOperand().getType().getRank() != 4) {
+
+    return emitOpError(
+        std::string("input tensor must be a 4D tensor, got rank ") +
+        std::to_string(getOperand().getType().getRank()));
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // CollectiveBroadcastOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::CollectiveBroadcastOp::verify() {

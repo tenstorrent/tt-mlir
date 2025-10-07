@@ -2468,11 +2468,51 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::BatchNormOp> emitter(
         srcOp, adaptor, rewriter);
 
+    // For inference BatchNormOp, training is false and momentum is 0.1
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getRunningMean()),
         emitter.emit(srcOp.getRunningVar()),
-        emitter.emit(srcOp.getTraining()),
+        emitter.emit(false), // training
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(0.1f), // momentum
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(/* output= */ std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+//
+// BatchNormTrainingOp conversion pattern
+//
+namespace {
+class BatchNormTrainingOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::BatchNormTrainingOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::BatchNormTrainingOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::BatchNormTrainingOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::BatchNormTrainingOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // For training BatchNormTrainingOp, training is true
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getRunningMean()),
+        emitter.emit(srcOp.getRunningVar()),
+        emitter.emit(true), // training
         emitter.emit(srcOp.getEpsilon()),
         emitter.emit(srcOp.getMomentum()),
         emitter.emit(srcOp.getWeight()),
@@ -3632,10 +3672,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Other ops
   //
-  patterns.add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
-               DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-               MorehCumSumOpConversionPattern, BatchNormOpConversionPattern,
-               RMSNormOpConversionPattern>(typeConverter, ctx);
+  patterns
+      .add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
+           DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
+           MorehCumSumOpConversionPattern, BatchNormOpConversionPattern,
+           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern>(
+          typeConverter, ctx);
 
   // CCL ops
   //

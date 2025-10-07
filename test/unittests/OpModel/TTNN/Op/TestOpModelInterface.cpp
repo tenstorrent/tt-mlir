@@ -3482,13 +3482,12 @@ TEST_F(OpModelBase, batchNormOp) {
   auto outputType = createRankedTensorType(inputShape);
 
   // BatchNorm parameters
-  bool training = false;
   llvm::APFloat epsilon(1e-05f);
   llvm::APFloat momentum(0.1f);
 
   BatchNormOp batchNormOp = builder.create<BatchNormOp>(
       builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
-      training, epsilon, momentum, weight, bias, nullptr);
+      epsilon, weight, bias, nullptr);
   batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
@@ -3519,13 +3518,17 @@ TEST_F(OpModelBase, batchNormOpTraining) {
   auto outputType = createRankedTensorType(inputShape);
 
   // BatchNorm parameters for training mode
-  bool training = true;
-  llvm::APFloat epsilon(1e-05f);
-  llvm::APFloat momentum(0.1f);
+  auto epsilonAttr = builder.getF32FloatAttr(1e-05f);
+  auto momentumAttr = builder.getF32FloatAttr(0.1f);
 
-  BatchNormOp batchNormOp = builder.create<BatchNormOp>(
-      builder.getUnknownLoc(), outputType, input, nullptr, nullptr, training,
-      epsilon, momentum, nullptr, nullptr, nullptr);
+  // BatchNormTrainingOp has 3 results: result, batch_mean, batch_variance
+  auto batchMeanType = outputType;
+  auto batchVarianceType = outputType;
+
+  BatchNormTrainingOp batchNormOp = builder.create<BatchNormTrainingOp>(
+      builder.getUnknownLoc(),
+      TypeRange{outputType, batchMeanType, batchVarianceType}, input, nullptr,
+      nullptr, epsilonAttr, momentumAttr, nullptr, nullptr, nullptr);
   batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
@@ -3575,13 +3578,20 @@ TEST_F(OpModelBase, batchNormOpL1Memory) {
   auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
 
   // BatchNorm parameters
-  bool training = false;
-  llvm::APFloat epsilon(1e-05f);
-  llvm::APFloat momentum(0.1f);
+  auto epsilonAttr = builder.getF32FloatAttr(1e-05f);
+  auto momentumAttr = builder.getF32FloatAttr(0.1f);
 
-  BatchNormOp batchNormOp = builder.create<BatchNormOp>(
-      builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
-      training, epsilon, momentum, weight, bias, nullptr);
+  // BatchNormTrainingOp has 3 results: result, batch_mean, batch_variance
+  auto batchMeanType =
+      createRankedTensorType(runningMeanShape, builder.getBF16Type());
+  auto batchVarianceType =
+      createRankedTensorType(runningVarShape, builder.getBF16Type());
+
+  BatchNormTrainingOp batchNormOp = builder.create<BatchNormTrainingOp>(
+      builder.getUnknownLoc(),
+      TypeRange{outputType, batchMeanType, batchVarianceType}, input,
+      runningMean, runningVar, epsilonAttr, momentumAttr, weight, bias,
+      nullptr);
   batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(batchNormOp.getOperation());

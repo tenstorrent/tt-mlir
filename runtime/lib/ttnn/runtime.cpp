@@ -1243,6 +1243,7 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1465,6 +1466,14 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_BatchNormOp()->running_var(),
                   opContext.type_as_BatchNormOp()->weight(),
                   opContext.type_as_BatchNormOp()->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BatchNormTrainingOp: {
+    tensorRefs = {opContext.type_as_BatchNormTrainingOp()->input(),
+                  opContext.type_as_BatchNormTrainingOp()->running_mean(),
+                  opContext.type_as_BatchNormTrainingOp()->running_var(),
+                  opContext.type_as_BatchNormTrainingOp()->weight(),
+                  opContext.type_as_BatchNormTrainingOp()->bias()};
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {

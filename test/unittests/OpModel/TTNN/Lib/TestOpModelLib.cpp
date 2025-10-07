@@ -3824,7 +3824,6 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
   const auto runningVarOpt = std::get<3>(params);
   const auto weightOpt = std::get<4>(params);
   const auto biasOpt = std::get<5>(params);
-  const auto training = std::get<6>(params);
   const auto epsilon = llvm::APFloat(std::get<7>(params));
   const auto momentum = llvm::APFloat(std::get<8>(params));
   const auto expectedResult = std::get<9>(params);
@@ -3876,8 +3875,7 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
   auto constraintsExp = op_model::OpModel<BatchNormOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayout, runningMeanShape,
       runningMeanLayout, runningVarShape, runningVarLayout, weightShape,
-      weightLayout, biasShape, biasLayout, epsilon, training, momentum,
-      outputLayout);
+      weightLayout, biasShape, biasLayout, epsilon, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -3895,7 +3893,7 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
   auto runtimeExp = op_model::OpModel<BatchNormOp>::getOpRuntime(
       inputShape, inputLayout, runningMeanShape, runningMeanLayout,
       runningVarShape, runningVarLayout, weightShape, weightLayout, biasShape,
-      biasLayout, epsilon, training, momentum, outputLayout);
+      biasLayout, epsilon, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
