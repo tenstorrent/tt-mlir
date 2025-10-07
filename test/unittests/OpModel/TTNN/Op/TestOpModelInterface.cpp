@@ -1726,6 +1726,60 @@ TEST_F(OpModelBase, NLPCreateQKVHeadsDecodeOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, SplitQueryKeyValueAndSplitHeadsOpInterface) {
+  uint32_t sequenceSize = 16;
+  uint32_t batchSize = 8;
+  uint32_t numHeads = 32;
+  uint32_t headDim = 32;
+  uint32_t hiddenDim = numHeads * headDim;
+
+  llvm::SmallVector<int64_t> inputShape{batchSize, sequenceSize, 3 * hiddenDim};
+  llvm::SmallVector<int64_t> outputShape{batchSize, numHeads, sequenceSize,
+                                         headDim};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputValue = createRankedTensorType(outputShape);
+  auto outputKey = createRankedTensorType(outputShape);
+  auto outputQuery = createRankedTensorType(outputShape);
+
+  IntegerAttr numHeadsAttr = builder.getUI32IntegerAttr(numHeads);
+  BoolAttr transposeKeyAttr = builder.getBoolAttr(false);
+
+  auto splitQueryKeyValueAndSplitHeads =
+      builder.create<SplitQueryKeyValueAndSplitHeadsOp>(
+          builder.getUnknownLoc(),
+          TypeRange({outputQuery, outputKey, outputValue}), input,
+          /*kv_input_tensor=*/nullptr, numHeadsAttr, /*num_kv_heads*/ nullptr,
+          transposeKeyAttr, /*memory_config=*/nullptr);
+
+  auto constraintsExp =
+      getOpConstraints(splitQueryKeyValueAndSplitHeads.getOperation());
+
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 8192);
+    EXPECT_EQ(l1PeakSize, 24576);
+    EXPECT_EQ(outputSize, 8192);
+    EXPECT_EQ(totalPeakSize, 32768);
+  } else {
+    FAIL() << "Missing L1 constraints for SplitQueryKeyValueAndSplitHeadsOp; "
+              "Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp =
+      getOpRuntime(splitQueryKeyValueAndSplitHeads.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL()
+        << "Runtime test failed for SplitQueryKeyValueAndSplitHeadsOp; Error="
+        << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
   int64_t batchSize = 1;
   int64_t numHeads = 1;

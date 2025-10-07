@@ -28,19 +28,13 @@ static void runSplitQueryKeyValueAndSplitHeadsOp(
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
   bool transposeKey = op->transpose_key();
 
-  auto outputTuple = ::ttnn::transformer::split_query_key_value_and_split_heads(
+  auto [q, k, v] = ::ttnn::transformer::split_query_key_value_and_split_heads(
       in, kvInputTensor, numHeads, numKVHeads, transposeKey,
       outputMemoryConfig);
-  std::vector<::ttnn::Tensor> outputs = {std::get<0>(outputTuple),
-                                         std::get<1>(outputTuple),
-                                         std::get<2>(outputTuple)};
 
-  LOG_ASSERT(
-      op->outputs()->size() == outputs.size(),
-      "Number of expected outputs does not match with generated outputs.");
-  for (size_t i = 0; i < op->outputs()->size(); ++i) {
-    tensorPool.insertTTNNTensorAndValidate(op->outputs()->Get(i), outputs[i]);
-  }
+  tensorPool.insertTTNNTensorAndValidate(op->q_out(), q);
+  tensorPool.insertTTNNTensorAndValidate(op->k_out(), k);
+  tensorPool.insertTTNNTensorAndValidate(op->v_out(), v);
 }
 
 void run(const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOp *op,
@@ -48,5 +42,4 @@ void run(const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOp *op,
   ProgramTensorPool &tensorPool = context.getTensorPool();
   runSplitQueryKeyValueAndSplitHeadsOp(op, tensorPool);
 }
-
 } // namespace tt::runtime::ttnn::operations::transformer

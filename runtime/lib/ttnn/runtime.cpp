@@ -1223,12 +1223,6 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp: {
-    auto outputs =
-        opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp()->outputs();
-    tensorRef = outputs && outputs->size() > 0 ? outputs->Get(0) : nullptr;
-    break;
-  }
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1239,6 +1233,7 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::ExecuteTraceOp:
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
+  case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
@@ -1552,10 +1547,9 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp: {
-    tensorRefs.push_back(
-        opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp()->in());
-    tensorRefs.push_back(
-        opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp()->kv_input());
+    tensorRefs = {
+        opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp()->in(),
+        opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp()->kv_input()};
     break;
   }
   case ::tt::target::ttnn::OpType::GenericOp: {

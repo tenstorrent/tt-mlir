@@ -2167,6 +2167,33 @@ createOp(FlatbufferObjectCache &cache, NLPCreateQKVHeadsDecodeOp op) {
       overlapQKCoregrid, batchOffset, sliceSize, memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
+createOp(FlatbufferObjectCache &cache, SplitQueryKeyValueAndSplitHeadsOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto inputKVTensor = op.getKvInputTensor()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getKvInputTensor()))
+                           : 0;
+
+  auto outQuery = cache.getOrCreate(op.getQuery(), tensorValueToFlatbuffer);
+  auto outKey = cache.getOrCreate(op.getKey(), tensorValueToFlatbuffer);
+  auto outValue = cache.getOrCreate(op.getValue(), tensorValueToFlatbuffer);
+
+  uint32_t numHeads = op.getNumHeads();
+  ::flatbuffers::Optional<uint32_t> numKVHeads =
+      toFlatbuffer(cache, op.getNumKvHeads());
+  bool transposeKey = op.getTransposeKey();
+
+  auto memoryConfig = op.getMemoryConfig()
+                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                          : 0;
+
+  return ::tt::target::ttnn::CreateSplitQueryKeyValueAndSplitHeadsOp(
+      *cache.fbb, inputTensor, inputKVTensor, outQuery, outKey, outValue,
+      numHeads, numKVHeads, transposeKey, memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::DumpTensorOp>
 createOp(FlatbufferObjectCache &cache, DumpTensorOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2731,6 +2758,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto nlpCreateQKVHeadsDecodeOp = dyn_cast<NLPCreateQKVHeadsDecodeOp>(op);
       nlpCreateQKVHeadsDecodeOp) {
     return createOperation(cache, createOp(cache, nlpCreateQKVHeadsDecodeOp),
+                           debugString, locInfo);
+  }
+  if (auto splitQueryKeyValueAndSplitHeadsOp =
+          dyn_cast<SplitQueryKeyValueAndSplitHeadsOp>(op);
+      splitQueryKeyValueAndSplitHeadsOp) {
+    return createOperation(cache,
+                           createOp(cache, splitQueryKeyValueAndSplitHeadsOp),
                            debugString, locInfo);
   }
   if (auto dumpTensorOp = dyn_cast<DumpTensorOp>(op); dumpTensorOp) {
