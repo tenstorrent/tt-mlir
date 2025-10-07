@@ -176,7 +176,7 @@ public:
       ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
       if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
               cb.getDefiningOp())) {
-        // Not streamed, thus buffer is aliased.
+        // Input is not streamed, thus buffer must be aliased.
         TT_assertv(ttcore::getMemorySpace(cb_memref) ==
                        ttcore::MemorySpace::DeviceL1,
                    "Can only alias L1 buffers.");
