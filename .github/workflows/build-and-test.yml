@@ -52,7 +52,7 @@ jobs:
           cat << 'EOF' > _test_durations
             ${{ vars.TEST_DURATIONS }}
           EOF
-          python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json 25
+          python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json ${{ vars.TARGET_DURATION }}
           echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
 
   build-image:
@@ -292,9 +292,9 @@ jobs:
         export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
         export RUNS_ON="${{ matrix.build.runs-on }}"
         export IMAGE_NAME="${{ matrix.build.image }}"
+        export RUN_ID="${{ github.run_id }}"
         export PATH="$WORK_DIR/.github/test_scripts:$PATH"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        alias download_artifact='gh run download ${{ github.run_id }} --repo tenstorrent/tt-mlir --pattern'
         rm -rf test_reports || true
         mkdir -p test_reports
         rm -rf ttrt_results || true

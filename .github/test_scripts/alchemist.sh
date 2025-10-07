@@ -12,13 +12,13 @@ sudo apt update
 sudo apt install -y libboost1.83-dev
 
 echo "Download alchemist wheel"
-download_artifact "tt-alchemist-whl-speedy"
+gh run download $RUN_ID --repo tenstorrent/tt-mlir --name "tt-alchemist-whl-speedy"
 
 python3 -m venv testenv
 source testenv/bin/activate
-pip install tt-alchemist-whl-speedy/tt_alchemist-*.whl --force-reinstall
+pip install tt_alchemist-*.whl --force-reinstall
 echo "Wheel installed successfully"
-rm -rf tt-alchemist-whl-speedy
+rm -rf tt_alchemist-*.whl
 
 echo "Run tt-alchemist API test - model-to-cpp"
 tt-alchemist model-to-cpp tools/tt-alchemist/test/models/mnist.mlir

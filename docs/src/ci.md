@@ -56,8 +56,8 @@ Specifies which release build image to use. It can be:
 Please take a look at the [Builds](#builds) section for a more detailed description of the builds.
 
 #### script
-Test type. It is the name of the BASH script that executes the test. Scripts are located in the `.github/test_scripts` directory, and it is possible to create new test types simply
-by adding scripts to the directory.
+Test type. It is the name of the BASH script that executes the test. Scripts are located in the `.github/test_scripts` directory,
+and it is possible to create new test types simply by adding scripts to the directory.
 
 #### args (optional)
 This field represents the arguments for the script. This can be omitted, a string, or a JSON array.
@@ -106,16 +106,9 @@ Before running test scripts, the workflow will activate the default TT-MLIR Pyth
 - TT_METAL_HOME - set to `tt-metal` install directory
 - RUNS_ON - machine label script runs on
 - IMAGE_NAME - name of the image script runs on
+- RUN_ID - id of workflow run, [see below](#downloading-artifacts).
 
-A soft link is created inside the build directory to the install directory.
-
-The `download_artifact` alias exists to download needed artifacts (e.g., wheel). Example:
-```bash
-download_artifact "tt-alchemist-whl-speedy"
-```
-This will download an artifact with the name "tt-alchemist-whl-speedy" into a directory with the same name.
-You can also use patterns such as `"tt-alchemist-whl-*"` and `--dir <directory>` to download into a specific directory
-(note subdirectories with artifact names will be created inside the target directory).
+Also, a soft link is created inside the build directory to the install directory.
 
 > Please make sure you implement cleanup logic inside your script and leave the script with the repo in the same state as before execution!
 
@@ -164,6 +157,24 @@ pytest -ssv "$@" --junit-xml=$TEST_REPORT_PATH
 ```
 This script uses $REQUIREMENTS to specify additional wheels to be installed.
 Note how it uses the eval command to expand bash variables where suitable. It also defines some additional environment variables using the provided ones.
+
+#### Downloading Artifacts
+
+If you need to download artifacts (e.g., wheels) from a workflow run, you can use the following command:
+
+```bash
+gh run download $RUN_ID --repo tenstorrent/tt-mlir --name <artifact_name>
+```
+
+This command downloads the specified artifact to the current directory. You can specify a different download location using the `--dir <directory>` option.
+
+To download multiple artifacts matching a pattern, use the `--pattern` option instead of `--name`:
+
+```bash
+gh run download $RUN_ID --repo tenstorrent/tt-mlir --pattern "tt_*.whl"
+```
+
+**Note:** When using `--pattern`, artifacts are downloaded into separate subdirectories, even when `--dir` is specified.
 
 
 ## CI Run (under the hood)
