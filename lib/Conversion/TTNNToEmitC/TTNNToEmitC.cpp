@@ -2769,6 +2769,70 @@ public:
 } // namespace
 
 namespace {
+class NLPCreateQKVHeadsDecodeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.nlp_create_qkv_heads_decode";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::nlp_create_qkv_heads_decode";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getNumHeads()),
+        emitter.emit(srcOp.getNumKvHeads()),
+        emitter.emit(srcOp.getOverlapQkCoregrid()),
+        emitter.emit(srcOp.getBatchOffset()),
+        emitter.emit(srcOp.getSliceSize()),
+        emitter.emit(srcOp.getMemoryConfig()),
+    };
+
+    using OpReturnType =
+        std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor>;
+
+    auto nlpCreateQKVHeadsDecodeOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(
+            ttnn_to_emitc::TypeNameV<OpReturnType>),
+        convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    llvm::SmallVector<mlir::Value, 3> results;
+    for (std::size_t i = 0; i < srcOp.getNumResults(); ++i) {
+      auto tupleGetResult = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(
+              ttnn_to_emitc::TypeNameV<::ttnn::Tensor>),
+          "::std::get", /*args=*/nullptr,
+          /*template_args=*/
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(i)}),
+          nlpCreateQKVHeadsDecodeOp.getResult(0));
+      results.push_back(tupleGetResult.getResult(0));
+    }
+
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class WriteTensorOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::WriteTensorOp> {
 private:
@@ -3275,6 +3339,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Relu6Op>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SiluOp>,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<
                mlir::tt::ttnn::LeakyReluOp>,
            EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
@@ -3446,6 +3511,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
+  patterns.add<NLPCreateQKVHeadsDecodeOpConversionPattern>(typeConverter, ctx);
 }
 // ANCHOR_END: op_rewriter_pattern_set_emitc
 
