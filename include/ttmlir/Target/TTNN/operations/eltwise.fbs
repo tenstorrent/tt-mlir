@@ -54,10 +54,6 @@ table EltwiseBinaryCompositeOp {
   out: tt.target.ttnn.TensorRef;
 }
 
-table UIntegralType {
-  value: uint32;
-}
-
 union RhsParams {
   FP: FloatingPointType,
   UI32: UIntegralType,

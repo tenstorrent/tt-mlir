@@ -62,8 +62,8 @@ static void runEltwiseBinaryCompositeOp(
 }
 
 static void
-runPowOp(const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOp *op,
-         auto &&exponent, ProgramContext &context) {
+runPowScalarOp(const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOp *op,
+               auto &&exponent, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   ::ttnn::Tensor *input = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
 
@@ -134,10 +134,10 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOp *op,
   case ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar: {
     switch (op->rhs_type()) {
     case ::tt::target::ttnn::RhsParams::FP:
-      runPowOp(op, op->rhs_as_FP()->value(), context);
+      runPowScalarOp(op, op->rhs_as_FP()->value(), context);
       break;
     case ::tt::target::ttnn::RhsParams::UI32:
-      runPowOp(op, op->rhs_as_UI32()->value(), context);
+      runPowScalarOp(op, op->rhs_as_UI32()->value(), context);
       break;
     default:
       LOG_FATAL("unknown exponent type");

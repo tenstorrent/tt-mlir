@@ -247,7 +247,7 @@ def remainder(a, b):
 
 
 def pow(a, b):
-    return ttnn.pow(a, b)
+    return ttnn.pow_tensor(a, b)
 
 
 def atan2(a, b):

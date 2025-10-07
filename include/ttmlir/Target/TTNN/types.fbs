@@ -87,3 +87,7 @@ table TensorRef {
 table FloatingPointType {
   value: float;
 }
+
+table UIntegralType {
+  value: uint32;
+}
