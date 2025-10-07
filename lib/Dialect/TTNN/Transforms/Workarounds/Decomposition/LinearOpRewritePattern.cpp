@@ -35,6 +35,70 @@ static bool isBatchedLinearOp(ttnn::LinearOp linearOp) {
   return false;
 }
 
+// Calculate the output shape of a matmul operation following tt-metal's logic.
+// Reference: ttnn/cpp/ttnn/operations/matmul/matmul.cpp
+static SmallVector<int64_t>
+computeMatmulOutputShape(llvm::ArrayRef<int64_t> shapeA,
+                         llvm::ArrayRef<int64_t> shapeB, bool transposeA,
+                         bool transposeB) {
+
+  int64_t rankA = shapeA.size();
+  int64_t rankB = shapeB.size();
+
+  // Rank difference will be used to align batch dimensions
+  int64_t outRank = std::max(rankA, rankB) - (rankA == 1 || rankB == 1);
+  int64_t rankDifference = std::max<int64_t>(0, outRank - rankA);
+
+  // Initialize output shape based on the tensor with higher rank
+  SmallVector<int64_t> outputShape;
+  if (rankB > rankA) {
+    outputShape.assign(shapeB.begin(), shapeB.end());
+  } else {
+    outputShape.assign(shapeA.begin(), shapeA.end());
+  }
+
+  // Handle batch dimensions for the case where rankB > rankA
+  for (int64_t index = 0; index < rankDifference; ++index) {
+    // tt-metal requires these front dimensions to be 1
+    // For our purposes, we'll just copy them
+    outputShape[index] = shapeB[index];
+  }
+
+  // Copy dimensions from shapeA except the last one
+  for (int64_t index = 0; index < rankA - 1; ++index) {
+    outputShape[rankDifference + index] = shapeA[index];
+  }
+
+  // The last dimension comes from input_tensor_b
+  outputShape[outputShape.size() - 1] = shapeB[shapeB.size() - 1];
+
+  // Handle the vector matmul case: if rankA == 1, remove the second-to-last
+  // dimension
+  if (rankA == 1 && outputShape.size() > 1) {
+    SmallVector<int64_t> newShape;
+    newShape.reserve(outputShape.size() - 1);
+    // Copy all elements except the second-to-last dimension
+    for (size_t srcIdx = 0; srcIdx < outputShape.size(); ++srcIdx) {
+      if (srcIdx != outputShape.size() - 2) {
+        newShape.push_back(outputShape[srcIdx]);
+      }
+    }
+    outputShape = std::move(newShape);
+  }
+
+  // Handle the case where rankB == 1, remove the last dimension
+  if (rankB == 1) {
+    SmallVector<int64_t> newShape;
+    newShape.reserve(outputShape.size() - 1);
+    for (size_t index = 0; index < outputShape.size() - 1; ++index) {
+      newShape.push_back(outputShape[index]);
+    }
+    outputShape = std::move(newShape);
+  }
+
+  return outputShape;
+}
+
 LogicalResult
 LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
                                         PatternRewriter &rewriter) const {
@@ -44,24 +108,35 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
     return failure();
   }
 
+  RankedTensorType inputAType =
+      mlir::cast<RankedTensorType>(srcOp.getA().getType());
+  RankedTensorType inputBType =
+      mlir::cast<RankedTensorType>(srcOp.getB().getType());
   RankedTensorType outputType =
       mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+
+  // Compute matmul output shape
+  SmallVector<int64_t> matmulShape =
+      computeMatmulOutputShape(inputAType.getShape(), inputBType.getShape(),
+                               srcOp.getTransposeA(), srcOp.getTransposeB());
+
+  // Create matmul output type
   auto outputEncoding =
       mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
+  auto matmulOutputType = RankedTensorType::get(
+      matmulShape, outputType.getElementType(), outputType.getEncoding());
+
   auto dataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
       rewriter.getContext(), outputEncoding.getDataType());
 
   // Step 1: Create MatMul operation
-  // MatmulOp signature: (result, a, b, transpose_a, transpose_b,
-  // matmul_program_config)
   MatmulOp matmulOp = rewriter.create<ttnn::MatmulOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_matmul"),
-      outputType, srcOp.getA(), srcOp.getB(), srcOp.getTransposeA(),
+      matmulOutputType, srcOp.getA(), srcOp.getB(), srcOp.getTransposeA(),
       srcOp.getTransposeB(),
       /*matmul_program_config=*/mlir::Attribute());
 
   // Step 2: Create Add operation with bias
-  // AddOp signature: (result, lhs, rhs, dtype, memory_config)
   AddOp addOp = rewriter.create<ttnn::AddOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_add"),
       outputType, matmulOp.getResult(), srcOp.getBias(),
