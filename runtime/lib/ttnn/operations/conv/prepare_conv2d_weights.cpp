@@ -62,13 +62,16 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfig = std::nullopt;
+
   ::ttnn::Tensor out = ::ttnn::operations::conv::conv2d::prepare_conv_weights(
       weightTensor, *inputMemoryConfig,
       ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
       op->weights_format()->str(), op->in_channels(), op->out_channels(),
       op->batch_size(), op->input_height(), op->input_width(), kernelSize,
       stride, padding, dilation, op->has_bias(), op->groups(), &targetDevice,
-      inputDtype, outputDtype, conv2dConfig, std::nullopt, std::nullopt);
+      inputDtype, outputDtype, conv2dConfig, std::nullopt, sliceConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

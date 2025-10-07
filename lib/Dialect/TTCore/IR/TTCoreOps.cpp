@@ -156,12 +156,6 @@ LogicalResult LoadCachedOp::verify() {
   bool hasTupleResult = fnType.getNumResults() == 1 &&
                         mlir::isa<mlir::TupleType>(fnType.getResult(0));
 
-  // Enforce consistency in tuple usage between inputs and outputs.
-  if (hasTupleInput != hasTupleResult) {
-    return emitOpError("Inconsistent use of tuples: cannot mix tuple and "
-                       "non-tuple for inputs and outputs");
-  }
-
   if (LogicalResult result = verifyTensorList(
           this, this->getOperands(),
           hasTupleInput

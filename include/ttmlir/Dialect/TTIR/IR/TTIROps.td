@@ -5097,6 +5097,7 @@ def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
     }];
 
     let hasVerifier = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {

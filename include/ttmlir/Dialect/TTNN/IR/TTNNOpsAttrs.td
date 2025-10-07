@@ -592,6 +592,20 @@ def TTNN_DeviceComputeKernelConfig : TTNN_Attr<"DeviceComputeKernelConfig", "dev
   let assemblyFormat = "`<` struct(params) `>`";
 }
 
+def TTNN_Conv2dSliceConfigAttr : TTNN_Attr<"Conv2dSliceConfig", "conv2d_slice_config"> {
+  let summary = "TTNN Conv2d slice configuration attribute";
+  let description = [{
+    Conv2d slice configuration specifying slice type and number of slices.
+  }];
+
+  let parameters = (ins
+    "::mlir::tt::ttnn::Conv2dSliceType":$slice_type,
+    "uint32_t":$num_slices
+  );
+
+  let assemblyFormat = "`<` $slice_type `,` $num_slices `>`";
+}
+
 def TTNN_MeshShapeAttr : TTNN_Mesh2DCoordAttr<"MeshShape", "mesh_shape"> {
   let summary = "TTNN Mesh Shape";
   let description = [{

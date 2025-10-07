@@ -26,6 +26,7 @@
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
+#include "operations/kv_cache/kv_cache.hpp"
 #include "operations/matmul/matmul.hpp"
 #include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "operations/normalization/batch_norm/batch_norm.hpp"
@@ -132,6 +133,17 @@ void constEvalFuncWrapper(
   if (outputs->empty()) {
     *outputs = constEvalFunc(inputs);
   }
+}
+
+uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
+  assert(tensor.logical_volume() == 1 && "expected scalar tensor");
+  assert(tensor.dtype() == ttnn::DataType::UINT32 && "expected uint32 tensor");
+
+  const ::ttnn::Tensor tensorOnHost = ::ttnn::from_device(tensor);
+  const ::tt::tt_metal::HostBuffer buffer =
+      ::tt::tt_metal::host_buffer::get_host_buffer(tensorOnHost);
+  const auto &buf = buffer.view_as<uint32_t>();
+  return *buf.begin();
 }
 
 } // namespace ttnn
