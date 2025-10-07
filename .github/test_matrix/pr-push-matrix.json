@@ -24,9 +24,9 @@
 
   { "runs-on": ["n150","llmbox","n300","p150"],
         "image": "tracy",
-            "script": "builder.sh", "args": [ "test/python/golden", "not run_error and not fails_golden", "run-ttrt" ] },
+            "script": "builder.sh", "args": [ "test/python/golden", "", "" ] },
 
-  { "runs-on": "n150",   "image": "speedy", "script": "builder.sh", "args": [ "test/python/golden/optimizer", "not run_error and not fails_golden", "run-ttrt require-opmodel" ] },
+  { "runs-on": "n150",   "image": "speedy", "script": "builder.sh", "args": [ "test/python/golden/optimizer", "", "require-opmodel" ] },
   { "runs-on": "n150",   "image": "tracy",  "script": "ttrt.sh", "args": [ "perf", "Silicon/TTNN/n150/optimizer" ] },
   { "runs-on": "n150",   "image": "speedy", "script": "op_model.sh", "args": [ "Silicon/TTNN/n150/optimizer", "--non-zero" ] },
   { "runs-on": "n150",   "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/n150" },
