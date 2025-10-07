@@ -2341,7 +2341,7 @@ def test_hoisted_permute(shapes, permutation, request, target: str):
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return permute(in0, builder, permutation, unit_attrs=["ttir.should_hoist"])
+        return permute(in0, in1, builder, permutation, unit_attrs=["ttir.should_hoist"])
 
     permute_wrapper.__name__ = "hoisted_permute"
 
@@ -3328,6 +3328,7 @@ def test_hoisted_dot_general(
         return builder.dot_general(
             in0,
             in1,
+            out0,
             batch_dims_lhs,
             contract_dims_lhs,
             batch_dims_rhs,
