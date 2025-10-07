@@ -147,6 +147,18 @@ def setup_runtime_libraries(config):
         shutil.copy(ttnn_jit_module_path, wheel_runtime_dir)
         dylibs.append(ttnn_jit_module)
 
+    # Copy MPI libraries to make the wheel standalone
+    mpi_lib_dir = "/opt/openmpi-v5.0.7-ulfm/lib"
+    mpi_libs = ["libmpi.so.40", "libopen-pal.so.80", "libpmix.so.2"]
+    copied_mpi_libs = copy_library_files(mpi_lib_dir, wheel_runtime_dir, mpi_libs)
+    dylibs.extend(copied_mpi_libs)
+
+    # Copy TTMLIRCompiler library to fix missing symbols
+    compiler_lib_path = f"{config['ttmlir_build_dir']}/lib/libTTMLIRCompiler.so"
+    if os.path.exists(compiler_lib_path):
+        shutil.copy(compiler_lib_path, wheel_runtime_dir)
+        dylibs.append("libTTMLIRCompiler.so")
+
     # Copy runtime libraries
     metal_lib_dir = f"{config['metaldir']}/lib"
     all_runtime_libs = CORE_TTNN_LIBS + CORE_TTMETAL_LIBS
