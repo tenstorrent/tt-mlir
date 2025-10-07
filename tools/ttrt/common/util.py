@@ -596,8 +596,10 @@ class FileManager:
         py_files.sort()
         return py_files
 
-    def find_py_corresponding_ttnn(self, path):
-        ttnn_path = path.replace(".py", ".ttnn")
+    def find_corresponding_ttnn_in_directory(self, py_path, ttnn_directory):
+        py_filename = self.get_file_name(py_path)
+        ttnn_filename = py_filename.replace(".py", ".ttnn")
+        ttnn_path = os.path.join(ttnn_directory, ttnn_filename)
         if self.check_file_exists(ttnn_path):
             return ttnn_path
         return None

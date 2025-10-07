@@ -637,34 +637,6 @@ def compile_ttir_to_flatbuffer(
         if len(inputs_shapes) != len(inputs_types):
             raise ValueError("inputs_shapes and inputs_types must have the same length")
 
-    if target == "ttnn-standalone" or target == "emitpy":
-        # Compile a ttnn flatbuffer for EmitC comparison
-        compile_ttir_to_flatbuffer(
-            fn=fn,
-            inputs_shapes=inputs_shapes,
-            inputs_types=inputs_types,
-            system_desc_path=system_desc_path,
-            test_base=test_base,
-            output_root=output_root,
-            target="ttnn",
-            mesh_name=mesh_name,
-            mesh_dict=mesh_dict,
-            module_dump=module_dump,
-            argument_types_string=argument_types_string,
-            custom_pipeline=custom_pipeline,
-            pipeline_options=pipeline_options,
-            print_ir=print_ir,
-        )
-
-        # Copy the compiled ttnn flatbuffer to emitc for ttrt comparison
-        src_file = _get_target_path(
-            output_root, "ttir-builder-artifacts", test_base + "_ttnn.mlir.ttnn", "ttnn"
-        )
-        dst_dir = os.path.join(output_root, "ttir-builder-artifacts", target)
-        if not os.path.exists(dst_dir):
-            os.makedirs(dst_dir)
-        shutil.copy2(src_file, dst_dir)
-
     # Compile model to TTIR MLIR
     try:
         module, builder = build_ttir_module(

@@ -410,7 +410,7 @@ ttrt check out.ttnn --result-file result.json
 ```
 
 ### emitpy
-Run a python file or a directory of python files and/or binary files for output tensor comparison.
+Run a python file or a directory of python files. Optionally provide a binary file or directory of binary files for output tensor comparison.
 Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`.
 
 ```bash
@@ -422,10 +422,9 @@ ttrt emitpy out.py --loops 10
 ttrt emitpy --program-index all out.py
 ttrt emitpy --program-index 0 out.py
 ttrt emitpy /dir/of/emitpy_modules
-ttrt emitpy /dir/of/emitpy_modules_and_flatbuffers
-ttrt emitpy /dir/of/emitpy_modules_and_flatbuffers --loops 10
-ttrt emitpy /dir/of/emitpy_modules_and_flatbuffers --log-file ttrt.log
-ttrt emitpy /dir/of/emitpy_modules_and_flatbuffers --disable-flatbuffer-comparison
+ttrt emitpy /dir/of/emitpy_modules --loops 10
+ttrt emitpy /dir/of/emitpy_modules --log-file ttrt.log
+ttrt emitpy /dir/of/emitpy_modules --flatbuffer /path/to/flatbuffer
 ttrt emitpy out.py --save-artifacts --artifact-dir /path/to/some/dir
 ttrt emitpy out.py --result-file result.json
 ttrt emitpy out.py --print-input-output-tensors

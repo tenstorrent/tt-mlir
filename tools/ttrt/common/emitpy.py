@@ -82,11 +82,11 @@ class EmitPy:
             help="disable golden comparison for intermediate and output tensors",
         )
         EmitPy.register_arg(
-            name="--disable-flatbuffer-comparison",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable flatbuffer run and comparison",
+            name="--flatbuffer",
+            type=str,
+            default="",
+            choices=None,
+            help="Provide a file or directory path for flatbuffer binary files to compare outputs to",
         )
         EmitPy.register_arg(
             name="--memory",
@@ -210,9 +210,15 @@ class EmitPy:
         for path in emitpy_dylib_paths:
             dylib = EmitPyDylib(self.logger, self.file_manager, path)
             self.emitpy_dylibs.append(dylib)
-            corresponding_ttnn_path = self.file_manager.find_py_corresponding_ttnn(path)
-
-            if corresponding_ttnn_path:
+            if self["--flatbuffer"]:
+                if os.path.isdir(self["--flatbuffer"]):
+                    corresponding_ttnn_path = (
+                        self.file_manager.find_corresponding_ttnn_in_directory(
+                            path, self["--flatbuffer"]
+                        )
+                    )
+                else:
+                    corresponding_ttnn_path = self["--flatbuffer"]
                 self.logging.debug(
                     f"Found ttnn file corresponding to .py dylib ={corresponding_ttnn_path}"
                 )
@@ -257,10 +263,7 @@ class EmitPy:
 
             try:
                 compare_to_ttnn = False
-                if (
-                    dylib in self.ttnn_binaries
-                    and not self["--disable-flatbuffer-comparison"]
-                ):
+                if dylib in self.ttnn_binaries:
                     bin = self.ttnn_binaries[dylib]
                     compare_to_ttnn = True
 
@@ -452,7 +455,6 @@ class EmitPy:
                                 bin, "input"
                             )["program_" + str(program_index)]
                             inputs = []
-                            # ***** TODO: find a way to get memory config and layout from flatbuffer or dylib *****
                             for i in torch_inputs:
                                 inputs.append(
                                     ttnn.as_tensor(
