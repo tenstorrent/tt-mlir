@@ -2826,5 +2826,18 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.CollectiveBroadcastOp: collective_broadcast_golden,
     # Operations with parameter transformations
     ttir.LeakyReluOp: leaky_relu_golden,
+    # StableHLO elementwise operations
     stablehlo.AddOp: torch.add,
+    stablehlo.AbsOp: torch.abs,
+    stablehlo.CeilOp: torch.ceil,
+    stablehlo.CosineOp: torch.cos,
+    stablehlo.ExpOp: torch.exp,
+    stablehlo.FloorOp: torch.floor,
+    stablehlo.LogOp: torch.log,
+    stablehlo.LogisticOp: torch.sigmoid,
+    stablehlo.NegOp: torch.neg,
+    stablehlo.RsqrtOp: torch.rsqrt,
+    stablehlo.SineOp: torch.sin,
+    stablehlo.SqrtOp: torch.sqrt,
+    stablehlo.TanOp: torch.tan,
 }
