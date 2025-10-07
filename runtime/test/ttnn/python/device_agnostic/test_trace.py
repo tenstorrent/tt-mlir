@@ -24,19 +24,19 @@ FLATBUFFER_BASE_PATH = (
 
 
 @pytest.mark.parametrize("num_loops", [5])
-def test_trace_linear_add_no_consteval(helper: Helper, request, num_loops):
+def test_trace_matmul_div_no_consteval(helper: Helper, request, num_loops):
     binary_path = os.path.join(
-        FLATBUFFER_BASE_PATH, "linear_add_no_consteval.mlir.tmp.ttnn"
+        FLATBUFFER_BASE_PATH, "matmul_div_no_consteval.mlir.tmp.ttnn"
     )
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
     helper.check_constraints()
 
     test_config = ProgramTestConfig(
-        name="linear_add",
-        expected_num_inputs=4,
-        compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) + inputs[2]) + inputs[3],
-        description="Linear add trace test",
+        name="matmul_div",
+        expected_num_inputs=3,
+        compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) / inputs[2]),
+        description="Matmul with div trace test",
     )
 
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)
@@ -65,18 +65,18 @@ def test_trace_linear_add_no_consteval(helper: Helper, request, num_loops):
 
 
 @pytest.mark.parametrize("num_loops", [5])
-def test_trace_linear_add_with_consteval(helper: Helper, request, num_loops):
+def test_trace_matmul_div_with_consteval(helper: Helper, request, num_loops):
     binary_path = os.path.join(
-        FLATBUFFER_BASE_PATH, "linear_add_consteval.mlir.tmp.ttnn"
+        FLATBUFFER_BASE_PATH, "matmul_div_consteval.mlir.tmp.ttnn"
     )
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
     helper.check_constraints()
     test_config = ProgramTestConfig(
-        name="linear_add",
-        expected_num_inputs=4,
-        compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) + inputs[2]) + inputs[3],
-        description="Linear add trace test",
+        name="matmul_div",
+        expected_num_inputs=3,
+        compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) / inputs[2]),
+        description="Matmul with Div trace test",
     )
 
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)
