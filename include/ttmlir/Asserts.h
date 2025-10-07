@@ -76,7 +76,7 @@ namespace ttmlir::utils::asserts {
 #if !defined(TT_ASSERT_ENABLE_DEBUG_ASSERTS)
 #if defined(TT_BUILD_DEBUG)
 #define TT_ASSERT_ENABLE_DEBUG_ASSERTS
-#endif // CMAKE_CXX_FLAGS_DEBUG
+#endif // TT_BUILD_DEBUG
 #endif // TT_ASSERT_ENABLE_DEBUG_ASSERTS
 
 // The default behavior for a triggered assert is to print a message (to
