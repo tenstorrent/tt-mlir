@@ -804,6 +804,11 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
   llvm::SmallVector<int64_t> deviceShape(gridShape);
   deviceShape.reserve(physicalShape.size() * 2);
 
+  llvm::dbgs() << "getDeviceShape | physicalShape: " << physicalShape[0] << "x"
+               << physicalShape[1] << "\n";
+  llvm::dbgs() << "getDeviceShape | gridShape:     " << gridShape[0] << "x"
+               << gridShape[1] << "\n";
+
   assert(physicalShape.size() == gridShape.size() &&
          "Grid rank must equalcollapsed tensor rank");
   // Without tiling, distribute dimensions across grid.

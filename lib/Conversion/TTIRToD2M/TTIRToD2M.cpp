@@ -53,18 +53,12 @@ protected:
     assert(!targetGridShape.empty());
   }
 
-  // Compute optimal grid shape that works for all provided layout infos.
-  llvm::SmallVector<int64_t>
-  computeOptimalGrid(ArrayRef<int64_t> physicalShape) const {
-    llvm::SmallVector<int64_t> grid;
-
-    assert(physicalShape.size() == targetSquareGridShape.size());
+  std::pair<unsigned, double>
+  findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) const {
 
     // find max aspect ratio between any dim and the other dims combined
-    constexpr double HIGH_ASPECT_RATIO_THRESHOLD = 8.0;
-    double maxRatio = 1.0;
-    int64_t maxRatioVal = 0;
-    unsigned maxRatioIndex = 0;
+    double aspectRatio = 1.0;
+    unsigned maxDimIndex = 0;
     for (size_t i = 0; i < physicalShape.size(); ++i) {
       double ratio = physicalShape[i];
       for (size_t j = 0; j < physicalShape.size(); ++j) {
@@ -73,20 +67,35 @@ protected:
         }
         ratio /= physicalShape[j];
       }
-      if (ratio > maxRatio) {
-        maxRatio = ratio;
-        maxRatioVal = physicalShape[i];
-        maxRatioIndex = i;
+      if (ratio > aspectRatio) {
+        aspectRatio = ratio;
+        maxDimIndex = i;
       }
     }
+    return {maxDimIndex, aspectRatio};
+  }
 
-    uint64_t gridVolume = std::accumulate(
-        targetSquareGridShape.begin(), targetSquareGridShape.end(), uint64_t{1},
-        std::multiplies<uint64_t>());
+  bool inferAsVirtualGrid(double aspectRatio) const {
+    constexpr double HIGH_ASPECT_RATIO_THRESHOLD = 8.0;
+    return aspectRatio > HIGH_ASPECT_RATIO_THRESHOLD;
+  }
 
-    if (maxRatio > HIGH_ASPECT_RATIO_THRESHOLD) {
+  // Compute optimal grid shape that works for all provided layout infos.
+  llvm::SmallVector<int64_t>
+  computeOptimalGrid(ArrayRef<int64_t> physicalShape) const {
+    llvm::SmallVector<int64_t> grid;
+
+    assert(physicalShape.size() == targetSquareGridShape.size());
+
+    // handle virtual grid case
+    auto [maxRatioIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
+    if (inferAsVirtualGrid(aspectRatio)) {
+      uint64_t gridVolume = std::accumulate(
+          targetSquareGridShape.begin(), targetSquareGridShape.end(),
+          uint64_t{1}, std::multiplies<uint64_t>());
+
       // for now, can only support if largest dim is divisible by grid volume
-      assert(maxRatioVal % gridVolume == 0);
+      assert(physicalShape[maxRatioIndex] % gridVolume == 0);
       for (size_t i = 0; i < physicalShape.size(); ++i) {
         if (i == maxRatioIndex) {
           grid.push_back(gridVolume);
@@ -227,10 +236,55 @@ protected:
     llvm::SmallVector<int64_t> shardedShape =
         layout.getDeviceShape(optimalGrid, tileShape);
 
-    auto emptyOp = rewriter.create<d2m::EmptyOp>(value.getLoc(), shardedShape,
-                                                 elementType, layout);
-    return rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, emptyOp)
-        ->getResult(0);
+    Value to_layout;
+    if (inferAsVirtualGrid(findMaxDimAndAspectRatio(unshardedShape).second)) {
+
+      // TODO!!!!! replace affine maps with non-identity maps!!!!!!!
+      // TODO!!!!! replace affine maps with non-identity maps!!!!!!!
+      // TODO!!!!! replace affine maps with non-identity maps!!!!!!!
+      AffineMap identityMap = AffineMap::getMultiDimIdentityMap(
+          shardedShape.size(), rewriter.getContext());
+
+      // create underlying physical buffer
+      size_t numShardDims = targetSquareGridShape.size();
+      llvm::SmallVector<int64_t> physicalShape;
+      physicalShape.append(targetSquareGridShape);
+      physicalShape.append(llvm::to_vector(
+          ArrayRef<int64_t>(shardedShape).drop_front(numShardDims)));
+
+      llvm::dbgs() << "physicalShape: " << physicalShape[0] << "x"
+                   << physicalShape[1] << "x" << physicalShape[2] << "x"
+                   << physicalShape[3] << "\n";
+
+      auto physicalLayout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), physicalShape, targetSquareGridShape,
+          ttcore::OOBVal::Undef, memSpace, ttcore::TensorMemoryLayout::Sharded,
+          identityMap);
+
+      auto emptyOp = rewriter.create<d2m::EmptyOp>(
+          value.getLoc(), physicalShape, elementType, physicalLayout);
+
+      // create virtual view layout of the physical buffer
+      auto virtualLayout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), shardedShape, targetSquareGridShape,
+          ttcore::OOBVal::Undef, memSpace, ttcore::TensorMemoryLayout::Sharded,
+          identityMap);
+      auto resultTy =
+          RankedTensorType::get(shardedShape, elementType, virtualLayout);
+
+      return rewriter
+          .create<d2m::ViewLayoutOp>(value.getLoc(), resultTy, emptyOp, false)
+          ->getResult(0);
+
+    } else {
+
+      auto emptyOp = rewriter.create<d2m::EmptyOp>(value.getLoc(), shardedShape,
+                                                   elementType, layout);
+      to_layout =
+          rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, emptyOp)
+              ->getResult(0);
+    }
+    return to_layout;
   }
 
   // Insert toLayout ops for a genericOp's operands and results; this includes

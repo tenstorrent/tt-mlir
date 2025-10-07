@@ -6,11 +6,15 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/Support/raw_ostream.h"
+#include <algorithm>
+#include <string>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERTOLAYOUT
@@ -246,6 +250,62 @@ public:
 };
 } // namespace
 
+// namespace {
+// class D2MVirtualGridRewriter : public OpRewritePattern<GenericOp> {
+// public:
+//   using OpRewritePattern<GenericOp>::OpRewritePattern;
+//
+//   static bool hasVirtualGrid(ArrayRef<int64_t> tensorGrid,
+//                             ArrayRef<int64_t> deviceGrid2D) {
+//     if (tensorGrid.size() > 2) {
+//       return true;
+//     }
+//     int64_t gy = tensorGrid.size() >= 1 ? tensorGrid[0] : 1;
+//     int64_t gx = tensorGrid.size() >= 2 ? tensorGrid[1] : 1;
+//     return gy > deviceGrid2D[0] || gx > deviceGrid2D[1];
+//   }
+//
+//   static bool opHasRawVirtualGridOutput(GenericOp op, ArrayRef<int64_t>
+//   deviceGrid2D) {
+//     for (Value res : op.getResults()) {
+//       auto t = dyn_cast<RankedTensorType>(res.getType());
+//       if (!t) {
+//         return false;
+//       }
+//       auto layout =
+//           dyn_cast_if_present<tt::ttcore::MetalLayoutAttr>(t.getEncoding());
+//       if (!layout) {
+//         return false;
+//       }
+//       ArrayRef<int64_t> grid = layout.getGridShape(t);
+//       return hasVirtualGrid(grid, deviceGrid2D);
+//     }
+//     return false;
+//   }
+//
+//   LogicalResult matchAndRewrite(GenericOp op,
+//                                 PatternRewriter &rewriter) const final {
+//     SmallVector<int64_t, 2> deviceGrid2D = {8,8};//getDeviceGrid2D(root);
+//
+//     size_t changesMade = 0;
+//     for (Value res : op.getResults()) {
+//       auto t = dyn_cast<RankedTensorType>(res.getType());
+//       if (!t) continue;
+//       auto layout =
+//       dyn_cast_if_present<tt::ttcore::MetalLayoutAttr>(t.getEncoding()); if
+//       (!layout) continue; ArrayRef<int64_t> grid = layout.getGridShape(t);
+//       return hasVirtualGrid(grid, deviceGrid2D);
+//     }
+//
+//     if (changesMade) {
+//       return success();
+//     } else {
+//       return failure();
+//     }
+//   }
+// };
+// } // namespace
+
 namespace {
 class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
   // Helper struct to build intermediate bounce types.
@@ -476,6 +536,14 @@ public:
       signalPassFailure();
       return;
     }
+
+    // RewritePatternSet patterns2(&getContext());
+    // patterns2.add<D2MVirtualGridRewriter>(&getContext());
+    // if (failed(applyPatternsGreedily(getOperation(), std::move(patterns2))))
+    // {
+    //   signalPassFailure();
+    //   return;
+    // }
   }
 };
 } // namespace
