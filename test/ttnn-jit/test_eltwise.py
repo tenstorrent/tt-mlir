@@ -71,12 +71,16 @@ def create_sharded_tile_tensor(device, h, w, max_grid, dtype):
     )
 
 
-def run_op_test(device, h, w, max_grid, dtype, op, num_inputs):
-    inputs = [
-        # create_sharded_tile_tensor(device, h, w, max_grid, dtype)
-        create_dram_tensor(device, h, w, dtype)
-        for _ in range(num_inputs)
-    ]
+def run_op_test(
+    device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.DRAM
+):
+    if buffer_type == ttnn.BufferType.L1:
+        inputs = [
+            create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+            for _ in range(num_inputs)
+        ]
+    else:
+        inputs = [create_dram_tensor(device, h, w, dtype) for _ in range(num_inputs)]
     print("inputs", inputs)
     golden_op = _get_ttnn_op(op)
 
@@ -186,6 +190,12 @@ def rsqrt(input_tensor):
     "op",
     [
         abs,
+        exp,
+        log,
+        cos,
+        sin,
+        ceil,
+        floor,
     ],
 )
 @pytest.mark.parametrize(
@@ -198,15 +208,28 @@ def rsqrt(input_tensor):
         (128, 128),
         (256, 256),
         (256, 512),
-        (512, 512),
-        (512, 1024),
-        (1024, 1024),
-        (1024, 2048),
+        # The CBs do not fit in 1 core's L1.
+        # (512, 512),
+        # (512, 1024),
+        # (1024, 1024),
+        # (1024, 2048),
     ],
 )
 def test_unary_op_dram(device, h, w, dtype, op):
+    if op in [log, ceil, floor] and dtype == torch.float32:
+        pytest.xfail("failing allclose for some shapes for float32")
+
     max_grid = (0, 0)
-    run_op_test(device, h, w, max_grid, dtype, op, 1)
+    run_op_test(
+        device,
+        h,
+        w,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.DRAM,
+    )
 
 
 @pytest.mark.parametrize("h , w, max_grid", COMMON_SHAPE_GRID_PARAMS)
@@ -227,13 +250,15 @@ def test_unary_op_dram(device, h, w, dtype, op):
         # tan, sqrt
     ],
 )
-def test_unary_op(device, h, w, max_grid, dtype, op):
+def test_unary_op_l1(device, h, w, max_grid, dtype, op):
     if op in [log, ceil, floor, rsqrt] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
     if op == abs and max_grid == (0, 0) and dtype == torch.bfloat16:
         pytest.skip("already tested in test_unary_op_single_core_sweep")
 
-    run_op_test(device, h, w, max_grid, dtype, op, 1)
+    run_op_test(
+        device, h, w, max_grid, dtype, op, num_inputs=1, buffer_type=ttnn.BufferType.L1
+    )
 
 
 # Note: anything bigger than 256x256 will fail allclose for bfloat16
@@ -241,7 +266,16 @@ def test_unary_op(device, h, w, max_grid, dtype, op):
     "h, w", [(h, w) for h in range(32, 256, 32) for w in range(32, 256, 32)]
 )
 def test_unary_op_single_core_sweep(device, h, w):
-    run_op_test(device, h, w, (0, 0), torch.bfloat16, abs, 1)
+    run_op_test(
+        device,
+        h,
+        w,
+        (0, 0),
+        torch.bfloat16,
+        abs,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+    )
 
 
 # ------------------------------------------------------------
@@ -345,7 +379,9 @@ def test_binary_ops(device, h, w, max_grid, dtype, op):
     if op == pow and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
-    run_op_test(device, h, w, max_grid, dtype, op, num_inputs=2)
+    run_op_test(
+        device, h, w, max_grid, dtype, op, num_inputs=2, buffer_type=ttnn.BufferType.L1
+    )
 
 
 # ------------------------------------------------------------
