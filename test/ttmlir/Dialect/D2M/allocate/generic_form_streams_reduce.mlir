@@ -30,6 +30,8 @@ module {
 
     // CHECK: %[[STREAM_A:.+]] = "d2m.stream_layout"(%{{[^}]+}}, %{{[^}]+}}) : (memref<2x3x1x1x!ttcore.tile
     // CHECK: %[[STREAM_B:.+]] = "d2m.stream_layout"(%{{[^}]+}}, %{{[^}]+}}) : (memref<1x1x1x1x!ttcore.tile
+    // at the moment, outputs should not be streamed:
+    // CHECK-NOT: %[[STREAM_OUT:.+]] = "d2m.stream_layout"(%{{[^}]+}}, %{{[^}]+}}) : (memref<2x1x1x1x!ttcore.tile
     // CHECK: ins(%[[STREAM_A]], %[[STREAM_B]] : memref
 
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x1>, indexing_maps = [#map, #map1, #map2], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<compute>]}
@@ -38,7 +40,7 @@ module {
     ^compute0(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>):
       linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "reduction"]} ins(%cb0, %cb1 : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) outs(%cb2 : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) {
       ^bb0(%in: !ttcore.tile<32x32, f32>, %in_3: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
-        %1 = "d2m.tile_reduce_sum"(%in, %in_3) <{reduce_dim = #d2m<reduce_dim C>}> : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        %1 = "d2m.tile_reduce_sum"(%in, %in_3, %out) <{reduce_dim = #d2m<reduce_dim C>}> : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         linalg.yield %1 : !ttcore.tile<32x32, f32>
       }
     }

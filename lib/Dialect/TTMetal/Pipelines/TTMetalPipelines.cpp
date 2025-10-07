@@ -103,6 +103,14 @@ void createTTIRToTTMetalFrontendPipeline(
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
+  {
+    elementwiseFusionOptions.maxDstRegisterSizeTiles =
+        options.maxDstRegisterSizeTiles;
+  }
+  pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
+  pm.addPass(createLinalgElementwiseOpFusionPass());
+  pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   if (options.ttnnMode) {
     d2m::D2MInsertStreamsOptions insertStreamsOptions;
@@ -134,6 +142,9 @@ void createTTIRToTTMetalMiddleendPipeline(
   { insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul; }
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
+
+  pm.addPass(d2m::createD2MSFPUTileLoopFission());
+  pm.addPass(mlir::createCanonicalizerPass());
 
   OpPassManager &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(affine::createAffineLoopInvariantCodeMotionPass());
