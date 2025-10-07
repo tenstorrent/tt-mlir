@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ env.TARGET_REPO }}" == "tenstorrent/tt-xla" ]]; then
-          gh workflow run ${{ env.WORKFLOW_NAME }} \
+            gh workflow run ${{ env.WORKFLOW_NAME }} \
               --repo ${{ env.TARGET_REPO }} --ref main \
               --raw-field mlir_override=${{ github.event.pull_request.head.sha }} \
               --raw-field test_suite=basic-test.json
