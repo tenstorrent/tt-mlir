@@ -772,6 +772,9 @@ def compile_d2m_to_flatbuffer(
         The path to the generated TT{Metal,NN} MLIR file.
     """
 
+    if device is not None:
+        print("`compile_ttir_to_flatbuffer` received device")
+
     if inputs_types is not None:
         if len(inputs_shapes) != len(inputs_types):
             raise ValueError("inputs_shapes and inputs_types must have the same length")
@@ -1363,11 +1366,6 @@ def execute_fb(
     print(f"Begining flatbuffer execution on {fb_path}")
 
     bin = Binary(logger, file_manager, fb_path)
-
-    # Set which runtime (right now TTNN v. TTMetal) based on the flatbuffer being processed.
-    print("Setting runtime...")
-    ttrt.runtime.set_compatible_runtime(bin.fbb)
-    print(f"Runtime set to {ttrt.runtime.get_current_runtime()}")
 
     fb_mesh_shape = bin.get_program(0).mesh_shape
     num_mesh_devices = reduce(operator.mul, fb_mesh_shape, 1)
