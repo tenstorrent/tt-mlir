@@ -424,8 +424,7 @@ void MCQExecutor::execute(
     const target::metal::EnqueueRecordEventCommand *command) {
   ZoneScopedN("EnqueueRecordEventCommand");
   meshEvents[command->ref()->global_id()] =
-      std::make_shared<distributed::MeshEvent>(
-          distributed::EnqueueRecordEvent(*mcq));
+      std::make_shared<distributed::MeshEvent>(mcq->enqueue_record_event());
 }
 
 void MCQExecutor::execute(
