@@ -793,13 +793,12 @@ def where(
 
 def broadcast(
     in0: Operand,
-    in1: Operand,
     builder: TTIRBuilder,
     broadcast_dimensions: Optional[List[int]] = None,
     unit_attrs: Optional[List[str]] = None,
 ):
     return builder.broadcast(
-        in0, in1, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
+        in0, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
     )
 
 
@@ -814,24 +813,23 @@ def concat(
     return builder.concat([in0, in1, in2], dim=dim, unit_attrs=unit_attrs)
 
 
-@pytest.mark.parametrize("shapes", [[(1, 1, 32), (1, 16, 32)]])
+@pytest.mark.parametrize("shape", [(1, 1, 32)])
 @pytest.mark.parametrize("broadcast_dimensions", [[1, 16, 1]])
-def test_broadcast(shapes: List[Shape], broadcast_dimensions: List[int], request):
+def test_broadcast(shape: Shape, broadcast_dimensions: List[int], request):
     # Create a wrapper function that captures broadcast_dimensions
     def broadcast_wrapper(
         in0: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return broadcast(in0, in1, builder, broadcast_dimensions, unit_attrs)
+        return broadcast(in0, builder, broadcast_dimensions, unit_attrs)
 
     # Set the name for better test identification
     broadcast_wrapper.__name__ = "broadcast"
 
     compile_ttir_to_flatbuffer(
         broadcast_wrapper,
-        shapes,
+        [shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1137,11 +1135,10 @@ def test_hoisted_conv2d(
             (3, 8, 8, 256),
             (256, 256, 3, 3),
             (1, 1, 1, 256),
-            (1, 10, 10, 256),
         ]
     ],
 )
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
 @pytest.mark.parametrize(
     "stride,padding,output_padding,dilation,groups", [(1, 0, 0, 1, 1)]
 )
@@ -1159,7 +1156,6 @@ def test_conv_transpose2d(
         in0: Operand,
         weight: Operand,
         bias: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
@@ -1167,7 +1163,6 @@ def test_conv_transpose2d(
             in0,
             weight,
             bias,
-            in1,
             stride=stride,
             padding=padding,
             output_padding=output_padding,
@@ -1190,11 +1185,11 @@ def test_conv_transpose2d(
     "kernel,stride,dilation,padding,ceil_mode",
     [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
 )
-@pytest.mark.parametrize("shapes", [[(1, 128, 128, 32), (1, 64, 64, 32)]])
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+@pytest.mark.parametrize("shape", [(1, 128, 128, 32)])
+@pytest.mark.parametrize("dtype", [torch.float32])
 def test_max_pool2d(
-    shapes: List[Shape],
-    dtypes: List[torch.dtype],
+    shape: Shape,
+    dtype: torch.dtype,
     kernel: List[int],
     stride: List[int],
     dilation: List[int],
@@ -1204,13 +1199,11 @@ def test_max_pool2d(
 ):
     def max_pool2d(
         in0: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         return builder.max_pool2d(
             in0,
-            in1,
             kernel=kernel,
             stride=stride,
             dilation=dilation,
@@ -1221,8 +1214,8 @@ def test_max_pool2d(
 
     compile_ttir_to_flatbuffer(
         max_pool2d,
-        shapes,
-        dtypes,
+        [shape],
+        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1234,13 +1227,13 @@ def test_max_pool2d(
     "kernel,stride,dilation,padding,ceil_mode",
     [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
 )
-@pytest.mark.parametrize("shapes", [[(1, 128, 128, 32), (1, 64, 64, 32)]])
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+@pytest.mark.parametrize("shape", [(1, 128, 128, 32)])
+@pytest.mark.parametrize("dtype", [torch.float32])
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.run_error  # Issue #5133.
 def test_hoisted_max_pool2d(
-    shapes: List[Shape],
-    dtypes: List[torch.dtype],
+    shape: Shape,
+    dtype: torch.dtype,
     kernel: List[int],
     stride: List[int],
     dilation: List[int],
@@ -1253,13 +1246,11 @@ def test_hoisted_max_pool2d(
 
     def hoisted_max_pool2d(
         in0: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         return builder.max_pool2d(
             in0,
-            in1,
             kernel=kernel,
             stride=stride,
             dilation=dilation,
@@ -1272,8 +1263,8 @@ def test_hoisted_max_pool2d(
 
     compile_ttir_to_flatbuffer(
         hoisted_max_pool2d,
-        shapes,
-        dtypes,
+        [shape],
+        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1295,11 +1286,11 @@ def test_hoisted_max_pool2d(
         ),  # This test will produce a different output if count_include_pad is True for spatial dims (31, 31)
     ],
 )
-@pytest.mark.parametrize("shapes", [[(1, 31, 31, 32), (1, 31, 35, 32)]])
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+@pytest.mark.parametrize("shape", [(1, 31, 31, 32)])
+@pytest.mark.parametrize("dtype", [torch.float32])
 def test_avg_pool2d(
-    shapes: List[Shape],
-    dtypes: List[torch.dtype],
+    shape: Shape,
+    dtype: torch.dtype,
     kernel: List[int],
     stride: List[int],
     dilation: List[int],
@@ -1310,13 +1301,11 @@ def test_avg_pool2d(
 ):
     def avg_pool2d(
         in0: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         return builder.avg_pool2d(
             in0,
-            in1,
             kernel=kernel,
             stride=stride,
             dilation=dilation,
@@ -1328,8 +1317,8 @@ def test_avg_pool2d(
 
     compile_ttir_to_flatbuffer(
         avg_pool2d,
-        shapes,
-        dtypes,
+        [shape],
+        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1393,23 +1382,20 @@ def test_batch_norm(
 
 
 @pytest.mark.fails_golden
-@pytest.mark.parametrize("shapes", [[(1, 1, 5, 5), (2, 6, 14, 18)]])
+@pytest.mark.parametrize("shape", [(1, 1, 5, 5)])
 @pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
 @pytest.mark.parametrize("value", [0])
-def test_pad(shapes: List[Shape], padding: List[int], value: int, request):
+def test_pad(shape: Shape, padding: List[int], value: int, request):
     def pad(
         in0: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return builder.pad(
-            in0, in1, padding=padding, value=value, unit_attrs=unit_attrs
-        )
+        return builder.pad(in0, padding=padding, value=value, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
         pad,
-        inputs_shapes=shapes,
+        inputs_shapes=[shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1853,11 +1839,10 @@ def test_typecast(
 ):
     def typecast(
         in0: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return builder.typecast(in0, in1, unit_attrs=unit_attrs)
+        return builder.typecast(in0, output_type=to_type, unit_attrs=unit_attrs)
 
     pipeline_options = []
     # Workaround for ttmetal, only support 1x1 grid atm
@@ -1865,8 +1850,8 @@ def test_typecast(
         pipeline_options.append("override-device-shape=1,1")
     compile_ttir_to_flatbuffer(
         typecast,
-        [shape, shape],
-        [from_type, to_type],
+        [shape],
+        [from_type],
         test_base=request.node.name,
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
@@ -1874,16 +1859,15 @@ def test_typecast(
     )
 
 
-@pytest.mark.parametrize("shapes", [[(4, 4, 128, 128), (4, 4, 128, 128)]])
+@pytest.mark.parametrize("shapes", [[(4, 4, 128, 128)]])
 @pytest.mark.parametrize("dim", [1])
 def test_cumsum(shapes: List[Shape], dim: int, request):
     def cumsum(
         in0: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return builder.cumsum(in0, in1, dim=dim, unit_attrs=unit_attrs)
+        return builder.cumsum(in0, dim=dim, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
         cumsum,
@@ -3129,33 +3113,30 @@ def test_hoisted_reduce_or(shape: Shape, dim_args: List[int], target: str, reque
 
 @x86_only
 @pytest.mark.parametrize(
-    "shapes,broadcast_dims",
+    "shape,broadcast_dims",
     [
-        # [(input_shape, output_shape), broadcast_dimensions]
-        ([(1, 1, 32), (1, 16, 32)], [1, 16, 1]),
-        ([(128, 1), (128, 64)], [1, 64]),
-        ([(1, 128), (64, 128)], [64, 1]),
+        # [input_shape, broadcast_dimensions]
+        ((1, 1, 32), [1, 16, 1]),
+        ((128, 1), [1, 64]),
+        ((1, 128), [64, 1]),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_broadcast(shapes, broadcast_dims, request, target: str):
+def test_hoisted_broadcast(shape, broadcast_dims, request, target: str):
     """Test broadcast operation with CPU hoisting enabled using the 'hoisted_' naming convention"""
 
     def broadcast_wrapper(
         in0: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        return broadcast(
-            in0, in1, builder, broadcast_dims, unit_attrs=["ttir.should_hoist"]
-        )
+        return broadcast(in0, builder, broadcast_dims, unit_attrs=["ttir.should_hoist"])
 
     broadcast_wrapper.__name__ = "hoisted_broadcast"
 
     compile_ttir_to_flatbuffer(
         broadcast_wrapper,
-        inputs_shapes=shapes,
+        inputs_shapes=[shape],
         test_base=f"{request.node.name}",
         target=target,
         output_root=request.config.getoption("--path"),
