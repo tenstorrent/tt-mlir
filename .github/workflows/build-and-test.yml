@@ -129,6 +129,9 @@ jobs:
     container:
       image: ${{ needs.build-image.outputs.sh_builder == 'true' && needs.build-image.outputs.docker-image-harbor || needs.build-image.outputs.docker-image }}
 
+    env:
+      # TODO: Revisit the addition of these env vars https://github.com/tenstorrent/tt-metal/issues/20161
+      TRACY_NO_INVARIANT_CHECK: 1
     steps:
 
     - name: Maximize space
