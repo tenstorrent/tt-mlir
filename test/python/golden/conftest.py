@@ -10,7 +10,7 @@ from functools import reduce
 import operator
 import torch
 import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Tuple, Optional
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
@@ -18,21 +18,25 @@ ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
 
 _current_device = None
 _current_device_target: Optional[str] = None
+_current_device_mesh_shape: Optional[Tuple[int, int]] = None
 
 
-def _get_device_for_target(target: str, pytestconfig):
+def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfig):
     """Given a `target`, returns a device capable of executing a flatbuffer
     compiled for that `target`.
 
     For efficiency, this device is reused from the last test if possible via
-    the `current_device` and `current_device_target` caches
+    the `_current_device`, `_current_device_target` & `_current_device_mesh_shape` caches
     """
-    global _current_device, _current_device_target
+    global _current_device, _current_device_target, _current_device_mesh_shape
 
     if _current_device is not None:
 
         # Cache hit
-        if _current_device_target == target:
+        if (
+            _current_device_target == target
+            and _current_device_mesh_shape == mesh_shape
+        ):
             return _current_device
         else:  # Cache miss, need to teardown
             print(
@@ -41,6 +45,7 @@ def _get_device_for_target(target: str, pytestconfig):
             ttrt.runtime.close_mesh_device(_current_device)
             _current_device = None
             _current_device_target = None
+            _current_device_mesh_shape = None
 
     # Open new device for target
     print(f"Opening device for {target}")
@@ -54,13 +59,16 @@ def _get_device_for_target(target: str, pytestconfig):
 
     # Start with a small mesh shape that should work for most tests
     # Tests requiring larger meshes will be handled appropriately
-    mesh_options.mesh_shape = [1, 1]  # Support up to 2 devices in x dimension
+    mesh_options.mesh_shape = mesh_shape
 
     ttrt.runtime.set_compatible_device_runtime_by_str(target)
     device = ttrt.runtime.open_mesh_device(mesh_options)
-    print(f"Device opened for test session with mesh shape {mesh_options.mesh_shape}.")
+    print(
+        f"Device opened for test session with target {target} & mesh shape {mesh_options.mesh_shape}."
+    )
     _current_device = device
     _current_device_target = target
+    _current_device_mesh_shape = mesh_shape
     return _current_device
 
 
@@ -112,10 +120,17 @@ def device(request, pytestconfig):
     """
     # default target is ttnn elsewhere, if no "target" is supplied it will compile to ttnn
     target = "ttnn"
+    mesh_shape = (1, 1)
 
     if hasattr(request.node, "callspec"):
         target = request.node.callspec.params.get("target", "ttnn")
-    return _get_device_for_target(target, pytestconfig)
+
+        # Support for other backends coming soon.
+        if target not in ["ttnn", "ttmetal"]:
+            return None
+
+        mesh_shape = request.node.callspec.params.get("mesh_shape", (1, 1))
+    return _get_device_for_target(target, mesh_shape, pytestconfig)
 
 
 def pytest_addoption(parser):
@@ -506,3 +521,12 @@ def pytest_collection_modifyitems(config, items):
     # Report deselected items to pytest
     if deselected:
         config.hook.pytest_deselected(items=deselected)
+
+
+def pytest_sessionfinish(session):
+    global _current_device, _current_device_target, _current_device_mesh_shape
+    if _current_device is not None:
+        ttrt.runtime.close_mesh_device(_current_device)
+        _current_device = None
+        _current_device_target = None
+        _current_device_mesh_shape = None
