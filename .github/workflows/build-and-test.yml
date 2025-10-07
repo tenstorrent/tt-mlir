@@ -279,6 +279,8 @@ jobs:
 
     - name: Run Tests
       shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
       run: |
         source env/activate
         export WORK_DIR="$(pwd)"
@@ -292,6 +294,7 @@ jobs:
         export IMAGE_NAME="${{ matrix.build.image }}"
         export PATH="$WORK_DIR/.github/test_scripts:$PATH"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        alias download_artifact='gh run download ${{ github.run_id }} --repo tenstorrent/tt-mlir --pattern'
         rm -rf test_reports || true
         mkdir -p test_reports
         rm -rf ttrt_results || true
@@ -389,118 +392,6 @@ jobs:
           python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
           python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
 
-
-  # Dedicated job for tt-alchemist tests
-  test-tt-alchemist:
-    timeout-minutes: 45
-    needs:
-      - build-image
-      - build-ttmlir
-    runs-on:
-      - n150
-      - in-service
-    container:
-      image: ${{ needs.build-image.outputs.docker-image }}
-      options: '--device /dev/tenstorrent'
-      volumes:
-        - /dev/hugepages:/dev/hugepages
-        - /dev/hugepages-1G:/dev/hugepages-1G
-        - /etc/udev/rules.d:/etc/udev/rules.d
-        - /lib/modules:/lib/modules
-        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
-
-    steps:
-
-    # Sparse checkout tt-alchemist tests
-    - name: Checkout tests only
-      uses: actions/checkout@v4
-      with:
-        sparse-checkout: |
-          test/ttmlir/models
-          tools/tt-alchemist/test
-          test/ttmlir/EmitC/TTNN/load_input
-
-    - name: Fetch job id
-      id: fetch-job-id
-      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
-      with:
-        job_name: "test-tt-alchemist"
-
-    # Once boost is removed from public header APIs, this step should be removed
-    # ticket: https://github.com/tenstorrent/tt-metal/issues/25354
-    - name: Install non-standard boost lib
-      shell: bash
-      run: |
-        sudo add-apt-repository ppa:mhier/libboost-latest
-        sudo apt update
-        sudo apt install -y libboost1.83-dev
-
-    - name: Download tt-alchemist wheel
-      uses: actions/download-artifact@v4
-      with:
-        name: tt-alchemist-whl-speedy
-
-    - name: Install tt-alchemist wheel
-      shell: bash
-      run: |
-        python3 -m venv testenv
-        source testenv/bin/activate
-        pip install tt_alchemist-*.whl --force-reinstall
-        echo "Wheel installed successfully"
-
-    - name: Run tt-alchemist API test - model-to-cpp
-      shell: bash
-      run: |
-        source testenv/bin/activate
-        tt-alchemist model-to-cpp tools/tt-alchemist/test/models/mnist.mlir
-
-    - name: Run tt-alchemist API test - model-to-python
-      shell: bash
-      run: |
-        source testenv/bin/activate
-        tt-alchemist model-to-python tools/tt-alchemist/test/models/mnist.mlir
-
-    - name: Run tt-alchemist API test - generate-cpp (load tensors)
-      shell: bash
-      run: |
-        source testenv/bin/activate
-        OUTPUT_DIR=/tmp/test-load-tensors
-        rm -rf $OUTPUT_DIR
-        tt-alchemist generate-cpp --pipeline-options 'load-input-tensors-from-disk=true' test/ttmlir/EmitC/TTNN/load_input/ttnn_load_input_tensors.mlir --output $OUTPUT_DIR --standalone
-        cp test/ttmlir/EmitC/TTNN/load_input/arg0.tensorbin test/ttmlir/EmitC/TTNN/load_input/arg1.tensorbin $OUTPUT_DIR
-        cd $OUTPUT_DIR
-        [ -d $OUTPUT_DIR ] || { echo "Directory not found: $OUTPUT_DIR" >&2; exit 1; }
-        ./run
-
-    - name: Run tt-alchemist API test - generate-cpp (mnist)
-      shell: bash
-      run: |
-        source testenv/bin/activate
-        rm -rf /tmp/test-generate-cpp-mnist
-        tt-alchemist generate-cpp tools/tt-alchemist/test/models/mnist.mlir --output /tmp/test-generate-cpp-mnist --standalone
-        cd /tmp/test-generate-cpp-mnist
-        [ -d /tmp/test-generate-cpp-mnist ] || { echo "Directory not found: /tmp/test-generate-cpp-mnist" >&2; exit 1; }
-        ./run
-
-    - name: Run tt-alchemist API test - generate-cpp (resnet)
-      shell: bash
-      run: |
-        source testenv/bin/activate
-        rm -rf /tmp/test-generate-cpp-resnet
-        tt-alchemist generate-cpp tools/tt-alchemist/test/models/resnet_hf.mlir --output /tmp/test-generate-cpp-resnet --standalone
-        cd /tmp/test-generate-cpp-resnet
-        [ -d /tmp/test-generate-cpp-resnet ] || { echo "Directory not found: /tmp/test-generate-cpp-resnet" >&2; exit 1; }
-        ./run
-
-    - name: Run tt-alchemist API test - generate-python
-      shell: bash
-      run: |
-        source testenv/bin/activate
-        rm -rf /tmp/test-generate-python
-        tt-alchemist generate-python tools/tt-alchemist/test/models/mnist.mlir --output /tmp/test-generate-python --standalone
-        cd /tmp/test-generate-python
-        [ -d /tmp/test-generate-python ] || { echo "Directory not found: /tmp/test-generate-python" >&2; exit 1; }
-        # ./run  # TODO: enable when fixed
 
   lint:
     if: github.event_name == 'pull_request'
