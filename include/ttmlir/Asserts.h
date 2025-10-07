@@ -71,10 +71,10 @@ namespace ttmlir::utils::asserts {
 //
 // Specifically, these debug macros are void-valued definitions unless
 // TT_ASSERT_ENABLE_DEBUG_ASSERTS is defined. The latter happens by default when
-// CMAKE_CXX_FLAGS_DEBUG is defined.
+// TT_BUILD_DEBUG is defined by `Debug` CMAKE_BUILD_TYPE.
 
 #if !defined(TT_ASSERT_ENABLE_DEBUG_ASSERTS)
-#if defined(CMAKE_CXX_FLAGS_DEBUG)
+#if defined(TT_BUILD_DEBUG)
 #define TT_ASSERT_ENABLE_DEBUG_ASSERTS
 #endif // CMAKE_CXX_FLAGS_DEBUG
 #endif // TT_ASSERT_ENABLE_DEBUG_ASSERTS
@@ -462,6 +462,9 @@ decltype(auto) unsigned_cast(T x) {
 //===---------------------------------------------------------------------===//
 
 #if defined(TT_ASSERT_ENABLE_DEBUG_ASSERTS)
+
+# define TT_debug(condition)                              TT_assert(condition)
+# define TT_debugv(condition, /* message[, args] */...)   TT_assertv(condition, __VA_ARGS__)
 
 # define TT_debug_open_range(x, a, b)                     TT_assert_open_range(x, a, b)
 # define TT_debug_limit(x, limit)                         TT_assert_limit(x, limit)
