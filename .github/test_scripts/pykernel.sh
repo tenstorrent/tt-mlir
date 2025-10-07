@@ -11,5 +11,5 @@ ln -sf $INSTALL_DIR/tt-metal third_party/tt-metal/src/tt-metal
 
 echo "Running PyKernel tests..."
 pytest -v $WORK_DIR/test/pykernel/demo/test.py
-pytest -v $WORK_DIR/test/ttnn-jit/test_unary_composite.py
+pytest -v $WORK_DIR/test/ttnn-jit/test_eltwise.py
 rm -rf third_party/tt-metal
