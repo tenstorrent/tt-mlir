@@ -208,11 +208,6 @@ def rsqrt(input_tensor):
         (128, 128),
         (256, 256),
         (256, 512),
-        # The CBs do not fit in 1 core's L1.
-        # (512, 512),
-        # (512, 1024),
-        # (1024, 1024),
-        # (1024, 2048),
     ],
 )
 def test_unary_op_dram(device, h, w, dtype, op):
