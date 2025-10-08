@@ -159,6 +159,12 @@ def setup_runtime_libraries(config):
     copied_hwloc_libs = copy_library_files(hwloc_lib_dir, wheel_runtime_dir, hwloc_libs)
     dylibs.extend(copied_hwloc_libs)
 
+    # Copy libnsl library (dependency of MPI)
+    nsl_lib_dir = "/usr/lib/x86_64-linux-gnu"
+    nsl_libs = ["libnsl.so.2"]
+    copied_nsl_libs = copy_library_files(nsl_lib_dir, wheel_runtime_dir, nsl_libs)
+    dylibs.extend(copied_nsl_libs)
+
     # Copy TTMLIRCompiler library to fix missing symbols
     compiler_lib_path = f"{config['ttmlir_build_dir']}/lib/libTTMLIRCompiler.so"
     if os.path.exists(compiler_lib_path):
