@@ -537,7 +537,8 @@ ChipDescAttr::getDstLogicalSizeTiles(Type type, bool fullSyncEn,
     nDstTiles /= 2;
   }
   // Will/should this be in-sync with the compute thread's fp32DestAccum?
-  if (type.getIntOrFloatBitWidth() == 32) {
+  const auto dataType = ttcore::elementTypeToDataType(type);
+  if (ttcore::getNumberOfBits(dataType) == 32u) {
     nDstTiles /= 2;
   }
   return nDstTiles;

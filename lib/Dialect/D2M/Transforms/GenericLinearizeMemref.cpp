@@ -110,26 +110,6 @@ public:
       : OpRewritePattern<TileMatmulBlockOp>(context),
         collapseOps(&collapseOps) {}
 
-  static std::optional<memref::CollapseShapeOp>
-  linearize(Value val, PatternRewriter &rewriter,
-            DenseMap<Value, memref::CollapseShapeOp> *cache) {
-    auto memrefTy = mlir::cast<MemRefType>(val.getType());
-    memref::CollapseShapeOp linearized = cache->lookup(val);
-    if (!linearized) {
-      rewriter.setInsertionPointAfterValue(val);
-      SmallVector<ReassociationIndices, 4> collapsedDims = {
-          llvm::to_vector(llvm::seq<int64_t>(0, memrefTy.getRank()))};
-      if (!memref::CollapseShapeOp::isGuaranteedCollapsible(memrefTy,
-                                                            collapsedDims)) {
-        return std::nullopt;
-      }
-      linearized = rewriter.create<memref::CollapseShapeOp>(val.getLoc(), val,
-                                                            collapsedDims);
-      cache->insert({val, linearized});
-    }
-    return linearized;
-  }
-
   static int64_t getNumColumns(Value view) {
     if (auto castOp = mlir::dyn_cast<memref::CastOp>(view.getDefiningOp())) {
       view = castOp.getSource();
@@ -160,24 +140,11 @@ public:
     int64_t ctDim = typeB.getShape()[1];
     int64_t ntDim = getNumColumns(op.getB());
 
-    auto linA = linearize(op.getA(), rewriter, collapseOps);
-    auto linB = linearize(op.getB(), rewriter, collapseOps);
-    auto linO = linearize(op.getOutput(), rewriter, collapseOps);
-
     rewriter.setInsertionPoint(op);
-    // For memrefs that are not collapsible (e.g., strided subviews), set the
-    // block dimensions but keep the original operands.
-    if (!linA || !linB || !linO) {
-      rewriter.replaceOpWithNewOp<TileMatmulBlockOp>(
-          op, op.getA(), op.getB(), op.getOutput(),
-          rewriter.getI64IntegerAttr(rtDim), rewriter.getI64IntegerAttr(ktDim),
-          rewriter.getI64IntegerAttr(ctDim), rewriter.getI64IntegerAttr(ntDim));
-    } else {
-      rewriter.replaceOpWithNewOp<TileMatmulBlockOp>(
-          op, linA->getResult(), linB->getResult(), linO->getResult(),
-          rewriter.getI64IntegerAttr(rtDim), rewriter.getI64IntegerAttr(ktDim),
-          rewriter.getI64IntegerAttr(ctDim), rewriter.getI64IntegerAttr(ntDim));
-    }
+    rewriter.replaceOpWithNewOp<TileMatmulBlockOp>(
+        op, op.getA(), op.getB(), op.getOutput(),
+        rewriter.getI64IntegerAttr(rtDim), rewriter.getI64IntegerAttr(ktDim),
+        rewriter.getI64IntegerAttr(ctDim), rewriter.getI64IntegerAttr(ntDim));
 
     return success();
   }

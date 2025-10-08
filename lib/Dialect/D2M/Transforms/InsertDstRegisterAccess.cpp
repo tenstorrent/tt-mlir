@@ -215,9 +215,9 @@ public:
 
     auto [cbType, maxDstSliceIdx] = inferCbInfoFromAllAccesses(copyInfos);
     // Calculate dst shape as N slices of cb shape.
-    int64_t volume = ttmlir::utils::volume(cbType.getShape());
-    assert(volume <= dstCapacity);
-    int64_t numDstSlices = dstCapacity / volume;
+    const int64_t volume = ttmlir::utils::volume(cbType.getShape());
+    TT_assert(volume <= dstCapacity);
+    const int64_t numDstSlices = dstCapacity / volume;
     TT_assertv(maxDstSliceIdx < numDstSlices,
                "Insufficient DST capacity for all operands.");
     SmallVector<int64_t> dstShape({numDstSlices});

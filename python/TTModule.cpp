@@ -189,7 +189,7 @@ void populateTTModule(nb::module_ &m) {
                                                overridePhysicalSize);
           },
           nb::arg("type"), nb::arg("full_sync_en") = false,
-          nb::arg("override_physical_size") = std::nullopt)
+          nb::arg("override_physical_size") = 0)
       .def_prop_ro("arch", &tt::ttcore::ChipDescAttr::getArch)
       .def_prop_ro(
           "grid",

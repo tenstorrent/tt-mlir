@@ -57,6 +57,10 @@ getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
 }
 
 Type getRegionLargestDstElemType(Region &region) {
+  auto getTypeNumberOfBits = [](Type type) {
+    return ttcore::getNumberOfBits(ttcore::elementTypeToDataType(type));
+  };
+
   Type largestType = nullptr;
   region.walk([&](OperandLoadStoreRegisterOpInterface op) {
     // Only the typecast op has different input & output types, but it's a DST
@@ -65,11 +69,11 @@ Type getRegionLargestDstElemType(Region &region) {
       Type t = ttcore::getOperandInnerElementType(v);
 
       if (!largestType ||
-          (t.getIntOrFloatBitWidth() > largestType.getIntOrFloatBitWidth())) {
+          (getTypeNumberOfBits(t) > getTypeNumberOfBits(largestType))) {
         largestType = t;
       }
 
-      if (largestType && largestType.getIntOrFloatBitWidth() == 32) {
+      if (largestType && getTypeNumberOfBits(largestType) >= 32u) {
         return WalkResult::interrupt();
       }
     }
@@ -77,7 +81,7 @@ Type getRegionLargestDstElemType(Region &region) {
   });
 
   assert(largestType);
-  TT_assert(largestType.getIntOrFloatBitWidth() <= 32u);
+  TT_assert(getTypeNumberOfBits(largestType) <= 32u);
   return largestType;
 }
 
