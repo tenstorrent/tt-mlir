@@ -1,12 +1,5 @@
 include(AddMLIRPython)
 
-# Get Python site-packages directory at configure time
-execute_process(
-  COMMAND python -c "import site; print(site.getsitepackages()[0])"
-  OUTPUT_VARIABLE PYTHON_SITE_PACKAGES
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
 set(TTRT_SOURCES)
 file(GLOB_RECURSE TTRT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/*)
 foreach (filename ${TTRT_FILES})
@@ -30,7 +23,6 @@ add_custom_command(
           TTMLIR_VERSION_PATCH=${TTMLIR_VERSION_PATCH}
           CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}
           SOURCE_ROOT=${TTMLIR_SOURCE_DIR}
-          PYTHONPATH=${PYTHON_SITE_PACKAGES}/ttrt/runtime/ttnn:$PYTHONPATH
           python -m pip wheel . --wheel-dir build
   COMMAND python -m pip install build/*.whl --force-reinstall
   COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
@@ -63,7 +55,6 @@ declare_mlir_python_sources(TTRTSources
     common/read.py
     common/run.py
     common/util.py
-    common/emitpy.py
     common/emitpy.py
 
     # runtime subpackage files
