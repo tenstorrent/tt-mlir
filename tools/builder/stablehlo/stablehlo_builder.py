@@ -683,17 +683,10 @@ class StableHLOBuilder(Builder):
         (*OpView*)
             The broadcasted tensor
         """
-        output_shape = []
-        for i in range(len(broadcast_dimensions)):
-            if broadcast_dimensions[i] != 1:
-                output_shape.append(broadcast_dimensions[i])
-            else:
-                output_shape.append(self.get_shape(in0)[i])
         return self._op_proxy(
             stablehlo.BroadcastInDimOp[in0],
             organize_golden_args=self._organize_eltwise_golden,
             stablehlo_kwargs={"broadcast_dimensions": broadcast_dimensions},
-            output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
 
