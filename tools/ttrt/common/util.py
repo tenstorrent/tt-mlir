@@ -71,6 +71,18 @@ def get_ttrt_metal_home_path():
     return tt_metal_home
 
 
+def mask_torch_inf_nan(tensor):
+    import torch
+
+    tensor[
+        torch.logical_or(
+            torch.isnan(tensor),
+            torch.logical_or(torch.isinf(tensor), torch.isneginf(tensor)),
+        )
+    ] = 0
+    return tensor
+
+
 def get_atol_rtol_pcc(golden, calculated, logging):
     import numpy as np
     import torch
@@ -100,22 +112,8 @@ def get_atol_rtol_pcc(golden, calculated, logging):
             return 0.0
         else:
             # For now, mask all infs and nans so that we check the rest... TODO
-            golden = golden.clone()
-            golden[
-                torch.logical_or(
-                    torch.isnan(golden),
-                    torch.logical_or(torch.isinf(golden), torch.isneginf(golden)),
-                )
-            ] = 0
-            calculated = calculated.clone()
-            calculated[
-                torch.logical_or(
-                    torch.isnan(calculated),
-                    torch.logical_or(
-                        torch.isinf(calculated), torch.isneginf(calculated)
-                    ),
-                )
-            ] = 0
+            golden = mask_torch_inf_nan(golden)
+            calculated = mask_torch_inf_nan(calculated)
 
             if torch.equal(golden, calculated):
                 return 1.0
@@ -569,6 +567,43 @@ class FileManager:
         ttsys_files.sort()
         return ttsys_files
 
+    def find_emitpy_dylib_paths(self, path):
+        self.logging.debug(f"finding all .py files from={path}")
+        py_files = []
+
+        if self.is_file(path):
+            if self.check_file_exists(path):
+                if self.get_file_extension(path) == EmitPyDylib.get_py_file_extension():
+                    py_files.append(path)
+                    self.logging.debug(f"found file={path}")
+            else:
+                self.logging.info(f"file '{path}' not found - skipping")
+        else:
+            self.check_directory_exists(path)
+            try:
+                for root, _, files in os.walk(path):
+                    for file in files:
+                        if (
+                            self.get_file_extension(file)
+                            == EmitPyDylib.get_py_file_extension()
+                        ):
+                            py_files.append(os.path.join(root, file))
+                            self.logging.debug(f"found file={os.path.join(root, file)}")
+            except Exception as e:
+                raise Exception(f"an unexpected error occurred: {e}")
+
+        # Sort files alphabetically to ensure consistent ordering.
+        py_files.sort()
+        return py_files
+
+    def find_corresponding_ttnn_in_directory(self, py_path, ttnn_directory):
+        py_filename = self.get_file_name(py_path)
+        ttnn_filename = py_filename.replace(".py", ".ttnn")
+        ttnn_path = os.path.join(ttnn_directory, ttnn_filename)
+        if self.check_file_exists(ttnn_path):
+            return ttnn_path
+        return None
+
 
 class Artifacts:
     def __init__(self, logger, file_manager=None, artifacts_folder_path=""):
@@ -593,6 +628,12 @@ class Artifacts:
 
     def get_binary_perf_folder_path(self, binary):
         return f"{self.get_artifacts_folder_path()}/{binary.name}/perf"
+
+    def get_binary_run_folder_path(self, binary):
+        return f"{self.get_artifacts_folder_path()}/{binary.name}/run"
+
+    def get_dylib_emitpy_folder_path(self, dylib):
+        return f"{self.get_artifacts_folder_path()}/{dylib.name}/emitpy"
 
     def create_artifacts(self):
         self.file_manager.create_directory(self.get_artifacts_folder_path())
@@ -653,6 +694,8 @@ class Artifacts:
             f"saving torch tensor={torch_tensor_name} to folder_path={folder_path}"
         )
 
+        if not self.file_manager.check_directory_exists(folder_path):
+            self.file_manager.create_directory(folder_path)
         try:
             torch.save(torch_tensor, f"{folder_path}/{torch_tensor_name}")
         except Exception as e:
@@ -1008,6 +1051,22 @@ class SystemDesc(Flatbuffer):
                 "Binary schema mismatch, please recompile the binary with the compiler at the same schema version"
             )
         return True
+
+
+class EmitPyDylib:
+    def __init__(self, logger, file_manager, file_path, capsule=None):
+        self.logger = logger
+        self.logging = self.logger.get_logger()
+        self.file_manager = file_manager
+        self.file_path = file_path if file_path != None else "<dylib-from-capsule>"
+        self.name = self.file_manager.get_file_name(file_path)
+
+        # temporary state value to check if test failed
+        self.test_result = "pass"
+
+    @staticmethod
+    def get_py_file_extension():
+        return ".py"
 
 
 class TTRTTestException(Exception):
