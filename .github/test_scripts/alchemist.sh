@@ -3,17 +3,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-echo "Install non-standard boost lib"
-# Once boost is removed from public header APIs, this step should be removed
-# ticket: https://github.com/tenstorrent/tt-metal/issues/25354
-echo "Install non-standard boost lib"
-sudo add-apt-repository ppa:mhier/libboost-latest
-sudo apt update
-sudo apt install -y libboost1.83-dev
-
 echo "Download alchemist wheel"
 gh run download $RUN_ID --repo tenstorrent/tt-mlir --name "tt-alchemist-whl-speedy"
 
+deactivate
 python3 -m venv testenv
 source testenv/bin/activate
 pip install tt_alchemist-*.whl --force-reinstall
@@ -59,5 +52,4 @@ cd /tmp/test-generate-python
 echo "Test Passed. Doing cleanup"
 deactivate
 rm -rf testenv
-sudo apt remove -y libboost1.83-dev
-sudo apt autoremove -y
+source env/activate
