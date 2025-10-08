@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
+#include "ttmlir/Dialect/D2M/Analysis/GenericOpBufferAnalysis.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
@@ -52,6 +53,7 @@ using IndexT = Planner::IndexT;
 using LiveRange = Planner::LiveRange;
 
 using allocation::AsOperandPrinter;
+using allocation::asShape;
 using allocation::is_operation_v;
 using allocation::ordinal;
 
@@ -144,8 +146,12 @@ using DefUseChain = llvm::SmallVector<Operation *, 4>;
 struct OperandContext {
   // This collects the set of ops defining an operand all the way to its
   // root `memref::AllocOp` or block arg.
+  // TODO(vroubtsov) consider making operand Value the 0th slot in here, get rid
+  // of `operandIndex` etc.
   DefUseChain defChain;
-  // Cached memref type for the defining Value, set lazily.
+  // Buffer type to use for this operand's stream, if one is inserted.
+  // WIP: while tensor alloc decision variables remain binary, this type
+  // is selected early, by the first generic op analysis step.
   MemRefType bufferType;
   // `true` is if this corresponds to a generic op output.
   bool isOutput = false;
@@ -217,6 +223,14 @@ struct FuncAnalysisData {
   }
 };
 
+struct BufferAnalysis {
+  BufferAnalysis(GenericOpBufferAnalysis::Constraints::BufferStrategy strategy)
+      : constraints{strategy} {}
+
+  GenericOpBufferAnalysis::Constraints constraints;
+  GenericOpBufferAnalysis analysis;
+};
+
 } // namespace
 //===----------------------------------------------------------------------===//
 // Pass implementation.
@@ -228,6 +242,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   using Base::Base;
 
   MemorySpaces memSpaces;
+  BufferAnalysis bufferAnalysis{
+      numStreamBuffers > 1
+          ? GenericOpBufferAnalysis::Constraints::BufferStrategy::DoubleBuffered
+          : GenericOpBufferAnalysis::Constraints::BufferStrategy::
+                SingleBuffered};
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
@@ -303,10 +322,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     const mlir::LivenessBlockInfo *li = liveness.getLiveness(&funcBody);
 
     // (a) Build `Operation` <-> preorder position mappings for the
-    // (unmodified) `funcOp` IR.
-    //  (b) Collect a separate set of "ops of interest", which are
-    //  `memref.alloc`s as well as certain ops that we imbue with semantics
-    //   of extending liveness of their memref operands.
+    //  (unmodified) `funcOp` IR.
+    // (b) Collect a separate set of "ops of interest", which are
+    // `memref.alloc`s as well as certain ops that we imbue with semantics
+    //  of extending liveness of their memref operands.
 
     llvm::DenseMap<Operation *, LivenessClosure> livenessJoinGraph;
 
@@ -441,6 +460,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     ttcore::DeviceAttr device = ttcore::lookupDevice(funcOp);
     Block &funcBody = funcOp.getBody().front();
+    MLIRContext *const ctx = funcOp->getContext();
 
     using OperationSet = llvm::SmallPtrSet<Operation *, 4>;
 
@@ -461,23 +481,79 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // Decide which operands might/must have streams. Note that
       // the actual stream creation decision is only final after
       // we have a feasible planner solution.
-      llvm::SmallVector<OperandContext> streams = getOperandContexts(genericOp);
-      TT_debug(streams.size() == genericOp.getNumOperands());
+      llvm::SmallVector<OperandContext> operandCtxs =
+          getOperandContexts(genericOp);
 
-      for (std::size_t operandIndex = 0;
-           operandIndex < genericOp.getNumOperands(); ++operandIndex) {
-        auto operand = genericOp->getOperand(operandIndex);
-        OperandContext &streamCtx = streams[operandIndex];
+      const ttcore::MemorySpaceAttr l1Attr =
+          ttcore::MemorySpaceAttr::get(ctx, ttcore::MemorySpace::DeviceL1);
+
+      // TODO to stay with binary decision variables, select buffer config that results in the smallest sum of
+      // buffer byte sizes as the only buffer choice
+
+      const auto bufferOptions = bufferAnalysis.analysis.analyzeGenericOp(
+          bufferAnalysis.constraints, genericOp);
+
+      int64_t bestCost = std::numeric_limits<int64_t>::max();
+      SmallVector<MemRefType> bestBuffers;
+
+      for (std::size_t i = 0; i < bufferOptions.size(); ++i) {
+        const GenericOpBufferAnalysis::OpConfig &config = bufferOptions[i];
+        TT_ALLOC_DEBUG("{}, cost {}:", asOperand(genericOp),
+                       config.predictedRuntimeCost);
+        TT_debug(config.operandBufferSettings.size() ==
+                 genericOp.getNumOperands());
+
+        SmallVector<MemRefType> buffers;
+        int64_t cost = 0;
+
+        for (auto [operandIndex, settings] :
+             llvm::enumerate(config.operandBufferSettings)) {
+          const Value operand = genericOp->getOperand(operandIndex);
+
+          const auto operandType = mlir::cast<MemRefType>(operand.getType());
+          const auto operandLayout = mlir::cast<ttcore::DeviceLayoutInterface>(
+              operandType.getLayout());
+
+          const ArrayRef<int64_t> gridShape =
+              operandLayout.getGridShape(operandType);
+          const ArrayRef<int64_t> shardShape = settings.bufferShape;
+
+          const MemRefType bufferType = buffers.emplace_back(getStreamBuffer(
+              gridShape, shardShape, operandType.getElementType(),
+              settings.numBuffers, l1Attr));
+          const int64_t bufferSizeBytes =
+              getStreamBufferSizeBytes(bufferType, device);
+
+          TT_ALLOC_TRACE(
+              "\tbuffer shard shape {}, {}-buffering -> {} byte(s)",
+              asShape(shardShape), settings.numBuffers, bufferSizeBytes);
+
+          cost += bufferSizeBytes;
+        }
+
+        if (cost < bestCost) {
+          bestCost = cost;
+          bestBuffers = buffers;
+        }
+      }
+      TT_ALLOC_DEBUG("best cost = {}", bestCost);
+
+      for (auto [operandIndex, operand] :
+           llvm::enumerate(genericOp.getOperands())) {
+        OperandContext &operandCtx = operandCtxs[operandIndex];
+
+        operandCtx.bufferType = bestBuffers[operandIndex];
+
         // For later IR mutation, it is convenient at this point to gather
         // all chains of ops defining operand inputs.
         Value memref =
-            getOperandDefChain(genericOp, operand, streamCtx.defChain);
+            getOperandDefChain(genericOp, operand, operandCtx.defChain);
 
         const auto &[i, inserted] = analysis.memrefs.try_emplace(memref);
         MemrefValueContext &memrefCtx = i->second;
 
         memrefCtx.genericUsers.insert(genericOp);
-        memrefCtx.usedForOutput |= streamCtx.isOutput;
+        memrefCtx.usedForOutput |= operandCtx.isOutput;
 
         if (inserted) {
           // These were not discovered by the earlier `analyzeAllocOps()`, it
@@ -494,11 +570,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
           OperationSet &allocOpGenericUsers = genericUseClosure[allocOp];
           allocOpGenericUsers.insert(genericOp.getOperation());
-          allocOpGenericUsers.insert(streamCtx.defChain.begin(),
-                                     streamCtx.defChain.end());
+          allocOpGenericUsers.insert(operandCtx.defChain.begin(),
+                                     operandCtx.defChain.end());
         }
 
-        genericCtx.operands.try_emplace(memref, std::move(streamCtx));
+        genericCtx.operands.try_emplace(memref, std::move(operandCtx));
       }
       TT_debug(genericCtx.operands.size() == genericOp.getNumOperands());
     });
@@ -623,15 +699,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 // - the final memref placement is `Spill` (i.e. DRAM memspace).
                 if (operandCtx.requiresStream ||
                     (placement == PlannerSpace::Spill)) {
-                  if (!operandCtx.bufferType) {
-                    // In principle, buffer shape/size could depend on whether
-                    // the stream is out of L1 or DRAM... but not right now.
-                    operandCtx.bufferType = selectStreamBuffer(
-                        rewriter,
-                        mlir::cast<MemRefType>(
-                            user.getOperand(operandCtx.operandIndex).getType()),
-                        numStreamBuffers);
-                  }
+                  // In principle, buffer shape/size could depend on whether
+                  // the stream is out of L1 or DRAM... but not right now.
+                  TT_debug(operandCtx.bufferType != nullptr);
                   const AllocSizeT bufferSize =
                       getStreamBufferSizeBytes(operandCtx.bufferType, device);
 
@@ -882,8 +952,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           streamAttr, operandMemrefType.getMemorySpace());
 
       TT_debug(operandCtx.bufferType != nullptr);
-      auto bufferMemref = operandCtx.bufferType;
-      auto buffer = rewriter.create<memref::AllocOp>(op.getLoc(), bufferMemref);
+      auto buffer =
+          rewriter.create<memref::AllocOp>(op.getLoc(), operandCtx.bufferType);
 
       assignAddressAndAlignment(rewriter, buffer, req.offset, info);
       insertDealloc(rewriter, buffer, req.last, sequencing);
@@ -925,13 +995,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         });
   }
 
-  // TODO(#5028) this needs to work with the size analysis API instead of making
-  // buffer shape/size the same as the operand's.
-  static llvm::ArrayRef<int64_t>
-  selectStreamBufferShape(MemRefType operandType) {
-    return operandType.getShape();
-  }
-
   // Factor out defaults passed into DeviceAttr::getMemrefSizeBytes()
   // for operand memrefs.
   static int64_t getMemrefSizeBytes(MemRefType bufferType,
@@ -948,20 +1011,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // Stream buffers map to CBs and therefore are subject to CB size alignment
     // requirements (invoke with `pageSize` default of 0).
     return device.getMemrefSizeBytes(bufferType, 0, true);
-  }
-
-  static MemRefType selectStreamBuffer(RewriterBase &rewriter,
-                                       MemRefType operandType,
-                                       uint32_t buffers) {
-    llvm::ArrayRef<int64_t> bufferShape = selectStreamBufferShape(operandType);
-
-    auto bufferLayout = ttcore::ShardLayoutAttr::get(
-        ArrayRef(bufferShape).take_back(bufferShape.size() / 2),
-        operandType.getElementType(),
-        /*buffers=*/buffers);
-    return MemRefType::get(
-        bufferShape, operandType.getElementType(), bufferLayout,
-        rewriter.getAttr<ttcore::MemorySpaceAttr>(MemorySpace::DeviceL1));
   }
 
   static void insertDealloc(RewriterBase &rewriter, memref::AllocOp allocOp,
@@ -1026,11 +1075,27 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return last;
   }
 
+  static MemRefType getStreamBuffer(ArrayRef<int64_t> gridShape,
+                                    ArrayRef<int64_t> shardShape,
+                                    Type elementType, uint32_t buffers,
+                                    ttcore::MemorySpaceAttr memSpaceAttr) {
+    TT_debug(gridShape.size() == shardShape.size());
+
+    const auto bufferLayout =
+        ttcore::ShardLayoutAttr::get(shardShape, elementType, buffers);
+
+    SmallVector<int64_t> bufferShape(gridShape.begin(), gridShape.end());
+    bufferShape.append(shardShape.begin(), shardShape.end());
+
+    return MemRefType::get(bufferShape, elementType, bufferLayout,
+                           memSpaceAttr);
+  }
+
   static MemorySpaces getMemorySpaces(ttcore::ChipDescAttr chipDesc) {
-    std::array<MemorySpaceInfo, MemorySpaceInfo::kMaxEnumValForMemorySpace>
-        info;
-    // Currently, we only need some slots in 'info'.
+    MemorySpaces info;
     {
+      // Currently, we only need some slots in 'info'.
+
       info[ordinal(MemorySpace::DeviceL1)] =
           MemorySpaceInfo(chipDesc.getL1UnreservedBase(), chipDesc.getL1Size(),
                           chipDesc.getNocL1AddressAlignBytes());
