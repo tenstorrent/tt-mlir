@@ -375,14 +375,18 @@ size_t getL1SmallSize(Device meshDevice) {
   ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
       meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
-  return metalMeshDevice.allocator()->get_config().l1_small_size;
+  return metalMeshDevice.allocator()
+      ->get_statistics(::tt::tt_metal::BufferType::L1_SMALL)
+      .total_allocatable_size_bytes;
 }
 
 size_t getTraceRegionSize(Device meshDevice) {
   ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
       meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
-  return metalMeshDevice.allocator()->get_config().trace_region_size;
+  return metalMeshDevice.allocator()
+      ->get_statistics(::tt::tt_metal::BufferType::TRACE)
+      .total_allocatable_size_bytes;
 }
 
 size_t getNumDramChannels(Device meshDevice) {

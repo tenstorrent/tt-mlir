@@ -22,7 +22,7 @@ elif [ -z "${_ACTIVATE_SUPPRESS_INIT_WARNING}" ]; then
 fi
 
 export TTMLIR_ENV_ACTIVATED=1
-export PATH="$(pwd)/${BUILD_DIR:=build}/bin:$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_TOOLCHAIN_DIR/venv/bin:$PATH"
+export PATH="$(pwd)/${BUILD_DIR:=build}/bin:$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_VENV_DIR/bin:$PATH"
 export TT_METAL_HOME="$(pwd)/third_party/tt-metal/src/tt-metal"
 export TT_METAL_BUILD_HOME="$(pwd)/third_party/tt-metal/src/tt-metal/build"
 export TT_MLIR_HOME="$(pwd)"

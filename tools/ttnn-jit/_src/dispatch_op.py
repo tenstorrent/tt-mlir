@@ -2,9 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import ttnn
-import torch
-
 from ttnn_jit.runtime._ttmlir_runtime.runtime import (
     submit,
     set_compatible_device_runtime,

@@ -16,7 +16,10 @@ void run(const ::tt::target::ttnn::BeginTraceCaptureOp *op,
 
   LOG_ASSERT(meshDevice.get_program_cache().is_enabled(),
              "Program cache must be enabled");
-  LOG_ASSERT(meshDevice.allocator()->get_config().trace_region_size > 0,
+
+  LOG_ASSERT(meshDevice.allocator()
+                     ->get_statistics(::ttnn::BufferType::TRACE)
+                     .total_allocatable_size_bytes > 0,
              "Trace region size must be greater than 0");
 
   ::ttnn::MeshTraceId traceId =

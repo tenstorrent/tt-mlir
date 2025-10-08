@@ -426,6 +426,17 @@ def D2MGenericApplyInterchange : Pass<"d2m-generic-apply-interchange", "::mlir::
   ];
 }
 
+defvar D2MStreamingOptions = [
+  Option<"numStreamBuffers",
+         "num-stream-buffers",
+         "unsigned", /*default=*/"2",
+         "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
+  Option<"allowOutputSpilling",
+         "allow-output-spilling",
+         "bool", /*default=*/"false",
+         "Make generic outputs eligible for spilling to DRAM.">,
+];
+
 def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   let summary = "Create streams required by generic ops.";
   let description = [{
@@ -479,16 +490,7 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
 
-  let options = [
-    Option<"numStreamBuffers",
-           "num-stream-buffers",
-           "unsigned", /*default=*/"2",
-           "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
-    Option<"allowOutputSpilling",
-           "allow-output-spilling",
-           "bool", /*default=*/"false",
-           "Make generic outputs eligible for spilling to DRAM.">,
-    ];
+  let options = D2MStreamingOptions;
 }
 
 def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
@@ -500,12 +502,7 @@ def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
     Example:
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
-  let options = [
-    Option<"numStreamBuffers",
-           "num-stream-buffers",
-           "unsigned", /*default=*/"2",
-           "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
-  ];
+  let options = D2MStreamingOptions;
 }
 
 #endif

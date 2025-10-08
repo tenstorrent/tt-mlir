@@ -25,18 +25,6 @@ using IDevice = ::tt::tt_metal::IDevice;
 // Add missing extract_output_tensor overload for MaxPoolWithIndicesResult
 // This should be in the metal repo but is missing from commit 5965834630
 namespace ttnn::graph::detail {
-inline Tensor extract_output_tensor(
-    const std::variant<Tensor, ttnn::operations::pool::MaxPoolWithIndicesResult>
-        &result) {
-  return std::visit<Tensor>(
-      ttsl::overloaded{
-          [](const Tensor &tensor) { return tensor; },
-          [](const ttnn::operations::pool::MaxPoolWithIndicesResult &result) {
-            return result.output;
-          }},
-      result);
-}
-
 inline Tensor
 extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
   return std::get<0>(result);

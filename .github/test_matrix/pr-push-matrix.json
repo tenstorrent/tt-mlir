@@ -5,11 +5,11 @@
 
   { "runs-on": ["n150","n300","llmbox"],
         "image": "speedy",
-            "script": "ttrt.sh", "args": ["perf", "Silicon", "--non-zero"] },
+            "script": "ttrt.sh", "args": ["perf", "Silicon"] },
 
   { "runs-on": ["n150","n300","llmbox"],
         "image": "tracy",
-            "script": "ttrt.sh", "args": ["pref", "Silicon/TTNN/$RUNS_ON/perf"] },
+            "script": "ttrt.sh", "args": ["perf", "Silicon/TTNN/$RUNS_ON/perf"] },
 
   { "runs-on": "n150",
         "image": "tracy",

@@ -137,6 +137,7 @@ ttrt run
 ttrt query
 ttrt perf
 ttrt check
+ttrt emitpy
 ```
 
 ## Command line usage
@@ -407,6 +408,51 @@ ttrt check /dir/of/flatbuffers --system-desc /dir/of/system_desc
 ttrt check --save-artifacts --artifact-dir /path/to/some/dir out.ttnn
 ttrt check out.ttnn --result-file result.json
 ```
+
+### emitpy
+Run a python file or a directory of python files. Optionally provide a binary file or directory of binary files for output tensor comparison.
+Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`.
+
+```bash
+ttrt emitpy --help
+ttrt emitpy out.py
+ttrt emitpy out.py --clean-artifacts
+ttrt emitpy out.py --save-artifacts
+ttrt emitpy out.py --loops 10
+ttrt emitpy --program-index all out.py
+ttrt emitpy --program-index 0 out.py
+ttrt emitpy /dir/of/emitpy_modules
+ttrt emitpy /dir/of/emitpy_modules --loops 10
+ttrt emitpy /dir/of/emitpy_modules --log-file ttrt.log
+ttrt emitpy /dir/of/emitpy_modules --flatbuffer /path/to/flatbuffer
+ttrt emitpy out.py --save-artifacts --artifact-dir /path/to/some/dir
+ttrt emitpy out.py --result-file result.json
+ttrt emitpy out.py --print-input-output-tensors
+ttrt emitpy out.py --memory --save-artifacts
+```
+
+For info on generating EmitPy tests through `ttmlir-opt` and `ttmlir-translate`, see [EmitPy](./emitpy.md).
+For info on generating EmitPy tests through `ttir-builder`, see [ttir-builder](./builder/ttir-builder.md).
+
+#### emitpy results
+The `emitpy` api saves a `emitpy_results.json` file that records information about the run including any errors that were thrown and location of other saved data.
+
+<details>
+
+```bash
+[
+  {
+    "file_path": "ttir-builder-artifacts/emitpy/test_binary_ops[add-emitpy-f32-128x128]_ttnn.mlir.py",
+    "result": "pass",
+    "exception": "",
+    "log_file": "ttrt.log",
+    "artifacts": "/home/$USER/tt-mlir/ttrt-artifacts",
+    "program_index": "all"
+  }
+]
+```
+
+</details>
 
 ### gdb
 You can relaunch `ttrt` inside of gdb which can be useful for debugging C++

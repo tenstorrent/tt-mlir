@@ -155,7 +155,10 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/pykernel/ @xanderchin @vprajapati-tt @vtangTT
 
 # TTIRBuilder
-/tools/builder @ctodTT @tapspatel
+/tools/builder @ctodTT @tapspatel @jgrimTT
+
+# ttrt
+/tools/ttrt @ctodTT @tapspatel @jgrimTT
 
 # tt-explorer
 /tools/explorer/ @tenstorrent/forge-developers-mlir-explorer
