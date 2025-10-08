@@ -123,6 +123,15 @@ def log(
     return builder.log(in0, unit_attrs=unit_attrs)
 
 
+def broadcast_in_dim(
+    in0: Operand, builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None
+):
+    builder.set_graph_level_check(True)
+    return builder.broadcast_in_dim(
+        in0, broadcast_dimentions=broadcast_dimentions, unit_attrs=unit_attrs
+    )
+
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -239,4 +248,37 @@ def test_stablehlo_multi_return_support(
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
+    )
+
+@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("broadcast_dimensions", [[0]])
+@pytest.mark.parametrize("output_shape", [[32, 128]])
+def test_broadcast_ops(
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    broadcast_dimensions: List[int],
+    output_shape: List[int],
+    request,
+):
+    # Create a wrapper function that captures broadcast_dimensions and output_shape
+    def broadcast_wrapper(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return broadcast_in_dim(
+            in0, builder, broadcast_dimensions, output_shape, unit_attrs
+        )
+
+    compile_and_execute_shlo(
+        broadcast_wrapper,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
