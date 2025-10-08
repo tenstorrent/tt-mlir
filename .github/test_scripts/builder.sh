@@ -25,4 +25,6 @@ if [[ "$runttrt" == "1" ]]; then
     cp run_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
     ttrt run $TTRT_ARGS stablehlo-builder-artifacts/
     cp run_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
+    ttrt run $TTRT_ARGS ttnn-builder-artifacts/
+    cp run_results.json ${TTRT_REPORT_PATH%_*}_ttnn_${TTRT_REPORT_PATH##*_} || true
 fi
