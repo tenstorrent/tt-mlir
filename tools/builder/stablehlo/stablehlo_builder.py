@@ -644,7 +644,7 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def broadcast(
+    def broadcast_in_dim(
         self,
         in0: Operand,
         broadcast_dimensions: List[int],
@@ -662,7 +662,7 @@ class StableHLOBuilder(Builder):
         .. code-block:: mlir
 
             // Broadcast a 1D tensor to 2D
-            %result = ttir.broadcast(%input, %output, broadcast_dimensions = [1]) : tensor<3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
+            %result = stablehlo.broadcast_in_dim(%input, %output, broadcast_dimensions = [1]) : tensor<3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
             // Input tensor:
             // [1.0, 2.0, 3.0]
             // Output tensor:
