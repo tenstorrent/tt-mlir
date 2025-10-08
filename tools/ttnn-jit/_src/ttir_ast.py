@@ -106,6 +106,7 @@ class TTIRCompiler(ast.NodeVisitor):
         assert len(tensor_arg.shape) == 2
         data_type = self._ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
         tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type)
+
         # Create identity affine map, should be based of tensor shape
         # default to rank 2, don't support shape collapse.
         identity_map = AffineMap.get_identity(2, self.ctx)
@@ -121,7 +122,6 @@ class TTIRCompiler(ast.NodeVisitor):
             grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_x, grid_size_y])
 
             # Create memref, tile type only.
-            # Only L1 buffer supported. NO DRAM yet.
             shard_shape_tile_x = shard_shape[0] // 32
             shard_shape_tile_y = shard_shape[1] // 32
             buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.L1)
@@ -129,7 +129,6 @@ class TTIRCompiler(ast.NodeVisitor):
                 [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
             )
 
-            # Either L1 block sharded or DRAM interleaved. (No DRAM for now)
             ttnn_layout = ttnn.ir.TTNNLayoutAttr.get(
                 self.ctx,
                 identity_map,
@@ -140,6 +139,7 @@ class TTIRCompiler(ast.NodeVisitor):
             )
             return ttnn_layout
         else:
+            # DRAM interleaved tensors must have 1x1 grid in TTNNLayoutAttr
             buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.DRAM)
             grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
             shape = [tensor_arg.shape[0] // 32, tensor_arg.shape[1] // 32]
