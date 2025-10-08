@@ -2520,6 +2520,7 @@ public:
         mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>
         emitter(srcOp, adaptor, rewriter);
 
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
@@ -2533,6 +2534,7 @@ public:
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
     };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
     emitter.replaceOp(*this, args);
 
