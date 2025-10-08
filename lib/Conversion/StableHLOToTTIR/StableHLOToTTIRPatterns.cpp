@@ -667,6 +667,131 @@ public:
 };
 } // namespace
 
+// Helper function that ensures input is in NCHW format by permuting and
+// reshaping the input tensor. Returns the transformed value and the normalized
+// shape.
+static std::pair<mlir::Value, llvm::SmallVector<int64_t>>
+normalizeToNCHW(mlir::Value input, uint64_t featureIndex,
+                ConversionPatternRewriter &rewriter, mlir::Location loc) {
+  auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+  llvm::ArrayRef<int64_t> shape = inputType.getShape();
+  mlir::Value newInput = input;
+  llvm::SmallVector<int64_t> currentShape(shape.begin(), shape.end());
+
+  // If feature index is not 1, permute the input tensor so that the feature
+  // dimension is at index 1 (NCHW format).
+  if (featureIndex != 1) {
+    llvm::SmallVector<int64_t> permutation;
+    llvm::SmallVector<int64_t> permutedShape;
+
+    // Build permutation to move featureIndex to position 1.
+    for (int64_t i = 0; i < inputType.getRank(); ++i) {
+      if (i == 1) {
+        permutation.push_back(featureIndex);
+        permutedShape.push_back(currentShape[featureIndex]);
+      } else if (static_cast<uint64_t>(i) == featureIndex) {
+        permutation.push_back(1);
+        permutedShape.push_back(currentShape[1]);
+      } else {
+        permutation.push_back(i);
+        permutedShape.push_back(currentShape[i]);
+      }
+    }
+
+    newInput = ttir::utils::createDPSOp<mlir::tt::ttir::PermuteOp>(
+        rewriter, loc, permutedShape, inputType.getElementType(),
+        inputType.getEncoding(), newInput,
+        rewriter.getDenseI64ArrayAttr(permutation));
+    currentShape = permutedShape;
+  }
+
+  // Reshape to 4D NCHW if needed:
+  // If rank is 5, flatten last two dimensions into one.
+  // If rank is less than 4, unsqueeze trailing dimensions until rank is 4.
+  int64_t rank = currentShape.size();
+  if (rank == 5) {
+    llvm::SmallVector<int64_t> reshapedShape = {
+        currentShape[0], currentShape[1], currentShape[2],
+        currentShape[3] * currentShape[4]};
+    llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
+                                                reshapedShape.end());
+    newInput = ttir::utils::createDPSOp<mlir::tt::ttir::ReshapeOp>(
+        rewriter, loc, reshapedShape, inputType.getElementType(),
+        inputType.getEncoding(), newInput,
+        rewriter.getI32ArrayAttr(reshapedShapeI32));
+    currentShape = reshapedShape;
+  } else if (rank < 4) {
+    llvm::SmallVector<int64_t> reshapedShape(currentShape.begin(),
+                                             currentShape.end());
+    reshapedShape.append(4 - rank, 1);
+    llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
+                                                reshapedShape.end());
+    newInput = ttir::utils::createDPSOp<mlir::tt::ttir::ReshapeOp>(
+        rewriter, loc, reshapedShape, inputType.getElementType(),
+        inputType.getEncoding(), newInput,
+        rewriter.getI32ArrayAttr(reshapedShapeI32));
+    currentShape = reshapedShape;
+  }
+
+  return {newInput, currentShape};
+}
+
+// Helper function to denormalize output back to original layout.
+// Forward pass: originalShape -> [permute] -> shapeAfterPermute -> [reshape] ->
+// normalizedShape Backward pass: normalizedShape -> [undo reshape] ->
+// shapeAfterPermute -> [undo permute] -> originalShape
+static mlir::Value denormalizeFromNCHW(mlir::Value output,
+                                       llvm::ArrayRef<int64_t> originalShape,
+                                       llvm::ArrayRef<int64_t> normalizedShape,
+                                       uint64_t originalFeatureIndex,
+                                       ConversionPatternRewriter &rewriter,
+                                       mlir::Location loc) {
+  auto outputType = mlir::cast<mlir::RankedTensorType>(output.getType());
+  mlir::Value result = output;
+
+  // Step 1: Undo reshape if ranks differ (in reverse order of forward pass)
+  if (originalShape.size() != normalizedShape.size()) {
+    // Compute the shape after permute but before reshape (the intermediate
+    // state). This is what the tensor shape would be if we only applied
+    // permutation.
+    llvm::SmallVector<int64_t> shapeAfterPermute(originalShape.begin(),
+                                                 originalShape.end());
+    if (originalFeatureIndex != 1) {
+      std::swap(shapeAfterPermute[1], shapeAfterPermute[originalFeatureIndex]);
+    }
+
+    llvm::SmallVector<int32_t> shapeAfterPermuteI32(shapeAfterPermute.begin(),
+                                                    shapeAfterPermute.end());
+    result = ttir::utils::createDPSOp<mlir::tt::ttir::ReshapeOp>(
+        rewriter, loc, shapeAfterPermute, outputType.getElementType(),
+        outputType.getEncoding(), result,
+        rewriter.getI32ArrayAttr(shapeAfterPermuteI32));
+  }
+
+  // Step 2: Undo permutation if featureIndex != 1
+  if (originalFeatureIndex != 1) {
+    // The inverse permutation is the same as the forward permutation
+    // (swapping dimensions 1 and featureIndex is its own inverse)
+    llvm::SmallVector<int64_t> permutation;
+    for (int64_t i = 0; i < static_cast<int64_t>(originalShape.size()); ++i) {
+      if (i == 1) {
+        permutation.push_back(originalFeatureIndex);
+      } else if (static_cast<uint64_t>(i) == originalFeatureIndex) {
+        permutation.push_back(1);
+      } else {
+        permutation.push_back(i);
+      }
+    }
+
+    result = ttir::utils::createDPSOp<mlir::tt::ttir::PermuteOp>(
+        rewriter, loc, originalShape, outputType.getElementType(),
+        outputType.getEncoding(), result,
+        rewriter.getDenseI64ArrayAttr(permutation));
+  }
+
+  return result;
+}
+
 namespace {
 
 class StableHLOToBatchNormOpConversionPattern
@@ -680,15 +805,39 @@ public:
   matchAndRewrite(mlir::stablehlo::BatchNormInferenceOp srcOp,
                   mlir::stablehlo::BatchNormInferenceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(
+    auto loc = srcOp.getLoc();
+    auto inputType =
+        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+    llvm::ArrayRef<int64_t> originalShape = inputType.getShape();
+    uint64_t featureIndex = srcOp.getFeatureIndex();
+
+    // Normalize input to NCHW format
+    auto [normalizedInput, normalizedShape] =
+        normalizeToNCHW(adaptor.getOperand(), featureIndex, rewriter, loc);
+
+    // Create output type with normalized shape
+    auto originalOutputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
+    auto normalizedOutputType = RankedTensorType::get(
+        normalizedShape, originalOutputType.getElementType(),
+        originalOutputType.getEncoding());
+
+    // After normalization, feature dimension is always at index 1 (NCHW)
     mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
-    IntegerAttr dimensionAttr =
-        mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
-        rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getScale(),
-        adaptor.getOffset(), adaptor.getMean(), adaptor.getVariance(),
-        adaptor.getEpsilonAttr(), dimensionAttr);
+    IntegerAttr dimensionAttr = mlir::IntegerAttr::get(integerType, 1);
+
+    // Create the BatchNorm op with normalized input
+    auto batchNormOp = ttir::utils::createDPSOp<mlir::tt::ttir::BatchNormOp>(
+        rewriter, loc, normalizedOutputType, normalizedInput,
+        adaptor.getScale(), adaptor.getOffset(), adaptor.getMean(),
+        adaptor.getVariance(), adaptor.getEpsilonAttr(), dimensionAttr);
+
+    // Denormalize output back to original layout
+    mlir::Value result =
+        denormalizeFromNCHW(batchNormOp.getResult(), originalShape,
+                            normalizedShape, featureIndex, rewriter, loc);
+
+    rewriter.replaceOp(srcOp, result);
     return success();
   }
 };
@@ -707,33 +856,21 @@ public:
                   mlir::stablehlo::BatchNormTrainingOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = srcOp.getLoc();
+    auto inputType =
+        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+    llvm::ArrayRef<int64_t> originalShape = inputType.getShape();
+    uint64_t featureIndex = srcOp.getFeatureIndex();
 
-    // Get input operand and check rank
-    mlir::Value inputOperand = adaptor.getOperand();
-    auto inputType = mlir::cast<RankedTensorType>(inputOperand.getType());
+    // Normalize input to NCHW format
+    auto [normalizedInput, normalizedShape] =
+        normalizeToNCHW(adaptor.getOperand(), featureIndex, rewriter, loc);
 
-    // If input is 3D, unsqueeze to 4D on first dimension
-    if (inputType.getRank() == 3) {
-      auto shape = inputType.getShape();
-      llvm::SmallVector<int64_t> newShape = {1};
-      newShape.append(shape.begin(), shape.end());
-      auto newInputType =
-          RankedTensorType::get(newShape, inputType.getElementType());
-      inputOperand = rewriter.create<ttir::UnsqueezeOp>(
-          loc, newInputType, inputOperand, rewriter.getI32IntegerAttr(0));
-    }
-
-    auto outputType = mlir::cast<RankedTensorType>(
+    // Create output type with normalized shape
+    auto originalOutputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
-
-    // If original output was 3D, update to 4D for the operation
-    auto originalOutputType = outputType;
-    if (outputType.getRank() == 3) {
-      auto shape = outputType.getShape();
-      llvm::SmallVector<int64_t> newShape = {1};
-      newShape.append(shape.begin(), shape.end());
-      outputType = RankedTensorType::get(newShape, outputType.getElementType());
-    }
+    auto normalizedOutputType = RankedTensorType::get(
+        normalizedShape, originalOutputType.getElementType(),
+        originalOutputType.getEncoding());
 
     // Get mean and variance types from the outputs (results 1 and 2)
     auto meanType = mlir::cast<RankedTensorType>(
@@ -741,12 +878,11 @@ public:
     auto varianceType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(2).getType()));
 
+    // After normalization, feature dimension is always at index 1 (NCHW)
     mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
-    IntegerAttr dimensionAttr =
-        mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
+    IntegerAttr dimensionAttr = mlir::IntegerAttr::get(integerType, 1);
 
     // Default momentum for batch norm training
-    mlir::APFloat defaultMomentum(0.1f);
     FloatAttr momentumAttr = rewriter.getF32FloatAttr(0.1f);
 
     // Create empty tensors for running mean and variance
@@ -758,7 +894,7 @@ public:
 
     // Create empty output tensors
     auto outputEmpty =
-        rewriter.create<ttir::EmptyOp>(loc, outputType).getResult();
+        rewriter.create<ttir::EmptyOp>(loc, normalizedOutputType).getResult();
     auto batchMeanEmpty =
         rewriter.create<ttir::EmptyOp>(loc, meanType).getResult();
     auto batchVarianceEmpty =
@@ -766,13 +902,21 @@ public:
 
     auto batchNormTrainingOp =
         rewriter.create<mlir::tt::ttir::BatchNormTrainingOp>(
-            loc, TypeRange{outputType, meanType, varianceType}, inputOperand,
-            adaptor.getScale(), adaptor.getOffset(), runningMean,
-            runningVariance,
+            loc, TypeRange{normalizedOutputType, meanType, varianceType},
+            normalizedInput, adaptor.getScale(), adaptor.getOffset(),
+            runningMean, runningVariance,
             ValueRange{outputEmpty, batchMeanEmpty, batchVarianceEmpty},
             adaptor.getEpsilonAttr(), dimensionAttr, momentumAttr);
 
-    rewriter.replaceOp(srcOp, batchNormTrainingOp.getResults());
+    // Denormalize the output (first result) back to original layout
+    mlir::Value denormalizedOutput =
+        denormalizeFromNCHW(batchNormTrainingOp.getResults()[0], originalShape,
+                            normalizedShape, featureIndex, rewriter, loc);
+
+    // Replace with denormalized output and original mean/variance results
+    rewriter.replaceOp(srcOp, ValueRange{denormalizedOutput,
+                                         batchNormTrainingOp.getResults()[1],
+                                         batchNormTrainingOp.getResults()[2]});
 
     return success();
   }
