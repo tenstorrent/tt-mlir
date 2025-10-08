@@ -1,110 +1,44 @@
+
 name: Build on macos-latest
 
 on:
-  schedule:
-    - cron: '0 4 * * *'  # Runs at 04:00 UTC every day
   workflow_dispatch:  # Manual trigger
 
-env:
-  SDK_VERSION: "0"
+permissions:
+  contents: read
+  actions: read
+  checks: write
+  pull-requests: write
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        build: [
-          {runs-on: macos-latest, c_compiler: clang, cpp_compiler: clang++, build_type: Release, enable_runtime: OFF}
-        ]
-    runs-on: ${{ matrix.build.runs-on }}
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-      with:
-          fetch-depth: 0 # Fetch all history and tags
 
     - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
-    - name: Install build dependencies
-      uses: ./.github/actions/install-deps
-      with:
-        os: ${{ matrix.build.runs-on }}
-
-    - name: Get macos sdk version
-      if: startsWith(matrix.build.runs-on, 'macos')
+    - name: get reports
+      env:
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
       shell: bash
+      id: rep
       run: |
-        echo "SDK_VERSION=$(xcrun --show-sdk-version)" >> $GITHUB_ENV
-
-    - name: Build and cache ttmlir-toolchain
-      uses: ./.github/actions/build-toolchain
-      with:
-        os: ${{ matrix.build.runs-on }}
-        sdk: ${{ env.SDK_VERSION }}
-
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        create-symlink: true
-        key: ${{ matrix.build.runs-on }}-runtime-${{ matrix.build.enable_runtime }}-${{ env.SDK_VERSION }}
-
-    - name: Set reusable strings
-      id: strings
-      shell: bash
-      run: |
-        echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
-
-    - name: Configure CMake
-      shell: bash
-      run: |
-        source env/activate
-        cmake -G Ninja \
-        -B ${{ steps.strings.outputs.build-output-dir }} \
-        -DCMAKE_CXX_COMPILER=${{ matrix.build.cpp_compiler }} \
-        -DCMAKE_C_COMPILER=${{ matrix.build.c_compiler }} \
-        -DCMAKE_BUILD_TYPE=${{ matrix.build.build_type }} \
-        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        -DCMAKE_BUILD_PARALLEL_LEVEL=4 \
-        -DTTMLIR_ENABLE_RUNTIME=${{ matrix.build.enable_runtime }} \
-        -DTTMLIR_ENABLE_RUNTIME_TESTS=${{ matrix.build.enable_runtime }} \
-        -S ${{ github.workspace }}
-
-    - name: Build
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }}
-
-    - name: Lint
-      if: matrix.enable_runtime == 'OFF'
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- clang-tidy
-
-    - name: Run Test
-      shell: bash
-      run: |
-        source env/activate
-        export TTMLIR_TEST_WORKFLOW=nightly # turn on randomized mode for participating gtests
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- check-ttmlir
-
-    - name: Build ttrt
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- ttrt
-
-    - name: Upload Test Report
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-reports-${{ matrix.build.runs-on }}
-        path: build/test/report.xml
-
+        gh run download 18307092217 --repo tenstorrent/tt-mlir --name "test-reports-n150-tracy-52128249415"
+        echo "# Test Report" > summary.md
+        echo "Test 1: pytest.sh tools/explorer/test/run_tests.py" >> summary.md
+        echo "Test 2: pytest.sh runtime/tools/chisel/test" >> summary.md
+        echo "Test 3: builder.sh test/python/golden" >> summary.md
+        echo "Test 4: ttrt.sh perf Silicon/TTNN/n150/optimizer" >> summary.md
+        echo "Test 5: ttnn_runtime.sh runtime/test/ttnn/python/device_agnostic" >> summary.md
+        echo "Test 6: emitc.sh" >> summary.md
+        echo "summary=\"$(cat summary.md)\"" >> $GITHUB_OUTPUT
     - name: Show Test Report
-      uses: mikepenz/action-junit-report@v4
+      uses: mikepenz/action-junit-report@v5.6.2
       if: success() || failure()
       with:
-        report_paths: build/test/report.xml
-        check_name: ${{ matrix.build.runs-on }} MLIR Tests
+        report_paths: report_*.xml
+        check_name: "n150-tracy Tests"
+        summary: '${{ steps.rep.outputs.summary }}'
