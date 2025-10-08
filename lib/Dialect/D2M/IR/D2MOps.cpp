@@ -26,8 +26,9 @@
 namespace mlir::tt::d2m {
 // Convert TensorType + MetalLayout into a memref including a
 // Shard/View/HostAttr.
-MemRefType getBufferType(Type type, bool isView,
-                         std::optional<ttcore::MetalLayoutAttr> hostInfo) {
+bufferization::BufferLikeType
+getBufferType(Type type, bool isView,
+              std::optional<ttcore::MetalLayoutAttr> hostInfo) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
   MLIRContext *ctx = tensorType.getContext();
   auto tensorMeshAttr = mlir::dyn_cast_if_present<ttcore::TensorMeshAttr>(
@@ -50,8 +51,8 @@ MemRefType getBufferType(Type type, bool isView,
   // If there is no encoding or encoding with TensorMesh info, return with the
   // host layout attribute.
   if (!tensorType.getEncoding() || tensorMeshAttr) {
-    return MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
-                           hostLayout);
+    return mlir::cast<bufferization::BufferLikeType>(MemRefType::get(
+        tensorType.getShape(), tensorType.getElementType(), hostLayout));
   }
 
   auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
@@ -74,9 +75,9 @@ MemRefType getBufferType(Type type, bool isView,
     layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
   }
 
-  return MemRefType::get(
+  return mlir::cast<bufferization::BufferLikeType>(MemRefType::get(
       fullMemrefShape, tensorType.getElementType(), layoutAttr,
-      ttcore::MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
+      ttcore::MemorySpaceAttr::get(ctx, layout.getMemorySpace())));
 }
 
 void d2m::GenericOp::getEffects(
@@ -178,7 +179,7 @@ d2m::EmptyOp::getAliasingValues(mlir::OpOperand &,
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType>
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
 d2m::EmptyOp::getBufferType(mlir::Value value,
                             const mlir::bufferization::BufferizationOptions &,
                             const mlir::bufferization::BufferizationState &,
@@ -516,7 +517,7 @@ mlir::tt::d2m::ToLayoutOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType>
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
 ToLayoutOp::getBufferType(mlir::Value value,
                           const mlir::bufferization::BufferizationOptions &,
                           const mlir::bufferization::BufferizationState &,
@@ -577,7 +578,8 @@ mlir::bufferization::AliasingValueList d2m::StreamLayoutOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> d2m::StreamLayoutOp::getBufferType(
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+d2m::StreamLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
@@ -748,7 +750,8 @@ mlir::bufferization::AliasingValueList d2m::ViewLayoutOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> d2m::ViewLayoutOp::getBufferType(
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+d2m::ViewLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
@@ -1450,7 +1453,7 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
   return success();
 }
 
-mlir::FailureOr<mlir::BaseMemRefType>
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
 d2m::GenericOp::getBufferType(mlir::Value value,
                               const mlir::bufferization::BufferizationOptions &,
                               const mlir::bufferization::BufferizationState &,
@@ -1458,10 +1461,10 @@ d2m::GenericOp::getBufferType(mlir::Value value,
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
   if (mlir::isa<mlir::BlockArgument>(value)) {
     assert(!tensorType.getEncoding());
-    return MemRefType::get(
+    return mlir::cast<bufferization::BufferLikeType>(MemRefType::get(
         tensorType.getShape(), tensorType.getElementType(), nullptr,
         ttcore::MemorySpaceAttr::get(tensorType.getContext(),
-                                     ttcore::MemorySpace::DeviceL1));
+                                     ttcore::MemorySpace::DeviceL1)));
   }
   return d2m::getBufferType(tensorType, /*isView=*/false);
 }
