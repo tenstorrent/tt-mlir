@@ -297,9 +297,6 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("set_compatible_device_runtime",
         &tt::runtime::setCompatibleDeviceRuntime, nb::arg("binary"),
         "Set the backend device runtime type to match the binary");
-  m.def("set_compatible_device_runtime_by_str",
-        &tt::runtime::setCompatibleDeviceRuntimeByStr, nb::arg("runtime"),
-        "Set the backend device runtime type to match the binary");
   m.def("set_current_device_runtime", &tt::runtime::setCurrentDeviceRuntime,
         nb::arg("runtime"), "Set the backend device runtime type");
   m.def("get_current_host_runtime", &tt::runtime::getCurrentHostRuntime,

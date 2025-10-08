@@ -9,7 +9,6 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
-#include <algorithm>
 #include <optional>
 #include <vector>
 
@@ -150,28 +149,6 @@ void setCurrentDeviceRuntime(const DeviceRuntime &runtime) {
   return RuntimeContext::instance().setCurrentDeviceRuntime(runtime);
 #endif
   LOG_FATAL("Runtime is not enabled");
-}
-
-void setCompatibleDeviceRuntimeByStr(const std::string &runtime) {
-  std::string lowerRuntime;
-  lowerRuntime.resize(runtime.size());
-  std::transform(runtime.begin(), runtime.end(), lowerRuntime.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
-
-#if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
-  if (lowerRuntime == "ttnn") {
-    return RuntimeContext::instance().setCurrentDeviceRuntime(
-        DeviceRuntime::TTNN);
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1)
-  if (lowerRuntime == "ttmetal") {
-    return RuntimeContext::instance().setCurrentDeviceRuntime(
-        DeviceRuntime::TTMetal);
-  }
-#endif
-  LOG_FATAL("Unsupported runtime type or runtime not enabled");
 }
 
 void setCompatibleDeviceRuntime(const Binary &binary) {

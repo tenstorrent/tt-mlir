@@ -27,7 +27,6 @@ try:
         get_current_device_runtime,
         set_current_device_runtime,
         set_compatible_device_runtime,
-        set_compatible_device_runtime_by_str,
         get_current_host_runtime,
         set_current_host_runtime,
         get_available_host_runtimes,

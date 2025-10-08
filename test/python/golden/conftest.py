@@ -61,7 +61,16 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
     # Tests requiring larger meshes will be handled appropriately
     mesh_options.mesh_shape = mesh_shape
 
-    ttrt.runtime.set_compatible_device_runtime_by_str(target)
+    device_runtime_enum = None
+
+    if target == "ttnn":
+        device_runtime_enum = ttrt.runtime.DeviceRuntime.TTNN
+    elif target == "ttmetal":
+        device_runtime_enum = ttrt.runtime.DeviceRuntime.TTMetal
+    else:
+        raise ValueError(f"Only TTNN and TTMetal devices are supported, got {target}")
+
+    ttrt.runtime.set_current_device_runtime(device_runtime_enum)
     device = ttrt.runtime.open_mesh_device(mesh_options)
     print(
         f"Device opened for test session with target {target} & mesh shape {mesh_options.mesh_shape}."

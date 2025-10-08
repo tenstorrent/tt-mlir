@@ -34,7 +34,6 @@ std::vector<DeviceRuntime> getAvailableDeviceRuntimes();
 DeviceRuntime getCurrentDeviceRuntime();
 void setCurrentDeviceRuntime(const DeviceRuntime &runtime);
 void setCompatibleDeviceRuntime(const Binary &binary);
-void setCompatibleDeviceRuntimeByStr(const std::string &runtime);
 
 std::vector<HostRuntime> getAvailableHostRuntimes();
 HostRuntime getCurrentHostRuntime();
