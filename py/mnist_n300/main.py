@@ -2,6 +2,9 @@ import ttnn
 import my_get_device
 import utils
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import ttnn_supplemental
 
 # Inject all ttnn_supplemental CCL operations into ttnn namespace
