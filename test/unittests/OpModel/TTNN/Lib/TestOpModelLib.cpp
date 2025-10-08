@@ -2636,6 +2636,115 @@ TEST_P(OpModelAvgPool2DParam, AvgPool2DParam) { RunTest(); }
 INSTANTIATE_TEST_SUITE_P(AvgPool2DTests, OpModelAvgPool2DParam,
                          pool2DTestValues);
 
+  class OpModelGlobalAvgPool2dParam
+      : public OpModelTest,
+        public testing::WithParamInterface<
+            std::tuple<detail::TestTensor,    // input
+                       detail::TestTensor,    // output
+                       detail::ExpectedResult // expected result
+                       >> {
+  protected:
+    void RunTest() {
+      auto params = GetParam();
+      const auto [inputShape, inputTensorLayout, inputBufferType,
+                  inputVirtualGrid] = std::get<0>(params);
+      const auto [outputShape, outputTensorLayout, outputBufferType,
+                  outputVirtualGrid] = std::get<1>(params);
+      const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                  expectedTotalPeakSize, expectedOutputSize] =
+          std::get<2>(params);
+
+      const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+          inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+      const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+          outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+      auto constraintsExp = OpModel<GlobalAvgPool2dOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, outputLayout);
+
+      EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+      if (expectedLegal) {
+        const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                    outputLayoutReadBack] = constraintsExp.get();
+        EXPECT_GT(cbSize, 0);
+        EXPECT_GT(l1PeakSize, 0);
+        EXPECT_GT(outputSize, 0);
+        ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+      } else {
+        llvm::consumeError(constraintsExp.takeError());
+      }
+
+      auto runtimeExp = OpModel<GlobalAvgPool2dOp>::getOpRuntime(
+          inputShape, inputLayout, outputLayout);
+      EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+      if (expectedLegal) {
+        EXPECT_TRUE(runtimeExp.get() > 0);
+      } else {
+        llvm::consumeError(runtimeExp.takeError());
+      }
+    }
+  };
+
+  TEST_P(OpModelGlobalAvgPool2dParam, GlobalAvgPool2dOp) { RunTest(); }
+
+  // Test parameters for GlobalAvgPool2d operation
+  const auto globalAvgPool2dTestValues = testing::Values(
+      // Test case 1: Basic 128x128 input with 32 channels (DRAM to DRAM)
+      std::make_tuple(
+          detail::TestTensor{{1, 1, 128 * 128, 32},
+                             TensorMemoryLayout::Interleaved,
+                             BufferType::DRAM},
+          detail::TestTensor{
+              {1, 1, 1, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+          detail::ExpectedResult{true, 0, 0, 0, 0}),
+
+      // Test case 2: DRAM input to L1 output
+      std::make_tuple(
+          detail::TestTensor{{1, 1, 128 * 128, 32},
+                             TensorMemoryLayout::Interleaved,
+                             BufferType::DRAM},
+          detail::TestTensor{
+              {1, 1, 1, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
+          detail::ExpectedResult{true, 0, 0, 0, 0}),
+
+      // Test case 3: L1 input to DRAM output
+      std::make_tuple(
+          detail::TestTensor{
+              {1, 1, 64 * 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+          detail::TestTensor{
+              {1, 1, 1, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+          detail::ExpectedResult{true, 0, 0, 0, 0}),
+
+      // Test case 4: Both L1 (most memory intensive)
+      std::make_tuple(
+          detail::TestTensor{
+              {1, 1, 64 * 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+          detail::TestTensor{
+              {1, 1, 1, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+          detail::ExpectedResult{true, 0, 0, 0, 0}),
+
+      // Test case 5: Larger input (256x256 with 128 channels)
+      std::make_tuple(
+          detail::TestTensor{{1, 1, 256 * 256, 128},
+                             TensorMemoryLayout::Interleaved,
+                             BufferType::DRAM},
+          detail::TestTensor{{1, 1, 1, 128},
+                             TensorMemoryLayout::Interleaved,
+                             BufferType::DRAM},
+          detail::ExpectedResult{true, 0, 0, 0, 0}),
+
+      // Test case 6: Batch size > 1
+      std::make_tuple(
+          detail::TestTensor{{2, 1, 32 * 32, 16},
+                             TensorMemoryLayout::Interleaved,
+                             BufferType::DRAM},
+          detail::TestTensor{
+              {2, 1, 1, 16}, TensorMemoryLayout::Interleaved, BufferType::L1},
+          detail::ExpectedResult{true, 0, 0, 0, 0}));
+
+  INSTANTIATE_TEST_SUITE_P(GlobalAvgPool2dTests, OpModelGlobalAvgPool2dParam,
+                           globalAvgPool2dTestValues);
+
 class OpModelLeakyReluParam : public OpModelTest,
                               public testing::WithParamInterface<
                                   std::tuple<detail::TestTensor, // input
