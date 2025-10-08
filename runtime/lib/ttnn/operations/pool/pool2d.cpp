@@ -159,9 +159,13 @@ void run(const ::tt::target::ttnn::GlobalAvgPool2dOp *op,
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
+  std::optional<::ttnn::DataType> dtype = std::nullopt;
+  if (op->dtype()) {
+    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*op->dtype());
+  }
+
   // Call ttnn::global_avg_pool2d with input, memory_config, and output_dtype
-  ::ttnn::Tensor out = ::ttnn::global_avg_pool2d(input, outputMemoryConfig,
-                                                 /*output_dtype=*/std::nullopt);
+  ::ttnn::Tensor out = ::ttnn::global_avg_pool2d(input, outputMemoryConfig, dtype);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

@@ -55,6 +55,7 @@ table GlobalAvgPool2dOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
   memory_config: tt.target.ttnn.MemoryConfig;
+  dtype: tt.target.DataType = null;
 }
 
 table UpsampleOp {
