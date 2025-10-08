@@ -41,4 +41,4 @@ jobs:
       with:
         report_paths: report_*.xml
         check_name: "n150-tracy Tests"
-        summary: "${{ steps.rep.outputs.summary }}"
+        summary: '${{ steps.rep.outputs.summary }}'
