@@ -1,5 +1,6 @@
 import ttnn
 import my_get_device
+import utils
 
 import ttnn_supplemental
 
@@ -11,7 +12,6 @@ ttnn.all_gather = ttnn_supplemental.all_gather
 ttnn.reduce_scatter = ttnn_supplemental.reduce_scatter
 ttnn.collective_permute = ttnn_supplemental.collective_permute
 ttnn.point_to_point = ttnn_supplemental.point_to_point
-
 
 def _main(v1): 
   v2 = v1[0]
@@ -201,5 +201,3 @@ def test_main():
 
 if __name__ == '__main__':
   test_main()
-
-
