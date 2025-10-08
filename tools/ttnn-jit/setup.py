@@ -163,6 +163,15 @@ def setup_runtime_libraries(config):
         "libevent_pthreads-2.1.so.7",  # Event library pthreads
         "libudev.so.1",  # Device management
         "libz.so.1",  # Compression library
+        # Additional dependencies of libnsl.so.2
+        "libtirpc.so.3",  # Transport Independent RPC
+        "libgssapi_krb5.so.2",  # GSSAPI Kerberos
+        "libkrb5.so.3",  # Kerberos library
+        "libk5crypto.so.3",  # Kerberos crypto
+        "libcom_err.so.2",  # Common error handling
+        "libkrb5support.so.0",  # Kerberos support
+        "libkeyutils.so.1",  # Key utilities
+        "libresolv.so.2",  # DNS resolver
     ]
     copied_system_libs = copy_library_files(
         system_lib_dir, wheel_runtime_dir, system_libs
