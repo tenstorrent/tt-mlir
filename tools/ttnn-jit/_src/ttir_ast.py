@@ -360,14 +360,12 @@ class TTIRCompiler(ast.NodeVisitor):
     def visit_Constant(self, node, tensor=None):
         assert tensor is not None, "Tensor must be provided for constants"
         element_type = tensor.type.element_type
-        if not isinstance(element_type, FloatType) and not isinstance(
-            element_type, BFloat16Type
-        ):
-            raise NotImplementedError(f"Unsupported constant type: {type(node.value)}")
         if isinstance(element_type, IntegerType):
             type_attr = IntegerAttr.get(I32Type.get(self.ctx), node.value)
         elif isinstance(element_type, FloatType):
             type_attr = FloatAttr.get(F32Type.get(self.ctx), node.value)
+        else:
+            raise NotImplementedError(f"Unsupported constant type: {type(node.value)}")
 
         if self.backend == "ttnn":
             if not isinstance(tensor.type.element_type, FloatType):
