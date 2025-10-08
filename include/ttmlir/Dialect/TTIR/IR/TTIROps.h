@@ -46,7 +46,7 @@ inline void getDpsEffects(
   }
 }
 
-MemRefType
+bufferization::BufferLikeType
 getBufferType(Type type, bool isView,
               std::optional<ttcore::MetalLayoutAttr> hostInfo = std::nullopt);
 
