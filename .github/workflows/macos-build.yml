@@ -33,12 +33,6 @@ jobs:
         echo "Test 4: ttrt.sh perf Silicon/TTNN/n150/optimizer" >> summary.md
         echo "Test 5: ttnn_runtime.sh runtime/test/ttnn/python/device_agnostic" >> summary.md
         echo "Test 6: emitc.sh" >> summary.md
-        {
-          echo "summary<<EOF"
-          cat summary.md
-          echo "EOF"
-        } >> GITHUB_OUTPUT
-        cat summary.md >> GITHUB_STEP_SUMMARY
         cat summary.md
 
     - name: Show Test Report
@@ -48,3 +42,7 @@ jobs:
         report_paths: report_*.xml
         check_name: "n150-tracy Tests"
         summary: '${{ steps.rep.outputs.summary }}'
+
+    - name: Append to Job Summary
+      run: |
+        cat summary.md >> $GITHUB_STEP_SUMMARY
