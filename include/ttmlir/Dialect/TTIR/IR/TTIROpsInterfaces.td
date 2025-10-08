@@ -70,35 +70,6 @@ def TTIR_TensorManipulation : OpInterface<"TensorManipulation"> {
   let cppNamespace = "::mlir::tt::ttir";
 }
 
-def TTIR_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegisterOpInterface"> {
-  let cppNamespace = "::mlir::tt::ttir";
-  let methods = [
-    InterfaceMethod<
-      /*desc=*/[{
-        This interface denotes which op operand indices require their operands to be
-        sourced from the destination register.  It is primarily used by the
-        insert-dst-register-access pass to autogenerate copynests to and from dst.
-      }],
-      /*retTy=*/"::mlir::SmallVector<int64_t>",
-      /*methodName=*/"getOperandsLoadFromDstRegister",
-      /*args=*/(ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/"return ::mlir::SmallVector<int64_t>{};"
-    >,
-    InterfaceMethod<
-      /*desc=*/[{
-        Returns whether this operation should use the destination register in place.
-        When true, the operation can read from and write to the same register location.
-      }],
-      /*retTy=*/"bool",
-      /*methodName=*/"getDstRegInPlace",
-      /*args=*/(ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/"return false;"
-    >,
-  ];
-}
-
 def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
   let cppNamespace = "::mlir::tt::ttir";
   let methods = [

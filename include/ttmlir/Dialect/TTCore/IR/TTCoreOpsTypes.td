@@ -117,7 +117,7 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
                     "unsigned":$dramUnreservedEnd,
                     ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
                     ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes,
-                    "unsigned":$dstRegisterSizeTiles,
+                    "unsigned":$dstPhysicalSizeTiles,
                     "unsigned":$numCBs,
                     "unsigned":$numComputeThreads,
                     "unsigned":$numDatamovementThreads);
@@ -136,7 +136,7 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
                              `dram_unreserved_end` `=` $dramUnreservedEnd `,`
                              `supported_data_types` `=` `[` $supportedDataTypes `]` `,`
                              `supported_tile_sizes` `=` `[` $supportedTileSizes `]` `,`
-                             `dst_register_size_tiles` `=` $dstRegisterSizeTiles `,`
+                             `dst_physical_size_tiles` `=` $dstPhysicalSizeTiles `,`
                              `num_cbs` `=` $numCBs `,`
                              `num_compute_threads` `=` $numComputeThreads `,`
                              `num_datamovement_threads` `=` $numDatamovementThreads `}`}];
@@ -144,6 +144,7 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
   let extraClassDeclaration = [{
     unsigned getUsableL1Size() const { return getL1Size() - getL1UnreservedBase(); }
     unsigned getUsableDramChannelSize() const { return getDramUnreservedEnd() - getDramUnreservedBase(); }
+    unsigned getDstLogicalSizeTiles(Type type, bool fullSyncEn = false, unsigned overridePhysicalSize = 0) const;
   }];
 }
 
