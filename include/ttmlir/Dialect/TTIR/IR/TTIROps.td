@@ -5456,7 +5456,6 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
   let hasVerifier = 1;
 }
 
-
 def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
   let summary = "A global average pooling 2d operation";
   let description = [{
@@ -5507,6 +5506,4 @@ def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
 
   let hasVerifier = 1;
 }
-
-
 #endif

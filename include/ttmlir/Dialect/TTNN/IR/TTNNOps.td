@@ -2636,6 +2636,4 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
 
   let hasVerifier = 1;
 }
-
-
 #endif
