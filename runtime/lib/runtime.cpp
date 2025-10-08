@@ -160,13 +160,15 @@ void setCompatibleDeviceRuntimeByStr(const std::string &runtime) {
 
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
   if (lowerRuntime == "ttnn") {
-    return RuntimeContext::instance().setCurrentDeviceRuntime(DeviceRuntime::TTNN);
+    return RuntimeContext::instance().setCurrentDeviceRuntime(
+        DeviceRuntime::TTNN);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1)
   if (lowerRuntime == "ttmetal") {
-    return RuntimeContext::instance().setCurrentDeviceRuntime(DeviceRuntime::TTMetal);
+    return RuntimeContext::instance().setCurrentDeviceRuntime(
+        DeviceRuntime::TTMetal);
   }
 #endif
   LOG_FATAL("Unsupported runtime type or runtime not enabled");
