@@ -34,8 +34,8 @@ jobs:
         echo "Test 5: ttnn_runtime.sh runtime/test/ttnn/python/device_agnostic" >> summary.md
         echo "Test 6: emitc.sh" >> summary.md
         summary_content=$(cat summary.md | tr '\n' '\r' | sed 's/\r/<br \/>/g')
-        echo "summary=\"$summary_content\""
-        echo "summary=\"$summary_content\"" >> $GITHUB_OUTPUT
+        echo "summary='$summary_content'"
+        echo "summary='$summary_content'" >> $GITHUB_OUTPUT
         cat summary.md >> $GITHUB_STEP_SUMMARY
         cat summary.md
 
