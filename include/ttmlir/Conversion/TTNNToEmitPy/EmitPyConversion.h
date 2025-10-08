@@ -689,14 +689,6 @@ struct EmitPyContainerTypeConverter {
     return convert(result);
   }
 
-  static std::string convert(const T &container) {
-    llvm::SmallVector<std::string> result;
-    for (const auto &element : container) {
-      result.push_back(EmitPyTypeConverter<value_type>::convert(element));
-    }
-    return convert(result);
-  }
-
 private:
   static std::string convert(const llvm::SmallVector<std::string> &values) {
     constexpr char openingParen =

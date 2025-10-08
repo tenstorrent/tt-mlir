@@ -11,7 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "llvm/ADT/SmallVector.h"
+
 #include <optional>
 
 using namespace mlir;
@@ -1509,16 +1509,24 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PadOp> emitter(
         padOp, adaptor, rewriter);
 
-    // Convert padding from flat array to vector of pairs
+    // Convert padding from flat array to ArrayAttr of DenseI32ArrayAttr pairs
     auto paddingArray = padOp.getPadding();
-    std::vector<std::array<int32_t, 2>> paddingPairs;
+    llvm::SmallVector<mlir::Attribute, 4> paddingPairs;
     for (size_t i = 0; i < paddingArray.size(); i += 2) {
-      paddingPairs.push_back({paddingArray[i], paddingArray[i + 1]});
+      mlir::SmallVector<int32_t, 2> paddingPair = {paddingArray[i],
+                                                   paddingArray[i + 1]};
+
+      paddingPairs.push_back(
+          mlir::DenseI32ArrayAttr::get(rewriter.getContext(), paddingPair));
     }
+
+    mlir::ArrayAttr paddingPairsArrayAttr =
+        mlir::ArrayAttr::get(rewriter.getContext(), paddingPairs);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(padOp.getInput()),
-        emitter.emit(paddingPairs),
+        emitter.emit<std::vector<std::array<int32_t, 2>>>(
+            paddingPairsArrayAttr),
         emitter.emit(padOp.getValue()),
         emitter.emit(padOp.getUseMulticore(), "use_multicore"),
         emitter.emit(padOp.getMemoryConfig() |

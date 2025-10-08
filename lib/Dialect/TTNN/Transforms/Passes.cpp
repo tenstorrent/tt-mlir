@@ -26,8 +26,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
-#include <unordered_map>
-
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
 #define GEN_PASS_DEF_TTNNLOADINPUTTENSORS
@@ -302,14 +300,14 @@ private:
       rewriter.setInsertionPointToStart(mainFuncOp.addEntryBlock());
     });
 
-    for (auto forwardAndInputFuncOp : forwardAndInputFuncOps) {
+    for (auto [forwardFuncOp, inputFuncOp] : forwardAndInputFuncOps) {
 
       llvm::SmallVector<Value> operands;
       // Generate/load the input tensors for a forwardFuncOp if needed.
       //
-      if (forwardAndInputFuncOp.second) {
+      if (inputFuncOp) {
         func::CallOp tensors = rewriter.create<mlir::func::CallOp>(
-            forwardAndInputFuncOp.first.getLoc(), forwardAndInputFuncOp.second,
+            forwardFuncOp.getLoc(), inputFuncOp,
             /*operands=*/ValueRange());
         operands = tensors->getResults();
       }
@@ -317,8 +315,7 @@ private:
       // Call a forward function. If there are input tensors, pass them as
       // operands.
       //
-      rewriter.create<mlir::func::CallOp>(forwardAndInputFuncOp.first.getLoc(),
-                                          forwardAndInputFuncOp.first,
+      rewriter.create<mlir::func::CallOp>(forwardFuncOp.getLoc(), forwardFuncOp,
                                           operands);
     }
 
