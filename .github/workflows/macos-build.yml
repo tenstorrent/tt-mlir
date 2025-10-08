@@ -28,12 +28,12 @@ jobs:
         gh run download 18307092217 --repo tenstorrent/tt-mlir --name "test-reports-n150-tracy-52128249415"
         echo "n150, tracy, 1 Test Report" > summary.md
         echo "" >> summary.md
-        echo "Test 1: pytest.sh tools/explorer/test/run_tests.py {color:red;}FAIL" >> summary.md
-        echo "Test 2: pytest.sh runtime/tools/chisel/test {color:green;}SUCCESS" >> summary.md
-        echo "Test 3: builder.sh test/python/golden {color:green;}SUCCESS" >> summary.md
-        echo "Test 4: ttrt.sh perf Silicon/TTNN/n150/optimizer {color:yellow;}SKIPPED" >> summary.md
-        echo "Test 5: ttnn_runtime.sh runtime/test/ttnn/python/device_agnostic {color:yellow;}SKIPPED" >> summary.md
-        echo "Test 6: emitc.sh {color:yellow;}SKIPPED" >> summary.md
+        echo "Test 1: pytest.sh tools/explorer/test/run_tests.py <span style="color:red;">FAIL</span>" >> summary.md
+        echo "Test 2: pytest.sh runtime/tools/chisel/test <span style="color:green;">SUCCESS</span>" >> summary.md
+        echo "Test 3: builder.sh test/python/golden <span style="color:green;">SUCCESS</span>" >> summary.md
+        echo "Test 4: ttrt.sh perf Silicon/TTNN/n150/optimizer <span style="color:yellow;">SKIPPED</span>" >> summary.md
+        echo "Test 5: ttnn_runtime.sh runtime/test/ttnn/python/device_agnostic <span style="color:yellow;">SKIPPED</span>" >> summary.md
+        echo "Test 6: emitc.sh <span style="color:yellow;">SKIPPED</span>" >> summary.md
         summary_content=$(cat summary.md | tr '\n' '\r' | sed 's/\r/<br \/>/g')
         echo "summary=$summary_content"
         echo "summary=$summary_content" >> $GITHUB_OUTPUT
