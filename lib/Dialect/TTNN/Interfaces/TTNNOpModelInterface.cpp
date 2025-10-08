@@ -3785,7 +3785,7 @@ GlobalAvgPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<GlobalAvgPool2dOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], opConfig.outputLayout);
+      inputShape, inputs[0], opConfig.outputLayout, getDtype());
 }
 
 llvm::Expected<size_t>
@@ -3797,7 +3797,7 @@ GlobalAvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<GlobalAvgPool2dOp>::getOpRuntime, *this, inputShape,
-      inputs[0], opConfig.outputLayout);
+      inputs[0], opConfig.outputLayout, getDtype());
 }
 
 } // namespace mlir::tt::ttnn

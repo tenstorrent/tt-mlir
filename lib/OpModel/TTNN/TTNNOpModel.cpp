@@ -4492,7 +4492,8 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout,
+    std::optional<mlir::tt::ttcore::DataType> dtype) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -4505,11 +4506,18 @@ llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  std::optional<::tt::tt_metal::DataType> outputDType;
+  if (dtype.has_value()) {
+    outputDType = conversion::getDataType(dtype.value());
+  } else {
+    outputDType = detail::getNullableDataType(outputLayout);
+  }
+
   // Create query closure
   auto globalAvgPool2DQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::global_avg_pool2d, device, inputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout), outputDType);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -4522,7 +4530,8 @@ llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
 llvm::Expected<size_t>
 OpModel<GlobalAvgPool2dOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                          TTNNLayoutAttr inputLayout,
-                                         TTNNLayoutAttr outputLayout) {
+                                         TTNNLayoutAttr outputLayout,
+                                         std::optional<mlir::tt::ttcore::DataType> dtype) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -4534,11 +4543,18 @@ OpModel<GlobalAvgPool2dOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  std::optional<::tt::tt_metal::DataType> outputDType;
+  if (dtype.has_value()) {
+    outputDType = conversion::getDataType(dtype.value());
+  } else {
+    outputDType = detail::getNullableDataType(outputLayout);
+  }
+
   // Create query closure
   auto globalAvgPool2DQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::global_avg_pool2d, device, inputSpec,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout), outputDType);
   };
 
   return operation::getOpRuntime(globalAvgPool2DQuery);

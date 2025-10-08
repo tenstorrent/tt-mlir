@@ -1113,11 +1113,13 @@ struct OpModel<GlobalAvgPool2dOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(ttcore::GridAttr deviceGrid,
                    llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout,
+                   std::optional<ttcore::DataType> dtype = std::nullopt);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
-                                             TTNNLayoutAttr outputLayout);
+                                             TTNNLayoutAttr outputLayout,
+                                             std::optional<ttcore::DataType> dtype = std::nullopt);
 };
 
 //===----------------------------------------------------------------------===//
