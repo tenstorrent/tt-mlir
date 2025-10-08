@@ -1095,13 +1095,21 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    bool slicingNeeded = op.getOutputChannelSize() > 64;
+    if (slicingNeeded) {
+      auto sliceConfigAttr = mlir::tt::ttnn::Conv2dSliceConfigAttr::get(op.getContext(), mlir::tt::ttnn::Conv2dSliceType::DramWidth, 0);
+      op.setSliceConfigAttr(sliceConfigAttr);
+      auto conv2dConfigAttr = mlir::tt::ttnn::Conv2dConfigAttr::get(op.getContext(), mlir::tt::ttnn::Conv2dConfigType::Slicing, 0);
+
+    }
+
     rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
         groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
-        /*compute_config=*/nullptr);
+        /*compute_config=*/nullptr, /*slice_config=*/sliceConfigAttr);
 
     return success();
   }
@@ -1128,6 +1136,7 @@ private:
     return llvm::createStringError("Unexpected attribute type for '%s'",
                                    attrName.data());
   }
+
 };
 } // namespace
 

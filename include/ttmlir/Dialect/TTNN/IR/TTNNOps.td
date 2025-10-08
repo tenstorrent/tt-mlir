@@ -1432,6 +1432,7 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface]> {
         - array<4xi32>: [pT, pB, pL, pR] for top, bottom, left, and right padding respectively.
       - `dilation` (array<2xi32>): [dH, dW] where dH is dilation for height and dW is dilation for width.
       - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
+      - `slice_config` (optional Conv2dSliceConfig): Configuration for slicing the convolution operation. Specifies slice type (dram_height, dram_width, or l1_full) and number of slices. Used to control memory usage and execution strategy.
 
       Outputs:
       - `result` (AnyRankedTensor): returned in the following flattened format (1, 1, N * H_out * W_out, O) where:
@@ -1474,7 +1475,8 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface]> {
                          I32Attr:$groups,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
-                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
