@@ -27,4 +27,16 @@ module {
     return %1 : tensor<14x4x3x64x32xbf16>
   }
 
+  func.func @linear_nd_nd_bias_broadcast(%arg0: tensor<1x1x64x128xbf16>, %arg1: tensor<1x1x128x32xbf16>, %bias: tensor<4x3x64x32xbf16>) -> tensor<4x3x64x32xbf16> {
+    %0 = ttir.empty() : tensor<4x3x64x32xbf16>
+    // The expected output shape is [1, 1, 64, 32] with leading batch dims broadcasted to [4, 3, 64, 32] due to bias.
+    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) : (tensor<1x1x64x128xbf16>, tensor<1x1x128x32xbf16>, tensor<4x3x64x32xbf16>, tensor<4x3x64x32xbf16>) -> tensor<4x3x64x32xbf16>
+    return %1 : tensor<4x3x64x32xbf16>
+  }
+
+  func.func @linear_nd_nd_bias_broadcast_matmul(%arg0: tensor<1x3x64x128xbf16>, %arg1: tensor<1x3x128x32xbf16>, %bias: tensor<14x4x3x64x32xbf16>) -> tensor<14x4x3x64x32xbf16> {
+    %0 = ttir.empty() : tensor<14x4x3x64x32xbf16>
+    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) : (tensor<1x3x64x128xbf16>, tensor<1x3x128x32xbf16>, tensor<14x4x3x64x32xbf16>, tensor<14x4x3x64x32xbf16>) -> tensor<14x4x3x64x32xbf16>
+    return %1 : tensor<14x4x3x64x32xbf16>
+  }
 }

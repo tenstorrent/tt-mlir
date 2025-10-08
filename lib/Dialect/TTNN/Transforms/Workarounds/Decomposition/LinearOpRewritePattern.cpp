@@ -17,84 +17,49 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // Follows
 // third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/operations/matmul/matmul.cpp.
 static bool isBatchedLinearOp(ttnn::LinearOp linearOp) {
-  RankedTensorType inputBType =
-      mlir::cast<RankedTensorType>(linearOp.getB().getType());
+  RankedTensorType inputBType = linearOp.getB().getType();
   auto inputBShape = inputBType.getShape();
   int64_t rank = inputBShape.size();
 
-  // Check if batched: any dimension before the last 2 has size > 1
-  if (rank < 2) {
-    return false;
-  }
-
-  for (int64_t i = 0; i < rank - 2; ++i) {
-    if (inputBShape[i] > 1) {
-      return true;
-    }
-  }
-  return false;
+  // if rank < 2, it cannot be batched. Return false.
+  // Check if batched: any dimension before the last 2 has size > 1.
+  // i.e. <1x3x128x32xbf16> is batched because of 3.
+  // i.e. <1x1x128x32xbf16> is not batched because all dims before last 2 are 1.
+  // i.e. <128xbf16> is not batched because rank < 2.
+  return rank >= 2 && llvm::any_of(inputBShape.drop_back(2),
+                                   [](int64_t dim) { return dim > 1; });
 }
 
 // Calculate the output shape of a matmul operation following tt-metal's logic.
 // Reference: ttnn/cpp/ttnn/operations/matmul/matmul.cpp
 static SmallVector<int64_t>
 computeMatmulOutputShape(llvm::ArrayRef<int64_t> shapeA,
-                         llvm::ArrayRef<int64_t> shapeB, bool transposeA,
-                         bool transposeB) {
-
+                         llvm::ArrayRef<int64_t> shapeB) {
   int64_t rankA = shapeA.size();
   int64_t rankB = shapeB.size();
 
-  // Rank difference will be used to align batch dimensions
-  int64_t outRank = std::max(rankA, rankB) - (rankA == 1 || rankB == 1);
-  int64_t rankDifference = std::max<int64_t>(0, outRank - rankA);
-
-  // Initialize output shape based on the tensor with higher rank
-  SmallVector<int64_t> outputShape;
-  if (rankB > rankA) {
-    outputShape.assign(shapeB.begin(), shapeB.end());
-  } else {
-    outputShape.assign(shapeA.begin(), shapeA.end());
-  }
-
-  // Handle batch dimensions for the case where rankB > rankA
-  for (int64_t index = 0; index < rankDifference; ++index) {
-    // tt-metal requires these front dimensions to be 1
-    // For our purposes, we'll just copy them
-    outputShape[index] = shapeB[index];
-  }
-
-  // Copy dimensions from shapeA except the last one
-  for (int64_t index = 0; index < rankA - 1; ++index) {
-    outputShape[rankDifference + index] = shapeA[index];
-  }
-
-  // The last dimension comes from input_tensor_b
-  outputShape[outputShape.size() - 1] = shapeB[shapeB.size() - 1];
-
-  // Handle the vector matmul case: if rankA == 1, remove the second-to-last
-  // dimension
-  if (rankA == 1 && outputShape.size() > 1) {
-    SmallVector<int64_t> newShape;
-    newShape.reserve(outputShape.size() - 1);
-    // Copy all elements except the second-to-last dimension
-    for (size_t srcIdx = 0; srcIdx < outputShape.size(); ++srcIdx) {
-      if (srcIdx != outputShape.size() - 2) {
-        newShape.push_back(outputShape[srcIdx]);
-      }
-    }
-    outputShape = std::move(newShape);
-  }
-
-  // Handle the case where rankB == 1, remove the last dimension
+  // Input B is a vector -> We drop the last dimension of shapeA.
+  // (n_1,..., n_k, p, q) x (q, (implicit 1)) -> (n_1,..., n_k, p)
   if (rankB == 1) {
-    SmallVector<int64_t> newShape;
-    newShape.reserve(outputShape.size() - 1);
-    for (size_t index = 0; index < outputShape.size() - 1; ++index) {
-      newShape.push_back(outputShape[index]);
-    }
-    outputShape = std::move(newShape);
+    return llvm::SmallVector<int64_t>(shapeA.begin(), shapeA.end() - 1);
   }
+  // Input A is a vector -> We drop the second-to-last dimension of shapeB.
+  int64_t outRank = std::max(rankA, rankB);
+  SmallVector<int64_t> outputShape(outRank, 1);
+
+  int64_t aOffset = outRank - rankA;
+  int64_t bOffset = outRank - rankB;
+
+  // Broadcast batch dimensions
+  for (int64_t i = 0; i < outRank - 2; ++i) {
+    int64_t aDim = (i >= aOffset) ? shapeA[i - aOffset] : 1;
+    int64_t bDim = (i >= bOffset) ? shapeB[i - bOffset] : 1;
+    outputShape[i] = std::max(aDim, bDim);
+  }
+
+  // Matmul inner dims: (…, p, q) x (…, q, r) -> (…, p, r)
+  outputShape[outRank - 2] = shapeA[rankA - 2];
+  outputShape[outRank - 1] = shapeB[rankB - 1];
 
   return outputShape;
 }
@@ -108,23 +73,19 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
     return failure();
   }
 
-  RankedTensorType inputAType =
-      mlir::cast<RankedTensorType>(srcOp.getA().getType());
-  RankedTensorType inputBType =
-      mlir::cast<RankedTensorType>(srcOp.getB().getType());
-  RankedTensorType outputType =
-      mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+  RankedTensorType inputAType = srcOp.getA().getType();
+  RankedTensorType inputBType = srcOp.getB().getType();
+  RankedTensorType outputType = srcOp.getResult().getType();
 
   // Compute matmul output shape
   SmallVector<int64_t> matmulShape =
-      computeMatmulOutputShape(inputAType.getShape(), inputBType.getShape(),
-                               srcOp.getTransposeA(), srcOp.getTransposeB());
+      computeMatmulOutputShape(inputAType.getShape(), inputBType.getShape());
 
   // Create matmul output type
   auto outputEncoding =
       mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
-  auto matmulOutputType = RankedTensorType::get(
-      matmulShape, outputType.getElementType(), outputType.getEncoding());
+  auto matmulOutputType =
+      utils::RankedTensorTypeFactory::create(outputType, matmulShape);
 
   auto dataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
       rewriter.getContext(), outputEncoding.getDataType());
