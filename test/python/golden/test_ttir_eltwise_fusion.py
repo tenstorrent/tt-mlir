@@ -198,7 +198,7 @@ def cosh(in0: Operand, in1: Operand, builder: TTIRBuilder):
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_cosh(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     options = [grid]
 
@@ -213,6 +213,7 @@ def test_eltwise_fuse_cosh(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=enablePrintIR,
+        device=device,
     )
 
 
@@ -252,6 +253,7 @@ def test_eltwise_sanity_check_unary_op(
     dtype: torch.dtype,
     target: str,
     request,
+    device,
 ):
     def unary_op_wrapper(
         in0: Operand,
@@ -279,6 +281,7 @@ def test_eltwise_sanity_check_unary_op(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=enablePrintIR,
+        device=device,
     )
 
 
@@ -322,7 +325,7 @@ def unary_chain(in0: Operand, builder: TTIRBuilder):
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_unary_chain(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
 
     options = [grid]
@@ -338,6 +341,7 @@ def test_eltwise_fuse_unary_chain(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=enablePrintIR,
+        device=device,
     )
 
 
@@ -367,7 +371,7 @@ def converging_unary_branches(
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_converging_unary_branches(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
 
     options = [grid]
@@ -383,6 +387,7 @@ def test_eltwise_fuse_converging_unary_branches(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=enablePrintIR,
+        device=device,
     )
 
 
@@ -397,7 +402,7 @@ def test_eltwise_fuse_converging_unary_branches(
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_binary_reduction_tree(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     options = [grid]
 
@@ -460,6 +465,7 @@ def test_eltwise_fuse_binary_reduction_tree(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=enablePrintIR,
+        device=device,
     )
 
 
@@ -488,7 +494,7 @@ def diamond_unary_op_fanout(
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_diamond_unary_op_fanout(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
 
     options = [grid]
@@ -504,6 +510,7 @@ def test_diamond_unary_op_fanout(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=enablePrintIR,
+        device=device,
     )
 
 

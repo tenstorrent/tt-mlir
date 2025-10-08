@@ -40,7 +40,7 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
             return _current_device
         else:  # Cache miss, need to teardown
             print(
-                f"Found new target {target}, closing device for {_current_device_target}"
+                f"Found new target {target} with mesh shape {mesh_shape}, closing device for {_current_device_target} with {_current_device_mesh_shape}"
             )
             ttrt.runtime.close_mesh_device(_current_device)
             _current_device = None
@@ -48,7 +48,7 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
             _current_device_mesh_shape = None
 
     # Open new device for target
-    print(f"Opening device for {target}")
+    print(f"Opening device for {target} with mesh shape {mesh_shape}")
 
     mesh_options = ttrt.runtime.MeshDeviceOptions()
 
@@ -526,6 +526,7 @@ def pytest_collection_modifyitems(config, items):
 def pytest_sessionfinish(session):
     global _current_device, _current_device_target, _current_device_mesh_shape
     if _current_device is not None:
+        print("Closing device for end of session")
         ttrt.runtime.close_mesh_device(_current_device)
         _current_device = None
         _current_device_target = None

@@ -680,6 +680,8 @@ def compile_ttir_to_flatbuffer(
             custom_pipeline=custom_pipeline,
             pipeline_options=pipeline_options,
             print_ir=print_ir,
+            device=device,
+            skip_exec=skip_exec,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -700,6 +702,8 @@ def compile_d2m_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    device=None,
+    skip_exec: bool = False,
 ) -> str:
     """
     Compiles a D2MBuilder function `fn` to D2M MLIR -> TTMetal MLIR -> Flatbuffer.
@@ -975,6 +979,7 @@ def compile_stablehlo_to_flatbuffer(
     shlo_to_ttir_pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
     device=None,  # Optional device parameter for fixture reuse
+    skip_exec: bool = False,
 ) -> str:
     """
     Compiles a StableHLO function to flatbuffer format.
@@ -1125,6 +1130,7 @@ def compile_stablehlo_to_flatbuffer(
         pipeline_options=ttir_pipeline_options,
         print_ir=print_ir,
         device=device,
+        skip_exec=skip_exec,
     )
 
 
@@ -1327,6 +1333,8 @@ def execute_fb(
     """
     Takes a flatbuffer path `fb`, and executes it with random inputs supplied by `input_shapes` and `input_dtypes`
     """
+
+    assert device is not None
 
     # Create 'owned tensor' in case of empty tensor;
     # otherwise create 'borrowed tensor'.

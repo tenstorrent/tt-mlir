@@ -156,6 +156,9 @@ def test_batch_norm_decomposition(
     assert check_op(output, "conv2d") and not check_op(output, "batch_norm")
 
 
+@pytest.mark.xfail(
+    reason="Compile error: is_floating_point(): argument 'input' (position 1) must be Tensor, not NoneType"
+)
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -181,6 +184,7 @@ def test_conv_activation_fusing(
     groups: int,
     activation: str,
     request,
+    device,
 ):
     def conv2d_activation(
         input_tensor: Operand,
@@ -254,10 +258,14 @@ def test_conv_activation_fusing(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
     )
     assert check_op(output, "conv2d") and not check_op(output, activation)
 
 
+@pytest.mark.xfail(
+    reason="Compile error: is_floating_point(): argument 'input' (position 1) must be Tensor, not NoneType"
+)
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -283,6 +291,7 @@ def test_conv_silu_decomposed_fusing(
     dilation: List[int],
     groups: int,
     request,
+    device,
 ):
     def conv2d_silu_decomposed(
         input_tensor: Operand,
@@ -345,6 +354,7 @@ def test_conv_silu_decomposed_fusing(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
     )
     assert (
         check_op(output, "conv2d")

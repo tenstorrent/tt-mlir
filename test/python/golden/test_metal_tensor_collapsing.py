@@ -95,6 +95,7 @@ def test_uncollapsed_tensors(
     collapse_tensors: bool,
     target: str,
     request,
+    device,
 ):
     """Test tensor operations with and without tensor collapsing to 2D."""
 
@@ -110,4 +111,5 @@ def test_uncollapsed_tensors(
         print_ir="ir_dump",
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
     )

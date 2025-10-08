@@ -1127,7 +1127,7 @@ def test_conv2d_consteval(
 @pytest.mark.parametrize("padding", [[2, 1]])
 @pytest.mark.parametrize("groups", [1])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.run_error  # Issue #5165.
+@pytest.mark.xfail(reason="Issue #5165.")
 def test_hoisted_conv2d(
     shapes: List[Shape],
     stride: List[int],
@@ -1276,7 +1276,7 @@ def test_max_pool2d(
 @pytest.mark.parametrize("shape", [(1, 128, 128, 32)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.run_error  # Issue #5133.
+@pytest.mark.xfail(reason="Issue #5133.")
 def test_hoisted_max_pool2d(
     shape: Shape,
     dtype: torch.dtype,
@@ -1542,7 +1542,7 @@ def test_ones(shape: Shape, request, device):
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_callable_initialization_basic(
-    shape: Shape, dtype: torch.dtype, target: str, request
+    shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     """Basic test demonstrating callable initialization with torch.zeros and torch.ones"""
 
@@ -1564,6 +1564,7 @@ def test_callable_initialization_basic(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -1571,7 +1572,7 @@ def test_callable_initialization_basic(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_callable_initialization_zeros(
-    shape: Shape, dtype: torch.dtype, target: str, request
+    shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     def test_with_zeros_init(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -1588,6 +1589,7 @@ def test_callable_initialization_zeros(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -1595,7 +1597,7 @@ def test_callable_initialization_zeros(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_callable_initialization_ones(
-    shape: Shape, dtype: torch.dtype, target: str, request
+    shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     def test_with_ones_init(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -1612,6 +1614,7 @@ def test_callable_initialization_ones(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -1619,7 +1622,7 @@ def test_callable_initialization_ones(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_callable_initialization_eye(
-    shape: Shape, dtype: torch.dtype, target: str, request
+    shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     def test_with_eye_init(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -1644,6 +1647,7 @@ def test_callable_initialization_eye(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -1651,7 +1655,7 @@ def test_callable_initialization_eye(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_callable_initialization_mixed(
-    shape: Shape, dtype: torch.dtype, target: str, request
+    shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     def test_with_mixed_init(
         in0: Operand,
@@ -1671,6 +1675,7 @@ def test_callable_initialization_mixed(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -1678,7 +1683,7 @@ def test_callable_initialization_mixed(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_callable_initialization_custom_lambda(
-    shape: Shape, dtype: torch.dtype, target: str, request
+    shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     def test_with_custom_lambda(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -1696,6 +1701,7 @@ def test_callable_initialization_custom_lambda(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -2653,7 +2659,7 @@ def test_hoisted_transpose(input_shape, dims, request, target: str, device):
 @pytest.mark.parametrize("shape", [(1, 128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_squeeze(shape: Shape, dim: int, target: str, request):
+def test_hoisted_squeeze(shape: Shape, dim: int, target: str, request, device):
     """Test hoisted squeeze operation with appropriate shape that has a dimension of size 1"""
 
     def hoisted_squeeze(
@@ -2670,6 +2676,7 @@ def test_hoisted_squeeze(shape: Shape, dim: int, target: str, request):
         target=target,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
     )
 
 
@@ -3903,8 +3910,12 @@ def test_reduce_scatter(
         ((2, 4), [(0, 2), (1, 3), (4, 6), (5, 7), (2, 0), (3, 1), (6, 4), (7, 5)]),
         ((2, 4), [(0, 7), (1, 6), (2, 5), (3, 4), (4, 3), (5, 2), (6, 1), (7, 0)]),
         pytest.param(
-            (2, 4), [(0, 1), (2, 3), (4, 5), (6, 7)], marks=pytest.mark.fails_golden
-        ),  # https://github.com/tenstorrent/tt-mlir/issues/4323
+            (2, 4),
+            [(0, 1), (2, 3), (4, 5), (6, 7)],
+            marks=pytest.mark.xfail(
+                reason="https://github.com/tenstorrent/tt-mlir/issues/4323"
+            ),
+        ),
         ((1, 8), [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 0)]),
         ((1, 32), [(i, (i + 1) % 32) for i in range(32)]),
         (

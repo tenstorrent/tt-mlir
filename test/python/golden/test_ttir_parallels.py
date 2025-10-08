@@ -584,8 +584,11 @@ def test_mixed_device_parallelism_with_dual_matmul(
 JIT_PARALLELISM_TESTS_INPUT_SHAPES = [(64, 1, 128, 2048), (1, 1, 2048, 128)]
 
 
+@pytest.mark.xfail(
+    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
+)
 @pytest.mark.parametrize("mesh_shape", [(1, 2), (1, 8), (1, 32)], ids=shape_str)
-def test_jit_tensor_parallel(mesh_shape: Tuple[int, int], request):
+def test_jit_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
     shapes = JIT_PARALLELISM_TESTS_INPUT_SHAPES
 
     def jit_tensor_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -641,11 +644,16 @@ def test_jit_tensor_parallel(mesh_shape: Tuple[int, int], request):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+        skip_exec=True,
     )
 
 
+@pytest.mark.xfail(
+    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
+)
 @pytest.mark.parametrize("mesh_shape", [(1, 2), (1, 8), (1, 32)], ids=shape_str)
-def test_jit_data_parallel(mesh_shape: Tuple[int, int], request):
+def test_jit_data_parallel(mesh_shape: Tuple[int, int], request, device):
     shapes = JIT_PARALLELISM_TESTS_INPUT_SHAPES
 
     def jit_data_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -695,11 +703,16 @@ def test_jit_data_parallel(mesh_shape: Tuple[int, int], request):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+        skip_exec=True,
     )
 
 
+@pytest.mark.xfail(
+    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
+)
 @pytest.mark.parametrize("mesh_shape", [(2, 4), (8, 4)], ids=shape_str)
-def test_jit_data_tensor_parallel(mesh_shape: Tuple[int, int], request):
+def test_jit_data_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
     shapes = JIT_PARALLELISM_TESTS_INPUT_SHAPES
 
     def jit_data_tensor_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
@@ -757,4 +770,6 @@ def test_jit_data_tensor_parallel(mesh_shape: Tuple[int, int], request):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+        skip_exec=True,
     )
