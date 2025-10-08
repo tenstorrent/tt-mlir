@@ -147,23 +147,27 @@ def setup_runtime_libraries(config):
         shutil.copy(ttnn_jit_module_path, wheel_runtime_dir)
         dylibs.append(ttnn_jit_module)
 
-    # Copy MPI libraries to make the wheel standalone
+    # Copy ALL MPI and system libraries to make the wheel completely standalone
+    # MPI libraries from OpenMPI
     mpi_lib_dir = "/opt/openmpi-v5.0.7-ulfm/lib"
-    mpi_libs = ["libmpi.so.40", "libopen-pal.so.80", "libpmix.so.2"]
+    mpi_libs = ["libmpi.so.40", "libopen-pal.so.80", "libpmix.so.2", "libprrte.so.3"]
     copied_mpi_libs = copy_library_files(mpi_lib_dir, wheel_runtime_dir, mpi_libs)
     dylibs.extend(copied_mpi_libs)
 
-    # Copy hwloc library (dependency of MPI)
-    hwloc_lib_dir = "/usr/lib/x86_64-linux-gnu"
-    hwloc_libs = ["libhwloc.so.15"]
-    copied_hwloc_libs = copy_library_files(hwloc_lib_dir, wheel_runtime_dir, hwloc_libs)
-    dylibs.extend(copied_hwloc_libs)
-
-    # Copy libnsl library (dependency of MPI)
-    nsl_lib_dir = "/usr/lib/x86_64-linux-gnu"
-    nsl_libs = ["libnsl.so.2"]
-    copied_nsl_libs = copy_library_files(nsl_lib_dir, wheel_runtime_dir, nsl_libs)
-    dylibs.extend(copied_nsl_libs)
+    # System libraries that MPI depends on
+    system_lib_dir = "/usr/lib/x86_64-linux-gnu"
+    system_libs = [
+        "libhwloc.so.15",  # Hardware locality library
+        "libnsl.so.2",  # Network service library
+        "libevent_core-2.1.so.7",  # Event library core
+        "libevent_pthreads-2.1.so.7",  # Event library pthreads
+        "libudev.so.1",  # Device management
+        "libz.so.1",  # Compression library
+    ]
+    copied_system_libs = copy_library_files(
+        system_lib_dir, wheel_runtime_dir, system_libs
+    )
+    dylibs.extend(copied_system_libs)
 
     # Copy TTMLIRCompiler library to fix missing symbols
     compiler_lib_path = f"{config['ttmlir_build_dir']}/lib/libTTMLIRCompiler.so"
