@@ -19,9 +19,9 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GH_TOKEN }}
       shell: bash
+      id: rep
       run: |
         gh run download 18307092217 --repo tenstorrent/tt-mlir --name "test-reports-n150-tracy-52128249415"
-        ls -l
         echo "# Test Report" > summary.md
         echo "Test 1: pytest.sh tools/explorer/test/run_tests.py" >> summary.md
         echo "Test 2: pytest.sh runtime/tools/chisel/test" >> summary.md
@@ -29,11 +29,12 @@ jobs:
         echo "Test 4: ttrt.sh perf Silicon/TTNN/n150/optimizer" >> summary.md
         echo "Test 5: ttnn_runtime.sh runtime/test/ttnn/python/device_agnostic" >> summary.md
         echo "Test 6: emitc.sh" >> summary.md
+        echo "summary=\"$(cat summary.md)\"" >> GITHUB_OUTPUT
 
     - name: Show Test Report
       uses: mikepenz/action-junit-report@v4
       if: success() || failure()
       with:
-        report_paths: test-reports-n150-tracy-52128249415/report_*.xml
+        report_paths: report_*.xml
         check_name: "n150-tracy Tests"
-        summary_file: summary.md
+        summary: "${{ steps.rep.outputs.summary }}"
