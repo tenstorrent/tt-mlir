@@ -1147,7 +1147,7 @@ public:
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
         groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
-        /*compute_config=*/nullptr);
+        /*compute_config=*/nullptr, /*conv2d_slice_config=*/nullptr);
 
     return success();
   }

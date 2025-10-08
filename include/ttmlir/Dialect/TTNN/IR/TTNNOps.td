@@ -1410,7 +1410,8 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
                          TTNN_Device:$device,
                          TTCore_DataTypeAttr:$input_dtype,
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
-                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1436,7 +1437,8 @@ def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias"> {
                          TTNN_Device:$device,
                          TTCore_DataTypeAttr:$input_dtype,
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
-                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1517,7 +1519,8 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface]> {
                          I32Attr:$groups,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
-                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
