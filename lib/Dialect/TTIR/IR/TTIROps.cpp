@@ -4421,28 +4421,48 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
-// BatchNormOp
+// BatchNorm verification helpers
 //===----------------------------------------------------------------------===//
-::mlir::LogicalResult mlir::tt::ttir::BatchNormOp::verify() {
-  if (getOperand().getType().getRank() != 4) {
-    return emitOpError("input tensor must be a 4D tensor");
+namespace {
+// Shared verification logic for BatchNorm operations
+static ::mlir::LogicalResult verifyBatchNormOp(mlir::Operation *op,
+                                               mlir::RankedTensorType inputType,
+                                               int64_t dimension) {
+  int64_t inputRank = inputType.getRank();
+
+  // Input must be 2D to 5D
+  if (inputRank < 2 || inputRank > 5) {
+    return op->emitOpError(
+               "input tensor must have rank between 2 and 5, got rank ")
+           << inputRank;
+  }
+
+  // Dimension attribute must be within bounds
+  if (dimension < 0 || dimension >= inputRank) {
+    return op->emitOpError(
+               "dimension attribute must be within input rank bounds, "
+               "got dimension ")
+           << dimension << " for rank " << inputRank;
   }
 
   return success();
+}
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// BatchNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::BatchNormOp::verify() {
+  return verifyBatchNormOp(getOperation(), getOperand().getType(),
+                           getDimension());
 }
 
 //===----------------------------------------------------------------------===//
 // BatchNormTrainingOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::BatchNormTrainingOp::verify() {
-  if (getOperand().getType().getRank() != 4) {
-
-    return emitOpError(
-        std::string("input tensor must be a 4D tensor, got rank ") +
-        std::to_string(getOperand().getType().getRank()));
-  }
-
-  return success();
+  return verifyBatchNormOp(getOperation(), getOperand().getType(),
+                           getDimension());
 }
 
 //===----------------------------------------------------------------------===//
