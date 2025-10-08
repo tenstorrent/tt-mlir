@@ -394,21 +394,21 @@ index 36ed7bb..098c579 100644
    }
 
 diff --git a/shardy/dialect/mpmd/transforms/common/uniquify_function_inputs_outputs.cc b/shardy/dialect/mpmd/transforms/common/uniquify_function_inputs_outputs.cc
-index bebbeb2..f3fca4f 100644
+index 7aaa133..f76f2e1 100644
 --- a/shardy/dialect/mpmd/transforms/common/uniquify_function_inputs_outputs.cc
 +++ b/shardy/dialect/mpmd/transforms/common/uniquify_function_inputs_outputs.cc
-@@ -68,8 +68,8 @@ void CreateReturnFragmentForMesh(StringRef mesh_name, Operation* return_op,
+@@ -71,8 +71,8 @@ void CreateReturnFragmentForMesh(StringRef mesh_name, Operation* return_op,
    }
 
    auto loc = return_op->getLoc();
 -  auto fragment_op = FragmentOp::create(
 -      builder, loc, fragment_return_types, fragment_operands,
 +  auto fragment_op = builder.create<FragmentOp>(
-+    loc, fragment_return_types, fragment_operands,
++      loc, fragment_return_types, fragment_operands,
        /*user_origin=*/ArrayAttr::get(builder.getContext(), {}),
        /*mesh_name=*/mesh_name, /*stage_id=*/IntegerAttr());
    Block& fragment_block = fragment_op.getRegion().emplaceBlock();
-@@ -95,7 +95,7 @@ void CreateReturnFragmentForMesh(StringRef mesh_name, Operation* return_op,
+@@ -98,7 +98,7 @@ void CreateReturnFragmentForMesh(StringRef mesh_name, Operation* return_op,
      }
    }
    auto block_builder = OpBuilder::atBlockEnd(&fragment_block);
@@ -416,7 +416,8 @@ index bebbeb2..f3fca4f 100644
 +  block_builder.create<ReturnOp>(loc, returned_values);
  }
 
- class UniquifyFunctionInputOutputsPass
+ // Replaces the return values of the function with transfer ops.
+
 diff --git a/shardy/dialect/mpmd/transforms/export/CMakeLists.txt b/shardy/dialect/mpmd/transforms/export/CMakeLists.txt
 new file mode 100644
 index 0000000..a42701e
