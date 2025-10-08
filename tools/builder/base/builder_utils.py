@@ -196,6 +196,7 @@ def _create_custom_ttir_pipeline_fn(
             pm = PassManager.parse(pipeline_str)
             pm.enable_verifier(verify)
             print("Running custom pipeline:", pm)
+            # import pdb; pdb.set_trace()
             if print_ir:
                 print_ir_path = print_ir if isinstance(print_ir, str) else None
                 pm.enable_ir_printing(tree_printing_dir_path=print_ir_path)

@@ -461,7 +461,8 @@ private:
             loc,
             /* result tensor types */
             llvm::to_vector(
-                mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+                static_cast<mlir::ValueRange>(blockArgs.take_back(numOutputs))
+                    .getTypes()),
             /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
@@ -613,7 +614,8 @@ private:
             loc,
             /* result tensor types */
             llvm::to_vector(
-                mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+                static_cast<mlir::ValueRange>(blockArgs.take_back(numOutputs))
+                    .getTypes()),
             /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
@@ -939,13 +941,69 @@ public:
     auto permutation = op.getPermutation();
 
     const int64_t permuteSize = static_cast<int64_t>(permutation.size());
+    // assert permuteSize >= 2
+    assert(permuteSize >= 2 && "Permute size must be >= 2");
+    // identify isInnerPermute: only for 2D transpose [1, 0]
+    bool isInnerPermute =
+        (permuteSize == 2 && permutation[0] == 1 && permutation[1] == 0);
+    if (permuteSize > 2 && isInnerPermute) {
+      // Will need to implement splitInnerPermute here to recursively handle the
+      // inner permute.
+      return failure();
+    }
     // Transpose pattern on inner dims.
-    if (permuteSize == 2 || permutation[permuteSize - 2] == permuteSize - 1 ||
-        permutation[permuteSize - 1] == permuteSize - 2) {
+    if (isInnerPermute) {
       return permuteInnerDims(op, adaptor, rewriter);
     }
-    // Unhandled conversion case.
-    return failure();
+    return permuteOuterDims(op, adaptor, rewriter);
+  }
+
+  // Handler for permutation of outer dims.
+  LogicalResult
+  permuteOuterDims(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
+                   mlir::ConversionPatternRewriter &rewriter) const {
+    mlir::MLIRContext *ctx = rewriter.getContext();
+
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
+
+    // The outputs are not used in this case.
+    // Do not tilize.
+    auto [inputs, _] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ false);
+
+    mlir::RankedTensorType inputTensorType =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    ArrayRef<int64_t> inputShape = inputTensorType.getShape();
+    const unsigned deviceRank = static_cast<unsigned>(inputShape.size());
+
+    ttcore::MetalLayoutAttr inputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
+    ArrayRef<int64_t> permutation = op.getPermutation();
+    auto [transposeMap, resultShape] = computePermutationMapAndShape(
+        rewriter, permutation, inputShape, deviceRank);
+
+    // Compose the transpose map with the input's layout index affine map.
+    AffineMap composedMap = transposeMap.compose(
+        inputLayout.getIndexAffineMapOrIdentity(deviceRank));
+
+    ttcore::MetalLayoutAttr viewLayout = ttcore::MetalLayoutAttr::get(
+        ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
+        inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
+        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+        composedMap);
+    mlir::RankedTensorType viewTensorType = mlir::RankedTensorType::get(
+        resultShape, inputTensorType.getElementType(), viewLayout);
+
+    auto storage = rewriter.create<d2m::EmptyOp>(
+        op.getLoc(), resultShape, inputTensorType.getElementType(), viewLayout);
+    auto stream = rewriter.create<d2m::StreamLayoutOp>(
+        op.getLoc(), viewTensorType, inputs[0], storage);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, stream.getResult(),
+                                          op->getResult(0).getType()));
+    return success();
   }
 
   // Handler for permutation of inner dims (i.e. transpose).
@@ -1009,7 +1067,8 @@ public:
           auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
               bodyLoc,
               llvm::to_vector(
-                  mlir::ValueRange(blockArgs.take_back(1)).getTypes()),
+                  static_cast<mlir::ValueRange>(blockArgs.take_back(1))
+                      .getTypes()),
               blockArgs.take_front(1), blockArgs.take_back(1),
               SmallVector<mlir::AffineMap>{identityMap, identityMap},
               linalgIteratorTypes,

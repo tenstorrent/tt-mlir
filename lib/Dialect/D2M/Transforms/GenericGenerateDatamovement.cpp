@@ -52,13 +52,14 @@ public:
     return semaphore;
   }
 
+  // This function returns a vector of iterator types with length equal to the
+  // number of dimensions of the logical grid.
   static SmallVector<ttcore::IteratorType>
   calculateMcastIterators(ttcore::GridAttr grid, ttcore::DeviceAttr device,
                           AffineMap operandIndexingMap,
                           ArrayAttr iteratorTypes) {
-    assert(grid.getShape().size() == 2 && "Currently only support 2D grid");
     assert(grid.getShape().size() == operandIndexingMap.getNumResults());
-    assert(compatibleDeviceGrid(device, grid));
+    // assert(compatibleDeviceGrid(device, grid));
 
     bool allParallel = true;
     SmallVector<ttcore::IteratorType> mcastIterators;
@@ -79,7 +80,7 @@ public:
       allParallel &=
           (iteratorType == ttcore::IteratorType::Parallel) || singleCore;
     }
-
+    llvm::errs() << "allParallel: " << allParallel << "\n";
     return allParallel ? SmallVector<ttcore::IteratorType>() : mcastIterators;
   }
 

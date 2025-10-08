@@ -28,7 +28,7 @@ public:
   using OpRewritePattern<DMAOp>::OpRewritePattern;
 
   // Returns a tuple of the stream index and the index bounds. The stream index
-  // represents the position in the stream that the DMA will is currently on,
+  // represents the position in the stream that the DMA is currently on,
   // and is relative per core. The index bounds represent the index upper
   // bounds.
   static std::tuple<SmallVector<Value>, SmallVector<int64_t>>
@@ -270,15 +270,57 @@ public:
             genericParent.getIndexingMaps()[outputOperandsIndex])
             .getValue();
 
+    // Collapse the N-D grid to 2D physical grid before generating core_index
+    // ops. This ensures that buildStreamIndex only creates core_index
+    // operations for dimensions 0 and 1, which map to physical Y and X
+    // coordinates. e.g., [1, 1, 1, 1] -> [1, 1]  (collapses first 3 dims into
+    // dim 0)
+    SmallVector<int64_t> collapsedGridShape =
+        ttcore::collapseGridTo2D(memrefGridShape);
+
+    // Collapse the grid indexing map to match the 2D grid.
+    // e.g., (d0, d1, d2, d3) -> (r0, r1, r2, r3)  becomes
+    //       (d0, d1, d2, d3) -> (r2, r3)
+    AffineMap collapsedGridIndexingMap =
+        ttcore::collapseGridIndexingMapTo2D(gridIndexingMap);
+
+    AffineMap collapsedDmaIndexingMap =
+        ttcore::collapseGridIndexingMapTo2D(dmaIndexingMap);
+
+    // collapse shard shape to 2D
+    SmallVector<int64_t> collapsedShardShape =
+        ttcore::collapseGridTo2D(memrefShardShape);
+
+    // print all of the shapes in for each loops
+    for (size_t i = 0; i < collapsedGridShape.size(); i++) {
+      llvm::errs() << "collapsedGridShape[" << i
+                   << "] = " << collapsedGridShape[i] << "\n";
+    }
+    for (size_t i = 0; i < collapsedShardShape.size(); i++) {
+      llvm::errs() << "collapsedShardShape[" << i
+                   << "] = " << collapsedShardShape[i] << "\n";
+    }
+    // print affine maps
+    llvm::errs() << "collapsedGridIndexingMap = " << collapsedGridIndexingMap
+                 << "\n";
+    llvm::errs() << "collapsedDmaIndexingMap = " << collapsedDmaIndexingMap
+                 << "\n";
+
     auto [streamIndices, indexBounds] = buildStreamIndex(
-        rewriter, loc, memrefGridShape, genericParent.getBlockFactorsValue(),
-        memrefShardShape, dmaIndexingMap, gridIndexingMap);
+        rewriter, loc, collapsedGridShape, genericParent.getBlockFactorsValue(),
+        collapsedShardShape, collapsedDmaIndexingMap, collapsedGridIndexingMap);
 
     ttcore::DeviceAttr device = genericParent.getDevice();
+    // Apply view affine map to the memref.
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         viewInterface.applyViews();
+    // print the affine map at this point
+    llvm::errs() << "underlyingMemrefAndView.second = "
+                 << underlyingMemrefAndView.second << "\n";
     AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
                                               0 /* use default page size*/);
+    // print the affine map at this point
+    llvm::errs() << "memoryMap = " << memoryMap << "\n";
     size_t coalescingFactor =
         calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,
                                   elemSizeBytes, indexBounds);
@@ -302,7 +344,13 @@ public:
                           : dma.getDst().getDefiningOp());
 
     // analyze remote stream (either src or dst) to extract a vec of stream
-    // indices and a max coalescing factor
+    // indices and a max coalescing factor.
+    // StreamIndices are the runtime index values needed to access the remote
+    // memory buffer.
+    //  - They are built from the grid coordinates (CoreIndexOp) and the
+    //  iteration variables.
+    // CoalescingFactor is the greatest common divisor of the number of elements
+    // that can be coalesced into a single DMA operation.
     auto [streamIndices, coalescingFactor] =
         analyzeStream(rewriter, dma.getLoc(), *affine_map, memref, defining_op,
                       dma->getParentOfType<d2m::GenericOp>());
@@ -323,7 +371,8 @@ public:
           dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
           dma.getMcastStartIndex(), dma.getMcastShape());
     } else {
-
+      // The memory access has some stride/gaps so multiple DMA operations are
+      // needed.
       scf::LoopNest loopNest =
           buildCoalescedGatherLoop(rewriter, dma.getLoc(), dma, streamIndices,
                                    memrefShardShape, coalescingFactor);

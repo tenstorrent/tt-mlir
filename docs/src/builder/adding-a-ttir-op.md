@@ -122,7 +122,7 @@ export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys (path dumped in previous comm
 pytest test/python/golden/test_ttir_ops.py
 
 5. Run test cases
-ttrt run builder-artifacts
+ttrt run ttir-builder-artifacts
 ```
 
 ## Sphinx documentation

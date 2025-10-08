@@ -262,28 +262,46 @@ def D2MGenericGenerateLoops : Pass<"d2m-generic-generate-loops", "::mlir::Module
 def D2MGenericLowerDMAs : Pass<"d2m-generic-lower-dmas", "::mlir::ModuleOp"> {
   let summary = "Lower DMA ops from their high level form to fully indexed form.";
   let description = [{
-    This pass lowers DMA ops from their high level forms to fully indexed form.
+    This pass lowers DMA ops from their high level symbolic form (using affine maps)
+    to the fully indexed form with explicit SSA values. This materialization enables later
+    passes to perform dependence analysis, detect coalescing opportunities, and lower
+    to hardware DMA descriptors.
 
-    One important pattern is rewriting their affine form to indexed form. This is useful for doing analysis on the DMA
-    ops and lowering them to an optimal loop nest of coalesced transactions.  This is acheived by sampling the affine
-    map over the entire parent generic op iterator space. Note that the affine map provided to the DMA op must be
-    one of the indexing maps of the parent generic op.
+    The key transformation is materializing the composition of:
+    1. Iterator and core coordinates from the parent generic op's iteration space
+    2. Any potential StreamLayout op affine indexing map
+    3. The source memref's view
 
-    e.g.
+    The resulting physical indices are applied to the explicit
+    iterator/core coordinates. This composition may reorder indices when the view
+    is non-identity.
+
+    Example (with identity stream map and view):
     ```mlir
-    %tx = d2m.dma %stream<#map1>, %cb0
+    %tx = d2m.dma %stream<affine_map<(d0, d1) -> (d0, d1)>>, %cb0
     ```
 
-    Might become:
+    Becomes:
     ```mlir
-    %c2 = arith.constant 2
-    %iter0 = d2m.iter_index(0)
-    %core0 = d2m.core_index(0)
-    %0 = arith.muli %core0, %c2
-    %1 = arith.addi %0, %iter0
-    %iter2 = d2m.iter_index(2)
-    %tx = d2m.dma %stream [%1, %iter2], %cb0
+    %c0 = arith.constant 0 : index
+    %iter0 = d2m.iter_index(0) : index
+    %core0 = d2m.core_index(0) : index
+    %0 = arith.addi %core0, %iter0 : index
+    %iter1 = d2m.iter_index(1) : index
+    %core1 = d2m.core_index(1) : index
+    %1 = arith.addi %core1, %iter1 : index
+    %tx = d2m.dma_read %stream[%0, %1, %c0], %cb0[%c0], <1>
     ```
+
+    Example (with view swapping dimensions):
+    When the source memref has `#ttcore.view<(d0, d1, d2, d3) -> (d1, d0, d3, d2)>`,
+    the physical index order is swapped to reflect the permutation:
+    ```mlir
+    %tx = d2m.dma_read %stream[%1, %0, %c0], %cb0[%c0], <1>
+                              // ^^^^ ^^^^ swapped to match view permutation
+    ```
+
+    This makes the permutation explicit in the index computation.
   }];
 }
 

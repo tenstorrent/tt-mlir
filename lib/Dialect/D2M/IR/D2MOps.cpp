@@ -905,7 +905,7 @@ static mlir::LogicalResult verifyAffineBlocking(
     // thing: https://github.com/tenstorrent/tt-mlir/issues/3720
     bool enableFreeDimCheck = false;
     if (enableFreeDimCheck && factors[i] == 0) {
-      // The "Broacast" part of inverseAndBroadcastProjectedPermutation will 0
+      // The "Broadcast" part of inverseAndBroadcastProjectedPermutation will 0
       // fill unparticipating dims.  Promote these to 1's so that we can
       // multiply by blocking factor.
       factors[i] = 1;

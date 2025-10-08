@@ -107,6 +107,12 @@ ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
 
 llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape);
 
+// Collapse an N-D grid indexing affine map to 2D by summing all leading
+// result expressions except the last one.
+// e.g., (d0, d1, d2, d3) -> (r0, r1, r2, r3)  becomes
+//       (d0, d1, d2, d3) -> (r2, r3)
+mlir::AffineMap collapseGridIndexingMapTo2D(mlir::AffineMap gridIndexingMap);
+
 } // namespace mlir::tt::ttcore
 
 #endif // TTMLIR_DIALECT_TTCORE_IR_UTILS_H
