@@ -36,7 +36,7 @@ jobs:
         echo "summary=\"$(cat summary.md)\"" >> GITHUB_OUTPUT
 
     - name: Show Test Report
-      uses: mikepenz/action-junit-report@v5
+      uses: mikepenz/action-junit-report@v5.6.2
       if: success() || failure()
       with:
         report_paths: report_*.xml
