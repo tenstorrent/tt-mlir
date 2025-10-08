@@ -253,6 +253,87 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def dot_general(
+        self,
+        in0: Operand,
+        in1: Operand,
+        batch_dims_lhs: List[int],
+        contract_dims_lhs: List[int],
+        batch_dims_rhs: List[int],
+        contract_dims_rhs: List[int],
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.dot_general``.
+
+        *Generalized dot product operation.*
+
+        Flexible tensor operation that generalizes matrix multiplication by allowing user to specify which
+        dimensions of two tensors to contract. Matrix multiplication is a special case of this operation,
+        where the contraction happens along the last axis of the first tensor and the second-to-last axis of the second tensor.
+        From StableHLO DotGeneral Op https://openxla.org/stablehlo/spec#dot_general
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left-hand side input tensor
+        in1 : Operand
+            Right-hand side input tensor
+        batch_dims_lhs : *List[int]*
+            Batch dimensions for the left-hand side tensor
+        contract_dims_lhs : *List[int]*
+            Contracting dimensions for the left-hand side tensor
+        batch_dims_rhs : *List[int]*
+            Batch dimensions for the right-hand side tensor
+        contract_dims_rhs : *List[int]*
+            Contracting dimensions for the right-hand side tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*) 
+        """
+        # Create dimension numbers attribute using proper MLIR attribute construction
+        lhs_batching_dims = ArrayAttr.get([
+            IntegerAttr.get(IntegerType.get_signless(64), dim)
+            for dim in batch_dims_lhs
+        ])
+        
+        rhs_batching_dims = ArrayAttr.get([
+            IntegerAttr.get(IntegerType.get_signless(64), dim)
+            for dim in batch_dims_rhs
+        ])
+        
+        lhs_contracting_dims = ArrayAttr.get([
+            IntegerAttr.get(IntegerType.get_signless(64), dim)
+            for dim in contract_dims_lhs
+        ])
+        
+        rhs_contracting_dims = ArrayAttr.get([
+            IntegerAttr.get(IntegerType.get_signless(64), dim)
+            for dim in contract_dims_rhs
+        ])
+        # dot_dimension_numbers = stablehlo.DotDimensionNumbersAttr.get(
+        #    self._ctx,
+        #    lhs_batch_dimensions=batch_dims_lhs,
+        #    lhs_contracting_dimensions=contract_dims_lhs,
+        #    rhs_batch_dimensions=batch_dims_rhs,
+        #    rhs_contracting_dimensions=contract_dims_rhs,
+        # )
+        return self._op_proxy(
+            stablehlo.DotGeneralOp,
+            [in0, in1],
+            # stablehlo_kwargs={"dot_dimension_numbers": dot_dimension_numbers},
+            golden_kwargs={
+                "batch_dims_lhs": batch_dims_lhs,
+                "contract_dims_lhs": contract_dims_lhs,
+                "batch_dims_rhs": batch_dims_rhs,
+                "contract_dims_rhs": contract_dims_rhs,
+            },
+            unit_attrs=unit_attrs,
+        )
+
     def exp(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
         Creates ``stablehlo.exponential``.
