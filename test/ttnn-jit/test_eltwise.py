@@ -304,78 +304,26 @@ def test_binary_ops(device, h, w, max_grid, dtype, op):
 
 
 # ------------------------------------------------------------
-# Composite ops (not testing yet.)
+# Composite ops
 # ------------------------------------------------------------
-def cosh(input_tensor, c):
+def cosh(input_tensor):
     e_pos_x = ttnn.exp(input_tensor)
     e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
     nr_term = ttnn.add(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, c)
+    output = ttnn.multiply(nr_term, 0.5)
     return output
 
 
-# TODO(#5186): Support bf16 constants to not pass constant as input tensor.
+def sinh(input_tensor):
+    e_pos_x = ttnn.exp(input_tensor)
+    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
+    nr_term = ttnn.subtract(e_pos_x, e_neg_x)
+    output = ttnn.multiply(nr_term, 0.5)
+    return output
+
+
 @pytest.mark.parametrize("h , w, max_grid", COMMON_SHAPE_GRID_PARAMS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-def test_composite_ops(device, h, w, max_grid, dtype):
-    torch_tensor = torch.randn((h, w), dtype=dtype)
-
-    start_coord = ttnn.CoreCoord(0, 0)
-    end_coord = ttnn.CoreCoord(max_grid[0], max_grid[1])
-    core_range = ttnn.CoreRange(start_coord, end_coord)
-    core_range_set = ttnn.CoreRangeSet([core_range])
-
-    shard_shape_x = h if max_grid[0] == 0 else h // (max_grid[0] + 1)
-    shard_shape_y = w if max_grid[1] == 0 else w // (max_grid[1] + 1)
-
-    shard_spec = ttnn.ShardSpec(
-        grid=core_range_set,
-        shard_shape=[shard_shape_x, shard_shape_y],
-        shard_orientation=ttnn.ShardOrientation.ROW_MAJOR,
-    )
-
-    memory_config = ttnn.MemoryConfig(
-        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
-        buffer_type=ttnn.BufferType.L1,
-        shard_spec=shard_spec,
-    )
-
-    input_tensor = ttnn.from_torch(
-        torch_tensor,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-        memory_config=memory_config,
-    )
-    const_tensor = ttnn.full(
-        shape=input_tensor.shape,
-        fill_value=0.5,
-        dtype=input_tensor.dtype,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-        memory_config=memory_config,
-    )
-    golden_op = _get_ttnn_op(cosh)
-
-    op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(cosh)
-    output_tensor = op_jit(input_tensor, const_tensor)
-    golden_tensor = golden_op(input_tensor)
-
-    print("--------------------------------")
-    print("input tensor:")
-    print(input_tensor)
-    print("--------------------------------")
-    print("output_tensor")
-    print(output_tensor)
-    print("--------------------------------")
-    print("golden_tensor")
-    print(golden_tensor)
-    print("--------------------------------")
-
-    all_close = torch.allclose(
-        output_tensor.cpu().to_torch(),
-        golden_tensor.cpu().to_torch(),
-        atol=1e-1,
-        rtol=1e-1,
-    )
-    print("all_close", all_close)
-    assert all_close
+@pytest.mark.parametrize("op", [cosh, sinh])
+def test_composite_ops(device, h, w, max_grid, dtype, op):
+    run_op_test(device, h, w, max_grid, dtype, op, 1)
