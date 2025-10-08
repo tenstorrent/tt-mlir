@@ -644,6 +644,59 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def broadcast(
+        self,
+        in0: Operand,
+        broadcast_dimensions: List[int],
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.broadcast``.
+
+        *Tensor broadcast operation.*
+
+        Broadcasts a tensor to a new shape by replicating its values along specified dimensions.
+        The broadcast_dimensions parameter specifies how dimensions of the input map to
+        dimensions of the output.
+
+        .. code-block:: mlir
+
+            // Broadcast a 1D tensor to 2D
+            %result = ttir.broadcast(%input, %output, broadcast_dimensions = [1]) : tensor<3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
+            // Input tensor:
+            // [1.0, 2.0, 3.0]
+            // Output tensor:
+            // [[1.0, 2.0, 3.0],
+            //  [1.0, 2.0, 3.0]]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to broadcast
+        broadcast_dimensions : *List[int]*
+            List of dimension mappings from input to output
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            The broadcasted tensor
+        """
+        output_shape = []
+        for i in range(len(broadcast_dimensions)):
+            if broadcast_dimensions[i] != 1:
+                output_shape.append(broadcast_dimensions[i])
+            else:
+                output_shape.append(self.get_shape(in0)[i])
+        return self._op_proxy(
+            stablehlo.BroadcastInDimOp[in0],
+            organize_golden_args=self._organize_eltwise_golden,
+            stablehlo_kwargs={"broadcast_dimensions": broadcast_dimensions},
+            output_shape=output_shape,
+            unit_attrs=unit_attrs,
+        )
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(
