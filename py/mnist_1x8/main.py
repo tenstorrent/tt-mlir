@@ -1,10 +1,16 @@
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import ttnn
 import my_get_device
 import utils
+from models.common.utility_functions import (
+    disable_persistent_kernel_cache,
+    enable_persistent_kernel_cache,
+)
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 import ttnn_supplemental
 
 # Inject all ttnn_supplemental CCL operations into ttnn namespace
@@ -197,6 +203,7 @@ def create_inputs_for__main():
   return v10
 
 def test_main(): 
+  enable_persistent_kernel_cache()
   v1 = create_inputs_for__main()
   v2 = _main(v1)
   print(v2)
