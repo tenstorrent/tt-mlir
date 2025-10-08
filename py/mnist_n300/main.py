@@ -13,6 +13,7 @@ ttnn.reduce_scatter = ttnn_supplemental.reduce_scatter
 ttnn.collective_permute = ttnn_supplemental.collective_permute
 ttnn.point_to_point = ttnn_supplemental.point_to_point
 
+
 def _main(v1): 
   v2 = v1[0]
   v3 = v1[1]

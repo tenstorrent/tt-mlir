@@ -20,8 +20,6 @@ class DeviceGetter:
             ttnn.set_fabric_config(ttnn.FabricConfig.FABRIC_1D)  # Confirm if/why this is needed, hangs without it
             cls._instance = ttnn.open_mesh_device(
                 mesh_shape=ttnn.MeshShape(1, 2),
-                # **updated_device_params,
-                # device_id=0, 
                 l1_small_size=cls.l1_small_size
             )
             print(f"Device: {cls._instance}")
