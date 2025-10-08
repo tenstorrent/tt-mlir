@@ -11,7 +11,7 @@ from ttmlir.ir import *
 
 from builder.base.builder import Operand
 from builder.d2m.d2m_builder import D2MBuilder
-from builder.base.builder_utils import compile_d2m_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_d2m
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -69,7 +69,7 @@ def test_to_layout(
         )
         return from_device
 
-    compile_d2m_to_flatbuffer(
+    compile_and_execute_d2m(
         to_layout,
         [shape],
         target=target,

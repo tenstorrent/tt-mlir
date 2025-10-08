@@ -10,7 +10,7 @@ from ttmlir.ir import *
 
 from builder.base.builder import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -45,7 +45,7 @@ def test_sum(
             in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         reduce_sum,
         [shape],
         target=target,
@@ -81,7 +81,7 @@ def test_max(
             in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         reduce_max,
         [shape],
         target=target,

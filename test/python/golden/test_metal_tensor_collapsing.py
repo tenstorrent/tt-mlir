@@ -23,7 +23,7 @@ from typing import List
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 from test_utils import shape_str
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -102,7 +102,7 @@ def test_uncollapsed_tensors(
     pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()}}}"
     pipeline = f"ttir-to-ttmetal-pipeline{pipeline_options}"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_func,
         shapes,
         target=target,

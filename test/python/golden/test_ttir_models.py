@@ -8,7 +8,7 @@ from typing import List
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -23,7 +23,7 @@ def test_arbitrary_model(
         exp = builder.exp(in2)
         return builder.multiply(add, exp)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         model,
         shapes,
         dtypes,
@@ -81,7 +81,7 @@ def test_mnist(
         return builder.softmax(add_6, dimension=1)
 
     # TODO: figure out a better way to name these tests for filename purposes
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         model,
         shapes,
         dtypes,
@@ -210,7 +210,7 @@ def test_llama_attention(
 
         return output115
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         model,
         shapes,
         dtypes,

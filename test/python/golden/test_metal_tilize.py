@@ -12,7 +12,7 @@ from ttmlir.ir import *
 from builder.base.builder import Operand, Shape
 from builder.base import builder_golden
 from builder.d2m.d2m_builder import D2MBuilder
-from builder.base.builder_utils import compile_d2m_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_d2m
 
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -52,7 +52,7 @@ def test_tilize(shape: Shape, target: str, request, device):
 
         return from_device
 
-    compile_d2m_to_flatbuffer(
+    compile_and_execute_d2m(
         tilize,
         [shape],
         target=target,
@@ -109,7 +109,7 @@ def test_untilize(shape: Shape, target: str, request, device):
 
         return from_device
 
-    compile_d2m_to_flatbuffer(
+    compile_and_execute_d2m(
         untilize,
         [shape],
         target=target,
@@ -141,7 +141,7 @@ def test_tilize_untilize(shape: Shape, target: str, request, device):
         )
         return from_device
 
-    compile_d2m_to_flatbuffer(
+    compile_and_execute_d2m(
         tilize_untilize,
         [shape],
         target=target,

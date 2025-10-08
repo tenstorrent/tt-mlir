@@ -12,7 +12,7 @@ from ttmlir.dialects import ttir
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import build_ttir_module, compile_ttir_to_flatbuffer
+from builder.base.builder_utils import build_ttir_module, compile_and_execute_ttir
 from test_utils import (
     Marks,
     shape_str,
@@ -202,7 +202,7 @@ def test_eltwise_fuse_cosh(
 ):
     options = [grid]
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         cosh,
         [shape] * 2,
         [dtype] * 2,
@@ -270,7 +270,7 @@ def test_eltwise_sanity_check_unary_op(
 
     options = [grid]
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         unary_op_wrapper,
         [shape],
         [dtype],
@@ -330,7 +330,7 @@ def test_eltwise_fuse_unary_chain(
 
     options = [grid]
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         unary_chain,
         [shape],
         [dtype],
@@ -376,7 +376,7 @@ def test_eltwise_fuse_converging_unary_branches(
 
     options = [grid]
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         converging_unary_branches,
         [shape] * 2,
         [dtype] * 2,
@@ -454,7 +454,7 @@ def test_eltwise_fuse_binary_reduction_tree(
 
         return add_2_0
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         add_tree_8_to_1,
         [shape] * 8,
         [dtype] * 8,
@@ -499,7 +499,7 @@ def test_diamond_unary_op_fanout(
 
     options = [grid]
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         diamond_unary_op_fanout,
         [shape],
         [dtype],
@@ -548,7 +548,7 @@ def test_diamond_unary_op_fanout(
 #     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
 # ):
 #     options = []
-#     compile_ttir_to_flatbuffer(
+#     compile_and_execute_ttir(
 #         test_fn,
 #         [shape]*5,
 #         [dtype]*5,
@@ -595,7 +595,7 @@ def test_diamond_unary_op_fanout(
 #     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
 # ):
 #     options = []
-#     compile_ttir_to_flatbuffer(
+#     compile_and_execute_ttir(
 #         test_fn,
 #         [shape]*6,
 #         [dtype]*6,
@@ -641,7 +641,7 @@ def test_diamond_unary_op_fanout(
 #     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request
 # ):
 #     options = []
-#     compile_ttir_to_flatbuffer(
+#     compile_and_execute_ttir(
 #         test_fn,
 #         [shape]*6,
 #         [dtype]*6,
@@ -765,7 +765,7 @@ def test_diamond_unary_op_fanout(
 #             builder, shape, dtype, unit_attrs)
 
 #     options = []
-#     compile_ttir_to_flatbuffer(
+#     compile_and_execute_ttir(
 #         eltwise_fuse_binary_tree_op_tree_max_inputs_plus_1_wrapper,
 #         [shape]*8,
 #         [dtype]*8,
@@ -810,7 +810,7 @@ def test_diamond_unary_op_fanout(
 # @pytest.mark.parametrize("target", ["ttmetal"])
 # def test_diamond_unary_fanout(shape: Shape, dtype: torch.dtype, target: str, request):
 #     options = []
-#     compile_ttir_to_flatbuffer(
+#     compile_and_execute_ttir(
 #         diamond_binary_op_fanout,
 #         [shape]*4,
 #         [dtype]*4,
@@ -874,7 +874,7 @@ def test_diamond_unary_op_fanout(
 # @pytest.mark.parametrize("target", ["ttmetal"])
 # def test_big_one(shape: Shape, dtype: torch.dtype, target: str, request):
 #     options = []
-#     compile_ttir_to_flatbuffer(
+#     compile_and_execute_ttir(
 #         big_one,
 #         [shape]*7,
 #         [dtype]*7,
@@ -914,7 +914,7 @@ def test_diamond_unary_op_fanout(
 # def test_eltwise_unary_chain_multi_tile(grid: str, shape: Shape, dtype: torch.dtype, target: str, request):
 #     options = [grid]
 
-#     compile_ttir_to_flatbuffer(
+#     compile_and_execute_ttir(
 #         eltwise_unary_chain_multi_tile,
 #         [shape],
 #         [dtype],

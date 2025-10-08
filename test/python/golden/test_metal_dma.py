@@ -11,7 +11,7 @@ from ttmlir.ir import *
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -27,7 +27,7 @@ def compile_dma_test(test_func, shape, request, device):
             f"ttir-to-ttmetal-pipeline{pipeline_options}",
         ]
     )
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_func,
         [shape],
         target="ttmetal",
@@ -238,11 +238,7 @@ def test_roundtrip_dma_rowmajor(
 @pytest.mark.parametrize("shape", [(64, 64), (64, 128), (128, 64), (128, 128)])
 @pytest.mark.parametrize("end_grid", [(1, 1), (2, 2), (1, 2), (2, 1)])
 def test_interleaved_dma(
-    shape: Shape,
-    end_grid: tuple[int, int],
-    request,
-    target,
-    device
+    shape: Shape, end_grid: tuple[int, int], request, target, device
 ):
     def interleaved_dma(
         in0: Operand,

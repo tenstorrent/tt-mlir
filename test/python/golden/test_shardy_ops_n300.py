@@ -10,7 +10,7 @@ from collections import OrderedDict
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
-from builder.base.builder_utils import compile_stablehlo_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_shlo
 from test_utils import Marks, shape_str
 
 pytestmark = [pytest.mark.frontend("shlo"), pytest.mark.n300]
@@ -58,7 +58,7 @@ def test_sharding_constraint(
     request,
     device,
 ):
-    compile_stablehlo_to_flatbuffer(
+    compile_and_execute_shlo(
         test_fn,
         [shape, shape],
         [dtype, dtype],

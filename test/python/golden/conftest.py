@@ -315,7 +315,7 @@ def _extract_operation_name(item: pytest.Item, params: Dict[str, Any]) -> None:
 def _extract_backend_and_params(item: pytest.Item, params: Dict[str, Any]) -> None:
     """Extract backend and remaining parameters"""
     # Extract backend. Default to ttnn for now, since that's what
-    # `compile_ttir_to_flatbuffer` defaults to
+    # `compile_and_execute_ttir` defaults to
     # TODO(ctod): figure out a better way to detect the backend without
     # necessitating a singleton parameter in test cases that will never need to
     # test both ttnn and ttmetal (#4518)
@@ -442,12 +442,11 @@ def pytest_runtest_call(item: pytest.Item):
     except Exception as exc:
         exc_type = type(exc)
         exc_name = exc_type.__name__
-        try:
-            failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
-        except KeyError as e:
+        if exc_name not in TTBUILDER_EXCEPTIONS.keys():
             pytest.fail(
-                f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {e}:{type(e)}"
+                f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {exc}:{type(exc)}"
             )
+        failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
     finally:
         _safe_add_property(item, "failure_stage", failure_stage)
 

@@ -8,7 +8,7 @@ from typing import List, Optional
 from builder.base.builder import Operand, Shape
 from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -141,7 +141,7 @@ def test_batch_norm_decomposition(
         builder.set_operand_goldens({conv2d_0: conv_result})
         return batch_norm_0
 
-    output = compile_ttir_to_flatbuffer(
+    output = compile_and_execute_ttir(
         conv2d_batch_norm,
         shapes,
         dtypes,
@@ -251,7 +251,7 @@ def test_conv_activation_fusing(
         )
         return activation_op
 
-    output = compile_ttir_to_flatbuffer(
+    output = compile_and_execute_ttir(
         conv2d_activation,
         shapes,
         dtypes,
@@ -347,7 +347,7 @@ def test_conv_silu_decomposed_fusing(
         )
         return silu_decomposed
 
-    output = compile_ttir_to_flatbuffer(
+    output = compile_and_execute_ttir(
         conv2d_silu_decomposed,
         shapes,
         dtypes,

@@ -9,7 +9,7 @@ from collections import OrderedDict
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 from test_utils import shape_str, make_shard_shape
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -126,7 +126,7 @@ def test_matmul_k_split_parallelism(
         )
         return output
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         matmul_multi,
         shapes,
         mesh_name="mesh",
@@ -185,7 +185,7 @@ def test_parallelized_matmul_with_unary_chaining(
 
         return output
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         matmul_test,
         shapes,
         mesh_name="mesh",
@@ -250,7 +250,7 @@ def test_parallelized_matmul_with_binary_chaining(
         )
         return output
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         matmul_test,
         shapes,
         mesh_name="mesh",
@@ -321,7 +321,7 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
         )
         return output
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         matmul_test,
         shapes,
         mesh_name="mesh",
@@ -397,7 +397,7 @@ def test_parallelized_elementwise_operations(
         )
         return output
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         eltwise_parallel,
         [shape, shape],
         mesh_name="mesh",
@@ -453,7 +453,7 @@ def test_mixed_device_parallelism_with_unary(
 
         return output
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         matmul_test,
         shapes,
         mesh_name="mesh",
@@ -503,7 +503,7 @@ def test_mixed_device_parallelism_with_binary(
         )
         return output
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         matmul_test,
         shapes,
         mesh_name="mesh",
@@ -566,7 +566,7 @@ def test_mixed_device_parallelism_with_dual_matmul(
 
         return output
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         matmul_test,
         shapes,
         mesh_name="mesh",
@@ -636,7 +636,7 @@ def test_jit_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
         )
         return mesh_shard_out
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         jit_tensor_parallel,
         shapes,
         mesh_name="mesh",
@@ -695,7 +695,7 @@ def test_jit_data_parallel(mesh_shape: Tuple[int, int], request, device):
         )
         return mesh_shard_out
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         jit_data_parallel,
         shapes,
         mesh_name="mesh",
@@ -762,7 +762,7 @@ def test_jit_data_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
         )
         return mesh_shard_out
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         jit_data_tensor_parallel,
         shapes,
         mesh_name="mesh",

@@ -13,7 +13,7 @@ from conftest import x86_only
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 from ttmlir.ir import DenseI32ArrayAttr
 from test_utils import (
     Marks,
@@ -74,7 +74,7 @@ def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request, dev
     ):
         return logical_not(in0, builder, shape, dtype, unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         logical_not_wrapper,
         [shape],
         [dtype],
@@ -98,7 +98,7 @@ def test_hoisted_logical_not(
     ):
         return logical_not(in0, builder, shape, dtype, unit_attrs=["ttir.should_hoist"])
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         hoisted_logical_not_wrapper,
         [shape],
         [dtype],
@@ -150,7 +150,7 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
         builder.set_goldens({in0: input_golden}, {tan_0: output_golden})
         return tan_0
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         tan,
         [shape],
         [dtype],
@@ -186,7 +186,7 @@ def test_log(shape: Shape, dtype: torch.dtype, target: str, request, device):
         builder.set_goldens({in0: input_golden}, {log_0: output_golden})
         return log_0
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         log,
         [shape],
         [dtype],
@@ -214,7 +214,7 @@ def test_log1p(shape: Shape, dtype: torch.dtype, request, device):
         builder.set_goldens({in0: input_golden}, {log1p_0: output_golden})
         return log1p_0
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         log1p,
         [shape],
         [dtype],
@@ -243,7 +243,7 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, dev
             in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         clamp_scalar,
         [shape],
         test_base=request.node.name,
@@ -266,7 +266,7 @@ def test_clamp_tensor(shapes: List[Shape], request, device):
     ):
         return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         clamp_tensor,
         shapes,
         test_base=request.node.name,
@@ -295,7 +295,7 @@ def test_sqrt(shape: Shape, dtype: torch.dtype, target: str, request, device):
         builder.set_goldens({in0: input_tensor}, {sqrt_0: golden_output_tensor})
         return sqrt_0
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         sqrt,
         [shape],
         [dtype],
@@ -324,7 +324,7 @@ def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request, device):
         builder.set_goldens({in0: input_tensor}, {rsqrt_0: golden_output_tensor})
         return rsqrt_0
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         rsqrt,
         [shape],
         [dtype],
@@ -395,7 +395,7 @@ def test_dot_general(
             unit_attrs=unit_attrs,
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         dot_general,
         shapes,
         test_base=request.node.name,
@@ -577,7 +577,7 @@ def div(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         div,
         [shape, shape],
         [dtype, dtype],
@@ -608,7 +608,7 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request, dev
         )
         return div0
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         hoisted_div_wrapper,
         [shape, shape],
         [dtype, dtype],
@@ -660,7 +660,7 @@ def test_linear(shapes: List[Shape], request, device):
     ):
         return builder.linear(in0, in1, in2, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         linear,
         shapes,
         test_base=request.node.name,
@@ -700,7 +700,7 @@ def pow(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_pow(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         pow,
         [shape, shape],
         [dtype, dtype],
@@ -726,7 +726,7 @@ def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request, dev
     ):
         return pow(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         hoisted_pow_wrapper,
         [shape, shape],
         [dtype, dtype],
@@ -795,7 +795,7 @@ def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request, device):
     ):
         return builder.prod(in0, [dim_arg], keep_dim, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         prod,
         [shape],
         test_base=request.node.name,
@@ -851,7 +851,7 @@ def test_broadcast(shape: Shape, broadcast_dimensions: List[int], request, devic
     # Set the name for better test identification
     broadcast_wrapper.__name__ = "broadcast"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         broadcast_wrapper,
         [shape],
         test_base=request.node.name,
@@ -869,7 +869,7 @@ def test_squeeze(shape: Shape, dim: int, request, device):
     ):
         return builder.squeeze(in0, dim, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         squeeze,
         [shape],
         test_base=request.node.name,
@@ -887,7 +887,7 @@ def test_unsqueeze(shape: Shape, dim: int, request, device):
     ):
         return builder.unsqueeze(in0, dim, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         unsqueeze,
         [shape],
         test_base=request.node.name,
@@ -906,7 +906,7 @@ def test_repeat(shape: Shape, dims: List[int], dtype, request, device):
     ):
         return builder.repeat(in0, dims=dims, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         repeat,
         [shape],
         [dtype],
@@ -942,7 +942,7 @@ def test_repeat_interleave(
             in0, in1, repeats=repeats, dim=dim, unit_attrs=unit_attrs
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         repeat_interleave,
         shapes,
         test_base=request.node.name,
@@ -978,7 +978,7 @@ def test_concat(shapes: List[Shape], dim: int, request, device):
     # Set the name for better test identification.
     concat_wrapper.__name__ = "concat"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         concat_wrapper,
         shapes,
         test_base=request.node.name,
@@ -1048,7 +1048,7 @@ def test_conv2d(
             unit_attrs=unit_attrs,
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         conv2d,
         shapes,
         input_dtypes,
@@ -1101,7 +1101,7 @@ def test_conv2d_consteval(
             unit_attrs=unit_attrs,
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         conv2d_consteval,
         shapes,
         argument_types_string="conv2d_consteval=input,parameter,parameter",
@@ -1159,7 +1159,7 @@ def test_hoisted_conv2d(
 
     hoisted_conv2d.__name__ = "hoisted_conv2d"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         hoisted_conv2d,
         shapes,
         test_base=request.node.name,
@@ -1214,7 +1214,7 @@ def test_conv_transpose2d(
             unit_attrs=unit_attrs,
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         conv_transpose2d,
         shapes,
         dtypes,
@@ -1257,7 +1257,7 @@ def test_max_pool2d(
             unit_attrs=unit_attrs,
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         max_pool2d,
         [shape],
         [dtype],
@@ -1307,7 +1307,7 @@ def test_hoisted_max_pool2d(
 
     hoisted_max_pool2d.__name__ = "hoisted_max_pool2d"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         hoisted_max_pool2d,
         [shape],
         [dtype],
@@ -1362,7 +1362,7 @@ def test_avg_pool2d(
             unit_attrs=unit_attrs,
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         avg_pool2d,
         [shape],
         [dtype],
@@ -1421,7 +1421,7 @@ def test_batch_norm(
             unit_attrs=unit_attrs,
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         batch_norm,
         shapes,
         dtypes,
@@ -1444,7 +1444,7 @@ def test_pad(shape: Shape, padding: List[int], value: int, request, device):
     ):
         return builder.pad(in0, padding=padding, value=value, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         pad,
         inputs_shapes=[shape],
         test_base=request.node.name,
@@ -1466,7 +1466,7 @@ def test_index(
             in0, dim=dim, begin=begin, end=end, step=step, unit_attrs=unit_attrs
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         index,
         [shape],
         test_base=request.node.name,
@@ -1493,7 +1493,7 @@ def test_select(
             unit_attrs=unit_attrs,
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         select,
         [shape],
         test_base=request.node.name,
@@ -1512,7 +1512,7 @@ def test_zeros(shape: Shape, dtype: torch.dtype, request, device):
     def zeros(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         return builder.zeros(shape, dtype, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         zeros,
         inputs_shapes=[],
         inputs_types=[],
@@ -1528,7 +1528,7 @@ def test_ones(shape: Shape, request, device):
     def ones(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
         return builder.ones(shape, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         ones,
         inputs_shapes=[],
         test_base=request.node.name,
@@ -1556,7 +1556,7 @@ def test_callable_initialization_basic(
         result = builder.add(in0, in1, unit_attrs=unit_attrs)
         return result
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_with_basic_callables,
         [shape, shape],
         [dtype, dtype],
@@ -1581,7 +1581,7 @@ def test_callable_initialization_zeros(
         zeros_result = builder.neg(in0, unit_attrs=unit_attrs)
         return zeros_result
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_with_zeros_init,
         [shape],
         [dtype],
@@ -1606,7 +1606,7 @@ def test_callable_initialization_ones(
         ones_result = builder.neg(in0, unit_attrs=unit_attrs)
         return ones_result
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_with_ones_init,
         [shape],
         [dtype],
@@ -1639,7 +1639,7 @@ def test_callable_initialization_eye(
         eye_result = builder.abs(in0, unit_attrs=unit_attrs)
         return eye_result
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_with_eye_init,
         [shape],
         [dtype],
@@ -1667,7 +1667,7 @@ def test_callable_initialization_mixed(
         add_result = builder.add(in0, in1, unit_attrs=unit_attrs)
         return add_result
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_with_mixed_init,
         [shape, shape],
         [dtype, dtype],
@@ -1693,7 +1693,7 @@ def test_callable_initialization_custom_lambda(
         result = builder.multiply(in0, in0, unit_attrs=unit_attrs)
         return result
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_with_custom_lambda,
         [shape],
         [dtype],
@@ -1739,7 +1739,7 @@ def test_argmax(shapes, dim_arg, request, device):
     ):
         return builder.argmax(in0, dim_arg, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         argmax,
         inputs_shapes=shapes,
         test_base=request.node.name,
@@ -1758,7 +1758,7 @@ def test_reverse(shape: Shape, dims: List[int], request, device):
     ):
         return builder.reverse(in0, dims=dims, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         reverse,
         [shape],
         test_base=request.node.name,
@@ -1777,7 +1777,7 @@ def test_reduce_and(shape: Shape, dim_args: List[int], request, device):
     ):
         return builder.reduce_and(in0, dim_args=dim_args, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         reduce_and,
         [shape],
         [torch.int32],
@@ -1809,7 +1809,7 @@ def test_reduce_or(shape: Shape, dim_args: List[int], request, device):
     ):
         return reduce_or(in0, builder, dim_args=dim_args, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         reduce_or_wrapper,
         [shape],
         [torch.int32],
@@ -1847,7 +1847,7 @@ def test_permute(shapes: List[Shape], permutation: List[int], request, device):
     # Set the name for better test identification
     permute_wrapper.__name__ = "permute"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         permute_wrapper,
         shapes,
         test_base=request.node.name,
@@ -1875,7 +1875,7 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request, devic
             unit_attrs=unit_attrs,
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         upsample2d,
         shapes,
         test_base=request.node.name,
@@ -1894,7 +1894,7 @@ def test_arange(
     ):
         return builder.arange(in0, start, end, step, dim, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         arange,
         [shape],
         test_base=request.node.name,
@@ -1929,7 +1929,7 @@ def test_typecast(
     # Workaround for ttmetal, only support 1x1 grid atm
     if target == "ttmetal":
         pipeline_options.append("override-device-shape=1,1")
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         typecast,
         [shape],
         [from_type],
@@ -1951,7 +1951,7 @@ def test_cumsum(shapes: List[Shape], dim: int, request, device):
     ):
         return builder.cumsum(in0, dim=dim, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         cumsum,
         shapes,
         test_base=request.node.name,
@@ -1978,7 +1978,7 @@ def test_fill_cache(shapes: List[Shape], request, device):
     ):
         return builder.fill_cache(in0, in1, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         fill_cache,
         shapes,
         test_base=request.node.name,
@@ -2013,7 +2013,7 @@ def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request, de
     # Set the name for better test identification
     softmax_wrapper.__name__ = "softmax"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         softmax_wrapper,
         [shape],
         test_base=request.node.name,
@@ -2038,7 +2038,7 @@ def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request, d
     ):
         return builder.update_cache(in0, in1, in2, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         update_cache,
         shapes,
         inputs_types=dtypes,
@@ -2087,7 +2087,7 @@ def test_quantize(
     ):
         return builder.quantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         quantize,
         [shape],
         test_base=request.node.name,
@@ -2128,7 +2128,7 @@ def test_dequantize(
     ):
         return builder.dequantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         dequantize,
         [shape],
         inputs_types=[input_dtype],
@@ -2178,7 +2178,7 @@ def test_requantize(
     ):
         return builder.requantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         requantize,
         [shape],
         inputs_types=[input_dtype],
@@ -2383,7 +2383,7 @@ def test_cpu_hoistable_unary_ops(
     dtype: torch.dtype = torch.float32,
 ):
     """Test unary ops that support CPU hoisting"""
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_fn,
         inputs_shapes=[shape],
         inputs_types=[dtype],
@@ -2418,7 +2418,7 @@ def test_cpu_hoistable_binary_ops(
     device,
 ):
     """Test binary ops that support CPU hoisting"""
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_fn,
         shapes,
         [dtype] * len(shapes),
@@ -2454,7 +2454,7 @@ def test_hoisted_permute(shapes, permutation, request, target: str, device):
 
     permute_wrapper.__name__ = "hoisted_permute"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         permute_wrapper,
         shapes,
         test_base=request.node.name,
@@ -2486,7 +2486,7 @@ def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str, device):
         )
 
     max.__name__ = "hoisted_max"
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         max,
         [shape],
         test_base=request.node.name,
@@ -2523,7 +2523,7 @@ def test_hoisted_slice(
         # Now use the slice operation with the CPU hoisting attribute
         return builder.slice(in0, begins, ends, step, unit_attrs=["ttir.should_hoist"])
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         slice_wrapper,
         [shape],
         test_base=request.node.name,
@@ -2546,7 +2546,7 @@ def test_hoisted_where(shapes, request, target: str, device):
 
     where_wrapper.__name__ = "hoisted_where"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         where_wrapper,
         shapes,
         test_base=request.node.name,
@@ -2582,7 +2582,7 @@ def test_reshape(shapes, dtype: torch.dtype, request, device):
     def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
         return builder.reshape(in0, output_shape)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         reshape_wrapper,
         [input_shape],
         [dtype],
@@ -2610,7 +2610,7 @@ def test_hoisted_reshape(input_shape, output_shape, request, target: str, device
 
     reshape_wrapper.__name__ = "hoisted_reshape"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         reshape_wrapper,
         [input_shape],
         test_base=request.node.name,
@@ -2644,7 +2644,7 @@ def test_hoisted_transpose(input_shape, dims, request, target: str, device):
 
     transpose_wrapper.__name__ = "hoisted_transpose"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         transpose_wrapper,
         [input_shape],
         test_base=request.node.name,
@@ -2669,7 +2669,7 @@ def test_hoisted_squeeze(shape: Shape, dim: int, target: str, request, device):
 
     hoisted_squeeze.__name__ = "hoisted_squeeze"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         hoisted_squeeze,
         [shape],
         test_base=request.node.name,
@@ -2731,7 +2731,7 @@ def test_unary_ops(
     device,
 ):
     pipeline_options = []
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_fn,
         inputs_shapes=[shape],
         inputs_types=[dtype],
@@ -2762,7 +2762,7 @@ def test_reciprocal(shape: Shape, dtype: torch.dtype, target: str, request, devi
         return reciprocal_0
 
     pipeline_options = []
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         reciprocal,
         inputs_shapes=[shape],
         inputs_types=[dtype],
@@ -2824,7 +2824,7 @@ def test_unary_ops_int32(
     device,
 ):
     pipeline_options = []
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_fn,
         inputs_shapes=[shape],
         inputs_types=[dtype],
@@ -2877,7 +2877,7 @@ def test_binary_ops(
 ):
     # NOTE: this function is _only_ for binary ops that take the same shape arguments
     pipeline_options = []
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_fn,
         [shape, shape],
         [dtype, dtype],
@@ -2894,7 +2894,7 @@ def test_binary_ops(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("test_fn", [bitwise_and, bitwise_or, bitwise_xor])
 def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request, device):
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_fn,
         inputs_shapes=[shape] * 2,
         inputs_types=[torch.int8] * 2,
@@ -2951,7 +2951,7 @@ def test_comparison_ops(
 
         return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         comparison_ops,
         [shape, shape],
         [dtype, dtype],
@@ -3016,7 +3016,7 @@ def test_binary_eltwise_ops_implicit_broadcast(
     request,
     device,
 ):
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_fn,
         shapes,
         [dtype, dtype],
@@ -3063,7 +3063,7 @@ def test_ternary_eltwise_ops_implicit_broadcast(
 ):
     dtype1, dtype2, dtype3 = input_dtypes
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_fn,
         shapes,
         [dtype1, dtype2, dtype3],
@@ -3110,7 +3110,7 @@ unaligned_shapes = [
 def test_unaligned_shapes_neg(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         neg,
         [shape],
         [dtype],
@@ -3144,7 +3144,7 @@ def test_unaligned_shapes_add(
         builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
         return builder.add(in0, in1, unit_attrs=unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         add,
         [shape, shape],
         [dtype, dtype],
@@ -3192,7 +3192,7 @@ def test_unique_ops(
     request,
     device,
 ):
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_fn,
         inputs_shapes=inputs_shapes,
         inputs_types=inputs_dtypes,
@@ -3237,7 +3237,7 @@ def test_slice(
     ):
         return slice(in0, begins, ends, step, builder, unit_attrs)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         slice_op,
         [shape],
         test_base=request.node.name,
@@ -3264,7 +3264,7 @@ def test_hoisted_reduce_or(
             in0, builder, dim_args, keep_dim=True, unit_attrs=["ttir.should_hoist"]
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         hoisted_reduce_or_wrapper,
         inputs_shapes=[shape],
         inputs_types=[torch.float32],
@@ -3299,7 +3299,7 @@ def test_hoisted_broadcast(shape, broadcast_dims, request, target: str, device):
 
     broadcast_wrapper.__name__ = "hoisted_broadcast"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         broadcast_wrapper,
         inputs_shapes=[shape],
         test_base=f"{request.node.name}",
@@ -3397,7 +3397,7 @@ def test_gather(
             input_dtype,
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         gather_wrapper,
         [input_shape],
         [input_dtype],
@@ -3455,7 +3455,7 @@ def test_hoisted_gather(
             unit_attrs=["ttir.should_hoist"],
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         gather_wrapper,
         [input_shape],
         test_base=request.node.name,
@@ -3509,7 +3509,7 @@ def test_hoisted_dot_general(
             unit_attrs=["ttir.should_hoist"],
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         dot_general_wrapper,
         shapes,
         test_base=request.node.name,
@@ -3601,7 +3601,7 @@ def test_rms_norm(
     if has_bias:
         shapes.append(tuple(normalized_shape))
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         rms_norm,
         shapes,
         test_base=request.node.name,
@@ -3680,7 +3680,7 @@ def test_mesh_shard_devices(
             shard_dims=shard_dims,
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         mesh_shard_devices,
         [input_shape],
         mesh_name="mesh",
@@ -3741,7 +3741,7 @@ def test_all_gather(
 
     test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_gather)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_bundle.test_fn,
         [test_bundle.input_shape],
         [dtype],
@@ -3804,7 +3804,7 @@ def test_all_reduce(
 
     test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_reduce)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_bundle.test_fn,
         [test_bundle.input_shape],
         [dtype],
@@ -3872,7 +3872,7 @@ def test_reduce_scatter(
 
     test_bundle = shard_wrap_factory(test_shape, mesh_shape, reduce_scatter)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_bundle.test_fn,
         [test_bundle.input_shape],
         [dtype],
@@ -3969,7 +3969,7 @@ def test_collective_permute(
 
     test_bundle = shard_wrap_factory(test_shape, mesh_shape, collective_permute)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_bundle.test_fn,
         [test_bundle.input_shape],
         [dtype],
@@ -4043,7 +4043,7 @@ def test_all_to_all(
 
     test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_to_all)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_bundle.test_fn,
         [test_bundle.input_shape],
         [dtype],
@@ -4105,7 +4105,7 @@ def test_collective_broadcast(
 
     test_bundle = shard_wrap_factory(test_shape, mesh_shape, collective_broadcast)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         test_bundle.test_fn,
         [test_bundle.input_shape],
         [dtype],

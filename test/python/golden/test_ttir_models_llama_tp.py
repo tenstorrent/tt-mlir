@@ -11,7 +11,7 @@ from collections import OrderedDict
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_golden import BuilderGoldenTensor
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -388,7 +388,7 @@ def test_llama_attention_1xn_tp(
 
         return output116
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         model,
         shapes,
         dtypes,

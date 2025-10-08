@@ -551,7 +551,6 @@ def compile_ttir_to_flatbuffer(
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
     device=None,  # Optional device parameter for fixture reuse
-    skip_exec: bool = False,
 ) -> str:
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
@@ -681,7 +680,6 @@ def compile_ttir_to_flatbuffer(
             pipeline_options=pipeline_options,
             print_ir=print_ir,
             device=device,
-            skip_exec=skip_exec,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -703,7 +701,6 @@ def compile_d2m_to_flatbuffer(
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
     device=None,
-    skip_exec: bool = False,
 ) -> str:
     """
     Compiles a D2MBuilder function `fn` to D2M MLIR -> TTMetal MLIR -> Flatbuffer.
@@ -810,7 +807,6 @@ def compile_d2m_to_flatbuffer(
         pipeline_options=pipeline_options,
         print_ir=print_ir,
         device=device,
-        skip_exec=skip_exec,
     )
 
 
@@ -979,7 +975,6 @@ def compile_stablehlo_to_flatbuffer(
     shlo_to_ttir_pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
     device=None,  # Optional device parameter for fixture reuse
-    skip_exec: bool = False,
 ) -> str:
     """
     Compiles a StableHLO function to flatbuffer format.
@@ -1130,7 +1125,6 @@ def compile_stablehlo_to_flatbuffer(
         pipeline_options=ttir_pipeline_options,
         print_ir=print_ir,
         device=device,
-        skip_exec=skip_exec,
     )
 
 
@@ -1149,7 +1143,6 @@ def compile_ttir_module_to_flatbuffer(
     pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
     device=None,  # Optional device parameter for fixture reuse
-    skip_exec: bool = False,
 ):
     """
     Compiles a TTIR MLIR module to flatbuffer format.
@@ -1311,10 +1304,6 @@ def compile_ttir_module_to_flatbuffer(
 
     # Only execute `ttnn` and `ttmetal` flatbuffers; `emitpy` needs to be handled differently
 
-    if skip_exec:
-        raise TTBuilderRuntimeException("Manually skipped execution")
-    if target in ["ttnn", "ttmetal"]:
-        execute_fb(output_file_fbb, device=device)
     return output_file_mlir
 
 
@@ -1580,6 +1569,355 @@ def execute_fb(
 
 
 # ----- Experimental Public APIs -----
+
+
+def _compile_and_execute(
+    compile_fn: Callable,
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"],
+    pcc: float,
+    atol: float,
+    rtol: float,
+    disable_golden: bool,
+    device,
+    skip_exec: bool = False,
+    **compile_kwargs,
+) -> None:
+    """
+    Generic function that compiles a builder module to flatbuffer and executes it.
+
+    This is an internal helper that handles the common logic for all compile-and-execute
+    entry points.
+
+    Parameters
+    ----------
+    compile_fn : Callable
+        The compilation function to use (e.g., compile_ttir_to_flatbuffer)
+    target : Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]
+        Target backend to use
+    pcc : float
+        PCC threshold for golden comparison
+    atol : float
+        Absolute tolerance for golden comparison
+    rtol : float
+        Relative tolerance for golden comparison
+    disable_golden : bool
+        Whether to disable golden comparison
+    device : Optional
+        Device to execute on (if None, opens a new device)
+    skip_exec: bool
+        Whether or not to skip execution in cases of hangs, throwing a `TTBuilderRuntimeException`
+    **compile_kwargs
+        All other arguments to pass through to the compile function
+    """
+    flatbuffer_path = compile_fn(
+        target=target,
+        device=device,
+        **compile_kwargs,
+    )
+
+    if skip_exec:
+        raise TTBuilderRuntimeException("Manually skipped execution")
+
+    # Execute the flatbuffer
+    if target in ["ttnn", "ttmetal"]:
+        execute_fb(
+            fb_path=flatbuffer_path + "." + ("ttnn" if target == "ttnn" else "ttm"),
+            pcc=pcc,
+            atol=atol,
+            rtol=rtol,
+            disable_golden=disable_golden,
+            device=device,
+        )
+
+
+def compile_and_execute_d2m(
+    fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    test_base: str = "test",
+    output_root: str = ".",
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    module_dump: bool = True,
+    argument_types_string: Optional[str] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    pipeline_options: Optional[List[str]] = None,
+    print_ir: Union[bool, str] = False,
+    device=None,
+    pcc: float = 0.99,
+    atol: float = 1e-08,
+    rtol: float = 1e-05,
+    disable_golden: bool = False,
+) -> None:
+    """
+    Compiles and executes a D2MBuilder function through the complete pipeline.
+
+    This function:
+    1. Builds a D2M MLIR module from the function
+    2. Compiles it to a flatbuffer
+    3. Executes the flatbuffer on device
+
+    Parameters
+    ----------
+    fn : Callable
+        The D2MBuilder function to compile and execute
+    inputs_shapes : List[Shape]
+        Shapes of the respective ranked tensor inputs
+    inputs_types : Optional[List[Union[torch.dtype, TypeInfo]]]
+        The dtypes to use for the inputs
+    system_desc_path : str
+        Path to the system descriptor file
+    test_base : str
+        Base name for dumped files
+    output_root : str
+        Path to dump all generated files
+    target : Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]
+        Target backend to use
+    mesh_name : str
+        Name of the mesh to be used
+    mesh_dict : OrderedDict[str, int]
+        Dictionary defining the mesh shape
+    module_dump : bool
+        Whether to dump generated MLIR modules
+    argument_types_string : Optional[str]
+        String defining argument types for constant evaluation
+    custom_pipeline : Optional[Union[Callable, str]]
+        Custom pipeline function or string
+    pipeline_options : Optional[List[str]]
+        Additional pipeline options
+    print_ir : Union[bool, str]
+        Controls intermediate IR dumping
+    device : Optional
+        Device to execute on (if None, opens a new device)
+    pcc : float
+        PCC threshold for golden comparison
+    atol : float
+        Absolute tolerance for golden comparison
+    rtol : float
+        Relative tolerance for golden comparison
+    disable_golden : bool
+        Whether to disable golden comparison
+    """
+    _compile_and_execute(
+        compile_fn=compile_d2m_to_flatbuffer,
+        fn=fn,
+        inputs_shapes=inputs_shapes,
+        inputs_types=inputs_types,
+        system_desc_path=system_desc_path,
+        test_base=test_base,
+        output_root=output_root,
+        target=target,
+        mesh_name=mesh_name,
+        mesh_dict=mesh_dict,
+        module_dump=module_dump,
+        argument_types_string=argument_types_string,
+        custom_pipeline=custom_pipeline,
+        pipeline_options=pipeline_options,
+        print_ir=print_ir,
+        device=device,
+        pcc=pcc,
+        atol=atol,
+        rtol=rtol,
+        disable_golden=disable_golden,
+    )
+
+
+def compile_and_execute_shlo(
+    fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    test_base: str = "test",
+    output_root: str = ".",
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    module_dump: bool = True,
+    argument_types_string: Optional[str] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    ttir_pipeline_options: Optional[List[str]] = None,
+    shlo_pipeline_options: Optional[List[str]] = None,
+    shlo_to_ttir_pipeline_options: Optional[List[str]] = None,
+    print_ir: Union[bool, str] = False,
+    device=None,
+    pcc: float = 0.99,
+    atol: float = 1e-08,
+    rtol: float = 1e-05,
+    disable_golden: bool = False,
+) -> None:
+    """
+    Compiles and executes a StableHLO function through the complete pipeline.
+
+    This function:
+    1. Builds a StableHLO MLIR module from the function
+    2. Compiles it through StableHLO -> TTIR -> TT{Metal,NN} -> Flatbuffer
+    3. Executes the flatbuffer on device
+
+    Parameters
+    ----------
+    fn : Callable
+        The StableHLO function to compile and execute
+    inputs_shapes : List[Shape]
+        Shapes of the respective ranked tensor inputs
+    inputs_types : Optional[List[Union[torch.dtype, TypeInfo]]]
+        The dtypes to use for the inputs
+    system_desc_path : str
+        Path to the system descriptor file
+    test_base : str
+        Base name for dumped files
+    output_root : str
+        Path to dump all generated files
+    target : Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]
+        Target backend to use
+    mesh_name : str
+        Name of the mesh to be used
+    mesh_dict : OrderedDict[str, int]
+        Dictionary defining the mesh shape
+    module_dump : bool
+        Whether to dump generated MLIR modules
+    argument_types_string : Optional[str]
+        String defining argument types for constant evaluation
+    custom_pipeline : Optional[Union[Callable, str]]
+        Custom pipeline function or string
+    ttir_pipeline_options : Optional[List[str]]
+        Pipeline options for TTIR pipeline
+    shlo_pipeline_options : Optional[List[str]]
+        Pipeline options for StableHLO pipeline
+    shlo_to_ttir_pipeline_options : Optional[List[str]]
+        Pipeline options for StableHLO to TTIR conversion
+    print_ir : Union[bool, str]
+        Controls intermediate IR dumping
+    device : Optional
+        Device to execute on (if None, opens a new device)
+    pcc : float
+        PCC threshold for golden comparison
+    atol : float
+        Absolute tolerance for golden comparison
+    rtol : float
+        Relative tolerance for golden comparison
+    disable_golden : bool
+        Whether to disable golden comparison
+    """
+    _compile_and_execute(
+        compile_fn=compile_stablehlo_to_flatbuffer,
+        fn=fn,
+        inputs_shapes=inputs_shapes,
+        inputs_types=inputs_types,
+        system_desc_path=system_desc_path,
+        test_base=test_base,
+        output_root=output_root,
+        target=target,
+        mesh_name=mesh_name,
+        mesh_dict=mesh_dict,
+        module_dump=module_dump,
+        argument_types_string=argument_types_string,
+        custom_pipeline=custom_pipeline,
+        ttir_pipeline_options=ttir_pipeline_options,
+        shlo_pipeline_options=shlo_pipeline_options,
+        shlo_to_ttir_pipeline_options=shlo_to_ttir_pipeline_options,
+        print_ir=print_ir,
+        device=device,
+        pcc=pcc,
+        atol=atol,
+        rtol=rtol,
+        disable_golden=disable_golden,
+    )
+
+
+def compile_and_execute_ttir(
+    fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    test_base: str = "test",
+    output_root: str = ".",
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    module_dump: bool = True,
+    argument_types_string: Optional[str] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    pipeline_options: Optional[List[str]] = None,
+    print_ir: Union[bool, str] = False,
+    device=None,
+    pcc: float = 0.99,
+    atol: float = 1e-08,
+    rtol: float = 1e-05,
+    disable_golden: bool = False,
+) -> None:
+    """
+    Compiles and executes a TTIR function through the complete pipeline.
+
+    This function:
+    1. Builds a TTIR MLIR module from the function
+    2. Compiles it to a flatbuffer
+    3. Executes the flatbuffer on device
+
+    Parameters
+    ----------
+    fn : Callable
+        The TTIRBuilder function to compile and execute
+    inputs_shapes : List[Shape]
+        Shapes of the respective ranked tensor inputs
+    inputs_types : Optional[List[Union[torch.dtype, TypeInfo]]]
+        The dtypes to use for the inputs
+    system_desc_path : str
+        Path to the system descriptor file
+    test_base : str
+        Base name for dumped files
+    output_root : str
+        Path to dump all generated files
+    target : Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]
+        Target backend to use
+    mesh_name : str
+        Name of the mesh to be used
+    mesh_dict : OrderedDict[str, int]
+        Dictionary defining the mesh shape
+    module_dump : bool
+        Whether to dump generated MLIR modules
+    argument_types_string : Optional[str]
+        String defining argument types for constant evaluation
+    custom_pipeline : Optional[Union[Callable, str]]
+        Custom pipeline function or string
+    pipeline_options : Optional[List[str]]
+        Additional pipeline options
+    print_ir : Union[bool, str]
+        Controls intermediate IR dumping
+    device : Optional
+        Device to execute on (if None, opens a new device)
+    pcc : float
+        PCC threshold for golden comparison
+    atol : float
+        Absolute tolerance for golden comparison
+    rtol : float
+        Relative tolerance for golden comparison
+    disable_golden : bool
+        Whether to disable golden comparison
+    """
+    _compile_and_execute(
+        compile_fn=compile_ttir_to_flatbuffer,
+        fn=fn,
+        inputs_shapes=inputs_shapes,
+        inputs_types=inputs_types,
+        system_desc_path=system_desc_path,
+        test_base=test_base,
+        output_root=output_root,
+        target=target,
+        mesh_name=mesh_name,
+        mesh_dict=mesh_dict,
+        module_dump=module_dump,
+        argument_types_string=argument_types_string,
+        custom_pipeline=custom_pipeline,
+        pipeline_options=pipeline_options,
+        print_ir=print_ir,
+        device=device,
+        pcc=pcc,
+        atol=atol,
+        rtol=rtol,
+        disable_golden=disable_golden,
+    )
 
 
 def experimental_build_stablehlo_module(

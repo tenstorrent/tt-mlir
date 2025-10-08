@@ -9,7 +9,7 @@ import re
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -73,7 +73,7 @@ def test_conv2d_sharding(
             unit_attrs=unit_attrs,
         )
 
-    output_file_mlir = compile_ttir_to_flatbuffer(
+    output_file_mlir = compile_and_execute_ttir(
         conv2d,
         shapes,
         dtypes,
