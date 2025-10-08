@@ -2091,13 +2091,13 @@ public:
 namespace {
 class TTNN_AllGatherOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::AllGatherOp> {
-private:
-  std::string getPrefixSearchPattern() const override {
-    return "ttnn.all_gather";
-  }
-  std::string getPrefixSwapPattern() const override {
-    return "ttnn.experimental.all_gather_async";
-  }
+  // private:
+  //   std::string getPrefixSearchPattern() const override {
+  //     return "ttnn.all_gather";
+  //   }
+  //   std::string getPrefixSwapPattern() const override {
+  //     return "ttnn.experimental.all_gather_async";
+  //   }
 
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
@@ -2111,14 +2111,10 @@ public:
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getInput(), "input"),
+        emitter.emit(srcOp.getDevice(), "mesh_device"),
         emitter.emit(srcOp.getAllGatherDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
-        emitter.emit(srcOp.getDevice(), "mesh_device"),
-        // Topology was not listed as an argument in the ttnn op. It will be
-        // added in the future.
-        emitter.emit(mlir::tt::ttnn::Topology::Linear, "topology"),
-        /*multi_device_global_semaphore*/
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),

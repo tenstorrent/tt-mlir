@@ -55,15 +55,18 @@ def mesh_shard(
     if shard_type == ttnn.MeshShardType.Identity:
         return
 
+    meshShape = mesh_device.shape
+    meshDims = meshShape.dims()
+
     if shard_direction == ttnn.MeshShardDirection.FullToShard:
+        placements = [ttnn.PlacementReplicate() for _ in range(meshDims)]
+        meshMapperConfig = ttnn.MeshMapperConfig(placements, meshShape)
+
         sharded_input = ttnn.distribute_tensor(
             input,
             ttnn.create_mesh_mapper(
                 mesh_device,
-                ttnn.MeshMapperConfig(
-                    [ttnn.PlacementReplicate(), ttnn.PlacementShard(1)],
-                    ttnn.MeshShape(shard_shape),
-                ),
+                meshMapperConfig,
             ),
         )
     elif shard_direction == ttnn.MeshShardDirection.ShardToFull:
