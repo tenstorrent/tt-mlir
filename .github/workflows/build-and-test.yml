@@ -376,6 +376,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ttnn-jit-whl-tracy
+      - name: Debug - Check available libraries
+        shell: bash
+        run: |
+          echo "=== Checking for libnsl.so.2 ==="
+          find /usr -name "libnsl.so*" 2>/dev/null || echo "No libnsl.so found"
+          echo "=== Checking for other system libraries ==="
+          find /usr -name "libhwloc.so*" 2>/dev/null || echo "No libhwloc.so found"
+          find /usr -name "libevent*.so*" 2>/dev/null || echo "No libevent.so found"
+          echo "=== Checking wheel contents ==="
+          unzip -l ttnn_jit-*.whl | grep -E "(libnsl|libhwloc|libevent)" || echo "No system libraries in wheel"
       - name: Install ttnn-jit whl
         shell: bash
         run: |

@@ -93,7 +93,24 @@ def copy_library_files(src_path, dst_path, libraries):
         if os.path.exists(lib_src):
             shutil.copy(lib_src, dst_path)
             copied_libs.append(lib)
+            print(f"Copied library: {lib}")
+        else:
+            print(f"Warning: Library not found: {lib_src}")
     return copied_libs
+
+
+def find_and_copy_library(lib_name, dst_path, search_paths):
+    """Find and copy a library from multiple possible paths"""
+    for search_path in search_paths:
+        lib_src = f"{search_path}/{lib_name}"
+        if os.path.exists(lib_src):
+            shutil.copy(lib_src, dst_path)
+            print(f"Found and copied {lib_name} from {search_path}")
+            return True
+    print(
+        f"Warning: Could not find {lib_name} in any of the search paths: {search_paths}"
+    )
+    return False
 
 
 def copy_directories_and_get_files(src_base, dst_base, directories):
@@ -154,8 +171,14 @@ def setup_runtime_libraries(config):
     copied_mpi_libs = copy_library_files(mpi_lib_dir, wheel_runtime_dir, mpi_libs)
     dylibs.extend(copied_mpi_libs)
 
-    # System libraries that MPI depends on
-    system_lib_dir = "/usr/lib/x86_64-linux-gnu"
+    # System libraries that MPI depends on - try multiple paths
+    system_lib_paths = [
+        "/usr/lib/x86_64-linux-gnu",
+        "/usr/lib",
+        "/lib/x86_64-linux-gnu",
+        "/lib",
+    ]
+
     system_libs = [
         "libhwloc.so.15",  # Hardware locality library
         "libnsl.so.2",  # Network service library
@@ -173,9 +196,16 @@ def setup_runtime_libraries(config):
         "libkeyutils.so.1",  # Key utilities
         "libresolv.so.2",  # DNS resolver
     ]
-    copied_system_libs = copy_library_files(
-        system_lib_dir, wheel_runtime_dir, system_libs
-    )
+
+    copied_system_libs = []
+    for lib in system_libs:
+        if find_and_copy_library(lib, wheel_runtime_dir, system_lib_paths):
+            copied_system_libs.append(lib)
+        else:
+            print(
+                f"Warning: Could not find {lib} in any of the search paths: {system_lib_paths}"
+            )
+
     dylibs.extend(copied_system_libs)
 
     # Copy TTMLIRCompiler library to fix missing symbols
