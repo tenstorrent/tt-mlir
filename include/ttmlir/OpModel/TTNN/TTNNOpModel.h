@@ -1116,10 +1116,10 @@ struct OpModel<GlobalAvgPool2dOp> {
                    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout,
                    std::optional<ttcore::DataType> dtype = std::nullopt);
 
-  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                             TTNNLayoutAttr inputLayout,
-                                             TTNNLayoutAttr outputLayout,
-                                             std::optional<ttcore::DataType> dtype = std::nullopt);
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               TTNNLayoutAttr outputLayout,
+               std::optional<ttcore::DataType> dtype = std::nullopt);
 };
 
 //===----------------------------------------------------------------------===//
