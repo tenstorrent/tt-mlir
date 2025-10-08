@@ -1581,7 +1581,7 @@ def _compile_and_execute(
     device,
     skip_exec: bool = False,
     **compile_kwargs,
-) -> None:
+) -> str:
     """
     Generic function that compiles a builder module to flatbuffer and executes it.
 
@@ -1609,7 +1609,7 @@ def _compile_and_execute(
     **compile_kwargs
         All other arguments to pass through to the compile function
     """
-    flatbuffer_path = compile_fn(
+    mlir_path = compile_fn(
         target=target,
         device=device,
         **compile_kwargs,
@@ -1618,16 +1618,20 @@ def _compile_and_execute(
     if skip_exec:
         raise TTBuilderRuntimeException("Manually skipped execution")
 
+    fb_path = mlir_path + "." + ("ttnn" if target == "ttnn" else "ttm")
+
     # Execute the flatbuffer
     if target in ["ttnn", "ttmetal"]:
         execute_fb(
-            fb_path=flatbuffer_path + "." + ("ttnn" if target == "ttnn" else "ttm"),
+            fb_path=fb_path,
             pcc=pcc,
             atol=atol,
             rtol=rtol,
             disable_golden=disable_golden,
             device=device,
         )
+
+    return mlir_path
 
 
 def compile_and_execute_d2m(
@@ -1650,7 +1654,7 @@ def compile_and_execute_d2m(
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
-) -> None:
+) -> str:
     """
     Compiles and executes a D2MBuilder function through the complete pipeline.
 
@@ -1700,7 +1704,7 @@ def compile_and_execute_d2m(
     disable_golden : bool
         Whether to disable golden comparison
     """
-    _compile_and_execute(
+    return _compile_and_execute(
         compile_fn=compile_d2m_to_flatbuffer,
         fn=fn,
         inputs_shapes=inputs_shapes,
@@ -1746,7 +1750,7 @@ def compile_and_execute_shlo(
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
-) -> None:
+) -> str:
     """
     Compiles and executes a StableHLO function through the complete pipeline.
 
@@ -1800,7 +1804,7 @@ def compile_and_execute_shlo(
     disable_golden : bool
         Whether to disable golden comparison
     """
-    _compile_and_execute(
+    return _compile_and_execute(
         compile_fn=compile_stablehlo_to_flatbuffer,
         fn=fn,
         inputs_shapes=inputs_shapes,
@@ -1846,7 +1850,7 @@ def compile_and_execute_ttir(
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
-) -> None:
+) -> str:
     """
     Compiles and executes a TTIR function through the complete pipeline.
 
@@ -1896,7 +1900,7 @@ def compile_and_execute_ttir(
     disable_golden : bool
         Whether to disable golden comparison
     """
-    _compile_and_execute(
+    return _compile_and_execute(
         compile_fn=compile_ttir_to_flatbuffer,
         fn=fn,
         inputs_shapes=inputs_shapes,
