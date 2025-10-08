@@ -69,6 +69,9 @@ template <>
 struct OpModel<ReluOp> : UnaryEltwiseOpModel<ReluOp> {};
 
 template <>
+struct OpModel<Relu6Op> : UnaryEltwiseOpModel<Relu6Op> {};
+
+template <>
 struct OpModel<SqrtOp> : UnaryEltwiseOpModel<SqrtOp> {};
 
 template <>
@@ -126,7 +129,10 @@ template <>
 struct OpModel<BitwiseNotOp> : UnaryEltwiseOpModel<BitwiseNotOp> {};
 
 template <>
-struct OpModel<RsqrtOp> : UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp> {};
+struct OpModel<SiluOp> : UnaryEltwiseOpModel<SiluOp> {};
+
+template <>
+struct OpModel<RsqrtOp> : UnaryEltwiseOpModel<RsqrtOp> {};
 
 template <>
 struct OpModel<GeluOp> : UnaryEltwiseWithFastApproxModeOpModel<GeluOp> {};
@@ -643,9 +649,65 @@ struct OpModel<ConcatenateHeadsOp> {
                                              TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<ScaledDotProductAttentionDecodeOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
+      TTNNLayoutAttr queryLayout, llvm::ArrayRef<int64_t> keyShape,
+      TTNNLayoutAttr keyLayout, llvm::ArrayRef<int64_t> valueShape,
+      TTNNLayoutAttr valueLayout, bool isCausal,
+      std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      llvm::ArrayRef<int64_t> curPosTensorShape,
+      TTNNLayoutAttr curPosTensorLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+      std::optional<TTNNLayoutAttr> attentionSinkLayout,
+      std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+               llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+               llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+               bool isCausal,
+               std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+               std::optional<TTNNLayoutAttr> attentionMaskLayout,
+               llvm::ArrayRef<int64_t> curPosTensorShape,
+               TTNNLayoutAttr curPosTensorLayout,
+               std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+               std::optional<TTNNLayoutAttr> attentionSinkLayout,
+               std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<ScaledDotProductAttentionOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
+      TTNNLayoutAttr queryLayout, llvm::ArrayRef<int64_t> keyShape,
+      TTNNLayoutAttr keyLayout, llvm::ArrayRef<int64_t> valueShape,
+      TTNNLayoutAttr valueLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
+      std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+               llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+               llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+               std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+               std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
+               std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+};
+
 //===-----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp
 // ===----------------------------------------------------------------------===//
+
 template <>
 struct OpModel<RotaryEmbeddingLlamaOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
@@ -663,6 +725,62 @@ struct OpModel<RotaryEmbeddingLlamaOp> {
                llvm::ArrayRef<int64_t> transMatShape,
                TTNNLayoutAttr transMatLayout, bool isDecodeMode,
                TTNNLayoutAttr outputLayout);
+};
+
+//===-----------------------------------------------------------------------===//
+// NLPCreateQKVHeadsDecodeOp
+// ===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<NLPCreateQKVHeadsDecodeOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
+      std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
+      std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
+      std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
+               std::optional<TTNNLayoutAttr> batchOffsetLayout,
+               uint32_t numHeads, std::optional<uint32_t> numKVHeads,
+               std::optional<bool> overlapQKCoregrid,
+               std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// NLPConcatHeadsOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<NLPConcatHeadsOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// NLPConcatHeadsDecodeOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<NLPConcatHeadsDecodeOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, uint32_t headDim,
+                   TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             uint32_t headDim,
+                                             TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

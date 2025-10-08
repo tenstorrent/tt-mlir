@@ -6,7 +6,6 @@
 #define TTMLIR_DIALECT_TTIR_TRANSFORMS_PASSES_H
 
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/IR/BuiltinOps.h"

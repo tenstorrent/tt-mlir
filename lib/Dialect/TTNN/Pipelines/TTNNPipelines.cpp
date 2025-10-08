@@ -19,7 +19,6 @@
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
-#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
@@ -42,7 +41,8 @@ void createTTNNPipelineTTIRPasses(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIRFusingOptions fusingOptions{
-      options.enableFusingConv2dWithMultiplyPattern};
+      options.enableFusingConv2dWithMultiplyPattern,
+      options.enableFusingGlobalPoolPattern};
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -100,7 +100,10 @@ void createTTNNPipelineAnalysisPasses(
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
     pm.addPass(mlir::createCanonicalizerPass());
 #ifdef TTMLIR_ENABLE_OPMODEL
-    pm.addPass(mlir::tt::ttnn::createTTNNOperationValidationAndFallback());
+    ttnn::TTNNOperationValidationAndFallbackOptions validationOptions{
+        options.tensorL1UsageCap};
+    pm.addPass(mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
+        validationOptions));
     pm.addPass(mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
 #endif
   }
@@ -215,10 +218,15 @@ void createTTNNBackendToEmitCPipeline(
     tuplifyOptions.tuplifyInputIfEmpty = true;
     pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
   } else {
-    // In canonical path, run tuplification + create input generators.
+    // In canonical path, run tuplification + input generation/loading.
     //
     pm.addPass(createTTNNTuplifyTensors());
-    pm.addPass(createTTNNCreateInputGenerators());
+
+    if (options.loadInputTensorsFromDisk) {
+      pm.addPass(createTTNNLoadInputTensors());
+    } else {
+      pm.addPass(createTTNNCreateInputGenerators());
+    }
   }
 
   pm.addPass(createConvertTTNNToEmitCPass());
@@ -229,8 +237,16 @@ void createTTNNBackendToEmitPyPipeline(
 
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
+  // Apply EmitPy-specific workarounds before conversion
+  pm.addPass(createTTNNEmitPyWorkarounds());
+
   pm.addPass(createTTNNTuplifyTensors());
-  pm.addPass(createTTNNCreateInputGenerators());
+
+  if (options.loadInputTensorsFromDisk) {
+    pm.addPass(createTTNNLoadInputTensors());
+  } else {
+    pm.addPass(createTTNNCreateInputGenerators());
+  }
 
   pm.addPass(createConvertTTNNToEmitPyPass());
 }

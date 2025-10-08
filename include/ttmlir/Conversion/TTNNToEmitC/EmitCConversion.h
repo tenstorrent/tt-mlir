@@ -56,7 +56,6 @@ struct QueueId;
 
 namespace types {
 struct ShardOrientation;
-struct ShardMode;
 } // namespace types
 
 namespace distributed {
@@ -88,6 +87,7 @@ using OptionalMeshDevice =
 
 namespace conv::conv2d {
 struct Conv2dConfig;
+struct Conv2dSliceConfig;
 } // namespace conv::conv2d
 
 namespace reduction {
@@ -236,6 +236,12 @@ struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
 };
 
 template <>
+struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
+  inline static const std::string value =
+      "::ttnn::operations::conv::conv2d::Conv2dSliceConfig";
+};
+
+template <>
 struct TypeName<::ttnn::CoreCoord> {
   inline static const std::string value = "::ttnn::CoreCoord";
 };
@@ -258,11 +264,6 @@ struct TypeName<::ttnn::ShardSpec> {
 template <>
 struct TypeName<::ttnn::types::ShardOrientation> {
   inline static const std::string value = "::ttnn::types::ShardOrientation";
-};
-
-template <>
-struct TypeName<::ttnn::types::ShardMode> {
-  inline static const std::string value = "::ttnn::types::ShardMode";
 };
 
 template <>
@@ -520,35 +521,6 @@ struct EmitCTypeConverter<::ttnn::types::ShardOrientation> {
     }
 
     llvm_unreachable("Unknown ttnn::ShardOrientation");
-  }
-};
-
-template <>
-struct EmitCTypeConverter<::ttnn::types::ShardMode> {
-  static std::optional<std::string> convert(mlir::Attribute attr) {
-    if (auto shardModeAttr =
-            mlir::dyn_cast_if_present<ttnn::ShardModeAttr>(attr)) {
-      return convert(shardModeAttr);
-    }
-    return {};
-  }
-
-  static std::string convert(ttnn::ShardModeAttr attr) {
-    assert(attr && "expected non-null attribute, call "
-                   "EmitCTypeConverter<std::optional<::ttnn::types::ShardMode>>"
-                   "::convert(attr) if attribute is optional");
-    return convert(attr.getValue());
-  }
-
-  static std::string convert(ttnn::ShardMode attr) {
-    switch (attr) {
-    case ttnn::ShardMode::Physical:
-      return TypeNameV<::ttnn::types::ShardMode> + "::PHYSICAL";
-    case ttnn::ShardMode::Logical:
-      return TypeNameV<::ttnn::types::ShardMode> + "::LOGICAL";
-    }
-
-    llvm_unreachable("Unknown ttnn::ShardMode");
   }
 };
 
@@ -1139,13 +1111,6 @@ struct EmitCTypeConverter<::ttnn::ShardSpec> {
         << ", ";
     rso << EmitCTypeConverter<::ttnn::types::ShardOrientation>::convert(
         attr.getShardOrientation());
-    // ShardMode is modeled as optional in TTNN dialect, but it's either
-    // required or defaulted to `Physical` in TTNN library.
-    if (attr.getShardMode()) {
-      rso << ", "
-          << EmitCTypeConverter<::ttnn::types::ShardMode>::convert(
-                 attr.getShardMode());
-    }
     rso << "}";
 
     return buf;
@@ -1298,16 +1263,56 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
                  attr.getEnableWeightsDoubleBuffer());
       firstElement = false;
     }
-    if (attr.getEnableSplitReader()) {
-      rso << (firstElement ? "" : ", ") << ".enable_split_reader = "
-          << EmitCTypeConverter<bool>::convert(attr.getEnableSplitReader());
-      firstElement = false;
-    }
     if (attr.getInPlace()) {
       rso << (firstElement ? "" : ", ") << ".in_place = "
           << EmitCTypeConverter<bool>::convert(attr.getInPlace());
     }
     rso << "}";
+    return buf;
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto conv2dSliceConfigAttr =
+            mlir::dyn_cast_if_present<ttnn::Conv2dSliceConfigAttr>(attr)) {
+      return convert(conv2dSliceConfigAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::Conv2dSliceConfigAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<
+               ::ttnn::operations::conv::conv2d::Conv2dSliceConfig> << "{";
+    rso << ".slice_type = ";
+    // Convert enum to proper C++ enum value instead of integer
+    switch (attr.getSliceType()) {
+    case ttnn::Conv2dSliceType::DramHeight:
+      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::"
+             "DRAM_HEIGHT";
+      break;
+    case ttnn::Conv2dSliceType::DramWidth:
+      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::"
+             "DRAM_WIDTH";
+      break;
+    case ttnn::Conv2dSliceType::L1Full:
+      rso << "ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_"
+             "FULL";
+      break;
+    }
+    rso << ", ";
+    rso << ".num_slices = "
+        << EmitCTypeConverter<uint32_t>::convert(attr.getNumSlices());
+    rso << "}";
+
     return buf;
   }
 };
@@ -1402,6 +1407,11 @@ struct TTNNTarget<tt::ttnn::Conv2dConfigAttr> {
   using type = ::ttnn::operations::conv::conv2d::Conv2dConfig;
 };
 
+template <>
+struct TTNNTarget<tt::ttnn::Conv2dSliceConfigAttr> {
+  using type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig;
+};
+
 template <typename T>
 struct IsMLIRType {
   static constexpr bool value = std::is_convertible_v<T, mlir::Attribute> ||
@@ -1414,6 +1424,10 @@ static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 // Name for the function that creates a std::vector from a variadic number of
 // `ttnn::Tensor`s.
 inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
+
+// Name for the function that gets a scalar (uint32_t) from a `ttnn::Tensor`.
+inline constexpr const char *kGetScalarFromTensorFunctionName =
+    "::ttnn::getScalarFromTensor";
 
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
@@ -1444,14 +1458,26 @@ public:
     return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
   }
 
-  mlir::Attribute emit(mlir::Value val) {
+  // The `val` should be either an operand of the current source operation, in
+  // which case `index` should be nullopt, and the index it's found in the
+  // operands list. If `index` is provided, it means that the `val` is not an
+  // operand of the current source operation, and it is added as-is. Note that
+  // providing an `index` for an operand of the current source operation will
+  // result in an error.
+  mlir::Attribute emit(mlir::Value val,
+                       std::optional<uint32_t> index = std::nullopt) {
     if (!val) {
       return emit(std::nullopt);
     }
 
-    unsigned index = getOperandIndex(val);
-    operands.push_back(adaptor.getOperands()[index]);
-    return rewriter.getIndexAttr(index);
+    if (index) {
+      operands.push_back(val);
+      return rewriter.getIndexAttr(*index);
+    }
+
+    unsigned trueIndex = getOperandIndex(val);
+    operands.push_back(adaptor.getOperands()[trueIndex]);
+    return rewriter.getIndexAttr(trueIndex);
   }
 
   mlir::Attribute emit(mlir::Operation::operand_range operands) {
@@ -1564,6 +1590,9 @@ public:
   mlir::Attribute
   emit(::mlir::TypedValue<::mlir::tt::ttnn::DeviceType> device) {
     if (!device) {
+      if constexpr (std::is_pointer_v<TargetTy>) {
+        return rewriter.getType<emitc::OpaqueAttr>("nullptr");
+      }
       return emit(std::nullopt);
     }
 
@@ -1658,6 +1687,44 @@ public:
       rewriter.setInsertionPointAfter(conv2dExpr);
 
       return conv2dExpr;
+    }
+
+    // MaxPool2dOp return a std::vector<ttnn::Tensor> containing a single
+    // element. We can guarantee this because MaxPool2dOp always has
+    // `return_indices=false`.
+    // Extract first/single element to replace the original MaxPool2dOp.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::MaxPool2dOp>) {
+      assert(op->getNumResults() == 1 &&
+             "Expected single output for MaxPool2dOp.");
+      using ReturnTy = std::vector<::ttnn::Tensor>;
+      auto maxPool2dOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          /*template_args=*/nullptr, operands);
+
+      // Create index to access first/single element.
+      auto indexType = rewriter.getIndexType();
+      auto indexOp =
+          rewriter.create<emitc::LiteralOp>(op.getLoc(), indexType, "0");
+      Value indexVal = indexOp.getResult();
+
+      // Create LValue type for the tensor reference.
+      auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
+          rewriter.getContext(), TypeNameV<ReturnTy::value_type>));
+
+      // Get reference to the first/single element in the result vector.
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          op.getLoc(), lvalueType, maxPool2dOp.getResult(0), indexVal);
+
+      // Load the actual tensor value from the reference.
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          op.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(),
+                                 TypeNameV<ReturnTy::value_type>),
+          subscriptOp.getResult());
+
+      rewriter.replaceOp(op, loadOp.getResult());
+      return loadOp.getResult();
     }
 
     // SortOp returns a std::vector<ttnn::Tensor> containing two elements:

@@ -427,6 +427,136 @@ private:
   }
 };
 
+// ReLU6 fusion pattern matcher that transforms:
+//   minimum(relu(x), 6)
+// into:
+//   relu6(x)
+//
+// The pattern matches both operand orders:
+//   - minimum(relu(x), 6)
+//   - minimum(6, relu(x))
+//
+// The constant 6 can be represented as either an integer or float fill value.
+class Relu6FusionPattern : public mlir::OpRewritePattern<MinimumOp> {
+  using mlir::OpRewritePattern<MinimumOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MinimumOp minimumOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Try to match pattern: Minimum(ReLU(x), 6) or Minimum(6, ReLU(x))
+    Value lhs = minimumOp.getLhs();
+    Value rhs = minimumOp.getRhs();
+
+    auto reluOp = lhs.getDefiningOp<ReluOp>();
+    auto fullOp = rhs.getDefiningOp<FullOp>();
+
+    // Check the reversed pattern if initial match fails
+    if (!reluOp) {
+      reluOp = rhs.getDefiningOp<ReluOp>();
+      fullOp = lhs.getDefiningOp<FullOp>();
+    }
+
+    // Verify we found the expected pattern
+    if (!reluOp || !fullOp || !isFillValueSix(fullOp)) {
+      return mlir::failure();
+    }
+
+    // Replace with ReLU6
+    rewriter.setInsertionPoint(minimumOp);
+    utils::replaceOpWithNewDPSOp<Relu6Op>(rewriter, minimumOp,
+                                          minimumOp.getResult().getType(),
+                                          reluOp.getInput());
+    return mlir::success();
+  }
+
+private:
+  // Check if the fill value of the full op is six.
+  bool isFillValueSix(FullOp op) const {
+    if (!op) {
+      return false;
+    }
+    mlir::Attribute fillValue = op.getFillValue();
+    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
+      return integerAttr.getValue().getSExtValue() == 6;
+    }
+    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
+      return floatAttr.getValue().convertToFloat() == 6.0;
+    }
+    return false;
+  }
+};
+
+// SiLU fusion pattern matcher that transforms:
+// multiply(sigmoid(x), x)
+// into:
+// silu(x)
+//
+// The pattern matches both operand orders:
+// - multiply(sigmoid(x), x)
+// - multiply(x, sigmoid(x))
+//
+// When multiply inputs and output are typecasted, the typecasts are ignored and
+// silu op is done in the type of the sigmoid input.
+class SiluFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
+  using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MultiplyOp multiplyOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    mlir::Value lhs = multiplyOp.getLhs();
+    mlir::Value rhs = multiplyOp.getRhs();
+
+    // If either operand is a typecast, we want to look through it.
+    if (auto lhsTypecast = lhs.getDefiningOp<TypecastOp>()) {
+      lhs = lhsTypecast.getInput();
+    }
+    if (auto rhsTypecast = rhs.getDefiningOp<TypecastOp>()) {
+      rhs = rhsTypecast.getInput();
+    }
+
+    if (lhs.getType() != rhs.getType()) {
+      return mlir::failure();
+    }
+
+    SigmoidOp sigmoidOp = nullptr;
+    mlir::Value otherOperand;
+
+    if (auto lhsSigmoid = lhs.getDefiningOp<SigmoidOp>()) {
+      sigmoidOp = lhsSigmoid;
+      otherOperand = rhs;
+    } else if (auto rhsSigmoid = rhs.getDefiningOp<SigmoidOp>()) {
+      sigmoidOp = rhsSigmoid;
+      otherOperand = lhs;
+    }
+
+    if (!sigmoidOp || !sigmoidOp->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    if (sigmoidOp.getInput() != otherOperand) {
+      return mlir::failure();
+    }
+
+    auto inputType = sigmoidOp.getInput().getType();
+    auto outputType = multiplyOp.getResult().getType();
+    auto siluOp = utils::createDPSOp<SiluOp>(rewriter, multiplyOp->getLoc(),
+                                             inputType, otherOperand);
+
+    // If multiply inputs and output are typecasted, we need to add a typecast
+    // after silu to convert back to the multiply output type.
+    if (inputType != outputType) {
+      auto typecastOp = utils::createDPSOp<TypecastOp>(
+          rewriter, multiplyOp->getLoc(), inputType, siluOp.getResult());
+      rewriter.replaceAllOpUsesWith(multiplyOp, typecastOp);
+    } else {
+      rewriter.replaceAllOpUsesWith(multiplyOp, siluOp);
+    }
+    return mlir::success();
+  }
+};
+
 template <typename ConvOpType>
 class ConvWithMultiplyTemplate : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
@@ -699,20 +829,21 @@ private:
 using Conv2dWithMultiply = ConvWithMultiplyTemplate<Conv2dOp>;
 using ConvolutionWithMultiply = ConvWithMultiplyTemplate<ConvolutionOp>;
 
-// Tag all block arguments which are direct inputs to Conv2dOp with
-// discardable attribute. This is used during Layouting to check if
+// Tag all block arguments which are direct inputs to Conv2dOp and ConvolutionOp
+// with discardable attribute. This is used during Layouting to check if
 // function argument need to be put to Host/RM. This is temporary
 // solution until we complete refactor of TTNNLayout see:
 // https://github.com/tenstorrent/tt-mlir/issues/3432.
-class Conv2dTagWeights : public mlir::OpRewritePattern<Conv2dOp> {
+template <typename ConvOpType>
+class ConvTagWeights : public mlir::OpRewritePattern<ConvOpType> {
 public:
-  Conv2dTagWeights(MLIRContext *context)
-      : OpRewritePattern(context, PatternBenefit(2)) {}
+  ConvTagWeights(MLIRContext *context)
+      : OpRewritePattern<ConvOpType>(context, PatternBenefit(2)) {}
 
   mlir::LogicalResult
-  matchAndRewrite(Conv2dOp conv2d,
+  matchAndRewrite(ConvOpType conv,
                   mlir::PatternRewriter &rewriter) const final {
-    Value weightValue = conv2d.getWeight();
+    Value weightValue = conv.getWeight();
 
     // Special case for bfp8 weights which don't come directly from
     // function argument but are created by TypecastOp.
@@ -2036,7 +2167,8 @@ public:
   void runOnOperation() final {
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<Conv2dTagWeights>(&getContext());
+      patterns.add<ConvTagWeights<Conv2dOp>>(&getContext());
+      patterns.add<ConvTagWeights<ConvolutionOp>>(&getContext());
       if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
         signalPassFailure();
         return;
@@ -2065,6 +2197,7 @@ public:
       if (conv2dWithMultiplyEnabled) {
         patterns.add<Conv2dWithMultiply>(&getContext());
         patterns.add<ConvolutionWithMultiply>(&getContext());
+        patterns.add<BatchNormDecomposition>(&getContext());
       }
       patterns.add<CacheFillUpdatePattern>(&getContext());
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
@@ -2072,12 +2205,13 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
-      patterns.add<GlobalAveragePoolingPattern>(&getContext());
-
-      if (conv2dWithMultiplyEnabled) {
-        patterns.add<BatchNormDecomposition>(&getContext());
+      if (globalPoolFusingEnabled) {
+        patterns.add<GlobalAveragePoolingPattern>(&getContext());
       }
+
       patterns.add<GeluFusionPattern>(&getContext());
+      patterns.add<Relu6FusionPattern>(&getContext());
+      patterns.add<SiluFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);

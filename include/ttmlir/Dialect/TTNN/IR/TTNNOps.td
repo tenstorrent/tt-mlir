@@ -421,6 +421,13 @@ def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
     }];
 }
 
+def TTNN_Relu6Op : TTNN_ElementwiseUnaryOp<"relu6"> {
+    let summary = "Eltwise ReLU6.";
+    let description = [{
+      Eltwise ReLU6 operation.
+    }];
+}
+
 def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin"> {
     let summary = "Eltwise sine.";
     let description = [{
@@ -447,6 +454,13 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
     let description = [{
       Eltwise sigmoid operation.
     }];
+}
+
+def TTNN_SiluOp : TTNN_ElementwiseUnaryOp<"silu"> {
+  let summary = "Eltwise SiLU.";
+  let description = [{
+    Eltwise SiLU (Swish) operation.
+  }];
 }
 
 def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log"> {
@@ -1025,6 +1039,25 @@ def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads", [TTNN_MemoryConfigOpIn
     let hasVerifier = 1;
 }
 
+def TTNN_NLPConcatHeadsDecodeOp: TTNN_Op<"nlp_concat_heads_decode", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Concatenate heads op used in attention layer.";
+    let description = [{
+      Shuffles [S=1, B=32, 32(num_heads), head_dim] tensor into tensor with shape [S=1, 1, B=32, num_heads * head_dim].
+      This operation assumes that input num_heads is padded to at most 32. When invoking this op,
+      we specify the actual num_heads via the attribute `num_heads` and it should be less than input padded num_heads.
+      Operation will unpad the input num_heads to the actual num_heads.
+      The output is default width sharded by num heads.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         UI32Attr:$num_heads,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
 
     let summary = "Softmax op.";
@@ -1236,9 +1269,8 @@ def TTNN_SliceStaticOp: TTNN_Op<"slice_static"> {
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::ArrayAttr step = getStep();
         return wa::TTNNOperandsWorkaroundsFactory::
-            createSliceStaticOpOperandsWorkarounds(step);
+            createSliceStaticOpOperandsWorkarounds(*this);
       }
     }];
 
@@ -1261,9 +1293,8 @@ def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        ::mlir::ArrayAttr step = getStepAttr();
         return wa::TTNNOperandsWorkaroundsFactory::
-            createSliceDynamicOpOperandsWorkarounds(step);
+            createSliceDynamicOpOperandsWorkarounds(*this);
       }
     }];
 
@@ -1926,7 +1957,7 @@ def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait]> {
     let hasVerifier = 1;
 }
 
-def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
+def TTNN_DeallocateOp : TTNN_MemFreeOp<"deallocate"> {
     let summary = "Deallocate op.";
     let description = [{
       Tensor Deallocate operation
@@ -2403,6 +2434,150 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Memory
                          DefaultValuedAttr<BoolAttr, "false">:$is_decode_mode,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_NLPConcatHeadsOp : TTNN_Op<"nlp_concat_heads", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "nlp_concat_heads op in TTNN dialect.";
+  let description = [{
+    "This op targets specific case of concatenate heads operation where input tensor
+    [B, num_heads, S, head_dim] is permuted and reshaped into [B, 1, S, num_heads * head_dim]."
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                   OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor"> {
+  let summary = "Saves a tensor to disk in the TTNN binary format";
+  let description = [{
+    Saves a tensor to disk in the TTNN binary format. Files must use the `.tensorbin` extension.
+
+    Inputs:
+      - `file_path` StrAttr: Path of the file where tensor should be dumped. Must end with `.tensorbin` extension.
+      - `input` AnyRankedTensor: Tensor to serialize.
+  }];
+
+  let arguments = (ins StrAttr:$file_path,
+                       AnyRankedTensor:$input);
+
+  let hasVerifier = 1;
+}
+
+def NLPCreateQKVHeadsDecodeOp : TTNN_Op<"nlp_create_qkv_heads_decode", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "nlp_create_qkv_heads_decode op in TTNN dialect.";
+  let description = [{
+    Shuffles [1, S=1, B, head_dim * (num_heads + 2*num_kv_heads)] fused qkv matrix into Q, K, and V heads with shape [S, B, num_heads, head_dim] for Q and [S, B, num_kv_heads, head_dim] for K and V, where num_heads and num_kv_heads will be padded to nearest 32.
+      - Input must be sharded, B=32 and S=1.
+      - overlap_qk_coregrid is a boolean flag that determines whether the output Q and K heads are on same core grid. If true, then Q, K, and V heads are on the same core grid. If false, the Q and K heads are on non-overlapping core-grid useful for processing Q and K in parallel.
+      - Batch offset is used to fuse batch slicing. If provided slice size must also be provided in which batch dim of QKV output will be slice_size.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$batch_offset,
+                       UI32Attr:$num_heads,
+                       OptionalAttr<UI32Attr>:$num_kv_heads,
+                       OptionalAttr<BoolAttr>:$overlap_qk_coregrid,
+                       OptionalAttr<UI32Attr>:$slice_size,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$query,
+                      AnyRankedTensor:$key,
+                      AnyRankedTensor:$value);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
+  let summary = "Loads a tensor from disk";
+  let description = [{
+    Loads a tensor from disk, optionally placing it directly on a device.
+
+    Inputs:
+      - `file_path` StrAttr: Path of the file of the serialized tensor. Must end with `.tensorbin` extension.
+      - `device` Optional<TTNN_Device>: Device where tensor should be deserialized. It has to be provided iff the serialized tensor is a device tensor.
+    Outputs:
+      - `result` AnyRankedTensor: Deserialized tensor from the `file_path`.
+  }];
+
+  let arguments = (ins StrAttr:$file_path,
+                       Optional<TTNN_Device>:$device);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attention_decode", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
+    let summary = "A version of scaled dot product attention specifically for decode.";
+    let description = [{
+      A version of scaled dot product attention specifically for decode.
+        The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
+
+        Args:
+            input_tensor_q (AnyRankedTensor): The input tensor [1 x batch x num_heads x head_size]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
+            input_tensor_k (AnyRankedTensor): The input tensor [batch x num_kv_heads x   seq_len x head_size].
+            input_tensor_v (AnyRankedTensor): The input tensor [b x num_kv_heads x   seq_len x head_size].
+            is_causal (bool, optional): Whether the attention is causal. Defaults to `true`.
+            attention_mask (AnyRankedTensor, optional): The attention mask [batch x 1 x query_seq_len x kv_seq_len].
+            cur_pos_tensor (AnyRankedTensor): [batch] Tensor of integers of length batch.
+            attention_sink (AnyRankedTensor, optional): The attention sink [num_heads, 32] (must be a single tile wide).
+            scale (float, optional): Defaults to `None`.
+            memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
+
+        Returns:
+            AnyRankedTensor: The output tensor [1 x b x pnh x dh].
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                         Optional<AnyRankedTensor>:$attention_mask,
+                         AnyRankedTensor:$cur_pos_tensor,
+                         Optional<AnyRankedTensor>:$attention_sink,
+                         OptionalAttr<F32Attr>:$scale,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Scaled dot product attention operation.";
+    let description = [{
+      Scaled dot product attention.
+      The implementation is FlashAttention-2."
+
+      Args:
+          query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]
+          key (AnyRankedTensor): The key tensor.              [batch x num_kv_heads x kv_seq_len x head_size]
+          value (AnyRankedTensor): The value tensor.          [batch x num_kv_heads x kv_seq_len x head_size]
+          attention_mask (AnyRankedTensor, optional): Defaults to `None`. [batch x 1 x query_seq_len x kv_seq_len]. Head broadcasting is implied.
+          is_causal (bool): Whether the attention is causal. Defaults to `true`.
+          scale (float, optional): Defaults to `None`.
+          memory_config (MemoryConfigAttr, optional): Memory configuration for the operation. Defaults to `None`.
+
+
+      Returns:
+          AnyRankedTensor: The output tensor [batch x num_heads x query_seq_len x head_size].
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+                         Optional<AnyRankedTensor>:$attention_mask,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                         OptionalAttr<F32Attr>:$scale,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 

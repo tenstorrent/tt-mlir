@@ -674,6 +674,34 @@ public:
 } // namespace
 
 namespace {
+// Arith FloorDivSIOp doesn't have an emitc lowering, probably because of the
+// spec which says:
+//   Signed integer division. Rounds towards negative infinity, i.e. 5 / -2 = -3
+//
+// However we know our index type will map to size_t which is unsigned, making a
+// negative denominator impossible, so as long as we assert that this floordiv
+// is working on values of `index` type it's safe to map this op to regular
+// divi.
+class ArithFloorDivRewriter : public OpConversionPattern<arith::FloorDivSIOp> {
+public:
+  using OpConversionPattern<arith::FloorDivSIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::FloorDivSIOp op, arith::FloorDivSIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (!mlir::isa<IndexType>(op.getResult().getType())) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<arith::DivSIOp>(op, op.getResult().getType(),
+                                                op.getOperands());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ConvertTTKernelToEmitCPass
     : public ttkernel::impl::ConvertTTKernelToEmitCBase<
           ConvertTTKernelToEmitCPass> {
@@ -801,6 +829,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileInitOp>,
@@ -838,6 +868,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::RecipTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceUninitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RoundingTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileOp>,
@@ -916,6 +947,8 @@ public:
         TTKernelTensorAccessorOpsRewriter<
             ttkernel::TensorAccessorIsLocalShardOp>>(typeConverter,
                                                      funcOp.getContext());
+
+    patterns.add<ArithFloorDivRewriter>(typeConverter, funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }

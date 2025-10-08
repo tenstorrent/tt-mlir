@@ -23,22 +23,19 @@ getTraceCacheKeys(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                                    op->execute_program_id())};
 }
 
-static void
-copyTensor(const ::tt::target::ttnn::TensorRef *srcTensorDesc,
-           const ::ttnn::Tensor &srcTensor, ::ttnn::Tensor &dstTensor,
-           const ::ttnn::QueueId &queueId = ::ttnn::DefaultQueueId) {
+static void copyTensor(const ::tt::target::ttnn::TensorRef *srcTensorDesc,
+                       const ::ttnn::Tensor &srcTensor,
+                       ::ttnn::Tensor &dstTensor) {
 
   if (::tt::runtime::ttnn::utils::inSystemMemory(srcTensorDesc)) {
-    ::tt::tt_metal::write_tensor(srcTensor, dstTensor, /*blocking=*/false,
-                                 queueId);
+    ::tt::tt_metal::write_tensor(srcTensor, dstTensor, /*blocking=*/false);
     return;
   }
 
   LOG_ASSERT(::tt::runtime::workaround::Env::get().traceImplicitFromDevice,
              "traceImplicitFromDevice workaround must be enabled.");
   ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
-  ::tt::tt_metal::write_tensor(hostSrcTensor, dstTensor, /*blocking=*/false,
-                               queueId);
+  ::tt::tt_metal::write_tensor(hostSrcTensor, dstTensor, /*blocking=*/false);
 }
 
 static void runTraceProgramAndCaptureTrace(
@@ -185,7 +182,9 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
 
   LOG_ASSERT(meshDevice.get_program_cache().is_enabled(),
              "Program cache must be enabled");
-  LOG_ASSERT(meshDevice.allocator()->get_config().trace_region_size > 0,
+  LOG_ASSERT(meshDevice.allocator()
+                     ->get_statistics(::ttnn::BufferType::TRACE)
+                     .total_allocatable_size_bytes > 0,
              "Trace region size must be greater than 0");
 
   auto traceCache =

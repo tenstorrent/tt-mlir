@@ -11,7 +11,7 @@ import torch
 import subprocess
 from typing import Any, Dict, List, Optional
 
-ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone"])
+ALL_BACKENDS = set(["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
 
 
@@ -337,18 +337,18 @@ def pytest_runtest_call(item: pytest.Item):
     Runtime report data includes:
     - failure_stage: Categorizes where in the compilation pipeline the test failed
       - "success": Test passed completely
-      - "compile": Failed during TTIR compilation (`TTIRCompileException`)
-      - "runtime": Failed during execution (`TTIRRuntimeException`)
-      - "golden": Failed golden result verification (`TTIRGoldenException`)
+      - "compile": Failed during TTBuilder compilation (`TTBuilderCompileException`)
+      - "runtime": Failed during execution (`TTBuilderRuntimeException`)
+      - "golden": Failed golden result verification (`TTBuilderGoldenException`)
     The "runtime" and "golden" are currently unused, but are needed for
     downstream schemas to support future features once pytest itself
     orchestrates the running of the generated flatbuffers
     """
 
-    TTIR_EXCEPTIONS = {
-        "TTIRCompileException": "compile",
-        "TTIRRuntimeException": "runtime",
-        "TTIRGoldenException": "golden",
+    TTBUILDER_EXCEPTIONS = {
+        "TTBuilderCompileException": "compile",
+        "TTBuilderRuntimeException": "runtime",
+        "TTBuilderGoldenException": "golden",
     }
 
     failure_stage = "success"  # Default to success.
@@ -359,7 +359,12 @@ def pytest_runtest_call(item: pytest.Item):
     except Exception as exc:
         exc_type = type(exc)
         exc_name = exc_type.__name__
-        failure_stage = TTIR_EXCEPTIONS.get(exc_name, "unknown")
+        try:
+            failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
+        except KeyError as e:
+            pytest.fail(
+                f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {e}:{type(e)}"
+            )
     finally:
         _safe_add_property(item, "failure_stage", failure_stage)
 

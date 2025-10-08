@@ -25,6 +25,8 @@
 #include "operations/eltwise/unary/unary_composite.hpp"
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
+#include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
+#include "operations/kv_cache/kv_cache.hpp"
 #include "operations/matmul/matmul.hpp"
 #include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "operations/normalization/batch_norm/batch_norm.hpp"
@@ -38,12 +40,17 @@
 #include "operations/reduction/prod/prod.hpp"
 #include "operations/trace.hpp"
 #include "operations/transformer/concatenate_heads/concatenate_heads.hpp"
+#include "operations/transformer/sdpa/sdpa.hpp"
+#include "operations/transformer/sdpa_decode/sdpa_decode.hpp"
 #include "tt-metalium/bfloat16.hpp"
 #include "ttnn/common/queue_id.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_create_qkv_heads_decode/nlp_create_qkv_heads_decode.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
+#include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
@@ -54,6 +61,7 @@
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <tuple>
 #include <vector>
 
 template <typename... T>
@@ -125,6 +133,17 @@ void constEvalFuncWrapper(
   if (outputs->empty()) {
     *outputs = constEvalFunc(inputs);
   }
+}
+
+uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
+  assert(tensor.logical_volume() == 1 && "expected scalar tensor");
+  assert(tensor.dtype() == ttnn::DataType::UINT32 && "expected uint32 tensor");
+
+  const ::ttnn::Tensor tensorOnHost = ::ttnn::from_device(tensor);
+  const ::tt::tt_metal::HostBuffer buffer =
+      ::tt::tt_metal::host_buffer::get_host_buffer(tensorOnHost);
+  const auto &buf = buffer.view_as<uint32_t>();
+  return *buf.begin();
 }
 
 } // namespace ttnn

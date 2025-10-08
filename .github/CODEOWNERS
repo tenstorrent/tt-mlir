@@ -66,19 +66,18 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /lib/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
 /test/ttmlir/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
 
-# Metal Conversions
-/include/ttmlir/Conversion/TTIRToTTIRGeneric/ @tenstorrent/forge-developers-mlir-d2m
-/lib/Conversion/TTIRToTTIRGeneric/ @tenstorrent/forge-developers-mlir-d2m
-/test/ttmlir/Conversion/TTIRToTTIRGeneric/ @tenstorrent/forge-developers-mlir-d2m
-/test/ttmlir/Dialect/TTIR/generic/ @tenstorrent/forge-developers-mlir-d2m
-/include/ttmlir/Conversion/TTIRToTTMetal/ @tenstorrent/forge-developers-mlir-d2m
-/include/ttmlir/Conversion/TTKernelToEmitC/ @tenstorrent/forge-developers-mlir-d2m
-/lib/Conversion/TTIRToTTMetal/ @tenstorrent/forge-developers-mlir-d2m
-/lib/Conversion/TTKernelToEmitC/ @tenstorrent/forge-developers-mlir-d2m
-/test/ttmlir/Conversion/TTKernelToEmitC/ @tenstorrent/forge-developers-mlir-d2m
-/include/ttmlir/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
-/lib/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
-/test/ttmlir/Conversion/TTIRToTTKernel/ @tenstorrent/forge-developers-mlir-d2m
+# D2M Dialect
+/include/ttmlir/Conversion/D2M* @tenstorrent/forge-developers-mlir-d2m
+/include/ttmlir/Conversion/*D2M @tenstorrent/forge-developers-mlir-d2m
+/include/ttmlir/Dialect/D2M/ @tenstorrent/forge-developers-mlir-d2m
+/lib/Conversion/D2M* @tenstorrent/forge-developers-mlir-d2m
+/lib/Conversion/*D2M @tenstorrent/forge-developers-mlir-d2m
+/lib/Dialect/D2M/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Conversion/D2M* @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Conversion/*D2M @tenstorrent/forge-developers-mlir-d2m
+/test/ttmlir/Dialect/D2M/ @tenstorrent/forge-developers-mlir-d2m
+
+# SFPI Dialect
 /include/ttmlir/Dialect/SFPI/ @tenstorrent/forge-developers-mlir-d2m
 /lib/Dialect/SFPI/ @tenstorrent/forge-developers-mlir-d2m
 /test/ttmlir/Conversion/SFPIToEmitC/ @tenstorrent/forge-developers-mlir-d2m
@@ -95,13 +94,8 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttmlir/Dialect/TTCore/ @tenstorrent/forge-developers-mlir-core @nsmithtt @mrakitaTT
 
 # Metal Dialects
-/include/ttmlir/Dialect/TTIR/IR/TTIRGeneric* @tenstorrent/forge-developers-mlir-d2m
 /include/ttmlir/Dialect/TTKernel/ @tenstorrent/forge-developers-mlir-d2m
 /include/ttmlir/Dialect/TTMetal/ @tenstorrent/forge-developers-mlir-d2m
-/lib/Dialect/TTIR/Transforms/Generic*.cpp @tenstorrent/forge-developers-mlir-d2m
-/lib/Dialect/TTIR/Transforms/Allocate.cpp @tenstorrent/forge-developers-mlir-d2m
-/lib/Dialect/TTIR/Transforms/InsertDstRegisterAccess.cpp @tenstorrent/forge-developers-mlir-d2m
-/lib/Dialect/TTIR/Transforms/LowerToLayout.cpp @tenstorrent/forge-developers-mlir-d2m
 /lib/Dialect/TTKernel/ @tenstorrent/forge-developers-mlir-d2m
 /lib/Dialect/TTMetal/ @tenstorrent/forge-developers-mlir-d2m
 /test/ttmlir/Dialect/TTKernel/ @tenstorrent/forge-developers-mlir-d2m
@@ -161,7 +155,10 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/pykernel/ @xanderchin @vprajapati-tt @vtangTT
 
 # TTIRBuilder
-/tools/builder @ctodTT @tapspatel
+/tools/builder @ctodTT @tapspatel @jgrimTT
+
+# ttrt
+/tools/ttrt @ctodTT @tapspatel @jgrimTT
 
 # tt-explorer
 /tools/explorer/ @tenstorrent/forge-developers-mlir-explorer

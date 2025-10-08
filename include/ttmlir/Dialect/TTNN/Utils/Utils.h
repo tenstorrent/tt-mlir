@@ -92,6 +92,7 @@ createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
                         mlir::tt::ttcore::GridAttr deviceGrid);
 
 bool isTTNNTraceFunc(func::FuncOp funcOp);
+bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op);
 
 // Returns all TTNN dialect registered operations.
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context);
@@ -107,6 +108,9 @@ bool producesL1Layout(Operation *op);
 
 // Check if operation's first result uses tiled tensor layout.
 bool producesTiledTensorLayout(Operation *op);
+
+// Check if operation's first operand uses DRAM buffer layout.
+bool hasFirstOperandInDRAM(Operation *op);
 
 mlir::RankedTensorType getTraceIdType(MLIRContext *ctx);
 } // namespace mlir::tt::ttnn::utils

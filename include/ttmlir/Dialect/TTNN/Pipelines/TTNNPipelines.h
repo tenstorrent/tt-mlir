@@ -98,7 +98,7 @@ struct TTIRToTTNNBackendPipelineOptions
   // optimizerPassEnabled (enable-optimizer) is true.
   //
   // Full Example:
-  // override-conv2d-config=conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false:enable_split_reader#false
+  // override-conv2d-config=conv2d_1=dtype#bf16:weights_dtype#bf16:activation#relu:deallocate_activation#false:reallocate_halo_output#true:act_block_h_override#0:act_block_w_div#1:reshard_if_not_optimal#false:override_sharding_config#false:shard_layout#block_sharded:core_grid#0:transpose_shards#true:output_layout#row_major:enable_act_double_buffer#false:enable_weights_double_buffer#false
   // Partial Example:
   // "conv2d_1=enable_weights_double_buffer#true:activation#none,conv2d_2=dtype#bf16"
   //
@@ -120,7 +120,6 @@ struct TTIRToTTNNBackendPipelineOptions
   // * output_layout: [row_major, tile]
   // * enable_act_double_buffer: [true, false]
   // * enable_weights_double_buffer: [true, false]
-  // * enable_split_reader: [true, false]
   //
   // For more details on parameter values see conv2d_op.hpp in tt-metal.
   //
@@ -212,7 +211,7 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, OptionNames::tensorL1UsageCap,
       llvm::cl::desc("Override tensor L1 usage cap in L1 Interleaved Fallback "
                      "Analysis and Memory Layout Analysis. [0.0-1.0]"),
-      llvm::cl::init(0.8f)};
+      llvm::cl::init(0.95f)};
 
   // Option to enable/disable the workaround pass.
   //
@@ -248,6 +247,12 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> enableFusingConv2dWithMultiplyPattern{
       *this, "enable-fusing-conv2d-with-multiply-pattern",
       llvm::cl::desc("Enable Conv2dWithMultiply pattern in the fusing pass."),
+      llvm::cl::init(false)};
+
+  Option<bool> enableFusingGlobalPoolPattern{
+      *this, "enable-fusing-global-avg-pool-pattern",
+      llvm::cl::desc(
+          "Enable GlobalAveragePoolingPattern pattern in the fusing pass."),
       llvm::cl::init(false)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
@@ -319,6 +324,12 @@ struct TTNNBackendToEmitCPipelineOptions
                      "function. This should only be used if the `target-dylib` "
                      "option is set to `true`"),
       llvm::cl::init(false)};
+
+  Option<bool> loadInputTensorsFromDisk{
+      *this, "load-input-tensors-from-disk",
+      llvm::cl::desc("Load input tensors from disk using ttnn.load_tensor "
+                     "instead of generating synthetic inputs with ttnn.ones"),
+      llvm::cl::init(false)};
 };
 
 // TTNN Backend to EmitPy PipelineOptions.
@@ -328,6 +339,12 @@ struct TTNNBackendToEmitPyPipelineOptions
   // TTNNToEmitC pipeline options contain "target-dylib" and
   // "tuplify-input-if-empty" options. There's no dylib (or equivalent) path in
   // EmitPy yet, so these options are removed.
+
+  Option<bool> loadInputTensorsFromDisk{
+      *this, "load-input-tensors-from-disk",
+      llvm::cl::desc("Load input tensors from disk using ttnn.load_tensor "
+                     "instead of generating synthetic inputs with ttnn.ones"),
+      llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.

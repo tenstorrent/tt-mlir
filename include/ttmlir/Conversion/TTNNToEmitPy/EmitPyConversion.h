@@ -16,8 +16,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <iomanip>
-#include <limits>
-#include <sstream>
+#include <type_traits>
 
 // This namespace contains mock definitions of TTNN types for the purpose of
 // conversion.
@@ -44,12 +43,28 @@ struct BufferType;
 
 namespace types {
 struct ShardOrientation;
-struct ShardMode;
 } // namespace types
+
+namespace distributed {
+struct MeshDevice;
+} // namespace distributed
 
 struct Tensor;
 
 namespace operations {
+namespace unary {
+
+// Mock definition of VecMode enum from tt-metal
+enum class VecMode {
+  None = 0,
+  R = 1,
+  C = 2,
+  RC = 4,
+  RC_custom = 6,
+  Invalid = 0xFF,
+};
+} // namespace unary
+
 namespace conv::conv2d {
 struct Conv2dConfig;
 } // namespace conv::conv2d
@@ -147,11 +162,6 @@ struct TypeName<::ttnn::ShardSpec> {
 template <>
 struct TypeName<::ttnn::types::ShardOrientation> {
   inline static const std::string value = "ttnn.ShardOrientation";
-};
-
-template <>
-struct TypeName<::ttnn::types::ShardMode> {
-  inline static const std::string value = "ttnn.ShardMode";
 };
 
 template <>
@@ -256,9 +266,10 @@ struct EmitPyTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {
 };
 
 // Converter for floating point types. Double is the only type that makes sense
-// to convert to in Python.
-template <>
-struct EmitPyTypeConverter<double> {
+// to convert to in Python so we always convert to double.
+template <typename T>
+struct EmitPyTypeConverter<
+    T, std::enable_if_t<std::is_floating_point_v<T>, void>> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto floatAttr = mlir::dyn_cast_if_present<mlir::FloatAttr>(attr)) {
       return convert(floatAttr);
@@ -379,36 +390,6 @@ struct EmitPyTypeConverter<::ttnn::types::ShardOrientation> {
     }
 
     llvm_unreachable("Unknown ttnn.ShardOrientation");
-  }
-};
-
-template <>
-struct EmitPyTypeConverter<::ttnn::types::ShardMode> {
-  static std::optional<std::string> convert(mlir::Attribute attr) {
-    if (auto shardModeAttr =
-            mlir::dyn_cast_if_present<ttnn::ShardModeAttr>(attr)) {
-      return convert(shardModeAttr);
-    }
-    return {};
-  }
-
-  static std::string convert(ttnn::ShardModeAttr attr) {
-    assert(attr &&
-           "expected non-null attribute, call "
-           "EmitPyTypeConverter<std::optional<::ttnn::types::ShardMode>>"
-           "::convert(attr) if attribute is optional");
-    return convert(attr.getValue());
-  }
-
-  static std::string convert(ttnn::ShardMode attr) {
-    switch (attr) {
-    case ttnn::ShardMode::Physical:
-      return TypeNameV<::ttnn::types::ShardMode> + ".PHYSICAL";
-    case ttnn::ShardMode::Logical:
-      return TypeNameV<::ttnn::types::ShardMode> + ".LOGICAL";
-    }
-
-    llvm_unreachable("Unknown ttnn.ShardMode");
   }
 };
 
@@ -861,6 +842,86 @@ private:
 };
 
 template <>
+struct EmitPyTypeConverter<mlir::ElementsAttr> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (!attr) {
+      return {};
+    }
+
+    return llvm::TypeSwitch<mlir::Attribute, std::optional<std::string>>(attr)
+        .Case<mlir::DenseIntElementsAttr>(
+            [](mlir::DenseIntElementsAttr denseIntAttr)
+                -> std::optional<std::string> {
+              // Determine the element type and delegate to appropriate
+              // converter
+              auto elementType = denseIntAttr.getElementType();
+              if (elementType.isInteger(1)) {
+                return EmitPyTypeConverter<std::vector<bool>>::convert(
+                    denseIntAttr);
+              }
+              if (elementType.isInteger(8)) {
+                return EmitPyTypeConverter<std::vector<int8_t>>::convert(
+                    denseIntAttr);
+              }
+              if (elementType.isInteger(16)) {
+                return EmitPyTypeConverter<std::vector<int16_t>>::convert(
+                    denseIntAttr);
+              }
+              if (elementType.isInteger(32)) {
+                return EmitPyTypeConverter<std::vector<int32_t>>::convert(
+                    denseIntAttr);
+              }
+              if (elementType.isInteger(64)) {
+                return EmitPyTypeConverter<std::vector<int64_t>>::convert(
+                    denseIntAttr);
+              }
+              return {};
+            })
+        .Case<mlir::DenseFPElementsAttr>(
+            [](mlir::DenseFPElementsAttr denseFPAttr)
+                -> std::optional<std::string> {
+              // Determine the element type and delegate to appropriate
+              // converter
+              auto elementType = denseFPAttr.getElementType();
+              if (elementType.isF32()) {
+                // Note: Python's builtin float has 64-bit precision by default
+                // so we convert to double here
+                return EmitPyTypeConverter<std::vector<double>>::convert(
+                    denseFPAttr);
+              }
+              if (elementType.isF64()) {
+                return EmitPyTypeConverter<std::vector<double>>::convert(
+                    denseFPAttr);
+              }
+              return {};
+            })
+        .Default([](auto) { return std::optional<std::string>{}; });
+  }
+};
+
+template <typename First, typename... Rest>
+struct EmitPyTypeConverter<std::variant<First, Rest...>> {
+  static std::string convert(mlir::Attribute attr) {
+    auto tryFirst = EmitPyTypeConverter<First>::convert(attr);
+    if constexpr (std::is_same_v<decltype(tryFirst), std::string>) {
+      return tryFirst;
+    } else {
+      static_assert(
+          std::is_same_v<decltype(tryFirst), std::optional<std::string>>);
+      if (tryFirst) {
+        return *tryFirst;
+      }
+    }
+
+    if constexpr (sizeof...(Rest) > 0) {
+      return EmitPyTypeConverter<std::variant<Rest...>>::convert(attr);
+    }
+
+    llvm_unreachable("Invalid variant type");
+  }
+};
+
+template <>
 struct EmitPyTypeConverter<::ttnn::CoreRangeSet> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto coreRangeSetAttr =
@@ -913,13 +974,6 @@ struct EmitPyTypeConverter<::ttnn::ShardSpec> {
         << ", ";
     rso << EmitPyTypeConverter<::ttnn::types::ShardOrientation>::convert(
         attr.getShardOrientation());
-    // ShardMode is modeled as optional in TTNN dialect, but it's either
-    // required or defaulted to `Physical` in TTNN library.
-    if (attr.getShardMode()) {
-      rso << ", "
-          << EmitPyTypeConverter<::ttnn::types::ShardMode>::convert(
-                 attr.getShardMode());
-    }
     rso << ")";
 
     return buf;
@@ -960,7 +1014,11 @@ struct EmitPyTypeConverter<::ttnn::MemoryConfig> {
   }
 
   static std::string convert(ttnn::MemoryConfigAttr attr) {
-    if (!attr) {
+    // If BufferType is SystemMemory, there is no need for a MemoryConfig as it
+    // is only used to represent memory of tensors on device.
+    //
+    if (!attr ||
+        attr.getBufferType().getValue() == ttnn::BufferType::SystemMemory) {
       return TypeNameV<std::nullopt_t>;
     }
 
@@ -997,67 +1055,67 @@ struct EmitPyTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
     bool firstElement = true;
     rso << TypeNameV<::ttnn::operations::conv::conv2d::Conv2dConfig> << "(";
     if (attr.getWeightsDtype()) {
-      rso << (firstElement ? "" : ", ") << ".weights_dtype = "
+      rso << (firstElement ? "" : ", ") << "weights_dtype="
           << EmitPyTypeConverter<::ttnn::DataType>::convert(
                  *attr.getWeightsDtype());
       firstElement = false;
     }
     if (attr.getActivation()) {
-      rso << (firstElement ? "" : ", ") << ".activation = "
+      rso << (firstElement ? "" : ", ") << "activation="
           << EmitPyTypeConverter<std::string>::convert(attr.getActivation());
       firstElement = false;
     }
     if (attr.getDeallocateActivation()) {
-      rso << (firstElement ? "" : ", ") << ".deallocate_activation = "
+      rso << (firstElement ? "" : ", ") << "deallocate_activation="
           << EmitPyTypeConverter<bool>::convert(attr.getDeallocateActivation());
       firstElement = false;
     }
     if (attr.getReallocateHaloOutput()) {
-      rso << (firstElement ? "" : ", ") << ".reallocate_halo_output = "
+      rso << (firstElement ? "" : ", ") << "reallocate_halo_output="
           << EmitPyTypeConverter<bool>::convert(attr.getReallocateHaloOutput());
       firstElement = false;
     }
     if (attr.getActBlockHOverride()) {
-      rso << (firstElement ? "" : ", ") << ".act_block_h_override = "
+      rso << (firstElement ? "" : ", ") << "act_block_h_override="
           << EmitPyTypeConverter<uint32_t>::convert(
                  *attr.getActBlockHOverride());
       firstElement = false;
     }
     if (attr.getActBlockWDiv()) {
-      rso << (firstElement ? "" : ", ") << ".act_block_w_div = "
+      rso << (firstElement ? "" : ", ") << "act_block_w_div="
           << EmitPyTypeConverter<uint32_t>::convert(*attr.getActBlockWDiv());
       firstElement = false;
     }
     if (attr.getReshardIfNotOptimal()) {
-      rso << (firstElement ? "" : ", ") << ".reshard_if_not_optimal = "
+      rso << (firstElement ? "" : ", ") << "reshard_if_not_optimal="
           << EmitPyTypeConverter<bool>::convert(attr.getReshardIfNotOptimal());
       firstElement = false;
     }
     if (attr.getOverrideShardingConfig()) {
-      rso << (firstElement ? "" : ", ") << ".override_sharding_config = "
+      rso << (firstElement ? "" : ", ") << "override_sharding_config="
           << EmitPyTypeConverter<bool>::convert(
                  attr.getOverrideShardingConfig());
       firstElement = false;
     }
     if (attr.getShardLayout()) {
-      rso << (firstElement ? "" : ", ") << ".shard_layout = "
+      rso << (firstElement ? "" : ", ") << "shard_layout="
           << EmitPyTypeConverter<::ttnn::TensorMemoryLayout>::convert(
                  *attr.getShardLayout());
       firstElement = false;
     }
     if (attr.getCoreGrid()) {
-      rso << (firstElement ? "" : ", ") << ".core_grid = "
+      rso << (firstElement ? "" : ", ") << "core_grid="
           << EmitPyTypeConverter<::ttnn::CoreRangeSet>::convert(
                  attr.getCoreGrid());
       firstElement = false;
     }
     if (attr.getTransposeShards()) {
-      rso << (firstElement ? "" : ", ") << ".transpose_shards = "
+      rso << (firstElement ? "" : ", ") << "transpose_shards="
           << EmitPyTypeConverter<bool>::convert(attr.getTransposeShards());
       firstElement = false;
     }
     if (attr.getOutputLayout()) {
-      rso << (firstElement ? "" : ", ") << ".output_layout = "
+      rso << (firstElement ? "" : ", ") << "output_layout="
           << EmitPyTypeConverter<::ttnn::Layout>::convert(
                  *attr.getOutputLayout());
     }
@@ -1159,6 +1217,10 @@ static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 // `ttnn::Tensor`s.
 inline constexpr const char *kCreateListFunctionName = "util_create_list";
 
+// Name for the function that gets a scalar (int) from a `ttnn.Tensor`.
+inline constexpr const char *kGetScalarFromTensorFunctionName =
+    "utils.get_scalar_from_tensor";
+
 template <typename TTNNOp>
 class EmitPyTTNNEmitter {
 public:
@@ -1190,15 +1252,27 @@ public:
     return rewriter.getType<emitpy::OpaqueAttr>(TypeNameV<std::nullopt_t>);
   }
 
-  mlir::Attribute emit(mlir::Value val, std::string attrName = "") {
+  // The `val` should be either an operand of the current source operation, in
+  // which case `index` should be nullopt, and the index it's found in the
+  // operands list. If `index` is provided, it means that the `val` is not an
+  // operand of the current source operation, and it is added as-is. Note that
+  // providing an `index` for an operand of the current source operation will
+  // result in an error.
+  mlir::Attribute emit(mlir::Value val, std::string attrName = "",
+                       std::optional<uint32_t> index = std::nullopt) {
     if (!val) {
       return emit(std::nullopt, attrName);
     }
+    if (index) {
+      operands.push_back(val);
+      addKeywordArgument(attrName);
+      return rewriter.getIndexAttr(*index);
+    }
 
-    unsigned index = getOperandIndex(val);
-    operands.push_back(adaptor.getOperands()[index]);
+    unsigned trueIndex = getOperandIndex(val);
+    operands.push_back(adaptor.getOperands()[trueIndex]);
     addKeywordArgument(attrName);
-    return rewriter.getIndexAttr(index);
+    return rewriter.getIndexAttr(operands.size() - 1);
   }
 
   mlir::Attribute emit(mlir::Operation::operand_range operands,
@@ -1215,7 +1289,8 @@ public:
           adaptor.getOperands().begin() + index,
           adaptor.getOperands().begin() + index + operands.size());
       this->operands.push_back(createList(values));
-      return rewriter.getIndexAttr(index);
+      addKeywordArgument(attrName);
+      return rewriter.getIndexAttr(operands.size() - 1);
     }
     llvm_unreachable("Invalid operand range");
   }
@@ -1314,10 +1389,9 @@ public:
     }
 
     auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        op, resultTypes, opName, operands, rewriter.getArrayAttr(args),
-        rewriter.getArrayAttr(keywordArgs));
+        op, resultTypes, opConversionPattern.convertOpName(op), operands,
+        rewriter.getArrayAttr(args), rewriter.getArrayAttr(keywordArgs));
 
-    assert(callOpaqueOp.getNumResults() <= 1 && "expected at most one result");
     if (callOpaqueOp.getNumResults() == 0) {
       return {};
     }
@@ -1336,7 +1410,7 @@ private:
             op.getLoc(),
             emitpy::OpaqueType::get(rewriter.getContext(),
                                     TypeNameV<std::vector<::ttnn::Tensor>>),
-            kCreateListFunctionName, nullptr, nullptr, operands)
+            kCreateListFunctionName, operands, nullptr, nullptr)
         ->getResult(0);
   }
 
@@ -1367,6 +1441,19 @@ operator|(std::optional<ttnn::MemoryConfigAttr> lhs,
     return rhs;
   }
   return *lhs;
+}
+
+// Helper function that serves as an alternative to the
+// `emit<std::variant<...>>` member function of the `EmitPyTTNNEmitter` class.
+// For example, instead of calling `emit<std::variant<int32_t, float>>(attr)`,
+// one can call `emit<int32_t>(attr) | emit<float>(attr)`.
+inline mlir::Attribute operator|(mlir::Attribute lhs, mlir::Attribute rhs) {
+  const mlir::Attribute nulloptAttr = emitpy::OpaqueAttr::get(
+      lhs.getContext(), tt::ttnn_to_emitpy::TypeNameV<std::nullopt_t>);
+  if (!lhs || lhs == nulloptAttr) {
+    return rhs;
+  }
+  return lhs;
 }
 
 } // namespace ttnn_to_emitpy

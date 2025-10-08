@@ -52,6 +52,24 @@ inline std::string toString(DeviceRuntime runtime) {
   }
 }
 
+enum class HostRuntime {
+  Local,
+  Distributed,
+};
+
+inline std::string toString(HostRuntime runtime) {
+  switch (runtime) {
+  case HostRuntime::Local:
+    return "Local";
+  case HostRuntime::Distributed:
+    return "Distributed";
+  }
+}
+
+enum class DistributedMode {
+  LocalSubprocess,
+};
+
 enum class DispatchCoreType {
   WORKER,
   ETH,
@@ -75,6 +93,7 @@ enum class FabricConfig {
 enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
 namespace detail {
+
 struct ObjectImpl {
 
   std::shared_ptr<void> handle;
@@ -211,6 +230,11 @@ struct MeshDeviceOptions {
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
 };
 
+struct DistributedOptions {
+  uint16_t port = 0;
+  DistributedMode mode = DistributedMode::LocalSubprocess;
+};
+
 struct Flatbuffer : public detail::ObjectImpl {
   using detail::ObjectImpl::ObjectImpl;
 
@@ -269,6 +293,8 @@ struct Binary : public Flatbuffer {
   std::string getProgramInputsAsJson(std::uint32_t programIndex) const;
   std::string getProgramOutputsAsJson(std::uint32_t programIndex) const;
   std::string getMlirAsJson() const;
+  std::uint32_t getNumProgramInputs(std::uint32_t programIndex) const;
+  std::uint32_t getNumProgramOutputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
   std::unordered_map<std::uint32_t, const ::tt::target::GoldenTensor *>
@@ -296,6 +322,9 @@ struct TraceCache : public detail::RuntimeCheckedObjectImpl {
 };
 
 struct Device : public detail::RuntimeCheckedObjectImpl {
+  Device(DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(nullptr, runtime),
+        globalId(nextDeviceGlobalId()), traceCache(nullptr) {}
 
   Device(std::shared_ptr<void> handle, std::shared_ptr<TraceCache> traceCache,
          DeviceRuntime runtime)
@@ -345,7 +374,12 @@ struct TensorRef : public detail::RuntimeCheckedConstObjectImpl {
 };
 
 struct Layout : public detail::RuntimeCheckedObjectImpl {
-  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+  Layout(DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(nullptr, runtime),
+        globalId(nextLayoutGlobalId()) {}
+  Layout(std::shared_ptr<void> handle, DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime),
+        globalId(nextLayoutGlobalId()) {}
 
   void setGlobalId(std::uint64_t id) { globalId = id; }
   std::uint64_t getGlobalId() const { return globalId; }

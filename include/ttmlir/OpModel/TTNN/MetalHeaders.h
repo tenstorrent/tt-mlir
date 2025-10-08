@@ -7,6 +7,7 @@
 
 #define FMT_HEADER_ONLY
 
+#include "tt-metalium/bfloat16.hpp"
 #include "tt-metalium/buffer.hpp"
 #include "tt-metalium/buffer_types.hpp"
 #include "tt-metalium/core_coord.hpp"
@@ -24,16 +25,9 @@ using IDevice = ::tt::tt_metal::IDevice;
 // Add missing extract_output_tensor overload for MaxPoolWithIndicesResult
 // This should be in the metal repo but is missing from commit 5965834630
 namespace ttnn::graph::detail {
-inline Tensor extract_output_tensor(
-    const std::variant<Tensor, ttnn::operations::pool::MaxPoolWithIndicesResult>
-        &result) {
-  return std::visit<Tensor>(
-      ttsl::overloaded{
-          [](const Tensor &tensor) { return tensor; },
-          [](const ttnn::operations::pool::MaxPoolWithIndicesResult &result) {
-            return result.output;
-          }},
-      result);
+inline Tensor
+extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
+  return std::get<0>(result);
 }
 } // namespace ttnn::graph::detail
 
@@ -64,6 +58,9 @@ inline Tensor extract_output_tensor(
 #include "ttnn/operations/eltwise/unary/unary_composite.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
 #include "ttnn/operations/embedding_backward/embedding_backward.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_create_qkv_heads_decode/nlp_create_qkv_heads_decode.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
 #include "ttnn/operations/kv_cache/kv_cache.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
@@ -77,6 +74,8 @@ inline Tensor extract_output_tensor(
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/operations/reduction/prod/prod.hpp"
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
+#include "ttnn/operations/transformer/sdpa/sdpa.hpp"
+#include "ttnn/operations/transformer/sdpa_decode/sdpa_decode.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/tensor_spec.hpp"
 #include "ttnn/tensor/types.hpp"

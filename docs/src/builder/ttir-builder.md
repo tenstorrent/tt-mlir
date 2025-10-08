@@ -437,7 +437,7 @@ module {
 
 ## Compiling into flatbuffer
 
-`compile_ttir_to_flatbuffer` compiles a TTIRBuilder function `fn` straight to flatbuffer. This decorator is mainly a wrapper around the following functions, with each next function called on the output of the last: `build_ttir_module`, `run_ttir_pipeline`, and `ttnn_to_flatbuffer_file`, `ttmetal_to_flatbuffer_file`, or `ttir_to_ttnn_emitc_pipeline` as dictated by the `target` parameter.
+`compile_ttir_to_flatbuffer` compiles a TTIRBuilder function `fn` straight to flatbuffer. This decorator is mainly a wrapper around the following functions, with each next function called on the output of the last: `build_ttir_module`, `run_ttir_pipeline`, and `ttnn_to_flatbuffer_file`, `ttmetal_to_flatbuffer_file`, `ttir_to_emitpy_pipeline`, or `ttir_to_ttnn_emitc_pipeline` as dictated by the `target` parameter.
 
 ```python
 def compile_ttir_to_flatbuffer(
@@ -447,7 +447,7 @@ def compile_ttir_to_flatbuffer(
     system_desc_path: Optional[str] = None,
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal", "ttnn-standalone"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
@@ -616,10 +616,10 @@ builder.set_graph_input_output([input_0], [output_0], override=True)
 
 ### Running flatbuffer with golden data in ttrt
 
-Running flatbuffers in `ttrt` requires additional building and setting up the environment. Run these commands before creating MLIR modules or flatbuffers so the system description in the flatbuffers match your device.
+Running flatbuffers in `ttrt` requires building and setting up the environment. Run these commands before creating MLIR modules or flatbuffers so the system description in the flatbuffers match your device.
 
 ```bash
-cmake --build build -- ttrt
+cmake --build build
 ttrt query --save-artifacts
 export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys
 ```

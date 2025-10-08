@@ -46,30 +46,21 @@ void populateTTNNModule(nb::module_ &m) {
       });
 
   tt_attribute_class<tt::ttnn::ShardSpecAttr>(m, "ShardSpecAttr")
-      .def_static("get",
-                  [](MlirContext ctx, tt::ttnn::CoreRangeSetAttr coreRangeSet,
-                     tt::ttnn::ShapeAttr shardShape,
-                     tt::ttnn::ShardOrientationAttr shardOrientation,
-                     tt::ttnn::ShardModeAttr shardMode,
-                     tt::ttnn::ShapeAttr physicalShardShape) {
-                    return wrap(tt::ttnn::ShardSpecAttr::get(
-                        unwrap(ctx), coreRangeSet, shardShape, shardOrientation,
-                        shardMode, physicalShardShape));
-                  })
+      .def_static(
+          "get",
+          [](MlirContext ctx, tt::ttnn::CoreRangeSetAttr coreRangeSet,
+             tt::ttnn::ShapeAttr shardShape,
+             tt::ttnn::ShardOrientationAttr shardOrientation) {
+            return wrap(tt::ttnn::ShardSpecAttr::get(
+                unwrap(ctx), coreRangeSet, shardShape, shardOrientation));
+          })
       .def_prop_ro(
           "core_range_set",
           [](tt::ttnn::ShardSpecAttr self) { return self.getCoreRangeSet(); })
       .def_prop_ro("shard_shape",
                    [](tt::ttnn::ShardSpecAttr self) { return self.getShape(); })
-      .def_prop_ro("shard_orientation",
-                   [](tt::ttnn::ShardSpecAttr self) {
-                     return self.getShardOrientation();
-                   })
-      .def_prop_ro(
-          "shard_mode",
-          [](tt::ttnn::ShardSpecAttr self) { return self.getShardMode(); })
-      .def_prop_ro("physical_shard_shape", [](tt::ttnn::ShardSpecAttr self) {
-        return self.getPhysicalShardShape();
+      .def_prop_ro("shard_orientation", [](tt::ttnn::ShardSpecAttr self) {
+        return self.getShardOrientation();
       });
 
   tt_attribute_class<tt::ttnn::MemoryConfigAttr>(m, "MemoryConfigAttr")
@@ -103,6 +94,15 @@ void populateTTNNModule(nb::module_ &m) {
                   })
       .def_prop_ro("y", &tt::ttnn::MeshShapeAttr::getY)
       .def_prop_ro("x", &tt::ttnn::MeshShapeAttr::getX);
+
+  tt_attribute_class<tt::ttnn::MeshOffsetAttr>(m, "MeshOffsetAttr")
+      .def_static("get",
+                  [](MlirContext ctx, int64_t y, int64_t x) {
+                    return wrap(
+                        tt::ttnn::MeshOffsetAttr::get(unwrap(ctx), y, x));
+                  })
+      .def_prop_ro("y", &tt::ttnn::MeshOffsetAttr::getY)
+      .def_prop_ro("x", &tt::ttnn::MeshOffsetAttr::getX);
 
   tt_attribute_class<tt::ttnn::TTNNLayoutAttr>(m, "TTNNLayoutAttr")
       .def_static(
@@ -167,8 +167,8 @@ void populateTTNNModule(nb::module_ &m) {
           "get",
           [](MlirContext ctx, std::optional<tt::ttcore::DataType> dtype,
              std::optional<tt::ttcore::DataType> weightsDtype,
-             StringAttr activation, BoolAttr deallocateActivation,
-             BoolAttr reallocateHaloOutput,
+             tt::ttnn::UnaryWithParamAttr activation,
+             BoolAttr deallocateActivation, BoolAttr reallocateHaloOutput,
              std::optional<uint32_t> actBlockHOverride,
              std::optional<uint32_t> actBlockWDiv, BoolAttr reshardIfNotOptimal,
              BoolAttr overrideShardingConfig,
@@ -176,7 +176,7 @@ void populateTTNNModule(nb::module_ &m) {
              tt::ttnn::CoreRangeSetAttr coreGrid, BoolAttr transposeShards,
              std::optional<tt::ttnn::Layout> outputLayout,
              BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
-             BoolAttr enableSplitReader, BoolAttr inPlace) {
+             BoolAttr inPlace) {
             MLIRContext *context = unwrap(ctx);
 
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
@@ -184,7 +184,7 @@ void populateTTNNModule(nb::module_ &m) {
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
                 coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
-                enableWeightsDoubleBuffer, enableSplitReader, inPlace));
+                enableWeightsDoubleBuffer, inPlace));
           })
       .def_prop_ro("weights_dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self)
@@ -194,14 +194,15 @@ void populateTTNNModule(nb::module_ &m) {
                      }
                      return static_cast<uint32_t>(*self.getWeightsDtype());
                    })
-      .def_prop_ro("activation",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, std::string> {
-                     if (!self.getActivation()) {
-                       return nb::none();
-                     }
-                     return self.getActivation().getValue().str();
-                   })
+      .def_prop_ro(
+          "activation",
+          [](tt::ttnn::Conv2dConfigAttr self)
+              -> std::variant<nb::object, tt::ttnn::UnaryWithParamAttr> {
+            if (!self.getActivation()) {
+              return nb::none();
+            }
+            return self.getActivation();
+          })
       .def_prop_ro("deallocate_activation",
                    [](tt::ttnn::Conv2dConfigAttr self)
                        -> std::variant<nb::object, bool> {
@@ -293,14 +294,6 @@ void populateTTNNModule(nb::module_ &m) {
                      }
                      return self.getEnableWeightsDoubleBuffer().getValue();
                    })
-      .def_prop_ro("enable_split_reader",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, bool> {
-                     if (!self.getEnableSplitReader()) {
-                       return nb::none();
-                     }
-                     return self.getEnableSplitReader().getValue();
-                   })
       .def_prop_ro("in_place",
                    [](tt::ttnn::Conv2dConfigAttr self)
                        -> std::variant<nb::object, bool> {
@@ -346,6 +339,10 @@ void populateTTNNModule(nb::module_ &m) {
       .def_prop_ro("op_type_as_int",
                    [](tt::ttnn::UnaryWithParamAttr self) {
                      return static_cast<uint32_t>(self.getOpType());
+                   })
+      .def_prop_ro("op_type",
+                   [](tt::ttnn::UnaryWithParamAttr self) {
+                     return std::string(stringifyUnaryOpType(self.getOpType()));
                    })
       .def_prop_ro("params", [](tt::ttnn::UnaryWithParamAttr self) {
         return self.getParams().vec();

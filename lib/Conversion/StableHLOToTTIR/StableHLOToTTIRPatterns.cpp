@@ -12,7 +12,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/Mesh.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -36,6 +35,7 @@
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include "llvm/ADT/StringExtras.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -2117,8 +2117,8 @@ public:
     // Insert the new MeshShardOp with the generated GSPMDMeshSharding.
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp->getResult(0).getType()));
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
-        rewriter, srcOp, outputType, definingOp.getInputs().front(),
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
+        srcOp, outputType, definingOp.getInputs().front(),
         gspmdMeshSharding->getShardType(),
         gspmdMeshSharding->getShardDirection(),
         gspmdMeshSharding->getShardShape(), gspmdMeshSharding->getShardDims());
@@ -2868,6 +2868,57 @@ private:
 } // namespace
 
 namespace {
+class StableHLOToTTIRRngBitGeneratorOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::RngBitGeneratorOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::RngBitGeneratorOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::RngBitGeneratorOp srcOp,
+                  mlir::stablehlo::RngBitGeneratorOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getOutput().getType()));
+
+    llvm::SmallVector<int32_t> size(outputType.getShape());
+
+    auto floatElementType = rewriter.getF32Type();
+    auto floatOutputType = mlir::RankedTensorType::get(
+        outputType.getShape(), floatElementType, outputType.getEncoding());
+
+    // Use min and max unsigned int value to cover most of the range of uint32.
+    auto fromFloat = rewriter.getF32FloatAttr(
+        static_cast<float>(std::numeric_limits<unsigned int>::min()));
+    auto toFloat = rewriter.getF32FloatAttr(
+        static_cast<float>(std::numeric_limits<unsigned int>::max()));
+
+    // Seed set to 0 is a special case that is equivalent to no seed.
+    // Using any other value would make every flatbuffer run deterministic.
+    auto seed = rewriter.getUI32IntegerAttr(0);
+
+    auto randOp = rewriter.create<mlir::tt::ttir::RandOp>(
+        srcOp.getLoc(), floatOutputType, rewriter.getI32ArrayAttr(size),
+        mlir::TypeAttr::get(floatElementType), fromFloat, toFloat, seed);
+
+    // TODO (pglusac): Change to bit cast once we support it or remove if
+    // rand starts supporting uint32.
+    // See https://github.com/tenstorrent/tt-mlir/issues/5078
+    auto typecastOp =
+        mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::TypecastOp>(
+            rewriter, srcOp.getLoc(), outputType, randOp.getResult());
+
+    // HACK (pglusac): Output state is discarded, initial state is returned as
+    // a result. https://github.com/tenstorrent/tt-mlir/issues/5101
+    rewriter.replaceOp(srcOp,
+                       {adaptor.getInitialState(), typecastOp.getResult()});
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // This pattern recognizes and converts stablehlo.custom_call @tt.fill_cache
 // to ttir.fill_cache.
 class StableHLOFillCacheConversionPattern
@@ -3041,6 +3092,156 @@ public:
 } // namespace
 
 namespace {
+class StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.scaled_dot_product_attention_decode") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ScaledDotProductAttentionDecode op must have "
+                 "mhlo.frontend_attributes attribute.");
+    }
+
+    auto isCausalStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_causal");
+    bool isCausal = true;
+    if (isCausalStringAttr) {
+
+      if (isCausalStringAttr.getValue().lower() == "true") {
+        isCausal = true;
+      } else if (isCausalStringAttr.getValue().lower() == "false") {
+        isCausal = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "is_causal attribute must be true or false. Received \"" +
+                       isCausalStringAttr.getValue() + "\".");
+      }
+    }
+
+    BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
+
+    auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
+    std::optional<float> scale = std::nullopt;
+    if (scaleStringAttr) {
+      float _scale;
+      if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "scale attribute string must be convertible to float. Received \"" +
+                scaleStringAttr.getValue() + "\".");
+      }
+      scale = _scale;
+    }
+
+    FloatAttr scaleAttr =
+        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
+
+    auto hasAttentionMaskStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
+    bool hasAttentionMask = false;
+    if (!hasAttentionMaskStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_attention_mask attribute must be present.");
+    }
+
+    if (hasAttentionMaskStringAttr.getValue().lower() == "true") {
+      hasAttentionMask = true;
+    } else if (hasAttentionMaskStringAttr.getValue().lower() == "false") {
+      hasAttentionMask = false;
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "has_attention_mask attribute must be true or false. Received \"" +
+              hasAttentionMaskStringAttr.getValue() + "\".");
+    }
+
+    auto hasAttentionSinkStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_sink");
+    bool hasAttentionSink = false;
+    if (!hasAttentionSinkStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_attention_sink attribute must be present.");
+    }
+
+    if (hasAttentionSinkStringAttr.getValue().lower() == "true") {
+      hasAttentionSink = true;
+    } else if (hasAttentionSinkStringAttr.getValue().lower() == "false") {
+      hasAttentionSink = false;
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "has_attention_sink attribute must be true or false. Received \"" +
+              hasAttentionSinkStringAttr.getValue() + "\".");
+    }
+
+    Value query = adaptor.getOperands()[0];
+    Value key = adaptor.getOperands()[1];
+    Value value = adaptor.getOperands()[2];
+    Value curPosTensor = adaptor.getOperands()[3];
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    if (hasAttentionMask && hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, adaptor.getOperands()[4],
+          curPosTensor, adaptor.getOperands()[5], outputTensor, scaleAttr);
+    } else if (hasAttentionMask) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, adaptor.getOperands()[4],
+          curPosTensor, nullptr, outputTensor, scaleAttr);
+    } else if (hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, nullptr, curPosTensor,
+          adaptor.getOperands()[4], outputTensor, scaleAttr);
+    } else if (!hasAttentionMask && !hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, nullptr, curPosTensor, nullptr,
+          outputTensor, scaleAttr);
+    } else {
+      if (hasAttentionMask || hasAttentionSink) {
+        llvm_unreachable("All combinations of attention mask "
+                         "and attention sink should have been handled");
+      }
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIROpOptimizationBarrierOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::OptimizationBarrierOp> {
   using OpConversionPattern<
@@ -3059,6 +3260,87 @@ public:
 
     rewriter.replaceOpWithNewOp<ttcore::OptimizationBarrierOp>(
         srcOp, convertedResultTypes, adaptor.getOperands());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRScaledDotProductAttentionOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.scaled_dot_product_attention") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ScaledDotProductAttention op must have "
+                 "mhlo.frontend_attributes attribute.");
+    }
+
+    auto isCausalSringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_causal");
+    bool isCausal = true;
+    if (isCausalSringAttr) {
+      if (isCausalSringAttr.getValue().lower() == "true") {
+        isCausal = true;
+      } else if (isCausalSringAttr.getValue().lower() == "false") {
+        isCausal = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "is_causal attribute must be true or false. Recived \"" +
+                       isCausalSringAttr.getValue() + "\".");
+      }
+    }
+
+    BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
+
+    auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
+    std::optional<float> scale = std::nullopt;
+    if (scaleStringAttr) {
+      float _scale;
+      if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "scale attribute string must be convertible to float. Recived \"" +
+                scaleStringAttr.getValue() + "\".");
+      }
+      scale = _scale;
+    }
+
+    FloatAttr scaleAttr =
+        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
+
+    Value query = adaptor.getOperands()[0];
+    Value key = adaptor.getOperands()[1];
+    Value value = adaptor.getOperands()[2];
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    Value attentionMask = nullptr;
+    if (adaptor.getOperands().size() == 4) {
+      attentionMask = adaptor.getOperands()[3];
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+        srcOp, outputType, query, key, value, attentionMask, outputTensor,
+        isCausalAttr, scaleAttr);
 
     return success();
   }
@@ -3331,6 +3613,14 @@ static void addRngOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRRngOpConversionPattern>(typeConverter, ctx);
 }
 
+static void
+addRngBitGeneratorOpConversionPattern(MLIRContext *ctx,
+                                      RewritePatternSet &patterns,
+                                      TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRRngBitGeneratorOpConversionPattern>(typeConverter,
+                                                                  ctx);
+}
+
 static void addErfOpConversionPattern(MLIRContext *ctx,
                                       RewritePatternSet &patterns,
                                       TypeConverter &typeConverter) {
@@ -3356,6 +3646,15 @@ addOptimizationBarrierOpConversionPattern(MLIRContext *ctx,
                                           TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIROpOptimizationBarrierOpConversionPattern>(
       typeConverter, ctx);
+}
+
+static void addScaledDotProductAttentionDecodeOpConversionPattern(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    TypeConverter &typeConverter) {
+  patterns
+      .add<StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern,
+           StableHLOToTTIRScaledDotProductAttentionOpConversionPattern>(
+          typeConverter, ctx);
 }
 
 namespace mlir::tt {
@@ -3389,10 +3688,13 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addPadOpConversionPattern(ctx, patterns, typeConverter);
   addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
   addRngOpConversionPattern(ctx, patterns, typeConverter);
+  addRngBitGeneratorOpConversionPattern(ctx, patterns, typeConverter);
   addErfOpConversionPattern(ctx, patterns, typeConverter);
   addSortOpConversionPattern(ctx, patterns, typeConverter);
   addCacheOpsConversionPattern(ctx, patterns, typeConverter);
   addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);
+  addScaledDotProductAttentionDecodeOpConversionPattern(ctx, patterns,
+                                                        typeConverter);
 }
 
 } // namespace mlir::tt

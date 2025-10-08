@@ -253,18 +253,6 @@ def TTNN_ShardOrientation : I32EnumAttr<"ShardOrientation", "TTNN ShardOrientati
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
-def TTNN_ShardMode_Physical : I32EnumAttrCase<"Physical", 0, "physical">;
-def TTNN_ShardMode_Logical : I32EnumAttrCase<"Logical", 1, "logical">;
-
-def TTNN_ShardMode : I32EnumAttr<"ShardMode", "TTNN ShardMode",
-                           [
-                            TTNN_ShardMode_Physical,
-                            TTNN_ShardMode_Logical
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt::ttnn";
-}
-
 def TTNN_MathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
 def TTNN_MathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
 def TTNN_MathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;
@@ -318,6 +306,14 @@ def TTNN_KernelCoreType : I32EnumAttr<"KernelCoreType", "TT KernelCoreType",
                             TTNN_KernelCoreTypeEth,
                            ]> {
   let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_Conv2dSliceType : I32EnumAttr<"Conv2dSliceType", "Conv2d slice type", [
+  I32EnumAttrCase<"DramHeight", 0, "dram_height">,
+  I32EnumAttrCase<"DramWidth", 1, "dram_width">,
+  I32EnumAttrCase<"L1Full", 2, "l1_full">,
+]> {
   let cppNamespace = "::mlir::tt::ttnn";
 }
 

@@ -448,7 +448,23 @@ def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
     }];
 }
 
-def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_BinaryOpTrait]> {
+def TTKernel_ReduceUninitOp : TTKernel_InitOp<"reduce_uninit"> {
+    let summary = "Init function for reduce_uninit operation.";
+    let description = [{
+       Resets the packer edge mask configuration to its default state by clearing any previously set masks. Needs to be called after
+       reduce_tile if the next operation requires default packer state. In case that the next operation is reduce operation across the
+       same dimension, this call can be omitted. If this function is not called, the packer will continue to use the edge masks set
+       by the latest reduce_init call, which may lead to incorrect packing behavior in subsequent operations.
+
+       This function is not in line with our programming mode. To be removed by end of 2025. tt-metal#22904.
+    }];
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_TernaryOpTrait]> {
     let summary = "Reduce operation";
     let description = [{
       Performs a reduction operation *B = reduce(A)* using reduce_func for
@@ -1448,6 +1464,35 @@ def TTKernel_SigmoidTileOp : TTKernel_SFPUOp<"sigmoid_tile", [TTKernel_UnaryOpTr
     let summary = "Sigmoid operation";
     let description = [{
       Performs element-wise computation of sigmoid on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GeluTileInitOp : TTKernel_InitOp<"gelu_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of gelu_tile.";
+    let description = [{
+      Must be run before gelu_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GeluTileOp : TTKernel_SFPUOp<"gelu_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "GELU operation";
+    let description = [{
+      Performs element-wise computation of GELU on each element of a tile
       in DST register at index tile_index. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call. This call is blocking and is only
       available on the compute engine.

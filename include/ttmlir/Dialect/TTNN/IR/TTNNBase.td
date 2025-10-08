@@ -54,6 +54,10 @@ class TTNN_InplaceOp<string mnemonic, list<Trait> traits = []> :
         Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemWrite]>, TTNN_WorkaroundInterface,
         DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
 
+class TTNN_MemFreeOp<string mnemonic, list<Trait> traits = []> :
+        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemFree]>, TTNN_WorkaroundInterface,
+        DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
+
 class TTNN_MemoryEffectOp<string mnemonic, list<Trait> traits = []> :
         Op<TTNN_Dialect, mnemonic, [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTNN_WorkaroundInterface,
         DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;

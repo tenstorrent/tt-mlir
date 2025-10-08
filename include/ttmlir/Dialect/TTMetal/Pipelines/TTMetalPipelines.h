@@ -5,9 +5,9 @@
 #ifndef TTMLIR_DIALECT_TTMETAL_PIPELINES_TTMETALPIPELINES_H
 #define TTMLIR_DIALECT_TTMETAL_PIPELINES_TTMETALPIPELINES_H
 
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-
 #include "mlir/Pass/PassOptions.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 
 namespace mlir::tt::ttmetal {
 // Options for the TTIR to TTMetal backend pipeline.
@@ -64,6 +64,12 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Use ttir.tile_matmul instead of ttir.tile_matmul_block"),
       llvm::cl::init(false)};
 
+  // Option to control whether we collapse tensors to 2D or not.
+  //
+  Option<bool> collapseTensors{*this, "collapse-tensors-2d",
+                               llvm::cl::desc("Collapse all tensors to 2d."),
+                               llvm::cl::init(true)};
+
   // Options to control the default memspaces for placing input/output tensors.
   //
   Option<ttcore::MemorySpace> defaultInputMemSpace{
@@ -94,11 +100,44 @@ struct TTIRToTTMetalPipelineOptions
       *this, "insert-profiler-traces",
       llvm::cl::desc("Insert DeviceZone scopes around selected TTKernel ops"),
       llvm::cl::init(false)};
+
+  // Option to set  math fidelity
+  Option<mlir::tt::ttmetal::MathFidelity> mathFidelity{
+      *this, "set-math-fidelity", llvm::cl::desc("Set the math fidelity."),
+      llvm::cl::values(
+          clEnumValN(mlir::tt::ttmetal::MathFidelity::LoFi, "LoFi", "LoFi"),
+          clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi2, "HiFi2", "HiFi2"),
+          clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi3, "HiFi3", "HiFi3"),
+          clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi4, "HiFi4", "HiFi4")),
+      llvm::cl::init(mlir::tt::ttmetal::MathFidelity::HiFi4)};
+
+  // Number of backing buffers to allocate per stream storage.
+  Option<unsigned> numStreamBuffers{
+      *this, "num-stream-buffers",
+      llvm::cl::desc("Number of backing buffers to allocate per stream storage "
+                     "(>=1). Default is 2."),
+      llvm::cl::init(2)};
+  // Allocator will not consider generic outputs eligible for spilling
+  // unless this option is turned on.
+  Option<bool> allowOutputSpilling{
+      *this, "allow-output-spilling",
+      llvm::cl::desc("Make generic outputs eligible for spilling to DRAM."),
+      llvm::cl::init(false)};
+
+  // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
+  // GenericOp.
+  Option<bool> ttnnMode{*this, "ttnn-mode",
+                        llvm::cl::desc("D2M/TTNN integration mode."),
+                        llvm::cl::init(false)};
 };
 
-void createTTIRBufferizationPipeline(OpPassManager &pm);
+void createTTIRBufferizationPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
 void createTTIRToTTMetalBackendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
+void createTTIRToTTMetalPipelineDebug(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
 void registerTTMetalPipelines();

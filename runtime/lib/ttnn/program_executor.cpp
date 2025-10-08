@@ -61,12 +61,19 @@
 #include "operations/reduction/argmax.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
+#include "operations/tensor_serialization/dump_tensor.h"
+#include "operations/tensor_serialization/load_tensor.h"
 #include "operations/trace/begin_trace_capture.h"
 #include "operations/trace/capture_or_execute_trace.h"
 #include "operations/trace/end_trace_capture.h"
 #include "operations/trace/execute_trace.h"
 #include "operations/transformer/concatenate_heads.h"
+#include "operations/transformer/nlp_concat_heads.h"
+#include "operations/transformer/nlp_concat_heads_decode.h"
+#include "operations/transformer/nlp_create_qkv_heads_decode.h"
 #include "operations/transformer/rotary_embedding_llama.h"
+#include "operations/transformer/scaled_dot_product_attention.h"
+#include "operations/transformer/scaled_dot_product_attention_decode.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/perf.h"
@@ -114,9 +121,9 @@ void ProgramExecutor::runCallback(
     ProgramContext *programContext) {
   if (callback) {
     std::shared_ptr<void> programContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(programContext);
+        ::tt::runtime::utils::unsafeBorrowShared(programContext);
     std::shared_ptr<void> opContextPtr =
-        ::tt::runtime::utils::unsafe_borrow_shared(
+        ::tt::runtime::utils::unsafeBorrowShared(
             const_cast<::tt::target::ttnn::Operation *>(opContext));
     (*callback)(executableHandle,
                 CallbackContext(programContextPtr, DeviceRuntime::TTNN),
@@ -260,6 +267,18 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::transformer::run(op->type_as_RotaryEmbeddingLlamaOp(),
                                         getContext());
   }
+  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {
+    return operations::transformer::run(op->type_as_NLPCreateQKVHeadsDecodeOp(),
+                                        getContext());
+  }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsOp: {
+    return operations::transformer::run(op->type_as_NLPConcatHeadsOp(),
+                                        getContext());
+  }
+  case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
+    return operations::transformer::run(op->type_as_NLPConcatHeadsDecodeOp(),
+                                        getContext());
+  }
   case ::tt::target::ttnn::OpType::WriteTensorOp: {
     return operations::data_movement::run(op->type_as_WriteTensorOp(),
                                           getContext());
@@ -348,6 +367,14 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::BatchNormOp: {
     return operations::batch_norm::run(op->type_as_BatchNormOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::DumpTensorOp: {
+    return operations::tensor_serialization::run(op->type_as_DumpTensorOp(),
+                                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::LoadTensorOp: {
+    return operations::tensor_serialization::run(op->type_as_LoadTensorOp(),
+                                                 getContext());
+  }
   case ::tt::target::ttnn::OpType::BeginTraceCaptureOp: {
     return operations::trace::run(op->type_as_BeginTraceCaptureOp(),
                                   getContext());
@@ -369,11 +396,22 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::GenericOp: {
     return operations::generic_op::run(op->type_as_GenericOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
+    return operations::transformer::run(
+        op->type_as_ScaledDotProductAttentionDecodeOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
+    return operations::transformer::run(
+        op->type_as_ScaledDotProductAttentionOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",
               ::tt::target::ttnn::EnumNameOpType(op->type_type()));
   }
   }
+
+  LOG_FATAL("Unreachable code path, all operations should be handled in switch "
+            "statement");
 }
 
 void ProgramExecutor::dumpPerfCountersIfNeeded() {

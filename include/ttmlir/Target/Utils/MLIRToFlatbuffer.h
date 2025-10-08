@@ -279,16 +279,6 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::ShardOrientation orientation) {
   }
 }
 
-inline ::tt::target::ttnn::ShardMode toFlatbuffer(FlatbufferObjectCache &,
-                                                  ttnn::ShardMode mode) {
-  switch (mode) {
-  case ttnn::ShardMode::Physical:
-    return ::tt::target::ttnn::ShardMode::Physical;
-  case ttnn::ShardMode::Logical:
-    return ::tt::target::ttnn::ShardMode::Logical;
-  }
-}
-
 inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &,
                                        ttcore::ArchAttr arch) {
   switch (arch.getValue()) {
@@ -756,9 +746,13 @@ inline ::flatbuffers::Optional<bool> toFlatbuffer(FlatbufferObjectCache &cache,
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
+  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> activation;
+  if (config.getActivation()) {
+    activation = toFlatbuffer(cache, config.getActivation());
+  }
+
   return ::tt::target::ttnn::CreateConv2dConfig(
-      *cache.fbb, toFlatbuffer(cache, config.getWeightsDtype()),
-      toFlatbuffer(cache, config.getActivation()),
+      *cache.fbb, toFlatbuffer(cache, config.getWeightsDtype()), activation,
       toFlatbuffer(cache, config.getDeallocateActivation()),
       toFlatbuffer(cache, config.getReallocateHaloOutput()),
       toFlatbuffer(cache, config.getActBlockHOverride()),
@@ -771,7 +765,6 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getOutputLayout()),
       toFlatbuffer(cache, config.getEnableActDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
-      toFlatbuffer(cache, config.getEnableSplitReader()),
       toFlatbuffer(cache, config.getInPlace()));
 }
 
@@ -816,10 +809,9 @@ toFlatbuffer(FlatbufferObjectCache &cache,
                  });
   auto shardOrientation =
       toFlatbuffer(cache, shardSpec.getShardOrientation().getValue());
-  auto shardMode = toFlatbuffer(cache, shardSpec.getShardMode().getValue());
 
   return ::tt::target::ttnn::CreateShardSpecDirect(
-      *cache.fbb, coreRangeSet, &shardShape, shardOrientation, shardMode);
+      *cache.fbb, coreRangeSet, &shardShape, shardOrientation);
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
@@ -906,9 +898,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
       shardSpecAttr = ttnn::ShardSpecAttr::get(
           ctx, coreRangeSetAttr, ttnn::ShapeAttr::get(ctx, shape),
           ttnn::ShardOrientationAttr::get(ctx,
-                                          ttnn::ShardOrientation::RowMajor),
-          ttnn::ShardModeAttr::get(ctx, ttnn::ShardMode::Physical),
-          /*physical_shard_shape=*/nullptr);
+                                          ttnn::ShardOrientation::RowMajor));
     }
     auto memoryConfigAttr = ::mlir::tt::ttnn::MemoryConfigAttr::get(
         ctx, memLayoutAttr, bufferTypeAttr, shardSpecAttr);

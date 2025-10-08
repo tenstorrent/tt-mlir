@@ -1,9 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-from pykernel.kernel_ast import *
-from pykernel.op import PyKernelOp
-from pykernel.kernel_types import *
+from pykernel import PyKernelOp, reader_thread, CircularBuffer
 
 import ttnn
 import torch

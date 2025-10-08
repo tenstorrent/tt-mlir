@@ -141,10 +141,6 @@ def TTNN_ShardOrientationAttr : EnumAttr<TTNN_Dialect, TTNN_ShardOrientation, "s
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTNN_ShardModeAttr : EnumAttr<TTNN_Dialect, TTNN_ShardMode, "shard_mode"> {
-  let assemblyFormat = "`<` $value `>`";
-}
-
 def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
   let summary = "TTNN ShardSpec attribute";
   let description = [{
@@ -172,22 +168,20 @@ def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
 
   let parameters = (ins "CoreRangeSetAttr": $coreRangeSet,
                     "ShapeAttr":$shape,
-                    "ShardOrientationAttr":$shardOrientation,
-                    "ShardModeAttr":$shardMode,
-                    OptionalParameter<"ShapeAttr">:$physical_shard_shape);
+                    "ShardOrientationAttr":$shardOrientation);
 
   let builders =
     [
       AttrBuilder<(ins "ShapeAttr": $shape, "ttcore::GridAttr": $shardGrid, "ttcore::GridAttr": $deviceGrid),
       [{
         CoreRangeSetAttr coreRangeSet = getCoreRangeSet($_ctxt, shardGrid, deviceGrid);
-        return Base::get($_ctxt, coreRangeSet, shape, ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor), ShardModeAttr::get($_ctxt, ::mlir::tt::ttnn::ShardMode::Physical), ShapeAttr());
+        return Base::get($_ctxt, coreRangeSet, shape, ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor));
       }]>,
       AttrBuilder<(ins "TTNNLayoutAttr": $layout, "ttcore::GridAttr": $deviceGrid),
       [{
         ttcore::GridAttr shardGrid = layout.getGrid();
         CoreRangeSetAttr coreRangeSet = getCoreRangeSet($_ctxt, shardGrid, deviceGrid);
-        return Base::get($_ctxt, coreRangeSet, ShapeAttr::get($_ctxt,layout.getScalarShardShape()), ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor), ShardModeAttr::get($_ctxt, ::mlir::tt::ttnn::ShardMode::Physical), ShapeAttr());
+        return Base::get($_ctxt, coreRangeSet, ShapeAttr::get($_ctxt,layout.getScalarShardShape()), ShardOrientationAttr::get($_ctxt, ::mlir::tt::ttnn::ShardOrientation::RowMajor));
       }]>
     ];
 
@@ -461,7 +455,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     - `output_layout`: Layout of output tensor - TILE_LAYOUT or ROW_MAJOR_LAYOUT (default: TILE_LAYOUT)
     - `enable_act_double_buffer`: Enable activation double buffering for increased performance at cost of higher L1 usage (default: false)
     - `enable_weights_double_buffer`: Enable weights double buffering when using block sharding for increased performance at cost of higher L1 usage (default: false)
-    - `enable_split_reader`: Enable dual concurrent reader kernels instead of one. Only for height sharding, requires act_block_h >= 64 (default: false)
     - `in_place`: Re-use input tensor storage when creating output tensor (default: false)
 
     Example:
@@ -481,14 +474,13 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
       output_layout = tile,
       enable_act_double_buffer = false,
       enable_weights_double_buffer = false,
-      enable_split_reader = false,
       in_place = false
     >
     ```
   }];
 
   let parameters = (ins OptionalParameter<"std::optional<ttcore::DataType>">:$weights_dtype,
-                        OptionalParameter<"StringAttr">:$activation,
+                        OptionalParameter<"UnaryWithParamAttr">:$activation,
                         OptionalParameter<"BoolAttr">:$deallocate_activation,
                         OptionalParameter<"BoolAttr">:$reallocate_halo_output,
                         OptionalParameter<"std::optional<uint32_t>">:$act_block_h_override,
@@ -501,7 +493,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         OptionalParameter<"std::optional<Layout>">:$output_layout,
                         OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
-                        OptionalParameter<"BoolAttr">:$enable_split_reader,
                         OptionalParameter<"BoolAttr">:$in_place);
 
   let builders = [
@@ -511,7 +502,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   let extraClassDeclaration = [{
     static Conv2dConfigAttr getDefault(::mlir::MLIRContext *context);
 
-    Conv2dConfigAttr withActivation(StringRef activation) const;
+    Conv2dConfigAttr withActivation(UnaryOpType activation) const;
     Conv2dConfigAttr withWeightsDtype(ttcore::DataType dtype) const;
     Conv2dConfigAttr withDeallocateActivation(bool value) const;
     Conv2dConfigAttr withReallocateHaloOutput(bool value) const;
@@ -525,7 +516,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     Conv2dConfigAttr withOutputLayout(Layout layout) const;
     Conv2dConfigAttr withEnableActDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
-    Conv2dConfigAttr withEnableSplitReader(bool value) const;
     Conv2dConfigAttr withInPlace(bool value) const;
     bool hasActivation() const;
     bool hasWeightsDtype() const;
@@ -543,7 +533,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     bool hasAlwaysPreprocessWeights() const;
     bool hasEnableActDoubleBuffer() const;
     bool hasEnableWeightsDoubleBuffer() const;
-    bool hasEnableSplitReader() const;
     bool hasInPlace() const;
   }];
 
@@ -601,6 +590,20 @@ def TTNN_DeviceComputeKernelConfig : TTNN_Attr<"DeviceComputeKernelConfig", "dev
   }];
 
   let assemblyFormat = "`<` struct(params) `>`";
+}
+
+def TTNN_Conv2dSliceConfigAttr : TTNN_Attr<"Conv2dSliceConfig", "conv2d_slice_config"> {
+  let summary = "TTNN Conv2d slice configuration attribute";
+  let description = [{
+    Conv2d slice configuration specifying slice type and number of slices.
+  }];
+
+  let parameters = (ins
+    "::mlir::tt::ttnn::Conv2dSliceType":$slice_type,
+    "uint32_t":$num_slices
+  );
+
+  let assemblyFormat = "`<` $slice_type `,` $num_slices `>`";
 }
 
 def TTNN_MeshShapeAttr : TTNN_Mesh2DCoordAttr<"MeshShape", "mesh_shape"> {
@@ -667,6 +670,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     TTNNLayoutAttr withShardShape(llvm::SmallVector<int64_t> shardShape);
     TTNNLayoutAttr withTensorShape(ArrayRef<int64_t> tensorShape);
     TTNNLayoutAttr withIgnorePhysicalLayout(bool ignorePhysicalLayout);
+    TTNNLayoutAttr withDataType(ttcore::DataType dataType);
 
     bool isSystemBufferType() const { return ::mlir::tt::ttnn::isSystemBufferType(getBufferType()); }
     bool isDeviceBufferType() const { return ::mlir::tt::ttnn::isDeviceBufferType(getBufferType()); }
@@ -724,6 +728,15 @@ def TTNN_KernelCBFormatAttr: TTNN_Attr<"KernelCBFormat", "kernel_cb_format"> {
   let genVerifyDecl = 1;
 }
 
+def TTNN_KernelCBGlobalBufferAddressOfTensorAttr : TTNN_Attr<"KernelCBGlobalBufferAddressOfTensor", "kernel_cb_global_buffer_address_of_tensor"> {
+  let summary = "Global buffer address of tensor argument";
+  let description = [{
+    TTNN Generic CB Descriptor argument for address aliased global buffer.
+  }];
+  let parameters = (ins "size_t":$tensor_operand_index);
+  let assemblyFormat = "`<` $tensor_operand_index `>`";
+}
+
 def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
   let summary = "Kernel CB descriptor";
   let description = [{
@@ -732,8 +745,10 @@ def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
 
   let parameters = (ins "uint32_t":$total_size,
                         TTNN_CoreRangeSetAttr:$core_ranges,
-                        ArrayRefParameter<"KernelCBFormatAttr">:$formats);
-  let assemblyFormat = "`<` struct($total_size, $core_ranges) `,` `formats` `=` `[` $formats `]` `>`";
+                        ArrayRefParameter<"KernelCBFormatAttr">:$formats,
+                        OptionalParameter<"KernelCBGlobalBufferAddressOfTensorAttr">:$buffer);
+
+  let assemblyFormat = "`<` struct($total_size, $core_ranges) `,` `formats` `=` `[` $formats `]` (`,` `buffer` `=` qualified($buffer)^)? `>`";
 
   let genVerifyDecl = 1;
 }

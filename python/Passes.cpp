@@ -10,6 +10,7 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 #include "ttmlir/RegisterAll.h"
+#include "ttmlir/Target/Python/PythonEmitter.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
@@ -126,6 +127,28 @@ void populatePassesModule(nb::module_ &m) {
       nb::arg("module"), nb::arg("options") = "");
 
   m.def(
+      "ttnn_to_ttmetal_pipeline",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getName());
+
+        pm.addPass(tt::createConvertTTNNToTTIRPass());
+
+        const auto *pipeline =
+            mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-pipeline");
+        std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+            [](const llvm::Twine &) { return mlir::failure(); };
+        if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      nb::arg("module"), nb::arg("options") = "");
+
+  m.def(
       "stablehlo_to_ttir_pipeline",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
@@ -136,6 +159,28 @@ void populatePassesModule(nb::module_ &m) {
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("stablehlo-to-ttir-pipeline");
+
+        std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+            [](const llvm::Twine &) { return mlir::failure(); };
+
+        if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      nb::arg("module"), nb::arg("options") = "");
+
+  m.def(
+      "ttir_to_emitpy_pipeline",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        const auto *pipeline =
+            mlir::PassPipelineInfo::lookup("ttir-to-emitpy-pipeline");
 
         std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
             [](const llvm::Twine &) { return mlir::failure(); };
@@ -286,6 +331,22 @@ void populatePassesModule(nb::module_ &m) {
         if (mlir::failed(mlir::emitc::translateToCpp(
                 mlir::cast<ModuleOp>(moduleOp), output_stream))) {
           throw std::runtime_error("Failed to generate cpp");
+        }
+        output_stream.flush();
+        return output;
+      },
+      nb::arg("module"));
+
+  m.def(
+      "translate_to_python",
+      [](MlirModule module) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        // Translate to Python
+        std::string output;
+        llvm::raw_string_ostream output_stream(output);
+        if (mlir::failed(mlir::tt::emitpy::translateToPython(
+                mlir::cast<ModuleOp>(moduleOp), output_stream))) {
+          throw std::runtime_error("Failed to generate py");
         }
         output_stream.flush();
         return output;

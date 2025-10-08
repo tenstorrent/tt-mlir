@@ -3,27 +3,27 @@
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer -o %t.ttm %t.mlir
 func.func @multiply(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
   %0 = ttir.empty() : tensor<64x128xf32>
-  // CHECK: emitc.call_opaque "binary_op_init_common"
-  // CHECK: emitc.call_opaque "mul_tiles_init"
-  // CHECK-NEXT: emitc.call_opaque "mul_tiles"
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "mul_binary_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "mul_binary_tile"
   %1 = "ttir.multiply"(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }
 
 func.func @add(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
   %0 = ttir.empty() : tensor<64x128xf32>
-  // CHECK: emitc.call_opaque "binary_op_init_common"
-  // CHECK: emitc.call_opaque "add_tiles_init"
-  // CHECK-NEXT: emitc.call_opaque "add_tiles"
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "add_binary_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "add_binary_tile"
   %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }
 
 func.func @subtract(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
   %0 = ttir.empty() : tensor<64x128xf32>
-  // CHECK: emitc.call_opaque "binary_op_init_common"
-  // CHECK: emitc.call_opaque "sub_tiles_init"
-  // CHECK-NEXT: emitc.call_opaque "sub_tiles"
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "sub_binary_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "sub_binary_tile"
   %1 = "ttir.subtract"(%arg0, %arg1, %0) : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }

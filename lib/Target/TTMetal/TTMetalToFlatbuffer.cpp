@@ -12,6 +12,7 @@
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/Target.h"
+#include "ttmlir/Target/TTMetal/binary_generated.h"
 #include "ttmlir/Target/TTMetal/command_generated.h"
 #include "ttmlir/Target/TTMetal/types_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
@@ -27,6 +28,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
@@ -162,6 +164,40 @@ static bool isMemrefDeviceL1Memspace(MemRefType memref) {
              .getValue() == ttcore::MemorySpace::DeviceL1;
 }
 
+// Create an extended mapping that handles N-D to 2-D projection.
+static AffineMap extendMappingForHigherDimGrid(AffineMap originalMapping,
+                                               size_t gridRank) {
+  MLIRContext *ctx = originalMapping.getContext();
+
+  assert(originalMapping.getNumDims() == 2 && "Expected 2D input mapping");
+
+  if (gridRank == 2) {
+    return originalMapping;
+  }
+
+  // For N-D grid, we want to map the last 2 dimensions through the original
+  // mapping.
+
+  // Create a mapping from old dims to new dims
+  // d0 -> d[gridRank-2], d1 -> d[gridRank-1].
+  llvm::DenseMap<AffineExpr, AffineExpr> dimReplacements;
+  dimReplacements[getAffineDimExpr(0, ctx)] =
+      getAffineDimExpr(gridRank - 2, ctx);
+  dimReplacements[getAffineDimExpr(1, ctx)] =
+      getAffineDimExpr(gridRank - 1, ctx);
+
+  // Apply the mapping to each result expression.
+  SmallVector<AffineExpr> results;
+  for (auto result : originalMapping.getResults()) {
+    auto remapped = result.replace(dimReplacements);
+    results.push_back(remapped);
+  }
+
+  // Create new map with higher dimensional input.
+  return AffineMap::get(gridRank, originalMapping.getNumSymbols(), results,
+                        ctx);
+}
+
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
                                        MemRefType memref,
@@ -226,30 +262,36 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
   }
 
   auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(deviceLayout);
+  assert(shardLayout &&
+         "expected shard layout for sharded buffer config generation");
+
   ArrayRef<int64_t> stride = shardLayout.getStride();
   int64_t elementSize = stride[stride.size() - 1];
   auto memrefGridShape = shardLayout.getGridShape(memref);
   auto memrefShardShape = shardLayout.getShardShape(memref);
-  std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
+  auto extendedMapping = extendMappingForHigherDimGrid(
+      device.getWorkerGrid().getMapping(), memrefGridShape.size());
 
+  std::vector<target::Dim2dRange> coreRangeSet =
+      toFlatbuffer(cache, memrefGridShape, extendedMapping);
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
 
-  // Calculate ShardSpec
+  // Calculate ShardSpec.
   assert(stride[stride.size() - 1] % elementSize == 0);
   int32_t shardXElements = stride[stride.size() - 2] / elementSize;
   assert((memrefShardShape[0] * stride[0] / elementSize) % shardXElements == 0);
   int32_t collapsedShardYElements =
       (memrefShardShape[0] * stride[0] / elementSize) / shardXElements;
   // Shard shape is the fully collapsed shard down to 2D, so:
-  //   [d0 * ... * dN-2, dN-1]
-  target::Dim2d shardShape(collapsedShardYElements * elementShape.y(),
+  //   [d0 * ... * dN-2, dN-1].
+  target::Dim2d shardShape(collapsedShardYElements * elementShape.y() *
+                               shardLayout.getBuffers(),
                            shardXElements * elementShape.x());
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
 
-  // Calculate ShardSpecBuffer
+  // Calculate ShardSpecBuffer.
   target::Dim2d pageShape(elementShape.y(), shardShape.x());
   std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
                                         gridShapeExtents[1] * shardShape.x()};
@@ -260,7 +302,7 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
   auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
       *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
 
-  // Calculate ShardedBufferConfig
+  // Calculate ShardedBufferConfig.
   assert(pageShape.y() % elementShape.y() == 0);
   assert(pageShape.x() % elementShape.x() == 0);
   std::array<int32_t, 2> pageShapeInElements = {
@@ -300,20 +342,43 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                               MemRefType memref,
                                               ttcore::DeviceAttr device,
                                               target::Dim2d elementShape) {
-  auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
-      memref.getLayout());
-  assert(!deviceLayout &&
-         "Sharded buffers cannot have interleaved config objects");
+  assert(!mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout()));
 
-  auto tile =
-      mlir::dyn_cast_if_present<ttcore::TileType>(memref.getElementType());
-  assert(tile && "non-tiled layouts are not supported");
-  uint64_t pageSize = tile.getSizeBytes();
-  uint64_t numTiles = memref.getNumElements();
-  uint64_t size = ttmlir::utils::alignUp(numTiles * pageSize, pageSize);
+  flatbuffers::Offset<target::metal::InterleavedBufferConfig> config;
+  if (auto layout = mlir::dyn_cast_if_present<ttcore::InterleavedLayoutAttr>(
+          memref.getLayout())) {
 
-  return target::metal::CreateInterleavedBufferConfig(*cache.fbb, size,
-                                                      pageSize);
+    int64_t elementSizeBytes =
+        ttcore::getElementSizeBytes(memref.getElementType());
+    int64_t pageSize = mlir::isa<ttcore::TileType>(memref.getElementType())
+                           ? elementSizeBytes
+                           : layout.getStride().front();
+    int64_t numPages = mlir::isa<ttcore::TileType>(memref.getElementType())
+                           ? memref.getNumElements()
+                           : layout.getShardShape(memref).front();
+    int64_t size = ttmlir::utils::alignUp(numPages * pageSize, pageSize);
+
+    config = target::metal::CreateInterleavedBufferConfig(*cache.fbb, size,
+                                                          pageSize);
+
+  } else {
+    // Infer interleaved buffer config for tiled tensors in absence of an
+    // InterleavedLayoutAttr to avoid breaking Polymage's assumptions
+    auto tile =
+        mlir::dyn_cast_if_present<ttcore::TileType>(memref.getElementType());
+    assert(!tile &&
+           "Cannot generate interleavedbuffer config for memref with non-tiled "
+           "layouts; InterleavedLayoutAttr is missing");
+
+    uint64_t pageSize = tile.getSizeBytes();
+    uint64_t numTiles = memref.getNumElements();
+    uint64_t size = ttmlir::utils::alignUp(numTiles * pageSize, pageSize);
+
+    config = target::metal::CreateInterleavedBufferConfig(*cache.fbb, size,
+                                                          pageSize);
+  }
+
+  return config;
 }
 
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
@@ -327,9 +392,16 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   }
 
   auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(deviceLayout);
+  assert(shardLayout &&
+         "expected shard layout for circular buffer config generation");
+
   auto memrefGridShape = shardLayout.getGridShape(memref);
+
+  auto extendedMapping = extendMappingForHigherDimGrid(
+      device.getWorkerGrid().getMapping(), memrefGridShape.size());
+
   std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, memrefGridShape, device.getWorkerGrid().getMapping());
+      toFlatbuffer(cache, memrefGridShape, extendedMapping);
 
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
   uint64_t shardSize =
@@ -409,12 +481,16 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
 
   std::vector<int32_t> hostStrides{};
   uint64_t hostVolume = 0;
+  mlir::StringAttr meshName = nullptr;
   auto hostLayout =
       mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(memref.getLayout());
   if (hostLayout) {
     hostStrides = ttmlir::utils::castContainer<std::vector<int32_t>>(
         hostLayout.getHostStrides());
     hostVolume = hostLayout.getHostVolume();
+    if (auto hostLayoutTensorMeshAttr = hostLayout.getMesh()) {
+      meshName = hostLayoutTensorMeshAttr.getName();
+    }
   } else {
     // Default values for host strides & volume when H2D/D2H copy doesn't need
     // host-side alignment & padding.
@@ -425,7 +501,8 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
 
   return target::metal::CreateBufferDescDirect(
       *cache.fbb, &shape, &hostStrides, hostVolume, toFlatbuffer(cache, dtype),
-      &elementShape, bufferDetailType, bufferDetail);
+      &elementShape, bufferDetailType, bufferDetail,
+      (meshName ? meshName.str().data() : nullptr));
 }
 
 static flatbuffers::Offset<target::metal::BufferRef>
@@ -580,11 +657,18 @@ kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
   }
   }
 
+  std::string locStr;
+  if (auto nameLoc =
+          mlir::dyn_cast<NameLoc>(LocationAttr(kernelEntry->getLoc()))) {
+    locStr = nameLoc.getName().getValue();
+  }
+
   return target::metal::CreateKernelConfigDirect(
       *cache.fbb, target::metal::Kernel::KernelSource,
       target::metal::CreateKernelSourceDirect(*cache.fbb, source.c_str())
           .Union(),
-      &coreRangeSet, args, configType, configUnion, kernelSymbol.data());
+      &coreRangeSet, args, configType, configUnion, kernelSymbol.data(),
+      kernelSymbol.data(), locStr.empty() ? nullptr : locStr.c_str());
 }
 
 static flatbuffers::Offset<::flatbuffers::Vector<uint8_t>>
@@ -638,6 +722,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
   flatbuffers::Offset<::tt::target::MLIR> binaryMLIR =
       toMLIR(fbb, "ttmetal", module);
   std::vector<flatbuffers::Offset<target::metal::Program>> programs;
+  auto meshes = module->getAttrOfType<mlir::tt::ttcore::MeshesAttr>(
+      mlir::tt::ttcore::MeshesAttr::name);
 
   // Handle dylib creation and packaging, if needed.
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
@@ -806,6 +892,47 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                                   systemDesc, 0),
                 memrefGlobalOpToFlatbufferByteVector(cache, globalOp)),
             op);
+      } else if (auto meshShardOp =
+                     dyn_cast_if_present<tt::ttmetal::MeshShardOp>(op);
+                 meshShardOp) {
+        const mlir::tt::ttcore::MeshShardDirection shardDirection =
+            meshShardOp.getShardDirection();
+        const mlir::tt::ttcore::MeshShardType shardType =
+            meshShardOp.getShardType();
+
+        ::tt::target::MeshShardDirection meshShardDirection;
+        if (shardDirection ==
+            mlir::tt::ttcore::MeshShardDirection::FullToShard) {
+          meshShardDirection =
+              ::tt::target::MeshShardDirection::FullToShardShape;
+        } else if (shardDirection ==
+                   mlir::tt::ttcore::MeshShardDirection::ShardToFull) {
+          meshShardDirection =
+              ::tt::target::MeshShardDirection::ShardToFullShape;
+        } else {
+          llvm_unreachable("unhandled mesh_shard direction");
+        }
+
+        ::tt::target::MeshShardType meshShardType;
+        if (shardType == mlir::tt::ttcore::MeshShardType::Replicate) {
+          meshShardType = ::tt::target::MeshShardType::Replicate;
+        } else if (shardType == mlir::tt::ttcore::MeshShardType::Devices) {
+          meshShardType = ::tt::target::MeshShardType::Devices;
+        } else if (shardType == mlir::tt::ttcore::MeshShardType::Identity) {
+          meshShardType = ::tt::target::MeshShardType::Identity;
+        } else {
+          llvm_unreachable("unhandled mesh_shard type");
+        }
+
+        cqBuilder.appendCommand(
+            target::metal::CreateMeshShardCommand(
+                fbb, cache.at<target::metal::BufferRef>(meshShardOp.getInput()),
+                cache.getOrCreate(meshShardOp.getResult(),
+                                  bufferValueToFlatbuffer, systemDesc, 0),
+                meshShardType, meshShardDirection,
+                cache.fbb->CreateVector<int64_t>(meshShardOp.getShardShape()),
+                cache.fbb->CreateVector<int64_t>(meshShardOp.getShardDims())),
+            op);
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
         // Unqualified walk will visit the root op itself last, we should
         // ignore this.
@@ -814,6 +941,18 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         llvm_unreachable("Encountered unsupported op.");
       }
     });
+
+    // We currently use the first mesh (default_device) for the device program.
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(entry);
+    auto meshName = (meshes && !meshes.getMeshes().empty())
+                        ? meshes.getMeshes()[0].getName()
+                        : nullptr;
+    flatbuffers::Offset<target::metal::MeshDesc> meshRef(
+        target::metal::CreateMeshDesc(
+            fbb, (meshName ? fbb.CreateString(meshName.str()) : 0),
+            fbb.CreateVector<int64_t>((deviceAttr.getMeshShape().empty()
+                                           ? llvm::ArrayRef<int64_t>{1, 1}
+                                           : deviceAttr.getMeshShape()))));
 
     constexpr uint32_t cqId = 0;
     std::vector<flatbuffers::Offset<target::metal::CommandQueue>>
@@ -824,14 +963,13 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
     std::vector<flatbuffers::Offset<target::metal::DeviceProgram>>
         devicePrograms = {
-            target::metal::CreateDeviceProgramDirect(
-                fbb, &cqBuilder.inputs, &cqBuilder.outputs, &commandQueues),
+            target::metal::CreateDeviceProgramDirect(fbb, &cqBuilder.inputs,
+                                                     &cqBuilder.outputs,
+                                                     &commandQueues, meshRef),
         };
 
     flatbuffers::Offset<target::DebugInfo> debugInfo =
         debugInfoToFlatbuffer(fbb, goldenMap, moduleCache);
-
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(entry);
 
     ::tt::target::Dim2d meshShape = deviceToFlatbufferMeshShape(deviceAttr);
 

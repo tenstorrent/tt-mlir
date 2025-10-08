@@ -434,6 +434,26 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(
 // Construct a new TTNNLayoutAttr
 //
 // This function creates a deep copy of the current TTNNLayoutAttr and
+// replaces the data type with the given one.
+//
+// param dataType The new data type.
+// return The new TTNNLayoutAttr with the given data type.
+TTNNLayoutAttr TTNNLayoutAttr::withDataType(ttcore::DataType dataType) {
+  Type elementType = ttcore::dataTypeToElementType(getContext(), dataType);
+  if (isTiled()) {
+    elementType = mlir::tt::ttcore::TileType::get(elementType);
+  }
+
+  return TTNNLayoutAttr::get(
+      getContext(), getLinear(), getGrid(),
+      ttcore::buildMemRef<BufferType, BufferTypeAttr>(
+          getContext(), getScalarShardShape(), elementType, getBufferType()),
+      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout());
+}
+
+// Construct a new TTNNLayoutAttr
+//
+// This function creates a deep copy of the current TTNNLayoutAttr and
 // replaces the memory space with the given one.
 //
 // param context The MLIR context.
@@ -740,7 +760,6 @@ Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
                                /*outputLayout=*/std::nullopt,
                                /*enableActDoubleBuffer=*/nullptr,
                                /*enableWeightsDoubleBuffer=*/nullptr,
-                               /*enableSplitReader=*/nullptr,
                                /*inPlace=*/nullptr);
 }
 
@@ -751,9 +770,10 @@ Conv2dConfigAttr Conv2dConfigAttr::getDefault(::mlir::MLIRContext *context) {
       .buildConv2dConfigAttr(context);
 }
 
-Conv2dConfigAttr Conv2dConfigAttr::withActivation(StringRef activation) const {
+Conv2dConfigAttr
+Conv2dConfigAttr::withActivation(UnaryOpType unaryOpType) const {
   Conv2dConfigParams params(*this);
-  params.activation = activation.str();
+  params.activation = unaryOpType;
   return params.buildConv2dConfigAttr(getContext());
 }
 
@@ -839,12 +859,6 @@ Conv2dConfigAttr::withEnableWeightsDoubleBuffer(bool value) const {
   return params.buildConv2dConfigAttr(getContext());
 }
 
-Conv2dConfigAttr Conv2dConfigAttr::withEnableSplitReader(bool value) const {
-  Conv2dConfigParams params(*this);
-  params.enableSplitReader = value;
-  return params.buildConv2dConfigAttr(getContext());
-}
-
 Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
   Conv2dConfigParams params(*this);
   params.inPlace = value;
@@ -852,7 +866,7 @@ Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
 }
 
 bool Conv2dConfigAttr::hasActivation() const {
-  return getActivation() != nullptr && getActivation().getValue() != "";
+  return getActivation() != nullptr;
 }
 
 bool Conv2dConfigAttr::hasWeightsDtype() const {
@@ -903,10 +917,6 @@ bool Conv2dConfigAttr::hasEnableActDoubleBuffer() const {
 
 bool Conv2dConfigAttr::hasEnableWeightsDoubleBuffer() const {
   return getEnableWeightsDoubleBuffer() != nullptr;
-}
-
-bool Conv2dConfigAttr::hasEnableSplitReader() const {
-  return getEnableSplitReader() != nullptr;
 }
 
 bool Conv2dConfigAttr::hasInPlace() const { return getInPlace() != nullptr; }
@@ -1012,7 +1022,8 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 ::llvm::LogicalResult KernelCBAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     uint32_t totalSize, CoreRangeSetAttr coreRanges,
-    llvm::ArrayRef<mlir::tt::ttnn::KernelCBFormatAttr> formats) {
+    llvm::ArrayRef<mlir::tt::ttnn::KernelCBFormatAttr> formats,
+    mlir::tt::ttnn::KernelCBGlobalBufferAddressOfTensorAttr buffer) {
   return ::llvm::success();
 }
 

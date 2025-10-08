@@ -10,7 +10,9 @@
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
 #include "llvm/Support/Casting.h"
 
 #include <optional>
@@ -254,6 +256,10 @@ bool isTTNNTraceFunc(func::FuncOp funcOp) {
   return funcOp->hasAttr(g_TTNNTraceAttrName);
 }
 
+bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op) {
+  return op->hasAttr(g_TTNNHoistGenericViaD2MAttrName);
+}
+
 std::set<mlir::StringRef> getAllTTNNDialectOps(MLIRContext *context) {
   std::set<mlir::StringRef> opNames;
   TTNNDialect *dialect = context->getLoadedDialect<TTNNDialect>();
@@ -312,6 +318,23 @@ bool producesL1Layout(Operation *op) {
 bool producesTiledTensorLayout(Operation *op) {
   auto ttnnLayout = getTTNNLayoutAttrFromOp(op);
   return ttnnLayout && ttnnLayout->isTiled();
+}
+
+bool hasFirstOperandInDRAM(Operation *op) {
+  if (op->getNumOperands() == 0) {
+    return false;
+  }
+
+  auto firstOperand = op->getOperand(0);
+  auto tensorType =
+      mlir::dyn_cast<mlir::RankedTensorType>(firstOperand.getType());
+
+  if (auto ttnnLayout =
+          mlir::dyn_cast_if_present<TTNNLayoutAttr>(tensorType.getEncoding())) {
+    return ttnnLayout.hasDRAMBufferType();
+  }
+
+  return false;
 }
 
 mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {

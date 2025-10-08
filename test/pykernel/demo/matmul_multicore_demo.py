@@ -2,9 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from pykernel.kernel_ast import *
-from pykernel.op import PyKernelOp
-from pykernel.kernel_types import *
+from pykernel import (
+    PyKernelOp,
+    reader_thread,
+    writer_thread,
+    compute_thread,
+    CircularBuffer,
+)
 
 from math import ceil
 
