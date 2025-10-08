@@ -153,69 +153,93 @@ void ProgramExecutor::execute() {
     std::cout << "Executed operation: " << op->debug_info()->c_str()
               << std::endl;
 
-    // Try to get input tensors and add them using torch
+    // Try to get input tensors and add them using torch (only for ADD ops)
     if (op->type_type() == ::tt::target::ttnn::OpType::EltwiseBinaryOp) {
       try {
         const auto *binaryOp = op->type_as_EltwiseBinaryOp();
-        const ::tt::target::ttnn::TensorRef *lhsRef = binaryOp->lhs();
-        const ::tt::target::ttnn::TensorRef *rhsRef = binaryOp->rhs();
 
-        // Get the TTNN tensors
-        ::ttnn::Tensor lhsTensor =
-            context->getTensorPool().getTTNNTensorAndValidate(lhsRef);
-        ::ttnn::Tensor rhsTensor =
-            context->getTensorPool().getTTNNTensorAndValidate(rhsRef);
+        // Check if this is an ADD operation
+        if (binaryOp->type() == ::tt::target::ttnn::EltwiseBinaryOpType::Add) {
+          const ::tt::target::ttnn::TensorRef *lhsRef = binaryOp->lhs();
+          const ::tt::target::ttnn::TensorRef *rhsRef = binaryOp->rhs();
+          const ::tt::target::ttnn::TensorRef *outRef = binaryOp->out();
 
-        // Move to host if needed
-        if (!utils::isOnHost(lhsTensor.storage_type())) {
-          lhsTensor = ::ttnn::from_device(lhsTensor);
-        }
-        if (!utils::isOnHost(rhsTensor.storage_type())) {
-          rhsTensor = ::ttnn::from_device(rhsTensor);
-        }
+          // Get the TTNN tensors
+          ::ttnn::Tensor lhsTensor =
+              context->getTensorPool().getTTNNTensorAndValidate(lhsRef);
+          ::ttnn::Tensor rhsTensor =
+              context->getTensorPool().getTTNNTensorAndValidate(rhsRef);
+          ::ttnn::Tensor outTensor =
+              context->getTensorPool().getTTNNTensorAndValidate(outRef);
 
-        // Get tensor data and properties
-        void *lhsData = utils::getRawHostDataPtr(lhsTensor);
-        void *rhsData = utils::getRawHostDataPtr(rhsTensor);
-
-        const auto &lhsShape = lhsTensor.logical_shape();
-        std::vector<int64_t> shape;
-        for (size_t i = 0; i < lhsShape.size(); i++) {
-          shape.push_back(static_cast<int64_t>(lhsShape[i]));
-        }
-
-        // Create torch tensors (assuming float32 for now)
-        torch::Tensor torchLhs =
-            torch::from_blob(lhsData, shape, torch::kFloat32).clone();
-        torch::Tensor torchRhs =
-            torch::from_blob(rhsData, shape, torch::kFloat32).clone();
-
-        // Add tensors using torch
-        torch::Tensor torchResult = torchLhs + torchRhs;
-
-        // Print tensors
-        std::cout << "=== Torch Tensor Addition ===" << std::endl;
-        std::cout << "LHS Tensor shape: [";
-        for (size_t i = 0; i < shape.size(); i++) {
-          std::cout << shape[i];
-          if (i < shape.size() - 1) {
-            std::cout << ", ";
+          // Move to host if needed
+          if (!utils::isOnHost(lhsTensor.storage_type())) {
+            lhsTensor = ::ttnn::from_device(lhsTensor);
           }
+          if (!utils::isOnHost(rhsTensor.storage_type())) {
+            rhsTensor = ::ttnn::from_device(rhsTensor);
+          }
+          if (!utils::isOnHost(outTensor.storage_type())) {
+            outTensor = ::ttnn::from_device(outTensor);
+          }
+
+          // Get tensor data and properties
+          void *lhsData = utils::getRawHostDataPtr(lhsTensor);
+          void *rhsData = utils::getRawHostDataPtr(rhsTensor);
+          void *outData = utils::getRawHostDataPtr(outTensor);
+
+          const auto &lhsShape = lhsTensor.logical_shape();
+          std::vector<int64_t> shape;
+          for (size_t i = 0; i < lhsShape.size(); i++) {
+            shape.push_back(static_cast<int64_t>(lhsShape[i]));
+          }
+
+          // Create torch tensors (assuming float32 for now)
+          torch::Tensor torchLhs =
+              torch::from_blob(lhsData, shape, torch::kFloat32).clone();
+          torch::Tensor torchRhs =
+              torch::from_blob(rhsData, shape, torch::kFloat32).clone();
+          torch::Tensor torchDeviceOut =
+              torch::from_blob(outData, shape, torch::kFloat32).clone();
+
+          // Add tensors using torch
+          torch::Tensor torchComputedResult = torchLhs + torchRhs;
+
+          // Do allclose check
+          bool allclose = torch::allclose(torchComputedResult, torchDeviceOut,
+                                          /*rtol=*/1e-5, /*atol=*/1e-8);
+
+          // Print tensors
+          std::cout << "=== Torch Tensor Addition Verification ==="
+                    << std::endl;
+          std::cout << "Tensor shape: [";
+          for (size_t i = 0; i < shape.size(); i++) {
+            std::cout << shape[i];
+            if (i < shape.size() - 1) {
+              std::cout << ", ";
+            }
+          }
+          std::cout << "]" << std::endl;
+          std::cout << "LHS Tensor (first 5 elements): "
+                    << torchLhs.flatten().slice(0, 0,
+                                                std::min(5L, torchLhs.numel()))
+                    << std::endl;
+          std::cout << "RHS Tensor (first 5 elements): "
+                    << torchRhs.flatten().slice(0, 0,
+                                                std::min(5L, torchRhs.numel()))
+                    << std::endl;
+          std::cout << "Torch Computed Result (first 5 elements): "
+                    << torchComputedResult.flatten().slice(
+                           0, 0, std::min(5L, torchComputedResult.numel()))
+                    << std::endl;
+          std::cout << "Device Output Tensor (first 5 elements): "
+                    << torchDeviceOut.flatten().slice(
+                           0, 0, std::min(5L, torchDeviceOut.numel()))
+                    << std::endl;
+          std::cout << "AllClose Check (rtol=1e-5, atol=1e-8): "
+                    << (allclose ? "PASSED" : "FAILED") << std::endl;
+          std::cout << "=========================================" << std::endl;
         }
-        std::cout << "]" << std::endl;
-        std::cout << "LHS Tensor (first 5 elements): "
-                  << torchLhs.flatten().slice(0, 0,
-                                              std::min(5L, torchLhs.numel()))
-                  << std::endl;
-        std::cout << "RHS Tensor (first 5 elements): "
-                  << torchRhs.flatten().slice(0, 0,
-                                              std::min(5L, torchRhs.numel()))
-                  << std::endl;
-        std::cout << "Result Tensor (first 5 elements): "
-                  << torchResult.flatten().slice(
-                         0, 0, std::min(5L, torchResult.numel()))
-                  << std::endl;
-        std::cout << "=============================" << std::endl;
       } catch (const std::exception &e) {
         std::cout << "Error processing tensors: " << e.what() << std::endl;
       }
