@@ -23,6 +23,7 @@ add_custom_command(
           TTMLIR_VERSION_PATCH=${TTMLIR_VERSION_PATCH}
           CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}
           SOURCE_ROOT=${TTMLIR_SOURCE_DIR}
+          PYTHONPATH=`python -c "import site; print(site.getsitepackages()[0])"`/ttrt/runtime/ttnn:$PYTHONPATH
           python -m pip wheel . --wheel-dir build
   COMMAND python -m pip install build/*.whl --force-reinstall
   COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
@@ -55,6 +56,7 @@ declare_mlir_python_sources(TTRTSources
     common/read.py
     common/run.py
     common/util.py
+    common/emitpy.py
     common/emitpy.py
 
     # runtime subpackage files
