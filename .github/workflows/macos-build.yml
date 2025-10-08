@@ -27,6 +27,7 @@ jobs:
       run: |
         gh run download 18307092217 --repo tenstorrent/tt-mlir --name "test-reports-n150-tracy-52128249415"
         echo "# Test Report" > summary.md
+        echo "<br />" >> summary.md
         echo "Test 1: pytest.sh tools/explorer/test/run_tests.py" >> summary.md
         echo "Test 2: pytest.sh runtime/tools/chisel/test" >> summary.md
         echo "Test 3: builder.sh test/python/golden" >> summary.md
