@@ -606,13 +606,17 @@ bool isProgramCacheEnabled(Device meshDevice) {
 size_t getL1SmallSize(Device meshDevice) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  return ttnnMeshDevice.allocator()->get_config().l1_small_size;
+  return ttnnMeshDevice.allocator()
+      ->get_statistics(::ttnn::BufferType::L1_SMALL)
+      .total_allocatable_size_bytes;
 }
 
 size_t getTraceRegionSize(Device meshDevice) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  return ttnnMeshDevice.allocator()->get_config().trace_region_size;
+  return ttnnMeshDevice.allocator()
+      ->get_statistics(::ttnn::BufferType::TRACE)
+      .total_allocatable_size_bytes;
 }
 
 size_t getNumDramChannels(Device meshDevice) {
