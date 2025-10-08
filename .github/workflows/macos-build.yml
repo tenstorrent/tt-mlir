@@ -37,7 +37,6 @@ jobs:
         summary_content=$(cat summary.md | tr '\n' '\r' | sed 's/\r/<br \/>/g')
         echo "summary=$summary_content"
         echo "summary=$summary_content" >> $GITHUB_OUTPUT
-        cat summary.md >> $GITHUB_STEP_SUMMARY
         cat summary.md
 
     - name: Show Test Report
@@ -46,6 +45,7 @@ jobs:
       with:
         report_paths: report_*.xml
         check_name: "n150-tracy Tests"
+        job_summary: false
         summary: ${{ steps.rep.outputs.summary }}
 
     # - name: Append to Job Summary
