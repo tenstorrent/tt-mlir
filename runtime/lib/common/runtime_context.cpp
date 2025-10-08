@@ -23,6 +23,8 @@ RuntimeContext::RuntimeContext() {
   currentDeviceRuntime_ = DeviceRuntime::TTNN;
 #elif defined(TT_RUNTIME_ENABLE_TTMETAL) && (TT_RUNTIME_ENABLE_TTMETAL == 1)
   currentDeviceRuntime_ = DeviceRuntime::TTMetal;
+#elif defined(TTMLIR_ENABLE_CUDA) && (TTMLIR_ENABLE_CUDA == 1)
+  currentDeviceRuntime_ = DeviceRuntime::CUDA;
 #endif
 }
 
@@ -47,6 +49,10 @@ DeviceRuntime RuntimeContext::getCurrentDeviceRuntime() const {
   LOG_ASSERT(runtime != DeviceRuntime::TTMetal);
 #endif
 
+#if !defined(TTMLIR_ENABLE_CUDA) || (TTMLIR_ENABLE_CUDA == 0)
+  LOG_ASSERT(runtime != DeviceRuntime::CUDA);
+#endif
+
   return runtime;
 }
 
@@ -57,6 +63,10 @@ void RuntimeContext::setCurrentDeviceRuntime(const DeviceRuntime &runtime) {
 #if !defined(TT_RUNTIME_ENABLE_TTMETAL) || (TT_RUNTIME_ENABLE_TTMETAL == 0)
   LOG_ASSERT(runtime != DeviceRuntime::TTMetal);
 #endif
+#if !defined(TTMLIR_ENABLE_CUDA) || (TTMLIR_ENABLE_CUDA == 0)
+  LOG_ASSERT(runtime != DeviceRuntime::CUDA);
+#endif
+
   currentDeviceRuntime_.store(runtime, std::memory_order_relaxed);
 }
 
