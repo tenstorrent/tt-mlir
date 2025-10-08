@@ -150,7 +150,7 @@ void run(const ::tt::target::ttnn::Pool2dOp *op, ProgramContext &context) {
 void run(const ::tt::target::ttnn::GlobalAvgPool2dOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  ::ttnn::Tensor input = tensorPool.getTTNNTensorAndValidate(op->in());
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
