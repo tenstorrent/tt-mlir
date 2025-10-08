@@ -205,9 +205,16 @@ void ProgramExecutor::execute() {
           // Add tensors using torch
           torch::Tensor torchComputedResult = torchLhs + torchRhs;
 
+          // Validate shapes match
+          bool shapesMatch =
+              torchComputedResult.sizes() == torchDeviceOut.sizes();
+
           // Do allclose check
-          bool allclose = torch::allclose(torchComputedResult, torchDeviceOut,
-                                          /*rtol=*/1e-5, /*atol=*/1e-8);
+          double rtol = 1e-5;
+          double atol = 1e-8;
+          bool allclose =
+              shapesMatch &&
+              torch::allclose(torchComputedResult, torchDeviceOut, rtol, atol);
 
           // Print tensors
           std::cout << "=== Torch Tensor Addition Verification ==="
@@ -236,8 +243,15 @@ void ProgramExecutor::execute() {
                     << torchDeviceOut.flatten().slice(
                            0, 0, std::min(5L, torchDeviceOut.numel()))
                     << std::endl;
-          std::cout << "AllClose Check (rtol=1e-5, atol=1e-8): "
-                    << (allclose ? "PASSED" : "FAILED") << std::endl;
+          std::cout << "Shape Match: " << (shapesMatch ? "PASSED" : "FAILED");
+          if (!shapesMatch) {
+            std::cout << " (computed: " << torchComputedResult.sizes()
+                      << ", device: " << torchDeviceOut.sizes() << ")";
+          }
+          std::cout << std::endl;
+          std::cout << "AllClose Check: " << (allclose ? "PASSED" : "FAILED")
+                    << " (rtol=" << rtol << ", atol=" << atol << ")"
+                    << std::endl;
           std::cout << "=========================================" << std::endl;
         }
       } catch (const std::exception &e) {
