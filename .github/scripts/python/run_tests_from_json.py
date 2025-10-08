@@ -75,19 +75,29 @@ def main(machine, image, jobid):
     # Create _test_duration file with test results summary
     allpassed = True
     duration_file = "_test_duration"
-    with open(duration_file, "w") as f:
-        for test in tests:
-            result = test.get("result", "UNKNOWN")
-            hash_val = test.get("hash", "")
-            hash_string = test.get("hash_string", "")
-            duration = test.get("duration", 0)
-            f.write(f"{hash_val} {duration:.2f}\n")
-            if test.get("returncode", 1) != 0:
-                allpassed = False
-                color = "\033[91m"
-            else:
-                color = "\033[92m"
-            print(f"{color}{result} {hash_string} done in {duration:.2f}s\033[0m")
+    summary_file = "_test_summary"
+    no = 1
+    with open(summary_file, "w") as sf:
+        sf.write(f"## Summary for {machine}, {image}, {jobid}\n")
+        with open(duration_file, "w") as f:
+            for test in tests:
+                result = test.get("result", "UNKNOWN")
+                hash_val = test.get("hash", "")
+                hash_string = test.get("hash_string", "")
+                duration = test.get("duration", 0)
+                script = test.get("script", "")
+                args = test.get("args", "")
+                f.write(f"{hash_val} {duration:.2f}\n")
+                sf.write(
+                    f"Test {no}: {script} {args} Result: {result} Duration: {duration:.2f}s\n"
+                )
+                if test.get("returncode", 1) != 0:
+                    allpassed = False
+                    color = "\033[91m"
+                else:
+                    color = "\033[92m"
+                print(f"{color}{result} {hash_string} done in {duration:.2f}s\033[0m")
+                no = no + 1
 
     print("\033[1;96m====================================")
     if allpassed:

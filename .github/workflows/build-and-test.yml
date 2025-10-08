@@ -281,6 +281,7 @@ jobs:
       shell: bash
       env:
         GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        TTRT_LOGGER_LEVEL: "INFO"
       run: |
         source env/activate
         export WORK_DIR="$(pwd)"
@@ -341,11 +342,12 @@ jobs:
 
     - name: Show Test Report
       continue-on-error: true
-      uses: mikepenz/action-junit-report@v4
+      uses: mikepenz/action-junit-report@v5
       if: success() || failure()
       with:
-        report_paths: ${{ steps.strings.outputs.test_report_path }}
+        report_paths: ${{ steps.strings.outputs.work-dir }}/test_reports/report_*.xml
         check_name: ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ strategy.job-index }} Tests
+        summary: _test_summary
 
 
   test-ttnn-jit:
@@ -559,9 +561,9 @@ jobs:
       with:
         report_paths: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
         check_name: Debug
-        detailed_summary: true
-        include_time_in_summary: true
-        include_passed: true
+        # detailed_summary: true
+        # include_time_in_summary: true
+        # include_passed: true
 
     - name: Prepare code coverage report
       run: |
