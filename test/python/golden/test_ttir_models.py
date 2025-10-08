@@ -80,7 +80,6 @@ def test_mnist(
         add_6 = builder.add(matmul_5, in4)
         return builder.softmax(add_6, dimension=1)
 
-    # TODO: figure out a better way to name these tests for filename purposes
     compile_and_execute_ttir(
         model,
         shapes,

@@ -220,7 +220,6 @@ def _compile_and_execute(
     """
     mlir_path = compile_fn(
         target=target,
-        device=device,
         **compile_kwargs,
     )
 
@@ -345,6 +344,7 @@ def compile_and_execute_d2m(
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
+    skip_exec: bool = False,
 ) -> str:
     """
     Compiles and executes a D2MBuilder function through the complete pipeline.
@@ -416,6 +416,7 @@ def compile_and_execute_d2m(
         atol=atol,
         rtol=rtol,
         disable_golden=disable_golden,
+        skip_exec=skip_exec,
     )
 
 
@@ -441,6 +442,7 @@ def compile_and_execute_shlo(
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
+    skip_exec: bool = False,
 ) -> str:
     """
     Compiles and executes a StableHLO function through the complete pipeline.
@@ -518,6 +520,7 @@ def compile_and_execute_shlo(
         atol=atol,
         rtol=rtol,
         disable_golden=disable_golden,
+        skip_exec=skip_exec,
     )
 
 
@@ -541,6 +544,7 @@ def compile_and_execute_ttir(
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
+    skip_exec: bool = False,
 ) -> str:
     """
     Compiles and executes a TTIR function through the complete pipeline.
@@ -612,6 +616,7 @@ def compile_and_execute_ttir(
         atol=atol,
         rtol=rtol,
         disable_golden=disable_golden,
+        skip_exec=skip_exec,
     )
 
 
@@ -903,7 +908,6 @@ def compile_ttir_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
-    device=None,  # Optional device parameter for fixture reuse
 ) -> str:
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
@@ -1032,7 +1036,6 @@ def compile_ttir_to_flatbuffer(
             custom_pipeline=custom_pipeline,
             pipeline_options=pipeline_options,
             print_ir=print_ir,
-            device=device,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -1159,7 +1162,6 @@ def compile_d2m_to_flatbuffer(
         custom_pipeline=custom_pipeline,
         pipeline_options=pipeline_options,
         print_ir=print_ir,
-        device=device,
     )
 
 
@@ -1323,11 +1325,10 @@ def compile_stablehlo_to_flatbuffer(
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
-    ttir_pipeline_options: Optional[List[str]] = None,
+    ttir_pipeline_options: List[str] = [],
     shlo_pipeline_options: Optional[List[str]] = None,
     shlo_to_ttir_pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
-    device=None,  # Optional device parameter for fixture reuse
 ) -> str:
     """
     Compiles a StableHLO function to flatbuffer format.
@@ -1477,7 +1478,6 @@ def compile_stablehlo_to_flatbuffer(
         custom_pipeline=custom_pipeline,
         pipeline_options=ttir_pipeline_options,
         print_ir=print_ir,
-        device=device,
     )
 
 
@@ -1495,7 +1495,6 @@ def compile_ttir_module_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: List[str] = [],
     print_ir: Union[bool, str] = False,
-    device=None,  # Optional device parameter for fixture reuse
 ):
     """
     Compiles a TTIR MLIR module to flatbuffer format.
@@ -1655,21 +1654,15 @@ def compile_ttir_module_to_flatbuffer(
 
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
 
-    # Only execute `ttnn` and `ttmetal` flatbuffers; `emitpy` needs to be handled differently
-
     return output_file_mlir
 
 
-# TODO: convert these printf shotguns into a better logging scheme
 def execute_fb(
     fb_path: str,
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
-    debugger: bool = False,
-    memory: bool = False,
-    disable_eth_dispatch: bool = False,  # Needed for blackhole
     device=None,  # Optional device parameter for fixture reuse
 ) -> None:
     """
@@ -1720,41 +1713,6 @@ def execute_fb(
 
     bin = Binary(logger, file_manager, fb_path)
 
-    fb_mesh_shape = bin.get_program(0).mesh_shape
-    num_mesh_devices = reduce(operator.mul, fb_mesh_shape, 1)
-
-    # Use provided device or open a new one
-    device_provided = device is not None
-    if not device_provided:
-        mesh_options = ttrt.runtime.MeshDeviceOptions()
-        mesh_options.dispatch_core_type = (
-            ttrt.runtime.DispatchCoreType.WORKER
-            if disable_eth_dispatch
-            else ttrt.runtime.DispatchCoreType.ETH
-        )
-        mesh_options.mesh_shape = fb_mesh_shape
-
-        # Open a device of shape (x,y), where (x,y) is the mesh shape supplied by the flatbuffer
-        print("Opening device...")
-        device = ttrt.runtime.open_mesh_device(mesh_options)
-        print("Device opened.")
-    else:
-        print("Using provided device.")
-
-    # Figure out the number of devices we physically have
-    # TODO: make this a fixture that's run at the beginning of testing using `Query` or some other discovery mechanism; don't hardcode
-    num_devices = 2
-
-    # Verify that the expected number of devices in the fb mesh shape is valid on this system
-    if num_mesh_devices > num_devices:
-        raise Exception(
-            f"Not enough devices ({num_devices}) to run program with mesh shape {fb_mesh_shape}"
-        )
-
-    # TODO: figure out if this is needed for this purpose
-    if num_mesh_devices > 1:
-        ttrt.runtime.set_fabric_config(parse_fabric_config("fabric_1d"))
-
     logging.info(f"evaluating binary={bin.file_path}")
 
     program_indices = []
@@ -1782,7 +1740,6 @@ def execute_fb(
                 golden_tensor_torch = golden_tensor_to_torch(golden_tensor)
                 golden_inputs.append(golden_tensor_torch)
 
-        # TODO: uncomment if broken
         program.populate_inputs(
             torch.randn,
             golden_inputs,
@@ -1827,9 +1784,6 @@ def execute_fb(
             )
             ttrt.runtime.wait(runtime_outputs)
         except Exception as e:
-            # Runtime failure - only close device if we opened it
-            if not device_provided:
-                ttrt.runtime.close_mesh_device(device)
             raise TTBuilderRuntimeException(e)
 
         end_submit = time.perf_counter_ns()
@@ -1912,13 +1866,6 @@ def execute_fb(
         print(f"output tensors for program={program_index}")
         for tensor in program.output_tensors:
             logging.debug(f"{tensor}\n")
-
-        # Read the perf data before deallocating buffers
-        device.read_device_profiler_results()
-
-        # Only close device if we opened it (not provided as parameter)
-        if not device_provided:
-            ttrt.runtime.close_mesh_device(device)
 
 
 # ----- Experimental Public APIs -----

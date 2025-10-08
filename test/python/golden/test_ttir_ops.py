@@ -2999,10 +2999,7 @@ def test_comparison_ops(
         remainder,
         maximum,
         minimum,
-        pow
-        | Marks(
-            pytest.mark.skip(reason="Golden Failure")
-        ),  # TODO: make issue for this, make xfail
+        pow | Marks(pytest.mark.xfail(reason="Golden Failure")),
         logical_and,
         logical_or,
         logical_xor,
