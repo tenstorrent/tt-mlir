@@ -33,6 +33,7 @@ jobs:
         echo "Test 4: ttrt.sh perf Silicon/TTNN/n150/optimizer" >> summary.md
         echo "Test 5: ttnn_runtime.sh runtime/test/ttnn/python/device_agnostic" >> summary.md
         echo "Test 6: emitc.sh" >> summary.md
+        printf "summary=%q\n" "$(cat summary.md)"
         printf "summary=%q\n" "$(cat summary.md)" >> $GITHUB_OUTPUT
         cat summary.md >> $GITHUB_STEP_SUMMARY
         cat summary.md
