@@ -16,6 +16,8 @@ jobs:
         python-version: '3.11'
 
     - name: get reports
+      env:
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
       shell: bash
       run: |
         gh run download 18307092217 --repo tenstorrent/tt-mlir --name "test-reports-n150-tracy-52128249415"
