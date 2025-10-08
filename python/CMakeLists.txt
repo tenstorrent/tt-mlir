@@ -193,8 +193,9 @@ if(TTMLIR_ENABLE_STABLEHLO)
     StablehloPythonExtensions
     SdyPythonSources
     SdyPythonExtensions
-    MpmdPythonSources
-    MpmdPythonExtensions
+    # https://github.com/tenstorrent/tt-mlir/issues/5281
+    # MpmdPythonSources
+    # MpmdPythonExtensions
   )
 endif()
 
