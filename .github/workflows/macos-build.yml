@@ -35,7 +35,7 @@ jobs:
         echo "Test 6: emitc.sh" >> summary.md
         printf "summary=%q\n" "$(cat summary.md)"
         printf "summary=%s\n" "$(cat summary.md | base64 -w 0)"
-        printf "summary=%q\n" "$(cat summary.md)" >> $GITHUB_OUTPUT
+        printf "summary=%s\n" "$(cat summary.md | base64 -w 0)" >> $GITHUB_OUTPUT
         cat summary.md >> $GITHUB_STEP_SUMMARY
         cat summary.md
 
