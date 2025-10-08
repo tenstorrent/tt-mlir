@@ -1990,6 +1990,14 @@ namespace {
 class NLPConcatHeadsOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<
           mlir::tt::ttnn::NLPConcatHeadsOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.nlp_concat_heads";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.nlp_concat_heads";
+  }
+
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::NLPConcatHeadsOp>::TTNNToEmitPyBaseOpConversionPattern;
@@ -2021,6 +2029,14 @@ namespace {
 class NLPConcatHeadsDecodeOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<
           mlir::tt::ttnn::NLPConcatHeadsDecodeOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.nlp_concat_heads_decode";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.nlp_concat_heads_decode";
+  }
+
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::NLPConcatHeadsDecodeOp>::
@@ -2126,6 +2142,14 @@ namespace {
 class NLPCreateQKVHeadsDecodeOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<
           mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.nlp_create_qkv_heads_decode";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.nlp_create_qkv_heads_decode";
+  }
+
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>::
