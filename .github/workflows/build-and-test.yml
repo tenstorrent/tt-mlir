@@ -279,6 +279,7 @@ jobs:
 
     - name: Run Tests
       shell: bash
+      id: run-tests
       env:
         GH_TOKEN: ${{ secrets.GH_TOKEN }}
         TTRT_LOGGER_LEVEL: "INFO"
@@ -308,6 +309,10 @@ jobs:
         cat _test_to_run.json
 
         python .github/scripts/python/run_tests_from_json.py "${{ matrix.build.runs-on }}" "${{ matrix.build.image }}" "${{ steps.fetch-job-id.outputs.job_id }}"
+
+        summary_content=$(cat _test_summary | tr '\n' '\r' | sed 's/\r/<br \/>/g')
+        echo "summary=$summary_content" >> $GITHUB_OUTPUT
+        cat _test_summary >> $GITHUB_STEP_SUMMARY
 
     - name: Upload Test Durations
       if: success()
@@ -346,8 +351,8 @@ jobs:
       if: success() || failure()
       with:
         report_paths: ${{ steps.strings.outputs.work-dir }}/test_reports/report_*.xml
-        check_name: ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ strategy.job-index }} Tests
-        summary: _test_summary
+        check_name: ${{ matrix.build.runs-on }}, ${{ matrix.build.image }}, ${{ strategy.job-index }} Tests
+        summary: ${{ steps.run-tests.outputs.summary }}
 
 
   test-ttnn-jit:
