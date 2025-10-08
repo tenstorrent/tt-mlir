@@ -209,12 +209,19 @@ void ProgramExecutor::execute() {
           bool shapesMatch =
               torchComputedResult.sizes() == torchDeviceOut.sizes();
 
-          // Do allclose check
-          double rtol = 1e-5;
-          double atol = 1e-8;
-          bool allclose =
-              shapesMatch &&
-              torch::allclose(torchComputedResult, torchDeviceOut, rtol, atol);
+          // Calculate actual differences
+          torch::Tensor diff = torch::abs(torchComputedResult - torchDeviceOut);
+          double actualAtol = diff.max().item<double>();
+
+          torch::Tensor relDiff = diff / (torch::abs(torchDeviceOut) + 1e-8);
+          double actualRtol = relDiff.max().item<double>();
+
+          // Do allclose check with thresholds
+          double rtolThreshold = 1e-5;
+          double atolThreshold = 1e-8;
+          bool allclose = shapesMatch &&
+                          torch::allclose(torchComputedResult, torchDeviceOut,
+                                          rtolThreshold, atolThreshold);
 
           // Print tensors
           std::cout << "=== Torch Tensor Addition Verification ==="
@@ -243,15 +250,16 @@ void ProgramExecutor::execute() {
                     << torchDeviceOut.flatten().slice(
                            0, 0, std::min(5L, torchDeviceOut.numel()))
                     << std::endl;
-          std::cout << "Shape Match: " << (shapesMatch ? "PASSED" : "FAILED");
-          if (!shapesMatch) {
-            std::cout << " (computed: " << torchComputedResult.sizes()
-                      << ", device: " << torchDeviceOut.sizes() << ")";
-          }
-          std::cout << std::endl;
-          std::cout << "AllClose Check: " << (allclose ? "PASSED" : "FAILED")
-                    << " (rtol=" << rtol << ", atol=" << atol << ")"
+          std::cout << "Shape Match: " << (shapesMatch ? "PASSED" : "FAILED")
+                    << " (computed: " << torchComputedResult.sizes()
+                    << ", device: " << torchDeviceOut.sizes() << ")"
                     << std::endl;
+          std::cout << "AllClose Check: " << (allclose ? "PASSED" : "FAILED")
+                    << std::endl;
+          std::cout << "  Actual:    rtol=" << actualRtol
+                    << ", atol=" << actualAtol << std::endl;
+          std::cout << "  Threshold: rtol=" << rtolThreshold
+                    << ", atol=" << atolThreshold << std::endl;
           std::cout << "=========================================" << std::endl;
         }
       } catch (const std::exception &e) {
