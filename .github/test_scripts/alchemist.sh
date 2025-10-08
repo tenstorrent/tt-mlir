@@ -52,4 +52,5 @@ cd /tmp/test-generate-python
 echo "Test Passed. Doing cleanup"
 deactivate
 rm -rf testenv
+cd $WORK_DIR
 source env/activate
