@@ -365,6 +365,8 @@ jobs:
       - build-image
       - build-ttmlir
     runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.build-image.outputs.docker-image }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -376,29 +378,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ttnn-jit-whl-tracy
-      - name: Debug - Check available libraries
-        shell: bash
-        run: |
-          echo "=== Checking for libnsl.so.2 ==="
-          find /usr -name "libnsl.so*" 2>/dev/null || echo "No libnsl.so found"
-          echo "=== Checking for other system libraries ==="
-          find /usr -name "libhwloc.so*" 2>/dev/null || echo "No libhwloc.so found"
-          find /usr -name "libevent*.so*" 2>/dev/null || echo "No libevent.so found"
-          echo "=== Checking wheel contents ==="
-          unzip -l ttnn_jit-*.whl | grep -E "(libnsl|libhwloc|libevent)" || echo "No system libraries in wheel"
       - name: Install ttnn-jit whl
         shell: bash
         run: |
-          python3 -m venv testenv
-          source testenv/bin/activate
-          pip install --upgrade pip
+          source env/activate
           pip install ttnn_jit-*.whl --force-reinstall
           python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
           python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
-          # Verify torch version is correct
-          python -c "import torch; print('PyTorch version:', torch.__version__)"
-          # Verify numpy is available
-          python -c "import numpy; print('NumPy version:', numpy.__version__)"
 
 
   # Dedicated job for tt-alchemist tests

@@ -93,24 +93,7 @@ def copy_library_files(src_path, dst_path, libraries):
         if os.path.exists(lib_src):
             shutil.copy(lib_src, dst_path)
             copied_libs.append(lib)
-            print(f"Copied library: {lib}")
-        else:
-            print(f"Warning: Library not found: {lib_src}")
     return copied_libs
-
-
-def find_and_copy_library(lib_name, dst_path, search_paths):
-    """Find and copy a library from multiple possible paths"""
-    for search_path in search_paths:
-        lib_src = f"{search_path}/{lib_name}"
-        if os.path.exists(lib_src):
-            shutil.copy(lib_src, dst_path)
-            print(f"Found and copied {lib_name} from {search_path}")
-            return True
-    print(
-        f"Warning: Could not find {lib_name} in any of the search paths: {search_paths}"
-    )
-    return False
 
 
 def copy_directories_and_get_files(src_base, dst_base, directories):
@@ -163,56 +146,6 @@ def setup_runtime_libraries(config):
     if os.path.exists(ttnn_jit_module_path):
         shutil.copy(ttnn_jit_module_path, wheel_runtime_dir)
         dylibs.append(ttnn_jit_module)
-
-    # Copy ALL MPI and system libraries to make the wheel completely standalone
-    # MPI libraries from OpenMPI
-    mpi_lib_dir = "/opt/openmpi-v5.0.7-ulfm/lib"
-    mpi_libs = ["libmpi.so.40", "libopen-pal.so.80", "libpmix.so.2", "libprrte.so.3"]
-    copied_mpi_libs = copy_library_files(mpi_lib_dir, wheel_runtime_dir, mpi_libs)
-    dylibs.extend(copied_mpi_libs)
-
-    # System libraries that MPI depends on - try multiple paths
-    system_lib_paths = [
-        "/usr/lib/x86_64-linux-gnu",
-        "/usr/lib",
-        "/lib/x86_64-linux-gnu",
-        "/lib",
-    ]
-
-    system_libs = [
-        "libhwloc.so.15",  # Hardware locality library
-        "libnsl.so.2",  # Network service library
-        "libevent_core-2.1.so.7",  # Event library core
-        "libevent_pthreads-2.1.so.7",  # Event library pthreads
-        "libudev.so.1",  # Device management
-        "libz.so.1",  # Compression library
-        # Additional dependencies of libnsl.so.2
-        "libtirpc.so.3",  # Transport Independent RPC
-        "libgssapi_krb5.so.2",  # GSSAPI Kerberos
-        "libkrb5.so.3",  # Kerberos library
-        "libk5crypto.so.3",  # Kerberos crypto
-        "libcom_err.so.2",  # Common error handling
-        "libkrb5support.so.0",  # Kerberos support
-        "libkeyutils.so.1",  # Key utilities
-        "libresolv.so.2",  # DNS resolver
-    ]
-
-    copied_system_libs = []
-    for lib in system_libs:
-        if find_and_copy_library(lib, wheel_runtime_dir, system_lib_paths):
-            copied_system_libs.append(lib)
-        else:
-            print(
-                f"Warning: Could not find {lib} in any of the search paths: {system_lib_paths}"
-            )
-
-    dylibs.extend(copied_system_libs)
-
-    # Copy TTMLIRCompiler library to fix missing symbols
-    compiler_lib_path = f"{config['ttmlir_build_dir']}/lib/libTTMLIRCompiler.so"
-    if os.path.exists(compiler_lib_path):
-        shutil.copy(compiler_lib_path, wheel_runtime_dir)
-        dylibs.append("libTTMLIRCompiler.so")
 
     # Copy runtime libraries
     metal_lib_dir = f"{config['metaldir']}/lib"
@@ -302,8 +235,7 @@ def get_dynamic_dependencies():
     """Get dependencies needed for TTNN JIT functionality"""
     return [
         "nanobind",  # Python binding framework
-        "torch==2.7.0",  # PyTorch for tensor operations - specific version required
-        "numpy",  # Required for tensor operations
+        "torch",  # PyTorch for tensor operations
     ]
 
 
