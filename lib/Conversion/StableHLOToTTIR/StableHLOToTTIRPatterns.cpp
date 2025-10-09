@@ -695,7 +695,6 @@ public:
     IntegerAttr dimensionAttr =
         mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
 
-    // Simple 1:1 mapping - pass through feature_index as dimension
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getScale(),
         adaptor.getOffset(), adaptor.getMean(), adaptor.getVariance(),
@@ -788,7 +787,6 @@ public:
     auto batchVarianceEmpty =
         rewriter.create<ttir::EmptyOp>(loc, varianceType).getResult();
 
-    // Simple 1:1 mapping - pass through feature_index as dimension
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormTrainingOp>(
         srcOp, TypeRange{outputType, meanType, varianceType},
         adaptor.getOperand(), adaptor.getScale(), adaptor.getOffset(),
