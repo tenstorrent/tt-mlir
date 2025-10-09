@@ -124,11 +124,14 @@ def log(
 
 
 def broadcast_in_dim(
-    in0: Operand, builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None
+    in0: Operand,
+    builder: StableHLOBuilder,
+    broadcast_dimensions: Optional[List[int]] = None,
+    unit_attrs: Optional[List[str]] = None,
 ):
     builder.set_graph_level_check(True)
     return builder.broadcast_in_dim(
-        in0, broadcast_dimentions=broadcast_dimentions, unit_attrs=unit_attrs
+        in0, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
     )
 
 

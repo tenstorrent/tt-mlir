@@ -684,7 +684,8 @@ class StableHLOBuilder(Builder):
             The broadcasted tensor
         """
         return self._op_proxy(
-            stablehlo.BroadcastInDimOp[in0],
+            stablehlo.BroadcastInDimOp,
+            [in0],
             organize_golden_args=self._organize_eltwise_golden,
             stablehlo_kwargs={"broadcast_dimensions": broadcast_dimensions},
             unit_attrs=unit_attrs,
