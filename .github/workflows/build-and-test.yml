@@ -280,6 +280,7 @@ jobs:
         GH_TOKEN: ${{ secrets.GH_TOKEN }}
         TTRT_LOGGER_LEVEL: "WARNING"
         LOGURU_LEVEL: "ERROR"
+        TT_METAL_LOGGER_LEVEL: "FATAL"
       run: |
         # Run Tests
         source env/activate
@@ -356,7 +357,7 @@ jobs:
       - name: Process test summary
         continue-on-error: true
         shell: bash
-        run: .github/scripts/bash/get_test_summary.sh
+        run: .github/scripts/bash/get_test_summary.sh ${{ github.run_id }}
       - name: Show consolidated test report
         continue-on-error: true
         uses: mikepenz/action-junit-report@v5
