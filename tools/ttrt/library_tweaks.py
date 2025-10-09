@@ -26,6 +26,7 @@ def set_tt_metal_home():
     """Sets the environment variable `TT_METAL_HOME` to point into the root
     mirrored TTMetal tree within the `ttrt` wheel.
     """
+    os.environ["TT_METAL_HOME_EXTERNAL"] = os.environ.get("TT_METAL_HOME", "")
     os.environ["TT_METAL_HOME"] = get_ttrt_metal_home_path()
 
     new_linker_path = f"{get_ttrt_metal_home_path()}/tests"
