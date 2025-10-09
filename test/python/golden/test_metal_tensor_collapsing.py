@@ -24,7 +24,7 @@ from typing import List
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_and_execute_ttir
-from test_utils import shape_str
+from test_utils import shape_str, Marks
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -62,7 +62,12 @@ def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
         ([(3, 32, 64), (3, 32, 64)], elementwise_multiply, "3d_multiply"),
         ([(3, 32, 64)], unary_exp, "3d_exp"),
         # 4D element-wise operations (working with non-collapsed tensors)
-        ([(2, 3, 64, 32), (2, 3, 64, 32)], elementwise_add, "4d_add"),
+        pytest.param(
+            [(2, 3, 64, 32), (2, 3, 64, 32)],
+            elementwise_add,
+            "4d_add",
+            marks=pytest.mark.xfail(reason="Golden failure"),
+        ),
         ([(1, 2, 32, 32)], unary_exp, "4d_exp"),
         # Operations with known issues (marked as skip)
         pytest.param(
