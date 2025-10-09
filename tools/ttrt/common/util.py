@@ -471,17 +471,14 @@ class FileManager:
 
         return file_extension
 
-    def find_ttnn_binary_paths(self, path):
-        self.logging.debug(f"finding all ttnn files from={path}")
-        ttnn_files = []
+    def find_file_paths(self, path, extension):
+        self.logging.debug(f"finding all {extension} files from={path}")
+        files = []
 
         if self.is_file(path):
             if self.check_file_exists(path):
-                if (
-                    self.get_file_extension(path)
-                    == Flatbuffer.get_ttnn_file_extension()
-                ):
-                    ttnn_files.append(path)
+                if self.get_file_extension(path) == extension:
+                    files.append(path)
                     self.logging.debug(f"found file={path}")
             else:
                 self.logging.info(f"file '{path}' not found - skipping")
@@ -490,115 +487,42 @@ class FileManager:
             try:
                 for root, _, files in os.walk(path):
                     for file in files:
-                        if (
-                            self.get_file_extension(file)
-                            == Flatbuffer.get_ttnn_file_extension()
-                        ):
-                            ttnn_files.append(os.path.join(root, file))
+                        if self.get_file_extension(file) == extension:
+                            files.append(os.path.join(root, file))
                             self.logging.debug(f"found file={os.path.join(root, file)}")
             except Exception as e:
                 raise Exception(f"an unexpected error occurred: {e}")
 
         # Sort files alphabetically to ensure consistent ordering.
-        ttnn_files.sort()
-        return ttnn_files
+        files.sort()
+        return files
+
+    def find_ttnn_binary_paths(self, path):
+        return self.find_file_paths(path, Flatbuffer.get_ttnn_file_extension())
 
     def find_ttmetal_binary_paths(self, path):
-        self.logging.debug(f"finding all ttmetal files from={path}")
-        ttmetal_files = []
-
-        if self.is_file(path):
-            if self.check_file_exists(path):
-                if (
-                    self.get_file_extension(path)
-                    == Flatbuffer.get_ttmetal_file_extension()
-                ):
-                    ttmetal_files.append(path)
-                    self.logging.debug(f"found file={path}")
-            else:
-                self.logging.info(f"file '{path}' not found - skipping")
-        else:
-            self.check_directory_exists(path)
-            try:
-                for root, _, files in os.walk(path):
-                    for file in files:
-                        if (
-                            self.get_file_extension(file)
-                            == Flatbuffer.get_ttmetal_file_extension()
-                        ):
-                            ttmetal_files.append(os.path.join(root, file))
-                            self.logging.debug(f"found file={os.path.join(root, file)}")
-            except Exception as e:
-                raise Exception(f"an unexpected error occurred: {e}")
-
-        # Sort files alphabetically to ensure consistent ordering.
-        ttmetal_files.sort()
-        return ttmetal_files
+        return self.find_file_paths(path, Flatbuffer.get_ttmetal_file_extension())
 
     def find_ttsys_binary_paths(self, path):
-        self.logging.debug(f"finding all ttsys files from={path}")
-        ttsys_files = []
-
-        if self.is_file(path):
-            if self.check_file_exists(path):
-                if (
-                    self.get_file_extension(path)
-                    == Flatbuffer.get_ttsys_file_extension()
-                ):
-                    ttsys_files.append(path)
-                    self.logging.debug(f"found file={path}")
-            else:
-                self.logging.info(f"file '{path}' not found - skipping")
-        else:
-            self.check_directory_exists(path)
-            try:
-                for root, _, files in os.walk(path):
-                    for file in files:
-                        if (
-                            self.get_file_extension(file)
-                            == Flatbuffer.get_ttsys_file_extension()
-                        ):
-                            ttsys_files.append(os.path.join(root, file))
-                            self.logging.debug(f"found file={os.path.join(root, file)}")
-            except Exception as e:
-                raise Exception(f"an unexpected error occurred: {e}")
-
-        # Sort files alphabetically to ensure consistent ordering.
-        ttsys_files.sort()
-        return ttsys_files
+        return self.find_file_paths(path, Flatbuffer.get_ttsys_file_extension())
 
     def find_emitpy_dylib_paths(self, path):
-        self.logging.debug(f"finding all .py files from={path}")
-        py_files = []
+        return self.find_file_paths(path, EmitPyDylib.get_py_file_extension())
 
-        if self.is_file(path):
-            if self.check_file_exists(path):
-                if self.get_file_extension(path) == EmitPyDylib.get_py_file_extension():
-                    py_files.append(path)
-                    self.logging.debug(f"found file={path}")
-            else:
-                self.logging.info(f"file '{path}' not found - skipping")
-        else:
-            self.check_directory_exists(path)
-            try:
-                for root, _, files in os.walk(path):
-                    for file in files:
-                        if (
-                            self.get_file_extension(file)
-                            == EmitPyDylib.get_py_file_extension()
-                        ):
-                            py_files.append(os.path.join(root, file))
-                            self.logging.debug(f"found file={os.path.join(root, file)}")
-            except Exception as e:
-                raise Exception(f"an unexpected error occurred: {e}")
+    def find_emitc_dylib_paths(self, path):
+        return self.find_file_paths(path, EmitCDylib.get_so_file_extension())
 
-        # Sort files alphabetically to ensure consistent ordering.
-        py_files.sort()
-        return py_files
+    def find_py_corresponding_ttnn_in_directory(self, path, ttnn_directory):
+        filename = self.get_file_name(path)
+        ttnn_filename = filename.replace(EmitPyDylib.get_file_extension(), ".ttnn")
+        ttnn_path = os.path.join(ttnn_directory, ttnn_filename)
+        if self.check_file_exists(ttnn_path):
+            return ttnn_path
+        return None
 
-    def find_corresponding_ttnn_in_directory(self, py_path, ttnn_directory):
-        py_filename = self.get_file_name(py_path)
-        ttnn_filename = py_filename.replace(".py", ".ttnn")
+    def find_so_corresponding_ttnn_in_directory(self, path, ttnn_directory):
+        filename = self.get_file_name(path)
+        ttnn_filename = filename.replace(EmitCDylib.get_file_extension(), ".ttnn")
         ttnn_path = os.path.join(ttnn_directory, ttnn_filename)
         if self.check_file_exists(ttnn_path):
             return ttnn_path
@@ -685,6 +609,22 @@ class Artifacts:
 
         if query != None:
             self.save_system_desc(query.system_desc, f"{binary_folder}")
+
+    def save_emitpy_dylib(self, dylib, query=None):
+        dylib_folder = self.get_emitpy_dylib_folder_path(dylib)
+
+        self.logging.info(
+            f"saving dylib={dylib.file_path} to dylib_folder={dylib_folder}"
+        )
+        self.file_manager.copy_file(f"{dylib_folder}", dylib.file_path)
+
+    def save_emitc_dylib(self, dylib, query=None):
+        dylib_folder = self.get_emitc_dylib_folder_path(dylib)
+
+        self.logging.info(
+            f"saving dylib={dylib.file_path} to dylib_folder={dylib_folder}"
+        )
+        self.file_manager.copy_file(f"{dylib_folder}", dylib.file_path)
 
     def save_torch_tensor(self, folder_path, torch_tensor, torch_tensor_name):
         import torch
@@ -1067,6 +1007,22 @@ class EmitPyDylib:
     @staticmethod
     def get_py_file_extension():
         return ".py"
+
+
+class EmitCDylib:
+    def __init__(self, logger, file_manager, file_path, capsule=None):
+        self.logger = logger
+        self.logging = self.logger.get_logger()
+        self.file_manager = file_manager
+        self.file_path = file_path if file_path != None else "<dylib-from-capsule>"
+        self.name = self.file_manager.get_file_name(file_path)
+
+        # temporary state value to check if test failed
+        self.test_result = "pass"
+
+    @staticmethod
+    def get_so_file_extension():
+        return ".so"
 
 
 class TTRTTestException(Exception):

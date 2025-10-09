@@ -213,7 +213,7 @@ class EmitPy:
             if self["--flatbuffer"]:
                 if os.path.isdir(self["--flatbuffer"]):
                     corresponding_ttnn_path = (
-                        self.file_manager.find_corresponding_ttnn_in_directory(
+                        self.file_manager.find_py_corresponding_ttnn_in_directory(
                             path, self["--flatbuffer"]
                         )
                     )
@@ -586,6 +586,9 @@ class EmitPy:
         self.logging.debug(f"------postprocessing emitpy API")
 
         for dylib in self.emitpy_dylibs:
+            if self["--save-artifacts"]:
+                self.artifacts.save_emitpy_dylib(dylib)
+
             if dylib.test_result == "pass":
                 test_result = {
                     "file_path": dylib.file_path,

@@ -212,13 +212,6 @@ class Run:
             help="test file to save results to",
         )
         Run.register_arg(
-            name="--emitc",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="toggles emitc testing",
-        )
-        Run.register_arg(
             name="--disable-golden",
             type=bool,
             default=False,
@@ -683,14 +676,6 @@ class Run:
                     if self["--save-artifacts"]:
                         self.artifacts.create_binary_artifacts_folder(bin)
 
-                    if self["--emitc"]:
-                        # .so are compiled such that they have the same name as flatbuffers, so we rename here
-                        emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
-
-                        # Open the dylib
-                        emitc_dylib_handle = ttrt.runtime.test.open_so(emitc_dylib_path)
-                        self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
-
                     program_indices = []
                     if self["--program-index"] == "all":
                         program_indices.extend(range(bin.get_num_programs()))
@@ -1086,47 +1071,6 @@ class Run:
                         if event is not None:
                             ttrt.runtime.wait(event)
 
-                        # Compare to EmitC
-                        if self["--emitc"]:
-                            # Create symbol string to read from dylib
-                            fwd_func_name = program.name
-
-                            # pre-upload inputs
-                            inputs = convert_input_layouts(
-                                device, inputs, bin.fbb, program_index
-                            )
-
-                            for loop in range(self["--loops"]):
-                                emitc_outs = ttrt.runtime.test.run_so_program(
-                                    emitc_dylib_handle,
-                                    fwd_func_name,
-                                    inputs,
-                                    device,
-                                )
-                                emitc_outs = [
-                                    ttrt.runtime.to_host(emitc_out, untilize=True)[0]
-                                    for emitc_out in emitc_outs
-                                ]
-                                self.logging.debug(
-                                    f"got emitc outputs for program_index={program_index}, loop={loop}"
-                                )
-
-                                all_tensors_match = ttrt.runtime.test.compare_outs(
-                                    outputs, emitc_outs
-                                )
-
-                                if not all_tensors_match:
-                                    self.logging.error(
-                                        "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
-                                    )
-                                    self.logging.error(outputs, emitc_outs)
-                                    raise Exception(
-                                        "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
-                                    )
-                            self.logging.info(
-                                f"EmitC tensors match for {bin.file_path}"
-                            )
-
                         if self["--identity"]:
                             self.logging.debug(
                                 f"checking identity with rtol={self['--rtol']} and atol={self['--atol']}"
@@ -1199,9 +1143,6 @@ class Run:
                     self.results.add_result(test_result)
                     bin.test_result = result
                 finally:
-
-                    if self["--emitc"]:
-                        ttrt.runtime.test.close_so(emitc_dylib_handle)
 
                     ttrt.runtime.unregister_hooks()
 
