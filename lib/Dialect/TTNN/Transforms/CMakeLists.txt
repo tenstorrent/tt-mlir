@@ -7,14 +7,15 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/OperationValidationAndFallback.cpp
         OptimizerPasses/Optimizer.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
-        TTNNLayout.cpp
+        TTNNAdjustDeallocs.cpp
         TTNNDecomposeLayouts.cpp
+        TTNNEmitPyWorkarounds.cpp
+        TTNNFusing.cpp
+        TTNNLayout.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
-        TTNNUniqueLocs.cpp
-        TTNNFusing.cpp
         TTNNTraceHoistTransform.cpp
-        TTNNEmitPyWorkarounds.cpp
+        TTNNUniqueLocs.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.cpp
