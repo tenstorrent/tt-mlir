@@ -61,6 +61,25 @@ static void runEltwiseBinaryCompositeOp(
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
+static void
+runPowScalarOp(const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOp *op,
+               auto &&exponent, ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  ::ttnn::Tensor *input = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  ::ttnn::Tensor out = ::ttnn::pow(*input, exponent, outputMemoryConfig);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
+// Handles the binary composite ops with LHS=tensor and RHS=tensor.
 void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -103,6 +122,26 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseXor: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::bitwise_xor);
+    break;
+  }
+  }
+}
+
+// Handles the binary composite ops with LHS=tensor and RHS=scalar.
+void run(const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOp *op,
+         ProgramContext &context) {
+  switch (op->type()) {
+  case ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar: {
+    switch (op->rhs_type()) {
+    case ::tt::target::ttnn::RhsParams::FP:
+      runPowScalarOp(op, op->rhs_as_FP()->value(), context);
+      break;
+    case ::tt::target::ttnn::RhsParams::UI32:
+      runPowScalarOp(op, op->rhs_as_UI32()->value(), context);
+      break;
+    default:
+      LOG_FATAL("unknown exponent type");
+    }
     break;
   }
   }

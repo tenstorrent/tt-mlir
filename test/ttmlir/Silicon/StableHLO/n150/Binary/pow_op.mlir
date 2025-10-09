@@ -6,13 +6,35 @@
 // RUN: FileCheck --input-file=%t.mlir %s
 
 module @jit_eltwise_pow attributes {} {
-  func.func public @test_power(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    // CHECK-LABEL: func.func public @test_power
+  func.func public @test_power_tensor(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+    // CHECK-LABEL: func.func public @test_power_tensor
     // CHECK: ttnn.pow
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<64x128xf32,
     %0 = stablehlo.power %arg0, %arg1 : tensor<64x128xf32>
     return %0 : tensor<64x128xf32>
+  }
+
+  func.func public @test_power_scalar_float(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+    // CHECK-LABEL: func.func public @test_power_scalar_float
+    %cst = stablehlo.constant dense<2.000000e+00> : tensor<64x128xf32>
+    // CHECK: ttnn.pow
+    // CHECK-SAME: <{rhs = 2.000000e+00 : f32}>
+    // CHECK-SAME: tensor<64x128xf32,
+    // CHECK-SAME: -> tensor<64x128xf32,
+    %0 = stablehlo.power %arg0, %cst : tensor<64x128xf32>
+    return %0 : tensor<64x128xf32>
+  }
+
+  func.func public @test_power_scalar_integer(%arg0: tensor<64x128xi32>, %arg1: tensor<64x128xi32>) -> tensor<64x128xi32> {
+    // CHECK-LABEL: func.func public @test_power_scalar_integer
+    %cst = stablehlo.constant dense<2> : tensor<64x128xi32>
+    // CHECK: ttnn.pow
+    // CHECK-SAME: <{rhs = 2 : i32}>
+    // CHECK-SAME: tensor<64x128xsi32,
+    // CHECK-SAME: -> tensor<64x128xsi32,
+    %0 = stablehlo.power %arg0, %cst : tensor<64x128xi32>
+    return %0 : tensor<64x128xi32>
   }
 }

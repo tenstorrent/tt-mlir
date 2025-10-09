@@ -210,6 +210,29 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// PowScalarOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::PowScalarOp::verify() {
+  if (auto exponentAttr = mlir::dyn_cast<IntegerAttr>(getRhs())) {
+    if (exponentAttr.getInt() < 0) {
+      return emitOpError() << "exponent must be non-negative; but got "
+                           << exponentAttr.getInt();
+    }
+    return success();
+  }
+  if (auto exponentAttr = mlir::dyn_cast<FloatAttr>(getRhs())) {
+    if (exponentAttr.getValueAsDouble() < 0.0) {
+      return emitOpError() << "exponent must be non-negative; but got "
+                           << exponentAttr.getValueAsDouble();
+    }
+    return success();
+  }
+
+  return emitOpError() << "exponent must be an integer or float attribute.";
+}
+
+//===----------------------------------------------------------------------===//
 // PrepareConv2dWeightsOp
 //===----------------------------------------------------------------------===//
 
