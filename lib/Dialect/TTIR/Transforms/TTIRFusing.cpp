@@ -1187,10 +1187,10 @@ public:
 };
 
 // Fuse MatmulOp followed by AddOp into a single LinearOp.
-//// This pattern looks for an AddOp where one of its operands is the result of
+// This pattern looks for an AddOp where one of its operands is the result of
 // a MatmulOp and the other operand is a bias term. It then replaces the
 // AddOp with a LinearOp that combines the functionality of both operations.
-//// The pattern also handles the case where the MatmulOp is followed by a
+// The pattern also handles the case where the MatmulOp is followed by a
 // ReshapeOp before the AddOp. In this case, it reshapes the bias term
 // accordingly and creates a LinearOp followed by a ReshapeOp to maintain the
 // original output shape.
@@ -1262,16 +1262,16 @@ private:
   MatmulOp getValidMatmulOp(MatmulOp matmulOpLHS, MatmulOp matmulOpRHS) const {
     if (matmulOpLHS && matmulOpRHS) {
       // Both operands are MatmulOps, cannot fuse.
-      return MatmulOp(nullptr);
+      return nullptr;
     }
 
     MatmulOp matmulOp = matmulOpLHS ? matmulOpLHS : matmulOpRHS;
     if (!matmulOp) {
-      return MatmulOp(nullptr);
+      return nullptr;
     }
     // Check that the MatmulOp has only one user.
     if (!matmulOp.getResult().hasOneUse()) {
-      return MatmulOp(nullptr);
+      return nullptr;
     }
 
     return matmulOp;

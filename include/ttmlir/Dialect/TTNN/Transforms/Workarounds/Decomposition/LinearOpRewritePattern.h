@@ -11,7 +11,7 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-/// Rewrite pattern for decomposing batched LinearOp into MatMulOp + AddOp.
+// Rewrite pattern for decomposing batched LinearOp into MatMulOp + AddOp.
 class LinearOpRewritePattern : public mlir::OpRewritePattern<ttnn::LinearOp> {
 public:
   using OpRewritePattern::OpRewritePattern;

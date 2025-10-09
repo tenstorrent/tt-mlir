@@ -39,4 +39,16 @@ module {
     %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) : (tensor<1x3x64x128xbf16>, tensor<1x3x128x32xbf16>, tensor<14x4x3x64x32xbf16>, tensor<14x4x3x64x32xbf16>) -> tensor<14x4x3x64x32xbf16>
     return %1 : tensor<14x4x3x64x32xbf16>
   }
+
+  func.func @linear_1d_lhs(%arg0: tensor<1024xf32>, %arg1: tensor<1x1024x1024xf32>, %bias: tensor<1x1024xf32>) -> tensor<1x1024xf32> {
+    %0 = ttir.empty() : tensor<1x1024xf32>
+    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0): (tensor<1024xf32>, tensor<1x1024x1024xf32>, tensor<1x1024xf32>, tensor<1x1024xf32>) -> tensor<1x1024xf32>
+    return %1 : tensor<1x1024xf32>
+  }
+
+  func.func @linear_with_1d_rhs(%arg0: tensor<2x33x1024xf32>, %arg1: tensor<1024xf32>, %bias: tensor<2x33xf32>) -> tensor<2x33xf32> {
+    %0 = ttir.empty() : tensor<2x33xf32>
+    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) : (tensor<2x33x1024xf32>, tensor<1024xf32>, tensor<2x33xf32>, tensor<2x33xf32>) -> tensor<2x33xf32>
+    return %1 : tensor<2x33xf32>
+  }
 }
