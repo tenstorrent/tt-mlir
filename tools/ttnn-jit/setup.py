@@ -15,6 +15,14 @@ import sysconfig
 PYTHON_VERSION = "cpython-311"
 DEFAULT_ARCH = "x86_64"
 
+
+# Package structure definitions
+TTNN_SUBPACKAGES = [
+    "ttnn",
+    "ttnn.operations",
+    "ttnn.distributed",
+]
+
 TTMLIR_SUBPACKAGES = [
     "dialects",
     "dialects.linalg",
@@ -185,6 +193,15 @@ def generate_package_configuration(config):
         ] = f"{rel_build_dir}/python_packages/ttmlir/{sub_path}"
     package_dir["ttmlir"] = f"{rel_build_dir}/python_packages/ttmlir"
 
+    # Add ttnn packages
+    runtime_ttnn_base = f"{rel_build_dir}/python_packages/ttnn_jit/runtime"
+    for sub in TTNN_SUBPACKAGES:
+        full_package = f"ttnn.{sub}"
+        packages.append(full_package)
+        # Convert dot notation to filesystem path (e.g., "ttnn.operations" -> "ttnn/operations")
+        sub_path = sub.replace(".", "/")
+        package_dir[full_package] = f"{runtime_ttnn_base}/ttnn/{sub_path}"
+
     return packages, package_dir
 
 
@@ -266,6 +283,8 @@ def generate_package_data(all_runtime_libs):
     base_ttnn_patterns = ["*.py", "*.so"]
 
     package_data["ttnn"] = base_ttnn_patterns
+    for sub in TTNN_SUBPACKAGES:
+        package_data[f"ttnn.{sub}"] = base_ttnn_patterns
 
     return package_data
 
