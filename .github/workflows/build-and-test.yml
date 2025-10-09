@@ -356,6 +356,8 @@ jobs:
       - name: Process test summary
         continue-on-error: true
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           .github/scripts/bash/get_test_summary.sh ${{ github.run_id }}
           cat _summary.md >> $GITHUB_STEP_SUMMARY
