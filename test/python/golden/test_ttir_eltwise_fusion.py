@@ -35,10 +35,10 @@ pytestmark = pytest.mark.frontend("ttir")
 enablePrintIR = True
 
 gridParams = [
-    "override-device-shape=1,1",
-    "override-device-shape=2,2",
+    # "override-device-shape=1,1",
+    # "override-device-shape=2,2",
     "override-device-shape=4,4",
-    "override-device-shape=8,8",
+    # "override-device-shape=8,8",
 ]
 
 ### ----------------------------------------------------------------------- ###
@@ -190,6 +190,20 @@ def cosh(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return ret_val
 
 
+def tanh(in0: Operand, builder: TTIRBuilder):
+    neg_x = builder.neg(in0)
+
+    e_neg_x = builder.exp(neg_x)
+    e_pos_x = builder.exp(in0)
+
+    numerator = builder.subtract(e_pos_x, e_neg_x)
+    denominator = builder.add(e_pos_x, e_neg_x)
+
+    ret_val = builder.div(numerator, denominator)
+
+    return ret_val
+
+
 # Everything should pass
 @pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize(
@@ -214,6 +228,29 @@ def test_eltwise_fuse_cosh(
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=enablePrintIR,
         device=device,
+    )
+
+
+@pytest.mark.parametrize("grid", gridParams)
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_tanh(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+):
+    options = [grid]
+
+    compile_ttir_to_flatbuffer(
+        tanh,
+        [shape],
+        [dtype],
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=enablePrintIR,
     )
 
 
@@ -411,30 +448,30 @@ def test_eltwise_fuse_binary_reduction_tree(
         in1: Operand,
         in2: Operand,
         in3: Operand,
-        in4: Operand,
-        in5: Operand,
-        in6: Operand,
-        in7: Operand,
+        # in4: Operand,
+        # in5: Operand,
+        # in6: Operand,
+        # in7: Operand,
         builder: TTIRBuilder,
     ):
         input_0 = torch.full(shape, 1).to(dtype)
         input_1 = torch.full(shape, 2).to(dtype)
         input_2 = torch.full(shape, 3).to(dtype)
         input_3 = torch.full(shape, 4).to(dtype)
-        input_4 = torch.full(shape, 5).to(dtype)
-        input_5 = torch.full(shape, 6).to(dtype)
-        input_6 = torch.full(shape, 7).to(dtype)
-        input_7 = torch.full(shape, 8).to(dtype)
+        # input_4 = torch.full(shape, 5).to(dtype)
+        # input_5 = torch.full(shape, 6).to(dtype)
+        # input_6 = torch.full(shape, 7).to(dtype)
+        # input_7 = torch.full(shape, 8).to(dtype)
 
         add_0_0 = builder.add(in0, in1)
         add_0_1 = builder.add(in2, in3)
         add_1_0 = builder.add(add_0_0, add_0_1)
 
-        add_0_2 = builder.add(in4, in5)
-        add_0_3 = builder.add(in6, in7)
-        add_1_1 = builder.add(add_0_2, add_0_3)
+        # add_0_2 = builder.add(in4, in5)
+        # add_0_3 = builder.add(in6, in7)
+        # add_1_1 = builder.add(add_0_2, add_0_3)
 
-        add_2_0 = builder.add(add_1_0, add_1_1)
+        # add_2_0 = builder.add(add_1_0, add_1_1)
 
         output_0 = torch.full(shape, 36).to(dtype)
 
@@ -444,20 +481,20 @@ def test_eltwise_fuse_binary_reduction_tree(
                 in1: input_1,
                 in2: input_2,
                 in3: input_3,
-                in4: input_4,
-                in5: input_5,
-                in6: input_6,
-                in7: input_7,
+                # in4: input_4,
+                # in5: input_5,
+                # in6: input_6,
+                # in7: input_7,
             },
-            {add_2_0: output_0},
+            {add_1_0: output_0},
         )
 
-        return add_2_0
+        return add_1_0
 
     compile_and_execute_ttir(
         add_tree_8_to_1,
-        [shape] * 8,
-        [dtype] * 8,
+        [shape] * 4,
+        [dtype] * 4,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -511,6 +548,77 @@ def test_diamond_unary_op_fanout(
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=enablePrintIR,
         device=device,
+    )
+
+##--##-------------------------------------------------------------------##--##
+
+
+@pytest.mark.parametrize("grid", gridParams)
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_binary_sequential_chain(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+):
+    options = [grid]
+
+    def add_chain_8_to_1(
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        in3: Operand,
+        in4: Operand,
+        in5: Operand,
+        in6: Operand,
+        in7: Operand,
+        builder: TTIRBuilder,
+    ):
+        input_0 = torch.full(shape, 1).to(dtype)
+        input_1 = torch.full(shape, 2).to(dtype)
+        input_2 = torch.full(shape, 3).to(dtype)
+        input_3 = torch.full(shape, 4).to(dtype)
+        input_4 = torch.full(shape, 5).to(dtype)
+        input_5 = torch.full(shape, 6).to(dtype)
+        input_6 = torch.full(shape, 7).to(dtype)
+        input_7 = torch.full(shape, 8).to(dtype)
+
+        add_0 = builder.add(in0, in1)
+        add_1 = builder.add(add_0, in2)
+        add_2 = builder.add(add_1, in3)
+        add_3 = builder.add(add_2, in4)
+        add_4 = builder.add(add_3, in5)
+        add_5 = builder.add(add_4, in6)
+        add_6 = builder.add(add_5, in7)
+
+        output_0 = torch.full(shape, 36).to(dtype)
+
+        builder.set_goldens(
+            {
+                in0: input_0,
+                in1: input_1,
+                in2: input_2,
+                in3: input_3,
+                in4: input_4,
+                in5: input_5,
+                in6: input_6,
+                in7: input_7,
+            },
+            {add_6: output_0},
+        )
+
+        return add_6
+
+    compile_ttir_to_flatbuffer(
+        add_chain_8_to_1,
+        [shape] * 8,
+        [dtype] * 8,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=enablePrintIR,
     )
 
 

@@ -181,6 +181,14 @@ public:
       D2MGenericTileComputeLoops>::D2MGenericTileComputeLoopsBase;
 
   void runOnOperation() final {
+
+    // Run the analysis once before any pattern rewriting
+    llvm::errs() << "\n=== Running DestRegisterAnalysis BEFORE "
+                    "GenericTileComputeLoops ===\n\n";
+    DestRegisterAnalysis analysis(getOperation());
+    llvm::errs()
+        << "\n=== Analysis Complete, Starting Pattern Rewriting ===\n\n";
+
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
     patterns.add<D2MGenericComputeRewriter>(ctx,
