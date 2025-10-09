@@ -562,7 +562,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: debug_test_report
+        name: test-reports-debug
         path: ${{ steps.strings.outputs.build-output-dir }}/test/report_${{ steps.fetch-job-id.outputs.job_id }}.xml
         if-no-files-found: 'ignore'
 
