@@ -278,4 +278,12 @@ def TTNNEmitPyWorkarounds: Pass<"ttnn-emitpy-workarounds", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
+  let summary = "Adjust previously inserted tensor deallocation ops.";
+  let description = [{
+    This pass will adjust previously inserted tensor deallocation ops. It will
+    remove deallocations of parameter and constant tensors.
+  }];
+}
+
 #endif
