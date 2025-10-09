@@ -4492,8 +4492,8 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout,
-    std::optional<mlir::tt::ttcore::DataType> dtype) {
+    TTNNLayoutAttr inputLayout, std::optional<mlir::tt::ttcore::DataType> dtype,
+    TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -4529,8 +4529,8 @@ llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
 
 llvm::Expected<size_t> OpModel<GlobalAvgPool2dOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    TTNNLayoutAttr outputLayout,
-    std::optional<mlir::tt::ttcore::DataType> dtype) {
+    std::optional<mlir::tt::ttcore::DataType> dtype,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();

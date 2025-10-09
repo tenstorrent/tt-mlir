@@ -2660,7 +2660,7 @@ protected:
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
     auto constraintsExp = OpModel<GlobalAvgPool2dOp>::getOpConstraints(
-        CreateWorkerGrid(), inputShape, inputLayout, outputLayout);
+        CreateWorkerGrid(), inputShape, inputLayout, std::nullopt, outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
@@ -2676,7 +2676,7 @@ protected:
     }
 
     auto runtimeExp = OpModel<GlobalAvgPool2dOp>::getOpRuntime(
-        inputShape, inputLayout, outputLayout);
+        inputShape, inputLayout, std::nullopt, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (expectedLegal) {
       EXPECT_TRUE(runtimeExp.get() > 0);
