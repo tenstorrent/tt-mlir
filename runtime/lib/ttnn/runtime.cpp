@@ -1244,6 +1244,7 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::EndTraceCaptureOp:
   case ::tt::target::ttnn::OpType::ExecuteTraceOp:
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
+  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsOp:
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
     LOG_WARNING("getting output tensor is not supported for ",
@@ -1595,6 +1596,12 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->sin_cache(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->trans_mat()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsOp: {
+    tensorRefs = {
+        opContext.type_as_NLPCreateQKVHeadsOp()->input_q(),
+        opContext.type_as_NLPCreateQKVHeadsOp()->input_kv()};
     break;
   }
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {

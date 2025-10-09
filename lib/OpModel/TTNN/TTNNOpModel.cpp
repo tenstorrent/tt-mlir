@@ -2679,6 +2679,95 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// NLPCreateQKVHeadsOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<op_model::OpConstraints>
+OpModel<NLPCreateQKVHeadsOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputQShape,
+    TTNNLayoutAttr inputQLayout,
+    std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
+    std::optional<TTNNLayoutAttr> inputKVLayout, uint32_t numQHeads,
+    std::optional<uint32_t> numKVHeads, bool transposeKHeads,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputQSpecExp =
+      detail::convertToTensorSpec(device, inputQShape, inputQLayout);
+  if (!inputQSpecExp) {
+    return inputQSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputQSpec = inputQSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> inputKVSpec = std::nullopt;
+  if (inputKVShape && inputKVLayout) {
+    auto inputKVSpecExp = detail::convertToTensorSpec(
+        device, inputKVShape.value(), inputKVLayout.value());
+    if (!inputKVSpecExp) {
+      return inputKVSpecExp.takeError();
+    }
+    inputKVSpec = inputKVSpecExp.get();
+  }
+
+  // Create query closure
+  auto nlpCreateQKVHeads = [&]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::experimental::nlp_create_qkv_heads, device, inputQSpec, inputKVSpec,
+        numQHeads, numKVHeads, transposeKHeads,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputQLayout.getContext(), deviceGrid,
+                                     nlpCreateQKVHeads);
+
+#else
+  return OpConstraints{};
+#endif
+}
+
+llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputQShape, TTNNLayoutAttr inputQLayout,
+    std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
+    std::optional<TTNNLayoutAttr> inputKVLayout, uint32_t numQHeads,
+    std::optional<uint32_t> numKVHeads, bool transposeKHeads,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputQSpecExp =
+      detail::convertToTensorSpec(device, inputQShape, inputQLayout);
+  if (!inputQSpecExp) {
+    return inputQSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputQSpec = inputQSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> inputKVSpec = std::nullopt;
+  if (inputKVShape && inputKVLayout) {
+    auto inputKVSpecExp = detail::convertToTensorSpec(
+        device, inputKVShape.value(), inputKVLayout.value());
+    if (!inputKVSpecExp) {
+      return inputKVSpecExp.takeError();
+    }
+    inputKVSpec = inputKVSpecExp.get();
+  }
+
+  // Create query closure
+  auto nlpCreateQKVHeads = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::experimental::nlp_create_qkv_heads, device, inputQSpec,
+        inputKVSpec, numQHeads, numKVHeads, transposeKHeads,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(nlpCreateQKVHeads);
+#else
+  return llvm::createStringError("Not implemented");
+#endif
+}
+
+//===----------------------------------------------------------------------===//
 // NLPCreateQKVHeadsDecodeOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<op_model::OpConstraints>

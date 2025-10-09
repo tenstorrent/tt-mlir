@@ -61,6 +61,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/embedding_backward/embedding_backward.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_create_qkv_heads/nlp_create_qkv_heads.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_create_qkv_heads_decode/nlp_create_qkv_heads_decode.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
 #include "ttnn/operations/kv_cache/kv_cache.hpp"

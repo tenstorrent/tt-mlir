@@ -1707,6 +1707,69 @@ TEST_F(OpModelBase, RotaryEmbeddingLlamaOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, NLPCreateQKVHeadsOpInterface) {
+  int32_t batchSize = 1;
+  int32_t sequenceSize = 32;
+  int32_t numQHeads = 24;
+  int32_t numKVHeads = 8;
+  int32_t headDim = 64;
+  int32_t qHiddenDim = headDim * numQHeads;
+  int32_t kvHiddenDim = 2 * headDim * numKVHeads;
+  bool transposeKHeads = false;
+
+  llvm::SmallVector<int64_t> inputQShape{batchSize, 1, sequenceSize, qHiddenDim};
+  llvm::SmallVector<int64_t> inputKVShape{batchSize, 1, sequenceSize, kvHiddenDim};
+
+  llvm::SmallVector<int64_t> outputQueryShape{batchSize, numQHeads, sequenceSize,
+                                              headDim};
+  llvm::SmallVector<int64_t> outputKeyShape{batchSize, numKVHeads,
+                                            transposeKHeads ? headDim : sequenceSize,
+                                            transposeKHeads ? sequenceSize : headDim};
+  llvm::SmallVector<int64_t> outputValueShape{batchSize, numKVHeads, sequenceSize,
+                                              headDim};
+
+  auto inputQ = createEmptyTensor(inputQShape);
+  auto inputKV = createEmptyTensor(inputKVShape);
+
+  auto outputQueryType = createRankedTensorType(outputQueryShape);
+  auto outputKeyType = createRankedTensorType(outputKeyShape);
+  auto outputValueType = createRankedTensorType(outputValueShape);
+  auto returnTypes = llvm::SmallVector<mlir::Type>{
+      outputQueryType, outputKeyType, outputValueType};
+
+  IntegerAttr numQHeadsAttr = builder.getUI32IntegerAttr(numQHeads);
+  IntegerAttr numKVHeadsAttr = builder.getUI32IntegerAttr(numKVHeads);
+  BoolAttr transposeKHeadsAttr = builder.getBoolAttr(transposeKHeads);
+
+  auto nlpCreateQKVHeads = builder.create<NLPCreateQKVHeadsOp>(
+      builder.getUnknownLoc(), TypeRange(returnTypes), inputQ, inputKV,
+      numQHeadsAttr, numKVHeadsAttr, transposeKHeadsAttr,
+      /*memory_config=*/nullptr);
+
+  auto constraintsExp =
+      getOpConstraints(nlpCreateQKVHeads.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 8192);
+    EXPECT_EQ(l1PeakSize, 6144);
+    EXPECT_EQ(outputSize, 2048);
+    EXPECT_EQ(totalPeakSize, 14336);
+  } else {
+    FAIL() << "Missing L1 constraints for NLPCreateQKVHeadsOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(nlpCreateQKVHeads.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for NLPCreateQKVHeadsOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, NLPCreateQKVHeadsDecodeOpInterface) {
   int32_t sequenceSize = 1;
   int32_t batchSize = 32;

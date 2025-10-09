@@ -2076,6 +2076,58 @@ RotaryEmbeddingLlamaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===-----------------------------------------------------------------------===//
+// NLPCreateQKVHeadsOp - TTNN Op Model Interface
+// ===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+NLPCreateQKVHeadsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == (1 + (getInputKv() == nullptr ? 0 : 1)));
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  auto inputShape = getInputQ().getType().getShape();
+
+  std::optional<llvm::ArrayRef<int64_t>> inputKVShape;
+  std::optional<TTNNLayoutAttr> inputKVShapeEncoding;
+  if (inputs.size() == 2) {
+    inputKVShape = getInputKv().getType().getShape();
+    inputKVShapeEncoding = inputs[1];
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<NLPCreateQKVHeadsOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], inputKVShape, inputKVShapeEncoding,
+      getNumQHeads(), getNumKvHeads(), getTransposeKHeads(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t> NLPCreateQKVHeadsOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == (1 + (getInputKv() == nullptr ? 0 : 1)));
+
+  auto inputShape = getInputQ().getType().getShape();
+
+  std::optional<llvm::ArrayRef<int64_t>> inputKVShape;
+  std::optional<TTNNLayoutAttr> inputKVShapeEncoding;
+  if (inputs.size() == 2) {
+    inputKVShape = getInputKv().getType().getShape();
+    inputKVShapeEncoding = inputs[1];
+  }
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<NLPCreateQKVHeadsOp>::getOpRuntime, *this,
+      inputShape, inputs[0], inputKVShape, inputKVShapeEncoding,
+      getNumQHeads(), getNumKvHeads(), getTransposeKHeads(),
+      opConfig.outputLayout);
+}
+
+//===-----------------------------------------------------------------------===//
 // NLPCreateQKVHeadsDecodeOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 

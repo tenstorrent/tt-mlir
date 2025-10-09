@@ -1091,7 +1091,7 @@ def TTNN_NLPCreateQKVHeadsOp: TTNN_Op<"nlp_create_qkv_heads", [TTNN_MemoryConfig
 
       Inputs:
         - `input_q` (AnyRankedTensor): Query input tensor (or fused QKV if input_kv not provided).
-          Expected format: [B, 1, S, H * Nh_q] in dual mode, or [B, 1, S, 3 * H * Nh] in single mode, where:
+          Expected format: [B, 1, S, 3 * H * Nh] or [B, 1, S, H * Nh_q] if input_kv is provided, where:
           - B is the batch size
           - S is the sequence length
           - H is the head dimension
@@ -1104,7 +1104,6 @@ def TTNN_NLPCreateQKVHeadsOp: TTNN_Op<"nlp_create_qkv_heads", [TTNN_MemoryConfig
         - `num_q_heads` (UI32Attr): Number of query heads.
         - `num_kv_heads` (OptionalAttr<UI32Attr>): Number of key-value heads. Defaults to `num_q_heads` if not provided.
         - `transpose_k_heads` (BoolAttr): Whether to transpose key heads along the last two dimensions.
-          Default is false in IR (true in tt-metal runtime).
         - `memory_config` (OptionalAttr<TTNN_MemoryConfigAttr>): Memory configuration for output tensors.
 
       Returns:
@@ -1137,7 +1136,7 @@ def TTNN_NLPCreateQKVHeadsOp: TTNN_Op<"nlp_create_qkv_heads", [TTNN_MemoryConfig
                          Optional<AnyRankedTensor>:$input_kv,
                          UI32Attr:$num_q_heads,
                          OptionalAttr<UI32Attr>:$num_kv_heads,
-                         DefaultValuedAttr<BoolAttr, "false">:$transpose_k_heads,
+                         BoolAttr:$transpose_k_heads,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$query,
