@@ -4796,12 +4796,17 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
                        "global average pooling over 2 spatial dimensions");
   }
 
-  // For global average pooling, batch and channel dimensions should remain the
-  // same
+  if (outputType.getRank() != rank) {
+    return emitOpError("output tensor must have the same rank as input tensor");
+  }
 
   if (inputShape[0] != outputShape[0]) {
     return emitOpError(
         "batch dimension must remain the same between input and output");
+  }
+
+  if (outputShape[rank - 2] != 1 || outputShape[rank - 3] != 1) {
+    return emitOpError("spatial dimensions must be reduced to 1");
   }
 
   if (inputShape[rank - 1] != outputShape[rank - 1]) {
