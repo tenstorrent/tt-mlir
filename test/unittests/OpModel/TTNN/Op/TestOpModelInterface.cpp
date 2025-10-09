@@ -2913,6 +2913,7 @@ TEST_F(OpModelBase, globalAvgPool2dOp) {
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
+  EXPECT_GT(totalPeakSize, 0);
 
   auto runtimeExp = getOpRuntime(globalAvgPool2dOp.getOperation());
   if (runtimeExp) {
