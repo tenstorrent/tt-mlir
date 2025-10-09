@@ -2558,6 +2558,7 @@ def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
   let hasVerifier = 1;
 }
 
+
 def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attention_decode", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
     let description = [{
@@ -2627,4 +2628,55 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
     let hasVerifier = 1;
 }
 
+
+def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
+    TTNN_MemoryConfigOpInterface,
+    TTNN_DtypeOpInterface
+]>{
+  let summary = "A global average pooling 2d operation";
+  let description = [{
+    The `global_avg_pool2d` operation applies global average pooling over the spatial dimensions
+    (height and width) of a 4D input tensor. In essence, it should be realised as the sum-reduce style operation
+    under the hood, for performance reasons (since we include all elements, there is no need for kernel allocation).
+    It reduces spatial dimensions to 1.
+
+    Example:
+    ```mlir
+    %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+
+    %result = "ttnn.global_avg_pool2d"(%input) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>,
+                                                           dtype = #ttcore.supportedDataTypes<bf16>}>
+              : (tensor<1x128x128x32xbf16>) -> tensor<1x1x1x32xbf16>
+    ```
+
+    Inputs:
+    - `input`: 4D tensor with shape [N, H, W, C] where N is batch size, H is height, W is width, and C is channels
+
+    Attributes:
+    - `memory_config` (optional): Memory configuration specifying where the operation should be performed
+    - `dtype` (optional): Data type for the output tensor (e.g., bf16, f32)
+
+    Outputs:
+    - `result`: 4D tensor with shape [N, 1, 1, C] containing the global average pooled values
+
+    Note: The operation reduces spatial dimensions (H, W) to (1, 1) by computing the average across
+    all spatial locations for each channel independently.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       OptionalAttr<TTCore_DataTypeAttr>:$dtype);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let builders = [
+    OpBuilder<(ins "Type":$resultType, "Value":$input),
+    [{
+      build($_builder, $_state, resultType, input,
+            /*memory_config=*/nullptr, /*dtype=*/nullptr);
+    }]>
+  ];
+
+  let hasVerifier = 1;
+}
 #endif

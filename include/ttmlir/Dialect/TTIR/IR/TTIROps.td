@@ -5385,6 +5385,8 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
   let hasVerifier = 1;
 }
 
+
+
 def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
     let description = [{
@@ -5421,6 +5423,7 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
     let hasVerifier = 1;
 }
 
+
 def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention"> {
   let summary = "Scaled dot product attention operation.";
   let description = [{
@@ -5453,4 +5456,54 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
   let hasVerifier = 1;
 }
 
+def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
+  let summary = "A global average pooling 2d operation";
+  let description = [{
+    The `global_avg_pool2d` operation applies global average pooling over the spatial dimensions
+    (height and width) of a 4D input tensor. In essence, it should be realised as the sum-reduce style operation
+    under the hood, for performance reasons (since we include all elements, there is no need for kernel allocation).
+    It reduces spatial dimensions to 1.
+
+    This operation yields the same result as the standard avg_pool_2d operation when kernel_size == [input_height, input_width].
+    However, it is much more memory efficient, as the underlying implementation doesn't need to allocate
+    the kernel for pooling (since the operation boils down to a simple sum-reduce).
+
+    Example:
+    ```mlir
+    // Basic global average pooling reducing 32x32 spatial dimensions to 1x1
+    %input = ... : tensor<1x32x32x64xbf16>  // Input tensor with values in NHWC format
+                                            // N=1 (batch), H=32 (height), W=32 (width), C=64 (channels)
+    %output = ttir.empty() : tensor<1x1x1x64xbf16>
+    %result = "ttir.global_avg_pool2d"(%input, %output) : (tensor<1x32x32x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x1x1x64xbf16>
+    // Result: tensor<1x1x1x64xbf16> where each channel contains the average of all 32*32=1024 spatial locations
+
+    // Example with different input sizes
+    %large_input = ... : tensor<1x128x128x32xbf16>  // Large spatial dimensions
+    %large_output = ttir.empty() : tensor<1x1x1x32xbf16>
+    %large_result = "ttir.global_avg_pool2d"(%large_input, %large_output) : (tensor<1x128x128x32xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x1x1x32xbf16>
+    // Each output channel averages across 128*128=16384 spatial locations
+    ```
+
+    Inputs:
+    - `input`: 4D tensor with shape [N, H, W, C] where N is batch size, H is height, W is width, and C is channels
+    - `output`: Pre-allocated output tensor with shape [N, 1, 1, C] to store the result
+
+    Attributes:
+    - None (this operation has no configurable attributes, unlike regular pooling operations)
+
+    Outputs:
+    - `result`: 4D tensor with shape [N, 1, 1, C] containing the global average pooled values
+
+    Note: The operation reduces spatial dimensions (H, W) to (1, 1) by computing the average across
+    all spatial locations for each channel independently. This is equivalent to avg_pool2d with
+    kernel_size=[H, W], stride=[1, 1], and no padding, but implemented more efficiently.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
 #endif

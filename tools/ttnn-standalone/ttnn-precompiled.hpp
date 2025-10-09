@@ -33,6 +33,7 @@
 #include "operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
+#include "operations/pool/global_avg_pool/global_avg_pool.hpp"
 #include "operations/pool/upsample/upsample.hpp"
 #include "operations/rand/rand.hpp"
 #include "operations/reduction/argmax/argmax.hpp"
