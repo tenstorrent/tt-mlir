@@ -47,12 +47,9 @@ void run(const ::tt::target::ttnn::BatchNormTrainingOp *op,
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 
-  // For training mode, tt-metal computes batch_mean and batch_variance
-  // internally but doesn't return them separately. Insert running_mean and
-  // running_var which get updated in-place during training.
-  if (op->batch_mean() != nullptr && op->batch_variance() != nullptr) {
-    tensorPool.insertTTNNTensorAndValidate(op->batch_mean(), runningMean);
-    tensorPool.insertTTNNTensorAndValidate(op->batch_variance(), runningVar);
-  }
+  // Note: ttnn::batch_norm with training=true updates running_mean and
+  // running_var in-place.
+  tensorPool.insertTTNNTensorAndValidate(op->batch_mean(), runningMean);
+  tensorPool.insertTTNNTensorAndValidate(op->batch_variance(), runningVar);
 }
 } // namespace tt::runtime::ttnn::operations::batch_norm

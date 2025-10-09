@@ -2521,7 +2521,19 @@ public:
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
-    emitter.replaceOp(*this, args);
+    // ttnn::batch_norm with training=true returns the output tensor and
+    // updates running_mean/running_var in-place
+    auto resultType =
+        this->getTypeConverter()->convertType(srcOp.getResult().getType());
+
+    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), resultType, "ttnn::batch_norm",
+        rewriter.getArrayAttr(args), /*template_args=*/nullptr,
+        adaptor.getOperands());
+
+    // The batch stats are the updated running_mean and running_var
+    rewriter.replaceOp(srcOp, {callOp.getResult(0), adaptor.getRunningMean(),
+                               adaptor.getRunningVar()});
 
     return success();
   }
