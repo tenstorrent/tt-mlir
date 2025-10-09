@@ -83,3 +83,8 @@ table TensorRef {
   global_id: uint32;
   desc: TensorDesc;
 }
+
+table MeshCoordinate {
+    // The coordinate values in each dimension
+    values:[uint32];
+}
