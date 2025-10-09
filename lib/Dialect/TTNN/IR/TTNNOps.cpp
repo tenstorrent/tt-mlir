@@ -2368,55 +2368,49 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
-// BatchNormOp
+// BatchNorm verification helpers
 //===----------------------------------------------------------------------===//
 
-// BatchNormOp verification
-::mlir::LogicalResult mlir::tt::ttnn::BatchNormOp::verify() {
-
+namespace {
+// Helper function to verify BatchNorm operations in TTNN dialect.
+// This is used by both BatchNormOp and BatchNormTrainingOp.
+template <typename OpType>
+static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   // Verify that all inputs have dimension 4.
-  if (getInput().getType().getRank() != 4) {
-    return emitOpError("Input tensor must have rank 4");
+  if (op.getInput().getType().getRank() != 4) {
+    return op.emitOpError("Input tensor must have rank 4");
   }
-  if (getRunningMean().getType().getRank() != 4) {
-    return emitOpError("Scale tensor must have rank 4");
+  if (op.getRunningMean().getType().getRank() != 4) {
+    return op.emitOpError("Running mean tensor must have rank 4");
   }
-  if (getRunningVar().getType().getRank() != 4) {
-    return emitOpError("Bias tensor must have rank 4");
+  if (op.getRunningVar().getType().getRank() != 4) {
+    return op.emitOpError("Running variance tensor must have rank 4");
   }
-  if (getWeight().getType().getRank() != 4) {
-    return emitOpError("Weight tensor must have rank 4");
+  if (op.getWeight().getType().getRank() != 4) {
+    return op.emitOpError("Weight tensor must have rank 4");
   }
-  if (getBias().getType().getRank() != 4) {
-    return emitOpError("Bias tensor must have rank 4");
+  if (op.getBias().getType().getRank() != 4) {
+    return op.emitOpError("Bias tensor must have rank 4");
   }
 
   return success();
+}
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// BatchNormOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::BatchNormOp::verify() {
+  return verifyTTNNBatchNormOp(*this);
 }
 
 //===----------------------------------------------------------------------===//
 // BatchNormTrainingOp
 //===----------------------------------------------------------------------===//
+
 ::mlir::LogicalResult mlir::tt::ttnn::BatchNormTrainingOp::verify() {
-
-  // Verify that all inputs have dimension 4.
-  if (getInput().getType().getRank() != 4) {
-    return emitOpError("Input tensor must have rank 4");
-  }
-  if (getRunningMean().getType().getRank() != 4) {
-    return emitOpError("Scale tensor must have rank 4");
-  }
-  if (getRunningVar().getType().getRank() != 4) {
-    return emitOpError("Bias tensor must have rank 4");
-  }
-  if (getWeight().getType().getRank() != 4) {
-    return emitOpError("Weight tensor must have rank 4");
-  }
-  if (getBias().getType().getRank() != 4) {
-    return emitOpError("Bias tensor must have rank 4");
-  }
-
-  return success();
+  return verifyTTNNBatchNormOp(*this);
 }
 
 //===----------------------------------------------------------------------===//

@@ -669,6 +669,37 @@ public:
 
 namespace {
 
+// Used by both BatchNormInferenceOp and BatchNormTrainingOp.
+template <typename OpType, typename OpAdaptor>
+static LogicalResult
+checkBatchNormConversionLegality(OpType &srcOp, OpAdaptor adaptor,
+                                 ConversionPatternRewriter &rewriter,
+                                 llvm::StringRef opName) {
+  auto inputType = mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+  int64_t rank = inputType.getRank();
+  uint64_t featureIndex = srcOp.getFeatureIndex();
+
+  // BatchNorm requires at least 2 dimensions (batch and feature)
+  if (rank < 2) {
+    return rewriter.notifyMatchFailure(
+        srcOp, opName.str() + " input must have at least 2 dimensions.");
+  }
+
+  // BatchNorm supports up to 5 dimensions
+  if (rank > 5) {
+    return rewriter.notifyMatchFailure(
+        srcOp, opName.str() + " input must have at most 5 dimensions.");
+  }
+
+  // Feature index must be valid
+  if (featureIndex >= static_cast<uint64_t>(rank)) {
+    return rewriter.notifyMatchFailure(
+        srcOp, opName.str() + " feature_index is out of bounds.");
+  }
+
+  return success();
+}
+
 class StableHLOToBatchNormOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BatchNormInferenceOp> {
 
@@ -681,8 +712,8 @@ public:
                   mlir::stablehlo::BatchNormInferenceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Check legality of the conversion.
-    LogicalResult legalityResult =
-        checkConversionLegality(srcOp, adaptor, rewriter);
+    LogicalResult legalityResult = checkBatchNormConversionLegality(
+        srcOp, adaptor, rewriter, "BatchNormInferenceOp");
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
@@ -702,37 +733,6 @@ public:
 
     return success();
   }
-
-private:
-  LogicalResult checkConversionLegality(
-      mlir::stablehlo::BatchNormInferenceOp &srcOp,
-      mlir::stablehlo::BatchNormInferenceOp::Adaptor adaptor,
-      ConversionPatternRewriter &rewriter) const {
-    auto inputType =
-        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
-    int64_t rank = inputType.getRank();
-    uint64_t featureIndex = srcOp.getFeatureIndex();
-
-    // BatchNorm requires at least 2 dimensions (batch and feature)
-    if (rank < 2) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "BatchNormInferenceOp input must have at least 2 dimensions.");
-    }
-
-    // BatchNorm supports up to 5 dimensions
-    if (rank > 5) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "BatchNormInferenceOp input must have at most 5 dimensions.");
-    }
-
-    // Feature index must be valid
-    if (featureIndex >= static_cast<uint64_t>(rank)) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "BatchNormInferenceOp feature_index is out of bounds.");
-    }
-
-    return success();
-  }
 };
 } // namespace
 
@@ -749,8 +749,8 @@ public:
                   mlir::stablehlo::BatchNormTrainingOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Check legality of the conversion.
-    LogicalResult legalityResult =
-        checkConversionLegality(srcOp, adaptor, rewriter);
+    LogicalResult legalityResult = checkBatchNormConversionLegality(
+        srcOp, adaptor, rewriter, "BatchNormTrainingOp");
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
@@ -793,37 +793,6 @@ public:
         runningMean, runningVariance,
         ValueRange{outputEmpty, batchMeanEmpty, batchVarianceEmpty},
         adaptor.getEpsilonAttr(), dimensionAttr, momentumAttr);
-
-    return success();
-  }
-
-private:
-  LogicalResult
-  checkConversionLegality(mlir::stablehlo::BatchNormTrainingOp &srcOp,
-                          mlir::stablehlo::BatchNormTrainingOp::Adaptor adaptor,
-                          ConversionPatternRewriter &rewriter) const {
-    auto inputType =
-        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
-    int64_t rank = inputType.getRank();
-    uint64_t featureIndex = srcOp.getFeatureIndex();
-
-    // BatchNorm requires at least 2 dimensions (batch and feature)
-    if (rank < 2) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "BatchNormTrainingOp input must have at least 2 dimensions.");
-    }
-
-    // BatchNorm supports up to 5 dimensions
-    if (rank > 5) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "BatchNormTrainingOp input must have at most 5 dimensions.");
-    }
-
-    // Feature index must be valid
-    if (featureIndex >= static_cast<uint64_t>(rank)) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "BatchNormTrainingOp feature_index is out of bounds.");
-    }
 
     return success();
   }
