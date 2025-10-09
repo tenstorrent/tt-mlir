@@ -510,6 +510,11 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
         conv2dConfig->getEnableWeightsDoubleBuffer().getValue();
   }
 
+  if (conv2dConfig->getConfigTensorsInDram()) {
+    config.config_tensors_in_dram =
+        conv2dConfig->getConfigTensorsInDram().getValue();
+  }
+
   return config;
 }
 

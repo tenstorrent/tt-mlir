@@ -456,6 +456,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     - `enable_act_double_buffer`: Enable activation double buffering for increased performance at cost of higher L1 usage (default: false)
     - `enable_weights_double_buffer`: Enable weights double buffering when using block sharding for increased performance at cost of higher L1 usage (default: false)
     - `in_place`: Re-use input tensor storage when creating output tensor (default: false)
+    - `config_tensors_in_dram`: Whether to place config tensors (weights and bias) in DRAM instead of L1 (default: false)
 
     Example:
 
@@ -493,7 +494,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         OptionalParameter<"std::optional<Layout>">:$output_layout,
                         OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
-                        OptionalParameter<"BoolAttr">:$in_place);
+                        OptionalParameter<"BoolAttr">:$in_place,
+                        OptionalParameter<"BoolAttr">:$config_tensors_in_dram);
 
   let builders = [
     AttrBuilder<(ins )>
@@ -517,6 +519,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     Conv2dConfigAttr withEnableActDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
     Conv2dConfigAttr withInPlace(bool value) const;
+    Conv2dConfigAttr withConfigTensorsInDram(bool value) const;
     bool hasActivation() const;
     bool hasWeightsDtype() const;
     bool hasDeallocateActivation() const;
@@ -534,6 +537,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     bool hasEnableActDoubleBuffer() const;
     bool hasEnableWeightsDoubleBuffer() const;
     bool hasInPlace() const;
+    bool hasConfigTensorsInDram() const;
   }];
 
   let assemblyFormat = "`<` struct(params) `>`";

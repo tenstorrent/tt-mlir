@@ -760,7 +760,8 @@ Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
                                /*outputLayout=*/std::nullopt,
                                /*enableActDoubleBuffer=*/nullptr,
                                /*enableWeightsDoubleBuffer=*/nullptr,
-                               /*inPlace=*/nullptr);
+                               /*inPlace=*/nullptr,
+                               /*configTensorsInDram=*/nullptr);
 }
 
 // Returns default configuration.
@@ -865,6 +866,12 @@ Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
   return params.buildConv2dConfigAttr(getContext());
 }
 
+Conv2dConfigAttr Conv2dConfigAttr::withConfigTensorsInDram(bool value) const {
+  Conv2dConfigParams params(*this);
+  params.configTensorsInDram = value;
+  return params.buildConv2dConfigAttr(getContext());
+}
+
 bool Conv2dConfigAttr::hasActivation() const {
   return getActivation() != nullptr;
 }
@@ -920,6 +927,10 @@ bool Conv2dConfigAttr::hasEnableWeightsDoubleBuffer() const {
 }
 
 bool Conv2dConfigAttr::hasInPlace() const { return getInPlace() != nullptr; }
+
+bool Conv2dConfigAttr::hasConfigTensorsInDram() const {
+  return getConfigTensorsInDram() != nullptr;
+}
 
 CoreRangeSetAttr
 ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,

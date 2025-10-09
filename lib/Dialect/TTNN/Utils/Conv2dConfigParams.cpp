@@ -51,6 +51,7 @@ Conv2dConfigParams::Conv2dConfigParams(Conv2dConfigAttr attr, bool partial) {
   enableWeightsDoubleBuffer =
       getOrDefaultBool(attr.getEnableWeightsDoubleBuffer());
   inPlace = getOrDefaultBool(attr.getInPlace());
+  configTensorsInDram = getOrDefaultBool(attr.getConfigTensorsInDram());
 }
 
 Conv2dConfigAttr
@@ -78,6 +79,7 @@ Conv2dConfigParams::buildConv2dConfigAttr(::mlir::MLIRContext *ctx) const {
       toBoolAttr(overrideShardingConfig), shardLayout,
       coreGrid.value_or(CoreRangeSetAttr()), toBoolAttr(transposeShards),
       outputLayout, toBoolAttr(enableActDoubleBuffer),
-      toBoolAttr(enableWeightsDoubleBuffer), toBoolAttr(inPlace));
+      toBoolAttr(enableWeightsDoubleBuffer), toBoolAttr(inPlace),
+      toBoolAttr(configTensorsInDram));
 }
 } // namespace mlir::tt::ttnn

@@ -36,6 +36,7 @@ struct Conv2dConfigParams {
   std::optional<bool> enableActDoubleBuffer = std::nullopt;
   std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
   std::optional<bool> inPlace = std::nullopt;
+  std::optional<bool> configTensorsInDram = std::nullopt;
 
   // Default constructor - all fields nullopt
   Conv2dConfigParams() = default;
@@ -73,6 +74,9 @@ struct Conv2dConfigParams {
     return enableWeightsDoubleBuffer.has_value();
   }
   bool hasInPlace() const { return inPlace.has_value(); }
+  bool hasConfigTensorsInDram() const {
+    return configTensorsInDram.has_value();
+  }
 
   /// Check if all fields are unset (empty configuration)
   bool empty() const {
@@ -82,7 +86,8 @@ struct Conv2dConfigParams {
            !hasReshardIfNotOptimal() && !hasOverrideShardingConfig() &&
            !hasShardLayout() && !hasCoreGrid() && !hasTransposeShards() &&
            !hasOutputLayout() && !hasEnableActDoubleBuffer() &&
-           !hasEnableWeightsDoubleBuffer() && !hasInPlace();
+           !hasEnableWeightsDoubleBuffer() && !hasInPlace() &&
+           !hasConfigTensorsInDram();
   }
 
   /// Check if all fields are set (complete configuration)
@@ -93,7 +98,7 @@ struct Conv2dConfigParams {
            hasOverrideShardingConfig() && hasShardLayout() && hasCoreGrid() &&
            hasTransposeShards() && hasOutputLayout() &&
            hasEnableActDoubleBuffer() && hasEnableWeightsDoubleBuffer() &&
-           hasInPlace();
+           hasInPlace() && hasConfigTensorsInDram();
   }
 
   friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
@@ -110,7 +115,8 @@ struct Conv2dConfigParams {
        << ":output_layout#" << params.outputLayout
        << ":enable_act_double_buffer#" << params.enableActDoubleBuffer
        << ":enable_weights_double_buffer#" << params.enableWeightsDoubleBuffer
-       << params.inPlace;
+       << ":in_place#" << params.inPlace << ":config_tensors_in_dram#"
+       << params.configTensorsInDram;
     return os;
   }
 };
