@@ -1306,10 +1306,23 @@ static mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttnn::ReshapeOp op) {
 
 // Back to back reshapes can be replaced with the final reshape.
 static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
-  auto reshapeOperand =
-      op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>();
-  if (!reshapeOperand) {
-    return nullptr;
+  if (auto reshapeOperand =
+          op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>()) {
+
+    // We do not want to fold the consecutive reshapes if the first reshape's
+    // result is consumed by an op which has memory effects on it BEFORE the
+    // second reshape.
+    auto reshapeOperandUsers = reshapeOperand.getResult().getUsers();
+    for (Operation *user : reshapeOperandUsers) {
+      if (utils::operationHasMemoryEffectsOnOperand(reshapeOperand.getResult(),
+                                                    user) &&
+          user->isBeforeInBlock(op)) {
+        return nullptr;
+      }
+    }
+
+    op.getOperation()->setOperand(0, reshapeOperand.getInput());
+    return op.getResult();
   }
 
   // Check if any user (except this reshape) writes to the intermediate value

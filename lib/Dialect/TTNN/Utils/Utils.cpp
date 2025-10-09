@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
@@ -342,6 +343,64 @@ mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
       /*shape=*/{},
       ::mlir::IntegerType::get(ctx, /*width=*/32, IntegerType::Unsigned),
       ttnn::TraceIdAttr::get(ctx));
+}
+
+namespace detail {
+template <typename OpType>
+static bool operandHasMemoryEffectedByOp(mlir::Value operand, OpType op) {
+  llvm::SmallVector<
+      ::mlir::SideEffects::EffectInstance<::mlir::MemoryEffects::Effect>>
+      effects;
+  op.getEffects(effects);
+
+  // Check if any of op's effects are on the provided operand.
+  for (auto effect : effects) {
+    if (effect.getValue() == operand) {
+      return true;
+    }
+  }
+  return false;
+}
+
+template <typename... OpTypes>
+static bool operandHasMemoryEffectedByOps(mlir::Value operand,
+                                          mlir::Operation *op) {
+  // Find the TTNN operation that op is an instance of, and determine if the op
+  // has memory effects on the provided operand.
+  return (... || ([&] {
+            if (auto typed = llvm::dyn_cast_or_null<OpTypes>(op)) {
+              return operandHasMemoryEffectedByOp<OpTypes>(operand, typed);
+            }
+            return false;
+          }()));
+}
+
+} // namespace detail
+
+bool operationHasMemoryEffectsOnOperand(mlir::Value operand,
+                                        mlir::Operation *op) {
+
+  bool opHasOperand = false;
+  for (auto operand_ : op->getOperands()) {
+    if (operand_ == operand) {
+      opHasOperand = true;
+      break;
+    }
+  }
+
+  if (!opHasOperand) {
+    llvm_unreachable("The provided operand value is not an operand of the "
+                     "provided operation.");
+  }
+
+  // mlir::Operation does not implement getEffects(), however all generated
+  // dialect ops DO implement it. We use this templated helper function to check
+  // all TTNN dialect ops.
+  return detail::operandHasMemoryEffectedByOps<
+#define GET_OP_LIST
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
+      >(operand, op);
+#undef GET_OP_LIST
 }
 
 } // namespace mlir::tt::ttnn::utils
