@@ -320,13 +320,6 @@ jobs:
         path: _test_duration
         if-no-files-found: 'ignore'
 
-    - name: Collect and Upload Perf Reports
-      uses: ./.github/actions/collect-and-upload-perf-reports
-      with:
-        reports_dir: ttrt-artifacts
-        perf_report_path: ${{ steps.strings.outputs.perf_report_path }}
-        artifact_name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ steps.fetch-job-id.outputs.job_id }}
-
     - name: Upload ttrt test report json
       if: (success() || failure())
       uses: actions/upload-artifact@v4
