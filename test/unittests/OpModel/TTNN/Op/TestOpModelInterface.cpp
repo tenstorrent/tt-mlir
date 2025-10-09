@@ -3602,8 +3602,8 @@ TEST_F(OpModelBase, batchNormOpL1Memory) {
 
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
               outputLayoutReadBack] = constraintsExp.get();
-  EXPECT_EQ(cbSize, 36864);
-  EXPECT_EQ(l1PeakSize, 2048);
+  EXPECT_EQ(cbSize, 49152);
+  EXPECT_EQ(l1PeakSize, 10240);
   EXPECT_EQ(outputSize, 2048);
 
   auto runtimeExp = getOpRuntime(batchNormOp.getOperation());
