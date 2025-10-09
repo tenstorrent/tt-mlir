@@ -2660,7 +2660,8 @@ protected:
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
     auto constraintsExp = OpModel<GlobalAvgPool2dOp>::getOpConstraints(
-        CreateWorkerGrid(), inputShape, inputLayout, std::nullopt, outputLayout);
+        CreateWorkerGrid(), inputShape, inputLayout, std::nullopt,
+        outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
