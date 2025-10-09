@@ -2666,9 +2666,10 @@ protected:
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
                   outputLayoutReadBack] = constraintsExp.get();
-      EXPECT_GT(cbSize, 0);
-      EXPECT_GT(l1PeakSize, 0);
-      EXPECT_GT(outputSize, 0);
+      EXPECT_GT(cbSize, expectedCbSize);
+      EXPECT_GT(l1PeakSize, expectedL1PeakSize);
+      EXPECT_GT(totalPeakSize, expectedTotalPeakSize);
+      EXPECT_GT(outputSize, expectedOutputSize);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
       llvm::consumeError(constraintsExp.takeError());
