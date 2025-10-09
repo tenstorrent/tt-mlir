@@ -115,9 +115,10 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTNNConv2dWithActivation<ReluOp>,
-                 TTNNConv2dWithActivation<Relu6Op>,
-                 TTNNConv2dWithActivation<SiluOp>>(&getContext());
+    patterns.add<
+        TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
+        TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
+        TTNNConv2dWithActivation<HardsigmoidOp>>(&getContext());
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));

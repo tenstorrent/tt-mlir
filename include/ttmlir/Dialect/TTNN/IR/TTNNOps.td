@@ -477,6 +477,12 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
       Eltwise sigmoid operation.
     }];
 }
+def TTNN_HardsigmoidOp : TTNN_ElementwiseUnaryOp<"hardsigmoid"> {
+  let summary = "Eltwise hardsigmoid.";
+  let description = [{
+    Eltwise hardsigmoid operation. Computes hardsigmoid(x) = max(0, min(1, (x + 3) / 6)).
+  }];
+}
 
 def TTNN_SiluOp : TTNN_ElementwiseUnaryOp<"silu"> {
   let summary = "Eltwise SiLU.";

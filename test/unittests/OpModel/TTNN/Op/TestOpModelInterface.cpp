@@ -208,6 +208,10 @@ const auto createRelu6 = [](OpBuilder &b, Location loc, Type type,
                             ValueRange ops) {
   return b.create<Relu6Op>(loc, type, ops).getOperation();
 };
+const auto createHardsigmoid = [](OpBuilder &b, Location loc, Type type,
+                                  ValueRange ops) {
+  return b.create<HardsigmoidOp>(loc, type, ops).getOperation();
+};
 const auto createSilu = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
   return b.create<SiluOp>(loc, type, ops).getOperation();
@@ -306,6 +310,7 @@ const auto createCbrt = [](OpBuilder &b, Location loc, Type type,
 const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Relu", createRelu, expected},
     {"Relu6", createRelu6, expected},
+    {"Hardsigmoid", createHardsigmoid, expected},
     {"Silu", createSilu, expected},
     {"Sin", createSin, expected},
     {"Cos", createCos, expected},
