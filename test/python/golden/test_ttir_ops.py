@@ -2702,6 +2702,27 @@ def test_unary_ops_int32(
     "test_fn",
     [
         add,
+        multiply,
+        subtract,
+        remainder
+        | Marks(
+            pytest.mark.skip_config(["ttmetal"]), pytest.mark.skip_config(["emitpy"])
+        ),
+        maximum
+        | Marks(
+            pytest.mark.skip_config(
+                ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
+            ),
+            pytest.mark.skip_config(["emitpy"]),
+        ),
+        minimum
+        | Marks(
+            pytest.mark.skip_config(["ttmetal"]), pytest.mark.skip_config(["emitpy"])
+        ),
+        matmul | Marks(pytest.mark.skip_config(["ttmetal"])),
+        logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
+        logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),
+        logical_xor | Marks(pytest.mark.skip_config(["ttmetal"])),
     ],
 )
 def test_binary_ops(
