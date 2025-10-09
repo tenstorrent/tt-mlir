@@ -10,6 +10,7 @@ from functools import reduce
 import operator
 from conftest import x86_only
 
+from ttmlir.dialects import ttir, ttcore
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -58,13 +59,53 @@ def logical_not(
     input_tensor = input_tensor.to(dtype)
     # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype.
     golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
+
+    # to_device = builder.tilize(
+    #    in0,
+    #    output_type=builder.get_metal_tensor_layout(
+    #        shape,
+    #        tiled=False,
+    #        memorySpace=ttcore.MemorySpace.DeviceL1,
+    #        grid=(1, 1),
+    #    ),
+    #    unit_attrs=unit_attrs,
+    # )
+    # to_tiled_device = builder.tilize(
+    #    to_device,
+    #    output_type=builder.get_metal_tensor_layout(
+    #        shape,
+    #        tiled=True,
+    #        memorySpace=ttcore.MemorySpace.DeviceL1,
+    #        grid=(1, 64),
+    #    ),
+    #    unit_attrs=unit_attrs,
+    # )
+
     logical_not_0 = builder.logical_not(in0, unit_attrs=unit_attrs)
+
+    # to_1x1_grid = builder.to_layout(
+    #    logical_not_0,
+    #    output_type=builder.get_metal_tensor_layout(
+    #        shape,
+    #        tiled=False,
+    #        memorySpace=ttcore.MemorySpace.DeviceL1,
+    #        grid=(1, 1),
+    #    ),
+    #    unit_attrs=unit_attrs,
+    # )
+
+    # untilize_out = builder.untilize(
+    #    to_1x1_grid,
+    #    output_type=in0.type,
+    #    unit_attrs=unit_attrs,
+    # )
+
     builder.set_goldens({in0: input_tensor}, {logical_not_0: golden_output_tensor})
     return logical_not_0
 
 
 # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
-@pytest.mark.parametrize("shape", [(8192, 64)], ids=shape_str)
+@pytest.mark.parametrize("shape", [(64, 2048)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
@@ -73,11 +114,18 @@ def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
     ):
         return logical_not(in0, builder, shape, dtype, unit_attrs)
 
+    pipeline_options = "{disable-tolayout-folding=1}"
+    pipeline = ",".join(
+        [
+            f"ttir-to-ttmetal-pipeline{pipeline_options}",
+        ]
+    )
     compile_ttir_to_flatbuffer(
         logical_not_wrapper,
         [shape],
         [dtype],
         test_base=request.node.name,
+        custom_pipeline=pipeline,
         print_ir="test_logical_not_ir",
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

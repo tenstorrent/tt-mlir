@@ -95,6 +95,9 @@ protected:
           uint64_t{1}, std::multiplies<uint64_t>());
 
       // for now, can only support if largest dim is divisible by grid volume
+      llvm::dbgs() << "computeOptimalGrid | physicalShape: "
+                   << physicalShape[maxRatioIndex]
+                   << " gridVolume: " << gridVolume << "\n";
       assert(physicalShape[maxRatioIndex] % gridVolume == 0);
       for (size_t i = 0; i < physicalShape.size(); ++i) {
         if (i == maxRatioIndex) {
@@ -199,6 +202,55 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
+  static std::pair<AffineMap, AffineMap>
+  createCoreVirtMaps(MLIRContext *context,
+                     const SmallVector<int64_t> &virtualGrid,
+                     const SmallVector<int64_t> &targetGrid) {
+
+    assert(targetGrid.size() == 2);
+    int64_t rank = virtualGrid.size();
+    int64_t totalDims = 2 * rank; // grid + shard dims
+
+    // llvm::dbgs() << "createCoreVirtMaps | virtualGridShape: " <<
+    // virtualGrid[0] << "x" << virtualGrid[1] << "\n"; llvm::dbgs() <<
+    // "createCoreVirtMaps | targetGridShape: " << targetGrid[0] << "x" <<
+    // targetGrid[1] << "\n";
+
+    bool is2DWidthSharded = (rank == 2) && virtualGrid[1] == 1;
+    bool is2DHeightSharded = (rank == 2) && virtualGrid[0] == 1;
+
+    if (is2DWidthSharded || is2DHeightSharded) {
+
+      SmallVector<AffineExpr> forwardMapExprs;
+      SmallVector<AffineExpr> inverseMapExprs;
+
+      AffineExpr d0 = getAffineDimExpr(0, context);
+      AffineExpr d1 = getAffineDimExpr(1, context);
+      AffineExpr d2 = getAffineDimExpr(2, context);
+      AffineExpr d3 = getAffineDimExpr(3, context);
+      AffineExpr zero = getAffineConstantExpr(0, context);
+      AffineExpr gridRowStride = getAffineConstantExpr(targetGrid[0], context);
+      AffineExpr gridColStride = getAffineConstantExpr(targetGrid[1], context);
+
+      if (is2DWidthSharded) {
+        forwardMapExprs = {d0 % gridRowStride, d0.floorDiv(gridRowStride), d2,
+                           d3};
+        inverseMapExprs = {d0 * gridRowStride + d1, zero, d2, d3};
+      } else if (is2DHeightSharded) {
+        forwardMapExprs = {d1.floorDiv(gridColStride), d1 % gridColStride, d2,
+                           d3};
+        inverseMapExprs = {zero, d1 * gridColStride + d0, d2, d3};
+      }
+      auto forward =
+          mlir::AffineMap::get(totalDims, 0, forwardMapExprs, context);
+      auto inverse =
+          mlir::AffineMap::get(totalDims, 0, inverseMapExprs, context);
+      return {forward, inverse};
+    } else {
+      llvm_unreachable("Expected 2D width or height sharded");
+    }
+  }
+
   // Create a ToLayout op for a value using the provided layout info and grid.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled,
@@ -239,11 +291,8 @@ protected:
     Value to_layout;
     if (inferAsVirtualGrid(findMaxDimAndAspectRatio(unshardedShape).second)) {
 
-      // TODO!!!!! replace affine maps with non-identity maps!!!!!!!
-      // TODO!!!!! replace affine maps with non-identity maps!!!!!!!
-      // TODO!!!!! replace affine maps with non-identity maps!!!!!!!
-      AffineMap identityMap = AffineMap::getMultiDimIdentityMap(
-          shardedShape.size(), rewriter.getContext());
+      auto [coreVirtMap, invCoreVirtMap] = createCoreVirtMaps(
+          rewriter.getContext(), optimalGrid, targetSquareGridShape);
 
       // create underlying physical buffer
       size_t numShardDims = targetSquareGridShape.size();
@@ -252,23 +301,19 @@ protected:
       physicalShape.append(llvm::to_vector(
           ArrayRef<int64_t>(shardedShape).drop_front(numShardDims)));
 
-      llvm::dbgs() << "physicalShape: " << physicalShape[0] << "x"
-                   << physicalShape[1] << "x" << physicalShape[2] << "x"
-                   << physicalShape[3] << "\n";
-
       auto physicalLayout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), physicalShape, targetSquareGridShape,
+          rewriter.getContext(), logicalShape, targetSquareGridShape,
           ttcore::OOBVal::Undef, memSpace, ttcore::TensorMemoryLayout::Sharded,
-          identityMap);
+          invCoreVirtMap);
 
       auto emptyOp = rewriter.create<d2m::EmptyOp>(
           value.getLoc(), physicalShape, elementType, physicalLayout);
 
       // create virtual view layout of the physical buffer
       auto virtualLayout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), shardedShape, targetSquareGridShape,
+          rewriter.getContext(), logicalShape, targetSquareGridShape,
           ttcore::OOBVal::Undef, memSpace, ttcore::TensorMemoryLayout::Sharded,
-          identityMap);
+          coreVirtMap);
       auto resultTy =
           RankedTensorType::get(shardedShape, elementType, virtualLayout);
 
@@ -475,7 +520,7 @@ private:
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, rewriter.getAffineMapArrayAttr(indexingMaps),
-        rewriter.getArrayAttr(iteratorTypes));
+        rewriter.getArrayAttr(iteratorTypes), d2m::ThreadType::Compute, grid);
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();

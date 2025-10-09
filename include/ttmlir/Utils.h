@@ -7,6 +7,8 @@
 
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/AffineMap.h"
@@ -19,6 +21,7 @@
 
 #include <cstdint>
 #include <numeric>
+#include <sstream>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -147,6 +150,38 @@ generateAffineMapFromShardStrides(mlir::ArrayRef<int64_t> strides,
   return map;
 }
 
+inline mlir::AffineMap affineMapSelectOneOutput(mlir::AffineMap map,
+                                                unsigned selectedResult) {
+  mlir::SmallVector<int64_t> dropMask;
+  for (unsigned i = 0; i < map.getNumResults(); i++) {
+    if (i != selectedResult) {
+      dropMask.push_back(i);
+    }
+  }
+  return map.dropResults(mlir::ArrayRef<int64_t>(dropMask));
+}
+
+inline mlir::AffineMap affineMapDropRange(mlir::AffineMap map, unsigned start,
+                                          unsigned end) {
+  mlir::SmallVector<int64_t> dropMask;
+  for (unsigned i = start; i <= end; i++) {
+    dropMask.push_back(i);
+  }
+  return map.dropResults(mlir::ArrayRef<int64_t>(dropMask));
+}
+
+// returns
+inline llvm::SmallVector<mlir::Value>
+fullyApplyAffineMap(mlir::OpBuilder &builder, mlir::Location loc,
+                    mlir::AffineMap map, mlir::ValueRange inputs) {
+  llvm::SmallVector<mlir::Value> results;
+  for (unsigned i = 0; i < map.getNumResults(); i++) {
+    results.push_back(builder.create<mlir::affine::AffineApplyOp>(
+        loc, affineMapSelectOneOutput(map, i), inputs));
+  }
+  return results;
+}
+
 template <typename T>
 T volume(mlir::ArrayRef<T> shape, T stride = 1) {
   return std::accumulate(shape.begin(), shape.end(), stride,
@@ -161,6 +196,66 @@ std::string join(Range &&R, llvm::StringRef separator) {
   return llvm::join(
       llvm::map_range(R, [](auto &v) { return llvm::Twine(v).str(); }),
       separator);
+}
+
+// Converts an iterable collection to a vector of strings using stringstream.
+template <typename Range>
+llvm::SmallVector<std::string> iterableToStrings(Range &&iterable) {
+  llvm::SmallVector<std::string> result;
+  for (const auto &elem : iterable) {
+    std::string strbuffer;
+    llvm::raw_string_ostream ss(strbuffer);
+    ss << elem;
+    result.push_back(strbuffer);
+  }
+  return result;
+}
+
+// Formats an iterable collection as a string with parentheses and separator.
+// Adds newlines when line length exceeds threshold.
+// Example: formatIterable({1, 2, 3}) -> "(1, 2, 3)"
+// Example: formatIterable({1, 2, 3}, "x") -> "(1x2x3)"
+template <typename Range>
+std::string formatIterable(Range &&iterable, llvm::StringRef separator = ",",
+                           int addNewlinesOnThreshold = 80) {
+  std::string result = "(";
+
+  // Convert iterable to vector of strings using stringstream
+  auto stringVec = iterableToStrings(iterable);
+  std::string content = ttmlir::utils::join(stringVec, separator);
+
+  if (content.length() + 2 <= static_cast<size_t>(addNewlinesOnThreshold)) {
+    // Simple case: content fits within threshold
+    result += content;
+  } else {
+    // Complex case: need to break into multiple lines
+    result += "\n";
+    size_t currentLineLength = 0;
+    bool first = true;
+
+    for (const auto &elem : stringVec) {
+      if (!first) {
+        result += separator;
+        currentLineLength += separator.size();
+      }
+
+      // Check if adding this element would exceed threshold
+      if (currentLineLength + elem.length() >
+              static_cast<size_t>(addNewlinesOnThreshold) &&
+          !first) {
+        result += "\n";
+        currentLineLength = 0;
+      }
+
+      result += elem;
+      currentLineLength += elem.length();
+      first = false;
+    }
+    result += "\n";
+  }
+
+  result += ")";
+  return result;
 }
 
 // Prepacks `MlirAttribute`s stored in input array into a vector of

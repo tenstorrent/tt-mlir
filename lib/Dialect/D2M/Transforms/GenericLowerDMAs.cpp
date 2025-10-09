@@ -54,51 +54,24 @@ public:
       physicalCoreIndices[gridIndex] = builder.create<CoreIndexOp>(
           loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex));
     }
-    llvm::dbgs() << "buildStreamIndex | physicalCoreIndices: {";
-    for (auto index : physicalCoreIndices) {
-      llvm::dbgs() << index << ", ";
-    }
-    llvm::dbgs() << "}\n";
+    llvm::dbgs() << "buildStreamIndex | physicalCoreIndices: "
+                 << ttmlir::utils::formatIterable(physicalCoreIndices) << "\n";
 
     // build inputs to affine map, zeroing shard dims
-    // Value zero = builder.create<arith::ConstantOp>(
-    //    loc, builder.getIndexType(), builder.getI64IntegerAttr(0));
-    // SmallVector<Value> virt2PhysIndex;
-    // for (unsigned dim = 0; dim < virt2PhysMap.getNumDims(); dim++) {
-    //  if (dim < gridIndexingMap.getNumDims()) {
-    //    virt2PhysIndex.push_back(physicalCoreIndices[dim]);
-    //  } else {
-    //    virt2PhysIndex.push_back(zero);
-    //  }
-    //}
-
-    // extract a single output dim from an affine map for a given input
-    auto affineApply = [&](AffineMap map, ValueRange inputs,
-                           unsigned selectedResult) {
-      if (selectedResult < coreVirtualizationMap.getNumResults()) {
-        assert(selectedResult < coreVirtualizationMap.getNumResults());
-        SmallVector<int64_t> drop;
-        for (unsigned i = 0; i < coreVirtualizationMap.getNumResults(); i++) {
-          if (i != selectedResult) {
-            drop.push_back(i);
-          }
-        }
-        map = map.dropResults(ArrayRef<int64_t>(drop));
-      }
-      return builder.create<affine::AffineApplyOp>(loc, map, inputs);
-    };
-
-    SmallVector<Value> virtualGridValues;
-    for (unsigned gridIndex = 0; gridIndex < gridIndexingMap.getNumResults();
-         gridIndex++) {
-      virtualGridValues.push_back(
-          affineApply(coreVirtualizationMap, physicalCoreIndices, gridIndex));
+    Value zero = builder.create<arith::ConstantOp>(
+        loc, builder.getIndexType(), builder.getI64IntegerAttr(0));
+    SmallVector<Value> virt2PhysIndex = physicalCoreIndices;
+    for (unsigned dim = gridIndexingMap.getNumDims();
+         dim < coreVirtualizationMap.getNumDims(); dim++) {
+      virt2PhysIndex.push_back(zero);
     }
-    llvm::dbgs() << "buildStreamIndex | virtualGridValues: {";
-    for (auto value : virtualGridValues) {
-      llvm::dbgs() << value << ", ";
-    }
-    llvm::dbgs() << "}\n";
+    llvm::dbgs() << "buildStreamIndex | virt2PhysIndex: "
+                 << ttmlir::utils::formatIterable(virt2PhysIndex) << "\n";
+
+    SmallVector<Value> virtualGridValues = ttmlir::utils::fullyApplyAffineMap(
+        builder, loc, coreVirtualizationMap, virt2PhysIndex);
+    llvm::dbgs() << "buildStreamIndex | virtualGridValues: "
+                 << ttmlir::utils::formatIterable(virtualGridValues) << "\n";
 
     for (unsigned result = 0; result < dmaIndexingMap.getNumResults();
          result++) {
@@ -107,8 +80,8 @@ public:
           gridIndexingMap.getResultPosition(dmaIndexingMap.getResult(result));
       //
       // The following assert is pretty subtle. If this operand dimension
-      // participates in the grid, for now we must assert that the relative grid
-      // result is the same as the operand result. This protects against
+      // participates in the grid, for now we must assert that the relative
+      // grid result is the same as the operand result. This protects against
       // permutations of the grid, ie. transposes.  For example, let's consider
       // a matmul case:
       //   dmaIndexingMap:  (m, n, k) -> (m, k)
@@ -330,6 +303,9 @@ public:
             underlyingMemrefAndView.first.getLayout())) {
       if (shardLayout.getCoreVirtualizationMap()) {
         coreVirtualizationMap = shardLayout.getCoreVirtualizationMap();
+        coreVirtualizationMap = ttmlir::utils::affineMapDropRange(
+            coreVirtualizationMap, memrefGridShape.size(),
+            coreVirtualizationMap.getNumResults() - 1);
       }
     }
     llvm::dbgs() << "analyzeStream | grid coreVirtualizationMap: "
