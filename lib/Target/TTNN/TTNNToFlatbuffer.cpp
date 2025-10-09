@@ -24,6 +24,7 @@
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
+#include "ttmlir/Target/TTNN/operations/eltwise_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
@@ -1029,7 +1030,7 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, ScatterOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter;
-  } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowOp>) {
+  } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowTensorOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, Atan2Op>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2;
@@ -1056,6 +1057,44 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
 
   return ::tt::target::ttnn::CreateEltwiseBinaryCompositeOp(
       *cache.fbb, type, lhs, rhs, memoryConfig, out);
+}
+
+template <typename EltwiseBinaryCompositeScalarOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseBinaryCompositeScalarOp>
+createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
+                                     EltwiseBinaryCompositeScalarOp op) {
+
+  ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType type;
+  ::tt::target::ttnn::RhsParams rhsType;
+  ::flatbuffers::Offset<void> rhsValue;
+  if (std::is_same_v<EltwiseBinaryCompositeScalarOp, PowScalarOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar;
+    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getRhs())) {
+      rhsType = ::tt::target::ttnn::RhsParams::FP;
+      rhsValue = ::tt::target::ttnn::CreateFloatingPointType(
+                     *cache.fbb, floatAttr.getValue().convertToFloat())
+                     .Union();
+    } else if (auto integerAttr =
+                   mlir::dyn_cast<mlir::IntegerAttr>(op.getRhs())) {
+      rhsType = ::tt::target::ttnn::RhsParams::UI32;
+      rhsValue = ::tt::target::ttnn::CreateIntegralType(
+                     *cache.fbb, integerAttr.getValue().getSExtValue())
+                     .Union();
+    } else {
+      llvm_unreachable("Exponent must be float or integer");
+    }
+  } else {
+    llvm_unreachable("unhandled EltwiseBinaryCompositeScalarOp");
+  }
+  auto lhs = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getLhs()));
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  return ::tt::target::ttnn::CreateEltwiseBinaryCompositeScalarOp(
+      *cache.fbb, type, lhs, rhsType, rhsValue, memoryConfig, out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseTernaryWhereOp>
@@ -2333,8 +2372,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            createEltwiseBinaryCompositeOp(cache, minimumOp),
                            debugString, locInfo);
   }
-  if (auto powOp = dyn_cast<PowOp>(op); powOp) {
-    return createOperation(cache, createEltwiseBinaryCompositeOp(cache, powOp),
+  if (auto powTensorOp = dyn_cast<PowTensorOp>(op); powTensorOp) {
+    return createOperation(cache,
+                           createEltwiseBinaryCompositeOp(cache, powTensorOp),
                            debugString, locInfo);
   }
   if (auto remainderOp = dyn_cast<RemainderOp>(op); remainderOp) {
@@ -2351,6 +2391,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache,
                            createEltwiseBinaryCompositeOp(cache, atan2Op),
                            debugString, locInfo);
+  }
+  if (auto powScalarOp = dyn_cast<PowScalarOp>(op); powScalarOp) {
+    return createOperation(
+        cache, createEltwiseBinaryCompositeScalarOp(cache, powScalarOp),
+        debugString, locInfo);
   }
   if (auto whereOp = dyn_cast<WhereOp>(op); whereOp) {
     return createOperation(cache, createEltwiseTernaryWhereOp(cache, whereOp),

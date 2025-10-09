@@ -427,7 +427,7 @@ auto getOpSymbol() {
     return ::ttnn::remainder;
   } else if constexpr (std::is_same_v<OpTy, Atan2Op>) {
     return ::ttnn::atan2;
-  } else if constexpr (std::is_same_v<OpTy, PowOp>) {
+  } else if constexpr (std::is_same_v<OpTy, PowTensorOp>) {
     return ::ttnn::pow;
   } else if constexpr (std::is_same_v<OpTy, WhereOp>) {
     return ::ttnn::where;
@@ -1227,7 +1227,7 @@ template struct BinaryEltwiseOpModel<LessThanOp>;
 template struct BinaryEltwiseOpModel<LogicalAndOp>;
 template struct BinaryEltwiseOpModel<LogicalOrOp>;
 template struct BinaryEltwiseOpModel<LogicalXorOp>;
-template struct BinaryEltwiseOpModel<PowOp>;
+template struct BinaryEltwiseOpModel<PowTensorOp>;
 // BinaryCompositeOpModel
 template struct BinaryCompositeOpModel<BitwiseAndOp>;
 template struct BinaryCompositeOpModel<BitwiseOrOp>;
@@ -1235,6 +1235,97 @@ template struct BinaryCompositeOpModel<BitwiseXorOp>;
 template struct BinaryCompositeOpModel<LogicalLeftShiftOp>;
 template struct BinaryCompositeOpModel<RemainderOp>;
 template struct BinaryCompositeOpModel<Atan2Op>;
+
+//===----------------------------------------------------------------------===//
+// PowScalar
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, mlir::Attribute exponent,
+    TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Helper lambda to create the query with any exponent value type.
+  auto powScalarQuery = [=](auto convertedExponent) {
+    return [=]() {
+      return ::ttnn::graph::query_op_constraints(
+          ::ttnn::pow, device, inputSpec, convertedExponent,
+          detail::getNullableMemoryConfig(outputLayout));
+    };
+  };
+
+  // The invoke function of PowScalarOp is templated over the exponent value
+  // type. That's why the following code is arranged in this way.
+  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
+    uint32_t convertedExponent = static_cast<uint32_t>(value.getInt());
+    auto query = powScalarQuery(convertedExponent);
+    return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                       query);
+  }
+  if (auto value = mlir::dyn_cast<mlir::FloatAttr>(exponent)) {
+    float convertedExponent = value.getValue().convertToFloat();
+    auto query = powScalarQuery(convertedExponent);
+    return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                       query);
+  }
+  return llvm::createStringError("Invalid exponent");
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    mlir::Attribute exponent, TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Helper lambda to create the query with any exponent value type.
+  auto powScalarQuery = [=](auto convertedExponent) {
+    return [=]() {
+      return ::ttnn::graph::query_op_runtime(
+          ::ttnn::pow, device, inputSpec, convertedExponent,
+          detail::getNullableMemoryConfig(outputLayout));
+    };
+  };
+
+  // The invoke function of PowScalarOp is templated over the exponent value
+  // type. That's why the following code is arranged in this way.
+  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
+    uint32_t convertedExponent = static_cast<uint32_t>(value.getInt());
+    auto query = powScalarQuery(convertedExponent);
+    return operation::getOpRuntime(query);
+  }
+  if (auto value = mlir::dyn_cast<mlir::FloatAttr>(exponent)) {
+    float convertedExponent = value.getValue().convertToFloat();
+    auto query = powScalarQuery(convertedExponent);
+    return operation::getOpRuntime(query);
+  }
+
+  return llvm::createStringError("Invalid exponent");
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
 
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops
@@ -5360,7 +5451,7 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
   };
 
   // The invoke function of fullOp is templated over the fill value type. That's
-  // why the following code is aranged in this way.
+  // why the following code is arranged in this way.
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(fillValue)) {
     int convertedFillValue = static_cast<int>(value.getInt());
     auto query = createFullOpQuery(convertedFillValue);
