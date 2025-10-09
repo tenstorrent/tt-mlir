@@ -938,6 +938,26 @@ public:
 } // namespace
 
 namespace {
+// Used by both BatchNormOp and BatchNormTrainingOp.
+template <typename OpType, typename OpAdaptor>
+static LogicalResult
+checkBatchNormToTTNNLegality(OpType &op, OpAdaptor adaptor,
+                             ConversionPatternRewriter &rewriter) {
+  // Check if the operand is a 4-dimensional tensor.
+  if (mlir::cast<RankedTensorType>(adaptor.getOperand().getType()).getRank() !=
+      4) {
+    return rewriter.notifyMatchFailure(
+        op, "Operand must be a 4-dimensional tensor");
+  }
+
+  // We only support excluded_dimension=1 for ttnn::batch_norm
+  if (adaptor.getDimension() != 1) {
+    return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
+  }
+
+  return success();
+}
+
 class BatchNormOpConversionPattern
     : public OpConversionPattern<ttir::BatchNormOp> {
 public:
@@ -946,16 +966,11 @@ public:
   LogicalResult
   matchAndRewrite(ttir::BatchNormOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check if the operand is a 4-dimensional tensor.
-    if (mlir::cast<RankedTensorType>(adaptor.getOperand().getType())
-            .getRank() != 4) {
-      return rewriter.notifyMatchFailure(
-          op, "Operand must be a 4-dimensional tensor");
-    }
-
-    // We only support excluded_dimension=1 for ttnn::batch_norm
-    if (adaptor.getDimension() != 1) {
-      return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
+    // Check legality of the conversion.
+    LogicalResult legalityResult =
+        checkBatchNormToTTNNLegality(op, adaptor, rewriter);
+    if (failed(legalityResult)) {
+      return legalityResult;
     }
 
     rewriter.replaceOpWithNewOp<ttnn::BatchNormOp>(
@@ -977,16 +992,11 @@ public:
   LogicalResult
   matchAndRewrite(ttir::BatchNormTrainingOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check if the operand is a 4-dimensional tensor.
-    if (mlir::cast<RankedTensorType>(adaptor.getOperand().getType())
-            .getRank() != 4) {
-      return rewriter.notifyMatchFailure(
-          op, "Operand must be a 4-dimensional tensor");
-    }
-
-    // We only support excluded_dimension=1 for ttnn::batch_norm_training
-    if (adaptor.getDimension() != 1) {
-      return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
+    // Check legality of the conversion.
+    LogicalResult legalityResult =
+        checkBatchNormToTTNNLegality(op, adaptor, rewriter);
+    if (failed(legalityResult)) {
+      return legalityResult;
     }
 
     // Convert result types
