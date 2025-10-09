@@ -2227,7 +2227,7 @@ SplitQueryKeyValueAndSplitHeadsOp::getOpConstraints(
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints,
       *this, deviceGrid, inputShape, inputs[0], kvInputShape, kvInputLayout,
-      getNumHeads(), getNumKvHeads(), getTransposeKey());
+      getNumHeads(), getNumKvHeads(), getTransposeKey(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t> SplitQueryKeyValueAndSplitHeadsOp::getOpRuntime(
@@ -2244,7 +2244,7 @@ llvm::Expected<size_t> SplitQueryKeyValueAndSplitHeadsOp::getOpRuntime(
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime, *this,
       inputShape, inputs[0], kvInputShape, kvInputLayout, getNumHeads(),
-      getNumKvHeads(), getTransposeKey());
+      getNumKvHeads(), getTransposeKey(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

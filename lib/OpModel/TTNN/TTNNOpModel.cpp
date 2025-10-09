@@ -2780,7 +2780,8 @@ OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
     TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
     std::optional<TTNNLayoutAttr> inputKVLayout, uint32_t numHeads,
-    std::optional<uint32_t> numKVHeads, bool transposeKey) {
+    std::optional<uint32_t> numKVHeads, bool transposeKey,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2807,7 +2808,7 @@ OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::transformer::split_query_key_value_and_split_heads, device,
         inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
-        detail::getNullableMemoryConfig(inputLayout));
+        detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -2821,7 +2822,8 @@ llvm::Expected<size_t> OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
     std::optional<TTNNLayoutAttr> inputKVLayout, uint32_t numHeads,
-    std::optional<uint32_t> numKVHeads, bool transposeKey) {
+    std::optional<uint32_t> numKVHeads, bool transposeKey,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2848,7 +2850,7 @@ llvm::Expected<size_t> OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::transformer::split_query_key_value_and_split_heads, device,
         inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
-        detail::getNullableMemoryConfig(inputLayout));
+        detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpRuntime(splitQueryKeyValueAndSplitHeadsOpQuery);

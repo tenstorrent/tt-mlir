@@ -1161,6 +1161,169 @@ TEST_F(OpModelTest, NLPConcatHeadsDecodeOp) {
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
+// ==== SplitQueryKeyValueAndSplitHeadsOp Tests ====
+class OpModelSplitQueryKeyValueAndSplitHeadsParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,    // input tensor config
+                     detail::TestTensor,    // output query tensor config
+                     detail::TestTensor,    // output key tensor config
+                     detail::TestTensor,    // output value tensor config
+                     uint32_t,              // num_heads
+                     bool,                  // transpose_key
+                     detail::ExpectedResult // expected results
+                     >> {
+protected:
+  void RunTest() {
+    auto params = GetParam();
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = std::get<0>(params);
+    const auto [outputQueryShape, outputQueryTensorLayout,
+                outputQueryBufferType, outputQueryVirtualGrid] =
+        std::get<1>(params);
+    const uint32_t numHeads = std::get<4>(params);
+    const bool transposeKey = std::get<5>(params);
+    const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
+                expectedTotalPeakSize, expectedOutputSize] =
+        std::get<6>(params);
+
+    const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr outputQueryLayout =
+        CreateTiledLayout(outputQueryShape, outputQueryBufferType,
+                          outputQueryTensorLayout, outputQueryVirtualGrid);
+
+    auto constraintsExp =
+        OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
+            CreateWorkerGrid(), inputShape, inputLayout,
+            std::nullopt, // inputKVShape
+            std::nullopt, // inputKVLayout
+            numHeads,
+            std::nullopt, // numKVHeads
+            transposeKey, outputQueryLayout);
+
+    // Check if the operation is expected to be legal
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+
+    if (expectedLegal) {
+      auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutResult] =
+          constraintsExp.get();
+      EXPECT_EQ(cbSize, expectedCbSize);
+      EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
+      EXPECT_EQ(totalPeakSize, expectedTotalPeakSize);
+      EXPECT_EQ(outputSize, expectedOutputSize);
+      EXPECT_TRUE(outputLayoutResult != nullptr);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelSplitQueryKeyValueAndSplitHeadsParam,
+       SplitQueryKeyValueAndSplitHeadsOp) {
+  RunTest();
+}
+const std::initializer_list<
+    std::tuple<detail::TestTensor,    // input tensor config
+               detail::TestTensor,    // output query tensor config
+               detail::TestTensor,    // output key tensor config
+               detail::TestTensor,    // output value tensor config
+               uint32_t,              // num_heads
+               bool,                  // transpose_key
+               detail::ExpectedResult // expected results
+               >>
+    splitQueryKeyValueAndSplitHeadsParams = {
+        // Test case 1: Small transformer L1 to L1 (based on interface test
+        // config)
+        std::make_tuple(detail::TestTensor{{8, 16, 3072},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        detail::TestTensor{{8, 32, 16, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        detail::TestTensor{{8, 32, 16, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        detail::TestTensor{{8, 32, 16, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        32, false,
+                        detail::ExpectedResult{true, 8192, 24576, 32768,
+                                               8192}), // PASSING - keep as is
+
+        // Test case 2: DRAM to DRAM configuration
+        std::make_tuple(
+            detail::TestTensor{{2, 1024, 2304},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            detail::TestTensor{{2, 12, 1024, 64},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            detail::TestTensor{{2, 12, 1024, 64},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            detail::TestTensor{{2, 12, 1024, 64},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            12, false,
+            detail::ExpectedResult{true, 8192, 0, 8192, 0}), // UPDATED
+
+        // Test case 3: Mixed memory (DRAM input, L1 output)
+        std::make_tuple(
+            detail::TestTensor{{1, 256, 1536},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            detail::TestTensor{{1, 16, 256, 32},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::L1},
+            detail::TestTensor{{1, 16, 256, 32},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::L1},
+            detail::TestTensor{{1, 16, 256, 32},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::L1},
+            16, false,
+            detail::ExpectedResult{true, 8192, 12288, 20480, 4096}), // UPDATED
+
+        // Test case 4: Large transformer configuration
+        std::make_tuple(
+            detail::TestTensor{{4, 2048, 9216},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            detail::TestTensor{{4, 24, 2048, 128},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            detail::TestTensor{{4, 24, 2048, 128},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            detail::TestTensor{{4, 24, 2048, 128},
+                               TensorMemoryLayout::Interleaved,
+                               BufferType::DRAM},
+            24, false,
+            detail::ExpectedResult{true, 8192, 0, 8192, 0}), // UPDATED
+
+        // Test case 5: With transpose_key enabled
+        std::make_tuple(detail::TestTensor{{1, 512, 1536},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        detail::TestTensor{{1, 16, 512, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        detail::TestTensor{{1, 16, 512, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        detail::TestTensor{{1, 16, 512, 32},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::L1},
+                        16, true,
+                        detail::ExpectedResult{true, 24576, 24576, 49152,
+                                               8192})}; // UPDATED
+
+INSTANTIATE_TEST_SUITE_P(
+    SplitQueryKeyValueAndSplitHeadsTests,
+    OpModelSplitQueryKeyValueAndSplitHeadsParam,
+    ::testing::ValuesIn(splitQueryKeyValueAndSplitHeadsParams));
+
 TEST_F(OpModelTest, RepeatInterleave) {
   const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
