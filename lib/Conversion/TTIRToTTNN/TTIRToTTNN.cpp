@@ -1095,12 +1095,19 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    // Create Conv2dConfigAttr with config_tensors_in_dram set to true
+    bool config_to_dram_needed = (outChannelsAttr.getInt() > 64);
+
+
+    auto conv2dConfigAttr = config_to_dram_needed ? ttnn::Conv2dConfigAttr::get(rewriter.getContext())
+                                .withConfigTensorsInDram(true) : nullptr;
+
     rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
-        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        groupsAttr, outputDtypeAttr, conv2dConfigAttr,
         /*compute_config=*/nullptr);
 
     return success();
