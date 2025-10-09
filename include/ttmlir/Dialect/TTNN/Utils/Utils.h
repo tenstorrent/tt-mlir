@@ -113,6 +113,11 @@ bool producesTiledTensorLayout(Operation *op);
 bool hasFirstOperandInDRAM(Operation *op);
 
 mlir::RankedTensorType getTraceIdType(MLIRContext *ctx);
+
+// Will return true if the operation has memory effects on the provided operand.
+bool operationHasMemoryEffectsOnOperand(mlir::Value operand,
+                                        mlir::Operation *op);
+
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
