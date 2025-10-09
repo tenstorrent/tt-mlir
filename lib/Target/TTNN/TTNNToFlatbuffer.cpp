@@ -2118,12 +2118,18 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
           toFlatbuffer(cache, formatAttr.getDtype()),
           formatAttr.getPageSize()));
     }
+    ::flatbuffers::Offset<::tt::target::ttnn::KernelGlobalCBIndexOfTensor>
+        buffer;
+    if (kernelCbAttr.getBuffer()) {
+      buffer = ::tt::target::ttnn::CreateKernelGlobalCBIndexOfTensor(
+          *cache.fbb, kernelCbAttr.getBuffer().getTensorOperandIndex());
+    }
 
     cbs.push_back(::tt::target::ttnn::CreateKernelCBDescriptorDirect(
         *cache.fbb, kernelCbAttr.getTotalSize(),
         toFlatbuffer(cache, llvm::cast<ttnn::CoreRangeSetAttr>(
                                 kernelCbAttr.getCoreRanges())),
-        &formats));
+        &formats, buffer));
   }
 
   auto program = ::tt::target::ttnn::CreateProgramDescriptorDirect(

@@ -728,6 +728,15 @@ def TTNN_KernelCBFormatAttr: TTNN_Attr<"KernelCBFormat", "kernel_cb_format"> {
   let genVerifyDecl = 1;
 }
 
+def TTNN_KernelCBGlobalBufferAddressOfTensorAttr : TTNN_Attr<"KernelCBGlobalBufferAddressOfTensor", "kernel_cb_global_buffer_address_of_tensor"> {
+  let summary = "Global buffer address of tensor argument";
+  let description = [{
+    TTNN Generic CB Descriptor argument for address aliased global buffer.
+  }];
+  let parameters = (ins "size_t":$tensor_operand_index);
+  let assemblyFormat = "`<` $tensor_operand_index `>`";
+}
+
 def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
   let summary = "Kernel CB descriptor";
   let description = [{
@@ -736,8 +745,10 @@ def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
 
   let parameters = (ins "uint32_t":$total_size,
                         TTNN_CoreRangeSetAttr:$core_ranges,
-                        ArrayRefParameter<"KernelCBFormatAttr">:$formats);
-  let assemblyFormat = "`<` struct($total_size, $core_ranges) `,` `formats` `=` `[` $formats `]` `>`";
+                        ArrayRefParameter<"KernelCBFormatAttr">:$formats,
+                        OptionalParameter<"KernelCBGlobalBufferAddressOfTensorAttr">:$buffer);
+
+  let assemblyFormat = "`<` struct($total_size, $core_ranges) `,` `formats` `=` `[` $formats `]` (`,` `buffer` `=` qualified($buffer)^)? `>`";
 
   let genVerifyDecl = 1;
 }

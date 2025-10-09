@@ -262,7 +262,7 @@ void MCQExecutor::execute(const target::metal::HostAllocCommand *command) {
 
 void MCQExecutor::execute(const target::metal::ReturnCommand *command) {
   auto meshEvent = std::make_shared<distributed::MeshEvent>(
-      distributed::EnqueueRecordEventToHost(*mcq));
+      mcq->enqueue_record_event_to_host());
 
   LOG_ASSERT(outputs.empty(),
              "Unexpected outputs, multiple returns not supported");
