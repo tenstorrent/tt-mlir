@@ -232,6 +232,68 @@ def parse_fabric_config(fabric_config_str: str):
         raise ValueError(f"unknown fabric config '{fabric_config_str}'.")
 
 
+def convert_input_layouts(device, inputs, fbb, program_index):
+    import ttrt.runtime
+
+    inputs_converted = []
+    for input_index in range(len(inputs)):
+        input_layout = ttrt.runtime.get_layout(fbb, program_index, input_index)
+        inputs_converted.append(
+            ttrt.runtime.to_layout(inputs[input_index], device, input_layout, True)
+        )
+    return inputs_converted
+
+
+def create_tensor(tensor):
+    import ttrt.runtime
+
+    # Empty tensor if any of the dim is zero.
+    isEmptyTensor = not all(tensor.shape)
+
+    # Create 'owned tensor' in case of empty tensor;
+    if isEmptyTensor:
+        return ttrt.runtime.create_owned_host_tensor(
+            tensor.data_ptr(),
+            list(tensor.shape),
+            list(tensor.stride()),
+            tensor.element_size(),
+            Binary.Program.to_data_type(tensor.dtype),
+        )
+
+    # Create 'borrowed tensor'.
+    return ttrt.runtime.create_borrowed_host_tensor(
+        tensor.data_ptr(),
+        list(tensor.shape),
+        list(tensor.stride()),
+        tensor.element_size(),
+        Binary.Program.to_data_type(tensor.dtype),
+    )
+
+
+def convert_runtime_to_torch_tensor(runtime_tensor):
+    torch_tensor = None
+    isEmptyTensor = not all(runtime_tensor.get_shape())
+    data_buffer = bytearray(runtime_tensor.get_data_buffer())
+    if isEmptyTensor and len(data_buffer) == 0:
+        # Create empty tensor.
+        torch_tensor = torch.empty(
+            runtime_tensor.get_shape(),
+            dtype=ttrt_datatype_to_torch_dtype(runtime_tensor.get_dtype()),
+        )
+    elif not isEmptyTensor and len(data_buffer) > 0:
+        # Create regular tensor.
+        torch_tensor = torch.frombuffer(
+            data_buffer,
+            dtype=ttrt_datatype_to_torch_dtype(runtime_tensor.get_dtype()),
+        ).reshape(runtime_tensor.get_shape())
+    else:
+        raise Exception(
+            f"Failed: Tensor shape=({runtime_tensor.get_shape()}) and data buffer size={len(data_buffer)} do not match."
+        )
+
+    return torch_tensor
+
+
 class Logger:
     def __init__(self, file_name=""):
         import logging
@@ -473,12 +535,12 @@ class FileManager:
 
     def find_file_paths(self, path, extension):
         self.logging.debug(f"finding all {extension} files from={path}")
-        files = []
+        found_files = []
 
         if self.is_file(path):
             if self.check_file_exists(path):
                 if self.get_file_extension(path) == extension:
-                    files.append(path)
+                    found_files.append(path)
                     self.logging.debug(f"found file={path}")
             else:
                 self.logging.info(f"file '{path}' not found - skipping")
@@ -488,14 +550,14 @@ class FileManager:
                 for root, _, files in os.walk(path):
                     for file in files:
                         if self.get_file_extension(file) == extension:
-                            files.append(os.path.join(root, file))
+                            found_files.append(os.path.join(root, file))
                             self.logging.debug(f"found file={os.path.join(root, file)}")
             except Exception as e:
                 raise Exception(f"an unexpected error occurred: {e}")
 
         # Sort files alphabetically to ensure consistent ordering.
-        files.sort()
-        return files
+        found_files.sort()
+        return found_files
 
     def find_ttnn_binary_paths(self, path):
         return self.find_file_paths(path, Flatbuffer.get_ttnn_file_extension())
@@ -528,6 +590,32 @@ class FileManager:
             return ttnn_path
         return None
 
+    def load_tensors_from_artifacts(self, bin, key, artifacts_path):
+        """
+        Open directory, loop through subdirectories, load all .pt files into torch tensors, and save them according to their respective program.
+        """
+        program_tensors = {}
+        program_names = [d for d in os.listdir(artifacts_path)]
+        self.logging.debug(f"Loading .pt tensors from directory: {artifacts_path}")
+        for program in program_names:
+            program_dir = os.path.join(artifacts_path, program)
+            files = sorted([d for d in os.listdir(program_dir)])
+            tensors = []
+            for file in files:
+                file = os.path.join(program_dir, file)
+                if file.endswith(".pt") and key in file:
+                    try:
+                        tensors.append(torch.load(file, weights_only=True))
+                        self.logging.debug(f"Loading tensor from file: {file}")
+                    except Exception as e:
+                        raise Exception(
+                            f"Error loading tensor from file {file}: {str(e)}"
+                        )
+
+            program_tensors[program] = tensors
+
+        return program_tensors
+
 
 class Artifacts:
     def __init__(self, logger, file_manager=None, artifacts_folder_path=""):
@@ -556,8 +644,11 @@ class Artifacts:
     def get_binary_run_folder_path(self, binary):
         return f"{self.get_artifacts_folder_path()}/{binary.name}/run"
 
-    def get_dylib_emitpy_folder_path(self, dylib):
+    def get_emitpy_dylib_folder_path(self, dylib):
         return f"{self.get_artifacts_folder_path()}/{dylib.name}/emitpy"
+
+    def get_emitc_dylib_folder_path(self, dylib):
+        return f"{self.get_artifacts_folder_path()}/{dylib.name}/emitc"
 
     def create_artifacts(self):
         self.file_manager.create_directory(self.get_artifacts_folder_path())

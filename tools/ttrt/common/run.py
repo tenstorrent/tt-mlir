@@ -527,45 +527,6 @@ class Run:
             import ttrt.runtime
             import torch
 
-            def convert_input_layouts(device, inputs, fbb, program_index):
-                import ttrt.runtime
-
-                inputs_converted = []
-                for input_index in range(len(inputs)):
-                    input_layout = ttrt.runtime.get_layout(
-                        fbb, program_index, input_index
-                    )
-                    perf_env.tracy_log_op_location(f"loc(arg_{input_index})")
-                    inputs_converted.append(
-                        ttrt.runtime.to_layout(
-                            inputs[input_index], device, input_layout, True
-                        )
-                    )
-                return inputs_converted
-
-            # Create 'owned tensor' in case of empty tensor;
-            # otherwise create 'borrowed tensor'.
-            def create_tensor(tensor):
-                # Empty tensor if any of the dim is zero.
-                isEmptyTensor = not all(tensor.shape)
-
-                if isEmptyTensor:
-                    return ttrt.runtime.create_owned_host_tensor(
-                        tensor.data_ptr(),
-                        list(tensor.shape),
-                        list(tensor.stride()),
-                        tensor.element_size(),
-                        Binary.Program.to_data_type(tensor.dtype),
-                    )
-
-                return ttrt.runtime.create_borrowed_host_tensor(
-                    tensor.data_ptr(),
-                    list(tensor.shape),
-                    list(tensor.stride()),
-                    tensor.element_size(),
-                    Binary.Program.to_data_type(tensor.dtype),
-                )
-
             if len(binaries) == 0:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
@@ -796,6 +757,8 @@ class Run:
                                 update_tensor_schedule[iterations].append(input_idx)
 
                         # pre-upload inputs
+                        for input_index in range(len(inputs)):
+                            perf_env.tracy_log_op_location(f"loc(arg_{input_index})")
                         inputs = convert_input_layouts(
                             device, inputs, bin.fbb, program_index
                         )
@@ -877,30 +840,9 @@ class Run:
                                     self["--print-input-output-tensors"]
                                     or not self["--disable-golden"]
                                 ):
-                                    isEmptyTensor = not all(outputs[i].get_shape())
-                                    data_buffer = bytearray(
-                                        outputs[i].get_data_buffer()
+                                    output_tensor_torch = (
+                                        convert_runtime_to_torch_tensor(outputs[i])
                                     )
-                                    if isEmptyTensor and len(data_buffer) == 0:
-                                        # Create empty tensor.
-                                        output_tensor_torch = torch.empty(
-                                            outputs[i].get_shape(),
-                                            dtype=ttrt_datatype_to_torch_dtype(
-                                                outputs[i].get_dtype()
-                                            ),
-                                        )
-                                    elif not isEmptyTensor and len(data_buffer) > 0:
-                                        # Create regular tensor.
-                                        output_tensor_torch = torch.frombuffer(
-                                            data_buffer,
-                                            dtype=ttrt_datatype_to_torch_dtype(
-                                                outputs[i].get_dtype()
-                                            ),
-                                        ).reshape(outputs[i].get_shape())
-                                    else:
-                                        raise Exception(
-                                            f"Failed: Tensor shape=({outputs[i].get_shape()}) and data buffer size={len(data_buffer)} do not match."
-                                        )
 
                                 # Compare program level golden.
                                 golden_tensor_torch = None

@@ -237,40 +237,6 @@ class EmitC:
     def execute(self):
         import ttrt.runtime
 
-        def convert_input_layouts(device, inputs, fbb, program_index):
-            import ttrt.runtime
-
-            inputs_converted = []
-            for input_index in range(len(inputs)):
-                input_layout = ttrt.runtime.get_layout(fbb, program_index, input_index)
-                inputs_converted.append(
-                    ttrt.runtime.to_layout(
-                        inputs[input_index], device, input_layout, True
-                    )
-                )
-            return inputs_converted
-
-        def create_tensor(tensor):
-            # Empty tensor if any of the dim is zero.
-            isEmptyTensor = not all(tensor.shape)
-
-            if isEmptyTensor:
-                return ttrt.runtime.create_owned_host_tensor(
-                    tensor.data_ptr(),
-                    list(tensor.shape),
-                    list(tensor.stride()),
-                    tensor.element_size(),
-                    Binary.Program.to_data_type(tensor.dtype),
-                )
-
-            return ttrt.runtime.create_borrowed_host_tensor(
-                tensor.data_ptr(),
-                list(tensor.shape),
-                list(tensor.stride()),
-                tensor.element_size(),
-                Binary.Program.to_data_type(tensor.dtype),
-            )
-
         self.logging.debug(f"------executing emitc API")
 
         if len(self.emitc_dylibs) == 0:
@@ -294,9 +260,6 @@ class EmitC:
 
                     if self["--artifact-dir"]:
                         command_options += f" --artifact-dir {self['--artifact-dir']} "
-
-                    if self["--result-file"]:
-                        command_options += f" --result-file {self['--result-file']} "
 
                     if self["--memory"]:
                         command_options += " --memory "
@@ -384,18 +347,23 @@ class EmitC:
 
                 if compare_to_ttnn:
                     # Load input and output tensors for each program from artifacts
-                    fbb_torch_inputs = self.load_tensors_from_artifacts(bin, "input")
-                    fbb_torch_outputs = self.load_tensors_from_artifacts(
-                        bin, "device_output"
+                    fbb_run_directory = self.artifacts.get_binary_run_folder_path(bin)
+                    fbb_torch_inputs = self.file_manager.load_tensors_from_artifacts(
+                        bin, "input", fbb_run_directory
+                    )
+                    fbb_torch_outputs = self.file_manager.load_tensors_from_artifacts(
+                        bin,
+                        "device_output",
+                        fbb_run_directory,
                     )
 
-                for program_index in range(len(program_names)):
+                for program_index, program_name in enumerate(program_names):
                     if self["--program-index"] != "all" and program_index != int(
                         self["--program-index"]
                     ):
                         continue
                     self.logging.debug(
-                        f"evaluating program={program_names[program_index]} for file={dylib.file_path}"
+                        f"evaluating program={program_name} for file={dylib.file_path}"
                     )
                     emitc_artifact_path = f"{self.artifacts.get_emitc_dylib_folder_path(dylib)}/program_{program_index}"
 
@@ -430,7 +398,7 @@ class EmitC:
                     else:
                         emitc_runtime_inputs = ttrt.runtime.test.create_inputs(
                             emitc_dylib_handle,
-                            program_names[program_index],
+                            program_name,
                             device,
                             dylib.file_path,
                         )
@@ -443,31 +411,9 @@ class EmitC:
                             for i, emitc_runtime_input in enumerate(
                                 emitc_runtime_inputs
                             ):
-                                emitc_torch_input = None
-                                isEmptyTensor = not all(emitc_runtime_input.get_shape())
-                                data_buffer = bytearray(
-                                    emitc_runtime_input.get_data_buffer()
+                                emitc_torch_input = convert_runtime_to_torch_tensor(
+                                    emitc_runtime_input
                                 )
-                                if isEmptyTensor and len(data_buffer) == 0:
-                                    # Create empty tensor.
-                                    emitc_torch_input = torch.empty(
-                                        emitc_runtime_input.get_shape(),
-                                        dtype=ttrt_datatype_to_torch_dtype(
-                                            emitc_runtime_input.get_dtype()
-                                        ),
-                                    )
-                                elif not isEmptyTensor and len(data_buffer) > 0:
-                                    # Create regular tensor.
-                                    emitc_torch_input = torch.frombuffer(
-                                        data_buffer,
-                                        dtype=ttrt_datatype_to_torch_dtype(
-                                            emitc_runtime_input.get_dtype()
-                                        ),
-                                    ).reshape(emitc_runtime_input.get_shape())
-                                else:
-                                    raise Exception(
-                                        f"Failed: Tensor shape=({emitc_runtime_input.get_shape()}) and data buffer size={len(data_buffer)} do not match."
-                                    )
                                 emitc_torch_inputs.append(emitc_torch_input)
 
                                 if self["--save-artifacts"]:
@@ -485,7 +431,7 @@ class EmitC:
                     for loop in range(self["--loops"]):
                         emitc_runtime_outputs = ttrt.runtime.test.run_so_program(
                             emitc_dylib_handle,
-                            program_names[program_index],
+                            program_name,
                             emitc_runtime_inputs,
                             device,
                         )
@@ -497,31 +443,9 @@ class EmitC:
                         or compare_to_ttnn
                     ):
                         for i, emitc_runtime_output in enumerate(emitc_runtime_outputs):
-                            emitc_torch_output = None
-                            isEmptyTensor = not all(emitc_runtime_output.get_shape())
-                            data_buffer = bytearray(
-                                emitc_runtime_output.get_data_buffer()
+                            emitc_torch_output = convert_runtime_to_torch_tensor(
+                                emitc_runtime_output
                             )
-                            if isEmptyTensor and len(data_buffer) == 0:
-                                # Create empty tensor.
-                                emitc_torch_output = torch.empty(
-                                    emitc_runtime_output.get_shape(),
-                                    dtype=ttrt_datatype_to_torch_dtype(
-                                        emitc_runtime_output.get_dtype()
-                                    ),
-                                )
-                            elif not isEmptyTensor and len(data_buffer) > 0:
-                                # Create regular tensor.
-                                emitc_torch_output = torch.frombuffer(
-                                    data_buffer,
-                                    dtype=ttrt_datatype_to_torch_dtype(
-                                        emitc_runtime_output.get_dtype()
-                                    ),
-                                ).reshape(emitc_runtime_output.get_shape())
-                            else:
-                                raise Exception(
-                                    f"Failed: Tensor shape=({emitc_runtime_output.get_shape()}) and data buffer size={len(data_buffer)} do not match."
-                                )
                             emitc_torch_outputs.append(emitc_torch_output)
 
                             if self["--save-artifacts"]:
@@ -683,30 +607,3 @@ class EmitC:
                 )
 
         return emitc_parser
-
-    def load_tensors_from_artifacts(self, bin, key):
-        """
-        Open directory, loop through subdirectories, load all .pt files into torch tensors, and save them according to their respective program.
-        """
-        fbb_run_directory = self.artifacts.get_binary_run_folder_path(bin)
-        program_tensors = {}
-        program_names = [d for d in os.listdir(fbb_run_directory)]
-        self.logging.debug(f"Loading .pt tensors from directory: {fbb_run_directory}")
-        for program in program_names:
-            program_dir = os.path.join(fbb_run_directory, program)
-            files = sorted([d for d in os.listdir(program_dir)])
-            tensors = []
-            for file in files:
-                file = os.path.join(program_dir, file)
-                if file.endswith(".pt") and key in file:
-                    try:
-                        tensors.append(torch.load(file, weights_only=True))
-                        self.logging.debug(f"Loading tensor from file: {file}")
-                    except Exception as e:
-                        raise Exception(
-                            f"Error loading tensor from file {file}: {str(e)}"
-                        )
-
-            program_tensors[program] = tensors
-
-        return program_tensors

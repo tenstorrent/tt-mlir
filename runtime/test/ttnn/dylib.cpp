@@ -130,6 +130,7 @@ std::vector<std::string> getSoPrograms(void *so, std::string path) {
     // skip function names that are not actual programs
     if (cleanName != "setDevice" && cleanName != "main" &&
         cleanName != "ttnn::constEvalFuncWrapper" &&
+        cleanName != "ttnn::getScalarFromTensor" &&
         "create_inputs_for_" != cleanName.substr(0, 18)) {
       cleanedNames.push_back(cleanName);
     }
