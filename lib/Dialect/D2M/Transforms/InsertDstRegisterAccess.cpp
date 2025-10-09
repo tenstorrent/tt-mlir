@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/Analysis/DestRegisterAnalysis.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -69,6 +70,9 @@ public:
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     if constexpr (std::is_same_v<GenericOrFuncOp, GenericOp>) {
+      // Run the DestRegisterAnalysis
+      DestRegisterAnalysis destRegAnalysis(op);
+      
       for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
            regionIndex++) {
         if (op.getRegionThreadType(regionIndex) != ThreadType::Compute) {
@@ -78,10 +82,8 @@ public:
         Region &region = op.getRegion(regionIndex);
         Block &block = region.getBlocks().front();
 
-        Type largestDstType = utils::getRegionLargestDstElemType(region);
-        const unsigned dstCapacity =
-            ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
-                largestDstType, false, maxDstPhysicalSizeTiles);
+        // Type largestDstType = utils::getRegionLargestDstElemType(region);
+        const unsigned dstCapacity = destRegAnalysis.getDstCapacity(op);
 
         bool linalgToAffineFailed = false;
         block.walk([&](linalg::GenericOp linalgGenericOp) {
