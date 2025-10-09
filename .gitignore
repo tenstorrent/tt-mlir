@@ -24,6 +24,7 @@ read_results.json
 run_results.json
 perf_results.json
 check_results.json
+emitc_results.json
 ttrt_report.xml
 tracy_*.csv
 tracy_*.tracy

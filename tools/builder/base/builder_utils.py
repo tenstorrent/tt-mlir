@@ -538,7 +538,8 @@ def compile_ttir_to_flatbuffer(
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
 
-    This decorator is a wrapper around:
+    This decorator is mainly a wrapper around the following functions, with
+    each next function called on the output of the last:
 
     1. `build_ttir_module`
     2. `_run_ttir_pipeline`

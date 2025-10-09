@@ -27,10 +27,10 @@ if [[ "$runttrt" == "1" ]]; then
     cp run_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
     if [ -d ttir-builder-artifacts/emitc ]; then
         python3 tools/ttnn-standalone/ci_compile_dylib.py --dir ttir-builder-artifacts/emitc
-        ttrt emitc ${{ matrix.build.ttrt-flags }} ttir-builder-artifacts/emitc/
+        ttrt emitc $TTRT_ARGS ttir-builder-artifacts/emitc/
     fi
     if [ -d stablehlo-builder-artifacts/emitc ]; then
         python3 tools/ttnn-standalone/ci_compile_dylib.py --dir stablehlo-builder-artifacts/emitc
-        ttrt emitc ${{ matrix.build.ttrt-flags }} stablehlo-builder-artifacts/emitc/
+        ttrt emitc $TTRT_ARGS stablehlo-builder-artifacts/emitc/
     fi
 fi

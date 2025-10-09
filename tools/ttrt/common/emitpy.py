@@ -245,9 +245,6 @@ class EmitPy:
             self.logging.warning(f"no EmitPy dylibs found to run - returning early")
             return
 
-        if "--init" in sys.argv:
-            self["--disable-golden"] = True
-
         # Workaround for issue #5205: Reorder dylibs so that ones with corresponding flatbuffers run first
         solo_dylibs = []
         paired_dylibs = []
