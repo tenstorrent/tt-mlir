@@ -13,6 +13,10 @@ inputs:
     description: "Enable EmitC tests"
     default: "OFF"
     required: false
+  enable-emitpy:
+    description: "Enable EmitPy tests"
+    default: "OFF"
+    required: false
   enable-explorer:
     description: "Enable explorer build"
     default: "OFF"
@@ -112,6 +116,14 @@ runs:
         export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
         ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
+
+    - name: Compile dylibs for EmitPy
+      shell: bash
+      if: inputs.enable-emitpy == 'ON'
+      run: |
+        source env/activate
+        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitPy
 
     - name: Build tt-explorer
       if: inputs.enable-explorer == 'ON'

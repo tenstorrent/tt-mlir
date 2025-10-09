@@ -25,6 +25,12 @@ if [[ "$runttrt" == "1" ]]; then
     cp run_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
     ttrt run $TTRT_ARGS stablehlo-builder-artifacts/
     cp run_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
-    ttrt emitpy $TTRT_ARGS ttir-builder-artifacts/emitpy/
-    cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
+    if [ -d "ttir-builder-artifacts/emitpy" ]; then
+        ttrt emitpy $TTRT_ARGS ttir-builder-artifacts/emitpy/
+        cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
+    fi
+    if [ -d "stablehlo-builder-artifacts/emitpy" ]; then
+        ttrt emitpy $TTRT_ARGS stablehlo-builder-artifacts/emitpy/
+        cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
+    fi
 fi

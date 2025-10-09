@@ -118,11 +118,11 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          { enable_op_model: ON, enable_emitc: ON, name: "speedy"},
-          { enable_perf: ON, enable_emitc: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy"},
+          { enable_op_model: ON, enable_emitc: ON, enable_emitpy: ON, name: "speedy"},
+          { enable_perf: ON, enable_emitc: ON, enable_emitpy: ON, enable_runtime_debug: ON, enable_explorer: ON, enable_pykernel: ON, name: "tracy"},
         ]
 
-    name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
+    name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_emitpy }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
     runs-on: ${{ needs.build-image.outputs.runner }}
 
 
@@ -152,7 +152,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})"
+        job_name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_emitpy }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})"
 
     - name: Set reusable strings
       id: strings
@@ -183,6 +183,7 @@ jobs:
         enable-perf: ${{ matrix.build.enable_perf }}
         enable-op-model: ${{ matrix.build.enable_op_model }}
         enable-emitc: ${{ matrix.build.enable_emitc }}
+        enable-emitpy: ${{ matrix.build.enable_emitpy }}
         enable-explorer: ${{ matrix.build.enable_explorer }}
         enable-runtime-debug: ${{ matrix.build.enable_runtime_debug }}
         enable-pykernel: ${{ matrix.build.enable_pykernel }}
