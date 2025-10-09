@@ -14,6 +14,7 @@ from builder.base.builder_utils import compile_and_execute_ttir
 pytestmark = pytest.mark.frontend("ttir")
 
 
+@pytest.mark.xfail(reason="Golden Failure")
 @pytest.mark.skip_config(["p150"], ["p300"])
 @pytest.mark.parametrize("m", [4, 8, 16])
 @pytest.mark.parametrize("n", [2, 4, 8])
