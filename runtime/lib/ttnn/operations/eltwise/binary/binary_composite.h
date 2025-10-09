@@ -10,9 +10,13 @@
 
 namespace tt::runtime::ttnn::operations::eltwise::binary {
 
+// Handles the binary composite ops with LHS=tensor and RHS=tensor.
 void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
          ProgramContext &context);
 
+// Handles the binary composite ops with LHS=tensor and RHS=scalar.
+void run(const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOp *op,
+         ProgramContext &context);
 } // namespace tt::runtime::ttnn::operations::eltwise::binary
 
 #endif

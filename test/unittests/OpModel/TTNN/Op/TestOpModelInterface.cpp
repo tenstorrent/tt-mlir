@@ -535,7 +535,7 @@ const auto createMin = [](OpBuilder &b, Location l, Type t, ValueRange r) {
   return b.create<MinimumOp>(l, t, r).getOperation();
 };
 const auto createPow = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<PowOp>(l, t, r).getOperation();
+  return b.create<PowTensorOp>(l, t, r).getOperation();
 };
 const auto createBitwiseAnd = [](OpBuilder &b, Location l, Type t,
                                  ValueRange r) {
@@ -601,6 +601,43 @@ INSTANTIATE_TEST_SUITE_P(
     [](const testing::TestParamInfo<BinaryOpTestParams> &info) {
       return info.param.testName;
     });
+
+// Separate test for PowScalarOp
+// since it has a different signature (tensor, scalar) than other binary ops.
+TEST_F(OpModelBase, PowScalarOp) {
+  // Create PowScalarOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  // Input params
+  const auto exponent = builder.getF32FloatAttr(2.0f);
+
+  PowScalarOp powScalarOp = builder.create<PowScalarOp>(
+      builder.getUnknownLoc(), outputType, input, exponent);
+  powScalarOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(powScalarOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_EQ(cbSize, 8192);
+  EXPECT_EQ(l1PeakSize, 2048);
+  EXPECT_EQ(totalPeakSize, 10240);
+  EXPECT_EQ(outputSize, 2048);
+
+  auto runtimeExp = getOpRuntime(powScalarOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
 
 // Separate test for BitwiseNot with integer data types
 TEST_F(OpModelBase, BitwiseNotOpInterface) {
@@ -2875,6 +2912,47 @@ TEST_F(OpModelBase, avgPool2DOp) {
   EXPECT_GT(outputSize, 0);
 
   auto runtimeExp = getOpRuntime(avgPool2DOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, globalAvgPool2dOp) {
+  // Create globalAvgPool2dOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShapeA = {1, 1, 128 * 128, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {1, 1, 1, 32};
+
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(),
+                        CreateRowMajorLayout(tensorShapeA, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto output =
+      createEmptyTensor(tensorShapeO, builder.getBF16Type(),
+                        CreateRowMajorLayout(tensorShapeO, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+
+  auto globalAvgPool2dOp = builder.create<GlobalAvgPool2dOp>(
+      builder.getUnknownLoc(), output.getType(), input);
+  globalAvgPool2dOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto backend = dyn_cast<OpModel>(globalAvgPool2dOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(globalAvgPool2dOp.getOperation()), OpConfig());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  auto l1 = constraintsExp.get();
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      l1;
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+  EXPECT_GT(totalPeakSize, 0);
+
+  auto runtimeExp = getOpRuntime(globalAvgPool2dOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
