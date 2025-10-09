@@ -2823,12 +2823,10 @@ private:
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::NLPCreateQKVHeadsOp>::
-      TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::NLPCreateQKVHeadsOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::NLPCreateQKVHeadsOp srcOp,
-                  OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::NLPCreateQKVHeadsOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::NLPCreateQKVHeadsOp>

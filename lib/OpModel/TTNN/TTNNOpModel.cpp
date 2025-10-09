@@ -2713,8 +2713,8 @@ OpModel<NLPCreateQKVHeadsOp>::getOpConstraints(
   // Create query closure
   auto nlpCreateQKVHeads = [&]() {
     return ::ttnn::graph::query_op_constraints(
-        ::ttnn::experimental::nlp_create_qkv_heads, device, inputQSpec, inputKVSpec,
-        numQHeads, numKVHeads, transposeKHeads,
+        ::ttnn::experimental::nlp_create_qkv_heads, device, inputQSpec,
+        inputKVSpec, numQHeads, numKVHeads, transposeKHeads,
         detail::getNullableMemoryConfig(outputLayout));
   };
 

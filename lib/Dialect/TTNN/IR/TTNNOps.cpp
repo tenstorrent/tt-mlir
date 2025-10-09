@@ -3521,8 +3521,8 @@ void CaptureOrExecuteTraceOp::getEffects(
 
   // Verify input_q dimension 1 must be 1
   if (inputQShape[INPUTQ_ONE] != 1) {
-    return emitOpError()
-           << "input_q dimension 1 must be 1, got " << inputQShape[INPUTQ_ONE];
+    return emitOpError() << "input_q dimension 1 must be 1, got "
+                         << inputQShape[INPUTQ_ONE];
   }
 
   // Verify input_q hidden dimension is compatible with num_q_heads
@@ -3530,10 +3530,11 @@ void CaptureOrExecuteTraceOp::getEffects(
 
   if (getInputKv()) {
     if (inputQShape[INPUTQ_HIDDEN] % numQHeads != 0) {
-      return emitOpError()
-             << "input_q hidden dimension 3 must be divisible by num_q_heads, got "
-             << "input_q hidden dimension 3 = " << inputQShape[INPUTQ_HIDDEN] << " and num_q_heads="
-             << numQHeads;
+      return emitOpError() << "input_q hidden dimension 3 must be divisible by "
+                              "num_q_heads, got "
+                           << "input_q hidden dimension 3 = "
+                           << inputQShape[INPUTQ_HIDDEN]
+                           << " and num_q_heads=" << numQHeads;
     }
     headDim = inputQShape[INPUTQ_HIDDEN] / numQHeads;
 
@@ -3542,60 +3543,66 @@ void CaptureOrExecuteTraceOp::getEffects(
     llvm::ArrayRef<int64_t> inputKVShape = inputKVType.getShape();
 
     if (inputKVShape[INPUTKV_ONE] != 1) {
-      return emitOpError()
-             << "input_kv dimension 1 must be 1, got " << inputKVShape[INPUTKV_ONE];
+      return emitOpError() << "input_kv dimension 1 must be 1, got "
+                           << inputKVShape[INPUTKV_ONE];
     }
 
     if (inputKVShape[INPUTKV_BATCH] != inputQShape[INPUTQ_BATCH]) {
       return emitOpError()
-             << "input_kv batch size dimension 0 must match input_q batch size dimension 0, got input_kv batch = "
+             << "input_kv batch size dimension 0 must match input_q batch size "
+                "dimension 0, got input_kv batch = "
              << inputKVShape[INPUTKV_BATCH]
              << ", input_q batch = " << inputQShape[INPUTQ_BATCH];
     }
 
     if (inputKVShape[INPUTKV_SEQ] != inputQShape[INPUTQ_SEQ]) {
       return emitOpError()
-             << "input_kv sequence length dimension 2 must match input_q sequence length dimension 2, got input_kv seq = "
+             << "input_kv sequence length dimension 2 must match input_q "
+                "sequence length dimension 2, got input_kv seq = "
              << inputKVShape[INPUTKV_SEQ]
              << ", input_q seq = " << inputQShape[INPUTQ_SEQ];
     }
 
     int64_t expectedInputKVHidden = 2 * numKVHeads * headDim;
     if (inputKVShape[INPUTKV_HIDDEN] != expectedInputKVHidden) {
-      return emitOpError()
-             << "input_kv hidden dimension must be 2 * num_kv_heads * head_dim, got "
-             << inputKVShape[INPUTKV_HIDDEN] << ", expected " << expectedInputKVHidden
-             << " (2 * num_kv_heads=" << numKVHeads << " * head_dim=" << headDim << ")";
+      return emitOpError() << "input_kv hidden dimension must be 2 * "
+                              "num_kv_heads * head_dim, got "
+                           << inputKVShape[INPUTKV_HIDDEN] << ", expected "
+                           << expectedInputKVHidden
+                           << " (2 * num_kv_heads=" << numKVHeads
+                           << " * head_dim=" << headDim << ")";
     }
   } else {
     if (inputQShape[INPUTQ_HIDDEN] % (3 * numQHeads) != 0) {
-      return emitOpError()
-             << "input_q hidden dimension 3 must be divisible by 3 * num_q_heads, got "
-             << "input_q hidden dimension 3 = " << inputQShape[INPUTQ_HIDDEN] << " and 3 * num_q_heads="
-             << 3 * numQHeads;
+      return emitOpError() << "input_q hidden dimension 3 must be divisible by "
+                              "3 * num_q_heads, got "
+                           << "input_q hidden dimension 3 = "
+                           << inputQShape[INPUTQ_HIDDEN]
+                           << " and 3 * num_q_heads=" << 3 * numQHeads;
     }
     headDim = inputQShape[INPUTQ_HIDDEN] / (3 * numQHeads);
   }
 
   // Verify batch size consistency across all tensors
   if (inputQShape[INPUTQ_BATCH] != queryShape[QUERY_BATCH]) {
-    return emitOpError()
-           << "input_q batch size dimension 0 must match output query batch size dimension 0, got input_q batch = "
-           << inputQShape[INPUTQ_BATCH]
-           << ", query batch = " << queryShape[QUERY_BATCH];
+    return emitOpError() << "input_q batch size dimension 0 must match output "
+                            "query batch size dimension 0, got input_q batch = "
+                         << inputQShape[INPUTQ_BATCH]
+                         << ", query batch = " << queryShape[QUERY_BATCH];
   }
 
   if (inputQShape[INPUTQ_BATCH] != keyShape[KEY_BATCH]) {
-    return emitOpError()
-           << "input_q batch size dimension 0 must match output key batch size dimension 0, got input_q batch = "
-           << inputQShape[INPUTQ_BATCH] << ", key batch = " << keyShape[KEY_BATCH];
+    return emitOpError() << "input_q batch size dimension 0 must match output "
+                            "key batch size dimension 0, got input_q batch = "
+                         << inputQShape[INPUTQ_BATCH]
+                         << ", key batch = " << keyShape[KEY_BATCH];
   }
 
   if (inputQShape[INPUTQ_BATCH] != valueShape[VALUE_BATCH]) {
-    return emitOpError()
-           << "input_q batch size dimension 0 must match output value batch size dimension 0, got input_q batch = "
-           << inputQShape[INPUTQ_BATCH]
-           << ", value batch = " << valueShape[VALUE_BATCH];
+    return emitOpError() << "input_q batch size dimension 0 must match output "
+                            "value batch size dimension 0, got input_q batch = "
+                         << inputQShape[INPUTQ_BATCH]
+                         << ", value batch = " << valueShape[VALUE_BATCH];
   }
 
   // Verify number of heads
@@ -3620,60 +3627,67 @@ void CaptureOrExecuteTraceOp::getEffects(
   // Verify query dimensions: [B, num_q_heads, S, H]
   if (queryShape[QUERY_SEQ] != inputQShape[INPUTQ_SEQ]) {
     return emitOpError()
-           << "output query sequence length dimension 2 must match input_q sequence length dimension 2, got query seq = "
+           << "output query sequence length dimension 2 must match input_q "
+              "sequence length dimension 2, got query seq = "
            << queryShape[QUERY_SEQ]
            << ", input_q seq = " << inputQShape[INPUTQ_SEQ];
   }
 
   if (queryShape[QUERY_HEAD_DIM] != headDim) {
-    return emitOpError()
-           << "output query head dimension 2 must match input_q head dimension, got query head_dim = "
-           << queryShape[QUERY_HEAD_DIM]
-           << ", input_q head_dim = " << headDim;
+    return emitOpError() << "output query head dimension 2 must match input_q "
+                            "head dimension, got query head_dim = "
+                         << queryShape[QUERY_HEAD_DIM]
+                         << ", input_q head_dim = " << headDim;
   }
 
   // Verify value dimensions: [B, num_kv_heads, S, H]
   if (valueShape[VALUE_SEQ] != inputQShape[INPUTQ_SEQ]) {
     return emitOpError()
-           << "output value sequence length dimension 2 must match input_q sequence length dimension 2, got value seq = "
+           << "output value sequence length dimension 2 must match input_q "
+              "sequence length dimension 2, got value seq = "
            << valueShape[VALUE_SEQ]
            << ", input_q seq = " << inputQShape[INPUTQ_SEQ];
   }
 
   if (valueShape[VALUE_HEAD_DIM] != headDim) {
-    return emitOpError()
-           << "output value head dimension must match input_q head dimension, got value head_dim = "
-           << valueShape[VALUE_HEAD_DIM] << ", input_q head_dim = " << headDim;
+    return emitOpError() << "output value head dimension must match input_q "
+                            "head dimension, got value head_dim = "
+                         << valueShape[VALUE_HEAD_DIM]
+                         << ", input_q head_dim = " << headDim;
   }
 
   // Verify key dimensions based on transpose_k_heads
   if (getTransposeKHeads()) {
     // Key should be [B, num_kv_heads, H, S]
     if (keyShape[KEY_DIM2] != headDim) {
-      return emitOpError()
-             << "output key head dimension 2 must match input_q head dimension when "
-                "transpose_k_heads=false, got key head_dim = "
-             << keyShape[KEY_DIM3] << ", input_q head_dim = " << headDim;
+      return emitOpError() << "output key head dimension 2 must match input_q "
+                              "head dimension when "
+                              "transpose_k_heads=false, got key head_dim = "
+                           << keyShape[KEY_DIM3]
+                           << ", input_q head_dim = " << headDim;
     }
     if (keyShape[KEY_DIM3] != inputQShape[INPUTQ_SEQ]) {
-      return emitOpError()
-             << "output key sequence length dimension 3 must match input_q sequence length dimension 2 when"
-             << "transpose_k_heads=true, got key seq = " << keyShape[KEY_DIM3]
-             << ", input_q seq = " << inputQShape[INPUTQ_SEQ];
+      return emitOpError() << "output key sequence length dimension 3 must "
+                              "match input_q sequence length dimension 2 when"
+                           << "transpose_k_heads=true, got key seq = "
+                           << keyShape[KEY_DIM3]
+                           << ", input_q seq = " << inputQShape[INPUTQ_SEQ];
     }
   } else {
     // Key should be [B, num_kv_heads, S, H]
     if (keyShape[KEY_DIM2] != inputQShape[INPUTQ_SEQ]) {
-      return emitOpError()
-             << "output key sequence length dimension 2 must match input_q sequence length dimension 2 when"
-             << "transpose_k_heads=true, got key seq = " << keyShape[KEY_DIM3]
-             << ", input_q seq = " << inputQShape[INPUTQ_SEQ];
+      return emitOpError() << "output key sequence length dimension 2 must "
+                              "match input_q sequence length dimension 2 when"
+                           << "transpose_k_heads=true, got key seq = "
+                           << keyShape[KEY_DIM3]
+                           << ", input_q seq = " << inputQShape[INPUTQ_SEQ];
     }
     if (keyShape[KEY_DIM3] != headDim) {
-      return emitOpError()
-             << "output key head dimension 3 must match input_q head dimension when "
-                "transpose_k_heads=false, got key head_dim = "
-             << keyShape[KEY_DIM3] << ", input_q head_dim = " << headDim;
+      return emitOpError() << "output key head dimension 3 must match input_q "
+                              "head dimension when "
+                              "transpose_k_heads=false, got key head_dim = "
+                           << keyShape[KEY_DIM3]
+                           << ", input_q head_dim = " << headDim;
     }
   }
 

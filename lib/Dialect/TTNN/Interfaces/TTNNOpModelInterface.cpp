@@ -2080,8 +2080,8 @@ RotaryEmbeddingLlamaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // ===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::OpConstraints>
-NLPCreateQKVHeadsOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+NLPCreateQKVHeadsOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                      const OpConfig &opConfig) {
   assert(inputs.size() == (1 + (getInputKv() == nullptr ? 0 : 1)));
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
@@ -2104,11 +2104,13 @@ NLPCreateQKVHeadsOp::getOpConstraints(
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<NLPCreateQKVHeadsOp>::getOpConstraints, *this,
       deviceGrid, inputShape, inputs[0], inputKVShape, inputKVShapeEncoding,
-      getNumQHeads(), getNumKvHeads(), getTransposeKHeads(), opConfig.outputLayout);
+      getNumQHeads(), getNumKvHeads(), getTransposeKHeads(),
+      opConfig.outputLayout);
 }
 
-llvm::Expected<size_t> NLPCreateQKVHeadsOp::getOpRuntime(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+llvm::Expected<size_t>
+NLPCreateQKVHeadsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                  const OpConfig &opConfig) {
   assert(inputs.size() == (1 + (getInputKv() == nullptr ? 0 : 1)));
 
   auto inputShape = getInputQ().getType().getShape();
@@ -2121,10 +2123,9 @@ llvm::Expected<size_t> NLPCreateQKVHeadsOp::getOpRuntime(
   }
 
   return opRuntimeCache().getOrCompute(
-      op_model::OpModel<NLPCreateQKVHeadsOp>::getOpRuntime, *this,
-      inputShape, inputs[0], inputKVShape, inputKVShapeEncoding,
-      getNumQHeads(), getNumKvHeads(), getTransposeKHeads(),
-      opConfig.outputLayout);
+      op_model::OpModel<NLPCreateQKVHeadsOp>::getOpRuntime, *this, inputShape,
+      inputs[0], inputKVShape, inputKVShapeEncoding, getNumQHeads(),
+      getNumKvHeads(), getTransposeKHeads(), opConfig.outputLayout);
 }
 
 //===-----------------------------------------------------------------------===//

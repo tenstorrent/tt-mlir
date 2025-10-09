@@ -1957,8 +1957,8 @@ createOp(FlatbufferObjectCache &cache, NLPCreateQKVHeadsOp op) {
   uint32_t numKVHeads = op.getNumKvHeads().value_or(numQHeads);
   bool transposeKHeads = op.getTransposeKHeads();
   auto memoryConfig = op.getMemoryConfig()
-                        ? toFlatbuffer(cache, op.getMemoryConfig().value())
-                        : 0;
+                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                          : 0;
 
   return ::tt::target::ttnn::CreateNLPCreateQKVHeadsOp(
       *cache.fbb, inputQ, inputKV, query, key, value, numQHeads, numKVHeads,

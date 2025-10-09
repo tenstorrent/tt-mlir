@@ -1599,9 +1599,8 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsOp: {
-    tensorRefs = {
-        opContext.type_as_NLPCreateQKVHeadsOp()->input_q(),
-        opContext.type_as_NLPCreateQKVHeadsOp()->input_kv()};
+    tensorRefs = {opContext.type_as_NLPCreateQKVHeadsOp()->input_q(),
+                  opContext.type_as_NLPCreateQKVHeadsOp()->input_kv()};
     break;
   }
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {

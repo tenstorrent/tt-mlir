@@ -1717,16 +1717,18 @@ TEST_F(OpModelBase, NLPCreateQKVHeadsOpInterface) {
   int32_t kvHiddenDim = 2 * headDim * numKVHeads;
   bool transposeKHeads = false;
 
-  llvm::SmallVector<int64_t> inputQShape{batchSize, 1, sequenceSize, qHiddenDim};
-  llvm::SmallVector<int64_t> inputKVShape{batchSize, 1, sequenceSize, kvHiddenDim};
+  llvm::SmallVector<int64_t> inputQShape{batchSize, 1, sequenceSize,
+                                         qHiddenDim};
+  llvm::SmallVector<int64_t> inputKVShape{batchSize, 1, sequenceSize,
+                                          kvHiddenDim};
 
-  llvm::SmallVector<int64_t> outputQueryShape{batchSize, numQHeads, sequenceSize,
-                                              headDim};
-  llvm::SmallVector<int64_t> outputKeyShape{batchSize, numKVHeads,
-                                            transposeKHeads ? headDim : sequenceSize,
-                                            transposeKHeads ? sequenceSize : headDim};
-  llvm::SmallVector<int64_t> outputValueShape{batchSize, numKVHeads, sequenceSize,
-                                              headDim};
+  llvm::SmallVector<int64_t> outputQueryShape{batchSize, numQHeads,
+                                              sequenceSize, headDim};
+  llvm::SmallVector<int64_t> outputKeyShape{
+      batchSize, numKVHeads, transposeKHeads ? headDim : sequenceSize,
+      transposeKHeads ? sequenceSize : headDim};
+  llvm::SmallVector<int64_t> outputValueShape{batchSize, numKVHeads,
+                                              sequenceSize, headDim};
 
   auto inputQ = createEmptyTensor(inputQShape);
   auto inputKV = createEmptyTensor(inputKVShape);
@@ -1746,8 +1748,7 @@ TEST_F(OpModelBase, NLPCreateQKVHeadsOpInterface) {
       numQHeadsAttr, numKVHeadsAttr, transposeKHeadsAttr,
       /*memory_config=*/nullptr);
 
-  auto constraintsExp =
-      getOpConstraints(nlpCreateQKVHeads.getOperation());
+  auto constraintsExp = getOpConstraints(nlpCreateQKVHeads.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
