@@ -26,7 +26,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
-
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
 #define GEN_PASS_DEF_TTNNLOADINPUTTENSORS
@@ -190,18 +189,25 @@ protected:
       return mlir::WalkResult::advance();
     });
 
-    // Iterate over all func ops and add input tensor functions.
+    // Iterate over all func ops and add input tensor functions if needed.
     //
-    llvm::SmallVector<mlir::func::FuncOp, 1> inputFuncOps;
+    llvm::SmallVector<std::pair<mlir::func::FuncOp, mlir::func::FuncOp>, 1>
+        forwardAndInputFuncOps;
     for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
       rewriter.setInsertionPointToEnd(block);
-      inputFuncOps.emplace_back(createInputFunctionImpl(
-          rewriter, forwardFuncOp.getLoc(), forwardFuncOp, functionPrefix));
+      // Check if the forward function has any arguments. If it doesn't, we
+      // do not create an input function for it.
+      mlir::func::FuncOp inputFuncOp =
+          forwardFuncOp.getNumArguments() == 0
+              ? nullptr
+              : createInputFunctionImpl(rewriter, forwardFuncOp.getLoc(),
+                                        forwardFuncOp, functionPrefix);
+      forwardAndInputFuncOps.emplace_back(forwardFuncOp, inputFuncOp);
     }
 
     // Create a main function to call input functions and forward funcs.
     //
-    createMainFunction(moduleOp, rewriter, forwardFuncOps, inputFuncOps);
+    createMainFunction(moduleOp, rewriter, forwardAndInputFuncOps);
   }
 
   func::FuncOp createInputFunctionImpl(IRRewriter &rewriter, Location loc,
@@ -267,9 +273,10 @@ protected:
   }
 
 private:
-  void createMainFunction(ModuleOp moduleOp, IRRewriter &rewriter,
-                          SmallVector<func::FuncOp, 1> &forwardFuncOps,
-                          SmallVector<func::FuncOp, 1> &inputFuncOps) {
+  void createMainFunction(
+      ModuleOp moduleOp, IRRewriter &rewriter,
+      llvm::SmallVector<std::pair<mlir::func::FuncOp, mlir::func::FuncOp>, 1>
+          forwardAndInputFuncOps) {
     std::string mainFuncName = "main";
 
     // Create a function type.
@@ -293,18 +300,23 @@ private:
       rewriter.setInsertionPointToStart(mainFuncOp.addEntryBlock());
     });
 
-    for (auto [forwardFuncOp, inputFuncOp] :
-         llvm::zip_equal(forwardFuncOps, inputFuncOps)) {
+    for (auto [forwardFuncOp, inputFuncOp] : forwardAndInputFuncOps) {
 
-      // Generate/load the input tensors for a forwardFuncOp.
+      llvm::SmallVector<Value> operands;
+      // Generate/load the input tensors for a forwardFuncOp if needed.
       //
-      func::CallOp tensors = rewriter.create<mlir::func::CallOp>(
-          forwardFuncOp.getLoc(), inputFuncOp, /*operands=*/ValueRange());
+      if (inputFuncOp) {
+        func::CallOp tensors = rewriter.create<mlir::func::CallOp>(
+            forwardFuncOp.getLoc(), inputFuncOp,
+            /*operands=*/ValueRange());
+        operands = tensors->getResults();
+      }
 
-      // Call a forward function with the tensors.
+      // Call a forward function. If there are input tensors, pass them as
+      // operands.
       //
       rewriter.create<mlir::func::CallOp>(forwardFuncOp.getLoc(), forwardFuncOp,
-                                          tensors->getResults());
+                                          operands);
     }
 
     // Return 0
