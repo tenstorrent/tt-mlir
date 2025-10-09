@@ -1343,22 +1343,22 @@ public:
     return rewriter.getIndexAttr(operands.size() - 1);
   }
 
-  mlir::Attribute emit(mlir::Operation::operand_range operands,
+  mlir::Attribute emit(mlir::Operation::operand_range operandRange,
                        std::string attrName = "") {
     for (mlir::OpOperand &opOperand : op->getOpOperands()) {
       auto begin =
           std::next(op->getOperands().begin(), opOperand.getOperandNumber());
       if (mlir::Operation::operand_range(
-              begin, std::next(begin, operands.size())) != operands) {
+              begin, std::next(begin, operandRange.size())) != operandRange) {
         continue;
       }
       unsigned index = opOperand.getOperandNumber();
       llvm::SmallVector<mlir::Value> values(
           adaptor.getOperands().begin() + index,
-          adaptor.getOperands().begin() + index + operands.size());
+          adaptor.getOperands().begin() + index + operandRange.size());
       this->operands.push_back(createList(values));
       addKeywordArgument(attrName);
-      return rewriter.getIndexAttr(operands.size() - 1);
+      return rewriter.getIndexAttr(this->operands.size() - 1);
     }
     llvm_unreachable("Invalid operand range");
   }
