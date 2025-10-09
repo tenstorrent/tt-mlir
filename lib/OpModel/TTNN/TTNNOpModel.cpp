@@ -447,6 +447,8 @@ auto getOpSymbol() {
     return ::ttnn::quantize;
   } else if constexpr (std::is_same_v<OpTy, DequantizeOp>) {
     return ::ttnn::dequantize;
+  } else if constexpr (std::is_same_v<OpTy, GlobalAvgPool2dOp>) {
+    return ::ttnn::global_avg_pool2d;
   } else if constexpr (std::is_same_v<OpTy, SiluOp>) {
     return ::ttnn::silu;
   } else {
@@ -4571,6 +4573,81 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(avgPool2DQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// GlobalAvgPool2dOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, std::optional<mlir::tt::ttcore::DataType> dtype,
+    TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::tt::tt_metal::DataType> outputDType;
+  if (dtype.has_value()) {
+    outputDType = conversion::getDataType(dtype.value());
+  } else {
+    outputDType = detail::getNullableDataType(outputLayout);
+  }
+
+  // Create query closure
+  auto globalAvgPool2DQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::global_avg_pool2d, device, inputSpec,
+        detail::getNullableMemoryConfig(outputLayout), outputDType);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     globalAvgPool2DQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<GlobalAvgPool2dOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<mlir::tt::ttcore::DataType> dtype,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::tt::tt_metal::DataType> outputDType;
+  if (dtype.has_value()) {
+    outputDType = conversion::getDataType(dtype.value());
+  } else {
+    outputDType = detail::getNullableDataType(outputLayout);
+  }
+
+  // Create query closure
+  auto globalAvgPool2DQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::global_avg_pool2d, device, inputSpec,
+        detail::getNullableMemoryConfig(outputLayout), outputDType);
+  };
+
+  return operation::getOpRuntime(globalAvgPool2DQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

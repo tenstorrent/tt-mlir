@@ -2919,6 +2919,47 @@ TEST_F(OpModelBase, avgPool2DOp) {
   }
 }
 
+TEST_F(OpModelBase, globalAvgPool2dOp) {
+  // Create globalAvgPool2dOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShapeA = {1, 1, 128 * 128, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {1, 1, 1, 32};
+
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(),
+                        CreateRowMajorLayout(tensorShapeA, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto output =
+      createEmptyTensor(tensorShapeO, builder.getBF16Type(),
+                        CreateRowMajorLayout(tensorShapeO, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+
+  auto globalAvgPool2dOp = builder.create<GlobalAvgPool2dOp>(
+      builder.getUnknownLoc(), output.getType(), input);
+  globalAvgPool2dOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto backend = dyn_cast<OpModel>(globalAvgPool2dOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(globalAvgPool2dOp.getOperation()), OpConfig());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  auto l1 = constraintsExp.get();
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      l1;
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+  EXPECT_GT(totalPeakSize, 0);
+
+  auto runtimeExp = getOpRuntime(globalAvgPool2dOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, LeakyReluOp) {
   // Create LeakyReluOp with flattened input tensor
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
