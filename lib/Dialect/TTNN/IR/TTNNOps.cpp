@@ -1308,6 +1308,19 @@ static mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttnn::ReshapeOp op) {
 static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   if (auto reshapeOperand =
           op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>()) {
+
+    // We do not want to fold the consecutive reshapes if the first reshape's
+    // result is consumed by an op which has memory effects on it BEFORE the
+    // second reshape.
+    auto reshapeOperandUsers = reshapeOperand.getResult().getUsers();
+    for (Operation *user : reshapeOperandUsers) {
+      if (utils::operationHasMemoryEffectsOnOperand(reshapeOperand.getResult(),
+                                                    user) &&
+          user->isBeforeInBlock(op)) {
+        return nullptr;
+      }
+    }
+
     op.getOperation()->setOperand(0, reshapeOperand.getInput());
     return op.getResult();
   }

@@ -13,7 +13,8 @@ struct Env {
   static const Env &get(bool swapBinaryOperands = true,
                         bool readUpdateIndexFromDeviceForKVCache = true,
                         bool traceImplicitFromDevice = true,
-                        bool blackholeWorkarounds = true);
+                        bool blackholeWorkarounds = true,
+                        bool forceOutOfPlaceReshape = true);
 
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the
@@ -39,15 +40,19 @@ struct Env {
   // host for now.
   bool blackholeWorkarounds;
 
+  bool forceOutOfPlaceReshape;
+
 private:
   constexpr Env(bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
-                bool traceImplicitFromDevice, bool blackholeWorkarounds)
+                bool traceImplicitFromDevice, bool blackholeWorkarounds,
+                bool forceOutOfPlaceReshape)
       : swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
         traceImplicitFromDevice(traceImplicitFromDevice),
-        blackholeWorkarounds(blackholeWorkarounds) {}
+        blackholeWorkarounds(blackholeWorkarounds),
+        forceOutOfPlaceReshape(forceOutOfPlaceReshape) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -61,6 +66,8 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << "traceImplicitFromDevice: " << env.traceImplicitFromDevice << "\n";
   os << "\t"
      << "blackholeWorkarounds: " << env.blackholeWorkarounds << "\n";
+  os << "\t"
+     << "forceOutOfPlaceReshape: " << env.forceOutOfPlaceReshape << "\n";
   os << "}";
   return os;
 }
