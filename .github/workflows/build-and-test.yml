@@ -503,7 +503,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ strategy.job-index }})"
+        job_name: "Debug Build"
 
     - name: Set reusable strings
       id: strings
