@@ -3800,4 +3800,39 @@ LoadTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
 }
 
+//===----------------------------------------------------------------------===//
+// GlobalAvgPool2dOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+GlobalAvgPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<GlobalAvgPool2dOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], getDtype(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+GlobalAvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<GlobalAvgPool2dOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getDtype(), opConfig.outputLayout);
+}
+
 } // namespace mlir::tt::ttnn

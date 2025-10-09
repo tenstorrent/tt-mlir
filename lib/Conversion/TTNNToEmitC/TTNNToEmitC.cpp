@@ -779,6 +779,37 @@ public:
 };
 } // namespace
 
+// GlobalAvgPool2d op conversion pattern
+//
+namespace {
+class GlobalAvgPool2dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::GlobalAvgPool2dOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::GlobalAvgPool2dOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GlobalAvgPool2dOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::GlobalAvgPool2dOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(std::nullopt), // output_dtype
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Upsample op conversion pattern
 //
 namespace {
@@ -3525,6 +3556,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<AvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
+  patterns.add<GlobalAvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<UpsampleOpConversionPattern>(typeConverter, ctx);
 
   // Convolution ops
