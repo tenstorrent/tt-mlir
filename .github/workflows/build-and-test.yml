@@ -281,6 +281,7 @@ jobs:
         TTRT_LOGGER_LEVEL: "WARNING"
         LOGURU_LEVEL: "ERROR"
       run: |
+        # Run Tests
         source env/activate
         export WORK_DIR="$(pwd)"
         export BUILD_DIR="${{ steps.strings.outputs.build-output-dir }}"
