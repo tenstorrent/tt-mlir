@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
-import torch
 from typing import List
 
 from ttmlir.ir import *
@@ -15,7 +14,7 @@ from builder.base.builder_utils import compile_and_execute_ttir
 pytestmark = pytest.mark.frontend("ttir")
 
 
-@pytest.mark.xfail(reason="fails golden")
+@pytest.mark.skip_config(["p150"], ["p300"])
 @pytest.mark.parametrize("m", [4, 8, 16])
 @pytest.mark.parametrize("n", [2, 4, 8])
 @pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
@@ -57,7 +56,7 @@ def test_sum(
     )
 
 
-@pytest.mark.xfail(reason="fails golden")
+@pytest.mark.skip_config(["p150"], ["p300"])
 @pytest.mark.parametrize("m", [4, 8, 16])
 @pytest.mark.parametrize("n", [2, 4, 8])
 @pytest.mark.parametrize("dim_arg", [0, 1])
