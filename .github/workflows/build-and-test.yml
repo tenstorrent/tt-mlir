@@ -356,13 +356,17 @@ jobs:
       - name: Process test summary
         continue-on-error: true
         shell: bash
-        run: .github/scripts/bash/get_test_summary.sh ${{ github.run_id }}
+        run: |
+          .github/scripts/bash/get_test_summary.sh ${{ github.run_id }}
+          cat _summary.md >> $GITHUB_STEP_SUMMARY
+          find test_reports -name "report_*.xml" -type f -exec mv {} test_reports/ \;
+
       - name: Show consolidated test report
         continue-on-error: true
         uses: mikepenz/action-junit-report@v5
         if: success() || failure()
         with:
-          report_paths: test_reports/**/report_*.xml
+          report_paths: test_reports/report_*.xml
           check_name: All Tests
 
 

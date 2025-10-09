@@ -29,7 +29,7 @@ for summary_file in $summaries; do
         test_lines=($(grep -E -n "Running test [0-9]+\-" log.txt | cut -d: -f1))
         rm log.txt
 
-        echo "## Tests for $machine, $image" >>$GITHUB_STEP_SUMMARY
+        echo "## Tests for $machine, $image" >_summary.md
         while IFS= read -r line; do
             if [[ "$line" == *"SUCCESS"* ]]; then
                 test_prefix="+"
@@ -46,9 +46,12 @@ for summary_file in $summaries; do
             if [ ${#test_lines[@]} -gt 0 ]; then
             test_line=${test_lines[0]}
             test_lines=("${test_lines[@]:1}")
-            echo "$test_prefix [$test_name](https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid?pr=5249#step:$step_number:$test_line) $test_result" >>$GITHUB_STEP_SUMMARY
+            echo "$test_prefix [$test_name](https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid?pr=5249#step:$step_number:$test_line) $test_result" >>_summary.md
             fi
         done < "$summary_file"
     fi
-    echo "" >>$GITHUB_STEP_SUMMARY
+    echo "" >>_summary.md
 done
+
+echo "Summray of all tests:"
+cat _summary.md
