@@ -347,6 +347,25 @@ jobs:
         job_summary: false
 
 
+
+  test-summary:
+    runs-on: ubuntu-latest
+    needs: run-tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Process test summary
+        continue-on-error: true
+        shell: bash
+        run: .github/scripts/bash/get_test_summary.sh
+      - name: Show consolidated test report
+        continue-on-error: true
+        uses: mikepenz/action-junit-report@v5
+        if: success() || failure()
+        with:
+          report_paths: test_reports/**/report_*.xml
+          check_name: All Tests
+
+
   test-ttnn-jit:
     timeout-minutes: 45
     needs:
