@@ -149,7 +149,6 @@ jobs:
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -176,7 +175,6 @@ jobs:
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}
         work-dir: ${{ steps.strings.outputs.work-dir }}
-        test_report_path: ${{ steps.strings.outputs.test_report_path }}
 
   # Run tests on TT hardware
 
@@ -229,8 +227,6 @@ jobs:
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
-        echo "perf_report_path=perf_$JOB_ID" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -282,7 +278,8 @@ jobs:
       id: run-tests
       env:
         GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        TTRT_LOGGER_LEVEL: "INFO"
+        TTRT_LOGGER_LEVEL: "WARNING"
+        LOGURU_LEVEL: "ERROR"
       run: |
         source env/activate
         export WORK_DIR="$(pwd)"
@@ -312,7 +309,7 @@ jobs:
 
         summary_content=$(cat _test_summary | tr '\n' '\r' | sed 's/\r/<br \/>/g')
         echo "summary=$summary_content" >> $GITHUB_OUTPUT
-        cat _test_summary >> $GITHUB_STEP_SUMMARY
+        mv _test_summary ${{ steps.strings.outputs.work-dir }}/test_reports/summary_${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ strategy.job-index }}_${{ steps.fetch-job-id.outputs.job_id }}.md
 
     - name: Upload Test Durations
       if: success()
@@ -353,6 +350,7 @@ jobs:
         report_paths: ${{ steps.strings.outputs.work-dir }}/test_reports/report_*.xml
         check_name: ${{ matrix.build.runs-on }}, ${{ matrix.build.image }}, ${{ strategy.job-index }} Tests
         summary: ${{ steps.run-tests.outputs.summary }}
+        job_summary: false
 
 
   test-ttnn-jit:
@@ -501,12 +499,19 @@ jobs:
       with:
           fetch-depth: 0
 
+    - name: Fetch job id
+      id: fetch-job-id
+      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
+      with:
+        job_name: "run-tests (${{ matrix.build.runs-on }},${{ matrix.build.image }},${{ strategy.job-index }})"
+
     - name: Set reusable strings
       id: strings
       shell: bash
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build_debug" >> "$GITHUB_OUTPUT"
+        echo "test_report_path=report_${{ steps.fetch-job-id.outputs.job_id }}.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -550,13 +555,14 @@ jobs:
         lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
         # this will output `test/report.xml` in the build dir:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
+        mv ${{ steps.strings.outputs.build-output-dir }}/test/report.xml ${{ steps.strings.outputs.build-output-dir }}/test/report_${{ steps.fetch-job-id.outputs.job_id }}.xml
 
     - name: Upload Check Test Report xml
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: check_test_report.xml
-        path: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
+        name: debug_test_report
+        path: ${{ steps.strings.outputs.build-output-dir }}/test/report_${{ steps.fetch-job-id.outputs.job_id }}.xml
         if-no-files-found: 'ignore'
 
     - name: Show Check Test Report
@@ -565,7 +571,8 @@ jobs:
       if: always()
       with:
         report_paths: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
-        check_name: Debug
+        check_name: Debug Tests
+        job_summary: false
         # detailed_summary: true
         # include_time_in_summary: true
         # include_passed: true

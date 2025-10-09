@@ -78,7 +78,6 @@ def main(machine, image, jobid):
     summary_file = "_test_summary"
     no = 1
     with open(summary_file, "w") as sf:
-        sf.write(f"Test Summary for **{machine}, {image}, {jobid}**\n\n")
         with open(duration_file, "w") as f:
             for test in tests:
                 result = test.get("result", "UNKNOWN")
