@@ -10,7 +10,7 @@ from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
 from ttmlir.ir import *
-from ttmlir.dialects import func, ttcore
+from ttmlir.dialects import func, ttcore, ttnn
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
@@ -29,6 +29,7 @@ from ttmlir.passes import (
 from builder.base.builder import *
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
+from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.d2m.d2m_builder import D2MBuilder
 
 # ----- Exception Classes -----
@@ -248,7 +249,7 @@ def _run_ttir_pipeline(
 
 def build_module(
     fn: Callable,
-    builder_type: Literal["ttir", "stablehlo", "d2m"],
+    builder_type: Literal["ttir", "stablehlo", "ttnn", "d2m"],
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
     encoding_fn: Optional[Callable] = None,
@@ -270,7 +271,7 @@ def build_module(
     fn : Callable
         Python function to be converted to MLIR
 
-    builder_type : *Literal["ttir", "stablehlo", "d2m"]*
+    builder_type : *Literal["ttir", "stablehlo", "ttnn", "d2m"]*
         The type of builder to use for constructing the MLIR module.
 
     inputs_shapes : *List[Shape]*
@@ -339,6 +340,7 @@ def build_module(
     except (OSError, TypeError):
         loc = Location.unknown(ctx)
 
+    encoding_fn = None
     if builder_type == "ttir":
         builder = TTIRBuilder(ctx, loc, mesh_name, mesh_dict)
         dir_name = "ttir-builder-artifacts"
@@ -347,6 +349,11 @@ def build_module(
         builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
         dir_name = "stablehlo-builder-artifacts"
         subdir_name = "shlo"
+    elif builder_type == "ttnn":
+        builder = TTNNBuilder(ctx, loc)
+        dir_name = "ttnn-builder-artifacts"
+        subdir_name = "ttnn"
+        encoding_fn = builder.create_tensor_encoding
     elif builder_type == "d2m":
         builder = D2MBuilder(ctx, loc, mesh_name, mesh_dict)
         dir_name = "d2m-builder-artifacts"
@@ -462,8 +469,8 @@ def compile_ttir_to_flatbuffer(
         The path to dump all generated arguments under. If this path doesn't
         exist, it will be created.
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]*
-        Either "ttnn", "ttmetal", "ttnn-standalone" or "emitpy". This controls which backend to use.
+    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*
+        Either "ttnn", "ttmetal", or "ttnn-standalone". This controls which backend to use.
 
     mesh_name : *str*, optional
         Name of the mesh to be used in the module. Default is "mesh".
@@ -562,6 +569,95 @@ def compile_ttir_to_flatbuffer(
         raise TTBuilderCompileException(e)
 
 
+def compile_ttnn_to_flatbuffer(
+    fn: Callable,
+    inputs_shapes: List[Shape],
+    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    test_base: str = "test",
+    output_root: str = ".",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    pipeline_options: List[str] = [],
+) -> str:
+    """
+    Compiles a TTNN function to flatbuffer format.
+
+    This helper function generates a TTNN mlir module runs the compilation
+    pipeline using ttir-to-ttnn-backend-pipeline and finally generates a flatbuffer.
+
+    Parameters
+    ----------
+    fn : Callable
+        The TTNN function to compile
+
+    inputs_shapes : *List[Shape]*
+        Shapes of the respective ranked tensor inputs of the test function
+
+    inputs_types : *Optional[List[Union[torch.dtype, TypeInfo]]]*, optional
+        The dtypes to use for the inputs to `fn`
+
+    system_desc_path : str, optional
+        Path to the system descriptor file
+
+    test_base : str, optional
+        The string to be used as the test_base name for dumped files
+
+    output_root : str, optional
+        The path to dump all generated files under
+
+    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
+        The target backend to use. Default is "ttnn"
+
+    mesh_name : str, optional
+        Name of the mesh to be used in the module
+
+    mesh_dict : *OrderedDict[str, int]*, optional
+        Dictionary that defines the mesh shape
+
+    pipeline_options: *List[str]*
+        Additional pipeline options to pass to the pipeline
+
+    Returns
+    -------
+    str
+        The path to the generated TTNN MLIR file.
+
+    Raises
+    ------
+    ValueError
+        If inputs_shapes and inputs_types have different lengths
+    TTBuilderCompileException
+        If compilation fails at any stage
+    """
+
+    if inputs_types is not None:
+        if len(inputs_shapes) != len(inputs_types):
+            raise ValueError("inputs_shapes and inputs_types must have the same length")
+
+    # Create module containing TTNN ops
+    try:
+        module, builder = build_module(
+            fn,
+            "ttnn",
+            inputs_shapes,
+            inputs_types,
+        )
+    except Exception as e:
+        raise TTBuilderCompileException(e)
+
+    return compile_ttir_module_to_flatbuffer(
+        module,
+        builder,
+        system_desc_path=system_desc_path,
+        test_base=test_base,
+        output_root=output_root,
+        target="ttnn",
+        builder_dir="ttnn-builder-artifacts",
+        mesh_dict=mesh_dict,
+        pipeline_options=pipeline_options,
+    )
+
+
 def compile_d2m_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
@@ -610,8 +706,8 @@ def compile_d2m_to_flatbuffer(
         The path to dump all generated arguments under. If this path doesn't
         exist, it will be created.
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]*
-        Either "ttnn", "ttmetal", "ttnn-standalone", or "emitpy". This controls which backend to use.
+    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*
+        Either "ttnn", "ttmetal", or "ttnn-standalone". This controls which backend to use.
 
     mesh_name : *str*, optional
         Name of the mesh to be used in the module. Default is "mesh".
@@ -732,7 +828,7 @@ def compile_stablehlo_to_flatbuffer(
     output_root : str, optional
         The path to dump all generated files under
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]*, optional
+    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
         The target backend to use. Default is "ttnn"
 
     mesh_name : str, optional
@@ -899,7 +995,7 @@ def compile_ttir_module_to_flatbuffer(
     output_root : str, optional
         The path to dump all generated files under
 
-    target : *Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"]*, optional
+    target : *Literal["ttnn", "ttmetal", "ttnn-standalone"]*, optional
         The target backend to use. Default is "ttnn"
 
     mesh_dict : *OrderedDict[str, int]*, optional
