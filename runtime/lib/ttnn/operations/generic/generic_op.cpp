@@ -215,6 +215,10 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
   return kernelDescriptor;
 }
 
+static std::unordered_map<const ::tt::target::ttnn::ProgramDescriptor *,
+                          tt::tt_metal::ProgramDescriptor>
+    gCachedProgramDescs;
+
 void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   auto size = op->io_tensors()->size();
@@ -224,27 +228,42 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
         tensorPool.getTTNNTensorAndValidate(op->io_tensors()->Get(i));
   }
 
-  // ProgramDescriptor is initialized with pre-allocated SmallVector capacity
-  const auto *programDesc = op->program();
-  tt::tt_metal::ProgramDescriptor programDescriptor;
-  for (const tt::target::ttnn::KernelDescriptor *kernelDesc :
-       *programDesc->kernels()) {
-    programDescriptor.kernels.push_back(
-        createKernelDescriptor(*kernelDesc, ioTensors));
+  // check cache first
+  auto *programDesc = op->program();
+  LOG_DEBUG("Checking cache for program descriptor: {}",
+            reinterpret_cast<std::uintptr_t>(programDesc));
+  auto iter = gCachedProgramDescs.find(programDesc);
+  if (iter != gCachedProgramDescs.end()) {
+    LOG_DEBUG("Cache hit for program descriptor: {}",
+              reinterpret_cast<std::uintptr_t>(programDesc));
+    ::ttnn::Tensor outputTensor = ::ttnn::generic_op(ioTensors, iter->second);
+    tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
+                                           outputTensor);
+  } else {
+    // ProgramDescriptor is initialized with pre-allocated SmallVector capacity
+    auto *programDesc = op->program();
+    tt::tt_metal::ProgramDescriptor programDescriptor;
+    for (const tt::target::ttnn::KernelDescriptor *kernelDesc :
+         *programDesc->kernels()) {
+      programDescriptor.kernels.push_back(
+          createKernelDescriptor(*kernelDesc, ioTensors));
+    }
+    for (const tt::target::ttnn::KernelCBDescriptor *cbDesc :
+         *programDesc->cbs()) {
+      programDescriptor.cbs.push_back(createCBDescriptor(*cbDesc, ioTensors));
+    }
+    for (const tt::target::ttnn::SemaphoreDescriptor *semaphoreDesc :
+         *programDesc->semaphores()) {
+      programDescriptor.semaphores.push_back(
+          createSemaphoreDescriptor(*semaphoreDesc));
+    }
+    programDescriptor.key = reinterpret_cast<ttsl::hash::hash_t>(programDesc);
+    gCachedProgramDescs[programDesc] = programDescriptor;
+    ::ttnn::Tensor outputTensor =
+        ::ttnn::generic_op(ioTensors, programDescriptor);
+    tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
+                                           outputTensor);
   }
-  for (const tt::target::ttnn::KernelCBDescriptor *cbDesc :
-       *programDesc->cbs()) {
-    programDescriptor.cbs.push_back(createCBDescriptor(*cbDesc, ioTensors));
-  }
-  for (const tt::target::ttnn::SemaphoreDescriptor *semaphoreDesc :
-       *programDesc->semaphores()) {
-    programDescriptor.semaphores.push_back(
-        createSemaphoreDescriptor(*semaphoreDesc));
-  }
-  ::ttnn::Tensor outputTensor =
-      ::ttnn::generic_op(ioTensors, programDescriptor);
-  tensorPool.insertTTNNTensorAndValidate(op->io_tensors()->Get(size - 1),
-                                         outputTensor);
 }
 
 } // namespace tt::runtime::ttnn::operations::generic_op
