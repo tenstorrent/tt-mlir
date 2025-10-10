@@ -90,10 +90,18 @@ class StableHLOBuilder(Builder):
                 else self._get_loc_of_extra_file_callee(id=id)
             )
 
-            op = op_stablehlo_function(
-                *inputs,
-                loc=loc,
-                **stablehlo_kwargs,
+            if organize_stablehlo_args is not None:
+                stablehlo_args = organize_stablehlo_args(inputs)
+                op = op_stablehlo_function(
+                    *stablehlo_args,
+                    loc=loc,
+                    **stablehlo_kwargs,
+                )
+            else:
+                op = op_stablehlo_function(
+                    *inputs,
+                    loc=loc,
+                    **stablehlo_kwargs,
             )
 
             if unit_attrs is not None:
@@ -294,7 +302,10 @@ class StableHLOBuilder(Builder):
         -------
         (*OpView*) 
         """
+        from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType
+        from ttmlir.dialects.stablehlo import DotDimensionNumbers
         # Create dimension numbers attribute using proper MLIR attribute construction
+        '''
         lhs_batching_dims = ArrayAttr.get([
             IntegerAttr.get(IntegerType.get_signless(64), dim)
             for dim in batch_dims_lhs
@@ -314,17 +325,21 @@ class StableHLOBuilder(Builder):
             IntegerAttr.get(IntegerType.get_signless(64), dim)
             for dim in contract_dims_rhs
         ])
-        # dot_dimension_numbers = stablehlo.DotDimensionNumbersAttr.get(
-        #    self._ctx,
-        #    lhs_batch_dimensions=batch_dims_lhs,
-        #    lhs_contracting_dimensions=contract_dims_lhs,
-        #    rhs_batch_dimensions=batch_dims_rhs,
-        #    rhs_contracting_dimensions=contract_dims_rhs,
-        # )
+        '''
+        dot_dimension_numbers = DotDimensionNumbers.get(
+           context=self._ctx,
+           lhs_batching_dimensions=batch_dims_lhs,
+           lhs_contracting_dimensions=contract_dims_lhs,
+           rhs_batching_dimensions=batch_dims_rhs,
+           rhs_contracting_dimensions=contract_dims_rhs,
+        )
         return self._op_proxy(
             stablehlo.DotGeneralOp,
             [in0, in1],
-            # stablehlo_kwargs={"dot_dimension_numbers": dot_dimension_numbers},
+            organize_stablehlo_args=lambda i: (i[0], i[1]),
+            stablehlo_kwargs={
+                "dot_dimension_numbers": dot_dimension_numbers
+            },
             golden_kwargs={
                 "batch_dims_lhs": batch_dims_lhs,
                 "contract_dims_lhs": contract_dims_lhs,
