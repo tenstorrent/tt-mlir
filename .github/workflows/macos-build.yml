@@ -25,7 +25,7 @@ jobs:
       shell: bash
       id: rep
       run: |
-        .github/scripts/get_test_runs.sh 18386355172
+        .github/scripts/get_test_runs.sh 18386355172 true
         cat _summary.md >> $GITHUB_STEP_SUMMARY
         cat _summary.md
 
