@@ -38,20 +38,13 @@ for summary_file in $summaries; do
             else
                 test_prefix="- ![#f03c15](https://placehold.co/15x15/f03c15/f03c15.png)"
             fi
-            if [[ $line =~ ^(Test\ [0-9]+):\ (.*)$ ]]; then
-                test_name="${BASH_REMATCH[1]}"
-                test_result="${BASH_REMATCH[2]}"
-            else
-                echo "$test_prefix $line </span>" >>_summary.md
-                continue
-            fi
             if [ ${#test_lines[@]} -gt 0 ]; then
                 test_line=${test_lines[0]}
                 test_lines=("${test_lines[@]:1}")
-                echo "$test_prefix [$test_name $test_result](https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid#step:$step_number:$test_line)" >>_summary.md
             else
-                echo "$test_prefix [$test_name $test_result](https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid#step:$step_number:1)" >>_summary.md
+                test_line=1
             fi
+                echo "$test_prefix [$$line](https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid#step:$step_number:$test_line)" >>_summary.md
         done < "$summary_file"
     fi
     echo "" >>_summary.md
