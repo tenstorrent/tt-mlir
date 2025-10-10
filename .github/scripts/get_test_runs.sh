@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -e -o pipefail
-
 runid=$1
 extract_lines=$2
 rm -rf test_reports
@@ -12,7 +10,7 @@ gh run download $runid --repo tenstorrent/tt-mlir --pattern "test-reports-*" --d
 echo "Parsing test summaries..."
 step_number=""
 rm -f _summary.md
-summaries=$(find test_reports -name "summary_*.md" -type f)
+gh run view --log --job $jobidsummaries=$(find test_reports -name "summary_*.md" -type f)
 for summary_file in $summaries; do
     filename=$(basename "$summary_file")
     if [[ $filename =~ summary_([^_]+)_([^_]+)_([^_]+)_([^_]+)\.md ]]; then
@@ -30,7 +28,8 @@ for summary_file in $summaries; do
 
         test_lines=()
         if [ -n "$extract_lines" ]; then
-            gh run view --log --job $jobid | sed -n -E '/[0-9]{7}Z ##\[group\]Run # Run Tests/,/[0-9]{7}Z ##\[group\]/p' >log.txt
+            curl -L -H "Authorization: token $GH_TOKEN" -H "Accept: */*" "https://api.github.com/repos/tenstorrent/tt-mlir/actions/jobs/$jobid/logs" | \
+                sed -n -E '/[0-9]{7}Z ##\[group\]Run # Run Tests/,/[0-9]{7}Z ##\[group\]/p' >log.txt
             test_lines=($(grep -E -n "Running test [0-9]+\-" log.txt | cut -d: -f1))
             rm log.txt
         fi
