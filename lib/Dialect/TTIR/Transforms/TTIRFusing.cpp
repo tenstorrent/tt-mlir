@@ -13,6 +13,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -572,7 +573,7 @@ public:
     // Match pattern: Div(Relu6(Add(x, 3)), 6)
     Value numerator = divOp.getLhs();
     Value denominator = divOp.getRhs();
-    auto relu6Op = getDefiningOpThroughTypecast<Relu6Op>(numerator);
+    auto relu6Op = numerator.getDefiningOp<Relu6Op>();
     if (!relu6Op) {
       return mlir::failure();
     }
@@ -581,7 +582,7 @@ public:
       return mlir::failure();
     }
 
-    auto addOp = getDefiningOpThroughTypecast<AddOp>(relu6Op.getInput());
+    auto addOp = relu6Op.getInput().getDefiningOp<AddOp>();
     if (!addOp) {
       return mlir::failure();
     }
@@ -607,23 +608,19 @@ public:
 
     // Get input and output types to handle potential typecast differences
     auto inputType = addOp.getLhs().getType();
-    auto outputType = divOp.getResult().getType();
+    // auto outputType = divOp.getResult().getType();
     auto hardsigmoidOp = utils::createDPSOp<HardsigmoidOp>(
         rewriter, divOp.getLoc(), inputType, input);
 
     // If inputs and output are typecasted, we need to add a typecast
     // after hardsigmoid to convert back to the div output type.
-    if (inputType != outputType) {
-      auto typecastOp = utils::createDPSOp<TypecastOp>(
-          rewriter, divOp.getLoc(), inputType, hardsigmoidOp.getResult());
-      rewriter.replaceAllOpUsesWith(divOp, typecastOp);
-    } else {
-      rewriter.replaceAllOpUsesWith(divOp, hardsigmoidOp);
-    }
-
-    // // Replace with Hardsigmoid
-    // utils::replaceOpWithNewDPSOp<HardsigmoidOp>(
-    //     rewriter, divOp, divOp.getResult().getType(), input);
+    // if (inputType != outputType) {
+    //   auto typecastOp = utils::createDPSOp<TypecastOp>(
+    //       rewriter, divOp.getLoc(), inputType, hardsigmoidOp.getResult());
+    //   rewriter.replaceAllOpUsesWith(divOp, typecastOp);
+    // } else {
+    rewriter.replaceAllOpUsesWith(divOp, hardsigmoidOp);
+    // }
     return mlir::success();
   }
 
