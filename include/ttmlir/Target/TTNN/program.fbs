@@ -102,6 +102,7 @@ union OpType {
   TypecastOp,
   UpdateCacheOp,
   UpsampleOp,
+  ViewOp,
   WriteTensorOp,
   DumpTensorOp,
   LoadTensorOp,
