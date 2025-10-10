@@ -10,7 +10,8 @@ gh run download $runid --repo tenstorrent/tt-mlir --pattern "test-reports-*" --d
 echo "Parsing test summaries..."
 step_number=""
 rm -f _summary.md
-gh run view --log --job $jobidsummaries=$(find test_reports -name "summary_*.md" -type f)
+gh run view --log --job $jobid
+summaries=$(find test_reports -name "summary_*.md" -type f)
 for summary_file in $summaries; do
     filename=$(basename "$summary_file")
     if [[ $filename =~ summary_([^_]+)_([^_]+)_([^_]+)_([^_]+)\.md ]]; then
