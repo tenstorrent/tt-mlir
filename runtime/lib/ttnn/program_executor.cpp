@@ -267,6 +267,117 @@ void ProgramExecutor::execute() {
       }
     }
 
+    // Try to verify matmul operations using torch
+    if (op->type_type() == ::tt::target::ttnn::OpType::MatmulOp) {
+      try {
+        const auto *matmulOp = op->type_as_MatmulOp();
+        const ::tt::target::ttnn::TensorRef *aRef = matmulOp->a();
+        const ::tt::target::ttnn::TensorRef *bRef = matmulOp->b();
+        const ::tt::target::ttnn::TensorRef *outRef = matmulOp->out();
+
+        // Get the TTNN tensors
+        ::ttnn::Tensor aTensor =
+            context->getTensorPool().getTTNNTensorAndValidate(aRef);
+        ::ttnn::Tensor bTensor =
+            context->getTensorPool().getTTNNTensorAndValidate(bRef);
+        ::ttnn::Tensor outTensor =
+            context->getTensorPool().getTTNNTensorAndValidate(outRef);
+
+        // Move to host if needed
+        if (!utils::isOnHost(aTensor.storage_type())) {
+          aTensor = ::ttnn::from_device(aTensor);
+        }
+        if (!utils::isOnHost(bTensor.storage_type())) {
+          bTensor = ::ttnn::from_device(bTensor);
+        }
+        if (!utils::isOnHost(outTensor.storage_type())) {
+          outTensor = ::ttnn::from_device(outTensor);
+        }
+
+        // Get tensor data and properties
+        void *aData = utils::getRawHostDataPtr(aTensor);
+        void *bData = utils::getRawHostDataPtr(bTensor);
+        void *outData = utils::getRawHostDataPtr(outTensor);
+
+        const auto &aShape = aTensor.logical_shape();
+        const auto &bShape = bTensor.logical_shape();
+        const auto &outShape = outTensor.logical_shape();
+
+        std::vector<int64_t> aShapeVec, bShapeVec, outShapeVec;
+        for (size_t i = 0; i < aShape.size(); i++) {
+          aShapeVec.push_back(static_cast<int64_t>(aShape[i]));
+        }
+        for (size_t i = 0; i < bShape.size(); i++) {
+          bShapeVec.push_back(static_cast<int64_t>(bShape[i]));
+        }
+        for (size_t i = 0; i < outShape.size(); i++) {
+          outShapeVec.push_back(static_cast<int64_t>(outShape[i]));
+        }
+
+        // Create torch tensors (assuming float32 for now)
+        torch::Tensor torchA =
+            torch::from_blob(aData, aShapeVec, torch::kFloat32).clone();
+        torch::Tensor torchB =
+            torch::from_blob(bData, bShapeVec, torch::kFloat32).clone();
+        torch::Tensor torchDeviceOut =
+            torch::from_blob(outData, outShapeVec, torch::kFloat32).clone();
+
+        // Perform matmul using torch
+        torch::Tensor torchComputedResult = torch::matmul(torchA, torchB);
+
+        // Validate shapes match
+        bool shapesMatch =
+            torchComputedResult.sizes() == torchDeviceOut.sizes();
+
+        // Calculate actual differences
+        torch::Tensor diff = torch::abs(torchComputedResult - torchDeviceOut);
+        double actualAtol = diff.max().item<double>();
+
+        torch::Tensor relDiff = diff / (torch::abs(torchDeviceOut) + 1e-8);
+        double actualRtol = relDiff.max().item<double>();
+
+        // Do allclose check with thresholds
+        double rtolThreshold = 1e-5;
+        double atolThreshold = 1e-8;
+        bool allclose =
+            shapesMatch && torch::allclose(torchComputedResult, torchDeviceOut,
+                                           rtolThreshold, atolThreshold);
+
+        // Print tensors
+        std::cout << "=== Torch Matmul Verification ===" << std::endl;
+        std::cout << "A Tensor shape: " << torchA.sizes() << std::endl;
+        std::cout << "B Tensor shape: " << torchB.sizes() << std::endl;
+        std::cout << "Output shape: " << torchDeviceOut.sizes() << std::endl;
+        std::cout << "A Tensor (first 5 elements): "
+                  << torchA.flatten().slice(0, 0, std::min(5L, torchA.numel()))
+                  << std::endl;
+        std::cout << "B Tensor (first 5 elements): "
+                  << torchB.flatten().slice(0, 0, std::min(5L, torchB.numel()))
+                  << std::endl;
+        std::cout << "Torch Computed Result (first 5 elements): "
+                  << torchComputedResult.flatten().slice(
+                         0, 0, std::min(5L, torchComputedResult.numel()))
+                  << std::endl;
+        std::cout << "Device Output Tensor (first 5 elements): "
+                  << torchDeviceOut.flatten().slice(
+                         0, 0, std::min(5L, torchDeviceOut.numel()))
+                  << std::endl;
+        std::cout << "Shape Match: " << (shapesMatch ? "PASSED" : "FAILED")
+                  << " (computed: " << torchComputedResult.sizes()
+                  << ", device: " << torchDeviceOut.sizes() << ")" << std::endl;
+        std::cout << "AllClose Check: " << (allclose ? "PASSED" : "FAILED")
+                  << std::endl;
+        std::cout << "  Actual:    rtol=" << actualRtol
+                  << ", atol=" << actualAtol << std::endl;
+        std::cout << "  Threshold: rtol=" << rtolThreshold
+                  << ", atol=" << atolThreshold << std::endl;
+        std::cout << "=================================" << std::endl;
+      } catch (const std::exception &e) {
+        std::cout << "Error processing matmul tensors: " << e.what()
+                  << std::endl;
+      }
+    }
+
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
     dumpPerfCountersIfNeeded();
