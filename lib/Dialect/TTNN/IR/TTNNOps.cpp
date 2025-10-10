@@ -1314,9 +1314,9 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
     // second reshape.
     auto reshapeOperandUsers = reshapeOperand.getResult().getUsers();
     for (Operation *user : reshapeOperandUsers) {
-      if (utils::operationHasMemoryEffectsOnOperand(reshapeOperand.getResult(),
-                                                    user) &&
-          user->isBeforeInBlock(op)) {
+      if (utils::operationHasNonReadMemoryEffectsOnValue(
+              reshapeOperand.getResult(), user) &&
+          user->getBlock() == op->getBlock() && user->isBeforeInBlock(op)) {
         return nullptr;
       }
     }
