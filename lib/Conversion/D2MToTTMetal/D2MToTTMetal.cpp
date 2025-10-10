@@ -64,9 +64,9 @@ public:
         bool fp32DestAccum = false;
         for (size_t i = 0; i < operands.size(); ++i) {
           ttcore::DataType dataType = ttcore::elementTypeToDataType(
-              getOperandInnerElementType(operands[i]));
+              ttcore::getOperandInnerElementType(operands[i]));
 
-          if (ttcore::getNumberOfBits(dataType) == 32) {
+          if (getNumberOfBits(dataType) == 32) {
             fp32DestAccum = true;
           }
         }

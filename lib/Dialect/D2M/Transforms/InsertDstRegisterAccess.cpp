@@ -182,7 +182,8 @@ public:
         if (canonicalType == nullptr) {
           canonicalType = loadOp.getMemRefType();
         } else {
-          TT_assertv(loadOp.getMemRefType() == canonicalType,
+          TT_assertv(loadOp.getMemRefType().getShape() ==
+                         canonicalType.getShape(),
                      "Multiple interpretations of DST not supported.");
         }
         maxDstSliceIdx = std::max(maxDstSliceIdx, idx);
@@ -191,7 +192,8 @@ public:
         if (canonicalType == nullptr) {
           canonicalType = storeOp.getMemRefType();
         } else {
-          TT_assertv(storeOp.getMemRefType() == canonicalType,
+          TT_assertv(storeOp.getMemRefType().getShape() ==
+                         canonicalType.getShape(),
                      "Multiple interpretations of DST not supported.");
         }
         maxDstSliceIdx = std::max(maxDstSliceIdx, idx);
