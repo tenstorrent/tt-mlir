@@ -1358,6 +1358,7 @@ public:
         emitter.emit(conv2dOp.getBias(), "bias_tensor"),
         emitter.emit(conv2dOp.getConv2dConfig(), "conv_config"),
         emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(conv2dOp.getConv2dSliceConfig(), "slice_config"),
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(conv2dOp.getResult()),
                      "memory_config"),

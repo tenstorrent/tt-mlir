@@ -1232,9 +1232,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::Conv2dOp> emitter(
         srcOp, adaptor, rewriter);
 
-    auto conv2dSliceConfigAttr = mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
-        rewriter.getContext(), mlir::tt::ttnn::Conv2dSliceType::L1Full, 0);
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getWeight()),
@@ -1256,7 +1253,7 @@ public:
         emitter.emit(srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        emitter.emit(conv2dSliceConfigAttr),
+        emitter.emit(srcOp.getConv2dSliceConfigAttr()),
     };
 
     emitter.replaceOp(*this, args);
