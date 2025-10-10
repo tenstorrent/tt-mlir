@@ -68,6 +68,23 @@ def shape_str(shape):
     return "x".join(map(str, shape))
 
 
+def sharding_str(sharding):
+    """
+    Converts shape tuple to string.
+
+    Parameters
+    ----------
+    sharding : *List[Tuple[str, bool]]*
+        Sharding annotation config to convert to string
+
+    Returns
+    -------
+    str
+        String representation of the sharding config (e.g., '32x32' for shape (32, 32))
+    """
+    return "".join(map(str, sharding))
+
+
 def make_shard_shape(
     tensor_rank: int,
     shard_dims: Sequence[int],
