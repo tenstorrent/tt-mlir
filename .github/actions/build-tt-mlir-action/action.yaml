@@ -13,10 +13,6 @@ inputs:
     description: "Enable EmitC tests"
     default: "OFF"
     required: false
-  enable-emitpy:
-    description: "Enable EmitPy tests"
-    default: "OFF"
-    required: false
   enable-explorer:
     description: "Enable explorer build"
     default: "OFF"
