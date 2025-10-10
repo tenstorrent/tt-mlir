@@ -114,7 +114,8 @@ bool hasFirstOperandInDRAM(Operation *op);
 
 mlir::RankedTensorType getTraceIdType(MLIRContext *ctx);
 
-// Will return true if the operation has memory effects on the provided Value.
+// Will return true if the operation has non-read memory effects on the provided
+// Value.
 bool operationHasNonReadMemoryEffectsOnValue(mlir::Value value,
                                              mlir::Operation *op);
 
