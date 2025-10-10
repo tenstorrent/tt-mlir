@@ -1507,8 +1507,8 @@ d2m::GenericOp::getBufferType(mlir::Value value,
                               const mlir::bufferization::BufferizationOptions &options,
                               const mlir::bufferization::BufferizationState &,
                               ::llvm::SmallVector<mlir::Value> &) {
-  if (auto tensorLike = mlir::dyn_cast<bufferization::TensorLikeType>(value.getType())) {
-    return tensorLike.getBufferType(options, [&] () { return this->emitError(); });
+  if (auto cbType = mlir::dyn_cast<d2m::CBType>(value.getType())) {
+    return cbType.getBufferType(options, [&] () { return this->emitError(); });
   }
 
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
