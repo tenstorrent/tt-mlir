@@ -9,6 +9,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
 
+import pytest
+
 from ttmlir.ir import Context, InsertionPoint, Location, Module, RankedTensorType
 from ttmlir.dialects import func
 
@@ -42,7 +44,7 @@ class ParameterMappingException(Exception):
 
 def mlir_to_ttir_builder(path_to_file: str) -> Tuple[Module, TTIRBuilder]:
     """
-    Load an MLIR file and convert it to TTIR using TTIRBuilder.
+    Load an MLIR file or parse an MLIR string and convert it to TTIR using TTIRBuilder.
 
     This function dynamically maps MLIR operations to TTIRBuilder methods using
     runtime inspection and generic parameter matching. It handles operand mapping,
@@ -51,7 +53,7 @@ def mlir_to_ttir_builder(path_to_file: str) -> Tuple[Module, TTIRBuilder]:
     Parameters
     ----------
     path_to_file : str
-        Path to the MLIR file to convert
+        Path to the MLIR file to convert, or MLIR string content directly
 
     Returns
     -------
@@ -67,8 +69,53 @@ def mlir_to_ttir_builder(path_to_file: str) -> Tuple[Module, TTIRBuilder]:
 
     Examples
     --------
-    >>> module, builder = mlir_to_ttir_builder("path/to/model.mlir")
-    >>> # Use module and builder for further processing
+    Basic usage with a simple unary operation:
+
+    Given an MLIR file with content:
+
+    .. code-block:: mlir
+
+        module {
+          func.func @abs_op(%arg0: tensor<4x4xf32>) -> tensor<4x4xf32> {
+            %0 = ttir.empty() : tensor<4x4xf32>
+            %1 = ttir.abs %arg0, %0 : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+            return %1 : tensor<4x4xf32>
+          }
+        }
+
+    Convert it to a builder:
+
+    >>> module, builder = mlir_to_ttir_builder("abs_example.mlir")
+    >>> print(str(module))  # Prints the reconstructed MLIR
+
+    Binary operation with two inputs:
+
+    .. code-block:: mlir
+
+        module {
+          func.func @add_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
+            %0 = ttir.empty() : tensor<4x4xf32>
+            %1 = ttir.add %arg0, %arg1, %0 : tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+            return %1 : tensor<4x4xf32>
+          }
+        }
+
+    >>> module, builder = mlir_to_ttir_builder("add_example.mlir")
+
+    Operation with attributes (transpose):
+
+    .. code-block:: mlir
+
+        module {
+          func.func @transpose_op(%arg0: tensor<2x3xf32>) -> tensor<3x2xf32> {
+            %0 = ttir.empty() : tensor<3x2xf32>
+            %1 = "ttir.transpose"(%arg0, %0) <{dim0 = 0 : i32, dim1 = 1 : i32}> : (tensor<2x3xf32>, tensor<3x2xf32>) -> tensor<3x2xf32>
+            return %1 : tensor<3x2xf32>
+          }
+        }
+
+    >>> module, builder = mlir_to_ttir_builder("transpose_example.mlir")
+    >>> # Attributes are automatically extracted and passed to builder methods
     """
     converter = MLIRToTTIRConverter()
     return converter.convert(path_to_file)
@@ -89,7 +136,7 @@ class MLIRToTTIRConverter:
         Parameters
         ----------
         path_to_file : str
-            Path to the MLIR file
+            Path to the MLIR file or MLIR string content
 
         Returns
         -------
@@ -101,11 +148,22 @@ class MLIRToTTIRConverter:
         MLIRConversionException
             If conversion fails
         """
+        import os
+
         try:
             ctx = Context()
-            with Context() as ctx, open(path_to_file, "r") as mlir_fd:
+            with Context() as ctx:
                 ctx.allow_unregistered_dialects = True
-                parsed_module = Module.parse(mlir_fd.read(), ctx)
+
+                # Check if path_to_file is an actual file or MLIR string content
+                if os.path.isfile(path_to_file):
+                    with open(path_to_file, "r") as mlir_fd:
+                        mlir_content = mlir_fd.read()
+                else:
+                    # Treat it as MLIR string content directly
+                    mlir_content = path_to_file
+
+                parsed_module = Module.parse(mlir_content, ctx)
                 loc = Location.unknown(ctx)
 
                 with loc:
@@ -126,9 +184,7 @@ class MLIRToTTIRConverter:
                     return new_module, ttir_builder
 
         except Exception as e:
-            raise MLIRConversionException(
-                f"Failed to convert MLIR file {path_to_file}: {e}"
-            )
+            raise MLIRConversionException(f"Failed to convert MLIR: {e}")
 
     def _find_target_function(self, parsed_module: Module):
         for entry in parsed_module.body.operations:
@@ -614,3 +670,196 @@ def _handle_ones(
             kwargs[attr_name] = attr_value
 
     return args, kwargs
+
+
+# ----- Test Cases -----
+
+
+@pytest.mark.parametrize(
+    "mlir_string",
+    [
+        # Elementwise unary operations
+        """
+    module {
+        func.func @abs_op(%arg0: tensor<4x4xf32>) -> tensor<4x4xf32> {
+            %0 = ttir.empty() : tensor<4x4xf32>
+            %1 = "ttir.abs"(%arg0, %0) : (tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
+            return %1 : tensor<4x4xf32>
+        }
+    }
+    """,
+        # Elementwise binary operations
+        """
+    module {
+        func.func @multiply_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
+            %0 = ttir.empty() : tensor<4x4xf32>
+            %1 = "ttir.multiply"(%arg0, %arg1, %0) : (tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
+            return %1 : tensor<4x4xf32>
+        }
+    }
+    """,
+        # Comparison operations
+        """
+    module {
+        func.func @gt_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
+            %0 = ttir.empty() : tensor<4x4xf32>
+            %1 = "ttir.gt"(%arg0, %arg1, %0) : (tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
+            return %1 : tensor<4x4xf32>
+        }
+    }
+    """,
+        # Logical operations
+        """
+    module {
+        func.func @logical_xor_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
+            %0 = ttir.empty() : tensor<4x4xf32>
+            %1 = "ttir.logical_xor"(%arg0, %arg1, %0) : (tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
+            return %1 : tensor<4x4xf32>
+        }
+    }
+    """,
+        # Selection operations
+        """
+    module {
+        func.func @where_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>, %arg2: tensor<4x4xf32>) -> tensor<4x4xf32> {
+            %0 = ttir.empty() : tensor<4x4xf32>
+            %1 = "ttir.where"(%arg0, %arg1, %arg2, %0) : (tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
+            return %1 : tensor<4x4xf32>
+        }
+    }
+    """,
+        # Bitwise operations
+        """
+    module {
+        func.func @bitwise_and_op(%arg0: tensor<4x4xi32>, %arg1: tensor<4x4xi32>) -> tensor<4x4xi32> {
+            %0 = ttir.empty() : tensor<4x4xi32>
+            %1 = "ttir.bitwise_and"(%arg0, %arg1, %0) : (tensor<4x4xi32>, tensor<4x4xi32>, tensor<4x4xi32>) -> tensor<4x4xi32>
+            return %1 : tensor<4x4xi32>
+        }
+    }
+    """,
+        # Reduction operations
+        """
+    module {
+        func.func @max_op(%arg0: tensor<4x4xf32>) -> tensor<1x1xf32> {
+            %0 = ttir.empty() : tensor<1x1xf32>
+            %1 = "ttir.max"(%arg0, %0) <{keep_dim = true}> : (tensor<4x4xf32>, tensor<1x1xf32>) -> tensor<1x1xf32>
+            return %1 : tensor<1x1xf32>
+        }
+    }
+
+    """,
+        # Tensor manipulation
+        """
+    module {
+        func.func @broadcast_op(%arg0: tensor<1x1x32xf32>, %arg1: tensor<1x16x32xf32>) -> tensor<1x16x32xf32> {
+            %0 = ttir.empty() : tensor<1x16x32xf32>
+            %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i64: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+            return %1 : tensor<1x16x32xf32>
+        }
+    }
+
+    """,
+        # Neural network operations
+        """
+    module {
+        func.func @matmul_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
+            %0 = ttir.empty() : tensor<4x4xf32>
+            %1 = "ttir.matmul"(%arg0, %arg1, %0) <{transpose_a = false, transpose_b = false}> : (tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
+            return %1 : tensor<4x4xf32>
+        }
+    }
+    """,
+        # Type operations
+        """
+    module {
+        func.func @typecast_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xi32>) -> tensor<4x4xi32> {
+            %0 = ttir.empty() : tensor<4x4xi32>
+            %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = false}> : (tensor<4x4xf32>, tensor<4x4xi32>) -> tensor<4x4xi32>
+            return %1 : tensor<4x4xi32>
+        }
+    }
+    """,
+        # Tensor creation
+        """
+    module {
+        func.func @arange_op(%arg0: tensor<10xf32>) -> tensor<10xf32> {
+            %0 = ttir.empty() : tensor<10xf32>
+            %1 = "ttir.arange"() <{arange_dimension = 0 : i64, end = 10 : si64, start = 0 : si64, step = 1 : si64}> : () -> tensor<10xf32>
+            return %1 : tensor<10xf32>
+        }
+    }
+    """,
+        # Quantization operations
+        pytest.param(
+            """
+        module {
+            func.func @quantize_op(%arg0: tensor<4x4xf32>) -> tensor<4x4x!quant.uniform<i32:f32, 1.000000e-01>> {
+                %0 = ttir.empty() : tensor<4x4x!quant.uniform<i32:f32, 1.000000e-01>>
+                %1 = "ttir.quantize"(%arg0, %0) : (tensor<4x4xf32>, tensor<4x4x!quant.uniform<i32:f32, 1.000000e-01>>) -> tensor<4x4x!quant.uniform<i32:f32, 1.000000e-01>>
+                return %1 : tensor<4x4x!quant.uniform<i32:f32, 1.000000e-01>>
+            }
+        }
+        """,
+            marks=pytest.mark.skip(reason="Not Supported Yet"),
+        ),
+        # Complex operations
+        """
+    module {
+        func.func @conv_transpose2d_op(%arg0: tensor<3x8x8x256xf32>, %arg1: tensor<256x256x3x3xf32>, %arg2: tensor<1x1x1x256xf32>, %arg3: tensor<3x10x10x256xf32>) -> tensor<3x10x10x256xf32> {
+            %0 = ttir.empty() : tensor<3x10x10x256xf32>
+            %1 = "ttir.conv_transpose2d"(%arg0, %arg1, %arg2, %0) <{dilation = 1 : i32, groups = 1 : i32, output_padding = 0 : i32, padding = 0 : i32, stride = 1 : i32}> : (tensor<3x8x8x256xf32>, tensor<256x256x3x3xf32>, tensor<1x1x1x256xf32>, tensor<3x10x10x256xf32>) -> tensor<3x10x10x256xf32>
+            return %1 : tensor<3x10x10x256xf32>
+        }
+    }
+    """,
+        # Layout operations
+        pytest.param(
+            """
+        module {
+            func.func @to_layout_op(%arg0: tensor<4x4xf32>) -> tensor<4x4xf32> {
+                %0 = ttir.empty() : tensor<4x4xf32>
+                %1 = ttir.to_layout %arg0, %0 : tensor<4x4xf32> into tensor<4x4xf32> -> tensor<4x4xf32>
+                return %1 : tensor<4x4xf32>
+            }
+        }
+        """,
+            marks=pytest.mark.skip(reason="Not Supported Yet"),
+        ),
+        # Cache operations
+        """
+    module {
+        func.func @update_cache_op(%arg0: tensor<1x32x64x512xf32>, %arg1: tensor<1x32x1x512xf32>, %arg2: tensor<1xi32>) -> tensor<1x32x64x512xf32> {
+            %0 = ttir.empty() : tensor<1x32x64x512xf32>
+            %1 = "ttir.update_cache"(%arg0, %arg1, %arg2) <{batch_offset = 0 : i32}> : (tensor<1x32x64x512xf32>, tensor<1x32x1x512xf32>, tensor<1xi32>) -> tensor<1x32x64x512xf32>
+            return %1 : tensor<1x32x64x512xf32>
+        }
+    }
+        """,
+        # CCL (Collective Communication Library) operations
+        pytest.param(
+            """
+        module {
+            func.func @all_reduce_op(%arg0: tensor<4x4xf32>) -> tensor<4x4xf32> {
+                %0 = ttir.empty() : tensor<4x4xf32>
+                %1 = "ttir.all_reduce"(%arg0, %0) <{cluster_axis = 0 : ui32, reduce_type = #ttcore.reduce_type<sum>}> : (tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
+                return %1 : tensor<4x4xf32>
+            }
+        }
+        """,
+            marks=pytest.mark.skip(reason="Not Supported Yet"),
+        ),
+    ],
+)
+def test_mlir_to_ttir_builder(mlir_string):
+    module, builder = mlir_to_ttir_builder(mlir_string)
+
+    assert module is not None
+    assert builder is not None
+
+    for entry in module.body.operations:
+        if isinstance(entry, func.FuncOp):
+            assert entry.name is not None, f"Function name missing in {entry}"
+            print(f"Function name: {entry.name}")
+            assert len(entry.arguments) > 0, f"No arguments in function {entry.name}"
+            print(f"Arguments: {entry.arguments}")
