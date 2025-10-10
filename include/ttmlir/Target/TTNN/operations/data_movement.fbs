@@ -59,6 +59,7 @@ table ReshapeOp {
 
 table ViewOp {
   in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
   shape: [int32];
 }
 
