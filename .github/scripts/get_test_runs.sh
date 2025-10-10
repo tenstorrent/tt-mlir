@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e -o pipefail
+
 runid=$1
 extract_lines=$2
 rm -rf test_reports
