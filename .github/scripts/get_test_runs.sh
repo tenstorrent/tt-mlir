@@ -1,6 +1,7 @@
 #!/bin/bash
 
 runid=$1
+extract_lines=$2
 rm -rf test_reports
 mkdir test_reports
 gh run download $runid --repo tenstorrent/tt-mlir --pattern "test-reports-*" --dir test_reports || echo "No reports found"
@@ -23,9 +24,12 @@ for summary_file in $summaries; do
             echo "Found step number: $step_number"
         fi
 
-        gh run view --log --job $jobid | sed -n -E '/[0-9]{7}Z ##\[group\]Run # Run Tests/,/[0-9]{7}Z ##\[group\]/p' >log.txt
-        test_lines=($(grep -E -n "Running test [0-9]+\-" log.txt | cut -d: -f1))
-        rm log.txt
+        test_lines=()
+        if [ -n "$extract_lines" ]; then
+            gh run view --log --job $jobid | sed -n -E '/[0-9]{7}Z ##\[group\]Run # Run Tests/,/[0-9]{7}Z ##\[group\]/p' >log.txt
+            test_lines=($(grep -E -n "Running test [0-9]+\-" log.txt | cut -d: -f1))
+            rm log.txt
+        fi
 
         echo "### Tests for $machine, $image" >>_summary.md
         while IFS= read -r line; do
@@ -46,7 +50,7 @@ for summary_file in $summaries; do
                 test_lines=("${test_lines[@]:1}")
                 echo "$test_prefix [$test_name $test_result](https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid?pr=5249#step:$step_number:$test_line)" >>_summary.md
             else
-                echo "$test_prefix <a href=\"https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid?pr=5249#step:$step_number\">$test_name</a> $test_result" >>_summary.md
+                echo "$test_prefix [$test_name $test_result](https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid?pr=5249#step:$step_number)" >>_summary.md
             fi
         done < "$summary_file"
     fi
