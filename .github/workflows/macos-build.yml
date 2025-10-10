@@ -25,52 +25,24 @@ jobs:
       shell: bash
       id: rep
       run: |
-        runid=18307092217
-        rm -rf test_reports
-        mkdir test_reports
-        gh run download $runid --repo tenstorrent/tt-mlir --pattern "test-reports-*" --dir test_reports || echo "No reports found"
+        .github/scripts/get_test_runs.sh 18386355172
 
-        summaries=$(find test_reports -name "summary_*.md" -type f)
-        for summary_file in $summaries; do
-          filename=$(basename "$summary_file")
-          if [[ $filename =~ summary_([^_]+)_([^_]+)_([^_]+)_([^_]+)\.md ]]; then
-            machine="${BASH_REMATCH[1]}"
-            image="${BASH_REMATCH[2]}"
-            jobno="${BASH_REMATCH[3]}"
-            jobid="${BASH_REMATCH[4]}"
-            echo "Processing: machine=$machine, image=$image, jobno=$jobno, jobid=$jobid"
-            gh run view --log --job $jobid >log.txt
-            end_line_number=$(grep -E -n "[0-9]{7}Z ##\[endgroup\]" log.txt | grep -A1 -E "[0-9]{7}Z Running tests on" | head -1 | cut -d: -f1)
-            # grep -Pz "[0-9]{7}Z ##\[endgroup\]\n.*[0-9]{7}Z Running tests on " log.txt
-            echo "Found end line number: $end_line_number"
-            line_number=$(grep -E -n "[0-9]{7}Z ##\[group\]# Run Tests" log.txt | cut -d: -f1)
-            echo "Found line number: $line_number"
-          fi
-        done
-
-
-        echo "**n150, tracy, 1 Test Report**" > summary.md
-        echo "\`\`\`" >> summary.md
-        echo "+ Test 1: pytest.sh tools/explorer/test/run_tests.py" >> summary.md
-        echo "+ Test 2: pytest.sh runtime/tools/chisel/test" >> summary.md
-        echo "+ Test 3: builder.sh test/python/golden" >> summary.md
-        echo "+ Test 4: ttrt.sh perf Silicon/TTNN/n150/optimizer" >> summary.md
-        echo "- Test 5: ttnn_runtime.sh runtime/test/ttnn/python/device_agnostic" >> summary.md
-        echo "+ Test 6: emitc.sh" >> summary.md
-        echo "\`\`\`" >> summary.md
-        summary_content=$(cat summary.md | tr '\n' '\r' | sed 's/\r/<br \/>/g')
-        echo "summary=$summary_content"
-        echo "summary=$summary_content" >> $GITHUB_OUTPUT
-        cat summary.md
-
-    - name: Show Test Report
-      uses: mikepenz/action-junit-report@v5.6.2
-      if: success() || failure()
+    - uses: LouisBrunner/checks-action@v2
       with:
-        report_paths: report_*.xml
-        check_name: "n150-tracy Tests"
-        job_summary: false
-        summary: ${{ steps.rep.outputs.summary }}
+        token: ${{ secrets.GH_TOKEN }}
+        sha: "0a5d19224d8d77f45b02c54955651bc79e50350e"
+        name: "All Tests"
+        conclusion: "neutral"
+        output_text_description_file: _summary.md
+
+    # - name: Show Test Report
+    #   uses: mikepenz/action-junit-report@v5.6.2
+    #   if: success() || failure()
+    #   with:
+    #     report_paths: report_*.xml
+    #     check_name: "n150-tracy Tests"
+    #     job_summary: false
+    #     summary: ${{ steps.rep.outputs.summary }}
 
     # - name: Append to Job Summary
     #   run: |
