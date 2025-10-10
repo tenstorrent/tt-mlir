@@ -751,6 +751,28 @@ struct OpModel<NLPCreateQKVHeadsDecodeOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// SplitQueryKeyValueAndSplitHeadsOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<SplitQueryKeyValueAndSplitHeadsOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
+                   std::optional<TTNNLayoutAttr> inputKVLayout,
+                   uint32_t numHeads, std::optional<uint32_t> numKVHeads,
+                   bool transposeKey, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
+               std::optional<TTNNLayoutAttr> inputKVLayout, uint32_t numHeads,
+               std::optional<uint32_t> numKVHeads, bool transposeKey,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // NLPConcatHeadsOp
 //===----------------------------------------------------------------------===//
 
