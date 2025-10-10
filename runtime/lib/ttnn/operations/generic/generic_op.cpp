@@ -257,7 +257,8 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
       programDescriptor.semaphores.push_back(
           createSemaphoreDescriptor(*semaphoreDesc));
     }
-    programDescriptor.key = reinterpret_cast<ttsl::hash::hash_t>(programDesc);
+    programDescriptor.program_hash =
+        reinterpret_cast<ttsl::hash::hash_t>(programDesc);
     gCachedProgramDescs[programDesc] = programDescriptor;
     ::ttnn::Tensor outputTensor =
         ::ttnn::generic_op(ioTensors, programDescriptor);
