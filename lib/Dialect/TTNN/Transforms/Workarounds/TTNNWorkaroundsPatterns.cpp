@@ -19,6 +19,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
@@ -557,6 +558,7 @@ public:
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
           workarounds::decomposition::ArgMaxOpRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
+          workarounds::decomposition::LinearOpRewritePattern,
           workarounds::decomposition::MultiplyOpDecompositionRewritePattern,
           workarounds::decomposition::SubtractOpImplicitBroadcastRewritePattern,
           workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern,
