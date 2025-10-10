@@ -26,6 +26,13 @@ LogicalResult translateTTMetalToFlatbuffer(
                              std::unordered_map<std::uint32_t, GoldenTensor>>
         &goldenMap = {},
     const std::vector<std::pair<std::string, std::string>> &moduleCache = {});
+
+std::shared_ptr<void> translateTTMetalToFlatbuffer(
+    Operation *op,
+    const std::unordered_map<std::string,
+                             std::unordered_map<std::uint32_t, GoldenTensor>>
+        &goldenMap = {},
+    const std::vector<std::pair<std::string, std::string>> &moduleCache = {});
 } // namespace mlir::tt::ttmetal
 
 #endif
