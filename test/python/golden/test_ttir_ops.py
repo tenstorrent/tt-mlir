@@ -2717,7 +2717,7 @@ unary_ops = [
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "ttnn-standalone", "emitpy"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
     test_fn: Callable,
@@ -3558,6 +3558,7 @@ def test_hoisted_matmul(
 )
 @pytest.mark.parametrize("has_weight", [True, False])
 @pytest.mark.parametrize("has_bias", [True, False])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_rms_norm(
     shape: Shape,
     normalized_shape: List[int],
@@ -3604,6 +3605,7 @@ def test_rms_norm(
         device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
     )
 
 
