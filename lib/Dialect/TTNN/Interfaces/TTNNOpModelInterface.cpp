@@ -3077,11 +3077,9 @@ unpackBatchNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 BatchNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  assert((inputs.size() == 1 || inputs.size() == 5) &&
-         "ttnn::batch_norm can either have 1 input tensor (representing the "
-         "main input) or 5 input tensors (representing main input tensor, "
-         "running_mean, running_var, weight and bias). The usage of this op "
-         "with 2-4 input tensors is discouraged as it's ambiguous.");
+  assert(inputs.size() == 5 && "ttnn::batch_norm can only have 5 input tensors "
+                               "(representing main input tensor, "
+                               "running_mean, running_var, weight and bias).");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -3107,11 +3105,9 @@ BatchNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 BatchNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
-  assert((inputs.size() == 1 || inputs.size() == 5) &&
-         "ttnn::batch_norm can either have 1 input tensor (representing the "
-         "main input) or 5 input tensors (representing main input tensor, "
-         "running_mean, running_var, weight and bias). The usage of this op "
-         "with 2-4 input tensors is discouraged as it's ambiguous.");
+  assert(inputs.size() == 5 && "ttnn::batch_norm can only have 5 input tensors "
+                               "(representing main input tensor, "
+                               "running_mean, running_var, weight and bias).");
 
   const auto inputShape = getInput().getType().getShape();
 
@@ -3134,6 +3130,12 @@ BatchNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 BatchNormTrainingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                       const OpConfig &opConfig) {
+  assert((inputs.size() == 1 || inputs.size() == 5) &&
+         "ttnn::batch_norm_training can either have 1 input tensor "
+         "(representing the main input) or 5 input tensors (representing main "
+         "input tensor, running_mean, running_var, weight and bias). The "
+         "usage of this op with 2-4 input tensors is discouraged as it's "
+         "ambiguous.");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
