@@ -576,7 +576,7 @@ public:
     if (!relu6Op) {
       return mlir::failure();
     }
-    auto fullOp = getDefiningOpThroughTypecast<FullOp>(denominator);
+    auto fullOp = getFullOpThroughTMOps(denominator);
     if (!fullOp || !checkFillValue(fullOp, 6.0)) {
       return mlir::failure();
     }
@@ -590,10 +590,10 @@ public:
 
     // Check if one operand is the input and the other is constant 3
     Value input;
-    if (auto fullOpThree = getDefiningOpThroughTypecast<FullOp>(addRhs);
+    if (auto fullOpThree = getFullOpThroughTMOps(addRhs);
         fullOpThree && checkFillValue(fullOpThree, 3.0)) {
       input = addLhs;
-    } else if (auto fullOpThree = getDefiningOpThroughTypecast<FullOp>(addLhs);
+    } else if (auto fullOpThree = getFullOpThroughTMOps(addLhs);
                fullOpThree && checkFillValue(fullOpThree, 3.0)) {
       input = addRhs;
     } else {
@@ -651,6 +651,17 @@ private:
       return typecastOp.getInput().getDefiningOp<OpType>();
     }
     return value.getDefiningOp<OpType>();
+  }
+  // Helper function to get FullOp while skipping tensor manipulation operations
+  FullOp getFullOpThroughTMOps(Value value) const {
+    Operation *currentOp = value.getDefiningOp();
+
+    while (isa_and_nonnull<TypecastOp, ReshapeOp, BroadcastOp, PermuteOp>(
+        currentOp)) {
+      currentOp = currentOp->getOperand(0).getDefiningOp();
+    }
+
+    return mlir::dyn_cast_if_present<FullOp>(currentOp);
   }
 };
 
