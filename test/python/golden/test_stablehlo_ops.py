@@ -160,6 +160,7 @@ def test_binary_ops(
     )
 
 
+@pytest.mark.skip("https://github.com/tenstorrent/tt-mlir/issues/5317")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
