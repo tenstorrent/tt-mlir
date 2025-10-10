@@ -343,7 +343,7 @@ private:
     return "ttnn.pow_scalar";
   }
 
-  std::string getPrefixSwapPattern() const override { return "ttnn::pow"; }
+  std::string getPrefixSwapPattern() const override { return "ttnn.pow"; }
 
   template <typename ExponentT>
   LogicalResult matchAndRewriteImpl(mlir::tt::ttnn::PowScalarOp srcOp,
@@ -358,7 +358,8 @@ private:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getLhs()),
         emitter.template emit<ExponentT>(exponent),
-        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult())),
+        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
