@@ -1350,7 +1350,179 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   if (auto foldResult = foldConsecutiveReshape(*this)) {
     return foldResult;
   }
+
+  // Operation* lastUserOfOperand = getOperation();
+  // for (Operation* user : getInput().getUsers()) {
+  //   if (user == getOperation()) {
+  //     continue;
+  //   }
+
+  //   if (lastUserOfOperand->isBeforeInBlock(user) &&
+  //   !getOperation()->isAncestor(user)) {
+  //     lastUserOfOperand = user;
+  //   }
+  // }
+  // if (lastUserOfOperand != getOperation()) {
+  //   getOperation()->moveAfter(lastUserOfOperand);
+  // }
+
   return nullptr;
+}
+
+bool isReshapeView(mlir::tt::ttnn::ReshapeOp op) {
+  int64_t inputRank = op.getInput().getType().getRank();
+  int64_t outputRank = op.getResult().getType().getRank();
+  int64_t inputLastDimSize =
+      inputRank >= 1 ? op.getInput().getType().getShape().back() : 1;
+  int64_t outputLastDimSize =
+      outputRank >= 1 ? op.getResult().getType().getShape().back() : 1;
+
+  int64_t inputSecondLastDimsSize =
+      inputRank >= 2 ? op.getInput().getType().getShape()[inputRank - 2] : 1;
+  int64_t outputSecondLastDimsSize =
+      outputRank >= 2 ? op.getResult().getType().getShape()[outputRank - 2] : 1;
+
+  int64_t tileSecondDim = TILE_HEIGHT;
+  int64_t tileFirstDim = TILE_WIDTH;
+
+  TTNNLayoutAttr inputLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+      op.getInput().getType().getEncoding());
+  if (!inputLayout) {
+    return false;
+  }
+
+  TTNNLayoutAttr outputLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+      op.getResult().getType().getEncoding());
+  if (!outputLayout) {
+    return false;
+  }
+
+  bool isView = inputLastDimSize == outputLastDimSize;
+  isView = isView && inputLayout.getMemLayout().getValue() ==
+                         outputLayout.getMemLayout().getValue();
+  isView = isView && (!inputLayout.isTiled() ||
+                      (inputSecondLastDimsSize == outputSecondLastDimsSize) ||
+                      (outputSecondLastDimsSize % tileSecondDim == 0 &&
+                       inputSecondLastDimsSize % tileFirstDim == 0));
+
+  return isView;
+}
+
+void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(
+      +[](mlir::tt::ttnn::ReshapeOp op, mlir::PatternRewriter &rewriter) {
+        bool isLastUser = true;
+        auto input = op.getInput();
+        for (Operation *user : input.getUsers()) {
+          if (user != op) {
+            isLastUser = isLastUser && user->isBeforeInBlock(op);
+          }
+        }
+
+        if (!isLastUser || !isReshapeView(op)) {
+          return failure();
+        }
+
+        auto viewOp = rewriter.create<mlir::tt::ttnn::ViewOp>(
+            op.getLoc(), op.getResult().getType(), op.getInput(),
+            op.getShape());
+        rewriter.replaceOp(op, viewOp);
+        return success();
+      },
+      0);
+
+  patterns.add(
+      +[](mlir::tt::ttnn::ReshapeOp op, mlir::PatternRewriter &rewriter) {
+        if (auto me = llvm::dyn_cast<mlir::MemoryEffectOpInterface>(
+                op.getOperation())) {
+          SmallVector<
+              mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+              eff;
+          me.getEffects(eff);
+          // Require read-only for simplicity.
+          if (llvm::any_of(eff, [](auto &e) {
+                return !llvm::isa<mlir::MemoryEffects::Read>(e.getEffect());
+              })) {
+            return mlir::failure();
+          }
+        }
+
+        mlir::Block *block = op->getBlock();
+
+        // Pick the operand you care about.
+        mlir::Value v = op.getInput(); // adjust
+        mlir::Operation *lastSiblingUser = nullptr;
+        for (mlir::Operation *user : v.getUsers()) {
+          if (user == op.getOperation()) {
+            continue;
+          }
+          if (user->getBlock() != block) {
+            continue;
+          }
+          if (op->isAncestor(user)) {
+            continue; // exclude descendants
+          }
+          if (!lastSiblingUser || lastSiblingUser->isBeforeInBlock(user)) {
+            lastSiblingUser = user;
+          }
+        }
+        if (!lastSiblingUser) {
+          return mlir::failure();
+        }
+
+        // Earliest user of op’s results (same block).
+        mlir::Operation *earliestOpUser = nullptr;
+        for (mlir::OpResult res : op->getResults()) {
+          for (mlir::Operation *u : res.getUsers()) {
+            if (u->getBlock() != block) {
+              continue;
+            }
+            if (!earliestOpUser || u->isBeforeInBlock(earliestOpUser)) {
+              earliestOpUser = u;
+            }
+          }
+        }
+
+        mlir::Operation *target = lastSiblingUser;
+        if (earliestOpUser &&
+            earliestOpUser->isBeforeInBlock(lastSiblingUser)) {
+          target = earliestOpUser->getPrevNode();
+          if (!target) {
+            return mlir::failure(); // can't move before block start
+          }
+        }
+
+        if (target && op->isBeforeInBlock(target)) {
+          rewriter.moveOpAfter(op, target);
+          return mlir::success();
+        }
+        return mlir::failure();
+      },
+      1);
+}
+
+//===----------------------------------------------------------------------===//
+// ViewOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::ViewOp::verify() {
+
+  for (Operation *user : getInput().getUsers()) {
+    if (user == getOperation()) {
+      continue;
+    }
+    if (user->getBlock() == getOperation()->getBlock()) {
+      if (!user->isBeforeInBlock(getOperation())) {
+        // user->dump();
+        // getOperation()->dump();
+        return emitOpError(
+            "View op must be the last operation which uses its operand.");
+      }
+    }
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

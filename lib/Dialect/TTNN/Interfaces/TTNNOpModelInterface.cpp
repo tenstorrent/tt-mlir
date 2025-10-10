@@ -1415,6 +1415,41 @@ ReshapeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// ViewOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+ViewOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+  const auto inputShape = getInput().getType().getShape();
+  SmallVector<int64_t> outputShape;
+
+  for (const Attribute dimAttr : getShape().getValue()) {
+    outputShape.push_back(mlir::cast<mlir::IntegerAttr>(dimAttr).getInt());
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ViewOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], outputShape, opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ViewOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                     const OpConfig &opConfig) {
+  const auto inputShape = getInput().getType().getShape();
+  SmallVector<int64_t> outputShape;
+
+  for (const Attribute dimAttr : getShape().getValue()) {
+    outputShape.push_back(mlir::cast<mlir::IntegerAttr>(dimAttr).getInt());
+  }
+  return opRuntimeCache().getOrCompute(op_model::OpModel<ViewOp>::getOpRuntime,
+                                       *this, inputShape, inputs[0],
+                                       outputShape, opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // SliceStaticOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

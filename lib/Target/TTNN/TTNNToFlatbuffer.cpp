@@ -1670,6 +1670,15 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
       memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ViewOp>
+createViewOp(FlatbufferObjectCache &cache, ViewOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto shape =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getShape());
+  return ::tt::target::ttnn::CreateViewOp(*cache.fbb, in, shape);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RandOp>
 createRandOp(FlatbufferObjectCache &cache, RandOp op) {
   auto size = cache.fbb->CreateVector<int64_t>(op.getSize().getShape());
@@ -2763,6 +2772,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
     return createOperation(cache, createReshapeOp(cache, reshapeOp),
                            debugString, locInfo);
+  }
+  if (auto viewOp = dyn_cast<ViewOp>(op); viewOp) {
+    return createOperation(cache, createViewOp(cache, viewOp), debugString,
+                           locInfo);
   }
   if (auto repeatOp = dyn_cast<RepeatOp>(op); repeatOp) {
     return createOperation(cache, createRepeatOp(cache, repeatOp), debugString,
