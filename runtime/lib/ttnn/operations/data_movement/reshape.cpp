@@ -28,7 +28,7 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
 
   if (::tt::runtime::workaround::Env::get().forceOutOfPlaceReshape) {
 
-    // The logic below is identical to the logic used interally in ttnn to
+    // The logic below is identical to the logic used internally in ttnn to
     // determine if a reshape is a view.
     int64_t tensor_shape_last_dim =
         in.logical_shape().rank() >= 1 ? in.logical_shape()[-1] : 1;
@@ -46,7 +46,7 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
         (tensor_shape_last_dim == shape_last_dim) &&
         (mem_config.is_sharded() == in.memory_config().is_sharded()) &&
         (mem_config.is_l1() == in.memory_config().is_l1()) &&
-        ((in.layout() == ::ttnn::ROW_MAJOR_LAYOUT) || // Its row major
+        ((in.layout() == ::ttnn::ROW_MAJOR_LAYOUT) || // It's row major
          (tensor_shape_second_last_dim ==
           shape_second_last_dim) || // Second last dimension is the same
          (shape_second_last_dim % tile_second_dim == 0 &&
@@ -67,50 +67,6 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
     out = ::ttnn::reshape(in, shape, memoryConfig);
   }
 
-  //   int64_t tensor_shape_last_dim = in.logical_shape().rank() >= 1 ?
-  //   in.logical_shape()[-1] : 1; int64_t shape_last_dim = shape.size() >= 1 ?
-  //   shape.back() : 1; int64_t tensor_shape_second_last_dim =
-  //   in.logical_shape().rank() >= 2 ?
-  //   in.logical_shape()[in.logical_shape().size() - 2] : 1; int64_t
-  //   shape_second_last_dim = shape.size() >= 2 ? shape[shape.size() - 2] : 1;
-  //   int64_t tile_second_dim = ::tt::constants::TILE_HEIGHT;
-  //   int64_t tile_first_dim = ::tt::constants::TILE_WIDTH;
-  //   ::ttnn::MemoryConfig mem_config =
-  //   memoryConfig.value_or(in.memory_config()); bool this_is_view =
-  //         (tensor_shape_last_dim == shape_last_dim) &&
-  //         (mem_config.is_sharded() == in.memory_config().is_sharded()) &&
-  //         (mem_config.is_l1() == in.memory_config().is_l1()) &&
-  //         ((in.layout() == ::ttnn::ROW_MAJOR_LAYOUT) ||              // Its
-  //         row major
-  //          (tensor_shape_second_last_dim == shape_second_last_dim) ||  //
-  //          Second last dimension is the same (shape_second_last_dim %
-  //          tile_second_dim == 0 &&
-  //           tensor_shape_second_last_dim % tile_first_dim == 0));  // There
-  //           is no padding on the second last dimension
-
-  //   bool is_kv_cache_input = in.logical_shape() == ::ttnn::Shape({1, 1, 12,
-  //   32, 64}); const auto target_shape_small_vector =
-  //   ::ttsl::SmallVector<uint32_t>(shape.begin(), shape.end());
-  //   ::ttnn::Shape target_shape(target_shape_small_vector);
-  //   if (this_is_view) {
-
-  //       std::cout << "Reshape is a view" << std::endl;
-  //       std::cout << "input shape: " << in.logical_shape() << std::endl;
-  //       std::cout << "target shape: " << target_shape << std::endl;
-  //       std::cout << "dtype: " << in.dtype() << std::endl;
-
-  //       auto newIn = ::ttnn::clone(in, std::nullopt, std::nullopt,
-  //       std::nullopt); out = ::ttnn::reshape(newIn, shape, memoryConfig);
-  //   } else {
-  //       if (is_kv_cache_input && this_is_view) {
-  //         std::cout << "Reshape is a view but we're going to reshape it
-  //         in-place anyway since its kv cache input" << std::endl; std::cout
-  //         << "input shape: " << in.logical_shape() << std::endl; std::cout <<
-  //         "target shape: " << target_shape << std::endl; std::cout << "dtype:
-  //         " << in.dtype() << std::endl;
-  //       }
-  //       out = ::ttnn::reshape(in, shape, memoryConfig);
-  //   }
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement
