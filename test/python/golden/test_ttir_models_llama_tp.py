@@ -11,7 +11,7 @@ from collections import OrderedDict
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_golden import BuilderGoldenTensor
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -192,6 +192,7 @@ def test_llama_attention_1xn_tp(
     target: str,
     mesh_shape: Tuple[int, int],
     request,
+    device,
 ):
     def model(
         arg0: Operand,
@@ -387,11 +388,12 @@ def test_llama_attention_1xn_tp(
 
         return output116
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         model,
         shapes,
         dtypes,
         target=target,
+        device=device,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
         test_base=request.node.name,

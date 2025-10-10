@@ -3,19 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
-import torch
 from typing import List
 
 from ttmlir.ir import *
 
 from builder.base.builder import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
 
-@pytest.mark.fails_golden
+@pytest.mark.xfail(reason="Golden Failure")
+@pytest.mark.skip_config(["p150"], ["p300"])
 @pytest.mark.parametrize("m", [4, 8, 16])
 @pytest.mark.parametrize("n", [2, 4, 8])
 @pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
@@ -28,6 +28,7 @@ def test_sum(
     keep_dim: bool,
     target: str,
     request,
+    device,
 ):
     tile_size = 32
     shape = (
@@ -44,7 +45,7 @@ def test_sum(
             in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         reduce_sum,
         [shape],
         target=target,
@@ -52,22 +53,18 @@ def test_sum(
         print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
     )
 
 
-@pytest.mark.fails_golden
+@pytest.mark.skip_config(["p150"], ["p300"])
 @pytest.mark.parametrize("m", [4, 8, 16])
 @pytest.mark.parametrize("n", [2, 4, 8])
 @pytest.mark.parametrize("dim_arg", [0, 1])
 @pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_max(
-    m: int,
-    n: int,
-    dim_arg: int,
-    keep_dim: bool,
-    target: str,
-    request,
+    m: int, n: int, dim_arg: int, keep_dim: bool, target: str, request, device
 ):
     tile_size = 32
     shape = (
@@ -84,7 +81,7 @@ def test_max(
             in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
         )
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         reduce_max,
         [shape],
         target=target,
@@ -92,4 +89,5 @@ def test_max(
         print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
     )

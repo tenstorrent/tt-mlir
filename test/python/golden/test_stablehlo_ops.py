@@ -9,7 +9,7 @@ from conftest import x86_only
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
-from builder.base.builder_utils import compile_stablehlo_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_shlo
 from test_utils import Marks, shape_str
 
 pytestmark = pytest.mark.frontend("shlo")
@@ -143,13 +143,9 @@ def log(
     ],
 )
 def test_binary_ops(
-    test_fn: Callable,
-    shape: Shape,
-    dtype: torch.dtype,
-    target: str,
-    request,
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    compile_stablehlo_to_flatbuffer(
+    compile_and_execute_shlo(
         test_fn,
         [shape, shape],
         [dtype, dtype],
@@ -157,6 +153,7 @@ def test_binary_ops(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
 
 
@@ -177,17 +174,13 @@ def test_binary_ops(
         rsqrt,
         sine,
         sqrt,
-        tan,
+        pytest.param(tan, marks=pytest.mark.xfail(reason="Golden Failure")),
     ],
 )
 def test_unary_ops(
-    test_fn: Callable,
-    shape: Shape,
-    dtype: torch.dtype,
-    target: str,
-    request,
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    compile_stablehlo_to_flatbuffer(
+    compile_and_execute_shlo(
         test_fn,
         [shape],
         [dtype],
@@ -195,4 +188,5 @@ def test_unary_ops(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )

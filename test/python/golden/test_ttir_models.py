@@ -8,30 +8,33 @@ from typing import List
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
 
 @pytest.mark.parametrize("shapes", [[(32, 32), (32, 32), (32, 32)]], ids=["32x32"])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
-def test_arbitrary_model(shapes: List[Shape], dtypes: List[torch.dtype], request):
+def test_arbitrary_model(
+    shapes: List[Shape], dtypes: List[torch.dtype], request, device
+):
     def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
         add = builder.add(in0, in1)
         exp = builder.exp(in2)
         return builder.multiply(add, exp)
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         model,
         shapes,
         dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("path"),
+        device=device,
         system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
-@pytest.mark.fails_golden
+@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 5], ids=["f32"])
 @pytest.mark.parametrize(
     "shapes",
@@ -60,6 +63,7 @@ def test_mnist(
     dtypes: List[torch.dtype],
     target: str,
     request,
+    device,
 ):
     def model(
         in0: Operand,  # Input 28x28 image
@@ -76,19 +80,19 @@ def test_mnist(
         add_6 = builder.add(matmul_5, in4)
         return builder.softmax(add_6, dimension=1)
 
-    # TODO: figure out a better way to name these tests for filename purposes
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         model,
         shapes,
         dtypes,
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
-@pytest.mark.fails_golden
+@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -124,6 +128,7 @@ def test_llama_attention(
     dtypes: List[torch.dtype],
     target: str,
     request,
+    device,
 ):
     def model(
         arg0: Operand,
@@ -204,11 +209,12 @@ def test_llama_attention(
 
         return output115
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         model,
         shapes,
         dtypes,
         target=target,
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("path"),
         system_desc_path=request.config.getoption("--sys-desc"),

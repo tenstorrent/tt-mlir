@@ -34,10 +34,7 @@ def multiple_meshes(
         multiple_meshes,
     ],
 )
-def test_binary_ops(
-    test_fn: Callable,
-    request,
-):
+def test_binary_ops(test_fn: Callable, request, device):
     module, shlo_builder = experimental_build_stablehlo_module(
         test_fn,
         [(128, 128), (128, 128)],
