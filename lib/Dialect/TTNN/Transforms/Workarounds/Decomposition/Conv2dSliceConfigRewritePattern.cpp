@@ -16,16 +16,8 @@ mlir::LogicalResult Conv2dSliceConfigRewritePattern::matchAndRewrite(
   auto conv2dSliceConfigAttr = mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
       rewriter.getContext(), mlir::tt::ttnn::Conv2dSliceType::L1Full, 0);
 
-  rewriter.replaceOp(
-      srcOp,
-      rewriter.create<ttnn::Conv2dOp>(
-          srcOp->getLoc(), srcOp.getResult().getType(), srcOp.getInput(),
-          srcOp.getWeight(), srcOp.getBias(), srcOp.getDevice(),
-          srcOp.getInChannels(), srcOp.getOutChannels(), srcOp.getBatchSize(),
-          srcOp.getInputHeight(), srcOp.getInputWidth(), srcOp.getKernelSize(),
-          srcOp.getStride(), srcOp.getPadding(), srcOp.getDilation(),
-          srcOp.getGroups(), srcOp.getDtypeAttr(), srcOp.getConv2dConfigAttr(),
-          srcOp.getComputeConfigAttr(), conv2dSliceConfigAttr));
+  rewriter.modifyOpInPlace(
+      srcOp, [&]() { srcOp.setConv2dSliceConfigAttr(conv2dSliceConfigAttr); });
 
   return success();
 }

@@ -91,7 +91,8 @@ public:
               conv2dOp.getPaddingAttr(), conv2dOp.getDilationAttr(),
               rewriter.getBoolAttr(conv2dOp.getBias() != nullptr),
               conv2dOp.getGroupsAttr(), conv2dOp.getDevice(), inputDtypeAttr,
-              outputDtypeAttr, conv2dConfig, /*conv2d_slice_config=*/nullptr);
+              outputDtypeAttr, conv2dConfig,
+              conv2dOp.getConv2dSliceConfigAttr());
 
       ttnn::PrepareConv2dBiasOp prepareConv2dBiasOp;
       if (conv2dOp.getBias()) {
@@ -107,7 +108,7 @@ public:
             conv2dOp.getStrideAttr(), conv2dOp.getPaddingAttr(),
             conv2dOp.getDilationAttr(), conv2dOp.getGroupsAttr(),
             conv2dOp.getDevice(), inputDtypeAttr, outputDtypeAttr, conv2dConfig,
-            /*conv2d_slice_config=*/nullptr);
+            conv2dOp.getConv2dSliceConfigAttr());
       }
 
       // Update only the weight and bias since PrepareConv2dWeightsOp and
