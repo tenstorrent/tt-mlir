@@ -2720,6 +2720,7 @@ TEST_P(OpModelAvgPool2DParam, AvgPool2DParam) { RunTest(); }
 INSTANTIATE_TEST_SUITE_P(AvgPool2DTests, OpModelAvgPool2DParam,
                          pool2DTestValues);
 
+#if 0
 class OpModelGlobalAvgPool2dParam
     : public OpModelTest,
       public testing::WithParamInterface<
@@ -2832,6 +2833,7 @@ const auto globalAvgPool2dTestValues = testing::Values(
 // Test fails: https://github.com/tenstorrent/tt-mlir/issues/5313
 // INSTANTIATE_TEST_SUITE_P(GlobalAvgPool2dTests, OpModelGlobalAvgPool2dParam,
 //                          globalAvgPool2dTestValues);
+#endif
 
 class OpModelLeakyReluParam : public OpModelTest,
                               public testing::WithParamInterface<
