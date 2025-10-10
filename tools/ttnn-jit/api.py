@@ -14,11 +14,12 @@ from ttmlir.passes import (
     ttmetal_to_flatbuffer_file,
     ttnn_to_flatbuffer_file,
     ttnn_to_ttmetal_pipeline,
+    ttnn_to_flatbuffer_bin,
 )
 
 from ttnn_jit._src.ttir_ast import TTIRCompiler
 from ttnn_jit._src.utils import _cleanup_source_code
-from ttnn_jit._src.dispatch_op import _run_binary
+from ttnn_jit._src.dispatch_op import _run_binary_from_capsule
 
 
 def jit(
@@ -77,8 +78,8 @@ def jit(
                     print("---- After ttir_to_ttmetal_backend_pipeline ----")
                     print(ir)
 
-                flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttm")
                 if compile_only:
+                    flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttm")
                     ttmetal_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
                     return ir
                 else:
@@ -93,15 +94,13 @@ def jit(
                     print("---- After ttnn_to_ttmetal_pipeline ----")
                     print(ir)
 
-                flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttnn")
                 if compile_only:
+                    flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttnn")
                     ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
                     return ir
                 else:
-                    # TODO (#5055): always dump flatbuffer to disk for now, in the future we want to run flatbuffer from memory and only dump to disk if debug=True.
-                    ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
-
-                    return _run_binary(flatbuffer_bin, args)
+                    fb_capsule = ttnn_to_flatbuffer_bin(ir)
+                    return _run_binary_from_capsule(fb_capsule, args)
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
 

@@ -692,7 +692,7 @@ memrefGlobalOpToFlatbufferByteVector(FlatbufferObjectCache &cache,
   return data;
 }
 
-static std::shared_ptr<void> translateTTMetalToFlatbuffer(
+std::shared_ptr<void> translateTTMetalToFlatbuffer(
     Operation *op,
     const std::unordered_map<std::string,
                              std::unordered_map<std::uint32_t, GoldenTensor>>
