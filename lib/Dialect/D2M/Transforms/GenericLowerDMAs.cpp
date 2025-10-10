@@ -154,6 +154,7 @@ public:
         nextAddress.back() += elemSizeBytes;
       });
     });
+    llvm::errs() << "coalescingFactor = " << coalescingFactor << "\n";
     return coalescingFactor;
   }
 
@@ -306,6 +307,8 @@ public:
     llvm::errs() << "collapsedDmaIndexingMap = " << collapsedDmaIndexingMap
                  << "\n";
 
+    // underlying alignment between output grid and compute grid, so use
+    // collapsed shapes
     auto [streamIndices, indexBounds] = buildStreamIndex(
         rewriter, loc, collapsedGridShape, genericParent.getBlockFactorsValue(),
         collapsedShardShape, collapsedDmaIndexingMap, collapsedGridIndexingMap);
@@ -321,6 +324,7 @@ public:
                                               0 /* use default page size*/);
     // print the affine map at this point
     llvm::errs() << "memoryMap = " << memoryMap << "\n";
+    // use virtual shapes for calculating coalescing factor
     size_t coalescingFactor =
         calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,
                                   elemSizeBytes, indexBounds);
@@ -359,6 +363,12 @@ public:
         mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout())
             .getShardShape(memref);
     size_t shardVolume = ttmlir::utils::volume(memrefShardShape);
+
+    // print all the stream indices
+    for (size_t i = 0; i < streamIndices.size(); i++) {
+      llvm::errs() << "streamIndices[" << i << "] = " << streamIndices[i]
+                   << "\n";
+    }
 
     Operation *newDma;
     if (coalescingFactor == shardVolume) {
