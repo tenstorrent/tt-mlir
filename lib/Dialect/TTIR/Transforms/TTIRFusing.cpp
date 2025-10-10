@@ -487,6 +487,100 @@ private:
     return false;
   }
 };
+// Hardsigmoid fusion pattern matcher that transforms:
+//   relu6(x+3) / 6
+// into:
+//   hardsigmoid(x)
+class HardsigmoidFusionPattern : public mlir::OpRewritePattern<DivOp> {
+  using mlir::OpRewritePattern<DivOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(DivOp divOp, mlir::PatternRewriter &rewriter) const final {
+    // Match pattern: Div(Relu6(Add(x, 3)), 6)
+    Value numerator = divOp.getLhs();
+    Value denominator = divOp.getRhs();
+    auto relu6Op = getDefiningOpThroughTypecast<Relu6Op>(numerator);
+    if (!relu6Op) {
+      return mlir::failure();
+    }
+    auto fullOp = getDefiningOpThroughTypecast<FullOp>(denominator);
+    if (!fullOp || !checkFillValue(fullOp, 6.0)) {
+      return mlir::failure();
+    }
+
+    auto addOp = getDefiningOpThroughTypecast<AddOp>(relu6Op.getInput());
+    if (!addOp) {
+      return mlir::failure();
+    }
+    Value addLhs = addOp.getLhs();
+    Value addRhs = addOp.getRhs();
+
+    // Check if one operand is the input and the other is constant 3
+    Value input;
+    if (auto fullOpThree = getDefiningOpThroughTypecast<FullOp>(addRhs);
+        fullOpThree && checkFillValue(fullOpThree, 3.0)) {
+      input = addLhs;
+    } else if (auto fullOpThree = getDefiningOpThroughTypecast<FullOp>(addLhs);
+               fullOpThree && checkFillValue(fullOpThree, 3.0)) {
+      input = addRhs;
+    } else {
+      return mlir::failure();
+    }
+
+    // Check usage patterns to ensure we can safely fuse.
+    if (!addOp.getResult().hasOneUse() || !relu6Op.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // Get input and output types to handle potential typecast differences
+    auto inputType = addOp.getLhs().getType();
+    auto outputType = divOp.getResult().getType();
+    auto hardsigmoidOp = utils::createDPSOp<HardsigmoidOp>(
+        rewriter, divOp.getLoc(), inputType, input);
+
+    // If inputs and output are typecasted, we need to add a typecast
+    // after hardsigmoid to convert back to the div output type.
+    if (inputType != outputType) {
+      auto typecastOp = utils::createDPSOp<TypecastOp>(
+          rewriter, divOp.getLoc(), inputType, hardsigmoidOp.getResult());
+      rewriter.replaceAllOpUsesWith(divOp, typecastOp);
+    } else {
+      rewriter.replaceAllOpUsesWith(divOp, hardsigmoidOp);
+    }
+
+    // // Replace with Hardsigmoid
+    // utils::replaceOpWithNewDPSOp<HardsigmoidOp>(
+    //     rewriter, divOp, divOp.getResult().getType(), input);
+    return mlir::success();
+  }
+
+private:
+  // Check if the fill value of the full op is the expected value.
+  bool checkFillValue(FullOp op, double expectedValue) const {
+    if (!op) {
+      return false;
+    }
+    mlir::Attribute fillValue = op.getFillValue();
+    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
+      return integerAttr.getValue().getSExtValue() ==
+             static_cast<int64_t>(expectedValue);
+    }
+    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
+      return floatAttr.getValue().convertToFloat() == expectedValue;
+    }
+    return false;
+  }
+
+  // Helper function to get defining op while skipping typecast operations
+  template <typename OpType>
+  OpType getDefiningOpThroughTypecast(Value value) const {
+    if (auto typecastOp = value.getDefiningOp<TypecastOp>()) {
+      return typecastOp.getInput().getDefiningOp<OpType>();
+    }
+    return value.getDefiningOp<OpType>();
+  }
+};
 
 // SiLU fusion pattern matcher that transforms:
 // multiply(sigmoid(x), x)
@@ -2312,6 +2406,7 @@ public:
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());
       patterns.add<SiluFusionPattern>(&getContext());
+      patterns.add<HardsigmoidFusionPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
