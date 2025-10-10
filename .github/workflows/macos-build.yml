@@ -26,6 +26,7 @@ jobs:
       id: rep
       run: |
         .github/scripts/get_test_runs.sh 18386355172
+        cat _summary.md >> $GITHUB_STEP_SUMMARY
 
     - uses: LouisBrunner/checks-action@v2
       with:
