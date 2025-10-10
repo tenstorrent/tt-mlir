@@ -291,7 +291,13 @@ struct EmitPyTypeConverter<
       std::ostringstream oss;
       oss << std::setprecision(std::numeric_limits<double>::max_digits10);
       oss << value;
-      return oss.str();
+      std::string result = oss.str();
+      // Ensure decimal point is present for Python float compatibility
+      if (result.find('.') == std::string::npos &&
+          result.find('e') == std::string::npos) {
+        result += ".0";
+      }
+      return result;
     }
 
     if (std::isinf(value)) {
@@ -830,6 +836,14 @@ struct EmitPyTypeConverter<std::array<T, k>> {
     return convert(result);
   }
 
+  static std::string convert(const std::array<T, k> &values) {
+    std::array<std::string, k> result;
+    for (size_t i = 0; i < k; ++i) {
+      result[i] = EmitPyTypeConverter<T>::convert(values[i]);
+    }
+    return convert(result);
+  }
+
 private:
   static std::string convert(const std::array<std::string, k> &values) {
     std::string buf;
@@ -939,10 +953,10 @@ struct EmitPyTypeConverter<::ttnn::CoreRangeSet> {
     std::string buf;
     llvm::raw_string_ostream rso(buf);
     rso << TypeNameV<::ttnn::CoreRangeSet>;
-    rso << "([";
-    rso << EmitPyTypeConverter<std::set<::ttnn::CoreRange>>::convert(
+    rso << "(";
+    rso << EmitPyTypeConverter<std::vector<::ttnn::CoreRange>>::convert(
         attr.getCoreRanges());
-    rso << "])";
+    rso << ")";
     return buf;
   }
 };

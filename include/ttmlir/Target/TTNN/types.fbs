@@ -83,3 +83,11 @@ table TensorRef {
   global_id: uint32;
   desc: TensorDesc;
 }
+
+table FloatingPointType {
+  value: float;
+}
+
+table UIntegralType {
+  value: uint32;
+}
