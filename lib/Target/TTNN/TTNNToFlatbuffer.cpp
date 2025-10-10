@@ -1676,7 +1676,9 @@ createViewOp(FlatbufferObjectCache &cache, ViewOp op) {
       getOperandThroughDPSOps(op.getInput()));
   auto shape =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getShape());
-  return ::tt::target::ttnn::CreateViewOp(*cache.fbb, in, shape);
+
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  return ::tt::target::ttnn::CreateViewOp(*cache.fbb, in, out, shape);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RandOp>
