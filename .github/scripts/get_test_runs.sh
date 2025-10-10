@@ -6,6 +6,7 @@ mkdir test_reports
 gh run download $runid --repo tenstorrent/tt-mlir --pattern "test-reports-*" --dir test_reports || echo "No reports found"
 
 step_number=""
+rm -f _summary.md
 summaries=$(find test_reports -name "summary_*.md" -type f)
 for summary_file in $summaries; do
     filename=$(basename "$summary_file")
@@ -26,7 +27,7 @@ for summary_file in $summaries; do
         test_lines=($(grep -E -n "Running test [0-9]+\-" log.txt | cut -d: -f1))
         rm log.txt
 
-        echo "### Tests for $machine, $image" >_summary.md
+        echo "### Tests for $machine, $image" >>_summary.md
         while IFS= read -r line; do
             if [[ "$line" == *"SUCCESS"* ]]; then
                 test_prefix="+"
