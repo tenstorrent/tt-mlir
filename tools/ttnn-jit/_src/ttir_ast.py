@@ -221,12 +221,12 @@ class TTIRCompiler(ast.NodeVisitor):
             args[0], ast.Constant
         ), "First argument cannot be a constant"
 
-        arg = self.visit(args[0])
-        result_type = arg.type
+        tensor_arg = self.visit(args[0])
+        result_type = tensor_arg.type
 
-        func_args = [result_type, arg]
+        func_args = [result_type, tensor_arg]
         for func_arg in args[1:]:
-            arg = self.visit(func_arg, tensor_type=result_type)
+            arg = self.visit(func_arg, tensor=tensor_arg)
             func_args.append(arg)
 
         func = self._fn_map[node.attr]
@@ -360,17 +360,17 @@ class TTIRCompiler(ast.NodeVisitor):
     def visit_Constant(self, node, tensor=None):
         assert tensor is not None, "Tensor must be provided for constants"
         element_type = tensor.type.element_type
-        if not isinstance(element_type, FloatType) and not isinstance(
-            element_type, BFloat16Type
-        ):
+        if isinstance(element_type, IntegerType):
+            type_attr = IntegerAttr.get(I32Type.get(self.ctx), node.value)
+        elif isinstance(element_type, FloatType):
+            type_attr = FloatAttr.get(F32Type.get(self.ctx), node.value)
+        else:
             raise NotImplementedError(f"Unsupported constant type: {type(node.value)}")
 
-        type_attr = FloatAttr.get(element_type, node.value)
         if self.backend == "ttnn":
-            # TODO(#5186): Support bf16 constants.
             if not isinstance(tensor.type.element_type, FloatType):
                 raise NotImplementedError(
-                    f"Unsupported constant type: {type(node.value)}"
+                    f"Only float constants are supported for ttnn backend: {type(node.value)}"
                 )
 
             dtype = ttcore.ir.DataTypeAttr.get(
@@ -386,7 +386,6 @@ class TTIRCompiler(ast.NodeVisitor):
                     self.ctx, layout.memory_layout_as_int
                 )
 
-            # FullOp only supports I32, F32. Might need switch to ConstantOp
             return ttnn.FullOp(
                 tensor.type,
                 shape,

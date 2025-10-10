@@ -470,6 +470,22 @@ namespace {
 template <typename SourceOp>
 class EltwiseBinaryNGCompositeOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    if constexpr (std::is_same_v<SourceOp, ::mlir::tt::ttnn::PowTensorOp>) {
+      return "ttnn.pow_tensor";
+    }
+
+    return "ttnn.";
+  }
+
+  std::string getPrefixSwapPattern() const override {
+    if constexpr (std::is_same_v<SourceOp, ::mlir::tt::ttnn::PowTensorOp>) {
+      return "ttnn::pow";
+    }
+
+    return "ttnn::";
+  }
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
@@ -492,6 +508,59 @@ public:
     emitter.replaceOp(*this, args);
 
     return success();
+  }
+};
+} // namespace
+
+// PowScalar op conversion pattern
+//
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (memcfg).
+//
+namespace {
+class PowScalarOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::PowScalarOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.pow_scalar";
+  }
+
+  std::string getPrefixSwapPattern() const override { return "ttnn::pow"; }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PowScalarOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PowScalarOp srcOp,
+                  mlir::tt::ttnn::PowScalarOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PowScalarOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    mlir::Attribute exponentAttr;
+    if (auto attr = mlir::dyn_cast<FloatAttr>(srcOp.getRhs())) {
+      auto exponent = attr.getValue().convertToFloat();
+      exponentAttr = emitter.template emit<float>(exponent);
+    } else if (auto attr = mlir::dyn_cast<IntegerAttr>(srcOp.getRhs())) {
+      auto exponent = static_cast<uint32_t>(attr.getValue().getSExtValue());
+      // An explicit cast to uint32_t is required here to avoid ambiguous
+      // function overload resolution during C++ code generation.
+      std::string exponentStr = "uint32_t(" + std::to_string(exponent) + ")";
+      exponentAttr = emitc::OpaqueAttr::get(rewriter.getContext(), exponentStr);
+    } else {
+      return failure();
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getLhs()),
+        exponentAttr,
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return mlir::success();
   }
 };
 } // namespace
@@ -705,6 +774,37 @@ public:
         /*return_indices=*/emitter.emit(false)};
 
     emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// GlobalAvgPool2d op conversion pattern
+//
+namespace {
+class GlobalAvgPool2dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::GlobalAvgPool2dOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::GlobalAvgPool2dOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GlobalAvgPool2dOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::GlobalAvgPool2dOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(std::nullopt), // output_dtype
+    };
+
+    emitter.replaceOp(*this, args);
+
     return success();
   }
 };
@@ -1132,9 +1232,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::Conv2dOp> emitter(
         srcOp, adaptor, rewriter);
 
-    auto conv2dSliceConfigAttr = mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
-        rewriter.getContext(), mlir::tt::ttnn::Conv2dSliceType::L1Full, 0);
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getWeight()),
@@ -1156,7 +1253,7 @@ public:
         emitter.emit(srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
-        emitter.emit(conv2dSliceConfigAttr),
+        emitter.emit(srcOp.getConv2dSliceConfigAttr()),
     };
 
     emitter.replaceOp(*this, args);
@@ -3413,9 +3510,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseBinaryCompositeOpConversionPattern<
           mlir::tt::ttnn::LogicalLeftShiftOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
-      EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowOp>,
-      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>>(
-      typeConverter, ctx);
+      EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowTensorOp>,
+      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>,
+      PowScalarOpConversionPattern>(typeConverter, ctx);
 
   // Eltwise ternary ops
   //
@@ -3456,6 +3553,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<AvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<MaxPool2dOpConversionPattern>(typeConverter, ctx);
+  patterns.add<GlobalAvgPool2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<UpsampleOpConversionPattern>(typeConverter, ctx);
 
   // Convolution ops

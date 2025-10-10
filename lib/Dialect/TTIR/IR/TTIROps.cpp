@@ -4778,4 +4778,43 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// GlobalAvgPool2dOp
+//===----------------------------------------------------------------------===//
+
+// GlobalAvgPool2dOp verification
+::mlir::LogicalResult mlir::tt::ttir::GlobalAvgPool2dOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  int64_t rank = inputType.getRank();
+  if (rank < 2) {
+    return emitOpError("input tensor must have at least 2 dimensions for "
+                       "global average pooling over 2 spatial dimensions");
+  }
+
+  if (outputType.getRank() != rank) {
+    return emitOpError("output tensor must have the same rank as input tensor");
+  }
+
+  if (inputShape[0] != outputShape[0]) {
+    return emitOpError(
+        "batch dimension must remain the same between input and output");
+  }
+
+  if (outputShape[rank - 2] != 1 || outputShape[rank - 3] != 1) {
+    return emitOpError("spatial dimensions must be reduced to 1");
+  }
+
+  if (inputShape[rank - 1] != outputShape[rank - 1]) {
+    return emitOpError(
+        "channel dimension must remain the same between input and output");
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttir

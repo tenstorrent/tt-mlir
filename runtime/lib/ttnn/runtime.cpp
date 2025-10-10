@@ -1035,6 +1035,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_EltwiseBinaryCompositeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
+    tensorRef = opContext.type_as_EltwiseBinaryCompositeScalarOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
     tensorRef = opContext.type_as_EltwiseTernaryWhereOp()->out();
     break;
@@ -1133,6 +1137,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::Pool2dOp: {
     tensorRef = opContext.type_as_Pool2dOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
+    tensorRef = opContext.type_as_GlobalAvgPool2dOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
@@ -1323,6 +1331,10 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_EltwiseBinaryCompositeOp()->rhs()};
     break;
   }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
+    tensorRefs = {opContext.type_as_EltwiseBinaryCompositeScalarOp()->lhs()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
     tensorRefs = {opContext.type_as_EltwiseTernaryWhereOp()->first(),
                   opContext.type_as_EltwiseTernaryWhereOp()->second(),
@@ -1424,6 +1436,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::Pool2dOp: {
     tensorRefs = {opContext.type_as_Pool2dOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
+    tensorRefs = {opContext.type_as_GlobalAvgPool2dOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
