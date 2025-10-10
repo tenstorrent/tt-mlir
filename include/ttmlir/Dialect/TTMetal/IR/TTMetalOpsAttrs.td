@@ -85,6 +85,7 @@ def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [
                                  KernelArgsAttr kernelArgs,
                                  MathFidelity mathFid,
                                  bool fp32DestAccEn,
+                                 bool dstFullSyncEn,
                                  ::llvm::ArrayRef<UnpackToDestMode> unpackToDestMode) {
       return ComputeConfigAttr::get(context,
                                     kernelSymbol,
@@ -92,7 +93,7 @@ def TTMetal_ComputeConfigAttr: TTMetal_Attr<"ComputeConfig", "compute_config", [
                                     kernelArgs,
                                     mathFid,
                                     fp32DestAccEn,
-                                    false,
+                                    dstFullSyncEn,
                                     false,
                                     unpackToDestMode);
     };

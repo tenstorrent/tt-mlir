@@ -136,7 +136,13 @@ TEST(AssertsDeathTest, IntegralRangeChecks) {
 // See also TestAssertsElision.cpp.
 
 TEST(AssertsDeathTest, MacroElisionDebug) {
-#if !defined(TT_ASSERT_ENABLE_DEBUG_ASSERTS)
+#if defined(TT_ASSERT_ENABLE_DEBUG_ASSERTS)
+
+  TT_debug(2 > 1);
+  TT_debug_limit(0, 1);
+  TT_debugv(2 + 2 == 4, "as it should be");
+
+#else
   // TT_debug* should be elided and not abort the process,
   // regardless of TT_ASSERT_DISABLE_ASSERTS status.
 

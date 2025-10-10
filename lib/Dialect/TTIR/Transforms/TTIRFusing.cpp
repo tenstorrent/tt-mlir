@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
@@ -1185,6 +1186,131 @@ public:
   }
 };
 
+// Fuse MatmulOp followed by AddOp into a single LinearOp.
+// This pattern looks for an AddOp where one of its operands is the result of
+// a MatmulOp and the other operand is a bias term. It then replaces the
+// AddOp with a LinearOp that combines the functionality of both operations.
+// The pattern also handles the case where the MatmulOp is followed by a
+// ReshapeOp before the AddOp. In this case, it reshapes the bias term
+// accordingly and creates a LinearOp followed by a ReshapeOp to maintain the
+// original output shape.
+class MatmulWithBiasFusionPattern : public mlir::OpRewritePattern<AddOp> {
+public:
+  using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
+  mlir::LogicalResult
+  matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
+    if (MatmulOp matmulOp = getFusableMatmulOp(addOp); matmulOp) {
+      Value bias = addOp.getLhs() == matmulOp.getResult() ? addOp.getRhs()
+                                                          : addOp.getLhs();
+      Value matmulOpA = matmulOp.getA();
+      Value matmulOpB = matmulOp.getB();
+      LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
+          rewriter, addOp.getLoc(), addOp.getResult().getType(), matmulOpA,
+          matmulOpB, bias, matmulOp.getTransposeA(), matmulOp.getTransposeB());
+
+      rewriter.replaceOp(addOp, linearOp);
+
+      return mlir::success();
+    }
+    if (MatmulOp matmulOp = getFusableReshapedMatmulOp(addOp); matmulOp) {
+
+      ReshapeOp reshapeOp =
+          mlir::dyn_cast<ReshapeOp>(*matmulOp.getResult().getUsers().begin());
+      TT_assertv(reshapeOp,
+                 "MatmulWithBiasFusionPattern getFusable logic is broken.");
+
+      TypedValue<RankedTensorType> bias =
+          (addOp.getLhs() == reshapeOp.getResult()) ? addOp.getRhs()
+                                                    : addOp.getLhs();
+      RankedTensorType biasType = bias.getType();
+
+      Value matmulOpA = matmulOp.getA();
+      Value matmulOpB = matmulOp.getB();
+      llvm::ArrayRef<int64_t> matmulOpShape =
+          matmulOp.getResult().getType().getShape();
+      llvm::ArrayRef<int64_t> addOpShape =
+          addOp.getResult().getType().getShape();
+      SmallVector<int32_t> matmulShapeI32(matmulOpShape.begin(),
+                                          matmulOpShape.end());
+      SmallVector<int32_t> addShapeI32(addOpShape.begin(), addOpShape.end());
+
+      Value reshapedBias = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, addOp.getLoc(), matmulOpShape, biasType.getElementType(),
+          biasType.getEncoding(), bias,
+          rewriter.getI32ArrayAttr(matmulShapeI32));
+
+      LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
+          rewriter, addOp.getLoc(), matmulOp.getResult().getType(), matmulOpA,
+          matmulOpB, reshapedBias, matmulOp.getTransposeA(),
+          matmulOp.getTransposeB());
+
+      RankedTensorType addOpType = addOp.getType();
+
+      Value finalReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, addOp.getLoc(), addOpShape, addOpType.getElementType(),
+          addOpType.getEncoding(), linearOp.getResult(),
+          rewriter.getI32ArrayAttr(addShapeI32));
+      rewriter.replaceOp(addOp, finalReshape);
+
+      return mlir::success();
+    }
+    return mlir::failure();
+  }
+
+private:
+  // Shared helper function to validate the matmul ops from an add op.
+  MatmulOp getValidMatmulOp(MatmulOp matmulOpLHS, MatmulOp matmulOpRHS) const {
+    if (matmulOpLHS && matmulOpRHS) {
+      // Both operands are MatmulOps, cannot fuse.
+      return nullptr;
+    }
+
+    MatmulOp matmulOp = matmulOpLHS ? matmulOpLHS : matmulOpRHS;
+    if (!matmulOp) {
+      return nullptr;
+    }
+    // Check that the MatmulOp has only one user.
+    if (!matmulOp.getResult().hasOneUse()) {
+      return nullptr;
+    }
+
+    return matmulOp;
+  }
+
+  MatmulOp getFusableReshapedMatmulOp(AddOp addOp) const {
+    // Check MatmulOp -> ReshapeOp -> AddOp pattern.
+    // This pattern should be either the LHS or RHS of the AddOp.
+
+    ReshapeOp reshapeLHS = addOp.getLhs().getDefiningOp<ReshapeOp>();
+    ReshapeOp reshapeRHS = addOp.getRhs().getDefiningOp<ReshapeOp>();
+
+    MatmulOp matmulOpLHS =
+        reshapeLHS ? reshapeLHS.getInput().getDefiningOp<MatmulOp>() : nullptr;
+
+    MatmulOp matmulOpRHS =
+        reshapeRHS ? reshapeRHS.getInput().getDefiningOp<MatmulOp>() : nullptr;
+
+    MatmulOp validMatmulOp = getValidMatmulOp(matmulOpLHS, matmulOpRHS);
+    if (validMatmulOp) {
+      // Check that the reshape op has only one user (the AddOp).
+      ReshapeOp reshapeOp =
+          (validMatmulOp == matmulOpLHS) ? reshapeLHS : reshapeRHS;
+      if (!reshapeOp.getResult().hasOneUse()) {
+        return MatmulOp(nullptr);
+      }
+    }
+    return validMatmulOp;
+  }
+
+  MatmulOp getFusableMatmulOp(AddOp addOp) const {
+    // Check if one operand is a MatmulOp with only this AddOp as its user.
+    MatmulOp matmulOpLHS = addOp.getLhs().getDefiningOp<MatmulOp>();
+    MatmulOp matmulOpRHS = addOp.getRhs().getDefiningOp<MatmulOp>();
+
+    return getValidMatmulOp(matmulOpLHS, matmulOpRHS);
+  }
+};
+
 // The following OpRewritePattern fuses:
 //     div(sum_pool(act), broadcast(reshape(sum_pool(const))))
 // to:
@@ -1457,14 +1583,6 @@ private:
   static constexpr int64_t SPATIAL_WIDTH_DIM = 3;
   static constexpr int64_t CHANNEL_DIM = 1;
 
-  struct PoolingConfig {
-    DenseI32ArrayAttr windowDimensions;
-    DenseI32ArrayAttr windowStrides;
-    DenseI32ArrayAttr windowDilations;
-    DenseI32ArrayAttr padding;
-    BoolAttr ceilMode;
-  };
-
 public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
@@ -1482,7 +1600,7 @@ public:
     }
     // Create AvgPoolOp wrapped with two PermuteOps needed for NCHW<->NHWC
     // layout changes.
-    auto insertedOp = createWrappedAvgPool(rewriter, sumOp);
+    auto insertedOp = createWrappedGlobalAvgPool(rewriter, sumOp);
 
     // If keepDim is false, we need to reshape the output of the pooling op
     // to keep output dimension same as input.
@@ -1566,11 +1684,11 @@ private:
     return permuteOp;
   }
 
-  PermuteOp createWrappedAvgPool(mlir::PatternRewriter &rewriter,
-                                 SumOp sumOp) const {
+  PermuteOp createWrappedGlobalAvgPool(mlir::PatternRewriter &rewriter,
+                                       SumOp sumOp) const {
 
-    // Input must be permuted from NCHW to NHWC for AvgPool2dOp, and then back
-    // to NCHW after pooling.
+    // Input must be permuted from NCHW to NHWC for GlobalAvgPool2dOp, and then
+    // back to NCHW after pooling.
     std::vector<int64_t> currentLayout{0, CHANNEL_DIM, SPATIAL_HEIGHT_DIM,
                                        SPATIAL_WIDTH_DIM};
     std::vector<int64_t> desiredLayout{0, SPATIAL_HEIGHT_DIM, SPATIAL_WIDTH_DIM,
@@ -1580,39 +1698,18 @@ private:
     auto permuteOp = createPermuteOp(rewriter, currentLayout, desiredLayout,
                                      sumOp.getInput());
 
-    auto poolingConfig =
-        createPoolingConfig(rewriter, sumOp.getInput().getType().getShape());
-
     auto outputType = createPoolingOutputType(permuteOp.getOutput().getType());
 
     auto loc = sumOp.getLoc();
-    auto poolingOp = ttir::utils::createDPSOp<ttir::AvgPool2dOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_pool"), outputType,
-        permuteOp.getResult(), poolingConfig.windowDimensions,
-        poolingConfig.windowStrides, poolingConfig.windowDilations,
-        poolingConfig.padding, poolingConfig.ceilMode);
+    auto poolingOp = ttir::utils::createDPSOp<ttir::GlobalAvgPool2dOp>(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_global_avg_pool"),
+        outputType, permuteOp.getResult());
 
     // Permute output from NHWC back to NCHW
     auto inversePermuteOp = createPermuteOp(
         rewriter, desiredLayout, currentLayout, poolingOp.getResult());
 
     return inversePermuteOp;
-  }
-
-  PoolingConfig createPoolingConfig(mlir::PatternRewriter &rewriter,
-                                    ArrayRef<int64_t> inputShape) const {
-    PoolingConfig config;
-    int32_t inputHeight = static_cast<int32_t>(inputShape[SPATIAL_HEIGHT_DIM]);
-    int32_t inputWidth = static_cast<int32_t>(inputShape[SPATIAL_WIDTH_DIM]);
-
-    config.windowDimensions =
-        rewriter.getDenseI32ArrayAttr({inputHeight, inputWidth});
-    config.windowStrides = rewriter.getDenseI32ArrayAttr({1, 1});
-    config.windowDilations = rewriter.getDenseI32ArrayAttr({1, 1});
-    config.padding = rewriter.getDenseI32ArrayAttr({0, 0, 0, 0});
-    config.ceilMode = rewriter.getBoolAttr(false);
-
-    return config;
   }
 
   RankedTensorType createPoolingOutputType(RankedTensorType inputType) const {
@@ -2208,6 +2305,8 @@ public:
       if (globalPoolFusingEnabled) {
         patterns.add<GlobalAveragePoolingPattern>(&getContext());
       }
+
+      patterns.add<MatmulWithBiasFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());

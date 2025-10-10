@@ -162,7 +162,7 @@ void populateTTModule(nb::module_ &m) {
              unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
              unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
              unsigned dramUnreservedEnd, MlirAttribute supportedDataTypes,
-             MlirAttribute supportedTileSizes, unsigned dstRegisterSizeTiles,
+             MlirAttribute supportedTileSizes, unsigned dstPhysicalSizeTiles,
              unsigned numCBs, unsigned numComputeThreads,
              unsigned numDatamovementThreads) {
             return wrap(tt::ttcore::ChipDescAttr::get(
@@ -175,12 +175,21 @@ void populateTTModule(nb::module_ &m) {
                     unwrap(supportedDataTypes)),
                 mlir::cast<tt::ttcore::TileSizeAttr>(
                     unwrap(supportedTileSizes)),
-                dstRegisterSizeTiles, numCBs, numComputeThreads,
+                dstPhysicalSizeTiles, numCBs, numComputeThreads,
                 numDatamovementThreads));
           })
       .def_prop_ro("usable_l1_size", &tt::ttcore::ChipDescAttr::getUsableL1Size)
       .def_prop_ro("usable_dram_channel_size",
                    &tt::ttcore::ChipDescAttr::getUsableDramChannelSize)
+      .def_prop_ro(
+          "get_dst_logical_size_tiles",
+          [](const tt::ttcore::ChipDescAttr &self, MlirType type,
+             bool fullSyncEn, unsigned overridePhysicalSize) {
+            return self.getDstLogicalSizeTiles(unwrap(type), fullSyncEn,
+                                               overridePhysicalSize);
+          },
+          nb::arg("type"), nb::arg("full_sync_en") = false,
+          nb::arg("override_physical_size") = 0)
       .def_prop_ro("arch", &tt::ttcore::ChipDescAttr::getArch)
       .def_prop_ro(
           "grid",
