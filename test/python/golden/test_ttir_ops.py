@@ -3528,7 +3528,9 @@ def test_hoisted_dot_general(
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_hoisted_matmul(shapes: List[Shape], dtype: torch.dtype, target: str, request):
+def test_hoisted_matmul(
+    shapes: List[Shape], dtype: torch.dtype, target: str, request, device
+):
     def hoisted_matmul_wrapper(
         in0: Operand,
         in1: Operand,
@@ -3539,12 +3541,13 @@ def test_hoisted_matmul(shapes: List[Shape], dtype: torch.dtype, target: str, re
 
     hoisted_matmul_wrapper.__name__ = "hoisted_matmul"
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         hoisted_matmul_wrapper,
         shapes,
         [dtype] * len(shapes),
         test_base=request.node.name,
         target=target,
+        device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
