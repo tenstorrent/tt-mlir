@@ -44,7 +44,7 @@ for summary_file in $summaries; do
             else
                 test_line=1
             fi
-                echo "$test_prefix [$$line](https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid#step:$step_number:$test_line)" >>_summary.md
+                echo "$test_prefix [$line](https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid#step:$step_number:$test_line)" >>_summary.md
         done < "$summary_file"
     fi
     echo "" >>_summary.md
