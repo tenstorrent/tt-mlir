@@ -359,7 +359,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          .github/scripts/bash/get_test_summary.sh ${{ github.run_id }}
+          .github/scripts/bash/get_test_summary.sh ${{ github.run_id }} true
           cat _summary.md >> $GITHUB_STEP_SUMMARY
           find test_reports -name "report_*.xml" -type f -exec mv {} test_reports/ \;
 
