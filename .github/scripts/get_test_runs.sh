@@ -44,7 +44,7 @@ for summary_file in $summaries; do
             if [ ${#test_lines[@]} -gt 0 ]; then
                 test_line=${test_lines[0]}
                 test_lines=("${test_lines[@]:1}")
-                echo "$test_prefix <a href=\"https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid?pr=5249#step:$step_number:$test_line\">$test_name</a> $test_result" >>_summary.md
+                echo "$test_prefix [$test_name $test_result](https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid?pr=5249#step:$step_number:$test_line)" >>_summary.md
             else
                 echo "$test_prefix <a href=\"https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid?pr=5249#step:$step_number\">$test_name</a> $test_result" >>_summary.md
             fi
