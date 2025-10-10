@@ -12,6 +12,7 @@ declare_mlir_python_sources(BuilderSources
     # ttir subpackage files
     ttir/__init__.py
     ttir/ttir_builder.py
+    ttir/ttir_builder_utils.py
 
     # stablehlo subpackage files
     stablehlo/__init__.py
