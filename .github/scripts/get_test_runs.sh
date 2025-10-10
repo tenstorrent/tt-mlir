@@ -6,8 +6,10 @@ runid=$1
 extract_lines=$2
 rm -rf test_reports
 mkdir test_reports
+echo "Downloading test reports for run ID: $runid"
 gh run download $runid --repo tenstorrent/tt-mlir --pattern "test-reports-*" --dir test_reports || echo "No reports found"
 
+echo "Parsing test summaries..."
 step_number=""
 rm -f _summary.md
 summaries=$(find test_reports -name "summary_*.md" -type f)
