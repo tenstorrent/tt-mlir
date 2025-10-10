@@ -1,4 +1,4 @@
-if (TTMLIR_ENABLE_RUNTIME AND (TT_RUNTIME_ENABLE_TTNN OR TT_RUNTIME_ENABLE_TTMETAL))
+if ((TTMLIR_ENABLE_RUNTIME AND (TT_RUNTIME_ENABLE_TTNN OR TT_RUNTIME_ENABLE_TTMETAL)) OR TTMLIR_ENABLE_CUDA)
   set(DEVICE_RUNTIME_ENABLED ON)
 else()
   set(DEVICE_RUNTIME_ENABLED OFF)
@@ -41,6 +41,16 @@ else()
 endif()
 
 add_subdirectory(bin)
+
+if(NOT TT_RUNTIME_ENABLE_TTNN)
+  add_library(TTRuntimeTTNNTestLib INTERFACE)
+endif()
+
+if(TTMLIR_ENABLE_CUDA)
+  find_package(CUDAToolkit)
+else()
+  add_library(TTRuntimeCUDA INTERFACE)
+endif()
 
 # Add coverage_config to all targets in runtime
 if(CODE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

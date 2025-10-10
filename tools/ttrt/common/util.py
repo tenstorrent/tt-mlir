@@ -596,6 +596,38 @@ class FileManager:
         py_files.sort()
         return py_files
 
+    def find_cuda_binary_paths(self, path):
+        self.logging.debug(f"finding all cuda files from={path}")
+        cuda_files = []
+
+        if self.is_file(path):
+            if self.check_file_exists(path):
+                if (
+                    self.get_file_extension(path)
+                    == Flatbuffer.get_cuda_file_extension()
+                ):
+                    cuda_files.append(path)
+                    self.logging.debug(f"found file={path}")
+            else:
+                self.logging.info(f"file '{path}' not found - skipping")
+        else:
+            self.check_directory_exists(path)
+            try:
+                for root, _, files in os.walk(path):
+                    for file in files:
+                        if (
+                            self.get_file_extension(file)
+                            == Flatbuffer.get_cuda_file_extension()
+                        ):
+                            cuda_files.append(os.path.join(root, file))
+                            self.logging.debug(f"found file={os.path.join(root, file)}")
+            except Exception as e:
+                raise Exception(f"an unexpected error occurred: {e}")
+
+        # Sort files alphabetically to ensure consistent ordering.
+        cuda_files.sort()
+        return cuda_files
+
     def find_corresponding_ttnn_in_directory(self, py_path, ttnn_directory):
         py_filename = self.get_file_name(py_path)
         ttnn_filename = py_filename.replace(".py", ".ttnn")
@@ -722,6 +754,7 @@ class Flatbuffer:
     ttnn_file_extension = ".ttnn"
     ttmetal_file_extension = ".ttm"
     ttsys_file_extension = ".ttsys"
+    cuda_file_extension = ".ttc"
 
     def __init__(self, logger, file_manager, file_path, capsule=None):
         import ttrt.binary
@@ -752,6 +785,10 @@ class Flatbuffer:
     def get_ttsys_file_extension():
         return Flatbuffer.ttsys_file_extension
 
+    @staticmethod
+    def get_cuda_file_extension():
+        return Flatbuffer.cuda_file_extension
+
 
 class Binary(Flatbuffer):
     def __init__(self, logger, file_manager, file_path, capsule=None):
@@ -764,7 +801,12 @@ class Binary(Flatbuffer):
             self.fbb = ttrt.binary.load_binary_from_path(file_path)
         else:
             self.fbb = ttrt.binary.load_binary_from_capsule(capsule)
-        self.system_desc_dict = ttrt.binary.system_desc_as_dict(self.fbb)
+
+        if hasattr(self.fbb, "file_identifier") and self.fbb.file_identifier == "TTCU":
+            self.system_desc_dict = {}
+        else:
+            self.system_desc_dict = ttrt.binary.system_desc_as_dict(self.fbb)
+
         self.version = self.fbb.version
         self.program_indices = range(self.fbb.get_num_programs())
         self.programs = []
@@ -783,6 +825,9 @@ class Binary(Flatbuffer):
 
     def check_system_desc(self, query, ignore: bool = False):
         import ttrt.binary
+
+        if hasattr(self.fbb, "file_identifier") and self.fbb.file_identifier == "TTCU":
+            return True
 
         try:
             fbb_system_desc = self.system_desc_dict

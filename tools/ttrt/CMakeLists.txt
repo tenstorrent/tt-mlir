@@ -8,12 +8,36 @@ foreach (filename ${TTRT_FILES})
     list(APPEND TTRT_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/${relative_filename}")
 endforeach (filename)
 
+set(CUDA_PATH_VAR "")
+set(CUDART_PATH_VAR "")
+if(TTMLIR_ENABLE_CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    get_target_property(CUDA_CUDART_LIB CUDA::cudart IMPORTED_LOCATION)
+    get_target_property(CUDA_CUDA_DRIVER_LIB CUDA::cuda_driver IMPORTED_LOCATION)
+    if(CUDA_CUDART_LIB)
+        get_filename_component(CUDART_PATH_VAR "${CUDA_CUDART_LIB}" DIRECTORY)
+    endif()
+    if(CUDA_CUDA_DRIVER_LIB)
+        get_filename_component(CUDA_PATH_VAR "${CUDA_CUDA_DRIVER_LIB}" DIRECTORY)
+    else()
+        if(CUDART_PATH_VAR)
+            set(STUBS_DIR "${CUDART_PATH_VAR}/stubs")
+            if(EXISTS "${STUBS_DIR}/libcuda.so")
+                set(CUDA_PATH_VAR "${STUBS_DIR}")
+            endif()
+        endif()
+    endif()
+endif()
+
 add_custom_command(
   COMMAND rm -rf build
   COMMAND python -m pip install -r "${CMAKE_CURRENT_BINARY_DIR}/requirements.txt"
   COMMAND TTMLIR_ENABLE_RUNTIME=${TTMLIR_ENABLE_RUNTIME}
           TT_RUNTIME_ENABLE_TTNN=${TT_RUNTIME_ENABLE_TTNN}
           TT_RUNTIME_ENABLE_TTMETAL=${TT_RUNTIME_ENABLE_TTMETAL}
+          TTMLIR_ENABLE_CUDA=${TTMLIR_ENABLE_CUDA}
+          CUDA_PATH="${CUDA_PATH_VAR}"
+          CUDART_PATH="${CUDART_PATH_VAR}"
           TTMLIR_ENABLE_RUNTIME_TESTS=${TTMLIR_ENABLE_RUNTIME_TESTS}
           TT_RUNTIME_ENABLE_PERF_TRACE=${TT_RUNTIME_ENABLE_PERF_TRACE}
           TT_RUNTIME_DEBUG=${TT_RUNTIME_DEBUG}

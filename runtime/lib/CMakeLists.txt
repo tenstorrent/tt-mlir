@@ -1,8 +1,13 @@
-message(STATUS "Runtimes Enabled: TTNN[${TT_RUNTIME_ENABLE_TTNN}] TTMETAL[${TT_RUNTIME_ENABLE_TTMETAL}]")
+message(STATUS "Runtimes Enabled: TTNN[${TT_RUNTIME_ENABLE_TTNN}] TTMETAL[${TT_RUNTIME_ENABLE_TTMETAL}] CUDA[${TTMLIR_ENABLE_CUDA}]")
 
 add_subdirectory(common)
 add_subdirectory(ttnn)
 add_subdirectory(ttmetal)
+if (TTMLIR_ENABLE_CUDA)
+  find_package(CUDAToolkit)
+  add_subdirectory(cuda)
+endif()
+
 
 add_library(TTBinary STATIC binary.cpp)
 set_property(TARGET TTBinary PROPERTY CXX_STANDARD 20)
@@ -34,6 +39,7 @@ target_link_libraries(TTMLIRRuntime
     TTRuntimeTTNN
     TTRuntimeTTMetal
     TTRuntimeDistributed
+    TTRuntimeCUDA
     TTRuntimeContext
     TTRuntimeDebug
     TTRuntimePerf

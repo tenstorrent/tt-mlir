@@ -204,7 +204,8 @@ void registerRuntimeBindings(nb::module_ &m) {
   nb::enum_<::tt::runtime::DeviceRuntime>(m, "DeviceRuntime")
       .value("Disabled", ::tt::runtime::DeviceRuntime::Disabled)
       .value("TTNN", ::tt::runtime::DeviceRuntime::TTNN)
-      .value("TTMetal", ::tt::runtime::DeviceRuntime::TTMetal);
+      .value("TTMetal", ::tt::runtime::DeviceRuntime::TTMetal)
+      .value("CUDA", ::tt::runtime::DeviceRuntime::CUDA);
 
   nb::enum_<::tt::runtime::HostRuntime>(m, "HostRuntime")
       .value("Local", ::tt::runtime::HostRuntime::Local)

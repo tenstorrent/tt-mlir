@@ -380,6 +380,7 @@ class Run:
         )
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
+        self.cuda_binaries = []
         self.results = Results(self.logger, self.file_manager)
         self.torch_initializer = Run.TorchInitializer(self)
 
@@ -409,9 +410,11 @@ class Run:
         ttmetal_binary_paths = self.file_manager.find_ttmetal_binary_paths(
             self["binary"]
         )
+        cuda_binary_paths = self.file_manager.find_cuda_binary_paths(self["binary"])
 
         self.logging.debug(f"ttnn_binary_paths={ttnn_binary_paths}")
         self.logging.debug(f"ttmetal_binary_paths={ttmetal_binary_paths}")
+        self.logging.debug(f"cuda_binary_paths={cuda_binary_paths}")
 
         for path in ttnn_binary_paths:
             bin = Binary(self.logger, self.file_manager, path)
@@ -524,6 +527,45 @@ class Run:
                     continue
 
             self.ttmetal_binaries.append(bin)
+
+        for path in cuda_binary_paths:
+            bin = Binary(self.logger, self.file_manager, path)
+            try:
+                bin.check_version(ignore=self["--ignore-version"])
+            except Exception as e:
+                test_result = {
+                    "file_path": path,
+                    "result": "skip",
+                    "exception": str(e),
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "program_index": self["--program-index"],
+                }
+                self.logging.warning(
+                    f"SKIP: test={path} was skipped with exception={str(e)}"
+                )
+                self.results.add_result(test_result)
+                continue
+
+            if self["--program-index"] != "all":
+                if not bin.check_program_index_exists(int(self["--program-index"])):
+                    message = f"program index={int(self['--program-index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
+                    self.logging.warning(message)
+                    test_result = {
+                        "file_path": path,
+                        "result": "skip",
+                        "exception": message,
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                        "program_index": self["--program-index"],
+                    }
+                    self.logging.warning(
+                        f"SKIP: test={path} was skipped with exception={message}"
+                    )
+                    self.results.add_result(test_result)
+                    continue
+
+            self.cuda_binaries.append(bin)
 
         self.logging.debug(f"------finished checking constraints for run API")
 
@@ -1223,6 +1265,10 @@ class Run:
         _execute(self.ttmetal_binaries)
         self.logging.debug(f"finished executing ttmetal binaries")
 
+        self.logging.debug(f"executing cuda binaries")
+        _execute(self.cuda_binaries)
+        self.logging.debug(f"finished executing cuda binaries")
+
         self.logging.debug(f"------finished executing run API")
 
     def postprocess(self):
@@ -1233,6 +1279,9 @@ class Run:
                 self.artifacts.save_binary(bin, self.query)
 
             for bin in self.ttmetal_binaries:
+                self.artifacts.save_binary(bin, self.query)
+
+            for bin in self.cuda_binaries:
                 self.artifacts.save_binary(bin, self.query)
 
         for bin in self.ttnn_binaries:
@@ -1252,6 +1301,22 @@ class Run:
                 self.logging.error(f"ERROR: test case={bin.file_path}")
 
         for bin in self.ttmetal_binaries:
+            if bin.test_result == "pass":
+                test_result = {
+                    "file_path": bin.file_path,
+                    "result": "pass",
+                    "exception": "",
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "program_index": self["--program-index"],
+                    "program_results": bin.program_results,
+                }
+                self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"ERROR: test case={bin.file_path}")
+
+        for bin in self.cuda_binaries:
             if bin.test_result == "pass":
                 test_result = {
                     "file_path": bin.file_path,

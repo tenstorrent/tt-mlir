@@ -1,4 +1,4 @@
-if (NOT TTMLIR_ENABLE_RUNTIME OR (NOT TT_RUNTIME_ENABLE_TTNN AND NOT TT_RUNTIME_ENABLE_TTMETAL))
+if ((NOT TTMLIR_ENABLE_RUNTIME OR (NOT TT_RUNTIME_ENABLE_TTNN AND NOT TT_RUNTIME_ENABLE_TTMETAL)) AND NOT TTMLIR_ENABLE_CUDA)
   message(FATAL_ERROR "Runtime tests require at least one backend runtime to be enabled")
 endif()
 
@@ -55,6 +55,7 @@ target_link_libraries(TTRuntimeGTestLib INTERFACE
 
 target_link_libraries(TTRuntimeGTestLib INTERFACE TRACY_LIBRARY)
 
+if (TTMLIR_ENABLE_RUNTIME)
 function(add_runtime_gtest test_name)
   if(ARGC EQUAL 1)
     set(source_files ${test_name}.cpp)
@@ -70,6 +71,10 @@ function(add_runtime_gtest test_name)
 endfunction()
 
 add_subdirectory(common)
+endif()
+
+
+
 
 if (TT_RUNTIME_ENABLE_TTNN)
   add_subdirectory(ttnn)
@@ -77,4 +82,37 @@ endif()
 
 if (TT_RUNTIME_ENABLE_TTMETAL)
   add_subdirectory(ttmetal)
+endif()
+
+if (TTMLIR_ENABLE_CUDA)
+  find_package(CUDAToolkit)
+  function(add_cuda_runtime_gtest test_name)
+  if(ARGC EQUAL 1)
+    set(source_files ${test_name}.cpp)
+  else()
+    set(source_files ${ARGN})
+  endif()
+
+  add_executable(${test_name} ${source_files})
+  set_property(TARGET ${test_name} PROPERTY CXX_STANDARD 20)
+  target_include_directories(${test_name} PRIVATE
+    ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/CUDA
+    ${TTMLIR_TOOLCHAIN}/include
+    ${CUDAToolkit_INCLUDE_DIRS}
+  )
+
+  add_dependencies(${test_name} TTRuntimeCUDA)
+  target_link_libraries(${test_name} PRIVATE
+    TTRuntimeCUDA
+    TTBinary
+    TTRuntimeTypes
+    TTRuntimeUtils
+    GTest::gtest_main
+  )
+
+  add_test(NAME ${test_name} COMMAND ${test_name})
+endfunction()
+  add_subdirectory(cuda)
 endif()
