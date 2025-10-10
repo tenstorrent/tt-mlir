@@ -5,7 +5,7 @@
 
   { "runs-on": ["n150","n300","llmbox"],
         "image": "speedy",
-            "script": "ttrt.sh", "args": ["perf", "Silicon"] },
+            "script": "ttrt.sh", "args": ["run", "Silicon"] },
 
   { "runs-on": ["n150","n300","llmbox"],
         "image": "tracy",

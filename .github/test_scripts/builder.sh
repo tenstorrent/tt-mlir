@@ -7,6 +7,8 @@
 # arg $2: pytest marker expression to select tests to run
 # arg $3: "run-ttrt" or predefined additional flags for pytest and ttrt
 
+set -e -o pipefail
+
 runttrt=""
 TTRT_ARGS=""
 PYTEST_ARGS=""

@@ -1101,6 +1101,28 @@ def TTNN_NLPConcatHeadsDecodeOp: TTNN_Op<"nlp_concat_heads_decode", [TTNN_Memory
     let hasVerifier = 1;
 }
 
+def TTNN_SplitQueryKeyValueAndSplitHeadsOp: TTNN_Op<"split_query_key_value_and_split_heads", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Split query, key, values and split heads op used in attention layer.";
+    let description = [{
+      Splits input_tensor of shape [batch_size, sequence_size, 3 * hidden_size] into 3 tensors (Query, Key, Value) of shape [batch_size, sequence_size, hidden_size]. Then, reshapes and permutes the output tensors, to make them ready for computing attention scores.
+      If kv_input_tensor is passed in, then input_tensor of shape [batch_size, sequence_size, hidden_size] is only used for Query, and kv_input_tensor of shape [batch_size, sequence_size, 2 * hidden_size] is used for Key and Value.
+      For the sharded implementation, the input query, key and value are expected to be concatenated such that the heads are interleaved (q1 k1 v1…qn kn vn).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         Optional<AnyRankedTensor>:$kv_input_tensor,
+                         UI32Attr:$num_heads,
+                         OptionalAttr<UI32Attr>:$num_kv_heads,
+                         BoolAttr:$transpose_key,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$query,
+                        AnyRankedTensor:$key,
+                        AnyRankedTensor:$value);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
 
     let summary = "Softmax op.";
@@ -1410,7 +1432,8 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
                          TTNN_Device:$device,
                          TTCore_DataTypeAttr:$input_dtype,
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
-                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1436,7 +1459,8 @@ def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias"> {
                          TTNN_Device:$device,
                          TTCore_DataTypeAttr:$input_dtype,
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
-                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config);
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1517,7 +1541,8 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface]> {
                          I32Attr:$groups,
                          OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
-                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
 

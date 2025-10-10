@@ -2772,6 +2772,94 @@ llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// SplitQueryKeyValueAndSplitHeadsOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints>
+OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
+    std::optional<TTNNLayoutAttr> inputKVLayout, uint32_t numHeads,
+    std::optional<uint32_t> numKVHeads, bool transposeKey,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> inputKVSpec = std::nullopt;
+  if (inputKVShape && inputKVLayout) {
+    auto inputKVSpecExp = detail::convertToTensorSpec(
+        device, inputKVShape.value(), inputKVLayout.value());
+    if (!inputKVSpecExp) {
+      return inputKVSpecExp.takeError();
+    }
+    inputKVSpec = inputKVSpecExp.get();
+  }
+
+  // Create query closure
+  auto splitQueryKeyValueAndSplitHeadsOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::transformer::split_query_key_value_and_split_heads, device,
+        inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     splitQueryKeyValueAndSplitHeadsOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
+    std::optional<TTNNLayoutAttr> inputKVLayout, uint32_t numHeads,
+    std::optional<uint32_t> numKVHeads, bool transposeKey,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> inputKVSpec = std::nullopt;
+  if (inputKVShape && inputKVLayout) {
+    auto inputKVSpecExp = detail::convertToTensorSpec(
+        device, inputKVShape.value(), inputKVLayout.value());
+    if (!inputKVSpecExp) {
+      return inputKVSpecExp.takeError();
+    }
+    inputKVSpec = inputKVSpecExp.get();
+  }
+
+  // Create query closure
+  auto splitQueryKeyValueAndSplitHeadsOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::transformer::split_query_key_value_and_split_heads, device,
+        inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(splitQueryKeyValueAndSplitHeadsOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // NLPConcatHeadsOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsOp>::getOpConstraints(
