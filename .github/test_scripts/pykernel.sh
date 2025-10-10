@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+set -e -o pipefail
+
 # Set up PYTHONPATH to include the built packages
 export PYTHONPATH="$BUILD_DIR/python_packages:$INSTALL_DIR/tt-metal/ttnn:$INSTALL_DIR/tt-metal:$PYTHONPATH"
 mkdir -p $WORK_DIR/third_party/tt-metal

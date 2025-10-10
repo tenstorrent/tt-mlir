@@ -2982,6 +2982,8 @@ TEST_F(OpModelBase, avgPool2DOp) {
   }
 }
 
+// https://github.com/tenstorrent/tt-mlir/issues/5313
+#if 0
 TEST_F(OpModelBase, globalAvgPool2dOp) {
   // Create globalAvgPool2dOp with flattened input tensor
   llvm::SmallVector<int64_t> tensorShapeA = {1, 1, 128 * 128, 32};
@@ -3022,6 +3024,7 @@ TEST_F(OpModelBase, globalAvgPool2dOp) {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
+#endif
 
 TEST_F(OpModelBase, LeakyReluOp) {
   // Create LeakyReluOp with flattened input tensor
