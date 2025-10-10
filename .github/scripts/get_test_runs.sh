@@ -30,9 +30,9 @@ for summary_file in $summaries; do
         echo "### Tests for $machine, $image" >>_summary.md
         while IFS= read -r line; do
             if [[ "$line" == *"SUCCESS"* ]]; then
-                test_prefix="<span style=\"color: green\">"
+                test_prefix="- ![#c5f015](https://placehold.co/15x15/c5f015/c5f015.png)"
             else
-                test_prefix="<span style=\"color: red\">"
+                test_prefix="- ![#f03c15](https://placehold.co/15x15/f03c15/f03c15.png)"
             fi
             if [[ $line =~ ^(Test\ [0-9]+):\ (.*)$ ]]; then
                 test_name="${BASH_REMATCH[1]}"
@@ -44,9 +44,9 @@ for summary_file in $summaries; do
             if [ ${#test_lines[@]} -gt 0 ]; then
                 test_line=${test_lines[0]}
                 test_lines=("${test_lines[@]:1}")
-                echo "$test_prefix <a href=\"https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid?pr=5249#step:$step_number:$test_line\">$test_name</a> $test_result</span>" >>_summary.md
+                echo "$test_prefix <a href=\"https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid?pr=5249#step:$step_number:$test_line\">$test_name</a> $test_result" >>_summary.md
             else
-                echo "$test_prefix <a href=\"https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid?pr=5249#step:$step_number\">$test_name</a> $test_result</span>" >>_summary.md
+                echo "$test_prefix <a href=\"https://github.com/tenstorrent/tt-mlir/actions/runs/$runid/job/$jobid?pr=5249#step:$step_number\">$test_name</a> $test_result" >>_summary.md
             fi
         done < "$summary_file"
     fi

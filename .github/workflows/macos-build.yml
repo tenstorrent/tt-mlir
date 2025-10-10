@@ -29,13 +29,13 @@ jobs:
         cat _summary.md >> $GITHUB_STEP_SUMMARY
         cat _summary.md
 
-    - uses: LouisBrunner/checks-action@v2
-      with:
-        token: ${{ secrets.GH_TOKEN }}
-        sha: "0a5d19224d8d77f45b02c54955651bc79e50350e"
-        name: "All Tests"
-        conclusion: "neutral"
-        output_text_description_file: _summary.md
+    # - uses: LouisBrunner/checks-action@v2
+    #   with:
+    #     token: ${{ secrets.GH_TOKEN }}
+    #     sha: "0a5d19224d8d77f45b02c54955651bc79e50350e"
+    #     name: "All Tests"
+    #     conclusion: "neutral"
+    #     output_text_description_file: _summary.md
 
     # - name: Show Test Report
     #   uses: mikepenz/action-junit-report@v5.6.2
