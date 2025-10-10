@@ -31,6 +31,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/slice.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/sort.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/view.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/write_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/deletion/deallocate.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary.cpp

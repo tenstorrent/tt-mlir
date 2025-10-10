@@ -1256,6 +1256,8 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [TTNN_MemoryConfigOpInterface]> {
 
     let hasFolder = 1;
 
+    let hasCanonicalizer = 1;
+
     // Include workaround for ui8 reshape operation.
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
@@ -1263,6 +1265,29 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [TTNN_MemoryConfigOpInterface]> {
         return wa::TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(inputType);
       }
     }];
+}
+
+def TTNN_ViewOp : TTNN_Op<"view"> {
+  let summary = "View op.";
+  let description = [{
+    This is a 0 cost view operation that returns the same tensor that was passed to it but with a new shape
+
+    Note: The following conditions must be met:
+        * the memory is stored on the device
+        * the last dimension must not change
+        * In Tiled the second last two dimensions must not change OR there is no padding on the second last dimension
+
+    Args:
+        * `input` (AnyRankedTensor): Input Tensor.
+        * `shape` (I32ArrayAttr): New shape of tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 def TTNN_RepeatOp : TTNN_Op<"repeat"> {
