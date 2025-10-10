@@ -59,11 +59,20 @@ def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLike
         return getUnderlying().getShape();
       }
 
+      bool hasTensorType() {
+        return mlir::isa<RankedTensorType>(getUnderlying());
+      }
+
+      bool hasMemRefType() {
+        return mlir::isa<MemRefType>(getUnderlying());
+      }
+
       mlir::FailureOr<mlir::bufferization::BufferLikeType> getBufferType(
         const mlir::bufferization::BufferizationOptions &,
         llvm::function_ref<mlir::InFlightDiagnostic()>) {
+        auto underlying = mlir::tt::d2m::utils::getBufferType(getUnderlying(), /*isView=*/false);
         return mlir::cast<bufferization::BufferLikeType>(get(getContext(),
-                mlir::tt::d2m::utils::getBufferType(getUnderlying(), /*isView=*/false)));
+                mlir::cast<ShapedType>(underlying)));
       }
 
       mlir::LogicalResult verifyCompatibleBufferType(

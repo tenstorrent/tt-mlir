@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 
@@ -21,7 +22,7 @@ mlir::AffineMap calculateReblockMap(ArrayRef<int64_t> fromTensorShape,
 llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape);
 
-MemRefType
+bufferization::BufferLikeType
 getBufferType(Type type, bool isView,
               std::optional<ttcore::MetalLayoutAttr> hostInfo = std::nullopt);
 

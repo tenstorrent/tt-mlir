@@ -56,7 +56,7 @@ getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
 
 // Convert TensorType + MetalLayout into a memref including a
 // Shard/View/HostAttr.
-MemRefType getBufferType(Type type, bool isView,
+bufferization::BufferLikeType getBufferType(Type type, bool isView,
                          std::optional<ttcore::MetalLayoutAttr> hostInfo) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
   MLIRContext *ctx = tensorType.getContext();
@@ -80,8 +80,8 @@ MemRefType getBufferType(Type type, bool isView,
   // If there is no encoding or encoding with TensorMesh info, return with the
   // host layout attribute.
   if (!tensorType.getEncoding() || tensorMeshAttr) {
-    return MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
-                           hostLayout);
+    return mlir::cast<bufferization::BufferLikeType>(MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
+                           hostLayout));
   }
 
   auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
@@ -104,9 +104,9 @@ MemRefType getBufferType(Type type, bool isView,
     layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
   }
 
-  return MemRefType::get(
+  return mlir::cast<bufferization::BufferLikeType>(MemRefType::get(
       fullMemrefShape, tensorType.getElementType(), layoutAttr,
-      ttcore::MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
+      ttcore::MemorySpaceAttr::get(ctx, layout.getMemorySpace())));
 }
 
 } // namespace mlir::tt::d2m::utils

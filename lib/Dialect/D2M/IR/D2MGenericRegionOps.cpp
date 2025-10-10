@@ -173,6 +173,9 @@ bool DMAOp::isNotConflicting(mlir::OpOperand *, mlir::OpOperand *,
   ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
 
   auto isLocal = [&](auto operand) {
+    if (mlir::isa_and_nonnull<PopOp, ReserveOp>(operand.getDefiningOp())) {
+      return true;
+    }
     Block *block = operand.getParentBlock();
     Block::BlockArgListType blockArgs = block->getArguments();
     return std::find(blockArgs.begin(), blockArgs.end(), operand) !=
@@ -226,6 +229,9 @@ bool DMAOp::isNotConflicting(mlir::OpOperand *, mlir::OpOperand *,
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
   ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
   auto isLocal = [&](auto operand) {
+    if (mlir::isa_and_nonnull<PopOp, ReserveOp>(operand.getDefiningOp())) {
+      return true;
+    }
     Block *block = operand.getParentBlock();
     Block::BlockArgListType blockArgs = block->getArguments();
     return std::find(blockArgs.begin(), blockArgs.end(), operand) !=

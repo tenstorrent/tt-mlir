@@ -808,6 +808,9 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
         return getNumElems() * elementSizeBytes;
       }
       bool isDstLocal() {
+        if (mlir::isa_and_nonnull<PopOp, ReserveOp>(getDst().getDefiningOp())) {
+          return true;
+        }
         Block *block = getDst().getParentBlock();
         Block::BlockArgListType blockArgs = block->getArguments();
         return std::find(blockArgs.begin(), blockArgs.end(), getDst()) !=
@@ -1067,6 +1070,7 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
                                                        , "bufferize"
                                                        , "getAliasingValues"
                                                        , "getBufferType"
+                                                       , "hasTensorSemantics"
                                                        ]>
   ]> {
   let arguments = (ins D2M_CB:$cb);
@@ -1101,6 +1105,10 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
   }];
 
   let extraClassDefinition = [{
+    bool $cppClass::hasTensorSemantics() {
+      return getCb().getType().hasTensorType();
+    }
+
     bool $cppClass::bufferizesToMemoryRead(
         mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
       return false;
@@ -1123,7 +1131,7 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
       return result;
     }
 
-    mlir::FailureOr<mlir::BaseMemRefType> $cppClass::getBufferType(
+    mlir::FailureOr<mlir::bufferization::BufferLikeType> $cppClass::getBufferType(
         mlir::Value value, const mlir::bufferization::BufferizationOptions &,
         const mlir::bufferization::BufferizationState &,
         ::llvm::SmallVector<mlir::Value> &) {
@@ -1133,12 +1141,15 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
     mlir::LogicalResult $cppClass::bufferize(
         mlir::RewriterBase &rewriter,
         const mlir::bufferization::BufferizationOptions &options,
-        mlir::bufferization::BufferizationState &state) {
-      auto bufferizedCb =
-          bufferization::getBuffer(rewriter, getCb(), options, state);
-      assert(succeeded(bufferizedCb));
+        mlir::bufferization::BufferizationState &) {
+      auto cbBufferType = mlir::cast<bufferization::TensorLikeType>(getCb().getType()).getBufferType(options, [&] () {
+        return this->emitOpError();
+      });
+      assert(succeeded(cbBufferType));
+      auto toBuffer = rewriter.create<bufferization::ToBufferOp>(
+          this->getLoc(), *cbBufferType, getCb());
       mlir::bufferization::replaceOpWithNewBufferizedOp<$cppClass>(
-          rewriter, *this, *bufferizedCb);
+          rewriter, *this, toBuffer.getResult());
       return mlir::success();
     }
   }];
@@ -1215,7 +1226,7 @@ def D2M_StoreOp : D2M_GenericRegionOp<"store",
       return result;
     }
 
-    mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::d2m::StoreOp::getBufferType(
+    mlir::FailureOr<mlir::bufferization::BufferLikeType> mlir::tt::d2m::StoreOp::getBufferType(
         mlir::Value value, const mlir::bufferization::BufferizationOptions &,
         const mlir::bufferization::BufferizationState &,
         ::llvm::SmallVector<mlir::Value> &) {

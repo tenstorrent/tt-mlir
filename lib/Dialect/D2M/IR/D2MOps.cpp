@@ -1478,11 +1478,13 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
   // Bufferize region block arguments.
   ::llvm::SmallVector<mlir::Value> invocationStack;
   for (mlir::Region &region : bufferGeneric.getRegions()) {
+    OpBuilder::InsertionGuard guard(rewriter);
     mlir::Block &block = region.front();
+    rewriter.setInsertionPointToStart(&block);
     for (unsigned argNumber = 0; argNumber < block.getNumArguments();
          ++argNumber) {
       mlir::BlockArgument oldArg = block.getArgument(argNumber);
-      if (!mlir::isa<mlir::RankedTensorType>(oldArg.getType())) {
+      if (mlir::isa<d2m::SemaphoreType>(oldArg.getType())) {
         continue;
       }
       auto newArgType = getBufferType(oldArg, options, state, invocationStack);
@@ -1490,7 +1492,7 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
           block.insertArgument(argNumber, *newArgType, oldArg.getLoc());
       auto toTensor = rewriter.create<bufferization::ToTensorOp>(
           bufferGeneric.getLoc(), oldArg.getType(), newArg);
-      oldArg.replaceAllUsesWith(toTensor);
+      rewriter.replaceAllUsesWith(oldArg, toTensor.getResult());
       block.eraseArgument(argNumber + 1);
     }
   }
@@ -1502,9 +1504,13 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
 
 mlir::FailureOr<mlir::bufferization::BufferLikeType>
 d2m::GenericOp::getBufferType(mlir::Value value,
-                              const mlir::bufferization::BufferizationOptions &,
+                              const mlir::bufferization::BufferizationOptions &options,
                               const mlir::bufferization::BufferizationState &,
                               ::llvm::SmallVector<mlir::Value> &) {
+  if (auto tensorLike = mlir::dyn_cast<bufferization::TensorLikeType>(value.getType())) {
+    return tensorLike.getBufferType(options, [&] () { return this->emitError(); });
+  }
+
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
   if (mlir::isa<mlir::BlockArgument>(value)) {
     assert(!tensorType.getEncoding());
