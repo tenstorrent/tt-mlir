@@ -17,6 +17,7 @@ void run(const ::tt::target::ttnn::ViewOp *op, ProgramContext &context) {
   const auto *fbShape = op->shape();
   std::vector<int32_t> shape(fbShape->begin(), fbShape->end());
 
-  ::ttnn::view(in, shape);
+  ::ttnn::Tensor out = ::ttnn::view(in, shape);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement
