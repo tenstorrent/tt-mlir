@@ -38,7 +38,8 @@ static nb::capsule wrapInCapsule(std::shared_ptr<void> underlying) {
   assert(binary);
   *binary = underlying;
   return nb::capsule(
-      (void *)binary, // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+      static_cast<void *>(
+          binary), // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
       +[](void *data) noexcept { std::free(data); });
 }
 
