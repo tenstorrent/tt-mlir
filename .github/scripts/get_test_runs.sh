@@ -28,6 +28,7 @@ for summary_file in $summaries; do
 
         test_lines=()
         if [ -n "$extract_lines" ]; then
+            echo "Extracting test lines from logs for job ID: $jobid"
             curl -L -H "Authorization: token $GH_TOKEN" -H "Accept: */*" "https://api.github.com/repos/tenstorrent/tt-mlir/actions/jobs/$jobid/logs" | \
                 sed -n -E '/[0-9]{7}Z ##\[group\]Run # Run Tests/,/[0-9]{7}Z ##\[group\]/p' >log.txt
             test_lines=($(grep -E -n "Running test [0-9]+\-" log.txt | cut -d: -f1))
