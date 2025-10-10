@@ -1432,8 +1432,19 @@ void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
             isLastUser = isLastUser && user->isBeforeInBlock(op);
           }
         }
-
-        if (!isLastUser || !isReshapeView(op)) {
+        bool returnIsUserAndOperandIsFuncArgument = false;
+        for (Operation *user : op.getResult().getUsers()) {
+          if (isa<func::ReturnOp>(user)) {
+            Block *block = op->getBlock();
+            for (BlockArgument arg : block->getArguments()) {
+              if (arg == op.getInput()) {
+                returnIsUserAndOperandIsFuncArgument = true;
+              }
+            }
+          }
+        }
+        if (!isLastUser || !isReshapeView(op) ||
+            returnIsUserAndOperandIsFuncArgument) {
           return failure();
         }
 
