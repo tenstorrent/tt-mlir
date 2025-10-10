@@ -32,12 +32,14 @@ void registerTTNNToFlatbuffer();
 namespace mlir::ttmlir::python {
 
 static nb::capsule wrapInCapsule(std::shared_ptr<void> underlying) {
+  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
   std::shared_ptr<void> *binary = static_cast<std::shared_ptr<void> *>(
       std::malloc(sizeof(std::shared_ptr<void>)));
   assert(binary);
   *binary = underlying;
-  return nb::capsule((void *)binary,
-                     +[](void *data) noexcept { std::free(data); });
+  return nb::capsule(
+      (void *)binary, // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+      +[](void *data) noexcept { std::free(data); });
 }
 
 void populatePassesModule(nb::module_ &m) {
