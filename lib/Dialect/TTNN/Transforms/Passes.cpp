@@ -26,6 +26,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/ErrorHandling.h"
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
 #define GEN_PASS_DEF_TTNNLOADINPUTTENSORS
@@ -92,7 +93,7 @@ public:
           }
           Operation *lastOp = getLastValueUsageOp(livenessInfo, arg);
 
-          if (isa<func::ReturnOp>(lastOp)) {
+          if (isa<func::ReturnOp, ttnn::ViewOp>(lastOp)) {
             continue;
           }
 
@@ -130,7 +131,7 @@ public:
 
           Operation *lastOp = getLastValueUsageOp(livenessInfo, result);
 
-          if (isa<func::ReturnOp>(lastOp)) {
+          if (isa<func::ReturnOp, ttnn::ViewOp>(lastOp)) {
             continue;
           }
 

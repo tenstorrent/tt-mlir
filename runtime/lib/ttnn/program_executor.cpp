@@ -31,6 +31,7 @@
 #include "operations/data_movement/slice.h"
 #include "operations/data_movement/sort.h"
 #include "operations/data_movement/transpose.h"
+#include "operations/data_movement/view.h"
 #include "operations/data_movement/write_tensor.h"
 #include "operations/deletion/deallocate.h"
 #include "operations/eltwise/binary/binary.h"
@@ -307,6 +308,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ReshapeOp: {
     return operations::data_movement::run(op->type_as_ReshapeOp(),
                                           getContext());
+  }
+  case ::tt::target::ttnn::OpType::ViewOp: {
+    return operations::data_movement::run(op->type_as_ViewOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::SliceOp: {
     return operations::data_movement::run(op->type_as_SliceOp(), getContext());

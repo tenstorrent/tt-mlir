@@ -57,6 +57,11 @@ table ReshapeOp {
   memory_config: tt.target.ttnn.MemoryConfig;
 }
 
+table ViewOp {
+  in: tt.target.ttnn.TensorRef;
+  shape: [int32];
+}
+
 enum SliceOpType : uint32 {
   SliceStaticOp,
   SliceDynamicOp

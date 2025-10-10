@@ -1707,6 +1707,24 @@ llvm::Expected<size_t> OpModel<ReshapeOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// ViewOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<ViewOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> outputShape,
+    TTNNLayoutAttr outputLayout) {
+  return OpConstraints{};
+}
+
+llvm::Expected<size_t> OpModel<ViewOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> outputShape, TTNNLayoutAttr outputLayout) {
+  return llvm::createStringError("Not Implemented");
+}
+
+//===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
 // SliceStaticOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(

@@ -29,6 +29,7 @@
 #include "ttnn/operations/data_movement/scatter/scatter.hpp"
 #include "ttnn/operations/data_movement/sort/sort.hpp"
 #include "ttnn/operations/data_movement/transpose/transpose.hpp"
+#include "ttnn/operations/data_movement/view/view.hpp"
 #include "ttnn/operations/eltwise/binary/binary.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/quantization/quantization.hpp"
