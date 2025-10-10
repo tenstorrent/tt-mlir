@@ -1949,6 +1949,34 @@ createOp(FlatbufferObjectCache &cache, NLPConcatHeadsOp op) {
                                                     memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::NLPCreateQKVHeadsOp>
+createOp(FlatbufferObjectCache &cache, NLPCreateQKVHeadsOp op) {
+  auto inputQ = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputQ()));
+
+  // Handle optional input_kv
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> inputKV = 0;
+  if (op.getInputKv()) {
+    inputKV = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getInputKv()));
+  }
+
+  auto query = cache.getOrCreate(op.getQuery(), tensorValueToFlatbuffer);
+  auto key = cache.getOrCreate(op.getKey(), tensorValueToFlatbuffer);
+  auto value = cache.getOrCreate(op.getValue(), tensorValueToFlatbuffer);
+
+  uint32_t numQHeads = op.getNumQHeads();
+  uint32_t numKVHeads = op.getNumKvHeads().value_or(numQHeads);
+  bool transposeKHeads = op.getTransposeKHeads();
+  auto memoryConfig = op.getMemoryConfig()
+                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                          : 0;
+
+  return ::tt::target::ttnn::CreateNLPCreateQKVHeadsOp(
+      *cache.fbb, inputQ, inputKV, query, key, value, numQHeads, numKVHeads,
+      transposeKHeads, memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::NLPConcatHeadsDecodeOp>
 createOp(FlatbufferObjectCache &cache, NLPConcatHeadsDecodeOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2804,6 +2832,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto nlpConcatHeadsDecodeOp = dyn_cast<NLPConcatHeadsDecodeOp>(op);
       nlpConcatHeadsDecodeOp) {
     return createOperation(cache, createOp(cache, nlpConcatHeadsDecodeOp),
+                           debugString, locInfo);
+  }
+  if (auto nlpCreateQKVHeadsOp = dyn_cast<NLPCreateQKVHeadsOp>(op);
+      nlpCreateQKVHeadsOp) {
+    return createOperation(cache, createOp(cache, nlpCreateQKVHeadsOp),
                            debugString, locInfo);
   }
   if (auto rotaryEmbeddingLlamaOp = dyn_cast<RotaryEmbeddingLlamaOp>(op);

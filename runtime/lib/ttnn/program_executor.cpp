@@ -70,6 +70,7 @@
 #include "operations/transformer/concatenate_heads.h"
 #include "operations/transformer/nlp_concat_heads.h"
 #include "operations/transformer/nlp_concat_heads_decode.h"
+#include "operations/transformer/nlp_create_qkv_heads.h"
 #include "operations/transformer/nlp_create_qkv_heads_decode.h"
 #include "operations/transformer/rotary_embedding_llama.h"
 #include "operations/transformer/scaled_dot_product_attention.h"
@@ -281,6 +282,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
     return operations::transformer::run(op->type_as_NLPConcatHeadsDecodeOp(),
+                                        getContext());
+  }
+  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsOp: {
+    return operations::transformer::run(op->type_as_NLPCreateQKVHeadsOp(),
                                         getContext());
   }
   case ::tt::target::ttnn::OpType::WriteTensorOp: {

@@ -27,6 +27,18 @@ table NLPConcatHeadsOp {
   memcfg: tt.target.ttnn.MemoryConfig;
 }
 
+table NLPCreateQKVHeadsOp {
+  input_q: tt.target.ttnn.TensorRef;
+  input_kv: tt.target.ttnn.TensorRef;
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  value: tt.target.ttnn.TensorRef;
+  num_q_heads: uint32;
+  num_kv_heads: uint32;
+  transpose_k_heads: bool;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
 table NLPConcatHeadsDecodeOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
