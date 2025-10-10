@@ -24,6 +24,8 @@
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
+#include "ttmlir/Target/TTNN/operations/conv_generated.h"
+#include "ttmlir/Target/TTNN/operations/eltwise_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
@@ -551,13 +553,16 @@ createOp(FlatbufferObjectCache &cache, PrepareConv2dWeightsOp op) {
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
       conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>>
+      sliceConfig = toFlatbuffer(cache, op.getConv2dSliceConfig());
+
   return ::tt::target::ttnn::CreatePrepareConv2dWeightsOp(
       *cache.fbb, weightTensor, output, memoryConfig, inputTensorLayout,
       weightsFormat, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
       op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
       dilation, op.getHasBias(), op.getGroups(),
       cache.at<::tt::target::DeviceRef>(device), inputDtype, outputDtype,
-      conv2dConfig.value_or(0));
+      conv2dConfig.value_or(0), sliceConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PrepareConv2dBiasOp>
@@ -591,12 +596,16 @@ createOp(FlatbufferObjectCache &cache, PrepareConv2dBiasOp op) {
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
       conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>>
+      sliceConfig = toFlatbuffer(cache, op.getConv2dSliceConfig());
+
   return ::tt::target::ttnn::CreatePrepareConv2dBiasOp(
       *cache.fbb, biasTensor, output, memoryConfig, inputTensorLayout,
       op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
       op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
       dilation, op.getGroups(), cache.at<::tt::target::DeviceRef>(device),
-      inputDtype, outputDtype, conv2dConfig.value_or(0));
+      inputDtype, outputDtype, conv2dConfig.value_or(0),
+      sliceConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
@@ -634,12 +643,16 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
       ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
       computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>>
+      sliceConfig = toFlatbuffer(cache, op.getConv2dSliceConfig());
+
   return ::tt::target::ttnn::CreateConv2dOp(
       *cache.fbb, input, weight, bias, output,
       cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
       op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), kernelSize, stride, padding, dilation, op.getGroups(),
-      outputDtype, conv2dConfig.value_or(0), computeConfig.value_or(0));
+      outputDtype, conv2dConfig.value_or(0), computeConfig.value_or(0),
+      sliceConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ConvTranspose2dOp>
@@ -1029,7 +1042,7 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, ScatterOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Scatter;
-  } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowOp>) {
+  } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowTensorOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, Atan2Op>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2;
@@ -1056,6 +1069,44 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
 
   return ::tt::target::ttnn::CreateEltwiseBinaryCompositeOp(
       *cache.fbb, type, lhs, rhs, memoryConfig, out);
+}
+
+template <typename EltwiseBinaryCompositeScalarOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseBinaryCompositeScalarOp>
+createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
+                                     EltwiseBinaryCompositeScalarOp op) {
+
+  ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType type;
+  ::tt::target::ttnn::RhsParams rhsType;
+  ::flatbuffers::Offset<void> rhsValue;
+  if (std::is_same_v<EltwiseBinaryCompositeScalarOp, PowScalarOp>) {
+    type = ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar;
+    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getRhs())) {
+      rhsType = ::tt::target::ttnn::RhsParams::FP;
+      rhsValue = ::tt::target::ttnn::CreateFloatingPointType(
+                     *cache.fbb, floatAttr.getValue().convertToFloat())
+                     .Union();
+    } else if (auto integerAttr =
+                   mlir::dyn_cast<mlir::IntegerAttr>(op.getRhs())) {
+      rhsType = ::tt::target::ttnn::RhsParams::UI32;
+      rhsValue = ::tt::target::ttnn::CreateIntegralType(
+                     *cache.fbb, integerAttr.getValue().getSExtValue())
+                     .Union();
+    } else {
+      llvm_unreachable("Exponent must be float or integer");
+    }
+  } else {
+    llvm_unreachable("unhandled EltwiseBinaryCompositeScalarOp");
+  }
+  auto lhs = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getLhs()));
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  return ::tt::target::ttnn::CreateEltwiseBinaryCompositeScalarOp(
+      *cache.fbb, type, lhs, rhsType, rhsValue, memoryConfig, out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseTernaryWhereOp>
@@ -1723,6 +1774,20 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
       op.getInPlaceHalo());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::GlobalAvgPool2dOp>
+createGlobalAvgPool2dOp(FlatbufferObjectCache &cache, GlobalAvgPool2dOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  // Get memory config from the output tensor
+  auto memoryConfig =
+      getMemoryConfigFromTensorTypeIfNeeded(cache, op.getResult());
+
+  return ::tt::target::ttnn::CreateGlobalAvgPool2dOp(*cache.fbb, in, out,
+                                                     memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
 createRepeatInterleaveOp(FlatbufferObjectCache &cache, RepeatInterleaveOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2104,12 +2169,18 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
           toFlatbuffer(cache, formatAttr.getDtype()),
           formatAttr.getPageSize()));
     }
+    ::flatbuffers::Offset<::tt::target::ttnn::KernelGlobalCBIndexOfTensor>
+        buffer;
+    if (kernelCbAttr.getBuffer()) {
+      buffer = ::tt::target::ttnn::CreateKernelGlobalCBIndexOfTensor(
+          *cache.fbb, kernelCbAttr.getBuffer().getTensorOperandIndex());
+    }
 
     cbs.push_back(::tt::target::ttnn::CreateKernelCBDescriptorDirect(
         *cache.fbb, kernelCbAttr.getTotalSize(),
         toFlatbuffer(cache, llvm::cast<ttnn::CoreRangeSetAttr>(
                                 kernelCbAttr.getCoreRanges())),
-        &formats));
+        &formats, buffer));
   }
 
   auto program = ::tt::target::ttnn::CreateProgramDescriptorDirect(
@@ -2165,6 +2236,33 @@ createOp(FlatbufferObjectCache &cache, NLPCreateQKVHeadsDecodeOp op) {
   return ::tt::target::ttnn::CreateNLPCreateQKVHeadsDecodeOp(
       *cache.fbb, in, outQuery, outKey, outValue, numHeads, numKVHeads,
       overlapQKCoregrid, batchOffset, sliceSize, memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
+createOp(FlatbufferObjectCache &cache, SplitQueryKeyValueAndSplitHeadsOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto inputKVTensor = op.getKvInputTensor()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getKvInputTensor()))
+                           : 0;
+
+  auto outQuery = cache.getOrCreate(op.getQuery(), tensorValueToFlatbuffer);
+  auto outKey = cache.getOrCreate(op.getKey(), tensorValueToFlatbuffer);
+  auto outValue = cache.getOrCreate(op.getValue(), tensorValueToFlatbuffer);
+
+  uint32_t numHeads = op.getNumHeads();
+  ::flatbuffers::Optional<uint32_t> numKVHeads =
+      toFlatbuffer(cache, op.getNumKvHeads());
+  bool transposeKey = op.getTransposeKey();
+
+  auto memoryConfig = op.getMemoryConfig()
+                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                          : 0;
+
+  return ::tt::target::ttnn::CreateSplitQueryKeyValueAndSplitHeadsOp(
+      *cache.fbb, inputTensor, inputKVTensor, outQuery, outKey, outValue,
+      numHeads, numKVHeads, transposeKey, memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::DumpTensorOp>
@@ -2327,8 +2425,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            createEltwiseBinaryCompositeOp(cache, minimumOp),
                            debugString, locInfo);
   }
-  if (auto powOp = dyn_cast<PowOp>(op); powOp) {
-    return createOperation(cache, createEltwiseBinaryCompositeOp(cache, powOp),
+  if (auto powTensorOp = dyn_cast<PowTensorOp>(op); powTensorOp) {
+    return createOperation(cache,
+                           createEltwiseBinaryCompositeOp(cache, powTensorOp),
                            debugString, locInfo);
   }
   if (auto remainderOp = dyn_cast<RemainderOp>(op); remainderOp) {
@@ -2345,6 +2444,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache,
                            createEltwiseBinaryCompositeOp(cache, atan2Op),
                            debugString, locInfo);
+  }
+  if (auto powScalarOp = dyn_cast<PowScalarOp>(op); powScalarOp) {
+    return createOperation(
+        cache, createEltwiseBinaryCompositeScalarOp(cache, powScalarOp),
+        debugString, locInfo);
   }
   if (auto whereOp = dyn_cast<WhereOp>(op); whereOp) {
     return createOperation(cache, createEltwiseTernaryWhereOp(cache, whereOp),
@@ -2627,6 +2731,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createPool2dOp(cache, max_pool2dOp),
                            debugString, locInfo);
   }
+  if (auto global_avg_pool2dOp = dyn_cast<GlobalAvgPool2dOp>(op);
+      global_avg_pool2dOp) {
+    return createOperation(cache,
+                           createGlobalAvgPool2dOp(cache, global_avg_pool2dOp),
+                           debugString, locInfo);
+  }
   if (auto deallocateOp = dyn_cast<DeallocateOp>(op); deallocateOp) {
     return createOperation(cache, createDeallocateOp(cache, deallocateOp),
                            debugString, locInfo);
@@ -2708,6 +2818,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto concatenateHeadsOp = dyn_cast<ConcatenateHeadsOp>(op);
       concatenateHeadsOp) {
     return createOperation(cache, createOp(cache, concatenateHeadsOp),
+                           debugString, locInfo);
+  }
+  if (auto splitQueryKeyValueAndSplitHeadsOp =
+          dyn_cast<SplitQueryKeyValueAndSplitHeadsOp>(op);
+      splitQueryKeyValueAndSplitHeadsOp) {
+    return createOperation(cache,
+                           createOp(cache, splitQueryKeyValueAndSplitHeadsOp),
                            debugString, locInfo);
   }
   if (auto nlpConcatHeadsOp = dyn_cast<NLPConcatHeadsOp>(op)) {

@@ -26,9 +26,9 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
-
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
+#define GEN_PASS_DEF_TTNNLOADINPUTTENSORS
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
 #define GEN_PASS_DEF_TTNNEMPYWORKAROUNDS
@@ -155,17 +155,11 @@ public:
   }
 };
 
-class TTNNCreateInputGenerators
-    : public impl::TTNNCreateInputGeneratorsBase<TTNNCreateInputGenerators> {
-
-public:
-  using impl::TTNNCreateInputGeneratorsBase<
-      TTNNCreateInputGenerators>::TTNNCreateInputGeneratorsBase;
-
-  void runOnOperation() final {
-    ModuleOp moduleOp = getOperation();
-    IRRewriter rewriter(&getContext());
-
+template <typename Derived>
+class TTNNInputFunctionCreatorBase {
+protected:
+  void runOnOperationImpl(ModuleOp moduleOp, IRRewriter &rewriter,
+                          const std::string &functionPrefix) {
     // Ensure that the module has a single region and a single block within that
     // region.
     //
@@ -195,77 +189,35 @@ public:
       return mlir::WalkResult::advance();
     });
 
-    // Iterate over all func ops and add input tensor generator functions.
+    // Iterate over all func ops and add input tensor functions if needed.
     //
-    llvm::SmallVector<mlir::func::FuncOp, 1> inputGenFuncOps;
+    llvm::SmallVector<std::pair<mlir::func::FuncOp, mlir::func::FuncOp>, 1>
+        forwardAndInputFuncOps;
     for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
       rewriter.setInsertionPointToEnd(block);
-      inputGenFuncOps.emplace_back(createInputGeneratorFunction(
-          rewriter, forwardFuncOp.getLoc(), forwardFuncOp));
+      // Check if the forward function has any arguments. If it doesn't, we
+      // do not create an input function for it.
+      mlir::func::FuncOp inputFuncOp =
+          forwardFuncOp.getNumArguments() == 0
+              ? nullptr
+              : createInputFunctionImpl(rewriter, forwardFuncOp.getLoc(),
+                                        forwardFuncOp, functionPrefix);
+      forwardAndInputFuncOps.emplace_back(forwardFuncOp, inputFuncOp);
     }
 
-    // Create a main function to call input generators and forward funcs.
+    // Create a main function to call input functions and forward funcs.
     //
-    {
-      std::string mainFuncName = "main";
-
-      // Create a function type.
-      //
-      FunctionType functionType =
-          mlir::FunctionType::get(&getContext(), {}, rewriter.getI32Type());
-
-      // Set insertion point to end of the block.
-      //
-      rewriter.setInsertionPointToEnd(block);
-
-      // Create the main function.
-      //
-      func::FuncOp mainFuncOp = rewriter.create<mlir::func::FuncOp>(
-          moduleOp.getLoc(), mainFuncName, functionType);
-
-      // Set insertion point to the start of the main function.
-      //
-      rewriter.modifyOpInPlace(mainFuncOp, [&]() {
-        rewriter.setInsertionPointToStart(mainFuncOp.addEntryBlock());
-      });
-
-      for (auto [forwardFuncOp, inputGenFuncOp] :
-           llvm::zip_equal(forwardFuncOps, inputGenFuncOps)) {
-
-        // Generate the input tensors for a forwardFuncOp.
-        //
-        func::CallOp generatedTensors = rewriter.create<mlir::func::CallOp>(
-            forwardFuncOp.getLoc(), inputGenFuncOp, /*operands=*/ValueRange());
-
-        // Call a forward function with the generated tensors.
-        //
-        rewriter.create<mlir::func::CallOp>(forwardFuncOp.getLoc(),
-                                            forwardFuncOp,
-                                            generatedTensors->getResults());
-      }
-
-      // Return 0
-      //
-      // func::ReturnOp requires a Value to be returned, which means that an SSA
-      // needs to be returned, hence create a constant 0 via arith::ConstantOp.
-      //
-      Value constantZero = rewriter.create<arith::ConstantOp>(
-          rewriter.getUnknownLoc(), rewriter.getI32Type(),
-          rewriter.getI32IntegerAttr(0));
-      rewriter.create<func::ReturnOp>(mainFuncOp->getLoc(), constantZero);
-    }
+    createMainFunction(moduleOp, rewriter, forwardAndInputFuncOps);
   }
 
-private:
-  static func::FuncOp createInputGeneratorFunction(IRRewriter &rewriter,
-                                                   Location loc,
-                                                   func::FuncOp forwardFuncOp) {
+  func::FuncOp createInputFunctionImpl(IRRewriter &rewriter, Location loc,
+                                       func::FuncOp forwardFuncOp,
+                                       const std::string &functionPrefix) {
     MLIRContext *ctx = rewriter.getContext();
 
-    // Create a new function that will generate the input tensors.
+    // Create a new function that will handle the input tensors.
     //
-    std::string inputGenFuncName =
-        "create_inputs_for_" + forwardFuncOp.getName().str();
+    std::string inputFuncName = functionPrefix + forwardFuncOp.getName().str();
 
     // Create the function type.
     //
@@ -275,23 +227,24 @@ private:
 
     // Create the function.
     //
-    func::FuncOp inputGenFuncOp = rewriter.create<mlir::func::FuncOp>(
-        loc, inputGenFuncName, functionType);
+    func::FuncOp inputFuncOp =
+        rewriter.create<mlir::func::FuncOp>(loc, inputFuncName, functionType);
 
     // Add a Block to func op and set insertion point to the beginning of the
     // Block.
     //
-    rewriter.modifyOpInPlace(inputGenFuncOp, [&]() {
-      rewriter.setInsertionPointToStart(inputGenFuncOp.addEntryBlock());
+    rewriter.modifyOpInPlace(inputFuncOp, [&]() {
+      rewriter.setInsertionPointToStart(inputFuncOp.addEntryBlock());
     });
 
-    // Create input tensors. Currently, we only create tensors of ones.
+    // Create/load input tensors.
     //
     assert(
         returnTypes.size() == 1 && mlir::isa<TupleType>(returnTypes.front()) &&
-        "Expected input generator to return a single tuple of input tensors!");
+        "Expected input function to return a single tuple of input tensors!");
 
-    SmallVector<Value> generatedTensors;
+    SmallVector<Value> tensors;
+    size_t argIndex = 0;
     for (const Type &type :
          mlir::cast<mlir::TupleType>(returnTypes[0]).getTypes()) {
       // Ensure that the type is a RankedTensorType.
@@ -301,23 +254,103 @@ private:
       assert(rankedTensorType &&
              "Expected input tensor to be of type RankedTensorType!");
 
-      generatedTensors.push_back(
-          generateTensor(rewriter, loc, rankedTensorType));
+      tensors.push_back(static_cast<Derived *>(this)->createTensor(
+          rewriter, loc, rankedTensorType, argIndex));
+      argIndex++;
     }
 
-    // Create a tuple from the generated tensors.
+    // Create a tuple from the tensors.
     //
     ttcore::TupleOp tuple =
-        rewriter.create<ttcore::TupleOp>(loc, returnTypes, generatedTensors);
+        rewriter.create<ttcore::TupleOp>(loc, returnTypes, tensors);
 
     // Create ReturnOp.
     //
     rewriter.create<func::ReturnOp>(forwardFuncOp.getLoc(),
                                     tuple->getResults());
 
-    return inputGenFuncOp;
+    return inputFuncOp;
   }
 
+private:
+  void createMainFunction(
+      ModuleOp moduleOp, IRRewriter &rewriter,
+      llvm::SmallVector<std::pair<mlir::func::FuncOp, mlir::func::FuncOp>, 1>
+          forwardAndInputFuncOps) {
+    std::string mainFuncName = "main";
+
+    // Create a function type.
+    //
+    FunctionType functionType = mlir::FunctionType::get(
+        rewriter.getContext(), {}, rewriter.getI32Type());
+
+    // Set insertion point to end of the block.
+    //
+    Block *block = moduleOp.getBody(0);
+    rewriter.setInsertionPointToEnd(block);
+
+    // Create the main function.
+    //
+    func::FuncOp mainFuncOp = rewriter.create<mlir::func::FuncOp>(
+        moduleOp.getLoc(), mainFuncName, functionType);
+
+    // Set insertion point to the start of the main function.
+    //
+    rewriter.modifyOpInPlace(mainFuncOp, [&]() {
+      rewriter.setInsertionPointToStart(mainFuncOp.addEntryBlock());
+    });
+
+    for (auto [forwardFuncOp, inputFuncOp] : forwardAndInputFuncOps) {
+
+      llvm::SmallVector<Value> operands;
+      // Generate/load the input tensors for a forwardFuncOp if needed.
+      //
+      if (inputFuncOp) {
+        func::CallOp tensors = rewriter.create<mlir::func::CallOp>(
+            forwardFuncOp.getLoc(), inputFuncOp,
+            /*operands=*/ValueRange());
+        operands = tensors->getResults();
+      }
+
+      // Call a forward function. If there are input tensors, pass them as
+      // operands.
+      //
+      rewriter.create<mlir::func::CallOp>(forwardFuncOp.getLoc(), forwardFuncOp,
+                                          operands);
+    }
+
+    // Return 0
+    //
+    // func::ReturnOp requires a Value to be returned, which means that an SSA
+    // needs to be returned, hence create a constant 0 via arith::ConstantOp.
+    //
+    Value constantZero = rewriter.create<arith::ConstantOp>(
+        rewriter.getUnknownLoc(), rewriter.getI32Type(),
+        rewriter.getI32IntegerAttr(0));
+    rewriter.create<func::ReturnOp>(mainFuncOp->getLoc(), constantZero);
+  }
+};
+
+class TTNNCreateInputGenerators
+    : public impl::TTNNCreateInputGeneratorsBase<TTNNCreateInputGenerators>,
+      public TTNNInputFunctionCreatorBase<TTNNCreateInputGenerators> {
+
+public:
+  using impl::TTNNCreateInputGeneratorsBase<
+      TTNNCreateInputGenerators>::TTNNCreateInputGeneratorsBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    IRRewriter rewriter(&getContext());
+    runOnOperationImpl(moduleOp, rewriter, "create_inputs_for_");
+  }
+
+  mlir::Value createTensor(IRRewriter &rewriter, Location loc, Type type,
+                           size_t argIndex) {
+    return generateTensor(rewriter, loc, type);
+  }
+
+private:
   // Currently only supports generating tensors of ones.
   // TODO(azecevic): Support generating other types of tensors that has a
   // `TTCore_CreationOpTrait`.
@@ -341,24 +374,66 @@ private:
     ttcore::DataTypeAttr dTypeAttr =
         ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
 
+    mlir::Value device;
+    if (layoutAttr.isDeviceBufferType()) {
+      device = ttnn::utils::getOrInsertDevice(rewriter,
+                                              rewriter.getInsertionBlock());
+    }
     // Create a new tensor of ones.
     //
     ttnn::OnesOp onesOp = rewriter.create<ttnn::OnesOp>(
-        loc, tensorType, /*device=*/nullptr, shapeAttr, dTypeAttr,
-        tensorLayoutAttr, /*memory_config=*/nullptr);
+        loc, tensorType, device, shapeAttr, dTypeAttr, tensorLayoutAttr,
+        /*memory_config=*/nullptr);
 
-    // If tensor is meant to be on device, add ToDevice op.
-    //
-    if (layoutAttr.isDeviceBufferType()) {
-      ttnn::GetDeviceOp device =
-          ttnn::utils::getOrInsertDevice(rewriter, onesOp);
-
-      mlir::Value tensorOnDevice = rewriter.create<ttnn::ToDeviceOp>(
-          loc, tensorType, onesOp, device, nullptr);
-
-      return tensorOnDevice;
-    }
     return onesOp;
+  }
+};
+
+class TTNNLoadInputTensors
+    : public impl::TTNNLoadInputTensorsBase<TTNNLoadInputTensors>,
+      public TTNNInputFunctionCreatorBase<TTNNLoadInputTensors> {
+
+public:
+  using impl::TTNNLoadInputTensorsBase<
+      TTNNLoadInputTensors>::TTNNLoadInputTensorsBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    IRRewriter rewriter(&getContext());
+    runOnOperationImpl(moduleOp, rewriter, "load_inputs_for_");
+  }
+
+  mlir::Value createTensor(IRRewriter &rewriter, Location loc, Type type,
+                           size_t argIndex) {
+    return loadTensor(rewriter, loc, type, argIndex);
+  }
+
+private:
+  static mlir::Value loadTensor(IRRewriter &rewriter, Location loc, Type type,
+                                size_t argIndex) {
+    RankedTensorType tensorType = llvm::cast<mlir::RankedTensorType>(type);
+
+    // Get the layout attribute.
+    //
+    ttnn::TTNNLayoutAttr layoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+
+    // Create hardcoded filename: arg0.tensorbin, arg1.tensorbin, etc.
+    //
+    std::string filename = "arg" + std::to_string(argIndex) + ".tensorbin";
+    StringAttr filePathAttr = rewriter.getStringAttr(filename);
+
+    mlir::Value device;
+    if (layoutAttr.isDeviceBufferType()) {
+      device = ttnn::utils::getOrInsertDevice(rewriter,
+                                              rewriter.getInsertionBlock());
+    }
+    // Create LoadTensorOp to load tensor from disk.
+    //
+    ttnn::LoadTensorOp loadTensorOp = rewriter.create<ttnn::LoadTensorOp>(
+        loc, tensorType, filePathAttr, device);
+
+    return loadTensorOp;
   }
 };
 

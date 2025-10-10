@@ -16,8 +16,11 @@
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <type_traits>
@@ -352,7 +355,11 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileMaximumOp,     std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
   std::pair<d2m::TileMulOp,         std::pair<ttkernel::MulBinaryTilesInitOp,      ttkernel::MulBinaryTilesOp>>,
   std::pair<d2m::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>,
-  std::pair<d2m::TileSubOp,         std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>
+  std::pair<d2m::TileSubOp,         std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
+
+  // Reductions FPU
+  std::pair<d2m::TileReduceSumOp,   std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>,
+  std::pair<d2m::TileReduceMaxOp,   std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>
 >;
 // clang-format on
 
@@ -491,6 +498,50 @@ public:
       tryEraseDeadCBReinterpret(op.getA());
       tryEraseDeadCBReinterpret(op.getB());
       tryEraseDeadCBReinterpret(op.getOutput());
+
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp> ||
+                         std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp>) {
+      ttkernel::ReduceType reduce_type;
+      d2m::ReduceDim reduce_dim = op.getReduceDim();
+      if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp>) {
+        reduce_type = ttkernel::ReduceType::Sum;
+      } else {
+        reduce_type = ttkernel::ReduceType::Max;
+      }
+      ttkernel::ReduceDim kernel_reduce_dim;
+      switch (reduce_dim) {
+      case d2m::ReduceDim::C:
+        kernel_reduce_dim = ttkernel::ReduceDim::Col;
+        break;
+      case d2m::ReduceDim::R:
+        kernel_reduce_dim = ttkernel::ReduceDim::Row;
+        break;
+      case d2m::ReduceDim::RC:
+        kernel_reduce_dim = ttkernel::ReduceDim::Scalar;
+        break;
+      }
+
+      auto insertionPoint = rewriter.getInsertionPoint();
+      auto cbA = getCB(rewriter, op.getA());
+      auto cbB = getCB(rewriter, op.getB());
+      auto outCB = getOutCB(rewriter, op);
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
+                                     /*allowHoisting*/ true);
+      rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), cbA,
+                                                          cbB, outCB);
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+      rewriter.create<ttkernel::ReduceInitOp>(op->getLoc(), cbA, cbB, outCB,
+                                              reduce_type, kernel_reduce_dim);
+      rewriter.create<ttkernel::ReduceTileOp>(
+          op->getLoc(), cbA, cbB, adaptor.getA(), adaptor.getB(),
+          adaptor.getC(), reduce_type, kernel_reduce_dim);
+    } else if constexpr (arity == 2) {
+      auto dstIdx = getDstIdxFromResult(op.getResult());
+      rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
+                              getCB(rewriter, op.getRhs()));
+      rewriter.create<FPUOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
+                             getCB(rewriter, op.getRhs()), adaptor.getLhs(),
+                             adaptor.getRhs(), dstIdx);
     } else {
       return llvm::failure();
     }
@@ -881,11 +932,7 @@ public:
   matchAndRewrite(d2m::DMAReadOp op, d2m::DMAReadOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
-    auto device = ttcore::lookupDevice(op);
-    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
-    auto chipIds = device.getChipIds();
-    assert(chipIds.size() == 1);
-    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
 
     // NOTE: All reads must be from remote locations in DMAReadOp
     // local->local transfers are lowered as nocAsyncWrites, which require
@@ -939,11 +986,7 @@ public:
   matchAndRewrite(d2m::DMAWriteOp op, d2m::DMAWriteOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
-    auto device = ttcore::lookupDevice(op);
-    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
-    auto chipIds = device.getChipIds();
-    assert(chipIds.size() == 1);
-    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
 
     if (op.isDstLocal()) {
       // Local to Local Datamovement & Multicast
@@ -1055,11 +1098,8 @@ public:
   LogicalResult
   matchAndRewrite(d2m::CoreIndexOp op, d2m::CoreIndexOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto device = ttcore::lookupDevice(op);
-    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
-    auto chipIds = device.getChipIds();
-    assert(chipIds.size() == 1);
-    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
+
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
 
     assert(op.getDim() == 0 ||
            op.getDim() == 1 &&
@@ -1160,6 +1200,22 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, rewriter.getIndexType(),
                                                    rewriter.getIndexAttr(0));
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MPackerMaskResetRewriter
+    : public OpConversionPattern<d2m::PackerMaskResetOp> {
+public:
+  using OpConversionPattern<d2m::PackerMaskResetOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::PackerMaskResetOp op,
+                  d2m::PackerMaskResetOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::ReduceUninitOp>(op);
     return success();
   }
 };
@@ -1290,11 +1346,8 @@ public:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto device = ttcore::lookupDevice(op);
-    auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
-    auto chipIds = device.getChipIds();
-    assert(chipIds.size() == 1);
-    auto chipDesc = systemDesc.getChipDesc(chipIds[0]);
+
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
 
     Value value = op.getValue();
     Value semaphoreAddr = adaptor.getSemaphore();
@@ -1389,6 +1442,10 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MFPUOpsRewriter<d2m::TileMatmulOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileMatmulBlockOp>,
 
+               // Reductions FPU.
+               ttkernel::D2MFPUOpsRewriter<d2m::TileReduceSumOp>,
+               ttkernel::D2MFPUOpsRewriter<d2m::TileReduceMaxOp>,
+
                // Elementwise SFPU Unary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAbsOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileCeilOp>,
@@ -1431,6 +1488,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MNullTxRewriter,
+               ttkernel::D2MPackerMaskResetRewriter,
                ttkernel::MemRefCollapseRewriter,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,

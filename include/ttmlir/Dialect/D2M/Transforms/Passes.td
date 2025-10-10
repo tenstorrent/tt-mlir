@@ -7,6 +7,42 @@
 
 include "mlir/Pass/PassBase.td"
 
+// Elementwise fusion of d2m.generic ops on tensors
+def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
+  let summary = "Fuse chains of compute-only d2m.generic elementwise ops";
+  let description = [{
+    Performs elementwise fusion for `d2m.generic` producers into consumers when
+    safe to do so. The initial implementation targets compute-only, affine-map
+    form `d2m.generic` with tensor semantics and matching device attributes
+    (grid, threads, block_factors). The pass is intended to run pre-bufferization
+    to reduce intermediary tensors and improve locality.
+  }];
+
+  list<Option> options = [
+    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
+  ];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect"
+  ];
+}
+
+def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleOp"> {
+  let summary = "Perform loop fission inside d2m.generic compute regions for load→compute→store triplets";
+  let description = [{
+    This pass scans `d2m.generic` compute regions that do not contain any tilize/untilize ops,
+    finds nested affine loop nests, and performs loop fission (distribution) by extracting
+    sequences of the form `affine.load → d2m tile compute op → affine.store` into separate
+    loop nests, preserving the original loop bounds and indices.
+  }];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect"
+  ];
+}
+
 def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
@@ -14,7 +50,7 @@ def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir:
   }];
 
   list<Option> options = [
-    Option<"maxDstRegisterSizeTiles", "max-dst-register-size-tiles", "unsigned", "0", "Override the max dst size tiles or 0 if unset.">,
+    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
   ];
 
   let dependentDialects = ["mlir::tt::d2m::D2MDialect"];
@@ -79,13 +115,14 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
     ```
 
     Notes:
-       - All loads and stores to L1 are replaced with ones to dst.
+       - Operand loads & stores that implicitly uses the DST are replaced with explicit affine loads & stores that go through the DST.
        - Generic op automatically inserts conditional guard for reload.
        - This pass only works on affine ops.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::affine::AffineDialect", "::mlir::func::FuncDialect"];
   let options = [
     Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"false", "Use tile_matmul instead of tile_matmul_block">,
+    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
   ];
 }
 
@@ -390,6 +427,17 @@ def D2MGenericApplyInterchange : Pass<"d2m-generic-apply-interchange", "::mlir::
   ];
 }
 
+defvar D2MStreamingOptions = [
+  Option<"numStreamBuffers",
+         "num-stream-buffers",
+         "unsigned", /*default=*/"2",
+         "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
+  Option<"allowOutputSpilling",
+         "allow-output-spilling",
+         "bool", /*default=*/"false",
+         "Make generic outputs eligible for spilling to DRAM.">,
+];
+
 def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   let summary = "Create streams required by generic ops.";
   let description = [{
@@ -443,16 +491,7 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
 
-  let options = [
-    Option<"numStreamBuffers",
-           "num-stream-buffers",
-           "unsigned", /*default=*/"2",
-           "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
-    Option<"allowOutputSpilling",
-           "allow-output-spilling",
-           "bool", /*default=*/"false",
-           "Make generic outputs eligible for spilling to DRAM.">,
-    ];
+  let options = D2MStreamingOptions;
 }
 
 def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
@@ -464,12 +503,7 @@ def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
     Example:
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
-  let options = [
-    Option<"numStreamBuffers",
-           "num-stream-buffers",
-           "unsigned", /*default=*/"2",
-           "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
-  ];
+  let options = D2MStreamingOptions;
 }
 
 #endif

@@ -74,6 +74,7 @@
 #include "operations/transformer/rotary_embedding_llama.h"
 #include "operations/transformer/scaled_dot_product_attention.h"
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
+#include "operations/transformer/split_query_key_value_and_split_heads.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/perf.h"
@@ -197,6 +198,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::eltwise::binary::run(
         op->type_as_EltwiseBinaryCompositeOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
+    return operations::eltwise::binary::run(
+        op->type_as_EltwiseBinaryCompositeScalarOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
     return operations::eltwise::ternary::run(
         op->type_as_EltwiseTernaryWhereOp(), getContext());
@@ -279,6 +284,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::transformer::run(op->type_as_NLPConcatHeadsDecodeOp(),
                                         getContext());
   }
+  case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp: {
+    return operations::transformer::run(
+        op->type_as_SplitQueryKeyValueAndSplitHeadsOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::WriteTensorOp: {
     return operations::data_movement::run(op->type_as_WriteTensorOp(),
                                           getContext());
@@ -329,6 +338,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::Pool2dOp: {
     return operations::pool::run(op->type_as_Pool2dOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
+    return operations::pool::run(op->type_as_GlobalAvgPool2dOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), getContext());

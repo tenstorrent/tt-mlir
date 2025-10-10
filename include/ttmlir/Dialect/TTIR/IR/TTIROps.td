@@ -5100,6 +5100,7 @@ def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
     }];
 
     let hasVerifier = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {
@@ -5387,6 +5388,8 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
   let hasVerifier = 1;
 }
 
+
+
 def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
     let description = [{
@@ -5423,11 +5426,12 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
     let hasVerifier = 1;
 }
 
+
 def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention"> {
   let summary = "Scaled dot product attention operation.";
   let description = [{
     Scaled dot product attention.
-    The implementation is FlashAttention-2."
+    The implementation is FlashAttention-2.
 
     Args:
         query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]
@@ -5455,4 +5459,87 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
   let hasVerifier = 1;
 }
 
+def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
+  let summary = "A global average pooling 2d operation";
+  let description = [{
+    The `global_avg_pool2d` operation applies global average pooling over the spatial dimensions
+    (height and width) of a 4D input tensor. In essence, it should be realised as the sum-reduce style operation
+    under the hood, for performance reasons (since we include all elements, there is no need for kernel allocation).
+    It reduces spatial dimensions to 1.
+
+    This operation yields the same result as the standard avg_pool_2d operation when kernel_size == [input_height, input_width].
+    However, it is much more memory efficient, as the underlying implementation doesn't need to allocate
+    the kernel for pooling (since the operation boils down to a simple sum-reduce).
+
+    Example:
+    ```mlir
+    // Basic global average pooling reducing 32x32 spatial dimensions to 1x1
+    %input = ... : tensor<1x32x32x64xbf16>  // Input tensor with values in NHWC format
+                                            // N=1 (batch), H=32 (height), W=32 (width), C=64 (channels)
+    %output = ttir.empty() : tensor<1x1x1x64xbf16>
+    %result = "ttir.global_avg_pool2d"(%input, %output) : (tensor<1x32x32x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x1x1x64xbf16>
+    // Result: tensor<1x1x1x64xbf16> where each channel contains the average of all 32*32=1024 spatial locations
+
+    // Example with different input sizes
+    %large_input = ... : tensor<1x128x128x32xbf16>  // Large spatial dimensions
+    %large_output = ttir.empty() : tensor<1x1x1x32xbf16>
+    %large_result = "ttir.global_avg_pool2d"(%large_input, %large_output) : (tensor<1x128x128x32xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x1x1x32xbf16>
+    // Each output channel averages across 128*128=16384 spatial locations
+    ```
+
+    Inputs:
+    - `input`: 4D tensor with shape [N, H, W, C] where N is batch size, H is height, W is width, and C is channels
+    - `output`: Pre-allocated output tensor with shape [N, 1, 1, C] to store the result
+
+    Attributes:
+    - None (this operation has no configurable attributes, unlike regular pooling operations)
+
+    Outputs:
+    - `result`: 4D tensor with shape [N, 1, 1, C] containing the global average pooled values
+
+    Note: The operation reduces spatial dimensions (H, W) to (1, 1) by computing the average across
+    all spatial locations for each channel independently. This is equivalent to avg_pool2d with
+    kernel_size=[H, W], stride=[1, 1], and no padding, but implemented more efficiently.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_value_and_split_heads"> {
+    let summary = "Split query, key, values and split heads op used in attention layer.";
+    let description = [{
+      Splits input_tensor of shape [batch_size, sequence_size, 3 * hidden_size] into 3 tensors (Query, Key, Value) of shape [batch_size, sequence_size, hidden_size]. Then, reshapes and permutes the output tensors, to make them ready for computing attention scores.
+      If kv_input_tensor is passed in, then input_tensor of shape [batch_size, sequence_size, hidden_size] is only used for Query, and kv_input_tensor of shape [batch_size, sequence_size, 2 * hidden_size] is used for Key and Value.
+      For the sharded implementation, the input query, key and value are expected to be concatenated such that the heads are interleaved (q1 k1 v1…qn kn vn).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         Optional<AnyRankedTensor>:$kv_input_tensor,
+                         AnyRankedTensor:$query_output,
+                         AnyRankedTensor:$key_output,
+                         AnyRankedTensor:$value_output,
+                         UI32Attr:$num_heads,
+                         OptionalAttr<UI32Attr>:$num_kv_heads,
+                         BoolAttr:$transpose_key);
+
+    let results = (outs AnyRankedTensor:$query,
+                        AnyRankedTensor:$key,
+                        AnyRankedTensor:$value);
+
+    let extraClassDeclaration = [{
+        MutableOperandRange getDpsInitsMutable() {
+            // query_output is at index 2 (after input_tensor and kv_input_tensor)
+            // But kv_input_tensor is optional, so we need to account for that
+            unsigned startIdx = getKvInputTensor() ? 2 : 1;
+            return MutableOperandRange(*this, startIdx, 3);
+        }
+    }];
+
+    let hasVerifier = 1;
+}
 #endif

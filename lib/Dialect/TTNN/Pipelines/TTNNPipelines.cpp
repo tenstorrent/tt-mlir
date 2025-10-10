@@ -162,6 +162,12 @@ void createTTIRToTTNNBackendPipeline(
       options.enableBfp8Conversion;
   pm.addPass(
       ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
+
+  // Add Decomposition pass here to ensure it runs before hoisting.
+  TTIRToTTIRDecompositionOptions decompOptions;
+  decompOptions.decompConfig = DecompMode::CPUFallback;
+  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
+
   // Create DeviceModule to wrap all ops.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).
@@ -218,10 +224,15 @@ void createTTNNBackendToEmitCPipeline(
     tuplifyOptions.tuplifyInputIfEmpty = true;
     pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
   } else {
-    // In canonical path, run tuplification + create input generators.
+    // In canonical path, run tuplification + input generation/loading.
     //
     pm.addPass(createTTNNTuplifyTensors());
-    pm.addPass(createTTNNCreateInputGenerators());
+
+    if (options.loadInputTensorsFromDisk) {
+      pm.addPass(createTTNNLoadInputTensors());
+    } else {
+      pm.addPass(createTTNNCreateInputGenerators());
+    }
   }
 
   pm.addPass(createConvertTTNNToEmitCPass());
@@ -236,7 +247,12 @@ void createTTNNBackendToEmitPyPipeline(
   pm.addPass(createTTNNEmitPyWorkarounds());
 
   pm.addPass(createTTNNTuplifyTensors());
-  pm.addPass(createTTNNCreateInputGenerators());
+
+  if (options.loadInputTensorsFromDisk) {
+    pm.addPass(createTTNNLoadInputTensors());
+  } else {
+    pm.addPass(createTTNNCreateInputGenerators());
+  }
 
   pm.addPass(createConvertTTNNToEmitPyPass());
 }

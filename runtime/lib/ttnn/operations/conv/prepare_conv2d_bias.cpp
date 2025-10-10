@@ -62,6 +62,12 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfig;
+  if (op->conv2d_slice_config()) {
+    sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
+  }
+
   ::ttnn::Tensor out = ::ttnn::operations::conv::conv2d::prepare_conv_bias(
       weightTensor, *inputMemoryConfig,
       ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
@@ -69,7 +75,7 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
       op->input_height(), op->input_width(), kernelSize, stride, padding,
       dilation, op->groups(), &targetDevice, inputDtype, outputDtype,
       conv2dConfig,
-      /*compute_config_=*/std::nullopt);
+      /*compute_config_=*/std::nullopt, sliceConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

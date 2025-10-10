@@ -21,22 +21,11 @@ using IDevice = ::tt::tt_metal::IDevice;
 // "ttnn/graph/graph_query_op_constraints.hpp"
 #include "tt-metalium/allocator.hpp"
 #include "ttnn/operations/pool/generic/generic_pools.hpp"
+#include "ttnn/operations/pool/global_avg_pool/global_avg_pool.hpp"
 
 // Add missing extract_output_tensor overload for MaxPoolWithIndicesResult
 // This should be in the metal repo but is missing from commit 5965834630
 namespace ttnn::graph::detail {
-inline Tensor extract_output_tensor(
-    const std::variant<Tensor, ttnn::operations::pool::MaxPoolWithIndicesResult>
-        &result) {
-  return std::visit<Tensor>(
-      ttsl::overloaded{
-          [](const Tensor &tensor) { return tensor; },
-          [](const ttnn::operations::pool::MaxPoolWithIndicesResult &result) {
-            return result.output;
-          }},
-      result);
-}
-
 inline Tensor
 extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
   return std::get<0>(result);
@@ -88,6 +77,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "ttnn/operations/transformer/sdpa/sdpa.hpp"
 #include "ttnn/operations/transformer/sdpa_decode/sdpa_decode.hpp"
+#include "ttnn/operations/transformer/split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/tensor_spec.hpp"
 #include "ttnn/tensor/types.hpp"
