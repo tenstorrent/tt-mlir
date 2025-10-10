@@ -348,17 +348,15 @@ mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
 bool operationHasNonReadMemoryEffectsOnValue(mlir::Value value,
                                              mlir::Operation *op) {
   mlir::MemoryEffectOpInterface memoryEffectOp =
-      mlir::dyn_cast<mlir::MemoryEffectOpInterface>(op);
+      mlir::dyn_cast_or_null<mlir::MemoryEffectOpInterface>(op);
   if (memoryEffectOp) {
     SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>> effects;
     memoryEffectOp.getEffectsOnValue(value, effects);
-    return !effects.empty() &&
-           std::any_of(
-               effects.begin(), effects.end(),
-               [](const SideEffects::EffectInstance<MemoryEffects::Effect>
-                      &effect) {
-                 return !isa<MemoryEffects::Read>(effect.getEffect());
-               });
+    return llvm::any_of(
+        effects,
+        [](const SideEffects::EffectInstance<MemoryEffects::Effect> &effect) {
+          return !isa<MemoryEffects::Read>(effect.getEffect());
+        });
   }
 
   return false;
