@@ -36,8 +36,11 @@ public:
                    ArrayRef<int64_t> gridShape, ArrayRef<int64_t> blockFactors,
                    ArrayRef<int64_t> shardShape, AffineMap dmaIndexingMap,
                    AffineMap gridIndexingMap) {
+    // collapsedGridIndexingMap = (d0, d1, d2, d3) -> (d2, d3)
+    // dmaIndexingMap = (d0, d1, d2, d3) -> (d0, d1, d2, d3)
+    // shard shape = (1x32x32x32)
     assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
-    assert(dmaIndexingMap.getNumResults() == gridIndexingMap.getNumResults());
+    assert(dmaIndexingMap.getNumResults() >= gridIndexingMap.getNumResults());
     assert(dmaIndexingMap.getNumResults() == shardShape.size());
     assert(gridIndexingMap.isProjectedPermutation() &&
            "Grid indexing map must be a permutation");
@@ -67,7 +70,7 @@ public:
       //
       // Not currently supported.
       //
-      assert(!gridResult || *gridResult == result);
+      // assert(!gridResult || *gridResult == result);
       bool isGridDim = gridResult.has_value();
       Value iterIndex = builder.create<IterIndexOp>(
           loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
@@ -78,7 +81,7 @@ public:
         // output map: (k, m, n) -> (m, n)
         // In this example we want (m, n) to map to grid dims (0, 1) (not their
         // dim positions i.e. (1, 2)).
-        const unsigned gridDim = result;
+        const unsigned gridDim = gridResult.value();
 
         // gridI * blockFactorI + iterI
         Value blockFactor = builder.create<arith::ConstantOp>(
@@ -94,7 +97,7 @@ public:
         index = iterIndex;
       }
       streamIndex.push_back(index);
-      indexBounds.push_back(gridShape[result]);
+      indexBounds.push_back(0); // gridShape[result]); just put 0 for now
     }
     return std::make_tuple(streamIndex, indexBounds);
   }
@@ -120,8 +123,7 @@ public:
   static size_t calculateCoalescingFactor(AffineMap memoryMap,
                                           ArrayRef<int64_t> gridShape,
                                           ArrayRef<int64_t> shardShape,
-                                          size_t elemSizeBytes,
-                                          ArrayRef<int64_t> indexBounds) {
+                                          size_t elemSizeBytes) {
     size_t coalescingFactor = ttmlir::utils::volume(shardShape);
     SmallVector<int64_t> memoryIndex;
     memoryIndex.resize(gridShape.size() + shardShape.size());
@@ -232,7 +234,22 @@ public:
               true /*addThenBlock*/, true /*addElseBlock*/);
 
           auto thenBuilder = ifExpr.getThenBodyBuilder();
-
+          // print remote indices
+          llvm::errs() << "remoteIndices = ";
+          for (size_t i = 0; i < remoteIndices.size(); i++) {
+            llvm::errs() << remoteIndices[i] << " ";
+          }
+          llvm::errs() << "\n";
+          // print if dma is src remote
+          llvm::errs() << "dma is src remote = " << dma.isSrcRemote() << "\n";
+          // print if dma is dst remote
+          llvm::errs() << "dma is dst remote = " << dma.isDstRemote() << "\n";
+          // print iters
+          llvm::errs() << "iters = ";
+          for (size_t i = 0; i < iters.size(); i++) {
+            llvm::errs() << iters[i] << " ";
+          }
+          llvm::errs() << "\n";
           auto srcIndices =
               dma.isSrcRemote() ? remoteIndices : llvm::to_vector(iters);
           auto dstIndices =
@@ -249,6 +266,37 @@ public:
         });
 
     return loopNest;
+  }
+
+  static mlir::AffineMap
+  collapseAffineMapWorkaround(mlir::AffineMap affineMap) {
+    // logic for collapsing the affine map to a 2D grid shape and a 1D shard
+    // offset always collapse the leading dimensions to grid_y
+
+    unsigned numResults = affineMap.getNumResults();
+    if (numResults <= 2) {
+      // Already collapsed or too few results, return as-is
+      return affineMap;
+    }
+
+    mlir::MLIRContext *context = affineMap.getContext();
+    SmallVector<mlir::AffineExpr> newResults;
+
+    // Sum all results except the last 2 to create grid_y
+    mlir::AffineExpr gridY = getAffineConstantExpr(0, context);
+    for (unsigned i = 0; i < numResults - 2; ++i) {
+      gridY = gridY + affineMap.getResult(i);
+    }
+    newResults.push_back(gridY);
+
+    // Keep the second-to-last result as grid_x
+    newResults.push_back(affineMap.getResult(numResults - 2));
+
+    // Keep the last result as the shard offset
+    newResults.push_back(affineMap.getResult(numResults - 1));
+
+    return mlir::AffineMap::get(affineMap.getNumDims(),
+                                affineMap.getNumSymbols(), newResults, context);
   }
 
   // Analyzes a DMA stream and returns a vector of stream indices, the
@@ -285,33 +333,33 @@ public:
     AffineMap collapsedGridIndexingMap =
         ttcore::collapseGridIndexingMapTo2D(gridIndexingMap);
 
-    AffineMap collapsedDmaIndexingMap =
-        ttcore::collapseGridIndexingMapTo2D(dmaIndexingMap);
+    // AffineMap collapsedDmaIndexingMap =
+    //     collapseAffineMapWorkaround(dmaIndexingMap);
 
-    // collapse shard shape to 2D
-    SmallVector<int64_t> collapsedShardShape =
-        ttcore::collapseGridTo2D(memrefShardShape);
+    // // collapse shard shape to 2D
+    // SmallVector<int64_t> collapsedShardShape =
+    //     ttcore::collapseGridTo2D(memrefShardShape);
 
-    // print all of the shapes in for each loops
-    for (size_t i = 0; i < collapsedGridShape.size(); i++) {
-      llvm::errs() << "collapsedGridShape[" << i
-                   << "] = " << collapsedGridShape[i] << "\n";
-    }
-    for (size_t i = 0; i < collapsedShardShape.size(); i++) {
-      llvm::errs() << "collapsedShardShape[" << i
-                   << "] = " << collapsedShardShape[i] << "\n";
-    }
+    // // print all of the shapes in for each loops
+    // for (size_t i = 0; i < collapsedGridShape.size(); i++) {
+    //   llvm::errs() << "collapsedGridShape[" << i
+    //                << "] = " << collapsedGridShape[i] << "\n";
+    // }
+    // for (size_t i = 0; i < collapsedShardShape.size(); i++) {
+    //   llvm::errs() << "collapsedShardShape[" << i
+    //                << "] = " << collapsedShardShape[i] << "\n";
+    // }
     // print affine maps
     llvm::errs() << "collapsedGridIndexingMap = " << collapsedGridIndexingMap
                  << "\n";
-    llvm::errs() << "collapsedDmaIndexingMap = " << collapsedDmaIndexingMap
-                 << "\n";
+    // llvm::errs() << "collapsedDmaIndexingMap = " << collapsedDmaIndexingMap
+    //              << "\n";
 
     // underlying alignment between output grid and compute grid, so use
     // collapsed shapes
-    auto [streamIndices, indexBounds] = buildStreamIndex(
+    auto [streamIndices, _] = buildStreamIndex(
         rewriter, loc, collapsedGridShape, genericParent.getBlockFactorsValue(),
-        collapsedShardShape, collapsedDmaIndexingMap, collapsedGridIndexingMap);
+        memrefShardShape, dmaIndexingMap, collapsedGridIndexingMap);
 
     ttcore::DeviceAttr device = genericParent.getDevice();
     // Apply view affine map to the memref.
@@ -325,9 +373,8 @@ public:
     // print the affine map at this point
     llvm::errs() << "memoryMap = " << memoryMap << "\n";
     // use virtual shapes for calculating coalescing factor
-    size_t coalescingFactor =
-        calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,
-                                  elemSizeBytes, indexBounds);
+    size_t coalescingFactor = calculateCoalescingFactor(
+        memoryMap, memrefGridShape, memrefShardShape, elemSizeBytes);
 
     return {streamIndices, coalescingFactor};
   }
