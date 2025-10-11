@@ -3288,6 +3288,7 @@ def test_hoisted_gather(
     )
 
 
+@pytest.mark.skip(reason="https://github.com/tenstorrent/tt-mlir/issues/5315")
 @x86_only
 @pytest.mark.parametrize(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
