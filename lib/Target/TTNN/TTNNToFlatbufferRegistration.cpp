@@ -9,6 +9,7 @@
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
+#include "llvm/Support/CommandLine.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -19,11 +20,19 @@ using namespace mlir;
 
 namespace mlir::tt::ttnn {
 
+// Command line option for kernel dump directory
+static llvm::cl::opt<std::string>
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+    kernelDumpDir("kernel-dump-dir",
+                  llvm::cl::desc("Directory to dump translated kernel sources "
+                                 "during compilation (default: no dumping)"),
+                  llvm::cl::init(""));
+
 void registerTTNNToFlatbuffer() {
   TranslateFromMLIRRegistration reg(
       "ttnn-to-flatbuffer", "translate ttnn to flatbuffer",
       [](Operation *op, llvm::raw_ostream &os) -> LogicalResult {
-        return translateTTNNToFlatbuffer(op, os, {});
+        return translateTTNNToFlatbuffer(op, os, {}, {}, kernelDumpDir);
       },
       [](DialectRegistry &registry) {
         // clang-format off
