@@ -15,7 +15,7 @@
 <br>
 
 tt-mlir is a compiler project aimed at defining MLIR dialects to abstract compute on Tenstorrent AI accelerators.
-It is built on top of the [MLIR](https://mlir.llvm.org/) compiler infrastructure and targets [TTNN](https://github.com/tenstorrent/tt-metal).
+It is built on top of the [MLIR](https://mlir.llvm.org/) compiler infrastructure and targets [tt-metal](https://github.com/tenstorrent/tt-metal).
 
 For more information on the project, see https://tenstorrent.github.io/tt-mlir/.
 
