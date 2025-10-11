@@ -236,6 +236,7 @@ def get_dynamic_dependencies():
     return [
         "nanobind",  # Python binding framework
         "torch",  # PyTorch for tensor operations
+        "numpy",  # Required for tensor operations
     ]
 
 
