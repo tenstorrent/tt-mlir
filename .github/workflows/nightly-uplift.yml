@@ -48,7 +48,16 @@ jobs:
           base: main
           commit-message: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.LATEST_TT_METAL_VERSION }} ${{ env.TODAY }}"
           title: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.LATEST_TT_METAL_VERSION }} ${{ env.TODAY }}"
-          body: "This PR uplifts the ${{ env.TT_METAL_SUBMODULE_PATH }} to the ${{ env.LATEST_TT_METAL_VERSION }}"
+          body: |
+            This PR uplifts the ${{ env.TT_METAL_SUBMODULE_PATH }} to the ${{ env.LATEST_TT_METAL_VERSION }}
+
+            ### Checklist
+            - **Frontend CI passing links**
+              - [ ] [tt-forge-fe](https://github.com/tenstorrent/tt-forge-fe/actions/workflows/on-pr.yml):
+              - [ ] [tt-xla (basic + models)](https://github.com/tenstorrent/tt-xla/actions/workflows/manual-test.yml):
+            - **Follow-up Actions**
+              - [ ] **Issues filed** to follow up on incomplete changes (if any):
+              - [ ] **Frontend fix PRs** ready (if needed by this uplift):
           labels: uplift
           delete-branch: true
           token: ${{ secrets.GH_TOKEN }}

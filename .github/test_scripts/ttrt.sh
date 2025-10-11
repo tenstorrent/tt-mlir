@@ -7,6 +7,8 @@
 # arg2: path inside test/ttmlir directory to the input ttmlir files
 # arg3...: additional arguments to pass to ttrt
 
+set -e -o pipefail
+
 eval ttrt "$1" "$BUILD_DIR/test/ttmlir/$2" "$3"
 cp ${1}_results.json ${TTRT_REPORT_PATH} || true
 cp ttrt_report.xml $TEST_REPORT_PATH || true

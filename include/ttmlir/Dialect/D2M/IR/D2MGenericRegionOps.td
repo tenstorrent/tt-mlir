@@ -575,6 +575,7 @@ def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
                                                        , "bufferizesToMemoryWrite"
+                                                       , "isNotConflicting"
                                                        , "bufferize"
                                                        , "getAliasingValues"
                                                        , "getBufferType"

@@ -300,6 +300,31 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   return conv2dConfig;
 }
 
+::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType
+createConv2dSliceType(::tt::target::ttnn::Conv2dSliceType sliceType) {
+  switch (sliceType) {
+  case ::tt::target::ttnn::Conv2dSliceType::DramHeight:
+    return ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::
+        DRAM_HEIGHT;
+  case ::tt::target::ttnn::Conv2dSliceType::DramWidth:
+    return ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::
+        DRAM_WIDTH;
+  case ::tt::target::ttnn::Conv2dSliceType::L1Full:
+    return ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::
+        L1_FULL;
+  }
+}
+
+::ttnn::operations::conv::conv2d::Conv2dSliceConfig
+createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
+  ::ttnn::operations::conv::conv2d::Conv2dSliceConfig sliceConfig;
+
+  sliceConfig.slice_type = createConv2dSliceType(config->slice_type());
+  sliceConfig.num_slices = config->num_slices();
+
+  return sliceConfig;
+}
+
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfig *config) {
   ::ttnn::WormholeComputeKernelConfig computeKernelConfig;

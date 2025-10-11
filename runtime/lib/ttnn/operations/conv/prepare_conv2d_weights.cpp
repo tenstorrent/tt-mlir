@@ -63,7 +63,10 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfig = std::nullopt;
+      sliceConfig;
+  if (op->conv2d_slice_config()) {
+    sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
+  }
 
   ::ttnn::Tensor out = ::ttnn::operations::conv::conv2d::prepare_conv_weights(
       weightTensor, *inputMemoryConfig,

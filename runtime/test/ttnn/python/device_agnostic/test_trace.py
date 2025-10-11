@@ -24,19 +24,19 @@ FLATBUFFER_BASE_PATH = (
 
 
 @pytest.mark.parametrize("num_loops", [5])
-def test_trace_matmul_add_no_consteval(helper: Helper, request, num_loops):
+def test_trace_matmul_multiply_no_consteval(helper: Helper, request, num_loops):
     binary_path = os.path.join(
-        FLATBUFFER_BASE_PATH, "matmul_add_no_consteval.mlir.tmp.ttnn"
+        FLATBUFFER_BASE_PATH, "matmul_multiply_no_consteval.mlir.tmp.ttnn"
     )
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
     helper.check_constraints()
 
     test_config = ProgramTestConfig(
-        name="matmul_add",
+        name="matmul_multiply",
         expected_num_inputs=3,
-        compute_golden=lambda inputs: (inputs[0] @ inputs[1]) + inputs[2],
-        description="Matmul add trace test",
+        compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) * inputs[2]),
+        description="Matmul multiply trace test",
     )
 
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)
@@ -44,7 +44,7 @@ def test_trace_matmul_add_no_consteval(helper: Helper, request, num_loops):
     debug_stats = ttrt.runtime.DebugStats.get()
 
     with DeviceContext(
-        mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=18432
+        mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=80000
     ) as device:
 
         for i in range(num_loops):
@@ -65,25 +65,25 @@ def test_trace_matmul_add_no_consteval(helper: Helper, request, num_loops):
 
 
 @pytest.mark.parametrize("num_loops", [5])
-def test_trace_matmul_add_with_consteval(helper: Helper, request, num_loops):
+def test_trace_matmul_multiply_with_consteval(helper: Helper, request, num_loops):
     binary_path = os.path.join(
-        FLATBUFFER_BASE_PATH, "matmul_add_consteval.mlir.tmp.ttnn"
+        FLATBUFFER_BASE_PATH, "matmul_multiply_consteval.mlir.tmp.ttnn"
     )
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
     helper.initialize(request.node.name, binary_path)
     helper.check_constraints()
     test_config = ProgramTestConfig(
-        name="matmul_add",
+        name="matmul_multiply",
         expected_num_inputs=3,
-        compute_golden=lambda inputs: (inputs[0] @ inputs[1]) + inputs[2],
-        description="Matmul add trace test",
+        compute_golden=lambda inputs: ((inputs[0] @ inputs[1]) * inputs[2]),
+        description="Matmul multiply trace test",
     )
 
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)
     debug_stats = ttrt.runtime.DebugStats.get()
 
     with DeviceContext(
-        mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=16384
+        mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=80000
     ) as device:
 
         inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(device)
@@ -165,7 +165,7 @@ def test_mnist_linear_logits(helper: Helper, request, num_loops):
     output_torch = get_torch_output_container(test_runner.program)
 
     with DeviceContext(
-        mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=32768
+        mesh_shape=[1, 1], enable_program_cache=True, trace_region_size=80000
     ) as device:
 
         inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(device)

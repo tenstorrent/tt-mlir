@@ -51,6 +51,13 @@ union Scale2D {
   NonUniformScale2D,
 }
 
+table GlobalAvgPool2dOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  dtype: tt.target.DataType = null;
+}
+
 table UpsampleOp {
   in: tt.target.ttnn.TensorRef;
   scale_factor: Scale2D;

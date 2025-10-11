@@ -275,13 +275,6 @@ static FailureOr<mlir::OperationState> createNewOperationState(
 
             return mlir::success();
           })
-          .Case<mlir::stablehlo::CompareOp>([&](auto compareOp) {
-            compareOp->emitError(
-                "Compare operation is not supported in stablehlo-pipeline for "
-                "meshes not 1x1: "
-                "https://github.com/tenstorrent/tt-mlir/issues/3497.");
-            return mlir::failure();
-          })
           .Case<mlir::stablehlo::ScatterOp>([&](auto scatterOp) {
             // Check if this is a safe cache update that can be handled
             if (isSafeShardedScatter(scatterOp, globalMeshOp)) {

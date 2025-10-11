@@ -536,6 +536,52 @@ public:
 } // namespace
 
 namespace {
+class PowOpConversionPattern : public OpConversionPattern<ttir::PowOp> {
+private:
+  // Helper function to extract constant value.
+  static mlir::Attribute getConstantAttr(mlir::Value value) {
+    mlir::Operation *op = value.getDefiningOp();
+    while (mlir::isa_and_present<mlir::tt::ttnn::ReshapeOp,
+                                 mlir::tt::ttnn::TypecastOp>(op)) {
+      op = op->getOperand(0).getDefiningOp();
+    }
+
+    auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttnn::FullOp>(op);
+    if (!fullOp) {
+      return {};
+    }
+
+    mlir::Attribute fillValueAttr = fullOp.getFillValueAttr();
+
+    if (!isa<FloatAttr, IntegerAttr>(fillValueAttr)) {
+      return {};
+    }
+    return fillValueAttr;
+  }
+
+public:
+  using OpConversionPattern<ttir::PowOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PowOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    mlir::Attribute exponent = getConstantAttr(adaptor.getRhs());
+    if (exponent) {
+      rewriter.replaceOpWithNewOp<ttnn::PowScalarOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getLhs(), exponent);
+      return success();
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::PowTensorOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getLhs(), adaptor.getRhs());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class UpdateCacheOpConversionPattern
     : public OpConversionPattern<ttir::UpdateCacheOp> {
 public:
@@ -1101,7 +1147,7 @@ public:
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
         groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
-        /*compute_config=*/nullptr);
+        /*compute_config=*/nullptr, /*conv2d_slice_config=*/nullptr);
 
     return success();
   }
@@ -1343,6 +1389,38 @@ public:
     } else {
       llvm_unreachable("Pool2dOp must be AvgPool2dOp or MaxPool2dOp");
     }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class GlobalAvgPool2dOpConversionPattern
+    : public OpConversionPattern<ttir::GlobalAvgPool2dOp> {
+public:
+  using OpConversionPattern<ttir::GlobalAvgPool2dOp>::OpConversionPattern;
+  using OpAdaptor = typename ttir::GlobalAvgPool2dOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(ttir::GlobalAvgPool2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // GlobalAvgPool2d is essentially a much simpler operation than AvgPool2d
+    // andd MaxPool2d. under the hood, we just perform a sum reduction across
+    // the spatial dimensions on metal and we dont take stride/padding/dilation
+    // as params. That is why we don't inherit from the
+    // Pooling2dOpConversionPattern.
+
+    // Extract output layout and dtype from the result type
+    auto outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    auto outputDtypeAttr =
+        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
+
+    rewriter.replaceOpWithNewOp<ttnn::GlobalAvgPool2dOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInput(),
+        /*memory_config=*/nullptr, outputDtypeAttr);
 
     return success();
   }
@@ -1764,6 +1842,36 @@ public:
     return success();
   }
 };
+
+class SplitQueryKeyValueAndSplitHeadsOpConversionPattern
+    : public OpConversionPattern<ttir::SplitQueryKeyValueAndSplitHeadsOp> {
+public:
+  using OpConversionPattern<
+      ttir::SplitQueryKeyValueAndSplitHeadsOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SplitQueryKeyValueAndSplitHeadsOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Convert result types
+    auto queryType =
+        this->getTypeConverter()->convertType(op.getQuery().getType());
+    auto keyType = this->getTypeConverter()->convertType(op.getKey().getType());
+    auto valueType =
+        this->getTypeConverter()->convertType(op.getValue().getType());
+
+    // Create the TTNN op with 3 results
+    auto ttnnOp = rewriter.create<ttnn::SplitQueryKeyValueAndSplitHeadsOp>(
+        op.getLoc(), TypeRange{queryType, keyType, valueType},
+        adaptor.getInputTensor(), adaptor.getKvInputTensor(),
+        adaptor.getNumHeadsAttr(), adaptor.getNumKvHeadsAttr(),
+        adaptor.getTransposeKeyAttr(),
+        /*memory_config=*/nullptr);
+
+    // Replace the original op with the three results
+    rewriter.replaceOp(op, ttnnOp.getResults());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -1937,7 +2045,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::MinimumOp, ttnn::MinimumOp>,
            ElementwiseOpConversionPattern<ttir::RemainderOp, ttnn::RemainderOp>,
            ElementwiseOpConversionPattern<ttir::Atan2Op, ttnn::Atan2Op>,
-           ElementwiseOpConversionPattern<ttir::PowOp, ttnn::PowOp>,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
            ElementwiseOpConversionPattern<ttir::CbrtOp, ttnn::CbrtOp>,
            ElementwiseOpConversionPattern<ttir::FloorOp, ttnn::FloorOp>,
@@ -1969,6 +2076,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::AtanOp, ttnn::AtanOp>,
            Pooling2dOpConversionPattern<ttir::MaxPool2dOp, ttnn::MaxPool2dOp>,
            Pooling2dOpConversionPattern<ttir::AvgPool2dOp, ttnn::AvgPool2dOp>,
+           GlobalAvgPool2dOpConversionPattern,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
@@ -1978,6 +2086,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            BroadcastOpConversionPattern,
            PadOpConversionPattern,
+           PowOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
            RepeatOpConversionPattern,
@@ -2017,7 +2126,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            CollectiveBroadcastOpConversionPattern,
            ConcatenateHeadsOpConversionPattern,
            ScaledDotProductAttentionOpConversionPattern,
-           ScaledDotProductAttentionDecodeOpConversionPattern
+           ScaledDotProductAttentionDecodeOpConversionPattern,
+           SplitQueryKeyValueAndSplitHeadsOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

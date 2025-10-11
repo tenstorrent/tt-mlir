@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+set -e -o pipefail
+
 echo "Running op-model test Conversion"
 $BUILD_DIR/test/unittests/OpModel/TTNN/Conversion/TestConversion
 echo "Running op-model test Lib"

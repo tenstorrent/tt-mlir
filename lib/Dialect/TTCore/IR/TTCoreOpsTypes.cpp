@@ -18,16 +18,14 @@
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
-#include "llvm/Support/Casting.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
 #include <numeric>
 
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsEnums.cpp.inc"
-
 #include "ttmlir/Dialect/TTCore/IR/TTCoreAttrInterfaces.cpp.inc"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsEnums.cpp.inc"
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.cpp.inc"
@@ -49,7 +47,7 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
   constexpr auto eriscL1UnreservedBase = 100032;
   constexpr auto dramUnreservedBase = 64;
   constexpr auto dramUnreservedEnd = 4276383744;
-  constexpr auto dstRegisterSizeTiles = 8;
+  constexpr auto dstPhysicalSizeTiles = 16;
   constexpr auto numCBs = 32;
   constexpr auto numComputeThreads = 1;
   constexpr auto numDatamovementThreads = 2;
@@ -104,7 +102,7 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
         nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
         l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
         dramUnreservedEnd, supported_data_types, supported_tile_sizes,
-        dstRegisterSizeTiles, numCBs, numComputeThreads,
+        dstPhysicalSizeTiles, numCBs, numComputeThreads,
         numDatamovementThreads));
   }
 
@@ -163,7 +161,7 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
   constexpr auto eriscL1UnreservedBase = 1024;
   constexpr auto dramUnreservedBase = 1024;
   constexpr auto dramUnreservedEnd = 1 << 30;
-  constexpr auto dstRegisterSizeTiles = 8;
+  constexpr auto dstPhysicalSizeTiles = 16;
   constexpr auto numCBs = 32;
   constexpr auto numComputeThreads = 1;
   constexpr auto numDatamovementThreads = 2;
@@ -218,7 +216,7 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
         nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
         l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
         dramUnreservedEnd, supportedDataTypes, supportedTileSizes,
-        dstRegisterSizeTiles, numCBs, numComputeThreads,
+        dstPhysicalSizeTiles, numCBs, numComputeThreads,
         numDatamovementThreads));
   }
 
@@ -437,7 +435,7 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
         element->noc_dram_address_align_bytes(), element->l1_unreserved_base(),
         element->erisc_l1_unreserved_base(), element->dram_unreserved_base(),
         element->dram_unreserved_end(), supportedDataTypesAttr,
-        supportedTileSizesAttr, element->dst_register_size_tiles(),
+        supportedTileSizesAttr, element->dst_physical_size_tiles(),
         element->num_cbs(), element->num_compute_threads(),
         element->num_datamovement_threads());
     chipDescList.push_back(currentChipDescAttr);
@@ -528,6 +526,22 @@ unsigned SystemDescAttr::getNocDRAMAddressAlignBytes(unsigned chipIndex) const {
 
 unsigned SystemDescAttr::getPcieAddressAlignBytes(unsigned chipIndex) const {
   return getChipDesc(chipIndex).getPcieAddressAlignBytes();
+}
+
+unsigned
+ChipDescAttr::getDstLogicalSizeTiles(Type type, bool fullSyncEn,
+                                     unsigned overridePhysicalSize) const {
+  auto nDstTiles = overridePhysicalSize > 0 ? overridePhysicalSize
+                                            : getDstPhysicalSizeTiles();
+  if (!fullSyncEn) {
+    nDstTiles /= 2;
+  }
+  // Will/should this be in-sync with the compute thread's fp32DestAccum?
+  const auto dataType = ttcore::elementTypeToDataType(type);
+  if (ttcore::getNumberOfBits(dataType) == 32u) {
+    nDstTiles /= 2;
+  }
+  return nDstTiles;
 }
 
 ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,

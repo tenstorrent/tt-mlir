@@ -75,9 +75,9 @@ if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
     message(FATAL_ERROR "TTMLIR_TOOLCHAIN_DIR environment variable not set. Please run 'source env/activate'.")
 endif()
 
-# Enable debug logs only in Debug mode
+# Enable debug asserts and debug logs only in Debug mode
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_compile_definitions(TTMLIR_ENABLE_DEBUG_LOGS)
+    add_compile_definitions(TT_BUILD_DEBUG TTMLIR_ENABLE_DEBUG_LOGS)
 endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
@@ -138,6 +138,7 @@ include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 include_directories(SYSTEM ${MLIR_INCLUDE_DIRS})
 include_directories(${TTMLIR_SOURCE_DIR}/include)
 include_directories(${TTMLIR_BINARY_DIR}/include)
+include_directories(${TTMLIR_TOOLCHAIN_DIR}/include)
 link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
 include(TTMLIRPythonSitePackages)
