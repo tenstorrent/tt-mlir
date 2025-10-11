@@ -133,6 +133,18 @@ def log(
     return builder.log(in0, unit_attrs=unit_attrs)
 
 
+def broadcast_in_dim(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    broadcast_dimensions: Optional[List[int]] = None,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.broadcast_in_dim(
+        in0, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
+    )
+
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -182,6 +194,33 @@ def test_binary_ops(
     ],
 )
 def test_unary_ops(
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+):
+    compile_stablehlo_to_flatbuffer(
+        test_fn,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        broadcast_in_dim,
+    ],
+)
+def test_broadcast_ops(
     test_fn: Callable,
     shape: Shape,
     dtype: torch.dtype,
