@@ -45,8 +45,9 @@ namespace mlir::tt::ttir {
 
 // Convert TensorType + MetalLayout into a memref including a
 // Shard/View/HostAttr.
-MemRefType getBufferType(Type type, bool isView,
-                         std::optional<ttcore::MetalLayoutAttr> hostInfo) {
+bufferization::BufferLikeType
+getBufferType(Type type, bool isView,
+              std::optional<ttcore::MetalLayoutAttr> hostInfo) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
   MLIRContext *ctx = tensorType.getContext();
   auto tensorMeshAttr = mlir::dyn_cast_if_present<ttcore::TensorMeshAttr>(
@@ -69,8 +70,8 @@ MemRefType getBufferType(Type type, bool isView,
   // If there is no encoding or encoding with TensorMesh info, return with the
   // host layout attribute.
   if (!tensorType.getEncoding() || tensorMeshAttr) {
-    return MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
-                           hostLayout);
+    return mlir::cast<bufferization::BufferLikeType>(MemRefType::get(
+        tensorType.getShape(), tensorType.getElementType(), hostLayout));
   }
 
   auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
@@ -101,9 +102,9 @@ MemRefType getBufferType(Type type, bool isView,
     }
   }
 
-  return MemRefType::get(
+  return mlir::cast<bufferization::BufferLikeType>(MemRefType::get(
       fullMemrefShape, tensorType.getElementType(), layoutAttr,
-      ttcore::MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
+      ttcore::MemorySpaceAttr::get(ctx, layout.getMemorySpace())));
 }
 
 //===----------------------------------------------------------------------===//
@@ -498,7 +499,8 @@ mlir::tt::ttir::EmptyOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+mlir::tt::ttir::EmptyOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
@@ -633,7 +635,8 @@ mlir::tt::ttir::ConstantOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ConstantOp::getBufferType(
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+mlir::tt::ttir::ConstantOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
@@ -2817,7 +2820,8 @@ mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
   return success();
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ToLayoutOp::getBufferType(
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+mlir::tt::ttir::ToLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
@@ -2978,7 +2982,7 @@ mlir::tt::ttir::TTNNMetalLayoutCastOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType>
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
 mlir::tt::ttir::TTNNMetalLayoutCastOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
@@ -3805,7 +3809,7 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::bufferize(
   return success();
 }
 
-mlir::FailureOr<mlir::BaseMemRefType>
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
 mlir::tt::ttir::MeshShardOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
@@ -4167,7 +4171,8 @@ mlir::tt::ttir::FullOp::getAliasingValues(
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+mlir::tt::ttir::FullOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
