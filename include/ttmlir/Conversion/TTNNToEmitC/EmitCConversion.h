@@ -78,6 +78,118 @@ enum class VecMode {
   Invalid = 0xFF,
 };
 
+struct UnaryWithParam;
+
+enum class UnaryOpType {
+  EXP,
+  RECIP,
+  GELU,
+  RELU,
+  SQRT,
+  SIGMOID,
+  LOG,
+  LOG1P,
+  TANH,
+  LOG2,
+  LOG10,
+  SIN,
+  COS,
+  COSH,
+  SINH,
+  ABS,
+  ABS_INT32,
+  SIGN,
+  SQUARE,
+  EQZ,
+  NEZ,
+  GTZ,
+  LTZ,
+  GEZ,
+  LEZ,
+  RELU_MAX,
+  RELU_MIN,
+  POWER,
+  LEAKY_RELU,
+  ELU,
+  EXP2,
+  HEAVISIDE,
+  EXPM1,
+  SIGNBIT,
+  ASIN,
+  ACOS,
+  ACOSH,
+  RSQRT,
+  RELU6,
+  ATAN,
+  ASINH,
+  ATANH,
+  ERF,
+  ERFC,
+  ISINF,
+  ISPOSINF,
+  ISNEGINF,
+  ISNAN,
+  LOGICAL_NOT_UNARY,
+  ISFINITE,
+  ERFINV,
+  I0,
+  I1,
+  TAN,
+  RSUB,
+  RDIV,
+  SILU,
+  SOFTPLUS,
+  IDENTITY,
+  NEG,
+  ADD_UNARY_SFPU,
+  SUB_UNARY_SFPU,
+  MUL_UNARY_SFPU,
+  DIV_UNARY_SFPU,
+  UNARY_NE,
+  UNARY_EQ,
+  UNARY_GT,
+  UNARY_LT,
+  UNARY_GE,
+  UNARY_LE,
+  TILED_PROD,
+  TYPECAST,
+  BITWISE_XOR,
+  BITWISE_NOT,
+  BITWISE_AND,
+  BITWISE_OR,
+  RIGHT_SHIFT,
+  FLOOR,
+  CEIL,
+  TRUNC,
+  FRAC,
+  ROUND,
+  LEFT_SHIFT,
+  REMAINDER,
+  FMOD,
+  DROPOUT,
+  FILL,
+  PRELU_SFPU,
+  ZERO_POINT,
+  ALT_COMPLEX_ROTATE90,
+  MISH,
+  MAXIMUM,
+  MINIMUM,
+  TANHSHRINK,
+  THRESHOLD,
+  SOFTSHRINK,
+  HARDSHRINK,
+  HARDTANH,
+  HARDSIGMOID,
+  HARDSWISH,
+  WHERE_TSS,
+  SOFTSIGN,
+  CELU,
+  CLAMP_TSS,
+  SELU,
+  RPOW,
+  CBRT,
+};
+
 } // namespace unary
 
 namespace creation::detail {
@@ -239,6 +351,12 @@ template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
   inline static const std::string value =
       "::ttnn::operations::conv::conv2d::Conv2dSliceConfig";
+};
+
+template <>
+struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
+  inline static const std::string value =
+      "::ttnn::operations::unary::UnaryWithParam";
 };
 
 template <>
@@ -1171,6 +1289,48 @@ struct EmitCTypeConverter<::ttnn::MemoryConfig> {
 };
 
 template <>
+struct EmitCTypeConverter<::ttnn::operations::unary::UnaryWithParam> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto unaryWithParamAttr =
+            mlir::dyn_cast_if_present<ttnn::UnaryWithParamAttr>(attr)) {
+      return convert(unaryWithParamAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::UnaryWithParamAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    // "UnaryWithParam{unary_op_type, 1.0}"
+    // op_type param
+    rso << TypeNameV<::ttnn::operations::unary::UnaryWithParam> << "{";
+    rso << "ttnn::operations::unary::UnaryOpType::";
+    // Convert enum to proper C++ enum value instead of integer
+    switch (attr.getOpType()) {
+    case ttnn::UnaryOpType::Silu:
+      rso << "SILU";
+      break;
+    default:
+      rso << "UNKNOWN!";
+      break;
+    }
+
+    // Why is this an array and not a single float param??
+    if (!attr.getParams().empty()) {
+      rso << ", ";
+      rso << EmitCTypeConverter<float>::convert(attr.getParams()[0]);
+    }
+
+    rso << "}";
+    return buf;
+  }
+};
+
+template <>
 struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto conv2dConfigAttr =
@@ -1193,8 +1353,12 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
       firstElement = false;
     }
     if (attr.getActivation()) {
+      llvm::outs() << "GOT ACTIVATION GOT ACTIVATION GOT ACTIVATION GOT "
+                      "ACTIVATION !!!!!!\n";
+      llvm::outs() << attr.getActivation() << "\n";
       rso << (firstElement ? "" : ", ") << ".activation = "
-          << EmitCTypeConverter<std::string>::convert(attr.getActivation());
+          << EmitCTypeConverter<::ttnn::operations::unary::UnaryWithParam>::
+                 convert(attr.getActivation());
       firstElement = false;
     }
     if (attr.getDeallocateActivation()) {
@@ -1400,6 +1564,11 @@ struct TTNNTarget<tt::ttnn::TensorMemoryLayoutAttr> {
 template <>
 struct TTNNTarget<tt::ttnn::MemoryConfigAttr> {
   using type = ::ttnn::MemoryConfig;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::UnaryWithParamAttr> {
+  using type = ::ttnn::operations::unary::UnaryWithParam;
 };
 
 template <>
