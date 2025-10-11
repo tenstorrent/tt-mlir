@@ -3875,11 +3875,17 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
   }
 
   // Test getOpConstraints
-  auto constraintsExp = op_model::OpModel<BatchNormOp>::getOpConstraints(
-      CreateWorkerGrid(), inputShape, inputLayout, runningMeanShape,
-      runningMeanLayout, runningVarShape, runningVarLayout, weightShape,
-      weightLayout, biasShape, biasLayout, epsilon, training, momentum,
-      outputLayout);
+  llvm::Expected<OpConstraints> constraintsExp =
+      training ? op_model::OpModel<BatchNormTrainingOp>::getOpConstraints(
+                     CreateWorkerGrid(), inputShape, inputLayout,
+                     runningMeanShape, runningMeanLayout, runningVarShape,
+                     runningVarLayout, weightShape, weightLayout, biasShape,
+                     biasLayout, epsilon, momentum, outputLayout)
+               : op_model::OpModel<BatchNormOp>::getOpConstraints(
+                     CreateWorkerGrid(), inputShape, inputLayout,
+                     runningMeanShape, runningMeanLayout, runningVarShape,
+                     runningVarLayout, weightShape, weightLayout, biasShape,
+                     biasLayout, epsilon, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -3894,10 +3900,16 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
   }
 
   // Test getOpRuntime
-  auto runtimeExp = op_model::OpModel<BatchNormOp>::getOpRuntime(
-      inputShape, inputLayout, runningMeanShape, runningMeanLayout,
-      runningVarShape, runningVarLayout, weightShape, weightLayout, biasShape,
-      biasLayout, epsilon, training, momentum, outputLayout);
+  llvm::Expected<size_t> runtimeExp =
+      training
+          ? op_model::OpModel<BatchNormTrainingOp>::getOpRuntime(
+                inputShape, inputLayout, runningMeanShape, runningMeanLayout,
+                runningVarShape, runningVarLayout, weightShape, weightLayout,
+                biasShape, biasLayout, epsilon, momentum, outputLayout)
+          : op_model::OpModel<BatchNormOp>::getOpRuntime(
+                inputShape, inputLayout, runningMeanShape, runningMeanLayout,
+                runningVarShape, runningVarLayout, weightShape, weightLayout,
+                biasShape, biasLayout, epsilon, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {

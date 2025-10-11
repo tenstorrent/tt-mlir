@@ -669,6 +669,37 @@ public:
 
 namespace {
 
+// Used by both BatchNormInferenceOp and BatchNormTrainingOp.
+template <typename OpType, typename OpAdaptor>
+static LogicalResult
+checkBatchNormConversionLegality(OpType &srcOp, OpAdaptor adaptor,
+                                 ConversionPatternRewriter &rewriter,
+                                 llvm::StringRef opName) {
+  auto inputType = mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+  int64_t rank = inputType.getRank();
+  uint64_t featureIndex = srcOp.getFeatureIndex();
+
+  // BatchNorm requires at least 2 dimensions (batch and feature)
+  if (rank < 2) {
+    return rewriter.notifyMatchFailure(
+        srcOp, opName.str() + " input must have at least 2 dimensions.");
+  }
+
+  // BatchNorm supports up to 5 dimensions
+  if (rank > 5) {
+    return rewriter.notifyMatchFailure(
+        srcOp, opName.str() + " input must have at most 5 dimensions.");
+  }
+
+  // Feature index must be valid
+  if (featureIndex >= static_cast<uint64_t>(rank)) {
+    return rewriter.notifyMatchFailure(
+        srcOp, opName.str() + " feature_index is out of bounds.");
+  }
+
+  return success();
+}
+
 class StableHLOToBatchNormOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BatchNormInferenceOp> {
 
@@ -680,16 +711,89 @@ public:
   matchAndRewrite(mlir::stablehlo::BatchNormInferenceOp srcOp,
                   mlir::stablehlo::BatchNormInferenceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the conversion.
+    LogicalResult legalityResult = checkBatchNormConversionLegality(
+        srcOp, adaptor, rewriter, "BatchNormInferenceOp");
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Convert feature_index to dimension attribute
     mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
     IntegerAttr dimensionAttr =
         mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
-    BoolAttr trainingAttr = mlir::BoolAttr::get(rewriter.getContext(), false);
+
     ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getScale(),
         adaptor.getOffset(), adaptor.getMean(), adaptor.getVariance(),
-        adaptor.getEpsilonAttr(), dimensionAttr, trainingAttr);
+        adaptor.getEpsilonAttr(), dimensionAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToBatchNormTrainingOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::BatchNormTrainingOp> {
+
+  using OpConversionPattern<
+      mlir::stablehlo::BatchNormTrainingOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::BatchNormTrainingOp srcOp,
+                  mlir::stablehlo::BatchNormTrainingOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the conversion.
+    LogicalResult legalityResult = checkBatchNormConversionLegality(
+        srcOp, adaptor, rewriter, "BatchNormTrainingOp");
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    auto loc = srcOp.getLoc();
+
+    // Get output types
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+    auto meanType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(1).getType()));
+    auto varianceType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(2).getType()));
+
+    // Convert feature_index to dimension attribute
+    mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
+    IntegerAttr dimensionAttr =
+        mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
+
+    // Default momentum for batch norm training
+    FloatAttr momentumAttr = rewriter.getF32FloatAttr(0.1f);
+
+    // Create empty tensors for running mean and variance
+    auto runningMean =
+        rewriter.create<ttir::EmptyOp>(loc, meanType).getResult();
+    auto runningVariance =
+        rewriter.create<ttir::EmptyOp>(loc, varianceType).getResult();
+
+    // Create empty output tensors
+    auto outputEmpty =
+        rewriter.create<ttir::EmptyOp>(loc, outputType).getResult();
+    auto batchMeanEmpty =
+        rewriter.create<ttir::EmptyOp>(loc, meanType).getResult();
+    auto batchVarianceEmpty =
+        rewriter.create<ttir::EmptyOp>(loc, varianceType).getResult();
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormTrainingOp>(
+        srcOp, TypeRange{outputType, meanType, varianceType},
+        adaptor.getOperand(), adaptor.getScale(), adaptor.getOffset(),
+        runningMean, runningVariance,
+        ValueRange{outputEmpty, batchMeanEmpty, batchVarianceEmpty},
+        adaptor.getEpsilonAttr(), dimensionAttr, momentumAttr);
+
     return success();
   }
 };
@@ -3605,6 +3709,8 @@ static void addBatchNormOpConversionPattern(MLIRContext *ctx,
                                             RewritePatternSet &patterns,
                                             TypeConverter &typeConverter) {
   patterns.add<StableHLOToBatchNormOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToBatchNormTrainingOpConversionPattern>(typeConverter,
+                                                                ctx);
 }
 
 static void addRngOpConversionPattern(MLIRContext *ctx,

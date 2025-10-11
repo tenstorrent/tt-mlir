@@ -1724,22 +1724,44 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d", [TTNN_MemoryConfigOpInterface]> {
 }
 
 def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments]> {
-    let summary = "Batch normalization op.";
+    let summary = "Batch normalization inference op.";
     let description = [{
-      Batch normalization operation over each channel on input tensor.
+      Batch normalization operation for inference over each channel on input tensor.
+      Uses pre-computed mean and variance.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          Optional<AnyRankedTensor>:$running_mean,
                          Optional<AnyRankedTensor>:$running_var,
-                         DefaultValuedAttr<BoolAttr, "false">:$training,
+                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_BatchNormTrainingOp : TTNN_Op<"batch_norm_training", [AttrSizedOperandSegments]> {
+    let summary = "Batch normalization training op.";
+    let description = [{
+      Batch normalization operation for training over each channel on input tensor.
+      Computes batch statistics and updates running mean and variance.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$running_mean,
+                         Optional<AnyRankedTensor>:$running_var,
                          DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
                          DefaultValuedAttr<F32Attr, "0.1">:$momentum,
                          Optional<AnyRankedTensor>:$weight,
                          Optional<AnyRankedTensor>:$bias,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-    let results = (outs AnyRankedTensor:$result);
+    let results = (outs AnyRankedTensor:$result,
+                        AnyRankedTensor:$batch_mean,
+                        AnyRankedTensor:$batch_variance);
 
     let hasVerifier = 1;
 }

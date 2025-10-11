@@ -2359,11 +2359,52 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::BatchNormOp> emitter(
         srcOp, adaptor, rewriter);
 
+    // For inference BatchNormOp, training is false and momentum is 0.1
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getRunningMean(), "running_mean"),
         emitter.emit(srcOp.getRunningVar(), "running_var"),
-        emitter.emit(srcOp.getTraining(), "training"),
+        emitter.emit(false, "training"),
+        emitter.emit(srcOp.getEpsilon(), "eps"),
+        emitter.emit(0.1f, "momentum"),
+        emitter.emit(srcOp.getWeight(), "weight"),
+        emitter.emit(srcOp.getBias(), "bias"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+//
+// BatchNormTrainingOp conversion pattern
+//
+namespace {
+class BatchNormTrainingOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::BatchNormTrainingOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::BatchNormTrainingOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::BatchNormTrainingOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::BatchNormTrainingOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // For training BatchNormTrainingOp, training is true
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getRunningMean(), "running_mean"),
+        emitter.emit(srcOp.getRunningVar(), "running_var"),
+        emitter.emit(true, "training"),
         emitter.emit(srcOp.getEpsilon(), "eps"),
         emitter.emit(srcOp.getMomentum(), "momentum"),
         emitter.emit(srcOp.getWeight(), "weight"),
@@ -2869,8 +2910,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Normalization ops
   //
-  patterns.add<BatchNormOpConversionPattern, RMSNormOpConversionPattern>(
-      typeConverter, ctx);
+  patterns
+      .add<BatchNormOpConversionPattern, BatchNormTrainingOpConversionPattern,
+           RMSNormOpConversionPattern>(typeConverter, ctx);
 
   // Transformers ops
   //
