@@ -5,6 +5,7 @@
 #ifndef TT_RUNTIME_PERF_H
 #define TT_RUNTIME_PERF_H
 
+#include <cstdint>
 #include <ostream>
 
 namespace tt::runtime::perf {
@@ -35,7 +36,7 @@ struct Env {
 #else
   static Env
 #endif
-  get(std::uint32_t dumpDeviceRate = 1000, bool enablePerfTrace = false,
+  get(uint32_t dumpDeviceRate = 1000, bool enablePerfTrace = false,
       const std::string &tracyProgramMetadata = "")
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
       ;
@@ -45,7 +46,7 @@ struct Env {
   }
 #endif
 
-  std::uint32_t dumpDeviceRate;
+  uint32_t dumpDeviceRate;
   bool enablePerfTrace;
   std::string tracyProgramMetadata;
 
@@ -63,7 +64,7 @@ struct Env {
   void setProgramMetadata(const std::string &programMetadata);
 
 private:
-  Env(std::uint32_t dumpDeviceRate, bool enablePerfTrace,
+  Env(uint32_t dumpDeviceRate, bool enablePerfTrace,
       const std::string &tracyProgramMetadata)
       : dumpDeviceRate(dumpDeviceRate), enablePerfTrace(enablePerfTrace),
         tracyProgramMetadata(tracyProgramMetadata) {}

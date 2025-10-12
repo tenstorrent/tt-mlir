@@ -16,8 +16,6 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/IRMapping.h"
-#include "mlir/IR/Location.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/PassManager.h"
@@ -26,7 +24,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <string>
@@ -42,77 +39,6 @@ namespace mlir::tt::ttkernel {
 } // namespace mlir::tt::ttkernel
 
 // ............................................................................
-
-emitc::OpaqueAttr convertCBPort(Builder &builder, ttkernel::CBPort port) {
-  switch (port) {
-  case ttkernel::CBPort::In0:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in0");
-  case ttkernel::CBPort::In1:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in1");
-  case ttkernel::CBPort::In2:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in2");
-  case ttkernel::CBPort::In3:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in3");
-  case ttkernel::CBPort::In4:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in4");
-  case ttkernel::CBPort::In5:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in5");
-  case ttkernel::CBPort::In6:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in6");
-  case ttkernel::CBPort::In7:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in7");
-  case ttkernel::CBPort::DataFlow0:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow0");
-  case ttkernel::CBPort::DataFlow1:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow1");
-  case ttkernel::CBPort::DataFlow2:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow2");
-  case ttkernel::CBPort::DataFlow3:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow3");
-  case ttkernel::CBPort::DataFlow4:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow4");
-  case ttkernel::CBPort::DataFlow5:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow5");
-  case ttkernel::CBPort::DataFlow6:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow6");
-  case ttkernel::CBPort::DataFlow7:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow7");
-  case ttkernel::CBPort::Out0:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out0");
-  case ttkernel::CBPort::Out1:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out1");
-  case ttkernel::CBPort::Out2:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out2");
-  case ttkernel::CBPort::Out3:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out3");
-  case ttkernel::CBPort::Out4:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out4");
-  case ttkernel::CBPort::Out5:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out5");
-  case ttkernel::CBPort::Out6:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out6");
-  case ttkernel::CBPort::Out7:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out7");
-  case ttkernel::CBPort::Intermed0:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed0");
-  case ttkernel::CBPort::Intermed1:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed1");
-  case ttkernel::CBPort::Intermed2:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed2");
-  case ttkernel::CBPort::Intermed3:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed3");
-  case ttkernel::CBPort::Intermed4:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed4");
-  case ttkernel::CBPort::Intermed5:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed5");
-  case ttkernel::CBPort::Intermed6:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed6");
-  case ttkernel::CBPort::Intermed7:
-    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed7");
-  }
-  llvm_unreachable("Unknown CBPort");
-  return nullptr;
-}
 
 emitc::OpaqueAttr
 datatypeToDataformatEnumValue(Builder &builder,
