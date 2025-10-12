@@ -647,6 +647,46 @@ index 86f16d1..8039a00 100644
  bool insertSeenValue(Operation* op, const PropagationEdge& edge,
                       llvm::SmallDenseSet<Value>& seenValues) {
    EdgeNode target = edge.target;
+diff --git a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
+index 47ce53e..ef5ee61 100644
+--- a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
++++ b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
+@@ -303,6 +303,35 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+         }
+         return builder.build();
+       })
++      .Case<stablehlo::BatchNormInferenceOp>([](stablehlo::BatchNormInferenceOp bn) {
++        auto inTy  = llvm::cast<mlir::RankedTensorType>(bn.getOperand().getType());
++        auto outTy = llvm::cast<mlir::RankedTensorType>(bn.getResult().getType());
++
++        OpShardingRuleBuilder builder(bn);
++
++        const int64_t numOperands = static_cast<int64_t>(bn->getNumOperands());
++        llvm::SmallVector<int64_t> opDims(numOperands, kNullDim);
++
++        for (auto [dU, dimSize] : llvm::enumerate(inTy.getShape())) {
++          const int64_t d = static_cast<int64_t>(dU);
++          std::fill(opDims.begin(), opDims.end(), kNullDim);
++          builder.addFactor(opDims, d, dimSize);
++        }
++
++        const int64_t C = outTy.getShape()[1];
++        for (int64_t paramIdx : {1LL, 2LL, 3LL, 4LL}) {
++          std::fill(opDims.begin(), opDims.end(), kNullDim);
++          opDims[paramIdx] = 0;
++          builder.addFactor(
++              opDims,
++              kNullDim,
++              C,
++              FactorType::kNeedReplication,
++              true);
++        }
++
++        return builder.build();
++      })
+       .Case<stablehlo::BitcastConvertOp>(
+           [](stablehlo::BitcastConvertOp bitcastConvert) {
+             ArrayRef<int64_t> inShape =
 diff --git a/shardy/integrations/c/CMakeLists.txt b/shardy/integrations/c/CMakeLists.txt
 new file mode 100644
 index 0000000..fdd50c4
