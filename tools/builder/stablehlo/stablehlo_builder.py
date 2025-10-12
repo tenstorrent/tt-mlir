@@ -102,7 +102,7 @@ class StableHLOBuilder(Builder):
                     *inputs,
                     loc=loc,
                     **stablehlo_kwargs,
-            )
+                )
 
             if unit_attrs is not None:
                 for attr_name in unit_attrs:
@@ -300,46 +300,67 @@ class StableHLOBuilder(Builder):
 
         Returns
         -------
-        (*OpView*) 
+        (*OpView*)
         """
         from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType
         from ttmlir.dialects.stablehlo import DotDimensionNumbers
+
         # Create dimension numbers attribute using proper MLIR attribute construction
-        '''
+        """
         lhs_batching_dims = ArrayAttr.get([
             IntegerAttr.get(IntegerType.get_signless(64), dim)
             for dim in batch_dims_lhs
         ])
-        
+
         rhs_batching_dims = ArrayAttr.get([
             IntegerAttr.get(IntegerType.get_signless(64), dim)
             for dim in batch_dims_rhs
         ])
-        
+
         lhs_contracting_dims = ArrayAttr.get([
             IntegerAttr.get(IntegerType.get_signless(64), dim)
             for dim in contract_dims_lhs
         ])
-        
+
         rhs_contracting_dims = ArrayAttr.get([
             IntegerAttr.get(IntegerType.get_signless(64), dim)
             for dim in contract_dims_rhs
         ])
-        '''
+        """
         dot_dimension_numbers = DotDimensionNumbers.get(
-           context=self._ctx,
-           lhs_batching_dimensions=batch_dims_lhs,
-           lhs_contracting_dimensions=contract_dims_lhs,
-           rhs_batching_dimensions=batch_dims_rhs,
-           rhs_contracting_dimensions=contract_dims_rhs,
+            context=self._ctx,
+            lhs_batching_dimensions=batch_dims_lhs,
+            lhs_contracting_dimensions=contract_dims_lhs,
+            rhs_batching_dimensions=batch_dims_rhs,
+            rhs_contracting_dimensions=contract_dims_rhs,
         )
+
+        lhsShape = in0.type.shape
+        rhsShape = in1.type.shape
+
+        resultShape = []
+        # Add batch dimensions
+        for dim in batch_dims_lhs:
+            resultShape.append(lhsShape[dim])
+
+        # add non-batch, non-contract dimensions from lhs and rhs
+        for i, dimSize in enumerate(lhsShape):
+            if i not in batch_dims_lhs and i not in contract_dims_lhs:
+                resultShape.append(dimSize)
+        for i, dimSize in enumerate(rhsShape):
+            if i not in batch_dims_rhs and i not in contract_dims_rhs:
+                resultShape.append(dimSize)
+
+        result_type = RankedTensorType.get(resultShape, in0.type.element_type)
         return self._op_proxy(
             stablehlo.DotGeneralOp,
             [in0, in1],
-            organize_stablehlo_args=lambda i: (i[0], i[1]),
-            stablehlo_kwargs={
-                "dot_dimension_numbers": dot_dimension_numbers
-            },
+            organize_stablehlo_args=lambda inputs: (result_type, inputs[0], inputs[1]),
+            organize_golden_args=lambda inputs: (
+                self._get_golden_tensor(inputs[0]),
+                self._get_golden_tensor(inputs[1]),
+            ),
+            stablehlo_kwargs={"dot_dimension_numbers": dot_dimension_numbers},
             golden_kwargs={
                 "batch_dims_lhs": batch_dims_lhs,
                 "contract_dims_lhs": contract_dims_lhs,
