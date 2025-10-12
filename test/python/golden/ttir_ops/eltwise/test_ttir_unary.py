@@ -387,7 +387,7 @@ def test_get_dimension_size(
     )
 
 
-# Unaligned shapes tests for neg op
+# Unaligned shapes tests for the neg op
 unaligned_shapes = [
     (5, 3),
     (32, 1),
@@ -404,11 +404,11 @@ unaligned_shapes = [
     (3, 17, 37),
     (9, 43, 7),
     (5, 61, 49),
-    (51, 19, 23) | Marks(pytest.mark.xfail(reason="Golden failure")),
-    (677, 1, 1) | Marks(pytest.mark.xfail(reason="Golden failure")),
+    (51, 19, 23),
+    (677, 1, 1),
     (2, 3, 5, 7),
-    (3, 37, 5, 53) | Marks(pytest.mark.xfail(reason="Golden failure")),
-    (37, 3, 5, 53) | Marks(pytest.mark.xfail(reason="Golden failure")),
+    (3, 37, 5, 53),
+    (37, 3, 5, 53),
     (41, 7, 43, 11),
     (7, 41, 43, 11),
     (1, 23, 1, 1),

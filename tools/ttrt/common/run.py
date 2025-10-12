@@ -135,18 +135,18 @@ class Run:
             help="seed for random number generator",
         )
         Run.register_arg(
-            name="--dump-kernels-to-disk",
+            name="--dump-kernels",
             type=bool,
             default=False,
             choices=[True, False],
             help="dump the kernels to disk (/tmp) as they are being executed",
         )
         Run.register_arg(
-            name="--load-kernels-from-disk",
+            name="--load-kernels",
             type=bool,
             default=False,
             choices=[True, False],
-            help="pickup the kernels from disk (/tmp) instead of the flatbuffer, must have previously run with --dump-kernels-to-disk",
+            help="pickup the kernels from disk (/tmp) instead of the flatbuffer, must have previously run with --dump-kernels",
         )
         Run.register_arg(
             name="--use-loc-for-kernel-name",
@@ -532,8 +532,8 @@ class Run:
                 return
 
             debug_env = ttrt.runtime.DebugEnv.get(
-                self["--dump-kernels-to-disk"],
-                self["--load-kernels-from-disk"],
+                self["--dump-kernels"],
+                self["--load-kernels"],
                 self["--use-loc-for-kernel-name"],
                 self["--kernel-source-dir"],
                 not self["--disable-device-address-validation"],

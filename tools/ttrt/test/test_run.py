@@ -278,20 +278,20 @@ def test_seed_cmd_run():
     sub_process_command(command)
 
 
-def test_load_kernels_from_disk_run():
+def test_load_kernels_run():
     API.initialize_apis()
     custom_args = {}
     custom_args[
         "--result-file"
     ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = BINARY_FILE_PATH
-    custom_args["--load-kernels-from-disk"] = True
+    custom_args["--load-kernels"] = True
     run_instance = API.Run(args=custom_args)
     run_instance()
 
 
-def test_load_kernels_from_disk_cmd_run():
-    command = f"ttrt run {BINARY_FILE_PATH} --load-kernels-from-disk --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
+def test_load_kernels_cmd_run():
+    command = f"ttrt run {BINARY_FILE_PATH} --load-kernels --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
 

@@ -152,7 +152,8 @@ createMeshBufferForShardedMetalBuffer(
       .page_size = shardedBufferConfig->page_size(),
       .buffer_type = metalBufferType,
       .sharding_args = std::move(bufferShardingArgs),
-      .bottom_up = std::nullopt};
+      .bottom_up = std::nullopt,
+      .sub_device_id = std::nullopt};
 
   auto distributedBufferConfig = tt::tt_metal::distributed::ShardedBufferConfig{
       .global_size = distributedBufferSizeBytes,
@@ -304,11 +305,14 @@ inline std::string createKernelFilePath(
   if (prefix.empty()) {
     prefix = "/tmp";
   }
+  if (!std::filesystem::exists(prefix)) {
+    std::filesystem::create_directory(prefix);
+  }
   std::filesystem::path path(prefix);
   if (debug::Env::get().useLocForKernelName && kernelLoc) {
     path /= kernelLoc;
   } else {
-    prefix /= "ttmlir_";
+    path /= "ttmlir_";
     path += currentProgramName;
     path += "_";
     path += kernelDebugInfo;
@@ -324,7 +328,7 @@ inline std::string createKernelFilePath(
 }
 
 inline void writeFile(const std::string &fileName, const std::string &source) {
-  if (debug::Env::get().loadKernelsFromDisk) {
+  if (debug::Env::get().loadKernels) {
     std::ifstream file(fileName);
     LOG_ASSERT(file.is_open(), "Kernel file ", fileName, " not found");
     return;
@@ -345,8 +349,8 @@ inline tt_metal::KernelHandle createKernel(
             "Creating kernel: ", kernelDebugInfo);
   LOG_TRACE(logger::LogRuntimeTTMetalKernelSource, "Kernel source:\n",
             kernelSource);
-  const bool kernelFromFile = debug::Env::get().dumpKernelsToDisk ||
-                              debug::Env::get().loadKernelsFromDisk;
+  const bool kernelFromFile =
+      debug::Env::get().dumpKernels || debug::Env::get().loadKernels;
   std::string fileName;
   if (kernelFromFile) {
     fileName = createKernelFilePath(currentProgramName, kernelDebugInfo,
