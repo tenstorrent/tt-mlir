@@ -115,15 +115,6 @@ def logistic(
     return builder.logistic(in0, unit_attrs=unit_attrs)
 
 
-def tan(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.tan(in0, unit_attrs=unit_attrs)
-
-
 def log(
     in0: Operand,
     builder: StableHLOBuilder,
@@ -160,7 +151,6 @@ def test_binary_ops(
     )
 
 
-@pytest.mark.skip("https://github.com/tenstorrent/tt-mlir/issues/5317")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -178,7 +168,6 @@ def test_binary_ops(
         rsqrt,
         sine,
         sqrt,
-        tan,
     ],
 )
 def test_unary_ops(
@@ -190,6 +179,37 @@ def test_unary_ops(
 ):
     compile_stablehlo_to_flatbuffer(
         test_fn,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
+
+
+# Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
+    def tan(
+        in0: Operand, builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        import math
+
+        randn_tensor = torch.randn(shape, dtype=dtype)
+        input_golden = randn_tensor.uniform_(
+            (-math.pi / 2 + 0.05), (math.pi / 2 - 0.05)
+        )
+        output_golden = torch.tan(input_golden)
+        tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
+        builder.set_goldens({in0: input_golden}, {tan_0: output_golden})
+        builder.set_graph_level_check(True)
+        return tan_0
+
+    compile_stablehlo_to_flatbuffer(
+        tan,
         [shape],
         [dtype],
         test_base=request.node.name,

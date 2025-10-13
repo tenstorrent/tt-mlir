@@ -128,7 +128,6 @@ def cos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 
 
 # Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -138,7 +137,7 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
 
         randn_tensor = torch.randn(shape, dtype=dtype)
         input_golden = randn_tensor.uniform_(
-            (-math.pi / 2 + 0.02), (math.pi / 2 - 0.02)
+            (-math.pi / 2 + 0.05), (math.pi / 2 - 0.05)
         )
         output_golden = torch.tan(input_golden)
         tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
