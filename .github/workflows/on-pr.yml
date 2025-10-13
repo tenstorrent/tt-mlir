@@ -18,6 +18,8 @@ on:
 permissions:
   checks: write
   packages: write
+  pull-requests: write
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
