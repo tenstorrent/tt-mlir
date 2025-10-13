@@ -72,7 +72,7 @@ def create_sharded_tile_tensor(device, h, w, max_grid, dtype):
 
 
 def run_op_test(
-    device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.DRAM
+    device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1
 ):
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
@@ -402,4 +402,4 @@ def sinh(input_tensor):
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("op", [cosh, sinh])
 def test_composite_ops(device, h, w, max_grid, dtype, op):
-    run_op_test(device, h, w, max_grid, dtype, op, 1)
+    run_op_test(device, h, w, max_grid, dtype, op, 1, buffer_type=ttnn.BufferType.L1)
