@@ -1160,11 +1160,179 @@ struct PoolingToPool2dPattern : public OpConversionPattern<ttir::PoolingOp> {
 public:
   using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
 
+  // Helper method to create a ReshapeOp
+  ttir::ReshapeOp createReshapeOp(ConversionPatternRewriter &rewriter,
+                                  Location loc, Value input,
+                                  llvm::ArrayRef<int64_t> targetShape) const {
+    auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto shapeAttr =
+        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
+
+    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, targetShape, inputType.getElementType(),
+        inputType.getEncoding(), input, shapeAttr);
+  }
+
+  // Structure to hold reshaped pooling op info
+  struct ReshapedPoolingOp {
+    ttir::PoolingOp op;
+    llvm::SmallVector<llvm::ArrayRef<int64_t>> originalOutputShapes;
+  };
+
+  // Helper to create a reshaped pooling op (from non-4D to 4D)
+  ReshapedPoolingOp
+  createReshapedPoolingOp(ttir::PoolingOp op, OpAdaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
+    auto firstInputType =
+        mlir::cast<mlir::RankedTensorType>(adaptor.getInputs()[0].getType());
+    int64_t originalRank = firstInputType.getRank();
+    int64_t dimsToPrepend = 4 - originalRank;
+
+    llvm::SmallVector<Value> reshapedInputs;
+    llvm::SmallVector<Value> reshapedOutputs;
+    llvm::SmallVector<llvm::ArrayRef<int64_t>> originalOutputShapes;
+
+    // Reshape inputs and outputs to 4D
+    for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
+      Value input = adaptor.getInputs()[i];
+      Value output = adaptor.getOutputs()[i];
+
+      auto inputType = mlir::cast<RankedTensorType>(input.getType());
+      auto outputType = mlir::cast<RankedTensorType>(output.getType());
+
+      // Store original output shapes for later
+      originalOutputShapes.push_back(outputType.getShape());
+
+      // Create 4D shape by prepending 1s
+      llvm::SmallVector<int64_t> inputShape4D;
+      llvm::SmallVector<int64_t> outputShape4D;
+
+      for (int64_t j = 0; j < dimsToPrepend; ++j) {
+        inputShape4D.push_back(1);
+        outputShape4D.push_back(1);
+      }
+
+      for (int64_t dim : inputType.getShape()) {
+        inputShape4D.push_back(dim);
+      }
+
+      for (int64_t dim : outputType.getShape()) {
+        outputShape4D.push_back(dim);
+      }
+
+      // Create reshape ops
+      auto reshapedInput = createReshapeOp(
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshapeTo4D"),
+          input, inputShape4D);
+      auto reshapedOutput =
+          createReshapeOp(rewriter,
+                          ttmlir::utils::appendLocationSuffix(
+                              op.getLoc(), "_reshapeOutputTo4D"),
+                          output, outputShape4D);
+
+      reshapedInputs.push_back(reshapedInput);
+      reshapedOutputs.push_back(reshapedOutput);
+    }
+
+    // Prepare padded attributes for 4D
+    llvm::SmallVector<int64_t> windowDims4D;
+    llvm::SmallVector<int64_t> windowStrides4D;
+    llvm::SmallVector<int64_t> baseDilations4D;
+    llvm::SmallVector<int64_t> windowDilations4D;
+    llvm::SmallVector<int64_t> padding4D;
+
+    // Prepend 1s for window dimensions, strides, dilations
+    for (int64_t i = 0; i < dimsToPrepend; ++i) {
+      windowDims4D.push_back(1);
+      windowStrides4D.push_back(1);
+      baseDilations4D.push_back(1);
+      windowDilations4D.push_back(1);
+    }
+
+    // Prepend 0s for padding (pairs of values)
+    for (int64_t i = 0; i < 2 * dimsToPrepend; ++i) {
+      padding4D.push_back(0);
+    }
+
+    // Add original attribute values
+    for (int64_t val : op.getWindowDimensions()) {
+      windowDims4D.push_back(val);
+    }
+    for (int64_t val : op.getWindowStrides()) {
+      windowStrides4D.push_back(val);
+    }
+    for (int64_t val : op.getBaseDilations()) {
+      baseDilations4D.push_back(val);
+    }
+    for (int64_t val : op.getWindowDilations()) {
+      windowDilations4D.push_back(val);
+    }
+    for (int64_t val : op.getPadding()) {
+      padding4D.push_back(val);
+    }
+
+    // Create output types
+    llvm::SmallVector<Type> outputTypes;
+    for (auto output : reshapedOutputs) {
+      outputTypes.push_back(output.getType());
+    }
+
+    // Create new 4D pooling op
+    auto newOp = rewriter.create<ttir::PoolingOp>(
+        op.getLoc(), outputTypes, reshapedInputs, reshapedOutputs,
+        op.getPoolingMethodAttr(), rewriter.getDenseI64ArrayAttr(windowDims4D),
+        rewriter.getDenseI64ArrayAttr(windowStrides4D),
+        rewriter.getDenseI64ArrayAttr(baseDilations4D),
+        rewriter.getDenseI64ArrayAttr(windowDilations4D),
+        rewriter.getDenseI64ArrayAttr(padding4D));
+
+    return {newOp, originalOutputShapes};
+  }
+
+  // Helper to reshape outputs back from 4D to original shape
+  llvm::SmallVector<Value> reshapeOutputsFromOriginal(
+      llvm::SmallVector<Value> outputs,
+      llvm::ArrayRef<llvm::ArrayRef<int64_t>> originalShapes, Location loc,
+      ConversionPatternRewriter &rewriter) const {
+    llvm::SmallVector<Value> reshapedOutputs;
+    for (size_t i = 0; i < outputs.size(); i++) {
+      auto reshapedBack = createReshapeOp(
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(loc, "_reshapeFromOriginal"),
+          outputs[i], originalShapes[i]);
+      reshapedOutputs.push_back(reshapedBack);
+    }
+    return reshapedOutputs;
+  }
+
   LogicalResult
   matchAndRewrite(ttir::PoolingOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // Check if we need to reshape to 4D
+    auto firstInputType =
+        mlir::cast<mlir::RankedTensorType>(adaptor.getInputs()[0].getType());
+    int64_t originalRank = firstInputType.getRank();
+    bool needsReshape = originalRank != 4;
+
+    ttir::PoolingOp processOp = op;
+    llvm::SmallVector<llvm::ArrayRef<int64_t>> originalOutputShapes;
+
+    // If needed, create reshape ops and a new 4D pooling op
+    if (needsReshape) {
+      ReshapedPoolingOp reshapedOp =
+          createReshapedPoolingOp(op, adaptor, rewriter);
+      processOp = reshapedOp.op;
+      originalOutputShapes = reshapedOp.originalOutputShapes;
+
+      // Replace the original op with the new 4D op
+      // (The original op will be replaced at the end with the final outputs)
+      adaptor = OpAdaptor(processOp);
+    }
+
+    // Process using existing logic
     llvm::SmallVector<int64_t> spatialDimIndices =
-        getIndicesOfElementsLargerThanOne(op.getWindowDimensions());
+        getIndicesOfElementsLargerThanOne(processOp.getWindowDimensions());
     size_t numSpatialDimIndices = spatialDimIndices.size();
     if (numSpatialDimIndices > 2) {
       return rewriter.notifyMatchFailure(
@@ -1173,31 +1341,46 @@ public:
     }
 
     LogicalResult legalityResult =
-        canDecompose2DPoolingOp(op, rewriter, spatialDimIndices);
+        canDecompose2DPoolingOp(processOp, rewriter, spatialDimIndices);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
 
-    switch (op.getPoolingMethod()) {
+    llvm::SmallVector<Value> outputs;
+    switch (processOp.getPoolingMethod()) {
     case ttir::PoolingMethod::Max: {
-      llvm::SmallVector<Value> outputs = rewritePool2d<ttir::MaxPool2dOp>(
-          op, adaptor, rewriter, spatialDimIndices);
-      rewriter.replaceOp(op, outputs);
-      return success();
+      outputs = rewritePool2d<ttir::MaxPool2dOp>(processOp, adaptor, rewriter,
+                                                 spatialDimIndices);
+      break;
     }
     case ttir::PoolingMethod::Average: {
-      llvm::SmallVector<Value> outputs = rewritePool2d<ttir::AvgPool2dOp>(
-          op, adaptor, rewriter, spatialDimIndices);
-      rewriter.replaceOp(op, outputs);
-      return success();
+      outputs = rewritePool2d<ttir::AvgPool2dOp>(processOp, adaptor, rewriter,
+                                                 spatialDimIndices);
+      break;
     }
     case ttir::PoolingMethod::Sum: {
-      llvm::SmallVector<Value> outputs =
-          rewriteSumPool2d(op, adaptor, rewriter, spatialDimIndices);
+      outputs =
+          rewriteSumPool2d(processOp, adaptor, rewriter, spatialDimIndices);
+      break;
+    }
+    }
+
+    // If we created a new op for reshaping, replace it with the decomposed ops
+    if (needsReshape) {
+      // The outputs from the decomposition are in 4D, reshape them back
+      llvm::SmallVector<Value> finalOutputs = reshapeOutputsFromOriginal(
+          outputs, originalOutputShapes, op.getLoc(), rewriter);
+
+      // Remove the temporary 4D pooling op and replace original op with
+      // reshaped outputs
+      rewriter.eraseOp(processOp);
+      rewriter.replaceOp(op, finalOutputs);
+    } else {
+      // For 4D inputs, just replace the original op with the decomposed outputs
       rewriter.replaceOp(op, outputs);
-      return success();
     }
-    }
+
+    return success();
   }
 
 private:
