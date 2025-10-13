@@ -1,0 +1,10 @@
+name: Nightly run
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # Runs at 04:00 UTC every day
+
+jobs:
+  build-macos:
+    uses: ./.github/workflows/call-build-macos.yml
+    secrets: inherit

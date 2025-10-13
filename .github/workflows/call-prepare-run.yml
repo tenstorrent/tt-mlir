@@ -1,0 +1,89 @@
+name: Prepare Run
+
+on:
+  workflow_call:
+    inputs:
+      builder_build:
+        description: 'Run build on builder'
+        required: false
+        type: boolean
+    outputs:
+      skip_build:
+        description: 'Skip build if no relevant files changed'
+        value: ${{ jobs.prepare-run.outputs.skip_build }}
+      test_matrix:
+        description: 'Test matrix for run-tests job'
+        value: ${{ jobs.prepare-run.outputs.test_matrix }}
+      runner:
+        description: Runner type
+        value: ${{ jobs.prepare-run.outputs.runner }}
+      sh_builder:
+        description: Run on Builder machine
+        value: ${{ jobs.prepare-run.outputs.sh_builder }}
+      test_timeout:
+        description: Timeout in minutes for the test job
+        value: ${{ jobs.prepare-run.outputs.test_timeout }}
+
+jobs:
+  prepare-run:
+    runs-on: ubuntu-latest
+    outputs:
+      skip_build: ${{ steps.skip_build.outputs.skip_build }}
+      test_matrix: ${{ steps.generate-test-matrix.outputs.test-matrix }}
+      runner: ${{ steps.decide-runner.outputs.runner }}
+      sh_builder: ${{ steps.decide-runner.outputs.sh_builder }}
+      test_timeout: ${{ steps.generate-test-matrix.outputs.test_timeout }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Ignore files
+        id: ignore-files
+        uses: tj-actions/changed-files@v46
+        with:
+          files: |
+            docs/**
+      - name: echo ignore_files
+        id: skip_build
+        run: |
+          echo "any_changed=${{ steps.ignore-files.outputs.any_changed }}"
+          echo "only_changed=${{ steps.ignore-files.outputs.only_changed }}"
+          echo "other_changed_files=${{ steps.ignore-files.outputs.other_changed_files }}"
+          echo "all_changed_files=${{ steps.ignore-files.outputs.all_changed_files }}"
+          echo "other_deleted_files=${{ steps.ignore-files.outputs.other_deleted_files }}"
+          if [[ -n "${{ steps.ignore-files.outputs.other_changed_files }}" || -n "${{ steps.ignore-files.outputs.other_deleted_files }}" ]]; then
+            echo "skip_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "skip_build=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Decide on build runner
+        id: decide-runner
+        run: |
+          sh_builder=false
+          if [[ "${{ inputs.builder_build }}" == "true" ]]; then
+              # Only use builder runner for uplift jobs
+              # REF: https://github.com/tenstorrent/tt-mlir/pull/5114/files/480d8b9216ab7b578d07d500d9fc16f448135f75#r2405470436
+              echo "runner=builder" >> "$GITHUB_OUTPUT"
+            else
+              echo "runner=tt-ubuntu-2204-large-stable" >> "$GITHUB_OUTPUT"
+              sh_builder=true
+          fi
+          echo sh_builder=$sh_builder
+          echo "sh_builder=$sh_builder" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Generate test matrix
+        id: generate-test-matrix
+        shell: bash
+        run: |
+          cat << 'EOF' > _test_durations
+            ${{ vars.TEST_DURATIONS }}
+          EOF
+          python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json ${{ vars.TARGET_DURATION }}
+          echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
+          timeout=$((${{ vars.TARGET_DURATION }} * 2 + 10))
+          echo "Test timeout set to $timeout minutes"
+          echo "test_timeout=$timeout" >> $GITHUB_OUTPUT

@@ -1,0 +1,54 @@
+name: Build Docker Image
+
+on:
+  workflow_call:
+    outputs:
+      docker-image:
+        description: Docker image name
+        value: ${{ jobs.build-image.outputs.docker-image }}
+      docker-tag:
+        description: Docker image tag
+        value: ${{ jobs.build-image.outputs.docker-tag }}
+
+permissions:
+  checks: write
+  packages: write
+
+jobs:
+
+  build-image:
+    runs-on:
+      - builder
+    outputs:
+      docker-image: ${{ steps.build.outputs.docker-image }}
+      docker-tag: ${{ steps.build.outputs.docker-tag }}
+    steps:
+
+      - name: Fix permissions
+        shell: bash
+        run: sudo chown ubuntu:ubuntu -R $(pwd) || true
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker images and output the image name
+        id: build
+        shell: bash
+        run: |
+          # Output the image name
+          set pipefail
+          .github/build-docker-images.sh | tee docker.log
+          DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
+          DOCKER_TAG=$(.github/get-docker-tag.sh)
+          echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
+          echo "DOCKER_TAG $DOCKER_TAG"
+          echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "docker-tag=$DOCKER_TAG" >> "$GITHUB_OUTPUT"

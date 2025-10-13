@@ -8,6 +8,10 @@ on:
         required: false
         type: string
         default: 'latest'
+      docker_image:
+        description: 'Docker image for the build'
+        required: true
+        type: string
   workflow_call:
     inputs:
       docker-tag:
@@ -15,6 +19,10 @@ on:
         required: false
         type: string
         default: 'latest'
+      docker_image:
+        description: 'Docker image for the build'
+        required: true
+        type: string
 
 jobs:
   build-ttmlir-wheel:
@@ -198,3 +206,33 @@ jobs:
 
           # Test the installation
           python -c "from ttmlir import ir; print('Imported ttmlir & Created CTX: ', ir.Context())"
+
+  test-ttnn-jit:
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    container: # this should work on base image https://github.com/tenstorrent/tt-mlir/issues/5232
+      image: ${{ inputs.docker_image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+            fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download ttnn-jit whl
+        uses: actions/download-artifact@v4
+        with:
+          name: ttnn-jit-whl-tracy
+      - name: Install ttnn-jit whl
+        shell: bash
+        run: |
+          # ----- remove comments after solving issue: https://github.com/tenstorrent/tt-mlir/issues/5232
+          # python3 -m venv testenv
+          # source testenv/bin/activate
+          # pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0
+          # pip install numpy
+          # -----
+          source env/activate
+          pip install ttnn_jit-*.whl --upgrade
+          python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
+          python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
