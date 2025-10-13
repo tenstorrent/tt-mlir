@@ -323,12 +323,12 @@ class StableHLOBuilder(Builder):
             result_shape.append(lhs_rhape[dim])
 
         # add non-batch, non-contract dimensions from lhs and rhs
-        for i, dimSize in enumerate(lhs_rhape):
+        for i, dim_size in enumerate(lhs_rhape):
             if i not in batch_dims_lhs and i not in contract_dims_lhs:
-                result_shape.append(dimSize)
-        for i, dimSize in enumerate(rhs_shape):
+                result_shape.append(dim_size)
+        for i, dim_size in enumerate(rhs_shape):
             if i not in batch_dims_rhs and i not in contract_dims_rhs:
-                result_shape.append(dimSize)
+                result_shape.append(dim_size)
 
         result_type = RankedTensorType.get(result_shape, in0.type.element_type)
         return self._op_proxy(
