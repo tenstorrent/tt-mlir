@@ -417,10 +417,16 @@ private:
   }
 
   bool isCreatingZeros(mlir::Value value) const {
-    if (auto creationOp = value.getDefiningOp<ZerosOp>()) {
+    Operation *currentOp = value.getDefiningOp();
+
+    // Traverse through reshape and broadcast operations
+    while (isa_and_nonnull<ReshapeOp, BroadcastOp>(currentOp)) {
+      currentOp = currentOp->getOperand(0).getDefiningOp();
+    }
+    if (auto creationOp = dyn_cast_if_present<ZerosOp>(currentOp)) {
       return true;
     }
-    if (auto creationOp = value.getDefiningOp<FullOp>()) {
+    if (auto creationOp = dyn_cast_if_present<FullOp>(currentOp)) {
       return isFillValueZero(creationOp);
     }
 
