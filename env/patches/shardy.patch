@@ -309,9 +309,9 @@ index 0000000..60f1952
 +  close_shardings.cc
 +  constant_or_scalar_merger.cc
 +  drop_sharding_rules.cc
-+  explicit_reshards_util.cc
 +  export_pipeline.cc
 +  insert_explicit_reshards.cc
++  remove_ag_rs_for_cmv1.cc
 +  remove_propagation_debug_info.cc
 +  remove_sharding_groups.cc
 +  reshard_to_collectives.cc
