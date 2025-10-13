@@ -791,14 +791,15 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
                            ArrayAttr iteratorTypes, ThreadType singleThreadType,
                            ttcore::GridAttr grid,
                            ArrayRef<int64_t> blockFactors) {
-  assert(!indexingMaps.empty() && "expected non-empty indexing maps");
-  assert(outputs.size() == 1 && "expected single output");
+  TT_assertv(!indexingMaps.empty(), "expected non-empty indexing maps");
+  TT_assertv(outputs.size() == 1u, "expected single output");
 
   if (!grid) {
     auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
     ttcore::DeviceLayoutInterface layout = ttcore::getDeviceLayout(shapedType);
-    assert(layout &&
-           "This generic constructor expects operands to be in device layout");
+    TT_assertv(
+        layout,
+        "This generic constructor expects operands to be in device layout");
     grid = builder.getAttr<ttcore::GridAttr>(layout.getGridShape(shapedType));
   }
 
@@ -817,8 +818,8 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       auto shapedType = mlir::cast<ShapedType>(v.getType());
       ttcore::DeviceLayoutInterface layout =
           ttcore::getDeviceLayout(shapedType);
-      assert(
-          layout &&
+      TT_assertv(
+          layout,
           "This generic constructor expects operands to be in device layout");
       auto gridShape = layout.getGridShape(shapedType);
       flattenedOperandGridShapes.append(gridShape.begin(), gridShape.end());
@@ -877,7 +878,7 @@ void d2m::GenericOp::build(
         singleThreadRegionBuilder,
     ThreadType singleThreadType, ttcore::GridAttr grid,
     ArrayRef<int64_t> blockFactors) {
-  assert(outputs.size() == 1 && "expected single output");
+  TT_assertv(outputs.size() == 1u, "expected single output");
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(outputs[0].getType());
   ttcore::MetalLayoutAttr maybeLayout =
@@ -1344,7 +1345,7 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getBlockFactorsValue() {
   });
 }
 
-mlir::SmallVector<int64_t> d2m::GenericOp::getLegalBlockFactorFactorizations() {
+mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
   auto maps = getIndexingMapsValue();
   // Priority doesn't matter here, so reverse can be false.
   auto flatInverseMap =
@@ -1354,15 +1355,16 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getLegalBlockFactorFactorizations() {
   for (Value v : getOperands()) {
     auto shapedType = mlir::cast<ShapedType>(v.getType());
     ttcore::DeviceLayoutInterface layout = ttcore::getDeviceLayout(shapedType);
-    assert(layout &&
-           "This generic constructor expects operands to be in device layout");
+    TT_assertv(
+        layout,
+        "This generic constructor expects operands to be in device layout");
     auto shardShape = layout.getShardShape(shapedType);
     flattenedOperandShardShapes.append(shardShape.begin(), shardShape.end());
   }
 
   auto currentBlockFactors = getBlockFactorsValue();
   auto factorizations = flatInverseMap.compose(flattenedOperandShardShapes);
-  assert(currentBlockFactors.size() == factorizations.size());
+  TT_assert(currentBlockFactors.size() == factorizations.size());
 
   // Multiply back in the current block factors to normalize the result.
   for (std::size_t i = 0; i < currentBlockFactors.size(); ++i) {

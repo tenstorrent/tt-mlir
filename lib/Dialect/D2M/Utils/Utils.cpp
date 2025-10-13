@@ -102,11 +102,11 @@ AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
   // Becomes:
   // (d0, d1, d2) -> (d0, d2, d2, d1, d0, d1)
   AffineMap concat =
-      concatAffineMaps(affineMaps, affineMaps.front().getContext());
+      mlir::concatAffineMaps(affineMaps, affineMaps.front().getContext());
 
   // Invert the permutation to get a map that we can use to get the loop
   // bounds. Above example becomes: (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
-  return inversePermutation(concat);
+  return mlir::inversePermutation(concat);
 }
 
 } // namespace mlir::tt::d2m::utils
