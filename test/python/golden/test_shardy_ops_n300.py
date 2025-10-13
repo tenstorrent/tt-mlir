@@ -7,13 +7,11 @@ import torch
 from typing import Callable, List, Optional, Tuple
 from conftest import x86_only
 from collections import OrderedDict
-import pkgutil
-import os
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_utils import compile_stablehlo_to_flatbuffer
-from test_utils import Marks, shape_str, sharding_str
+from test_utils import Marks, shape_str
 
 pytestmark = [pytest.mark.frontend("shlo"), pytest.mark.n300]
 
