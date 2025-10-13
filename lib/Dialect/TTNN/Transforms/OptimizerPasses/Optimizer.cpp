@@ -40,6 +40,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -496,24 +497,44 @@ public:
                 utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
           }
 
-          // Set specific Conv2d Op configuration if it is exists.
+          // Set specific Conv(Transpose)2d Op configuration if it is exists.
           //
 
-          if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(op)) {
-            auto opAttributes = opConfigAnalysis.getResult().at(op);
-            if (std::holds_alternative<ttnn::Conv2dAttrs>(
-                    opAttributes.opSpecificAttrs)) {
-              ttnn::Conv2dAttrs conv2dAttrs =
-                  std::get<ttnn::Conv2dAttrs>(opAttributes.opSpecificAttrs);
-              if (conv2dAttrs.conv2dConfig.has_value()) {
-                conv2dOp.setConv2dConfigAttr(conv2dAttrs.conv2dConfig.value());
-              }
-              if (conv2dAttrs.deviceComputeKernelConfig.has_value()) {
-                conv2dOp.setComputeConfigAttr(
-                    conv2dAttrs.deviceComputeKernelConfig.value());
-              }
-            }
-          }
+          llvm::TypeSwitch<Operation *, void>(op)
+              .Case<ttnn::Conv2dOp>([&](ttnn::Conv2dOp convOp) {
+                auto opAttributes = opConfigAnalysis.getResult().at(op);
+                if (std::holds_alternative<ttnn::Conv2dAttrs>(
+                        opAttributes.opSpecificAttrs)) {
+                  ttnn::Conv2dAttrs conv2dAttrs =
+                      std::get<ttnn::Conv2dAttrs>(opAttributes.opSpecificAttrs);
+                  if (conv2dAttrs.conv2dConfig.has_value()) {
+                    convOp.setConv2dConfigAttr(
+                        conv2dAttrs.conv2dConfig.value());
+                  }
+                  if (conv2dAttrs.deviceComputeKernelConfig.has_value()) {
+                    convOp.setComputeConfigAttr(
+                        conv2dAttrs.deviceComputeKernelConfig.value());
+                  }
+                }
+              })
+              .Case<ttnn::ConvTranspose2dOp>(
+                  [&](ttnn::ConvTranspose2dOp convOp) {
+                    auto opAttributes = opConfigAnalysis.getResult().at(op);
+                    if (std::holds_alternative<ttnn::Conv2dAttrs>(
+                            opAttributes.opSpecificAttrs)) {
+                      ttnn::Conv2dAttrs conv2dAttrs =
+                          std::get<ttnn::Conv2dAttrs>(
+                              opAttributes.opSpecificAttrs);
+                      if (conv2dAttrs.conv2dConfig.has_value()) {
+                        convOp.setConv2dConfigAttr(
+                            conv2dAttrs.conv2dConfig.value());
+                      }
+                      // TODO(rpavlovicTT): Once
+                      // https://github.com/tenstorrent/tt-mlir/issues/3994 is
+                      // resolved, set the deviceComputeKernelConfig here as
+                      // well and merge with the Conv2dOp case above.
+                    }
+                  });
         }
       });
 
