@@ -1144,11 +1144,11 @@ struct OpModel<GlobalAvgPool2dOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// BatchNormOp
+// BatchNormInferenceOp
 //===----------------------------------------------------------------------===//
 
 template <>
-struct OpModel<BatchNormOp> {
+struct OpModel<BatchNormInferenceOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(ttcore::GridAttr deviceGrid,
                    llvm::ArrayRef<int64_t> inputShape,

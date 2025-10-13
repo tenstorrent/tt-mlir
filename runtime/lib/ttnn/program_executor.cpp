@@ -376,8 +376,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
     return operations::cache::run(op->type_as_LoadCachedOp(), getContext());
   }
-  case ::tt::target::ttnn::OpType::BatchNormOp: {
-    return operations::batch_norm::run(op->type_as_BatchNormOp(), getContext());
+  case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
+    return operations::batch_norm::run(op->type_as_BatchNormInferenceOp(),
+                                       getContext());
   }
   case ::tt::target::ttnn::OpType::BatchNormTrainingOp: {
     return operations::batch_norm::run(op->type_as_BatchNormTrainingOp(),

@@ -3042,7 +3042,7 @@ AvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// BatchNormOp - TTNN Op Model Interface
+// BatchNormInferenceOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
 struct BatchNormOptionalArgs {
@@ -3074,9 +3074,8 @@ unpackBatchNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
   return ret;
 }
 
-llvm::Expected<op_model::OpConstraints>
-BatchNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                              const OpConfig &opConfig) {
+llvm::Expected<op_model::OpConstraints> BatchNormInferenceOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
   assert(inputs.size() == 5 && "ttnn::batch_norm can only have 5 input tensors "
                                "(representing main input tensor, "
                                "running_mean, running_var, weight and bias).");
@@ -3094,8 +3093,8 @@ BatchNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       unpackBatchNormOptionalArgs(inputs, *this);
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<BatchNormOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], optionalArgs.runningMeanShape,
+      op_model::OpModel<BatchNormInferenceOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], optionalArgs.runningMeanShape,
       optionalArgs.runningMeanLayout, optionalArgs.runningVarShape,
       optionalArgs.runningVarLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
@@ -3103,8 +3102,8 @@ BatchNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 llvm::Expected<size_t>
-BatchNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                          const OpConfig &opConfig) {
+BatchNormInferenceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
   assert(inputs.size() == 5 && "ttnn::batch_norm can only have 5 input tensors "
                                "(representing main input tensor, "
                                "running_mean, running_var, weight and bias).");
@@ -3115,7 +3114,7 @@ BatchNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       unpackBatchNormOptionalArgs(inputs, *this);
 
   return opRuntimeCache().getOrCompute(
-      op_model::OpModel<BatchNormOp>::getOpRuntime, *this, inputShape,
+      op_model::OpModel<BatchNormInferenceOp>::getOpRuntime, *this, inputShape,
       inputs[0], optionalArgs.runningMeanShape, optionalArgs.runningMeanLayout,
       optionalArgs.runningVarShape, optionalArgs.runningVarLayout,
       optionalArgs.weightShape, optionalArgs.weightLayout,

@@ -984,7 +984,7 @@ public:
 } // namespace
 
 namespace {
-// Used by both BatchNormOp and BatchNormTrainingOp.
+// Used by both BatchNormInferenceOp and BatchNormTrainingOp.
 template <typename OpType, typename OpAdaptor>
 static LogicalResult
 checkBatchNormToTTNNLegality(OpType &op, OpAdaptor adaptor,
@@ -1004,13 +1004,13 @@ checkBatchNormToTTNNLegality(OpType &op, OpAdaptor adaptor,
   return success();
 }
 
-class BatchNormOpConversionPattern
-    : public OpConversionPattern<ttir::BatchNormOp> {
+class BatchNormInferenceOpConversionPattern
+    : public OpConversionPattern<ttir::BatchNormInferenceOp> {
 public:
-  using OpConversionPattern<ttir::BatchNormOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::BatchNormInferenceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::BatchNormOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::BatchNormInferenceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Check legality of the conversion.
     LogicalResult legalityResult =
@@ -1019,7 +1019,7 @@ public:
       return legalityResult;
     }
 
-    rewriter.replaceOpWithNewOp<ttnn::BatchNormOp>(
+    rewriter.replaceOpWithNewOp<ttnn::BatchNormInferenceOp>(
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getOperand(), adaptor.getMean(), adaptor.getVariance(),
         adaptor.getEpsilon(), adaptor.getScale(), adaptor.getOffset(),
@@ -2154,7 +2154,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,
            LinearOpConversionPattern,
-           BatchNormOpConversionPattern,
+           BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern,
            RMSNormOpConversionPattern,
            MatmulOpConversionPattern,

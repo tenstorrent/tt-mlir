@@ -2452,23 +2452,24 @@ public:
 };
 } // namespace
 
-// BatchNormOp conversion pattern
+// BatchNormInferenceOp conversion pattern
 //
 namespace {
-class BatchNormOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::BatchNormOp> {
+class BatchNormInferenceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::BatchNormInferenceOp> {
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::BatchNormOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::BatchNormInferenceOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::BatchNormOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::BatchNormInferenceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::BatchNormOp> emitter(
-        srcOp, adaptor, rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::BatchNormInferenceOp>
+        emitter(srcOp, adaptor, rewriter);
 
-    // For inference BatchNormOp, training is false and momentum is 0.1
+    // For inference BatchNormInferenceOp, training is false and momentum is 0.1
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getRunningMean()),
@@ -3684,12 +3685,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Other ops
   //
-  patterns
-      .add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
-           DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-           MorehCumSumOpConversionPattern, BatchNormOpConversionPattern,
-           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern>(
-          typeConverter, ctx);
+  patterns.add<
+      SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
+      DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
+      MorehCumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
+      BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern>(
+      typeConverter, ctx);
 
   // CCL ops
   //

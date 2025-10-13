@@ -15,23 +15,23 @@ func.func @resnet50_last_module(%arg0: tensor<1x2048x7x7xbf16> {ttcore.argument_
     // CHECK: "ttnn.conv2d"
     %6 = "ttir.convolution"(%4, %arg1, %5) <{batch_group_count = 1 : i64, convolution_layout = #ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>, feature_group_count = 1 : i64, input_dilation = array<i64: 1, 1>, padding = array<i64: 0, 0, 0, 0>, weight_dilation = array<i64: 1, 1>, window_reversal = array<i1: false, false>, window_strides = array<i64: 1, 1>}> : (tensor<1x2048x7x7xbf16>, tensor<512x2048x1x1xbf16>, tensor<1x512x7x7xbf16>) -> tensor<1x512x7x7xbf16>
     %7 = ttir.empty() : tensor<1x512x7x7xbf16>
-    // CHECK-NOT: "ttnn.batch_norm"
+    // CHECK-NOT: "ttnn.batch_norm_inference"
     // CHECK-NOT: "ttnn.multiply"
     // CHECK-NOT: "ttnn.add"
-    %8 = "ttir.batch_norm"(%6, %arg2, %arg3, %arg4, %arg5, %7) <{dimension = 1 : i32, epsilon = 9.99999974E-6 : f32}> : (tensor<1x512x7x7xbf16>, tensor<512xbf16>, tensor<512xbf16>, tensor<512xbf16>, tensor<512xbf16>, tensor<1x512x7x7xbf16>) -> tensor<1x512x7x7xbf16>
+    %8 = "ttir.batch_norm_inference"(%6, %arg2, %arg3, %arg4, %arg5, %7) <{dimension = 1 : i32, epsilon = 9.99999974E-6 : f32}> : (tensor<1x512x7x7xbf16>, tensor<512xbf16>, tensor<512xbf16>, tensor<512xbf16>, tensor<512xbf16>, tensor<1x512x7x7xbf16>) -> tensor<1x512x7x7xbf16>
     %9 = ttir.empty() : tensor<1x512x7x7xbf16>
     %10 = "ttir.maximum"(%8, %2, %9) : (tensor<1x512x7x7xbf16>, tensor<1x512x7x7xbf16>, tensor<1x512x7x7xbf16>) -> tensor<1x512x7x7xbf16>
     %11 = ttir.empty() : tensor<1x512x7x7xbf16>
     // CHECK: "ttnn.conv2d"
     %12 = "ttir.convolution"(%10, %arg6, %11) <{batch_group_count = 1 : i64, convolution_layout = #ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>, feature_group_count = 1 : i64, input_dilation = array<i64: 1, 1>, padding = array<i64: 1, 1, 1, 1>, weight_dilation = array<i64: 1, 1>, window_reversal = array<i1: false, false>, window_strides = array<i64: 1, 1>}> : (tensor<1x512x7x7xbf16>, tensor<512x512x3x3xbf16>, tensor<1x512x7x7xbf16>) -> tensor<1x512x7x7xbf16>
     %13 = ttir.empty() : tensor<1x512x7x7xbf16>
-    %14 = "ttir.batch_norm"(%12, %arg7, %arg8, %arg9, %arg10, %13) <{dimension = 1 : i32, epsilon = 9.99999974E-6 : f32}> : (tensor<1x512x7x7xbf16>, tensor<512xbf16>, tensor<512xbf16>, tensor<512xbf16>, tensor<512xbf16>, tensor<1x512x7x7xbf16>) -> tensor<1x512x7x7xbf16>
+    %14 = "ttir.batch_norm_inference"(%12, %arg7, %arg8, %arg9, %arg10, %13) <{dimension = 1 : i32, epsilon = 9.99999974E-6 : f32}> : (tensor<1x512x7x7xbf16>, tensor<512xbf16>, tensor<512xbf16>, tensor<512xbf16>, tensor<512xbf16>, tensor<1x512x7x7xbf16>) -> tensor<1x512x7x7xbf16>
     %15 = ttir.empty() : tensor<1x512x7x7xbf16>
     %16 = "ttir.maximum"(%14, %2, %15) : (tensor<1x512x7x7xbf16>, tensor<1x512x7x7xbf16>, tensor<1x512x7x7xbf16>) -> tensor<1x512x7x7xbf16>
     %17 = ttir.empty() : tensor<1x2048x7x7xbf16>
     %18 = "ttir.convolution"(%16, %arg11, %17) <{batch_group_count = 1 : i64, convolution_layout = #ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>, feature_group_count = 1 : i64, input_dilation = array<i64: 1, 1>, padding = array<i64: 0, 0, 0, 0>, weight_dilation = array<i64: 1, 1>, window_reversal = array<i1: false, false>, window_strides = array<i64: 1, 1>}> : (tensor<1x512x7x7xbf16>, tensor<2048x512x1x1xbf16>, tensor<1x2048x7x7xbf16>) -> tensor<1x2048x7x7xbf16>
     %19 = ttir.empty() : tensor<1x2048x7x7xbf16>
-    %20 = "ttir.batch_norm"(%18, %arg12, %arg13, %arg14, %arg15, %19) <{dimension = 1 : i32, epsilon = 9.99999974E-6 : f32}> : (tensor<1x2048x7x7xbf16>, tensor<2048xbf16>, tensor<2048xbf16>, tensor<2048xbf16>, tensor<2048xbf16>, tensor<1x2048x7x7xbf16>) -> tensor<1x2048x7x7xbf16>
+    %20 = "ttir.batch_norm_inference"(%18, %arg12, %arg13, %arg14, %arg15, %19) <{dimension = 1 : i32, epsilon = 9.99999974E-6 : f32}> : (tensor<1x2048x7x7xbf16>, tensor<2048xbf16>, tensor<2048xbf16>, tensor<2048xbf16>, tensor<2048xbf16>, tensor<1x2048x7x7xbf16>) -> tensor<1x2048x7x7xbf16>
     %21 = ttir.empty() : tensor<1x2048x7x7xbf16>
     %22 = "ttir.add"(%20, %4, %21) : (tensor<1x2048x7x7xbf16>, tensor<1x2048x7x7xbf16>, tensor<1x2048x7x7xbf16>) -> tensor<1x2048x7x7xbf16>
     %23 = ttir.empty() : tensor<1x2048x7x7xbf16>

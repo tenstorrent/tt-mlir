@@ -700,7 +700,7 @@ checkBatchNormConversionLegality(OpType &srcOp, OpAdaptor adaptor,
   return success();
 }
 
-class StableHLOToBatchNormOpConversionPattern
+class StableHLOToBatchNormInferenceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BatchNormInferenceOp> {
 
   using OpConversionPattern<
@@ -726,7 +726,7 @@ public:
     IntegerAttr dimensionAttr =
         mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
 
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormInferenceOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getScale(),
         adaptor.getOffset(), adaptor.getMean(), adaptor.getVariance(),
         adaptor.getEpsilonAttr(), dimensionAttr);
@@ -3705,10 +3705,12 @@ static void addPadOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpPadOpConversionPattern>(typeConverter, ctx);
 }
 
-static void addBatchNormOpConversionPattern(MLIRContext *ctx,
-                                            RewritePatternSet &patterns,
-                                            TypeConverter &typeConverter) {
-  patterns.add<StableHLOToBatchNormOpConversionPattern>(typeConverter, ctx);
+static void
+addBatchNormInferenceOpConversionPattern(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
+  patterns.add<StableHLOToBatchNormInferenceOpConversionPattern>(typeConverter,
+                                                                 ctx);
   patterns.add<StableHLOToBatchNormTrainingOpConversionPattern>(typeConverter,
                                                                 ctx);
 }
@@ -3792,7 +3794,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
   addPadOpConversionPattern(ctx, patterns, typeConverter);
-  addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
+  addBatchNormInferenceOpConversionPattern(ctx, patterns, typeConverter);
   addRngOpConversionPattern(ctx, patterns, typeConverter);
   addRngBitGeneratorOpConversionPattern(ctx, patterns, typeConverter);
   addErfOpConversionPattern(ctx, patterns, typeConverter);

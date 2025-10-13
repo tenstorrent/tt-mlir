@@ -2343,23 +2343,25 @@ public:
 };
 } // namespace
 
-// BatchNormOp conversion pattern
+// BatchNormInferenceOp conversion pattern
 //
 namespace {
-class BatchNormOpConversionPattern
-    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::BatchNormOp> {
+class BatchNormInferenceOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::BatchNormInferenceOp> {
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
-      mlir::tt::ttnn::BatchNormOp>::TTNNToEmitPyBaseOpConversionPattern;
+      mlir::tt::ttnn::BatchNormInferenceOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::BatchNormOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::BatchNormInferenceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::BatchNormOp> emitter(
-        srcOp, adaptor, rewriter);
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::BatchNormInferenceOp>
+        emitter(srcOp, adaptor, rewriter);
 
-    // For inference BatchNormOp, training is false and momentum is 0.1
+    // For inference BatchNormInferenceOp, training is false and momentum is 0.1
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getRunningMean(), "running_mean"),
@@ -2911,8 +2913,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Normalization ops
   //
   patterns
-      .add<BatchNormOpConversionPattern, BatchNormTrainingOpConversionPattern,
-           RMSNormOpConversionPattern>(typeConverter, ctx);
+      .add<BatchNormInferenceOpConversionPattern,
+           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern>(
+          typeConverter, ctx);
 
   // Transformers ops
   //

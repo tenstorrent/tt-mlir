@@ -5,7 +5,8 @@
 #include "operations/normalization/batch_norm.h"
 
 namespace tt::runtime::ttnn::operations::batch_norm {
-void run(const ::tt::target::ttnn::BatchNormOp *op, ProgramContext &context) {
+void run(const ::tt::target::ttnn::BatchNormInferenceOp *op,
+         ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
   ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->input());

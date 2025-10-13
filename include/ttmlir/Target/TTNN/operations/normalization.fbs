@@ -10,7 +10,7 @@ table SoftmaxOp {
   numeric_stable: bool = false;
 }
 
-table BatchNormOp {
+table BatchNormInferenceOp {
   input: tt.target.ttnn.TensorRef;
   running_mean: tt.target.ttnn.TensorRef;
   running_var: tt.target.ttnn.TensorRef;

@@ -4450,9 +4450,9 @@ static ::mlir::LogicalResult verifyBatchNormOp(mlir::Operation *op,
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// BatchNormOp
+// BatchNormInferenceOp
 //===----------------------------------------------------------------------===//
-::mlir::LogicalResult mlir::tt::ttir::BatchNormOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::BatchNormInferenceOp::verify() {
   return verifyBatchNormOp(getOperation(), getOperand().getType(),
                            getDimension());
 }

@@ -4778,10 +4778,10 @@ llvm::Expected<size_t> OpModel<GlobalAvgPool2dOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
-// BatchNormOp
+// BatchNormInferenceOp
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<OpConstraints> OpModel<BatchNormOp>::getOpConstraints(
+llvm::Expected<OpConstraints> OpModel<BatchNormInferenceOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
@@ -4839,7 +4839,7 @@ llvm::Expected<OpConstraints> OpModel<BatchNormOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> OpModel<BatchNormOp>::getOpRuntime(
+llvm::Expected<size_t> OpModel<BatchNormInferenceOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
     std::optional<TTNNLayoutAttr> runningMeanLayout,

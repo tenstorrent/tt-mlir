@@ -1723,7 +1723,7 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d", [TTNN_MemoryConfigOpInterface]> {
     let hasVerifier = 1;
 }
 
-def TTNN_BatchNormOp : TTNN_Op<"batch_norm", [AttrSizedOperandSegments]> {
+def TTNN_BatchNormInferenceOp : TTNN_Op<"batch_norm_inference", [AttrSizedOperandSegments]> {
     let summary = "Batch normalization inference op.";
     let description = [{
       Batch normalization operation for inference over each channel on input tensor.

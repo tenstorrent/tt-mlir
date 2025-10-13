@@ -1966,17 +1966,18 @@ static mlir::Value reshapeBatchNorm4DTo1D(PatternRewriter &rewriter,
 // BatchNorm decomposition patterns
 //===----------------------------------------------------------------------===//
 
-// This pattern reshapes the non input tensors of the BatchNormOp to 4D
+// This pattern reshapes the non input tensors of the BatchNormInferenceOp to 4D
 // tensors, by adding additional dimensions of size 1 so that the only
 // non-1 dimension is the second dimension. This is done so that the
 // op is compatible with ttnn op call.
 namespace {
-struct BatchNormPattern : public OpConversionPattern<ttir::BatchNormOp> {
+struct BatchNormInferencePattern
+    : public OpConversionPattern<ttir::BatchNormInferenceOp> {
 public:
-  using OpConversionPattern<ttir::BatchNormOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::BatchNormInferenceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::BatchNormOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::BatchNormInferenceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
     auto inputType =
@@ -2036,14 +2037,15 @@ public:
     IntegerAttr dimensionAttr = mlir::IntegerAttr::get(integerType, 1);
 
     // Create the BatchNorm op with normalized input and 4D weight tensors
-    auto batchNormOp = ttir::utils::createDPSOp<mlir::tt::ttir::BatchNormOp>(
-        rewriter, loc, normalizedOutputType, normalizedInput, scale_4d,
-        offset_4d, mean_4d, variance_4d, adaptor.getEpsilonAttr(),
-        dimensionAttr);
+    auto batchNormInferenceOp =
+        ttir::utils::createDPSOp<mlir::tt::ttir::BatchNormInferenceOp>(
+            rewriter, loc, normalizedOutputType, normalizedInput, scale_4d,
+            offset_4d, mean_4d, variance_4d, adaptor.getEpsilonAttr(),
+            dimensionAttr);
 
     // Denormalize output back to original layout
     mlir::Value result =
-        denormalizeFromNCHW(batchNormOp.getResult(), originalShape,
+        denormalizeFromNCHW(batchNormInferenceOp.getResult(), originalShape,
                             normalizedShape, featureIndex, rewriter, loc);
 
     rewriter.replaceOp(op, result);
@@ -2429,7 +2431,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
   patterns.add<ReductionOrPattern>(typeConverter, ctx);
-  patterns.add<BatchNormPattern>(typeConverter, ctx);
+  patterns.add<BatchNormInferencePattern>(typeConverter, ctx);
   patterns.add<BatchNormTrainingPattern>(typeConverter, ctx);
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
   patterns.add<DequantizeOpPattern>(typeConverter, ctx);

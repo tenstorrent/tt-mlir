@@ -1887,8 +1887,8 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
-def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
-  let summary = "BatchNorm inference operation";
+def TTIR_BatchNormInferenceOp : TTIR_DPSOp<"batch_norm_inference"> {
+  let summary = "BatchNormInference operation";
   let description = [{
     Performs batch normalization inference on the input tensor. Normalizes the `operand` tensor
     across all dimensions except for the specified `dimension` (feature dimension) and
@@ -1936,7 +1936,7 @@ def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
 }
 
 def TTIR_BatchNormTrainingOp : TTIR_DPSOp<"batch_norm_training"> {
-  let summary = "BatchNorm training operation";
+  let summary = "BatchNormTraining operation";
   let description = [{
     Performs batch normalization during training on the input tensor. Normalizes the `operand` tensor
     across all dimensions except for the specified `dimension` (feature dimension) and

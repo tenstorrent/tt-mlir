@@ -3090,7 +3090,7 @@ class TTIRBuilder(Builder):
             Output tensor after batch normalization
         """
         return self._op_proxy(
-            ttir.BatchNormOp,
+            ttir.BatchNormInferenceOp,
             [in0, scale, offset, mean, variance],
             golden_kwargs={
                 "epsilon": epsilon,

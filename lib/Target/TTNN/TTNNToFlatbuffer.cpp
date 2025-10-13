@@ -791,8 +791,8 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
                                              memoryConfig, padValue, output);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::BatchNormOp>
-createOp(FlatbufferObjectCache &cache, BatchNormOp op) {
+::flatbuffers::Offset<::tt::target::ttnn::BatchNormInferenceOp>
+createOp(FlatbufferObjectCache &cache, BatchNormInferenceOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
       cache.at<::tt::target::ttnn::TensorRef>(
           getOperandThroughDPSOps(op.getInput()));
@@ -815,8 +815,8 @@ createOp(FlatbufferObjectCache &cache, BatchNormOp op) {
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       op.getMemoryConfig() ? toFlatbuffer(cache, *op.getMemoryConfig()) : 0;
 
-  // For inference BatchNormOp: no momentum, no batch stats
-  return ::tt::target::ttnn::CreateBatchNormOp(
+  // For inference BatchNormInferenceOp: no momentum, no batch stats
+  return ::tt::target::ttnn::CreateBatchNormInferenceOp(
       *cache.fbb, input, runningMean, runningVar,
       op.getEpsilon().convertToFloat(), weight, bias, memoryConfig, output);
 }
@@ -2793,7 +2793,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, upsampleOp), debugString,
                            locInfo);
   }
-  if (auto batchNormOp = dyn_cast<BatchNormOp>(op); batchNormOp) {
+  if (auto batchNormOp = dyn_cast<BatchNormInferenceOp>(op); batchNormOp) {
     return createOperation(cache, createOp(cache, batchNormOp), debugString,
                            locInfo);
   }

@@ -2373,7 +2373,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
 namespace {
 // Helper function to verify BatchNorm operations in TTNN dialect.
-// This is used by both BatchNormOp and BatchNormTrainingOp.
+// This is used by both BatchNormInferenceOp and BatchNormTrainingOp.
 template <typename OpType>
 static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
   // Verify that all inputs have dimension 4.
@@ -2398,10 +2398,10 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// BatchNormOp
+// BatchNormInferenceOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttnn::BatchNormOp::verify() {
+::mlir::LogicalResult mlir::tt::ttnn::BatchNormInferenceOp::verify() {
   return verifyTTNNBatchNormOp(*this);
 }
 
