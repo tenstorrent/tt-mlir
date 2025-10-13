@@ -7,7 +7,7 @@ on:
       - "On PR"
       - "On push"
       - "Build on macos-latest"
-      - "Build and Test"
+      - "Nightly run"
     types:
       - completed
 

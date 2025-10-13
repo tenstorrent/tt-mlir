@@ -8,12 +8,12 @@ jobs:
   pre-commit:
 
     timeout-minutes: 10
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.11.0
+          python-version: 3.11
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
