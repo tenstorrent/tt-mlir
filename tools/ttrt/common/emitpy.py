@@ -25,6 +25,8 @@ get_device_path = os.path.join(
     TT_MLIR_HOME, "tools/tt-alchemist/templates/python/local"
 )
 sys.path.append(get_device_path)
+# Add ttnn python package location to path for EmitPy tests
+sys.path.append(f"{get_ttrt_metal_home_path()}/ttnn")
 
 
 class EmitPy:

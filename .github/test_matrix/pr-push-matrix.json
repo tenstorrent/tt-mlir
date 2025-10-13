@@ -5,7 +5,7 @@
 
   { "runs-on": ["n150","n300","llmbox"],
         "image": "speedy",
-            "script": "ttrt.sh", "args": ["perf", "Silicon"] },
+            "script": "ttrt.sh", "args": ["run", "Silicon"] },
 
   { "runs-on": ["n150","n300","llmbox"],
         "image": "tracy",
@@ -34,5 +34,6 @@
   { "runs-on": "n150",   "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/device_agnostic" },
   { "runs-on": "n300",   "image": "tracy",  "script": "runtime_debug.sh" },
   { "runs-on": "n150",   "image": "tracy",  "script": "emitc.sh" },
-  { "runs-on": "n150",   "image": "tracy",  "script": "pykernel.sh" }
+  { "runs-on": "n150",   "image": "tracy",  "script": "pykernel.sh" },
+  { "runs-on": "n150",   "image": "speedy",  "script": "alchemist.sh" }
 ]
