@@ -12,6 +12,16 @@ on:
         required: false
         type: string
         default: 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest'
+      runner:
+        description: Runner machine
+        required: true
+        type: string
+        default: 'tt-ubuntu-2204-large-stable'
+      sh_builder:
+        description: Run on shared runner
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   checks: write
@@ -31,15 +41,10 @@ jobs:
 
     name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
 
-    runs-on: builder
+    runs-on: ${{ inputs.runner }}
 
     container:
-      image: ${{ inputs.docker_image }}
-
-    # runs-on: ${{ inputs.runner }}
-
-    # container:
-    #   image: ${{ inputs.sh_builder && format('harbor.ci.tenstorrent.net/{0}', inputs.docker_image) || inputs.docker_image }}
+      image: ${{ inputs.sh_builder && format('harbor.ci.tenstorrent.net/{0}', inputs.docker_image) || inputs.docker_image }}
 
     env:
       # TODO: Revisit the addition of these env vars https://github.com/tenstorrent/tt-metal/issues/20161
