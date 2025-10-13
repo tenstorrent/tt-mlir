@@ -19,7 +19,7 @@
 namespace ttmlir {
 
 // Log components for different components
-enum class LogComponent { Optimizer, OpValidation, Allocator, Test, General };
+enum class LogComponent { Optimizer, OpValidation, RMPropagation, Allocator, Test, General };
 
 // Log levels in order of verbosity
 enum class LogLevel {
@@ -35,6 +35,8 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
     return "optimizer";
   case LogComponent::OpValidation:
     return "op-validation";
+  case LogComponent::RMPropagation:
+    return "rm-propagation";
   case LogComponent::Allocator:
     return "allocator";
   case LogComponent::Test:

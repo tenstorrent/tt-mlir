@@ -20,6 +20,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
@@ -443,6 +444,13 @@ public:
           //
           TTNNLayoutAttr layoutAttr =
               mlir::cast<TTNNLayoutAttr>(newTensorType.getEncoding());
+
+          // Update layout attribute for ops that have layout attribute.
+          if (TTNNLayoutOpInterface opWithLayoutIF =
+                  mlir::dyn_cast<TTNNLayoutOpInterface>(op)) {
+            opWithLayoutIF.setLayoutAttr(
+                LayoutAttr::get(op->getContext(), layoutAttr.getLayout()));
+          }
 
           op->getResult(0).setType(newTensorType);
 

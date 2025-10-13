@@ -35,6 +35,7 @@ struct ValidationResult {
 // op: Operation to validate.
 // inputLayouts: Input tensor layouts for the operation.
 // config: Operation configuration to test.
+// tensorL1UsageCap: L1 usage cap (percentage of max L1 size).
 // Returns: ValidationResult if valid, error otherwise.
 llvm::Expected<ValidationResult>
 validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,

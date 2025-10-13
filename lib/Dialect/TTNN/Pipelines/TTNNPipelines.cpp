@@ -97,6 +97,8 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.rowMajorEnabled = options.rowMajorEnabled;
     optimizerOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     optimizerOptions.devicePtr = options.devicePtr;
+    pm.addPass(mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation(
+        ttnn::TTNNRowMajorLayoutPropagationOptions{options.tensorL1UsageCap}));
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
     pm.addPass(mlir::createCanonicalizerPass());
 #ifdef TTMLIR_ENABLE_OPMODEL
