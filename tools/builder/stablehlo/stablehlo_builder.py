@@ -237,7 +237,12 @@ class StableHLOBuilder(Builder):
 
     # ----- Elementwise Unary Operations -----
 
-    def abs(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def abs(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.abs``.
 
@@ -263,9 +268,15 @@ class StableHLOBuilder(Builder):
             stablehlo.AbsOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def ceil(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def ceil(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.ceil``.
 
@@ -291,9 +302,15 @@ class StableHLOBuilder(Builder):
             stablehlo.CeilOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def cosine(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def cosine(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.cosine``.
 
@@ -319,9 +336,15 @@ class StableHLOBuilder(Builder):
             stablehlo.CosineOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def exp(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def exp(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.exponential``.
 
@@ -347,9 +370,15 @@ class StableHLOBuilder(Builder):
             stablehlo.ExpOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def floor(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def floor(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.floor``.
 
@@ -375,9 +404,15 @@ class StableHLOBuilder(Builder):
             stablehlo.FloorOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def neg(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def neg(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.negate``.
 
@@ -403,9 +438,15 @@ class StableHLOBuilder(Builder):
             stablehlo.NegOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def rsqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def rsqrt(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.rsqrt``.
 
@@ -431,9 +472,15 @@ class StableHLOBuilder(Builder):
             stablehlo.RsqrtOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def sine(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def sine(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.sine``.
 
@@ -459,9 +506,15 @@ class StableHLOBuilder(Builder):
             stablehlo.SineOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def sqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def sqrt(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.sqrt``.
 
@@ -487,9 +540,15 @@ class StableHLOBuilder(Builder):
             stablehlo.SqrtOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def logistic(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def logistic(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.logistic``.
 
@@ -515,9 +574,15 @@ class StableHLOBuilder(Builder):
             stablehlo.LogisticOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def tan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def tan(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.tan``.
 
@@ -543,9 +608,15 @@ class StableHLOBuilder(Builder):
             stablehlo.TanOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def log(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def log(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.log``.
 
