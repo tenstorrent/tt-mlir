@@ -25,14 +25,18 @@ pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=$TEST_REPORT_PATH
 if [[ "$runttrt" == "1" ]]; then
     ttrt run $TTRT_ARGS ttir-builder-artifacts/
     cp run_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
+    cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_${TEST_REPORT_PATH##*_} || true
     ttrt run $TTRT_ARGS stablehlo-builder-artifacts/
     cp run_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
+    cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_stablehlo_${TEST_REPORT_PATH##*_} || true
     if [ -d "ttir-builder-artifacts/emitpy" ]; then
         ttrt emitpy $TTRT_ARGS ttir-builder-artifacts/emitpy/
         cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
+        cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_emitpy_${TEST_REPORT_PATH##*_} || true
     fi
     if [ -d "stablehlo-builder-artifacts/emitpy" ]; then
         ttrt emitpy $TTRT_ARGS stablehlo-builder-artifacts/emitpy/
         cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
+        cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_stablehlo_emitpy_${TEST_REPORT_PATH##*_} || true
     fi
 fi

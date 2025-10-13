@@ -52,7 +52,7 @@ jobs:
           cat << 'EOF' > _test_durations
             ${{ vars.TEST_DURATIONS }}
           EOF
-          python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json 25
+          python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json ${{ vars.TARGET_DURATION }}
           echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
 
   build-image:
@@ -163,7 +163,6 @@ jobs:
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -190,7 +189,6 @@ jobs:
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}
         work-dir: ${{ steps.strings.outputs.work-dir }}
-        test_report_path: ${{ steps.strings.outputs.test_report_path }}
 
   # Run tests on TT hardware
 
@@ -243,8 +241,6 @@ jobs:
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
-        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
-        echo "perf_report_path=perf_$JOB_ID" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -293,7 +289,14 @@ jobs:
 
     - name: Run Tests
       shell: bash
+      id: run-tests
+      env:
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        TTRT_LOGGER_LEVEL: "WARNING"
+        LOGURU_LEVEL: "ERROR"
+        TT_METAL_LOGGER_LEVEL: "FATAL"
       run: |
+        # Run Tests
         source env/activate
         export WORK_DIR="$(pwd)"
         export BUILD_DIR="${{ steps.strings.outputs.build-output-dir }}"
@@ -304,6 +307,7 @@ jobs:
         export TT_METAL_HOME="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
         export RUNS_ON="${{ matrix.build.runs-on }}"
         export IMAGE_NAME="${{ matrix.build.image }}"
+        export RUN_ID="${{ github.run_id }}"
         export PATH="$WORK_DIR/.github/test_scripts:$PATH"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         rm -rf test_reports || true
@@ -319,6 +323,10 @@ jobs:
 
         python .github/scripts/python/run_tests_from_json.py "${{ matrix.build.runs-on }}" "${{ matrix.build.image }}" "${{ steps.fetch-job-id.outputs.job_id }}"
 
+        summary_content=$(cat _test_summary | tr '\n' '\r' | sed 's/\r/<br \/>/g')
+        echo "summary=$summary_content" >> $GITHUB_OUTPUT
+        mv _test_summary ${{ steps.strings.outputs.work-dir }}/test_reports/summary_${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ strategy.job-index }}_${{ steps.fetch-job-id.outputs.job_id }}.md
+
     - name: Upload Test Durations
       if: success()
       uses: actions/upload-artifact@v4
@@ -326,13 +334,6 @@ jobs:
         name: test-durations-${{ matrix.build.runs-on }}-${{ matrix.build.image }}-${{ steps.fetch-job-id.outputs.job_id }}
         path: _test_duration
         if-no-files-found: 'ignore'
-
-    - name: Collect and Upload Perf Reports
-      uses: ./.github/actions/collect-and-upload-perf-reports
-      with:
-        reports_dir: ttrt-artifacts
-        perf_report_path: ${{ steps.strings.outputs.perf_report_path }}
-        artifact_name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ steps.fetch-job-id.outputs.job_id }}
 
     - name: Upload ttrt test report json
       if: (success() || failure())
@@ -352,11 +353,37 @@ jobs:
 
     - name: Show Test Report
       continue-on-error: true
-      uses: mikepenz/action-junit-report@v4
+      uses: mikepenz/action-junit-report@v5
       if: success() || failure()
       with:
-        report_paths: ${{ steps.strings.outputs.test_report_path }}
-        check_name: ${{ matrix.build.runs-on }} ${{ matrix.build.image }} ${{ strategy.job-index }} Tests
+        report_paths: ${{ steps.strings.outputs.work-dir }}/test_reports/report_*.xml
+        check_name: ${{ matrix.build.runs-on }}, ${{ matrix.build.image }}, ${{ strategy.job-index }} Tests
+        summary: ${{ steps.run-tests.outputs.summary }}
+        job_summary: false
+
+
+  test-summary:
+    runs-on: ubuntu-latest
+    needs: run-tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Process test summary
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          .github/scripts/bash/get_test_summary.sh ${{ github.run_id }} true
+          cat _summary.md >> $GITHUB_STEP_SUMMARY
+          find test_reports -name "report_*.xml" -type f -exec mv {} test_reports/ \;
+
+      - name: Show consolidated test report
+        continue-on-error: true
+        uses: mikepenz/action-junit-report@v5
+        if: success() || failure()
+        with:
+          report_paths: test_reports/report_*.xml
+          check_name: All Tests
 
 
   test-ttnn-jit:
@@ -403,118 +430,6 @@ jobs:
           python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
           python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"
 
-
-  # Dedicated job for tt-alchemist tests
-  test-tt-alchemist:
-    timeout-minutes: 45
-    needs:
-      - build-image
-      - build-ttmlir
-    runs-on:
-      - n150
-      - in-service
-    container:
-      image: ${{ needs.build-image.outputs.docker-image }}
-      options: '--device /dev/tenstorrent'
-      volumes:
-        - /dev/hugepages:/dev/hugepages
-        - /dev/hugepages-1G:/dev/hugepages-1G
-        - /etc/udev/rules.d:/etc/udev/rules.d
-        - /lib/modules:/lib/modules
-        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
-
-    steps:
-
-    # Sparse checkout tt-alchemist tests
-    - name: Checkout tests only
-      uses: actions/checkout@v4
-      with:
-        sparse-checkout: |
-          test/ttmlir/models
-          tools/tt-alchemist/test
-          test/ttmlir/EmitC/TTNN/load_input
-
-    - name: Fetch job id
-      id: fetch-job-id
-      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
-      with:
-        job_name: "test-tt-alchemist"
-
-    # Once boost is removed from public header APIs, this step should be removed
-    # ticket: https://github.com/tenstorrent/tt-metal/issues/25354
-    - name: Install non-standard boost lib
-      shell: bash
-      run: |
-        sudo add-apt-repository ppa:mhier/libboost-latest
-        sudo apt update
-        sudo apt install -y libboost1.83-dev
-
-    - name: Download tt-alchemist wheel
-      uses: actions/download-artifact@v4
-      with:
-        name: tt-alchemist-whl-speedy
-
-    - name: Install tt-alchemist wheel
-      shell: bash
-      run: |
-        python3 -m venv testenv
-        source testenv/bin/activate
-        pip install tt_alchemist-*.whl --force-reinstall
-        echo "Wheel installed successfully"
-
-    - name: Run tt-alchemist API test - model-to-cpp
-      shell: bash
-      run: |
-        source testenv/bin/activate
-        tt-alchemist model-to-cpp tools/tt-alchemist/test/models/mnist.mlir
-
-    - name: Run tt-alchemist API test - model-to-python
-      shell: bash
-      run: |
-        source testenv/bin/activate
-        tt-alchemist model-to-python tools/tt-alchemist/test/models/mnist.mlir
-
-    - name: Run tt-alchemist API test - generate-cpp (load tensors)
-      shell: bash
-      run: |
-        source testenv/bin/activate
-        OUTPUT_DIR=/tmp/test-load-tensors
-        rm -rf $OUTPUT_DIR
-        tt-alchemist generate-cpp --pipeline-options 'load-input-tensors-from-disk=true' test/ttmlir/EmitC/TTNN/load_input/ttnn_load_input_tensors.mlir --output $OUTPUT_DIR --standalone
-        cp test/ttmlir/EmitC/TTNN/load_input/arg0.tensorbin test/ttmlir/EmitC/TTNN/load_input/arg1.tensorbin $OUTPUT_DIR
-        cd $OUTPUT_DIR
-        [ -d $OUTPUT_DIR ] || { echo "Directory not found: $OUTPUT_DIR" >&2; exit 1; }
-        ./run
-
-    - name: Run tt-alchemist API test - generate-cpp (mnist)
-      shell: bash
-      run: |
-        source testenv/bin/activate
-        rm -rf /tmp/test-generate-cpp-mnist
-        tt-alchemist generate-cpp tools/tt-alchemist/test/models/mnist.mlir --output /tmp/test-generate-cpp-mnist --standalone
-        cd /tmp/test-generate-cpp-mnist
-        [ -d /tmp/test-generate-cpp-mnist ] || { echo "Directory not found: /tmp/test-generate-cpp-mnist" >&2; exit 1; }
-        ./run
-
-    - name: Run tt-alchemist API test - generate-cpp (resnet)
-      shell: bash
-      run: |
-        source testenv/bin/activate
-        rm -rf /tmp/test-generate-cpp-resnet
-        tt-alchemist generate-cpp tools/tt-alchemist/test/models/resnet_hf.mlir --output /tmp/test-generate-cpp-resnet --standalone
-        cd /tmp/test-generate-cpp-resnet
-        [ -d /tmp/test-generate-cpp-resnet ] || { echo "Directory not found: /tmp/test-generate-cpp-resnet" >&2; exit 1; }
-        ./run
-
-    - name: Run tt-alchemist API test - generate-python
-      shell: bash
-      run: |
-        source testenv/bin/activate
-        rm -rf /tmp/test-generate-python
-        tt-alchemist generate-python tools/tt-alchemist/test/models/mnist.mlir --output /tmp/test-generate-python --standalone
-        cd /tmp/test-generate-python
-        [ -d /tmp/test-generate-python ] || { echo "Directory not found: /tmp/test-generate-python" >&2; exit 1; }
-        # ./run  # TODO: enable when fixed
 
   lint:
     if: github.event_name == 'pull_request'
@@ -617,12 +532,19 @@ jobs:
       with:
           fetch-depth: 0
 
+    - name: Fetch job id
+      id: fetch-job-id
+      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
+      with:
+        job_name: "Debug Build"
+
     - name: Set reusable strings
       id: strings
       shell: bash
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build_debug" >> "$GITHUB_OUTPUT"
+        echo "test_report_path=report_${{ steps.fetch-job-id.outputs.job_id }}.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -666,13 +588,14 @@ jobs:
         lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
         # this will output `test/report.xml` in the build dir:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
+        mv ${{ steps.strings.outputs.build-output-dir }}/test/report.xml ${{ steps.strings.outputs.build-output-dir }}/test/report_${{ steps.fetch-job-id.outputs.job_id }}.xml
 
     - name: Upload Check Test Report xml
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: check_test_report.xml
-        path: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
+        name: test-reports-debug
+        path: ${{ steps.strings.outputs.build-output-dir }}/test/report_${{ steps.fetch-job-id.outputs.job_id }}.xml
         if-no-files-found: 'ignore'
 
     - name: Show Check Test Report
@@ -681,10 +604,11 @@ jobs:
       if: always()
       with:
         report_paths: ${{ steps.strings.outputs.build-output-dir }}/test/report.xml
-        check_name: Debug
-        detailed_summary: true
-        include_time_in_summary: true
-        include_passed: true
+        check_name: Debug Tests
+        job_summary: false
+        # detailed_summary: true
+        # include_time_in_summary: true
+        # include_passed: true
 
     - name: Prepare code coverage report
       run: |
