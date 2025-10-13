@@ -922,6 +922,10 @@ def build_stablehlo_module(
 
                 return result
 
+            # Set argument attributes
+            func_op = module.body.operations[-1]
+            func_op.arg_attrs = stablehlo_builder.get_arg_attrs(func_op)
+
         print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base
         filename = _get_target_path(
@@ -1361,6 +1365,8 @@ def experimental_build_stablehlo_module(
             )
             func_op = module.body.operations[-1]
             func_op.attributes["topology"] = topology_attr
+            print(type(func_op.attributes))
+            print(dir(func_op.attributes))
 
         print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base
@@ -1372,5 +1378,5 @@ def experimental_build_stablehlo_module(
             with open(filename, "w") as f:
                 f.write(str(module))
                 print(module)
-
+        print(module)
         return module, stablehlo_builder

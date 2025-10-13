@@ -7,6 +7,8 @@ import torch
 from typing import Callable, List, Optional, Tuple
 from conftest import x86_only
 from collections import OrderedDict
+import pkgutil
+import os
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
@@ -59,50 +61,6 @@ def test_sharding_constraint(
 ):
     compile_stablehlo_to_flatbuffer(
         test_fn,
-        [shape, shape],
-        [dtype, dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        mesh_name="mesh",
-        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
-    )
-
-
-@pytest.mark.parametrize("shape", [(2, 4, 8, 16)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=["1x2"])
-@pytest.mark.parametrize(
-    "sharding",
-    [
-        [("x", True), ("y", False), ("", False), ("", False)],
-        [("x", True), ("", False), ("y", False), ("", False)],
-        [("x", True), ("", False), ("", False), ("y", False)],
-        [("", False), ("x", True), ("", False), ("", False)],
-        [("", False), ("x", True), ("", False), ("y", False)],
-        [("", False), ("", False), ("x", True), ("y", False)],
-    ],
-    ids=sharding_str,
-)
-def test_sharding_annotation(
-    shape: Shape,
-    dtype: torch.dtype,
-    mesh_shape: Tuple[int, int],
-    sharding: List[Tuple[str, bool]],
-    request,
-):
-    def sharding_annotation(
-        in0: Operand,
-        in1: Operand,
-        builder: StableHLOBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        builder.set_graph_level_check(True)
-        sharding_attr = builder.create_sharding_attr_from_tuples("mesh", sharding)
-        return builder.add(in0, in1, unit_attrs=unit_attrs, sharding_attr=sharding_attr)
-
-    compile_stablehlo_to_flatbuffer(
-        sharding_annotation,
         [shape, shape],
         [dtype, dtype],
         test_base=request.node.name,

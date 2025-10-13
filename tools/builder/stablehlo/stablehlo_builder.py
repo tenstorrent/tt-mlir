@@ -34,7 +34,23 @@ class StableHLOBuilder(Builder):
     ):
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
+        self._arg_attrs: Dict[Operand, Dict[str, Attribute]] = {}
+
     # ----- Public methods -----
+
+    @property
+    def arg_attrs(self) -> Dict[Operand, Dict[str, Attribute]]:
+        return self._arg_attrs
+
+    def get_arg_attrs(self, func_op: FuncOp) -> ArrayAttr:
+        attrs = []
+        for i, operand in enumerate(self._ordered_inputs):
+            if operand in self._arg_attrs:
+                attrs.append(DictAttr.get(self._arg_attrs[operand]))
+            else:
+                attrs.append(func_op.arg_attrs[i])
+
+        return ArrayAttr.get(attrs)
 
     def create_sharding_attr_from_tuples(
         self,
