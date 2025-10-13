@@ -607,13 +607,17 @@ bool isProgramCacheEnabled(Device meshDevice) {
 size_t getL1SmallSize(Device meshDevice) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  return ttnnMeshDevice.allocator()->get_config().l1_small_size;
+  return ttnnMeshDevice.allocator()
+      ->get_statistics(::ttnn::BufferType::L1_SMALL)
+      .total_allocatable_size_bytes;
 }
 
 size_t getTraceRegionSize(Device meshDevice) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  return ttnnMeshDevice.allocator()->get_config().trace_region_size;
+  return ttnnMeshDevice.allocator()
+      ->get_statistics(::ttnn::BufferType::TRACE)
+      .total_allocatable_size_bytes;
 }
 
 size_t getNumDramChannels(Device meshDevice) {
@@ -1031,6 +1035,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_EltwiseBinaryCompositeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
+    tensorRef = opContext.type_as_EltwiseBinaryCompositeScalarOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
     tensorRef = opContext.type_as_EltwiseTernaryWhereOp()->out();
     break;
@@ -1129,6 +1137,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::Pool2dOp: {
     tensorRef = opContext.type_as_Pool2dOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
+    tensorRef = opContext.type_as_GlobalAvgPool2dOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
@@ -1233,6 +1245,7 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::ExecuteTraceOp:
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
+  case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
@@ -1317,6 +1330,10 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeOp: {
     tensorRefs = {opContext.type_as_EltwiseBinaryCompositeOp()->lhs(),
                   opContext.type_as_EltwiseBinaryCompositeOp()->rhs()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
+    tensorRefs = {opContext.type_as_EltwiseBinaryCompositeScalarOp()->lhs()};
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
@@ -1420,6 +1437,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::Pool2dOp: {
     tensorRefs = {opContext.type_as_Pool2dOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
+    tensorRefs = {opContext.type_as_GlobalAvgPool2dOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
@@ -1543,6 +1564,12 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
     tensorRefs = {opContext.type_as_NLPConcatHeadsDecodeOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp: {
+    tensorRefs = {
+        opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp()->in(),
+        opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp()->kv_input()};
     break;
   }
   case ::tt::target::ttnn::OpType::GenericOp: {

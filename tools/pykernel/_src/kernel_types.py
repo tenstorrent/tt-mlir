@@ -39,7 +39,7 @@ class Kernel:
         with open(file_path, "w") as f:
             f.write(self.kernel_string)
 
-        return file_path
+        return os.path.abspath(file_path)
 
 
 class CompileTimeValue:

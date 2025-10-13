@@ -9,8 +9,9 @@ module attributes {} {
     // CHECK: = tosa.reshape %arg1
     // CHECK: = tosa.matmul
     %1 = "ttir.matmul"(%arg0, %arg1, %0) : (tensor<1x784xf32>, tensor<784x512xf32>, tensor<1x512xf32>) -> tensor<1x512xf32>
-    // CHECK: [[RESULT: %[0-9]+]] = tosa.reshape
-    // CHECK: return[[RESULT]] : [[SIZE]]
+    // CHECK: = tosa.reshape
+    // CHECK: = linalg.copy
+    // CHECK: return %{{[0-9]+}} : tensor<1x512xf32>
     return %1 : tensor<1x512xf32>
   }
 }

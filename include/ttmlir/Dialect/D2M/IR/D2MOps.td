@@ -191,25 +191,7 @@ def D2M_GenericOp : D2M_Op<"generic",
                      "ArrayAttr": $iteratorTypes,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
-      [{
-        assert(!indexingMaps.empty() && "expected non-empty indexing maps");
-        assert(outputs.size() == 1 && "expected single output");
-        if (!grid) {
-          if (RankedTensorType tensorType = mlir::dyn_cast<RankedTensorType>(outputs[0].getType()); tensorType) {
-             grid = $_builder.getAttr<ttcore::GridAttr>(mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding()).getGridShape(tensorType));
-          } else {
-            MemRefType memrefType = mlir::cast<MemRefType>(outputs[0].getType());
-            ttcore::DeviceLayoutInterface layout = mlir::cast<ttcore::DeviceLayoutInterface>(memrefType.getLayout());
-            grid = $_builder.getAttr<ttcore::GridAttr>(layout.getGridShape(memrefType));
-          }
-        }
-        auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(singleThreadType));
-        auto blockFactorsAttr = $_builder.getI64ArrayAttr(blockFactors.empty() ?
-                                                          SmallVector<int64_t>(iteratorTypes.size(), 1) :
-                                                          blockFactors);
-        build($_builder, $_state, TypeRange(outputs), inputs, outputs, grid, blockFactorsAttr, indexingMaps, iteratorTypes, threads, 1);
-      }]>,
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,
@@ -217,36 +199,13 @@ def D2M_GenericOp : D2M_Op<"generic",
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
-      [{
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadType, grid, blockFactors);
-        llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
-          mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
-          auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-          auto shardShape = layout.getShardShape(tensorType);
-          return mlir::RankedTensorType::get(shardShape, tensorType.getElementType());
-        });
-        Region& region = *$_state.regions.front().get();
-        llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
-        OpBuilder::InsertionGuard guard($_builder);
-        Block* block = $_builder.createBlock(&region, region.end(), blockTypes, locs);
-        singleThreadRegionBuilder($_builder, $_state.location, block->getArguments());
-      }]>,
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
-      [{
-        assert(outputs.size() == 1 && "expected single output");
-        RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
-        ttcore::MetalLayoutAttr maybeLayout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-        const size_t rank = (maybeLayout != nullptr) ? maybeLayout.getShardShape(tensorType).size() : tensorType.getShape().size();
-        auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder,
-            inputs.size() + outputs.size(), rank);
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid);
-      }]>,
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
     ];
 
     let extraClassDeclaration = [{
@@ -282,6 +241,7 @@ def D2M_GenericOp : D2M_Op<"generic",
       SmallVector<int64_t> getLoopBounds();
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<int64_t> getBlockFactorsValue();
+      SmallVector<int64_t> getFullBlockFactors();
       ttcore::DeviceAttr getDevice();
       SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
       SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);

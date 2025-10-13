@@ -4,6 +4,10 @@
 
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+
 namespace mlir::tt::d2m::utils {
 
 // Calculate a reblocking affine map from inputShape to outputShape.
@@ -50,6 +54,59 @@ getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
   llvm::SmallVector<int64_t, 2> squareGrid(targetGridShape.size(),
                                            minGridValue);
   return squareGrid;
+}
+
+Type getRegionLargestDstElemType(Region &region) {
+  auto getTypeNumberOfBits = [](Type type) {
+    return ttcore::getNumberOfBits(ttcore::elementTypeToDataType(type));
+  };
+
+  Type largestType = nullptr;
+  region.walk([&](OperandLoadStoreRegisterOpInterface op) {
+    // Only the typecast op has different input & output types, but it's a DST
+    // in-place op so we simply check all the operands of all the compute ops.
+    for (Value v : op.getOperation()->getOperands()) {
+      Type t = ttcore::getOperandInnerElementType(v);
+
+      if (!largestType ||
+          (getTypeNumberOfBits(t) > getTypeNumberOfBits(largestType))) {
+        largestType = t;
+      }
+
+      if (largestType && getTypeNumberOfBits(largestType) >= 32u) {
+        return WalkResult::interrupt();
+      }
+    }
+    return WalkResult::advance();
+  });
+
+  assert(largestType);
+  TT_assert(getTypeNumberOfBits(largestType) <= 32u);
+  return largestType;
+}
+
+AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
+                                      bool reverse) {
+  assert(!affineMaps.empty());
+
+  // We typically want to reverse it so that output dimensions get priority for
+  // the inverse permutation.
+  if (reverse) {
+    affineMaps = llvm::to_vector(llvm::reverse(affineMaps));
+  }
+
+  // Concat all of the indexing maps together, matmul example:
+  // (d0, d1, d2) -> (d0, d2)
+  // (d0, d1, d2) -> (d2, d1)
+  // (d0, d1, d2) -> (d0, d1)
+  // Becomes:
+  // (d0, d1, d2) -> (d0, d2, d2, d1, d0, d1)
+  AffineMap concat =
+      mlir::concatAffineMaps(affineMaps, affineMaps.front().getContext());
+
+  // Invert the permutation to get a map that we can use to get the loop
+  // bounds. Above example becomes: (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
+  return mlir::inversePermutation(concat);
 }
 
 } // namespace mlir::tt::d2m::utils

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/Conv2dConfigSearchSpace.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm-gtest/gtest/gtest.h"
@@ -25,7 +26,8 @@ public:
 TEST_F(Conv2dConfigGeneratorTest, ConstructionMinimal) {
   Conv2dConfigAttr baseConfig = Conv2dConfigAttr::get(&context);
   Conv2dConfigSearchSpace space;
-  Conv2dConfigGenerator gen(/*op=*/nullptr, baseConfig, space, filterOutFn);
+  Conv2dConfigGenerator gen(static_cast<Conv2dOp *>(nullptr), baseConfig, space,
+                            filterOutFn);
   EXPECT_TRUE(gen.searchDone());
 }
 
@@ -35,7 +37,8 @@ TEST_F(Conv2dConfigGeneratorTest, SingleFieldIteration) {
   space.weightsDtype = {mlir::tt::ttcore::DataType::BFloat16,
                         mlir::tt::ttcore::DataType::Float32,
                         mlir::tt::ttcore::DataType::UInt32};
-  Conv2dConfigGenerator gen(/*op=*/nullptr, baseConfig, space, filterOutFn);
+  Conv2dConfigGenerator gen(static_cast<Conv2dOp *>(nullptr), baseConfig, space,
+                            filterOutFn);
   std::vector<mlir::tt::ttcore::DataType> seen;
   while (!gen.searchDone()) {
     auto config = gen.getNextConfig();
@@ -55,7 +58,8 @@ TEST_F(Conv2dConfigGeneratorTest, MultipleFieldIteration) {
   space.weightsDtype = {mlir::tt::ttcore::DataType::BFloat16,
                         mlir::tt::ttcore::DataType::Float32};
   space.activation = {UnaryOpType::Relu, UnaryOpType::Gelu};
-  Conv2dConfigGenerator gen(/*op=*/nullptr, baseConfig, space, filterOutFn);
+  Conv2dConfigGenerator gen(static_cast<Conv2dOp *>(nullptr), baseConfig, space,
+                            filterOutFn);
   std::set<std::pair<mlir::tt::ttcore::DataType, UnaryOpType>> seen;
   while (!gen.searchDone()) {
     auto config = gen.getNextConfig();
@@ -85,7 +89,7 @@ TEST_F(Conv2dConfigGeneratorTest, FilterOut) {
 
   // Filter everything out.
   Conv2dConfigGenerator gen(
-      /*op=*/nullptr, baseConfig, space,
+      static_cast<Conv2dOp *>(nullptr), baseConfig, space,
       [](const Conv2dConfigAttr &config) { return true; });
   auto config = gen.getNextConfig();
   ASSERT_TRUE(!config);
@@ -95,7 +99,8 @@ TEST_F(Conv2dConfigGeneratorTest, FilterOut) {
 TEST_F(Conv2dConfigGeneratorTest, EdgeCaseEmptySearchSpace) {
   Conv2dConfigAttr baseConfig = Conv2dConfigAttr::get(&context);
   Conv2dConfigSearchSpace space;
-  Conv2dConfigGenerator gen(nullptr, baseConfig, space, filterOutFn);
+  Conv2dConfigGenerator gen(static_cast<Conv2dOp *>(nullptr), baseConfig, space,
+                            filterOutFn);
   EXPECT_TRUE(gen.searchDone());
   auto config = gen.getNextConfig();
   EXPECT_FALSE(config);
@@ -105,7 +110,8 @@ TEST_F(Conv2dConfigGeneratorTest, EdgeCaseSingleConfig) {
   Conv2dConfigAttr baseConfig = Conv2dConfigAttr::get(&context);
   Conv2dConfigSearchSpace space;
   space.weightsDtype = {mlir::tt::ttcore::DataType::Float32};
-  Conv2dConfigGenerator gen(nullptr, baseConfig, space, filterOutFn);
+  Conv2dConfigGenerator gen(static_cast<Conv2dOp *>(nullptr), baseConfig, space,
+                            filterOutFn);
   auto config = gen.getNextConfig();
   ASSERT_TRUE(config);
   EXPECT_EQ(config.getWeightsDtype(), mlir::tt::ttcore::DataType::Float32);
@@ -124,7 +130,8 @@ TEST_F(Conv2dConfigGeneratorTest, NonEmptyBaseConfig) {
                         mlir::tt::ttcore::DataType::UInt32};
   space.reshardIfNotOptimal = {true, false};
 
-  Conv2dConfigGenerator gen(nullptr, baseConfig, space, filterOutFn);
+  Conv2dConfigGenerator gen(static_cast<Conv2dOp *>(nullptr), baseConfig, space,
+                            filterOutFn);
   std::set<std::tuple<UnaryOpType, mlir::tt::ttcore::DataType, bool>> seen;
   while (!gen.searchDone()) {
     auto config = gen.getNextConfig();
