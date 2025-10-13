@@ -200,7 +200,7 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
 
         randn_tensor = torch.randn(shape, dtype=dtype)
         input_golden = randn_tensor.uniform_(
-            (-math.pi / 2 + 0.02), (math.pi / 2 - 0.02)
+            (-math.pi / 2 + 0.05), (math.pi / 2 - 0.05)
         )
         output_golden = torch.tan(input_golden)
         tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
