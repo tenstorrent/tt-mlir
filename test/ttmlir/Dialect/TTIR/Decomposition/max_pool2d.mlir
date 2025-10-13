@@ -101,4 +101,41 @@ module attributes {} {
     // CHECK: return %[[RET]] : tensor<1x192x10x27xbf16>
     return %1 : tensor<1x192x10x27xbf16>
   }
+
+  // Test 2D to 4D reshaping - Kernel size = 2x2; stride = 2x2
+  func.func @test_maxpool2d_2d_input_kernel_2x2_stride_2x2(%arg0: tensor<28x28xbf16>) -> tensor<14x14xbf16> {
+    // CHECK-LABEL: func.func @test_maxpool2d_2d_input_kernel_2x2_stride_2x2(
+    %0 = ttir.empty() : tensor<14x14xbf16>
+    // CHECK: %[[RESHAPE_INPUT:[0-9]+]] = "ttir.reshape"(%arg0
+    // CHECK-SAME: shape = array<i32: 1, 1, 28, 28>
+    // CHECK-SAME: (tensor<28x28xbf16>, tensor<1x1x28x28xbf16>)
+    // CHECK-SAME: -> tensor<1x1x28x28xbf16>
+    // CHECK: %[[RESHAPE_OUTPUT:[0-9]+]] = "ttir.reshape"(
+    // CHECK-SAME: shape = array<i32: 1, 1, 14, 14>
+    // CHECK-SAME: (tensor<14x14xbf16>, tensor<1x1x14x14xbf16>)
+    // CHECK-SAME: -> tensor<1x1x14x14xbf16>
+    // CHECK: %[[PERMUTE:[0-9]+]] = "ttir.permute"(%[[RESHAPE_INPUT]]
+    // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
+    // CHECK-SAME: (tensor<1x1x28x28xbf16>, tensor<1x28x28x1xbf16>)
+    // CHECK-SAME: -> tensor<1x28x28x1xbf16>
+    // CHECK: %[[MAXPOOL:[0-9]+]] = "ttir.max_pool2d"(%[[PERMUTE]],
+    // CHECK-SAME: ceil_mode = false
+    // CHECK-SAME: dilation = array<i32: 1, 1>
+    // CHECK-SAME: kernel = array<i32: 2, 2>
+    // CHECK-SAME: padding = array<i32: 0, 0, 0, 0>
+    // CHECK-SAME: stride = array<i32: 2, 2>
+    // CHECK-SAME: (tensor<1x28x28x1xbf16>, tensor<1x14x14x1xbf16>)
+    // CHECK-SAME: -> tensor<1x14x14x1xbf16>
+    %1 = "ttir.pooling"(%arg0, %0) <{base_dilations = array<i64: 1, 1>, operandSegmentSizes = array<i32: 1, 1>, padding = array<i64: 0, 0, 0, 0>, pooling_method = #ttir<pooling_method Max>, window_dilations = array<i64: 1, 1>, window_dimensions = array<i64: 2, 2>, window_strides = array<i64: 2, 2>}> : (tensor<28x28xbf16>, tensor<14x14xbf16>) -> tensor<14x14xbf16>
+    // CHECK: %[[PERMUTE_BACK:[0-9]+]] = "ttir.permute"(%[[MAXPOOL]],
+    // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
+    // CHECK-SAME: (tensor<1x14x14x1xbf16>, tensor<1x1x14x14xbf16>)
+    // CHECK-SAME: -> tensor<1x1x14x14xbf16>
+    // CHECK: %[[RESHAPE_BACK:[0-9]+]] = "ttir.reshape"(%[[PERMUTE_BACK]]
+    // CHECK-SAME: shape = array<i32: 14, 14>
+    // CHECK-SAME: (tensor<1x1x14x14xbf16>, tensor<14x14xbf16>)
+    // CHECK-SAME: -> tensor<14x14xbf16>
+    // CHECK: return %[[RESHAPE_BACK]] : tensor<14x14xbf16>
+    return %1 : tensor<14x14xbf16>
+  }
 }
