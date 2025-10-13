@@ -368,7 +368,7 @@ def build_ttir_module(
                 ttir_builder._set_goldens(input_goldens)
                 ttir_builder._set_input_ordering(inputs)
 
-                result = fn(*inputs, ttir_builder)
+                result = fn(inputs, ttir_builder)
 
                 outputs = result if hasattr(result, "__iter__") else (result,)
                 output_goldens: Dict[Operand, BuilderGoldenTensor] = {}
