@@ -1160,7 +1160,7 @@ struct PoolingToPool2dPattern : public OpConversionPattern<ttir::PoolingOp> {
 public:
   using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
 
-  // Helper method to create a ReshapeOp
+  // Helper method to create a ReshapeOp with a given target shape.
   ttir::ReshapeOp createReshapeOp(ConversionPatternRewriter &rewriter,
                                   Location loc, Value input,
                                   llvm::ArrayRef<int64_t> targetShape) const {
@@ -1173,14 +1173,8 @@ public:
         inputType.getEncoding(), input, shapeAttr);
   }
 
-  // Structure to hold reshaped pooling op info
-  struct ReshapedPoolingOp {
-    ttir::PoolingOp op;
-    llvm::SmallVector<llvm::ArrayRef<int64_t>> originalOutputShapes;
-  };
-
-  // Helper to create a reshaped pooling op (from non-4D to 4D)
-  ReshapedPoolingOp
+  // Helper function to create a reshaped pooling op (from non-4D to 4D).
+  ttir::PoolingOp
   createReshapedPoolingOp(ttir::PoolingOp op, OpAdaptor adaptor,
                           ConversionPatternRewriter &rewriter) const {
     auto firstInputType =
@@ -1190,7 +1184,6 @@ public:
 
     llvm::SmallVector<Value> reshapedInputs;
     llvm::SmallVector<Value> reshapedOutputs;
-    llvm::SmallVector<llvm::ArrayRef<int64_t>> originalOutputShapes;
 
     // Reshape inputs and outputs to 4D
     for (size_t i = 0; i < adaptor.getInputs().size(); i++) {
@@ -1200,10 +1193,6 @@ public:
       auto inputType = mlir::cast<RankedTensorType>(input.getType());
       auto outputType = mlir::cast<RankedTensorType>(output.getType());
 
-      // Store original output shapes for later
-      originalOutputShapes.push_back(outputType.getShape());
-
-      // Create 4D shape by prepending 1s
       llvm::SmallVector<int64_t> inputShape4D;
       llvm::SmallVector<int64_t> outputShape4D;
 
@@ -1220,7 +1209,6 @@ public:
         outputShape4D.push_back(dim);
       }
 
-      // Create reshape ops
       auto reshapedInput = createReshapeOp(
           rewriter,
           ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshapeTo4D"),
@@ -1235,14 +1223,12 @@ public:
       reshapedOutputs.push_back(reshapedOutput);
     }
 
-    // Prepare padded attributes for 4D
     llvm::SmallVector<int64_t> windowDims4D;
     llvm::SmallVector<int64_t> windowStrides4D;
     llvm::SmallVector<int64_t> baseDilations4D;
     llvm::SmallVector<int64_t> windowDilations4D;
     llvm::SmallVector<int64_t> padding4D;
 
-    // Prepend 1s for window dimensions, strides, dilations
     for (int64_t i = 0; i < dimsToPrepend; ++i) {
       windowDims4D.push_back(1);
       windowStrides4D.push_back(1);
@@ -1250,12 +1236,10 @@ public:
       windowDilations4D.push_back(1);
     }
 
-    // Prepend 0s for padding (pairs of values)
     for (int64_t i = 0; i < 2 * dimsToPrepend; ++i) {
       padding4D.push_back(0);
     }
 
-    // Add original attribute values
     for (int64_t val : op.getWindowDimensions()) {
       windowDims4D.push_back(val);
     }
@@ -1272,14 +1256,12 @@ public:
       padding4D.push_back(val);
     }
 
-    // Create output types
     llvm::SmallVector<Type> outputTypes;
     for (auto output : reshapedOutputs) {
       outputTypes.push_back(output.getType());
     }
 
-    // Create new 4D pooling op
-    auto newOp = rewriter.create<ttir::PoolingOp>(
+    ttir::PoolingOp newOp = rewriter.create<ttir::PoolingOp>(
         op.getLoc(), outputTypes, reshapedInputs, reshapedOutputs,
         op.getPoolingMethodAttr(), rewriter.getDenseI64ArrayAttr(windowDims4D),
         rewriter.getDenseI64ArrayAttr(windowStrides4D),
@@ -1287,7 +1269,7 @@ public:
         rewriter.getDenseI64ArrayAttr(windowDilations4D),
         rewriter.getDenseI64ArrayAttr(padding4D));
 
-    return {newOp, originalOutputShapes};
+    return newOp;
   }
 
   // Helper to reshape outputs back from 4D to original shape
@@ -1309,28 +1291,19 @@ public:
   LogicalResult
   matchAndRewrite(ttir::PoolingOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check if we need to reshape to 4D
     auto firstInputType =
         mlir::cast<mlir::RankedTensorType>(adaptor.getInputs()[0].getType());
     int64_t originalRank = firstInputType.getRank();
     bool needsReshape = originalRank != 4;
 
     ttir::PoolingOp processOp = op;
-    llvm::SmallVector<llvm::ArrayRef<int64_t>> originalOutputShapes;
 
     // If needed, create reshape ops and a new 4D pooling op
     if (needsReshape) {
-      ReshapedPoolingOp reshapedOp =
-          createReshapedPoolingOp(op, adaptor, rewriter);
-      processOp = reshapedOp.op;
-      originalOutputShapes = reshapedOp.originalOutputShapes;
-
-      // Replace the original op with the new 4D op
-      // (The original op will be replaced at the end with the final outputs)
+      processOp = createReshapedPoolingOp(op, adaptor, rewriter);
       adaptor = OpAdaptor(processOp);
     }
 
-    // Process using existing logic
     llvm::SmallVector<int64_t> spatialDimIndices =
         getIndicesOfElementsLargerThanOne(processOp.getWindowDimensions());
     size_t numSpatialDimIndices = spatialDimIndices.size();
@@ -1367,16 +1340,18 @@ public:
 
     // If we created a new op for reshaping, replace it with the decomposed ops
     if (needsReshape) {
-      // The outputs from the decomposition are in 4D, reshape them back
+      // Get original output shapes from the original op's result types
+      llvm::SmallVector<llvm::ArrayRef<int64_t>> originalOutputShapes;
+      for (Value result : op.getResults()) {
+        auto outputType = mlir::cast<RankedTensorType>(result.getType());
+        originalOutputShapes.push_back(outputType.getShape());
+      }
+
       llvm::SmallVector<Value> finalOutputs = reshapeOutputsFromOriginal(
           outputs, originalOutputShapes, op.getLoc(), rewriter);
-
-      // Remove the temporary 4D pooling op and replace original op with
-      // reshaped outputs
       rewriter.eraseOp(processOp);
       rewriter.replaceOp(op, finalOutputs);
     } else {
-      // For 4D inputs, just replace the original op with the decomposed outputs
       rewriter.replaceOp(op, outputs);
     }
 
