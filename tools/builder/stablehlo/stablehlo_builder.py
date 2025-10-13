@@ -306,27 +306,6 @@ class StableHLOBuilder(Builder):
         from ttmlir.dialects.stablehlo import DotDimensionNumbers
 
         # Create dimension numbers attribute using proper MLIR attribute construction
-        """
-        lhs_batching_dims = ArrayAttr.get([
-            IntegerAttr.get(IntegerType.get_signless(64), dim)
-            for dim in batch_dims_lhs
-        ])
-
-        rhs_batching_dims = ArrayAttr.get([
-            IntegerAttr.get(IntegerType.get_signless(64), dim)
-            for dim in batch_dims_rhs
-        ])
-
-        lhs_contracting_dims = ArrayAttr.get([
-            IntegerAttr.get(IntegerType.get_signless(64), dim)
-            for dim in contract_dims_lhs
-        ])
-
-        rhs_contracting_dims = ArrayAttr.get([
-            IntegerAttr.get(IntegerType.get_signless(64), dim)
-            for dim in contract_dims_rhs
-        ])
-        """
         dot_dimension_numbers = DotDimensionNumbers.get(
             context=self._ctx,
             lhs_batching_dimensions=batch_dims_lhs,
