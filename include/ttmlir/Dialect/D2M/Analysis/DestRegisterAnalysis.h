@@ -13,6 +13,12 @@
 
 namespace mlir::tt::d2m {
 
+/// Information about destination register usage for a GenericOp.
+struct DstRegisterInfo {
+  int dstCapacity = 0;
+  llvm::DenseMap<Operation *, int> computeOpMap;
+};
+
 /// Analysis for determining destination register tile usage in GenericOps.
 struct DestRegisterAnalysis {
   DestRegisterAnalysis(Operation *op);
@@ -20,10 +26,10 @@ struct DestRegisterAnalysis {
   int getDstCapacity(GenericOp genericOp) const {
     auto match = genericOpMap.find(genericOp);
     assert(match != genericOpMap.end() && "Generic op not found.");
-    return match->second;
+    return match->second.dstCapacity;
   }
 
-  llvm::DenseMap<GenericOp, int> genericOpMap;
+  llvm::DenseMap<GenericOp, DstRegisterInfo> genericOpMap;
 };
 
 } // namespace mlir::tt::d2m
