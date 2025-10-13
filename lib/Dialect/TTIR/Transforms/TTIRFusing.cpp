@@ -366,6 +366,37 @@ public:
   }
 };
 
+// Helper function to check if a value equals a specific constant
+static bool isFillValueEqual(FullOp op, double targetValue, float tol = 1e-6) {
+  mlir::Attribute fillValue = op.getFillValue();
+  if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
+    return integerAttr.getValue().getSExtValue() ==
+           static_cast<int64_t>(targetValue);
+  }
+  if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
+    float fillFloat = floatAttr.getValue().convertToFloat();
+    float tolerance =
+        std::max(tol, std::abs(static_cast<float>(targetValue)) * tol);
+    return std::abs(fillFloat - static_cast<float>(targetValue)) <= tolerance;
+  }
+  return false;
+}
+
+static bool isCreatingValue(mlir::Value value, double targetValue,
+                            float tol = 1e-6) {
+  Operation *currentOp = value.getDefiningOp();
+
+  // Traverse through reshape and broadcast operations
+  while (isa_and_nonnull<ReshapeOp, BroadcastOp>(currentOp)) {
+    currentOp = currentOp->getOperand(0).getDefiningOp();
+  }
+  if (auto creationOp = dyn_cast_if_present<FullOp>(currentOp)) {
+    return isFillValueEqual(creationOp, targetValue, tol);
+  }
+
+  return false;
+}
+
 // This pattern detects and fuses a sequence of operations that implement
 // relu. If a zeros op is consumed by a maximum op, we can fuse the zeros and
 // maximum op into a relu op.
@@ -404,18 +435,6 @@ public:
   }
 
 private:
-  // Check if the fill value of the full op is zero.
-  bool isFillValueZero(FullOp op) const {
-    mlir::Attribute fillValue = op.getFillValue();
-    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
-      return integerAttr.getValue().isZero();
-    }
-    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
-      return floatAttr.getValue().isZero();
-    }
-    llvm_unreachable("Fill value should be integer or float");
-  }
-
   bool isCreatingZeros(mlir::Value value) const {
     Operation *currentOp = value.getDefiningOp();
 
@@ -427,7 +446,7 @@ private:
       return true;
     }
     if (auto creationOp = dyn_cast_if_present<FullOp>(currentOp)) {
-      return isFillValueZero(creationOp);
+      return isFillValueEqual(creationOp, 0.0);
     }
 
     return false;
@@ -455,17 +474,18 @@ public:
     Value lhs = minimumOp.getLhs();
     Value rhs = minimumOp.getRhs();
 
-    auto reluOp = lhs.getDefiningOp<ReluOp>();
-    auto fullOp = rhs.getDefiningOp<FullOp>();
-
-    // Check the reversed pattern if initial match fails
-    if (!reluOp) {
-      reluOp = rhs.getDefiningOp<ReluOp>();
-      fullOp = lhs.getDefiningOp<FullOp>();
+    ReluOp reluOp;
+    if (auto lhsRelu = lhs.getDefiningOp<ReluOp>()) {
+      if (isCreatingValue(rhs, 6.0)) {
+        reluOp = lhsRelu;
+      }
+    } else if (auto rhsRelu = rhs.getDefiningOp<ReluOp>()) {
+      if (isCreatingValue(lhs, 6.0)) {
+        reluOp = rhsRelu;
+      }
     }
 
-    // Verify we found the expected pattern
-    if (!reluOp || !fullOp || !isFillValueSix(fullOp)) {
+    if (!reluOp) {
       return mlir::failure();
     }
 
@@ -475,22 +495,6 @@ public:
                                           minimumOp.getResult().getType(),
                                           reluOp.getInput());
     return mlir::success();
-  }
-
-private:
-  // Check if the fill value of the full op is six.
-  bool isFillValueSix(FullOp op) const {
-    if (!op) {
-      return false;
-    }
-    mlir::Attribute fillValue = op.getFillValue();
-    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
-      return integerAttr.getValue().getSExtValue() == 6;
-    }
-    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
-      return floatAttr.getValue().convertToFloat() == 6.0;
-    }
-    return false;
   }
 };
 
@@ -1599,9 +1603,9 @@ public:
       return mlir::failure();
     }
 
-    FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
+    Value rhs = multiplyOp.getRhs();
     auto inputShape = sumOp.getInput().getType().getShape();
-    if (!validateFullOp(fullOp, inputShape)) {
+    if (!validateScalingFactor(rhs, inputShape)) {
       return mlir::failure();
     }
     // Create AvgPoolOp wrapped with two PermuteOps needed for NCHW<->NHWC
@@ -1623,22 +1627,11 @@ public:
   };
 
 private:
-  bool validateFullOp(FullOp fullOp, ArrayRef<int64_t> inputShape) const {
-    if (!fullOp) {
-      return false;
-    }
-    Attribute fillValueAttr = fullOp.getFillValue();
-    auto floatAttr = mlir::dyn_cast_or_null<FloatAttr>(fillValueAttr);
-    if (!floatAttr) {
-      return false;
-    }
-    float fillValue = floatAttr.getValue().convertToFloat();
+  bool validateScalingFactor(Value value, ArrayRef<int64_t> inputShape) const {
     int64_t inputHeight = inputShape[SPATIAL_HEIGHT_DIM];
     int64_t inputWidth = inputShape[SPATIAL_WIDTH_DIM];
     float expectedValue = 1.0f / static_cast<float>(inputHeight * inputWidth);
-    float tolerance =
-        std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
-    return std::abs(fillValue - expectedValue) <= tolerance;
+    return isCreatingValue(value, expectedValue, FLOAT_TOLERANCE);
   }
 
   bool validateSumOp(SumOp sumOp) const {
