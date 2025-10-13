@@ -228,7 +228,7 @@ def D2M_GenericOp : D2M_Op<"generic",
           mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
           auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
           auto shardShape = layout.getShardShape(tensorType);
-          return mlir::RankedTensorType::get(shardShape, tensorType.getElementType());
+          return d2m::CBType::get(tensorType.getContext(), mlir::cast<mlir::ShapedType>(mlir::RankedTensorType::get(shardShape, tensorType.getElementType())));
         });
         Region& region = *$_state.regions.front().get();
         llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);

@@ -116,15 +116,25 @@ struct ConvertD2MToTTKernel
       return IndexType::get(memtx.getContext());
     });
     typeConverter.addConversion([](MemRefType memref) -> Type {
-      if (ttcore::getMemorySpace(memref) == ttcore::MemorySpace::RegisterDst) {
+      auto memorySpace = ttcore::getMemorySpace(memref);
+      if (mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout())) {
+        // This memref has a device layout meaning it's an address.
+        return IntegerType::get(memref.getContext(), 32);
+      } else if (memorySpace == ttcore::MemorySpace::RegisterDst) {
+        // This memref abstracts tile indices in dst register, convert to index type.
         return IndexType::get(memref.getContext());
       }
+      // Since none of the above is true, this memref abstracts cb backing.
       return ttkernel::CBType::get(memref.getContext(), memref);
+    });
+    typeConverter.addConversion([](d2m::CBType cb) -> Type {
+      return ttkernel::CBType::get(cb.getContext(), mlir::cast<MemRefType>(cb.getUnderlying()));
     });
     typeConverter.addConversion([](d2m::SemaphoreType semaphore) {
       return ttkernel::SemaphoreType::get(semaphore.getContext());
     });
 
+#if 0
     auto materializeAsUnrealizedCast = [](OpBuilder &builder, Type resultType,
                                           ValueRange inputs,
                                           Location loc) -> Value {
@@ -136,6 +146,7 @@ struct ConvertD2MToTTKernel
     };
     typeConverter.addSourceMaterialization(materializeAsUnrealizedCast);
     typeConverter.addTargetMaterialization(materializeAsUnrealizedCast);
+#endif
 
     d2m::AssociatedDMAWaits associatedDMAWaits =
         getAnalysis<d2m::AssociatedDMAWaits>();

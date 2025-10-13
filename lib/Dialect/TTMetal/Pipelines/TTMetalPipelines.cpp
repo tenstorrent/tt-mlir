@@ -6,6 +6,7 @@
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Conversion/ArithToD2MTileOps/ArithToD2MTileOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
@@ -99,6 +100,7 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
   pm.addPass(createConvertElementwiseToLinalgPass());
   pm.addPass(createLinalgGeneralizeNamedOpsPass());
+  pm.addPass(tt::createConvertArithToD2MTileOpsPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
 }

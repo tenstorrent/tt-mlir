@@ -317,6 +317,9 @@ public:
                memref.getDefiningOp())) {
       memref = subView.getSource();
     }
+    if (mlir::isa<d2m::PopOp, d2m::ReserveOp>(memref.getDefiningOp())) {
+      memref = memref.getDefiningOp()->getOperand(0);
+    }
     return mlir::cast<BlockArgument>(memref);
   }
 

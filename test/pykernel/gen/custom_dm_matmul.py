@@ -13,7 +13,7 @@ import torch
         (1, 1),
     ],
     grid=(2, 2),
-    kernel_source_mode="store",
+    #kernel_source_mode="store",
 )
 def matmul(lhs, rhs, out, block_factors=None, grid=None):
     assert block_factors is not None
@@ -55,6 +55,7 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
                     out_shard = out_cb.reserve()
                     out = lhs_shard + rhs_shard
                     out_shard.store(out)
+                    out_cb.pop() # compute needs to clear the output
 
     @datamovement()
     async def dm0(

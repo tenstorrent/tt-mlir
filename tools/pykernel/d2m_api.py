@@ -553,7 +553,7 @@ def pykernel_gen(
                     True,  # use_loc_for_kernel_name
                     kernel_source_dir,
                     False,  # disable_device_address_validation
-                    True,  # blocking_cq
+                    False,  # blocking_cq
                 )
                 print(f"setting tt runtime debug env={debug_env}")
 
