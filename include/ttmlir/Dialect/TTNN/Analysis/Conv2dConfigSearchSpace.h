@@ -150,10 +150,162 @@ struct Conv2dConfigGeneratorSearchFieldInfo {
 
 class Conv2dConfigGenerator {
 public:
+  template <typename ConvOpT>
   Conv2dConfigGenerator(
-      ttnn::Conv2dOp *op, Conv2dConfigAttr baseConfig,
+      ConvOpT *op, Conv2dConfigAttr baseConfig,
       const Conv2dConfigSearchSpace &space,
-      std::function<bool(const Conv2dConfigAttr &)> filterOutFn);
+      std::function<bool(const Conv2dConfigAttr &)> filterOutFn)
+      : op(op), baseConfig(baseConfig), searchSpace(space),
+        filterOutFn(filterOutFn) {
+
+    // Populate activeSearchFields from searchSpace.
+    if (searchSpace.isWeightsDtypeSetForSearch() &&
+        !baseConfig.hasWeightsDtype()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(searchSpace.weightsDtype),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withWeightsDtype(info.getCurrentDataType());
+          });
+    }
+    if (searchSpace.isActivationSetForSearch() && !baseConfig.hasActivation()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(searchSpace.activation),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withActivation(info.getCurrentUnaryOpType());
+          });
+    }
+    if (searchSpace.isDeallocateActivationSetForSearch() &&
+        !baseConfig.hasDeallocateActivation()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(
+              searchSpace.deallocateActivation),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withDeallocateActivation(info.getCurrentBool());
+          });
+    }
+    if (searchSpace.isReallocateHaloOutputSetForSearch() &&
+        !baseConfig.hasReallocateHaloOutput()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(
+              searchSpace.reallocateHaloOutput),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withReallocateHaloOutput(info.getCurrentBool());
+          });
+    }
+    if (searchSpace.isActBlockHOverrideSetForSearch() &&
+        !baseConfig.hasActBlockHOverride()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(searchSpace.actBlockHOverride),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withActBlockHOverride(info.getCurrentUint32());
+          });
+    }
+    if (searchSpace.isActBlockWDivSetForSearch() &&
+        !baseConfig.hasActBlockWDiv()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(searchSpace.actBlockWDiv),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withActBlockWDiv(info.getCurrentUint32());
+          });
+    }
+    if (searchSpace.isReshardIfNotOptimalSetForSearch() &&
+        !baseConfig.hasReshardIfNotOptimal()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(searchSpace.reshardIfNotOptimal),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withReshardIfNotOptimal(info.getCurrentBool());
+          });
+    }
+    if (searchSpace.isOverrideShardingConfigSetForSearch() &&
+        !baseConfig.hasOverrideShardingConfig()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(
+              searchSpace.overrideShardingConfig),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withOverrideShardingConfig(info.getCurrentBool());
+          });
+    }
+    if (searchSpace.isShardLayoutSetForSearch() &&
+        !baseConfig.hasShardLayout()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(searchSpace.shardLayout),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withShardLayout(info.getCurrentTensorMemoryLayout());
+          });
+    }
+    if (searchSpace.isCoreGridSetForSearch() && !baseConfig.hasCoreGrid()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(searchSpace.coreGrid),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withCoreGrid(info.getCurrentCoreRangeSetAttr());
+          });
+    }
+    if (searchSpace.isTransposeShardsSetForSearch() &&
+        !baseConfig.hasTransposeShards()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(searchSpace.transposeShards),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withTransposeShards(info.getCurrentBool());
+          });
+    }
+    if (searchSpace.isOutputLayoutSetForSearch() &&
+        !baseConfig.hasOutputLayout()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(searchSpace.outputLayout),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withOutputLayout(info.getCurrentLayout());
+          });
+    }
+    if (searchSpace.isEnableActDoubleBufferSetForSearch() &&
+        !baseConfig.hasEnableActDoubleBuffer()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(
+              searchSpace.enableActDoubleBuffer),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withEnableActDoubleBuffer(info.getCurrentBool());
+          });
+    }
+    if (searchSpace.isEnableWeightsDoubleBufferSetForSearch() &&
+        !baseConfig.hasEnableWeightsDoubleBuffer()) {
+      activeSearchFields.emplace_back(
+          Conv2dConfigGeneratorSearchFieldInfo(
+              searchSpace.enableWeightsDoubleBuffer),
+          [](Conv2dConfigAttr attr,
+             const Conv2dConfigGeneratorSearchFieldInfo &info)
+              -> Conv2dConfigAttr {
+            return attr.withEnableWeightsDoubleBuffer(info.getCurrentBool());
+          });
+    }
+
+    // Initialize isDone to true if there are no active search fields.
+    isDone = activeSearchFields.empty();
+  }
 
   // Returns the next configuration in the search space.
   // Returns nullptr if all combinations have been exhausted.
@@ -183,7 +335,7 @@ private:
   };
 
   // Operation for which the generator is created.
-  [[maybe_unused]] ttnn::Conv2dOp *op;
+  [[maybe_unused]] std::variant<ttnn::Conv2dOp *, ttnn::ConvTranspose2dOp *> op;
 
   // Base config for conv2d config.
   Conv2dConfigAttr baseConfig;

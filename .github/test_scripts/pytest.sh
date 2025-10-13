@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+set -e -o pipefail
+
 if [ -n "$REQUIREMENTS" ]; then
     eval "pip install $REQUIREMENTS"
 fi

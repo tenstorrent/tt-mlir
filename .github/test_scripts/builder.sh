@@ -7,6 +7,8 @@
 # arg $2: pytest marker expression to select tests to run
 # arg $3: "run-ttrt" or predefined additional flags for pytest and ttrt
 
+set -e -o pipefail
+
 runttrt=""
 TTRT_ARGS=""
 PYTEST_ARGS=""
@@ -27,4 +29,12 @@ if [[ "$runttrt" == "1" ]]; then
     ttrt run $TTRT_ARGS stablehlo-builder-artifacts/
     cp run_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
     cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_stablehlo_${TEST_REPORT_PATH##*_} || true
+    if [ -d "ttir-builder-artifacts/emitpy" ]; then
+        ttrt emitpy $TTRT_ARGS ttir-builder-artifacts/emitpy/
+        cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
+    fi
+    if [ -d "stablehlo-builder-artifacts/emitpy" ]; then
+        ttrt emitpy $TTRT_ARGS stablehlo-builder-artifacts/emitpy/
+        cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
+    fi
 fi

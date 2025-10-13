@@ -1689,6 +1689,44 @@ public:
       return conv2dExpr;
     }
 
+    // MaxPool2dOp return a std::vector<ttnn::Tensor> containing a single
+    // element. We can guarantee this because MaxPool2dOp always has
+    // `return_indices=false`.
+    // Extract first/single element to replace the original MaxPool2dOp.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::MaxPool2dOp>) {
+      assert(op->getNumResults() == 1 &&
+             "Expected single output for MaxPool2dOp.");
+      using ReturnTy = std::vector<::ttnn::Tensor>;
+      auto maxPool2dOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          /*template_args=*/nullptr, operands);
+
+      // Create index to access first/single element.
+      auto indexType = rewriter.getIndexType();
+      auto indexOp =
+          rewriter.create<emitc::LiteralOp>(op.getLoc(), indexType, "0");
+      Value indexVal = indexOp.getResult();
+
+      // Create LValue type for the tensor reference.
+      auto lvalueType = emitc::LValueType::get(emitc::OpaqueType::get(
+          rewriter.getContext(), TypeNameV<ReturnTy::value_type>));
+
+      // Get reference to the first/single element in the result vector.
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          op.getLoc(), lvalueType, maxPool2dOp.getResult(0), indexVal);
+
+      // Load the actual tensor value from the reference.
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          op.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(),
+                                 TypeNameV<ReturnTy::value_type>),
+          subscriptOp.getResult());
+
+      rewriter.replaceOp(op, loadOp.getResult());
+      return loadOp.getResult();
+    }
+
     // SortOp returns a std::vector<ttnn::Tensor> containing two elements:
     // [0] = sorted tensor, [1] = corresponding indices.
     // Extract both elements to replace the original SortOp.
