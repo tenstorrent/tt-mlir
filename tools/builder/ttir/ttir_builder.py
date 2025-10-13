@@ -93,6 +93,10 @@ class TTIRBuilder(Builder):
         if organize_golden_args is None:
             organize_golden_args = self._organize_eltwise_golden
 
+        print("=============DEBUG: ConstantOp=============")
+        print(f"ttir_kwargs: {ttir_kwargs}")
+        print("=============DEBUG: ConstantOp=============")
+
         with self._ctx, self._loc:
             # If output shape or type is not provided, calculate it using golden function.
             # This is needed because TTIR ops do not have shape or type MLIR inference trait.
@@ -3453,6 +3457,43 @@ class TTIRBuilder(Builder):
             [],
             ttir_kwargs={"result": output, "shape": shape},
             organize_ttir_args=lambda i, o, shape: 0,
+            unit_attrs=unit_attrs,
+        )
+
+    def constant(
+        self,
+        value: Operand,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.constant``.
+
+        *Tensor constant creation operation.*
+
+        Returns a tensor with the specified constant value.
+
+        Parameters
+        ----------
+        value : Union[DenseIntElementsAttr, DenseFPElementsAttr]
+            The constant value of the tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            The tensor with the specified constant value
+        """
+
+        print("DEBUG: ConstantOp")
+        print(f"value: {value}")
+        print("DEBUG: ConstantOp")
+
+        return self._op_proxy(
+            ttir.ConstantOp,
+            [],
+            ttir_kwargs={"value": value},
+            organize_ttir_args=lambda i, o, _: o,
             unit_attrs=unit_attrs,
         )
 

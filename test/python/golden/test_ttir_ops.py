@@ -14,7 +14,14 @@ from builder.base.builder import Operand, Shape, TypeInfo
 from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
-from ttmlir.ir import DenseI32ArrayAttr
+from ttmlir.ir import (
+    DenseI32ArrayAttr,
+    DenseIntElementsAttr,
+    DenseFPElementsAttr,
+    RankedTensorType,
+    IntegerType,
+    F32Type,
+)
 from test_utils import (
     Marks,
     shape_str,
@@ -1472,6 +1479,22 @@ def test_ones(shape: Shape, request):
     compile_ttir_to_flatbuffer(
         ones,
         inputs_shapes=[],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize("value", [(1), ([1, 2, 3])], ids=["scalar", "1d"])
+def test_constant(value: Operand, request):
+    def constant(
+        builder: TTIRBuilder, value: Operand, unit_attrs: Optional[List[str]] = None
+    ):
+        return builder.constant(value, unit_attrs=unit_attrs)
+
+    compile_ttir_to_flatbuffer(
+        constant,
+        [value],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
