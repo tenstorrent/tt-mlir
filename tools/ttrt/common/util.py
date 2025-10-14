@@ -576,7 +576,7 @@ class FileManager:
 
     def find_py_corresponding_ttnn_in_directory(self, path, ttnn_directory):
         filename = self.get_file_name(path)
-        ttnn_filename = filename.replace(self.get_file_extension(), ".ttnn")
+        ttnn_filename = filename.replace(EmitPyDylib.get_py_file_extension(), ".ttnn")
         ttnn_path = os.path.join(ttnn_directory, ttnn_filename)
         if self.check_file_exists(ttnn_path):
             return ttnn_path
@@ -584,7 +584,7 @@ class FileManager:
 
     def find_so_corresponding_ttnn_in_directory(self, path, ttnn_directory):
         filename = self.get_file_name(path)
-        ttnn_filename = filename.replace(self.get_file_extension(), ".ttnn")
+        ttnn_filename = filename.replace(EmitCDylib.get_so_file_extension(), ".ttnn")
         ttnn_path = os.path.join(ttnn_directory, ttnn_filename)
         if self.check_file_exists(ttnn_path):
             return ttnn_path
