@@ -71,20 +71,71 @@ protected:
            "are supported");
   }
 
-  RankedTensorType
-  getMetalTensorFromTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
-                               Value value) const {
-    auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+  std::tuple<RankedTensorType, RankedTensorType>
+  getDRAMMetalTensorFromTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
+                                   RankedTensorType tensorType) const {
     auto ttnnLayout =
         mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
 
-    assertTTNNLayoutSupported(ttnnLayout);
+    assert(ttnnLayout.getBufferType() == ttnn::BufferType::DRAM &&
+           "Expected DRAM tensor");
+    ttcore::MemorySpace memSpace = ttcore::MemorySpace::DeviceDRAM;
 
-    ttcore::MemorySpace memSpace =
-        ttnnLayout.getBufferType() == ttnn::BufferType::DRAM
-            ? ttcore::MemorySpace::DeviceDRAM
-            : ttcore::MemorySpace::DeviceL1;
+    // Hardcode collapse intervals to [[0, -1)] to match ttnn.
+    auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
+    auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
+    DenseIntElementsAttr collapsedIntervals =
+        DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
 
+    ttcore::TensorMemoryLayout memLayout =
+        ttcore::TensorMemoryLayout::Interleaved;
+
+    // For tiled tensors the tile dims need to be 32 aligned.
+    llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
+    dimAlignments[dimAlignments.size() - 1] = 32;
+    dimAlignments[dimAlignments.size() - 2] = 32;
+
+    // The index map in TTNNLayoutAttr is for collapsing an N-D tensor on to
+    // the grid. It has no relevance to the index map in MetalLayoutAttr.
+    // MetalLayoutAttr takes the grid shape of the device, not the grid on which
+    // the tensor is sharded.
+    auto metalLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), tensorType.getShape(), targetSquareGridShape,
+        ttcore::OOBVal::Undef, memSpace, memLayout, collapsedIntervals,
+        dimAlignments);
+
+    llvm::SmallVector<int64_t> unshardedShape =
+        metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
+
+    llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
+        ttnnLayout.getGrid().getShape(), ttcore::TileType::getDefaultShape());
+
+    Type elementType = ttnnLayout.getElementType();
+    auto baseTensor =
+        mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
+
+    auto storageLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), tensorType.getShape(), targetSquareGridShape,
+        ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+        ttcore::TensorMemoryLayout::Sharded, collapsedIntervals, dimAlignments);
+    llvm::SmallVector<int64_t> workerGrid = computeOptimalGrid(unshardedShape);
+    llvm::SmallVector<int64_t> fakeShardedShape = storageLayout.getDeviceShape(
+        workerGrid, ttcore::TileType::getDefaultShape());
+    auto streamStorage = mlir::RankedTensorType::get(
+        fakeShardedShape, elementType, storageLayout);
+    return {baseTensor, streamStorage};
+  }
+
+  RankedTensorType
+  getL1MetalTensorFromTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
+                                 RankedTensorType tensorType) const {
+    auto ttnnLayout =
+        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+
+    assert(ttnnLayout.getBufferType() == ttnn::BufferType::L1 &&
+           "Expected L1 tensor");
+    ttcore::MemorySpace memSpace = ttcore::MemorySpace::DeviceL1;
+    // Hardcode collapse intervals to [[0, -1)] to match ttnn.
     auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
     auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
     DenseIntElementsAttr collapsedIntervals =
@@ -114,16 +165,38 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
-  // Create a ToLayout operation for a value using the provided layout
-  // information with a simple 1x1 grid; actual grid optimization and proper
-  // dimension alignments are computed later in the D2MGridSelection pass.
+  Value createCastOpForTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
+                                  Value value) const {
+    assert(isTTNNTensor(value.getType()) && "Expected TTNN tensor");
+    auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+    auto ttnnLayout =
+        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+    assertTTNNLayoutSupported(ttnnLayout);
+
+    if (ttnnLayout.getBufferType() == ttnn::BufferType::DRAM) {
+      auto [metalTensor, storageTensor] =
+          getDRAMMetalTensorFromTTNNTensor(rewriter, tensorType);
+      auto castOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+          value.getLoc(), metalTensor, value);
+      auto storage =
+          rewriter.create<d2m::EmptyOp>(value.getLoc(), storageTensor);
+      auto stream = rewriter.create<d2m::StreamLayoutOp>(
+          value.getLoc(), storageTensor, castOp.getResult(), storage);
+      return stream;
+    } else {
+      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+          value.getLoc(), getL1MetalTensorFromTTNNTensor(rewriter, tensorType),
+          value);
+    }
+    llvm_unreachable("Expected L1 or DRAM tensor from TTNN");
+  }
+  // Create a ToLayout op for a value using the provided layout info and grid.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled,
                               mlir::ConversionPatternRewriter &rewriter) const {
     if (isTTNNTensor(value.getType())) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
-      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-          value.getLoc(), getMetalTensorFromTTNNTensor(rewriter, value), value);
+      return createCastOpForTTNNTensor(rewriter, value);
     }
 
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
