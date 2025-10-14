@@ -659,21 +659,21 @@ def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, Float
       const ::llvm::fltSemantics &getFloatSemantics() {
         llvm_unreachable("TTCore_Tile::getFloatSemantics unimplemented #5124");
       }
-  
+
       // ShapedTypeInterface methods
       /// Clone this type with the given shape and element type. If the
       /// provided shape is None, the current shape of the type is used.
       TileType cloneWith(std::optional<ArrayRef<int64_t>> shape,
                          Type elementType) const;
-      
+
       // Note: getElementType() is already declared above, so ShapedType will use it
-      
+
       bool hasRank() const { return true; }
-      
+
       int64_t getRank() const { return 2; }
-      
+
       bool hasStaticShape() const { return true; }
-      
+
       int64_t getNumElements() const { return getShape()[0] * getShape()[1]; }
     }];
 

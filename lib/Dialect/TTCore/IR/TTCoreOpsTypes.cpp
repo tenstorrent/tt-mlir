@@ -1632,13 +1632,13 @@ mlir::Type TileType::getElementType() const {
 }
 
 TileType TileType::cloneWith(::std::optional<::llvm::ArrayRef<int64_t>> shape,
-                              ::mlir::Type elementType) const {
+                             ::mlir::Type elementType) const {
   // Use provided shape or keep current shape
   ::llvm::ArrayRef<int64_t> newShape = shape.has_value() ? *shape : getShape();
-  
+
   // Convert element type to DataType
   DataType newDataType = elementTypeToDataType(elementType);
-  
+
   return TileType::get(getContext(), newShape, newDataType);
 }
 
