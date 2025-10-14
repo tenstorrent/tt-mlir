@@ -1267,7 +1267,7 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [TTNN_MemoryConfigOpInterface]> {
     }];
 }
 
-def TTNN_ViewOp : TTNN_Op<"view"> {
+def TTNN_ViewOp : TTNN_InplaceOp<"view"> {
   let summary = "View op.";
   let description = [{
     This is a 0 cost view operation that returns the same tensor that was passed to it but with a new shape
@@ -1282,7 +1282,7 @@ def TTNN_ViewOp : TTNN_Op<"view"> {
         * `shape` (I32ArrayAttr): New shape of tensor.
   }];
 
-  let arguments = (ins AnyRankedTensor:$input,
+  let arguments = (ins Arg<AnyRankedTensor, "input tensor", [MemWrite]>:$input,
                        I32ArrayAttr:$shape);
 
   let results = (outs AnyRankedTensor:$result);

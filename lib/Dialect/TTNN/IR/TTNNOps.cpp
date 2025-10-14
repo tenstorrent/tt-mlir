@@ -1351,21 +1351,6 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
     return foldResult;
   }
 
-  // Operation* lastUserOfOperand = getOperation();
-  // for (Operation* user : getInput().getUsers()) {
-  //   if (user == getOperation()) {
-  //     continue;
-  //   }
-
-  //   if (lastUserOfOperand->isBeforeInBlock(user) &&
-  //   !getOperation()->isAncestor(user)) {
-  //     lastUserOfOperand = user;
-  //   }
-  // }
-  // if (lastUserOfOperand != getOperation()) {
-  //   getOperation()->moveAfter(lastUserOfOperand);
-  // }
-
   return nullptr;
 }
 
@@ -1443,20 +1428,12 @@ void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
       },
       0);
 
+  // If a reshape is a valid view, we want to move it after the last user of its
+  // operand so that we can convert this to a valid view.
   patterns.add(
       +[](mlir::tt::ttnn::ReshapeOp op, mlir::PatternRewriter &rewriter) {
-        if (auto me = llvm::dyn_cast<mlir::MemoryEffectOpInterface>(
-                op.getOperation())) {
-          SmallVector<
-              mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
-              eff;
-          me.getEffects(eff);
-          // Require read-only for simplicity.
-          if (llvm::any_of(eff, [](auto &e) {
-                return !llvm::isa<mlir::MemoryEffects::Read>(e.getEffect());
-              })) {
-            return mlir::failure();
-          }
+        if (!isReshapeView(op)) {
+          return mlir::failure();
         }
 
         mlir::Block *block = op->getBlock();
