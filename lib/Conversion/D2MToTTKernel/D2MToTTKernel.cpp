@@ -78,10 +78,6 @@ static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
 
 static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
                                        Value inputView) {
-  if (auto collapseOp =
-          mlir::dyn_cast<memref::CollapseShapeOp>(inputView.getDefiningOp())) {
-    return getTileIndexFromBlockView(rewriter, loc, collapseOp.getSrc());
-  }
   if (auto subViewOp =
           mlir::dyn_cast<memref::SubViewOp>(inputView.getDefiningOp())) {
     // We have blocked this input. We need to get the indicies for the first
@@ -119,11 +115,6 @@ static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
-  if (auto collapseOp =
-          mlir::dyn_cast<memref::CollapseShapeOp>(cb.getDefiningOp())) {
-    return getCB(rewriter, collapseOp.getSrc());
-  }
-
   if (memref::LoadOp loadOp =
           mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
       loadOp) {
@@ -485,28 +476,6 @@ public:
       rewriter.create<ttkernel::ExperimentalMatmulBlockOp>(
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
           ct_i32, rt_i32, kt_i32, nt_i32);
-
-      // Operands are linearized, so this pass creates a
-      // ttkernel.cb_reinterpret_shape from each memref.collapse_shape. However,
-      // ttkernel.matmul_block does *not* use the cb_reinterpret_shape so we
-      // need to clean it up. Cannonicalize does *not* do this automatically.
-      auto tryEraseDeadCBReinterpret = [&](Value v) {
-        Value remapped = rewriter.getRemappedValue(v);
-        if (!remapped) {
-          return;
-        }
-        if (auto *def = remapped.getDefiningOp()) {
-          if (auto cbri = dyn_cast<ttkernel::CBReinterpretShapeOp>(def)) {
-            if (cbri->use_empty()) {
-              rewriter.eraseOp(cbri);
-            }
-          }
-        }
-      };
-      tryEraseDeadCBReinterpret(op.getA());
-      tryEraseDeadCBReinterpret(op.getB());
-      tryEraseDeadCBReinterpret(op.getOutput());
-
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp> ||
                          std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp>) {
       ttkernel::ReduceType reduce_type;
