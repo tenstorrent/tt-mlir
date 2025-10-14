@@ -150,8 +150,7 @@ public:
 
   void emitDebugPrint() {
     if (!hasOp<emitc::CallOpaqueOp>([](emitc::CallOpaqueOp op) {
-          return op.getCallee() == "ttmlir::dprint" ||
-                 op.getCallee() == "ttmlir::print_cb_details";
+          return op.getCallee() == "ttmlir::dprint";
         })) {
       return;
     }

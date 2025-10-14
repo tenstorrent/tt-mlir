@@ -211,16 +211,6 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   StringRef fmt = getFmt();
   size_t numFormatSpecifiers = fmt.count("{}");
 
-  // Special case: CB-only printing with empty format string
-  if (fmt.empty() && getOperands().size() == 1) {
-    // Check if the single operand is a CB type
-    if (mlir::isa<CBType>(getOperands()[0].getType())) {
-      return success();
-    }
-    return emitOpError(
-        "when format string is empty, single operand must be a CB type");
-  }
-
   if (numFormatSpecifiers != getOperands().size()) {
     return emitOpError("number of format specifiers must match number of "
                        "operands");
