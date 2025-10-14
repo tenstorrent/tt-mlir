@@ -112,7 +112,7 @@ def test_op_sharding_annotation(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("mesh_shape", [(1, 1)])
-def test_input_annotation(
+def test_input_annotation2(
     shape: Shape,
     dtype: torch.dtype,
     mesh_shape: Tuple[int, int],

@@ -748,6 +748,7 @@ class Run:
                             inputs.append(new_input)
 
                         for i in program.output_tensors:
+                            print(i.shape)
                             new_output = create_tensor(i)
                             outputs.append(new_output)
 
@@ -857,6 +858,8 @@ class Run:
                                         )
 
                             start_submit = time.perf_counter_ns()
+                            for i in inputs:
+                                print(i.get_shape())
                             runtime_outputs = ttrt.runtime.submit(
                                 device,
                                 bin.fbb,
@@ -870,6 +873,7 @@ class Run:
 
                             e2e_duration_nanoseconds_output = 0
                             for i, runtime_output_tensor in enumerate(runtime_outputs):
+                                print(runtime_output_tensor.get_shape())
                                 start_get_output = time.perf_counter_ns()
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
@@ -878,6 +882,8 @@ class Run:
                                 e2e_duration_nanoseconds_output += (
                                     end_get_output - start_get_output
                                 )
+                                print(outputs[i].get_shape())
+                                print(output_host.get_shape())
 
                                 ttrt.runtime.memcpy(
                                     outputs[i],

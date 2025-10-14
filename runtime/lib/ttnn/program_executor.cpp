@@ -353,6 +353,33 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
                                 getContext());
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
+    // LOG_DEBUG(LogType::LogRuntimeTTNN, "Input tensor shapes for op: ",
+    // op->debug_info()->c_str());
+    std::string shapeStr;
+    const auto *tensorRef = op->type_as_MeshShardOp()->in();
+    if (tensorRef && tensorRef->desc()) {
+      const auto *shape = tensorRef->desc()->shape();
+      shapeStr = "[";
+      for (int j : *shape) {
+        shapeStr += ", ";
+        shapeStr += std::to_string(j);
+      }
+      shapeStr += "]";
+      LOG_DEBUG(LogType::LogRuntimeTTNN, "  shape: ", shapeStr);
+    }
+    // LOG_DEBUG(LogType::LogRuntimeTTNN, "Output tensor shapes for op: ",
+    // op->debug_info()->c_str());
+    tensorRef = op->type_as_MeshShardOp()->out();
+    if (tensorRef && tensorRef->desc()) {
+      const auto *shape2 = tensorRef->desc()->shape();
+      shapeStr = "[";
+      for (int j : *shape2) {
+        shapeStr += ", ";
+        shapeStr += std::to_string(j);
+      }
+      shapeStr += "]";
+      LOG_DEBUG(LogType::LogRuntimeTTNN, "  shape: ", shapeStr);
+    }
     return operations::ccl::run(op->type_as_MeshShardOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
