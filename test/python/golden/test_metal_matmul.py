@@ -162,11 +162,8 @@ def test_matmul_ttnn_shapes_single_buffered(
     )
 
 
-<<<<<<< HEAD
 @pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
-=======
 @pytest.mark.skip_config(["p150"], ["p300"])
->>>>>>> 17e091504 (Review and fix some `p150` tests)
 @pytest.mark.xfail(reason="fails golden")
 @pytest.mark.parametrize(
     "shape",
