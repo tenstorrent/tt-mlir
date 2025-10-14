@@ -173,8 +173,6 @@ public:
       ttnn::KernelCBFormatAttr cbFormat =
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
 
-      // ttnn::KernelCBAttr cbDescriptor = ttnn::KernelCBAttr::get(
-      //     ctx, numPages * pageSize, coreRangeSet, {cbFormat});
       ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
       if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
               cb.getDefiningOp())) {
