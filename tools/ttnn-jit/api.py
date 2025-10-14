@@ -95,11 +95,15 @@ def jit(
 
                 flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttnn")
                 if compile_only:
-                    ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+                    ttnn_to_flatbuffer_file(
+                        ir, flatbuffer_bin, {}, [], kernel_dump_dir=out_dir
+                    )
                     return ir
                 else:
                     # TODO (#5055): always dump flatbuffer to disk for now, in the future we want to run flatbuffer from memory and only dump to disk if debug=True.
-                    ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+                    ttnn_to_flatbuffer_file(
+                        ir, flatbuffer_bin, {}, [], kernel_dump_dir=out_dir
+                    )
 
                     return _run_binary(flatbuffer_bin, args)
             else:

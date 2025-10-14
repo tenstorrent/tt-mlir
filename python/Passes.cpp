@@ -207,40 +207,45 @@ void populatePassesModule(nb::module_ &m) {
       std::string, std::unordered_map<unsigned int, mlir::tt::GoldenTensor>>>(
       m, "GoldenMap");
 
-  m.def("ttnn_to_flatbuffer_file",
-        [](MlirModule module, std::string &filepath,
-           const std::unordered_map<
-               std::string,
-               std::unordered_map<std::uint32_t, mlir::tt::GoldenTensor>>
-               &goldenMap = {},
-           const std::vector<std::pair<std::string, std::string>> &moduleCache =
-               {}) {
-          mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+  m.def(
+      "ttnn_to_flatbuffer_file",
+      [](MlirModule module, std::string &filepath,
+         const std::unordered_map<
+             std::string,
+             std::unordered_map<std::uint32_t, mlir::tt::GoldenTensor>>
+             &goldenMap = {},
+         const std::vector<std::pair<std::string, std::string>> &moduleCache =
+             {},
+         const std::string &kernelDumpDir = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
 
-          // Create a dialect registry and register all necessary dialects and
-          // translations
-          mlir::DialectRegistry registry;
+        // Create a dialect registry and register all necessary dialects and
+        // translations
+        mlir::DialectRegistry registry;
 
-          // Register all LLVM IR translations
-          registerAllToLLVMIRTranslations(registry);
+        // Register all LLVM IR translations
+        registerAllToLLVMIRTranslations(registry);
 
-          // Apply the registry to the module's context
-          moduleOp->getContext()->appendDialectRegistry(registry);
+        // Apply the registry to the module's context
+        moduleOp->getContext()->appendDialectRegistry(registry);
 
-          std::error_code fileError;
-          llvm::raw_fd_ostream file(filepath, fileError);
+        std::error_code fileError;
+        llvm::raw_fd_ostream file(filepath, fileError);
 
-          if (fileError) {
-            throw std::runtime_error("Failed to open file: " + filepath +
-                                     ". Error: " + fileError.message());
-          }
+        if (fileError) {
+          throw std::runtime_error("Failed to open file: " + filepath +
+                                   ". Error: " + fileError.message());
+        }
 
-          if (mlir::failed(mlir::tt::ttnn::translateTTNNToFlatbuffer(
-                  moduleOp, file, goldenMap, moduleCache))) {
-            throw std::runtime_error("Failed to write flatbuffer to file: " +
-                                     filepath);
-          }
-        });
+        if (mlir::failed(mlir::tt::ttnn::translateTTNNToFlatbuffer(
+                moduleOp, file, goldenMap, moduleCache, kernelDumpDir))) {
+          throw std::runtime_error("Failed to write flatbuffer to file: " +
+                                   filepath);
+        }
+      },
+      nb::arg("module"), nb::arg("filepath"),
+      nb::arg("golden_map") = nb::dict(), nb::arg("module_cache") = nb::list(),
+      nb::arg("kernel_dump_dir") = "");
 
   m.def("ttmetal_to_flatbuffer_file",
         [](MlirModule module, std::string filepath,
