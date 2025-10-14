@@ -450,6 +450,7 @@ struct EmitPyTypeConverter<::ttnn::DataType> {
     case ttcore::DataType::BFP_Float4:
     case ttcore::DataType::BFP_Float8:
     case ttcore::DataType::BFP_BFloat2:
+    case ttcore::DataType::Bool:
       llvm_unreachable("Unsupported ttnn.DataType");
     }
 

@@ -11,6 +11,7 @@ include "ttmlir/Dialect/TTCore/IR/TTCoreAttrInterfaces.td"
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
+include "mlir/IR/BuiltinTypes.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 
@@ -638,7 +639,7 @@ class TTCore_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
-def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, FloatTypeInterface]> {
+def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, FloatTypeInterface, ShapedTypeInterface, ValueSemantics]> {
     let summary = "TT tile";
     let description = "Tile type in TT dialect";
     let parameters = (ins ArrayRefParameter<"int64_t">:$shape, "DataType":$dataType);
@@ -658,6 +659,22 @@ def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, Float
       const ::llvm::fltSemantics &getFloatSemantics() {
         llvm_unreachable("TTCore_Tile::getFloatSemantics unimplemented #5124");
       }
+  
+      // ShapedTypeInterface methods
+      /// Clone this type with the given shape and element type. If the
+      /// provided shape is None, the current shape of the type is used.
+      TileType cloneWith(std::optional<ArrayRef<int64_t>> shape,
+                         Type elementType) const;
+      
+      // Note: getElementType() is already declared above, so ShapedType will use it
+      
+      bool hasRank() const { return true; }
+      
+      int64_t getRank() const { return 2; }
+      
+      bool hasStaticShape() const { return true; }
+      
+      int64_t getNumElements() const { return getShape()[0] * getShape()[1]; }
     }];
 
     let genVerifyDecl = 1;

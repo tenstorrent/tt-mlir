@@ -62,6 +62,81 @@ struct ArithToD2MTileOpsPass final
     }
   }
 };
+
+// Custom pattern rewriter for arith.cmpf that converts floating point
+// comparisons to tile comparison operations. Since tile comparison ops
+// only compare against zero, we first subtract the operands (lhs - rhs)
+// and then apply the appropriate comparison-against-zero operation.
+class CmpFTileOpRewriter : public OpConversionPattern<arith::CmpFOp> {
+public:
+  using OpConversionPattern<arith::CmpFOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::CmpFOp op, arith::CmpFOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto operands = adaptor.getOperands();
+    auto predicate = op.getPredicate();
+    auto loc = op.getLoc();
+
+    auto tileType = operands[0].getType();
+
+    // First, compute (lhs - rhs)
+    auto subOp = rewriter.create<d2m::TileSubOp>(loc, tileType, operands[0],
+                                                 operands[1]);
+
+    auto operandTileType = mlir::cast<ttcore::TileType>(operands[0].getType());
+
+    // The expected result type should be a bool tile (tile<i1>) with the same shape as input tile
+    auto boolTileType = ttcore::TileType::get(operandTileType.getContext(),
+                                              operandTileType.getShape(),
+                                              ttcore::DataType::Bool);
+
+    // Now compute the appropriate comparison-against-zero operation
+    switch (predicate) {
+      case arith::CmpFPredicate::OEQ: // ordered and equal
+      case arith::CmpFPredicate::UEQ: // unordered or equal
+        // lhs == rhs  =>  (lhs - rhs) == 0
+        rewriter.replaceOpWithNewOp<d2m::TileEqzOp>(op, boolTileType, subOp);
+        break;
+
+      case arith::CmpFPredicate::ONE: // ordered and not equal
+      case arith::CmpFPredicate::UNE: // unordered or not equal
+        // lhs != rhs  =>  (lhs - rhs) != 0
+        rewriter.replaceOpWithNewOp<d2m::TileNezOp>(op, boolTileType, subOp);
+        break;
+
+      case arith::CmpFPredicate::OGT: // ordered and greater than
+      case arith::CmpFPredicate::UGT: // unordered or greater than
+        // lhs > rhs  =>  (lhs - rhs) > 0
+        rewriter.replaceOpWithNewOp<d2m::TileGtzOp>(op, boolTileType, subOp);
+        break;
+
+      case arith::CmpFPredicate::OGE: // ordered and greater than or equal
+      case arith::CmpFPredicate::UGE: // unordered or greater than or equal
+        // lhs >= rhs  =>  (lhs - rhs) >= 0
+        rewriter.replaceOpWithNewOp<d2m::TileGezOp>(op, boolTileType, subOp);
+        break;
+
+      case arith::CmpFPredicate::OLT: // ordered and less than
+      case arith::CmpFPredicate::ULT: // unordered or less than
+        // lhs < rhs  =>  (lhs - rhs) < 0
+        rewriter.replaceOpWithNewOp<d2m::TileLtzOp>(op, boolTileType, subOp);
+        break;
+
+      case arith::CmpFPredicate::OLE: // ordered and less than or equal
+      case arith::CmpFPredicate::ULE: // unordered or less than or equal
+        // lhs <= rhs  =>  (lhs - rhs) <= 0
+        rewriter.replaceOpWithNewOp<d2m::TileLezOp>(op, boolTileType, subOp);
+        break;
+
+      default:
+        // We don't support other predicates for now -- return failure.
+        return failure();
+    }
+
+    return success();
+  }
+};
 } // namespace
 
 } // namespace mlir::tt::d2m
@@ -78,6 +153,9 @@ void populateArithToD2MTileOpsPatterns(MLIRContext *ctx,
                d2m::BinaryTileOpRewriter<arith::DivFOp, d2m::TileDivOp>,
                d2m::BinaryTileOpRewriter<arith::MulFOp, d2m::TileMulOp>>(
       typeConverter, ctx);
+
+  // Add the custom pattern for arith.cmpf
+  patterns.add<d2m::CmpFTileOpRewriter>(typeConverter, ctx);
 }
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertArithToD2MTileOpsPass() {
