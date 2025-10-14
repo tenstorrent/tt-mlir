@@ -401,6 +401,8 @@ private:
       std::is_same_v<TileOp, d2m::TileLtzOp> ||
       std::is_same_v<TileOp, d2m::TileLezOp>;
 
+  static constexpr bool isSignOp = std::is_same_v<TileOp, d2m::TileSignOp>;
+
   void createComputeRegion(mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                            mlir::ValueRange bbArgs,
                            mlir::ConversionPatternRewriter &rewriter,
@@ -414,13 +416,33 @@ private:
       // For comparison ops, first subtract then compare with zero.
       yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
       yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
+    } else if constexpr (isSignOp) {
+      // For sign op, typecast to/from f16 (sign requires f16 in llk kernel).
+      mlir::Value input = bbArgs.front();
+      auto tileType = mlir::cast<ttcore::TileType>(input.getType());
+
+      if (tileType.getDataType() != ttcore::DataType::Float16) {
+        auto f16TileType = ttcore::TileType::get(
+            bbBuilder.getF16Type(), tileType.getShape());
+        input = bbBuilder.create<d2m::TileTypecastOp>(
+            loc, f16TileType, input);
+      }
+
+      auto f16TileType = ttcore::TileType::get(
+          bbBuilder.getF16Type(), tileType.getShape());
+      yield = bbBuilder.create<TileOp>(loc, f16TileType, input);
+
+      // Cast back to original type if needed.
+      if (tileType.getDataType() != ttcore::DataType::Float16) {
+        yield = bbBuilder.create<d2m::TileTypecastOp>(
+            loc, tileType, yield);
+      }
     } else {
       yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
     }
 
     bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
   }
-
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -1126,6 +1148,7 @@ void populateTTIRToD2MPatterns(
     D2MNamedElementwiseRewriter<ttir::ReciprocalOp, d2m::TileRecipOp>,
     D2MNamedElementwiseRewriter<ttir::RsqrtOp,      d2m::TileRsqrtOp>,
     D2MNamedElementwiseRewriter<ttir::SigmoidOp,    d2m::TileSigmoidOp>,
+    D2MNamedElementwiseRewriter<ttir::SignOp,       d2m::TileSignOp>,
     D2MNamedElementwiseRewriter<ttir::SinOp,        d2m::TileSinOp>,
     D2MNamedElementwiseRewriter<ttir::SqrtOp,       d2m::TileSqrtOp>,
     D2MNamedElementwiseRewriter<ttir::SubtractOp,   d2m::TileSubOp>,
