@@ -157,8 +157,8 @@ struct OperandContext {
   // of `operandIndex` etc.
   DefUseChain defChain;
   // Buffer type to use for this operand's stream, if one is inserted.
-  // WIP: while tensor alloc decision variables remain binary, this type
-  // is selected early, by the first generic op analysis step.
+  // TODO(vroubtsov): while tensor alloc decision variables remain binary, this
+  // type is selected early, by the first generic op analysis step.
   MemRefType bufferType;
   // `true` is if this corresponds to a generic op output.
   bool isOutput = false;
@@ -495,8 +495,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       const auto bufferOptions = bufferAnalysis.analysis.analyzeGenericOp(
           bufferAnalysis.constraints, genericOp);
 
-      int64_t bestCost = std::numeric_limits<int64_t>::max();
-      SmallVector<MemRefType> bestBuffers;
+      using CostT = int64_t;
+      CostT bestCost = std::numeric_limits<CostT>::max();
+      SmallVector<MemRefType> selectedBuffers;
 
       for (std::size_t i = 0; i < bufferOptions.size(); ++i) {
         const GenericOpBufferAnalysis::OpConfig &config = bufferOptions[i];
@@ -506,7 +507,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                  genericOp.getNumOperands());
 
         SmallVector<MemRefType> buffers;
-        int64_t cost = 0;
+        CostT cost = 0;
 
         for (auto [operandIndex, settings] :
              llvm::enumerate(config.operandBufferSettings)) {
@@ -527,24 +528,30 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               getStreamBufferSizeBytes(bufferType, device);
 
           TT_ALLOC_TRACE(
-              "\tbuffer shard shape {}, {}-buffering -> {} byte(s)",
-              asShape(shardShape), settings.numBuffers, bufferSizeBytes);
+              "\t[{}] buffer shard shape {}, {}-buffering -> {} byte(s)",
+              operandIndex, asShape(shardShape), settings.numBuffers,
+              bufferSizeBytes);
 
-          cost += bufferSizeBytes;
+          if (!operandCtxs[operandIndex].isOutput || allowOutputSpilling) {
+            // Pay attention to the output buffer(s) only if we might be
+            // creating streams for them.
+            cost += bufferSizeBytes;
+          }
         }
 
         if (cost < bestCost) {
           bestCost = cost;
-          bestBuffers = buffers;
+          selectedBuffers = buffers;
         }
       }
-      TT_ALLOC_DEBUG("best cost = {}", bestCost);
+      TT_ALLOC_DEBUG("best generic op cost: {}", bestCost);
+      TT_debug(bestCost < std::numeric_limits<CostT>::max());
 
       for (auto [operandIndex, operand] :
            llvm::enumerate(genericOp.getOperands())) {
         OperandContext &operandCtx = operandCtxs[operandIndex];
 
-        operandCtx.bufferType = bestBuffers[operandIndex];
+        operandCtx.bufferType = selectedBuffers[operandIndex];
 
         // For later IR mutation, it is convenient at this point to gather
         // all chains of ops defining operand inputs.
