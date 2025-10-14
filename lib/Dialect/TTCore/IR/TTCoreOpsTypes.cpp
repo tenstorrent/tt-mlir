@@ -820,12 +820,14 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
   deviceShape.reserve(physicalShape.size() * 2);
 
   assert(physicalShape.size() == gridShape.size() &&
-         "Grid rank must equalcollapsed tensor rank");
+         "Grid rank must equal collapsed tensor rank");
   // Without tiling, distribute dimensions across grid.
   for (size_t i = 0; i < physicalShape.size(); ++i) {
     const int64_t dim = physicalShape[i];
-    assert(dim % gridShape[i] == 0 &&
-           "Collapsed dimension must be evenly divisible by grid dimension");
+    TT_assertv(dim % gridShape[i] == 0,
+               "Collapsed dimension must be evenly divisible by grid "
+               "dimension, got {} % {} != 0.",
+               dim, gridShape[i]);
     deviceShape.push_back(dim / gridShape[i]);
   }
   return deviceShape;
@@ -925,6 +927,7 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
   constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
 
   const int64_t logicalRank = logicalShape.size();
+  const int64_t collapsedRank = normalizedIntervals.size() / 2;
 
   assert(logicalRank >= 2);
 
@@ -934,7 +937,9 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
     const int64_t tileIdx = tileShape.size() + idx;
     const int64_t tileDim = tileShape[tileIdx];
 
-    const int64_t intervalEnd = normalizedIntervals[tileIdx * 2 + 1] - 1;
+    const int64_t intvIdx = collapsedRank + idx;
+    // Interval end values are exclusive, so we need to subtract 1.
+    const int64_t intervalEnd = normalizedIntervals[intvIdx * 2 + 1] - 1;
 
     alignments[intervalEnd] = tileDim;
   }

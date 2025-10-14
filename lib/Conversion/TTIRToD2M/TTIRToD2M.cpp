@@ -88,7 +88,6 @@ protected:
             ? ttcore::MemorySpace::DeviceDRAM
             : ttcore::MemorySpace::DeviceL1;
 
-    // Hardcode collapse intervals to [[0, -1)] to match ttnn.
     auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
     auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
     DenseIntElementsAttr collapsedIntervals =
@@ -100,16 +99,10 @@ protected:
             ? ttcore::TensorMemoryLayout::Interleaved
             : ttcore::TensorMemoryLayout::Sharded;
 
-    // For tiled tensors the tile dims need to be 32 aligned.
     llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
     dimAlignments[dimAlignments.size() - 1] = 32;
     dimAlignments[dimAlignments.size() - 2] = 32;
 
-    // The index map in TTNNLayoutAttr is for collapsing an N-D tensor on to
-    // the grid. It has no relevance to the index map in MetalLayoutAttr.
-    // MetalLayoutAttr takes the grid shape of the device, not the grid on which
-    // the tensor is sharded.
-    // Note: Using full target grid shape here; grid optimization happens later.
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
         memSpace, memLayout, collapsedIntervals, dimAlignments);
@@ -117,7 +110,6 @@ protected:
     llvm::SmallVector<int64_t> unshardedShape =
         metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
 
-    // Keep TTNN's original grid - don't override it
     llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
         ttnnLayout.getGrid().getShape(), ttcore::TileType::getDefaultShape());
 
@@ -125,9 +117,9 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
-  // Create a ToLayout op for a value using the provided layout info.
-  // Uses a simple 1x1 grid with minimal dimAlignments; actual grid optimization
-  // and proper dimAlignments happen later in the D2MGridOptimization pass.
+  // Create a ToLayout operation for a value using the provided layout
+  // information with a simple 1x1 grid; actual grid optimization and proper
+  // dimension alignments are computed later in the D2MGridSelection pass.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled,
                               mlir::ConversionPatternRewriter &rewriter) const {
@@ -162,21 +154,16 @@ protected:
           ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
 
     } else {
-      // Default-constructed collapse intervals will collapse to 2D.
       layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
           ttcore::TensorMemoryLayout::Sharded);
     }
 
-    // Get raw, unsharded physical shape.
     llvm::SmallVector<int64_t> unshardedShape =
         layout.getPhysicalShape(tileShape);
 
-    // Use a simple 1s-padded grid (grid of all 1s).
-    // Grid optimization will be performed by the D2MGridOptimization pass.
     llvm::SmallVector<int64_t> simpleGrid(unshardedShape.size(), 1);
 
-    // Get sharded, on-device shape using the simple grid.
     llvm::SmallVector<int64_t> shardedShape =
         layout.getDeviceShape(simpleGrid, tileShape);
 
@@ -186,9 +173,9 @@ protected:
         ->getResult(0);
   }
 
-  // Insert toLayout ops for a genericOp's operands and results; this includes
-  // sharding, tilizing, etc. Uses simple 1s-padded grids; grid optimization
-  // happens later in the D2MGridOptimization pass.
+  // Insert ToLayout operations for a genericOp's operands and results,
+  // including sharding and tilizing, with simple 1x1 grids; grid optimization
+  // happens later in the D2MGridSelection pass.
   std::array<mlir::SmallVector<Value>, 2> toLayoutOperandsAndResults(
       mlir::ConversionPatternRewriter &rewriter,
       std::array<mlir::SmallVector<Value>, 2> operandsAndResults,
