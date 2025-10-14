@@ -247,8 +247,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }();
 
     TT_ALLOC_DEBUG("configured with {{num-stream-buffers: {}, "
-                   "allow-output-spilling: {}}",
-                   numStreamBuffers, allowOutputSpilling);
+                   "allow-l1-output-spilling: {}}",
+                   numStreamBuffers, allowL1OutputSpilling);
 
     if (moduleOp
             ->walk([&](func::FuncOp funcOp) -> WalkResult {
@@ -398,8 +398,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       operandCtx.isOutput = (operandIndex >= outputsStart);
 
       if (operandCtx.isOutput) {
-        // Outputs are currently allocated in L1 so won't use streams unless
-        // allowed to do so in `allowOutputSpilling` mode.
+        // L1 outputs are currently allocated in L1 so won't use streams unless
+        // allowed to do so in `allowL1OutputSpilling` mode.
+        // DRAM outputs always need to be spilled.
         continue;
       }
 
@@ -590,7 +591,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 (memspace == MemorySpace::DeviceDRAM) ||
                 memrefCtx.genericUsers.empty() ||
                 memrefCtx.hasNonGenericUsers ||
-                (memrefCtx.usedForOutput && !allowOutputSpilling);
+                (memrefCtx.usedForOutput && !allowL1OutputSpilling);
             if (bound) {
               b.bind(asPlannerSpace(memspace));
             }

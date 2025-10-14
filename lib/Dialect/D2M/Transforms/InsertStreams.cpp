@@ -21,14 +21,14 @@ namespace {
 class D2MInsertStreamsRewriter final : public OpRewritePattern<d2m::GenericOp> {
 public:
   D2MInsertStreamsRewriter(MLIRContext *context, unsigned numStreamBuffers,
-                           bool allowOutputSpilling)
+                           bool allowL1OutputSpilling)
       : OpRewritePattern<d2m::GenericOp>(context),
         numStreamBuffers(numStreamBuffers),
-        allowOutputSpilling(allowOutputSpilling) {}
+        allowL1OutputSpilling(allowL1OutputSpilling) {}
 
   LogicalResult matchAndRewrite(d2m::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    TT_assertv(!allowOutputSpilling, "Output spilling is not allowed");
+    TT_assertv(!allowL1OutputSpilling, "L1 output spilling is not allowed");
 
     // For DMA-only form, stream insertion will break semantics.
     if (op.isDMAOnlyForm()) {
@@ -44,8 +44,9 @@ public:
           ttcore::getMemorySpace(mlir::cast<MemRefType>(
               operand.get().getType())) == ttcore::MemorySpace::DeviceL1;
 
-      if ((isOutput && !allowOutputSpilling) || alreadyStreamed ||
-          isL1Memspace) {
+      bool skipL1Output = isOutput && isL1Memspace && !allowL1OutputSpilling;
+
+      if (alreadyStreamed || isL1Memspace || skipL1Output) {
         continue;
       }
       insertStream(rewriter, operand, op);
@@ -78,7 +79,7 @@ public:
 
 private:
   unsigned numStreamBuffers;
-  bool allowOutputSpilling;
+  bool allowL1OutputSpilling;
 };
 } // namespace
 
@@ -91,7 +92,7 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MInsertStreamsRewriter>(&getContext(), numStreamBuffers,
-                                           allowOutputSpilling);
+                                           allowL1OutputSpilling);
     if (failed(
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
