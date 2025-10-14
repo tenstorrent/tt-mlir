@@ -5,12 +5,11 @@
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
-from conftest import x86_only
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_utils import compile_and_execute_shlo
-from test_utils import Marks, shape_str
+from test_utils import shape_str
 
 pytestmark = pytest.mark.frontend("shlo")
 
@@ -186,7 +185,7 @@ def test_unary_ops(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
+def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def tan(
         in0: Operand, builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None
     ):
@@ -202,7 +201,7 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
         builder.set_graph_level_check(True)
         return tan_0
 
-    compile_stablehlo_to_flatbuffer(
+    compile_and_execute_shlo(
         tan,
         [shape],
         [dtype],
@@ -210,4 +209,5 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        device=device,
     )
