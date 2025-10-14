@@ -151,6 +151,20 @@ class TTAdapter(model_explorer.Adapter):
         super().__init__()
         self.model_runner = runner.ModelRunner()
 
+    def preload(self, model_path: str, settings: Dict):
+        graph_paths = []
+
+        return {"graphs": [{
+            "adapterInfo": {
+                "id": self.metadata.id,
+                "name": self.metadata.name,
+                "description": self.metadata.description,
+                "type": "adapter",
+                "fileExts": self.metadata.fileExts
+            },
+            "graphPaths": graph_paths
+        }]}
+
     def convert(
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
@@ -217,7 +231,7 @@ class TTAdapter(model_explorer.Adapter):
 
         return {"graphs": []}
 
-    def status_check(self, model_path: str, settings: Dict) -> bool:
+    def status_check(self, model_path: str, settings: Dict):
         done = not self.model_runner.is_busy()
         logs = self.model_runner.get_logs()
         progress = self.model_runner.get_progress()
