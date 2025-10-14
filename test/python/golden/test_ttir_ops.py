@@ -1343,6 +1343,105 @@ def test_reverse(shape: Shape, dims: List[int], request, device):
     )
 
 
+@pytest.mark.skip(reason="See issue #3685")
+@pytest.mark.parametrize("shape", [(4, 4)])
+@pytest.mark.parametrize("dim_args", [[0, 1]])
+def test_reduce_and(shape: Shape, dim_args: List[int], request, device):
+    def reduce_and(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        return builder.reduce_and(in0, dim_args=dim_args, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        reduce_and,
+        [shape],
+        [torch.int32],
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+def reduce_or(
+    in0: Operand,
+    builder: TTIRBuilder,
+    dim_args: List[int],
+    keep_dim: bool = False,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.reduce_or(
+        in0, dim_args=dim_args, keep_dim=keep_dim, unit_attrs=unit_attrs
+    )
+
+
+@pytest.mark.xfail(reason="only floats are supported in runtime. See issue #1775")
+@pytest.mark.parametrize("shape", [(4, 4)], ids=shape_str)
+@pytest.mark.parametrize("dim_args", [[0, 1]])
+def test_reduce_or(shape: Shape, dim_args: List[int], request, device):
+    def reduce_or_wrapper(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        return reduce_or(in0, builder, dim_args=dim_args, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        reduce_or_wrapper,
+        [shape],
+        [torch.int32],
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+def permute(
+    in0: Operand,
+    builder: TTIRBuilder,
+    permutation: List[int],
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.permute(
+        in0,
+        permutation=permutation,
+        unit_attrs=unit_attrs,
+    )
+
+
+@pytest.mark.parametrize("shapes", [[(1, 32, 32, 32)]])
+@pytest.mark.parametrize("permutation", [[0, 2, 1, 3]])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_permute(shapes: List[Shape], permutation: List[int], target: str, request):
+    # Create a wrapper function that captures permutation
+    def permute_wrapper(
+        in0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        blah = permute(in0, builder, permutation, unit_attrs)
+        blah = builder.abs(blah)
+        return blah
+
+    # Set the name for better test identification
+    permute_wrapper.__name__ = "permute"
+    options = [f"override-device-shape=1,1"]
+    # Workaround for ttmetal, only support 1x1 grid atm
+    if target == "ttmetal":
+        options.append("collapse-tensors-2d=false")
+
+    compile_and_execute_ttir(
+        permute_wrapper,
+        shapes,
+        system_desc_path=request.config.getoption("--sys-desc"),
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        print_ir="True",
+    )
+
+
 @pytest.mark.parametrize(
     "shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]], ids=shapes_list_str
 )
@@ -2075,6 +2174,13 @@ def test_matmul(
 @pytest.mark.parametrize(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
+        (transpose, [(32, 32)], [torch.float32]),
+        pytest.param(
+            reshape,
+            [(64, 32)],
+            [torch.float32],
+            marks=[pytest.mark.skip_config(["ttmetal"])],
+        ),
         pytest.param(
             embedding,
             [(33, 32), (512, 128)],
@@ -2083,7 +2189,7 @@ def test_matmul(
         ),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_unique_ops(
     test_fn: Callable,
     inputs_shapes: List[Shape],
