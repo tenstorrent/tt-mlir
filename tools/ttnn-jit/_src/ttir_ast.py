@@ -139,7 +139,9 @@ class TTIRCompiler(ast.NodeVisitor):
             )
             return ttnn_layout
         else:
-            # DRAM interleaved tensors must have 1x1 grid in TTNNLayoutAttr
+            assert (
+                self.max_grid[0] == 0 and self.max_grid[1] == 0
+            ), "The grid for DRAM interleaved tensors is always 1x1"
             buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.DRAM)
             grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
             shape = [tensor_arg.shape[0] // 32, tensor_arg.shape[1] // 32]
