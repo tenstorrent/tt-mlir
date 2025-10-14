@@ -205,6 +205,13 @@ class Run:
             help="disable blackhole workarounds",
         )
         Run.register_arg(
+            name="--disable-force-out-of-place-reshape",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable force out-of-place reshape workaround",
+        )
+        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
@@ -591,6 +598,7 @@ class Run:
                 not self["--disable-read-update-index-for-kv-cache"],
                 not self["--disable-trace-implicit-from-device"],
                 not self["--disable-blackhole-workarounds"],
+                not self["--disaable-force-out-of-place-reshape"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             tracy_program_metadata = {
