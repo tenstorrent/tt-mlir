@@ -1103,7 +1103,6 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, RemainderOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowTensorOp>) {
-  } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, Atan2Op>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2;

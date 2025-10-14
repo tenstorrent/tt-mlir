@@ -4644,6 +4644,48 @@ def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
   let hasVerifier = 1;
 }
 
+def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
+  let summary = "Scatter operation with simplified dimension attributes";
+  let description = [{
+    The `scatter_in_dim` operation introduces torch style scatter in TTIR so that
+    we can lower ttir scatter -> ttir scatter_in_dim -> ttnn scatter.
+
+    Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
+
+    This is a simplified scatter operation that operates along a single dimension, making it more straightforward
+    to use than the general scatter operation when you only need to scatter along one axis.
+
+    Parameters:
+      - `input` (Tensor): The tensor being updated.
+      - `index` (Tensor): Indices where values will be written to.
+      - `source` (Tensor): The values to scatter into the input tensor.
+      - `output` (Tensor): The output tensor shape.
+      - `dim` (int32_t): The dimension along which to scatter.
+
+    Example:
+    ```mlir
+    // Scatter values along dimension 0
+    %input = ... : tensor<8xf32>        // Input tensor
+    %indices = ... : tensor<3xi32>      // Indices tensor
+    %source = ... : tensor<3xf32>       // Source values to scatter
+    %output = ttir.empty() : tensor<8xf32>
+    %result = ttir.scatter_in_dim(%input, %indices, %source, %output) {
+        dim = 0
+    } : tensor<8xf32>, tensor<3xi32>, tensor<3xf32>, tensor<8xf32> -> tensor<8xf32>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$index,
+                       AnyRankedTensor:$source,
+                       AnyRankedTensor:$output,
+                       I32Attr:$dim);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR creation ops
 //===----------------------------------------------------------------------===//
