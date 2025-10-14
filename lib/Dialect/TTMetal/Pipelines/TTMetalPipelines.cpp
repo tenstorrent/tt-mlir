@@ -131,6 +131,8 @@ void createTTIRToTTMetalMiddleendPipeline(
     {
       allocateOptions.numStreamBuffers = options.numStreamBuffers;
       allocateOptions.allowL1OutputSpilling = options.allowL1OutputSpilling;
+      allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
+      allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
     }
     pm.addPass(d2m::createD2MAllocate(allocateOptions));
   }

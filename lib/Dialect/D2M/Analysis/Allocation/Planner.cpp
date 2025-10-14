@@ -386,6 +386,7 @@ Planner::SpillStats Planner::spillAllocate(Problem &problem,
 
   std::sort(priorities.begin(), priorities.end(), byPriority);
 
+  [[maybe_unused]] AllocSizeT bestMemUsage = stats.memUsage;
   int32_t spilledCount = -1;
   int32_t stepCount;
 
@@ -405,6 +406,7 @@ Planner::SpillStats Planner::spillAllocate(Problem &problem,
     const AllocateStats midStats = allocate(work, algorithm);
     TT_ALLOC_DEBUG("[step {}] mem usage/limit: {}/{}", stepCount,
                    midStats.memUsage, memUsageLimit);
+    bestMemUsage = std::min(bestMemUsage, midStats.memUsage);
 
     if (midStats.memUsage <= memUsageLimit) {
       hi = mid - 1;
@@ -419,8 +421,8 @@ Planner::SpillStats Planner::spillAllocate(Problem &problem,
 
   if (spilledCount < 0) {
     TT_ALLOC_ERROR("failed to allocate within usage limit {} after spilling "
-                   "all {} free var(s)",
-                   memUsageLimit, freeVarCount);
+                   "all {} free var(s) (needed at least {})",
+                   memUsageLimit, freeVarCount, bestMemUsage);
     return {stepCount, -1, stats};
   }
 
