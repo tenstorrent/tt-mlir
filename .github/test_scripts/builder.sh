@@ -46,6 +46,7 @@ if [[ "$runttrt" == "1" ]]; then
     if [ -d stablehlo-builder-artifacts/emitc ]; then
         export TT_METAL_HOME="$PWD/third_party/tt-metal/src/tt-metal"
         export TT_METAL_LIB="$TT_METAL_HOME/build/lib"
+        export PYTHONPATH="$TT_METAL_HOME/ttnn:$PYTHONPATH"
         python3 tools/ttnn-standalone/ci_compile_dylib.py --dir stablehlo-builder-artifacts/emitc
         # Create renamed copies of ttnn files so emitc can find them for comparison
         for file in stablehlo-builder-artifacts/ttnn/*; do

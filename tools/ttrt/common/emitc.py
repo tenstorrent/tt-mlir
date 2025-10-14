@@ -435,6 +435,10 @@ class EmitC:
                             emitc_runtime_inputs,
                             device,
                         )
+                        emitc_runtime_outputs = [
+                            ttrt.runtime.to_host(emitc_out, untilize=True)[0]
+                            for emitc_out in emitc_runtime_outputs
+                        ]
 
                     emitc_torch_outputs = []
                     if (
@@ -468,10 +472,6 @@ class EmitC:
                                 new_output = create_tensor(fbb_torch_output)
                                 fbb_runtime_outputs.append(new_output)
 
-                            emitc_runtime_outputs = [
-                                ttrt.runtime.to_host(emitc_out, untilize=True)[0]
-                                for emitc_out in emitc_runtime_outputs
-                            ]
                             self.logging.debug(
                                 f"got emitc outputs for program_index={program_index}, loop={loop}"
                             )

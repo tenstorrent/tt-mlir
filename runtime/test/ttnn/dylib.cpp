@@ -38,8 +38,7 @@ static std::string getMangledName(std::string_view funcName) {
 // The names of input creation functions are mangled unpredictably
 static std::string getCreateInputsMangledName(std::string_view funcName,
                                               std::string path) {
-  std::string command = "nm -D " + path + " | grep ' T ' | awk '{print $3}'";
-
+  std::string command = "nm -D -r " + path + " | grep ' T ' | awk '{print $3}'";
   FILE *pipe = popen(command.c_str(), "r");
   if (!pipe) {
     std::cerr << "Failed to execute command to get mangled function name"
@@ -50,14 +49,14 @@ static std::string getCreateInputsMangledName(std::string_view funcName,
 
   char buffer[256];
   while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-    std::string funcName = buffer;
+    std::string funcNameBuffer = buffer;
     // Remove newline
-    if (!funcName.empty() && funcName.back() == '\n') {
-      funcName.pop_back();
+    if (!funcNameBuffer.empty() && funcNameBuffer.back() == '\n') {
+      funcNameBuffer.pop_back();
     }
-    if (funcName.find("create_inputs_for_") != std::string::npos &&
-        funcName.find(funcName) != std::string::npos) {
-      return funcName;
+    if (funcNameBuffer.find("create_inputs_for_") != std::string::npos &&
+        funcNameBuffer.find(funcName) != std::string::npos) {
+      return funcNameBuffer;
     }
   }
   throw std::runtime_error("Failed to find mangled function name");
@@ -96,7 +95,8 @@ std::vector<std::string> getSoPrograms(void *so, std::string path) {
     return functionNames;
   }
 
-  std::string command = "nm -D -C " + path + " | grep ' T ' | awk '{print $3}'";
+  std::string command =
+      "nm -D -C -r " + path + " | grep ' T ' | awk '{print $3}'";
 
   FILE *pipe = popen(command.c_str(), "r");
   if (!pipe) {
@@ -139,10 +139,8 @@ std::vector<std::string> getSoPrograms(void *so, std::string path) {
   return cleanedNames;
 }
 
-std::vector<::tt::runtime::Tensor> createInputs(void *so,
-                                                const std::string &funcName,
-                                                Device device,
-                                                std::string path) {
+std::vector<::tt::runtime::Tensor>
+createInputs(void *so, std::string funcName, Device device, std::string path) {
   LOG_ASSERT(getCurrentDeviceRuntime() == DeviceRuntime::TTNN);
 
   ::ttnn::MeshDevice &ttnnMeshDevice =
