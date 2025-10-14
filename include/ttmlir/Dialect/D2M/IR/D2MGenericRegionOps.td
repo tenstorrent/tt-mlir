@@ -250,6 +250,21 @@ def D2M_TileSigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sigmoid", D2M_T
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileSignOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sign", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Sign Op";
+    let description = [{
+        The `tile_sign` operation computes the sign of each element in the input tile.
+        Returns -1 for negative values, 0 for zero, and 1 for positive values.
+
+        This operation requires FP16 input element type due to llk sign kernel.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+
+    let hasVerifier = 1;
+}
+
 def D2M_TileGeluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gelu", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile GELU Op";
     let description = [{

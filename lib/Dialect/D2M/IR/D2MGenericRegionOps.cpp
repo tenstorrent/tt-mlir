@@ -576,6 +576,19 @@ mlir::LogicalResult TileUntilizeBlockOp::verify() {
   return success();
 }
 
+// TileSignOp verification
+::mlir::LogicalResult TileSignOp::verify() {
+  auto tileType = mlir::cast<mlir::tt::ttcore::TileType>(getInput().getType());
+  auto dataType = tileType.getDataType();
+
+  if (dataType != mlir::tt::ttcore::DataType::Float16) {
+    return emitOpError("sign operation requires Float16 data type, got ")
+           << mlir::tt::ttcore::DataTypeEnumToString(dataType);
+  }
+
+  return success();
+}
+
 void TileUntilizeBlockOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
