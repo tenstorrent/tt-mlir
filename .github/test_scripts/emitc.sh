@@ -6,6 +6,7 @@
 set -e -o pipefail
 
 llvm-lit -sv --xunit-xml-output $TEST_REPORT_PATH $BUILD_DIR/test/ttmlir/EmitC/TTNN
+ls $BUILD_DIR/test/ttmlir/EmitC/TTNN/conv #Temporary check to see if files are generated properly
 ttrt emitc $BUILD_DIR/test/ttmlir/EmitC/TTNN --flatbuffer $BUILD_DIR/test/ttmlir/EmitC/TTNN
 cp emitc_results.json ${TTRT_REPORT_PATH} || true
 cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_emitc_${TEST_REPORT_PATH##*_} || true
