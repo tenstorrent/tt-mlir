@@ -447,16 +447,24 @@ public:
       // the entire dest in a loop.
       Value destIndex = index(rewriter, op->getLoc(), 0);
 
-      assert(op.hasBlockDims() &&
-             "MatmulBlockOp must have all block dimensions to be lowered");
-      auto rt_i32 =
-          i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockM()));
-      auto kt_i32 =
-          i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockK()));
-      auto ct_i32 =
-          i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockN()));
-      auto nt_i32 = i32(rewriter, op->getLoc(),
-                        static_cast<int32_t>(*op.getBBlockStride()));
+      auto typeA = llvm::cast<MemRefType>(op.getA().getType());
+      auto typeB = llvm::cast<MemRefType>(op.getB().getType());
+      auto rt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[0]);
+      auto kt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[1]);
+      auto ct_i32 = i32(rewriter, op->getLoc(), typeB.getShape()[1]);
+
+      auto getNumColumns = [](Value view) {
+        if (auto castOp =
+                dyn_cast_or_null<memref::CastOp>(view.getDefiningOp())) {
+          view = castOp.getSource();
+        } else if (auto svOp = dyn_cast_or_null<memref::SubViewOp>(
+                       view.getDefiningOp())) {
+          view = svOp.getSource();
+        }
+        auto srcTy = cast<MemRefType>(view.getType());
+        return srcTy.getShape()[1];
+      };
+      auto nt_i32 = i32(rewriter, op->getLoc(), getNumColumns(op.getB()));
 
       auto transpose = i32(rewriter, op->getLoc(), 0);
 

@@ -101,59 +101,6 @@ public:
 } // namespace
 
 namespace {
-struct D2MLinearizeTileMatmulBlockRewriter final
-    : public OpRewritePattern<TileMatmulBlockOp> {
-public:
-  D2MLinearizeTileMatmulBlockRewriter(
-      ::mlir::MLIRContext *context,
-      DenseMap<Value, memref::CollapseShapeOp> &collapseOps)
-      : OpRewritePattern<TileMatmulBlockOp>(context),
-        collapseOps(&collapseOps) {}
-
-  static int64_t getNumColumns(Value view) {
-    if (auto castOp = mlir::dyn_cast<memref::CastOp>(view.getDefiningOp())) {
-      view = castOp.getSource();
-    } else if (auto svOp =
-                   mlir::dyn_cast<memref::SubViewOp>(view.getDefiningOp())) {
-      view = svOp.getSource();
-    }
-    auto srcTy = mlir::cast<MemRefType>(view.getType());
-    return srcTy.getShape()[1];
-  }
-
-  LogicalResult matchAndRewrite(TileMatmulBlockOp op,
-                                PatternRewriter &rewriter) const final {
-    auto typeA = mlir::cast<MemRefType>(op.getA().getType());
-    auto typeB = mlir::cast<MemRefType>(op.getB().getType());
-
-    if (typeA.getRank() == 1 && typeB.getRank() == 1) {
-      return failure();
-    }
-
-    // If block dimensions are already set, this op has already been processed.
-    if (op.hasBlockDims()) {
-      return failure();
-    }
-
-    int64_t rtDim = typeA.getShape()[0];
-    int64_t ktDim = typeA.getShape()[1];
-    int64_t ctDim = typeB.getShape()[1];
-    int64_t ntDim = getNumColumns(op.getB());
-
-    rewriter.setInsertionPoint(op);
-    rewriter.replaceOpWithNewOp<TileMatmulBlockOp>(
-        op, op.getA(), op.getB(), op.getOutput(),
-        rewriter.getI64IntegerAttr(rtDim), rewriter.getI64IntegerAttr(ktDim),
-        rewriter.getI64IntegerAttr(ctDim), rewriter.getI64IntegerAttr(ntDim));
-
-    return success();
-  }
-
-  DenseMap<Value, memref::CollapseShapeOp> *collapseOps;
-};
-} // namespace
-
-namespace {
 class D2MGenericLinearizeMemref
     : public impl::D2MGenericLinearizeMemrefBase<D2MGenericLinearizeMemref> {
 public:
@@ -166,8 +113,6 @@ public:
     patterns.add<D2MLinearizeMemrefAccessRewriter<memref::LoadOp>,
                  D2MLinearizeMemrefAccessRewriter<memref::StoreOp>>(
         &getContext(), collapseOps);
-    patterns.add<D2MLinearizeTileMatmulBlockRewriter>(&getContext(),
-                                                      collapseOps);
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
       signalPassFailure();
