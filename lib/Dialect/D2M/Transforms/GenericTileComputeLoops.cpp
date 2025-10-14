@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
+
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
@@ -65,41 +67,19 @@ static SmallVector<int64_t> calculateOptimalSubblockSizes(
     ArrayRef<AffineMap> indexingMaps, ValueRange inputs,
     ArrayRef<int64_t> outputBlockShape, unsigned dstCapacity) {
   assert(!indexingMaps.empty());
-  MLIRContext *context = indexingMaps[0].getContext();
 
   SmallVector<int64_t> outputSubblockFactors =
       calculateOutputSubblockFactors(outputBlockShape, dstCapacity);
 
-  //
-  // Concat all of the indexing maps together, matmul example:
-  // (d0, d1, d2) -> (d0, d2)
-  // (d0, d1, d2) -> (d2, d1)
-  // (d0, d1, d2) -> (d0, d1)
-  // Becomes:
-  // (d0, d1, d2) -> (d0, d2, d2, d1, d0, d1)
-  //
-  // We reverse it so that output dimensions get priority for the inverse
-  // permutation.
-  //
-  SmallVector<AffineMap> indexingMapsReversed =
-      llvm::to_vector(llvm::reverse(indexingMaps));
-  AffineMap concat = concatAffineMaps(indexingMapsReversed, context);
+  AffineMap inverse = utils::concatInversePermutationMap(
+      llvm::to_vector(indexingMaps), /*reverse=*/true);
 
-  //
-  // Invert the permutation to get a map that we can use to get the buffer
-  // factors. Above example becomes:
-  // (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
-  //
-  AffineMap inverse = inversePermutation(concat);
-
-  //
   // Since we reversed above to give the output block factors priority in the
   // inverse affine map, we add those first. Then fill the rest of the dims with
   // 1s, these are free variables that don't depend on the sizing of dst. In the
   // future we might do something more intelligent with the free variables, or
   // enable downstream passes like allocation to adjust them based on memory
   // requirements.
-  //
   SmallVector<int64_t> flattenedSubblockFactors(outputSubblockFactors);
   flattenedSubblockFactors.resize(inverse.getNumDims(), 1);
 
