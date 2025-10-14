@@ -294,32 +294,6 @@ protected:
     return defaultMemSpaceAttr ? defaultMemSpaceAttr.getValue() : dflt;
   }
 
-  // Helper to access a canonicalized form of input grid.  This will ensure two
-  // things:
-  // 1. We square-ify grids, so that transpose etc. will work. e.g. 13x10 ->
-  // 10x10.
-  // 2. If we wish to have uncollapsed tensors of rank greater than 2, we will
-  // 1-pad the leading grid dims.  E.g. a 3d grid will be 1xXxY.
-  const llvm::SmallVector<int64_t>
-  paddedAndSquaredInputGridShape(size_t rank) const {
-    assert(rank >= targetSquareGridShape.size());
-    llvm::SmallVector<int64_t> grid(rank, 1);
-    const size_t diff = rank - targetSquareGridShape.size();
-    for (size_t i = 0; i < targetSquareGridShape.size(); ++i) {
-      grid[i + diff] = targetSquareGridShape[i];
-    }
-    return grid;
-  }
-
-  // Helper to get output grid shape--this will be the canonical grid shape,
-  // padded with 1s in leading dimensions as needed to match output grid rank.
-  ttcore::GridAttr getOutputGrid(MLIRContext *ctx,
-                                 ShapedType outputType) const {
-    const size_t outputGridRank = outputType.getRank() / 2;
-    return ttcore::GridAttr::get(
-        ctx, paddedAndSquaredInputGridShape(outputGridRank));
-  }
-
 protected:
   // Default memory spaces for {inputs, outputs}.
   std::array<ttcore::MemorySpace, 2> memorySpaces;
@@ -350,7 +324,7 @@ public:
       bool collapseTensors)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                               targetGridShape, ttnnMode, collapseTensors) {}
+                               ttnnMode, collapseTensors) {}
 
 private:
   static constexpr bool isComparisonOp =
@@ -373,10 +347,12 @@ private:
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
     const std::size_t numInputs = inputs.size();
+    const std::size_t numOutputs = outputs.size();
+    const std::size_t numOperands = (numInputs + numOutputs);
     assert(numOperands == op->getNumOperands());
 
     const std::size_t rank =
-        mlir::cast<RankedTensorType>(outputs[0].getType()).getRank();
+        mlir::cast<RankedTensorType>(outputs[0].getType()).getRank() / 2;
 
     SmallVector<mlir::AffineMap> indexingMaps =
         getAffineMapsArray(rewriter, numOperands, rank);
@@ -514,7 +490,7 @@ private:
     assert((numOperands - 1) == op->getNumOperands());
 
     const std::size_t rank =
-        mlir::cast<RankedTensorType>(outputs[0].getType()).getRank();
+        mlir::cast<RankedTensorType>(outputs[0].getType()).getRank() / 2;
 
     SmallVector<mlir::AffineMap> indexingMaps =
         getAffineMapsArray(rewriter, op, numOperands, rank);
@@ -745,7 +721,7 @@ private:
     assert(numOperands == op->getNumOperands());
 
     const std::size_t rank =
-        mlir::cast<RankedTensorType>(outputs[0].getType()).getRank();
+        mlir::cast<RankedTensorType>(outputs[0].getType()).getRank() / 2;
 
     // TODO(#2591) handle 'transpose_{a,b}' attributes.
 
@@ -1088,7 +1064,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter
-  >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, , ttnnMode, collapseTensors);
+  >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);
 
 
   // ToLayout 1:1 conversion.
@@ -1135,9 +1111,6 @@ public:
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     ModuleOp module = getOperation();
-
-    // Get target grid shape from device or override.
-    llvm::SmallVector<int64_t> gridShape = getTargetGridShape();
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type t) { return t; });
@@ -1199,21 +1172,6 @@ public:
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
       signalPassFailure();
     }
-  }
-
-private:
-  // Helper to get defined device shape if an override is not provided.
-  llvm::SmallVector<int64_t> getTargetGridShape() {
-    if (!overrideDeviceShape.empty()) {
-      return llvm::to_vector(overrideDeviceShape);
-    }
-
-    // Get from device if no override given.
-    ::mlir::ModuleOp moduleOp = getOperation();
-    mlir::tt::ttcore::DeviceAttr device =
-        mlir::tt::ttcore::lookupDevice(moduleOp);
-    assert(device && "Device not found");
-    return llvm::to_vector(device.getWorkerGrid().getShape());
   }
 };
 } // namespace
