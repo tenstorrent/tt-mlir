@@ -25,6 +25,7 @@ pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=$TEST_REPORT_PATH
 if [[ "$runttrt" == "1" ]]; then
     ttrt run $TTRT_ARGS ttir-builder-artifacts/
     cp run_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
+    cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_${TEST_REPORT_PATH##*_} || true
     ttrt run $TTRT_ARGS stablehlo-builder-artifacts/
     cp run_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
     if [ -d ttir-builder-artifacts/emitc ]; then
@@ -70,6 +71,7 @@ if [[ "$runttrt" == "1" ]]; then
         done
         ttrt emitpy $TTRT_ARGS ttir-builder-artifacts/emitpy/ --flatbuffer ttir-builder-artifacts/ttnn/
         cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
+        cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_emitpy_${TEST_REPORT_PATH##*_} || true
     fi
     if [ -d stablehlo-builder-artifacts/emitpy ]; then
         # Create renamed copies of ttnn files so emitpy can find them for comparison
@@ -82,5 +84,6 @@ if [[ "$runttrt" == "1" ]]; then
         done
         ttrt emitpy $TTRT_ARGS stablehlo-builder-artifacts/emitpy/ --flatbuffer stablehlo-builder-artifacts/ttnn/
         cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
+        cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_stablehlo_emitpy_${TEST_REPORT_PATH##*_} || true
     fi
 fi

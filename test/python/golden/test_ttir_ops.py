@@ -18,6 +18,7 @@ from ttmlir.ir import DenseI32ArrayAttr
 from test_utils import (
     Marks,
     shape_str,
+    shapes_list_str,
     make_shard_shape,
     shard_wrap_factory,
 )
@@ -128,7 +129,6 @@ def cos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 
 
 # Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -138,7 +138,7 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request):
 
         randn_tensor = torch.randn(shape, dtype=dtype)
         input_golden = randn_tensor.uniform_(
-            (-math.pi / 2 + 0.02), (math.pi / 2 - 0.02)
+            (-math.pi / 2 + 0.05), (math.pi / 2 - 0.05)
         )
         output_golden = torch.tan(input_golden)
         tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
@@ -225,7 +225,7 @@ def gelu(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return builder.gelu(in0, unit_attrs=unit_attrs)
 
 
-@pytest.mark.parametrize("shape", [(64, 128)])
+@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
 def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request):
     def clamp_scalar(
@@ -244,7 +244,9 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request):
     )
 
 
-@pytest.mark.parametrize("shapes", [[(32, 64), (32, 64), (32, 64)]])
+@pytest.mark.parametrize(
+    "shapes", [[(32, 64), (32, 64), (32, 64)]], ids=shapes_list_str
+)
 def test_clamp_tensor(shapes: List[Shape], request):
     def clamp_tensor(
         in0: Operand,
@@ -629,7 +631,9 @@ def minimum(
     return builder.minimum(in0, in1, unit_attrs=unit_attrs)
 
 
-@pytest.mark.parametrize("shapes", [[(10, 64, 32), (32, 128), (128,)]])
+@pytest.mark.parametrize(
+    "shapes", [[(10, 64, 32), (32, 128), (128,)]], ids=shapes_list_str
+)
 def test_linear(shapes: List[Shape], request):
     def linear(
         in0: Operand,
@@ -763,7 +767,7 @@ def squeeze(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] 
 
 
 @pytest.mark.fails_golden
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dim_arg", [0])
 @pytest.mark.parametrize("keep_dim", [False])
 def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request):
@@ -813,7 +817,7 @@ def concat(
     return builder.concat([in0, in1, in2], dim=dim, unit_attrs=unit_attrs)
 
 
-@pytest.mark.parametrize("shape", [(1, 1, 32)])
+@pytest.mark.parametrize("shape", [(1, 1, 32)], ids=shape_str)
 @pytest.mark.parametrize("broadcast_dimensions", [[1, 16, 1]])
 def test_broadcast(shape: Shape, broadcast_dimensions: List[int], request):
     # Create a wrapper function that captures broadcast_dimensions
@@ -836,7 +840,7 @@ def test_broadcast(shape: Shape, broadcast_dimensions: List[int], request):
     )
 
 
-@pytest.mark.parametrize("shape", [(1, 128, 128, 1)])
+@pytest.mark.parametrize("shape", [(1, 128, 128, 1)], ids=shape_str)
 @pytest.mark.parametrize("dim", [0])
 def test_squeeze(shape: Shape, dim: int, request):
     def squeeze(
@@ -853,7 +857,7 @@ def test_squeeze(shape: Shape, dim: int, request):
     )
 
 
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dim", [0])
 def test_unsqueeze(shape: Shape, dim: int, request):
     def unsqueeze(
@@ -870,7 +874,7 @@ def test_unsqueeze(shape: Shape, dim: int, request):
     )
 
 
-@pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16), (1, 1, 64)])
+@pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16), (1, 1, 64)], ids=shape_str)
 @pytest.mark.parametrize("dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 def test_repeat(shape: Shape, dims: List[int], dtype, request):
@@ -897,6 +901,7 @@ def test_repeat(shape: Shape, dims: List[int], dtype, request):
             (1, 8, 1, 12, 64),
         ]
     ],
+    ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("repeats", [1])
@@ -929,6 +934,7 @@ def test_repeat_interleave(shapes: List[Shape], repeats: int, dim: int, request)
             (16, 128),
         ]
     ],
+    ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dim", [0])
 def test_concat(shapes: List[Shape], dim: int, request):
@@ -963,6 +969,7 @@ def test_concat(shapes: List[Shape], dim: int, request):
             (1, 1, 1, 64),
         ]
     ],
+    ids=shapes_list_str,
 )
 @pytest.mark.parametrize(
     "input_dtypes",
@@ -1031,6 +1038,7 @@ def test_conv2d(
             (1, 1, 1, 64),
         ]
     ],
+    ids=shapes_list_str,
 )
 @pytest.mark.parametrize("stride", [[2, 1]])
 @pytest.mark.parametrize("dilation", [[2, 1]])
@@ -1080,6 +1088,7 @@ def test_conv2d_consteval(
             (1, 1, 1, 64),
         ]
     ],
+    ids=shapes_list_str,
 )
 @pytest.mark.parametrize("stride", [[2, 1]])
 @pytest.mark.parametrize("dilation", [[2, 1]])
@@ -1137,6 +1146,7 @@ def test_hoisted_conv2d(
             (1, 1, 1, 256),
         ]
     ],
+    ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
 @pytest.mark.parametrize(
@@ -1227,7 +1237,7 @@ def test_max_pool2d(
     "kernel,stride,dilation,padding,ceil_mode",
     [([2, 2], [2, 2], [1, 1], [0, 0, 0, 0], False)],
 )
-@pytest.mark.parametrize("shape", [(1, 128, 128, 32)])
+@pytest.mark.parametrize("shape", [(1, 128, 128, 32)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32])
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.run_error  # Issue #5133.
@@ -1286,7 +1296,7 @@ def test_hoisted_max_pool2d(
         ),  # This test will produce a different output if count_include_pad is True for spatial dims (31, 31)
     ],
 )
-@pytest.mark.parametrize("shape", [(1, 31, 31, 32)])
+@pytest.mark.parametrize("shape", [(1, 31, 31, 32)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32])
 def test_avg_pool2d(
     shape: Shape,
@@ -1336,6 +1346,7 @@ def test_avg_pool2d(
             (64,),  # variance
         ]
     ],
+    ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 5])
 @pytest.mark.parametrize("dimension", [1])  # channel dimension
@@ -1382,7 +1393,7 @@ def test_batch_norm(
 
 
 @pytest.mark.fails_golden
-@pytest.mark.parametrize("shape", [(1, 1, 5, 5)])
+@pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
 @pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
 @pytest.mark.parametrize("value", [0])
 def test_pad(shape: Shape, padding: List[int], value: int, request):
@@ -1402,7 +1413,7 @@ def test_pad(shape: Shape, padding: List[int], value: int, request):
     )
 
 
-@pytest.mark.parametrize("shape", [(32, 64)])
+@pytest.mark.parametrize("shape", [(32, 64)], ids=shape_str)
 @pytest.mark.parametrize("dim,begin,end,step", [(0, 0, 3, 1)])
 def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request):
     def index(
@@ -1421,7 +1432,7 @@ def test_index(shape: Shape, dim: int, begin: int, end: int, step: int, request)
     )
 
 
-@pytest.mark.parametrize("shape", [(4, 4)])
+@pytest.mark.parametrize("shape", [(4, 4)], ids=shape_str)
 @pytest.mark.parametrize("dim,begin,length,stride", [(1, 2, 2, 2)])
 def test_select(shape: Shape, dim: int, begin: int, length: int, stride: int, request):
     def select(
@@ -1665,7 +1676,7 @@ def test_callable_initialization_error_handling(shape: Shape, dtype: torch.dtype
         return result
 
 
-@pytest.mark.parametrize("shapes", [[(128, 128)]])
+@pytest.mark.parametrize("shapes", [[(128, 128)]], ids=shapes_list_str)
 @pytest.mark.parametrize("dim_arg", [[1]])
 def test_argmax(shapes, dim_arg, request):
     def argmax(
@@ -1683,7 +1694,7 @@ def test_argmax(shapes, dim_arg, request):
 
 
 @pytest.mark.xfail(reason="`reverse` doesn't have a legalization. See issue #2495")
-@pytest.mark.parametrize("shape", [(64, 64)])
+@pytest.mark.parametrize("shape", [(64, 64)], ids=shape_str)
 @pytest.mark.parametrize("dims", [[0, 1]])
 def test_reverse(shape: Shape, dims: List[int], request):
     def reverse(
@@ -1733,7 +1744,7 @@ def reduce_or(
 
 # Generated flatbuffer will currently fail to run due to only floats being supported by the runtime. See issue #1775.
 @pytest.mark.run_error
-@pytest.mark.parametrize("shape", [(4, 4)])
+@pytest.mark.parametrize("shape", [(4, 4)], ids=shape_str)
 @pytest.mark.parametrize("dim_args", [[0, 1]])
 def test_reduce_or(shape: Shape, dim_args: List[int], request):
     def reduce_or_wrapper(
@@ -1764,7 +1775,7 @@ def permute(
     )
 
 
-@pytest.mark.parametrize("shapes", [[(2, 3, 4)]])
+@pytest.mark.parametrize("shapes", [[(2, 3, 4)]], ids=shapes_list_str)
 @pytest.mark.parametrize("permutation", [[1, 2, 0]])
 def test_permute(shapes: List[Shape], permutation: List[int], request):
     # Create a wrapper function that captures permutation
@@ -1787,7 +1798,9 @@ def test_permute(shapes: List[Shape], permutation: List[int], request):
     )
 
 
-@pytest.mark.parametrize("shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]])
+@pytest.mark.parametrize(
+    "shapes", [[(10, 64, 32, 3), (10, 128, 128, 3)]], ids=shapes_list_str
+)
 @pytest.mark.parametrize("scale_factor", [[2, 4]])
 def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request):
     def upsample2d(
@@ -1859,7 +1872,7 @@ def test_typecast(
     )
 
 
-@pytest.mark.parametrize("shapes", [[(4, 4, 128, 128)]])
+@pytest.mark.parametrize("shapes", [[(4, 4, 128, 128)]], ids=shapes_list_str)
 @pytest.mark.parametrize("dim", [1])
 def test_cumsum(shapes: List[Shape], dim: int, request):
     def cumsum(
@@ -1883,7 +1896,9 @@ def prod(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 
 @pytest.mark.fails_golden
-@pytest.mark.parametrize("shapes", [[(1, 32, 64, 512), (1, 32, 3, 512)]])
+@pytest.mark.parametrize(
+    "shapes", [[(1, 32, 64, 512), (1, 32, 3, 512)]], ids=shapes_list_str
+)
 def test_fill_cache(shapes: List[Shape], request):
     def fill_cache(
         in0: Operand,
@@ -1914,7 +1929,7 @@ def softmax(
     )
 
 
-@pytest.mark.parametrize("shape", [(512, 1024)])
+@pytest.mark.parametrize("shape", [(512, 1024)], ids=shape_str)
 @pytest.mark.parametrize("dimension", [-1])
 @pytest.mark.parametrize("numeric_stable", [False, True])
 def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request):
@@ -1937,7 +1952,9 @@ def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request):
 
 
 @pytest.mark.run_error
-@pytest.mark.parametrize("shapes", [[(1, 32, 64, 512), (1, 32, 1, 512), (1,)]])
+@pytest.mark.parametrize(
+    "shapes", [[(1, 32, 64, 512), (1, 32, 1, 512), (1,)]], ids=shapes_list_str
+)
 @pytest.mark.parametrize("dtypes", [[torch.float32, torch.float32, torch.int32]])
 def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request):
     def update_cache(
@@ -1968,7 +1985,7 @@ def embedding(
     return builder.embedding(in0, in1, unit_attrs=unit_attrs)
 
 
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("scale", [0.1])
 @pytest.mark.parametrize("zero_point", [0])
 @pytest.mark.parametrize(
@@ -2001,7 +2018,7 @@ def test_quantize(
     )
 
 
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "input_dtype",
     [
@@ -2041,7 +2058,7 @@ def test_dequantize(
     )
 
 
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "input_dtype",
     [
@@ -2271,7 +2288,7 @@ hoisted_ternary_ops = [
 
 
 @x86_only
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_cpu_hoistable_unary_ops(
@@ -2302,6 +2319,7 @@ def test_cpu_hoistable_unary_ops(
         [(128, 128), (128, 1)],  # Broadcasting first dimension
         [(128, 128, 64), (128, 1, 64)],  # 3D tensors with broadcasting
     ],
+    ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", hoisted_binary_ops)
@@ -2360,7 +2378,7 @@ def test_hoisted_permute(shapes, permutation, request, target: str):
 @pytest.mark.parametrize("dim_arg", [None, 0, 1])
 @pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize(
-    "shape", [(1, 1), (1, 10), (10, 1), (64, 32), (128, 64), (128, 128)]
+    "shape", [(1, 1), (1, 10), (10, 1), (64, 32), (128, 64), (128, 128)], ids=shape_str
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_max(shape, dim_arg, keep_dim, request, target: str):
@@ -2423,7 +2441,9 @@ def test_hoisted_slice(
 
 # Add test for hoisted where operation
 @x86_only
-@pytest.mark.parametrize("shapes", [[(64, 64), (64, 64), (64, 64)]])
+@pytest.mark.parametrize(
+    "shapes", [[(64, 64), (64, 64), (64, 64)]], ids=shapes_list_str
+)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_where(shapes, request, target: str):
     def where_wrapper(condition: Operand, x: Operand, y: Operand, builder: TTIRBuilder):
@@ -2455,6 +2475,7 @@ def test_hoisted_where(shapes, request, target: str):
         [(256, 256), (512, 128)],  # Power of 2 reshape
         [(32, 3, 224, 224), (32, 150528)],  # Large ML pattern: batch flatten
     ],
+    ids=shapes_list_str,
 )
 @pytest.mark.parametrize(
     "dtype", [torch.float32, torch.int32, torch.uint8], ids=["f32", "i32", "ui8"]
@@ -2536,7 +2557,7 @@ def test_hoisted_transpose(input_shape, dims, request, target: str):
 
 
 @x86_only
-@pytest.mark.parametrize("shape", [(1, 128, 128)])
+@pytest.mark.parametrize("shape", [(1, 128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_squeeze(shape: Shape, dim: int, target: str, request):
@@ -2747,7 +2768,7 @@ def test_binary_ops(
 
 
 @pytest.mark.run_error
-@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("test_fn", [bitwise_and, bitwise_or, bitwise_xor])
 def test_bitwise_binary_ops(test_fn: Callable, shape: Shape, request):
     compile_ttir_to_flatbuffer(
@@ -2890,6 +2911,7 @@ def test_binary_eltwise_ops_implicit_broadcast(
         [(1, 4, 1), (1, 4, 768), (1, 1, 1)],
         [(1, 1, 1, 4), (1, 1, 1, 1), (1, 1, 1, 1)],
     ],
+    ids=shapes_list_str,
 )
 @pytest.mark.parametrize(
     "input_dtypes",
@@ -3079,7 +3101,7 @@ def test_slice(
 
 
 @x86_only
-@pytest.mark.parametrize("shape", [(4, 4)])
+@pytest.mark.parametrize("shape", [(4, 4)], ids=shape_str)
 @pytest.mark.parametrize("dim_args", [[0]])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.run_error  # Issue #3883.
