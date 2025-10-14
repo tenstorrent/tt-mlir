@@ -70,10 +70,9 @@ struct MemorySpaceInfo {
   MemorySpaceInfo(AllocSizeT baseAddress, AllocSizeT maxAddress,
                   AllocSizeT alignment)
       : baseAddress(baseAddress), maxAddress(maxAddress), alignment(alignment) {
-    TT_assert(baseAddress % alignment == 0);
     TT_assert(baseAddress < maxAddress);
     TT_assert(baseAddress % alignment == 0);
-    TT_assert(baseAddress < maxAddress);
+    TT_assert(maxAddress % alignment == 0);
   }
 
   // Valid address range is [baseAddress, maxAddress).
@@ -258,16 +257,25 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
-    memSpaces = [moduleOp]() {
+    TT_ALLOC_DEBUG("configured with {{num-stream-buffers: {}, "
+                   "allow-l1-output-spilling: {}, test-assume-l1-capacity: {}}",
+                   numStreamBuffers, allowL1OutputSpilling,
+                   testAssumeL1Capacity);
+
+    memSpaces = [this, moduleOp]() {
       ttcore::SystemDescAttr systemDesc =
           ttcore::getCurrentScopeSystemDesc(moduleOp);
       ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs().front();
-      return getMemorySpaces(chipDesc);
+      return getMemorySpaces(chipDesc, testAssumeL1Capacity);
     }();
 
-    TT_ALLOC_DEBUG("configured with {{num-stream-buffers: {}, "
-                   "allow-l1-output-spilling: {}}",
-                   numStreamBuffers, allowL1OutputSpilling);
+    TT_ALLOC_DEBUG("using memspaces:\n"
+                   "  L1:\t[{}, {}),\n"
+                   "  DRAM:\t[{}, {})",
+                   memSpaces[ordinal(MemorySpace::DeviceL1)].baseAddress,
+                   memSpaces[ordinal(MemorySpace::DeviceL1)].maxAddress,
+                   memSpaces[ordinal(MemorySpace::DeviceDRAM)].baseAddress,
+                   memSpaces[ordinal(MemorySpace::DeviceDRAM)].maxAddress);
 
     if (moduleOp
             ->walk([&](func::FuncOp funcOp) -> WalkResult {
@@ -532,7 +540,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               operandIndex, asShape(shardShape), settings.numBuffers,
               bufferSizeBytes);
 
-          if (!operandCtxs[operandIndex].isOutput || allowOutputSpilling) {
+          if (!operandCtxs[operandIndex].isOutput || allowL1OutputSpilling) {
             // Pay attention to the output buffer(s) only if we might be
             // creating streams for them.
             cost += bufferSizeBytes;
@@ -1100,13 +1108,19 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                            memSpaceAttr);
   }
 
-  static MemorySpaces getMemorySpaces(ttcore::ChipDescAttr chipDesc) {
+  static MemorySpaces getMemorySpaces(ttcore::ChipDescAttr chipDesc,
+                                      AllocSizeT l1CapacityOverride) {
     MemorySpaces info;
     {
       // Currently, we only need some slots in 'info'.
 
+      const AllocSizeT l1Size =
+          l1CapacityOverride > 0
+              ? (chipDesc.getL1UnreservedBase() + l1CapacityOverride)
+              : chipDesc.getL1Size();
+
       info[ordinal(MemorySpace::DeviceL1)] =
-          MemorySpaceInfo(chipDesc.getL1UnreservedBase(), chipDesc.getL1Size(),
+          MemorySpaceInfo(chipDesc.getL1UnreservedBase(), l1Size,
                           chipDesc.getNocL1AddressAlignBytes());
 
       info[ordinal(MemorySpace::DeviceDRAM)] = MemorySpaceInfo(
