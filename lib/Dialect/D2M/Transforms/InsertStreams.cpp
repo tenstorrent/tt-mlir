@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+. // SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -12,7 +12,7 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-namespace mlir::tt::d2m {
+    namespace mlir::tt::d2m {
 
 #define GEN_PASS_DEF_D2MINSERTSTREAMS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -49,8 +49,19 @@ public:
       if (alreadyStreamed || isL1Memspace || skipL1Output) {
         continue;
       }
-      insertStream(rewriter, operand, op);
-      modified = true;
+
+      bool modified = false;
+      for (OpOperand &operand : op->getOpOperands()) {
+        // If input is not already a stream, insert one.
+        if (mlir::isa_and_nonnull<d2m::StreamLayoutOp>(
+                operand.get().getDefiningOp())) {
+          continue;
+        }
+        insertStream(rewriter, operand, op);
+        modified = true;
+      }
+
+      return success(modified);
     }
 
     return success(modified);
@@ -97,8 +108,27 @@ public:
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }
-  }
-};
-} // namespace
+
+  private:
+    unsigned numStreamBuffers;
+  };
+  } // namespace
+
+  namespace {
+  class D2MInsertStreams final
+      : public impl::D2MInsertStreamsBase<D2MInsertStreams> {
+  public:
+    using impl::D2MInsertStreamsBase<D2MInsertStreams>::D2MInsertStreamsBase;
+
+    void runOnOperation() final {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<D2MInsertStreamsRewriter>(&getContext(), numStreamBuffers);
+      if (failed(mlir::applyPatternsGreedily(getOperation(),
+                                             std::move(patterns)))) {
+        signalPassFailure();
+      }
+    }
+  };
+  } // namespace
 
 } // namespace mlir::tt::d2m

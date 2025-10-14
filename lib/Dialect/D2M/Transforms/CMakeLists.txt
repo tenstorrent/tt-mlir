@@ -8,6 +8,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenericLowerDMAs.cpp
         GenericRegionsToFuncs.cpp
         GenericTileComputeLoops.cpp
+        GridOptimization.cpp
         InsertDstRegisterAccess.cpp
         InsertStreams.cpp
         LowerToLayout.cpp

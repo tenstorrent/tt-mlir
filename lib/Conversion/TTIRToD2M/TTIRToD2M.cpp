@@ -79,6 +79,7 @@ protected:
     return grid;
   }
 
+
   const llvm::SmallVector<int64_t> &getTargetGridShape() const {
     return targetGridShape;
   }
@@ -164,14 +165,16 @@ protected:
     // the grid. It has no relevance to the index map in MetalLayoutAttr.
     // MetalLayoutAttr takes the grid shape of the device, not the grid on which
     // the tensor is sharded.
+    // Note: Using full target grid shape here; grid optimization happens later.
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(),
-        gridAnalysis.getTargetSquareGridShape(), ttcore::OOBVal::Undef,
-        memSpace, memLayout, collapsedIntervals, dimAlignments);
+        gridAnalysis.getTargetGridShape(), ttcore::OOBVal::Undef, memSpace,
+        memLayout, collapsedIntervals, dimAlignments);
 
     llvm::SmallVector<int64_t> unshardedShape =
         metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
 
+    // Keep TTNN's original grid - don't override it
     llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
         ttnnLayout.getGrid().getShape(), ttcore::TileType::getDefaultShape());
 
@@ -179,7 +182,9 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
-  // Create a ToLayout op for a value using the provided layout info and grid.
+  // Create a ToLayout op for a value using the provided layout info.
+  // Uses a simple 1x1 grid with minimal dimAlignments; actual grid optimization
+  // and proper dimAlignments happen later in the D2MGridOptimization pass.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled,
                               mlir::ConversionPatternRewriter &rewriter) const {
@@ -224,13 +229,13 @@ protected:
     llvm::SmallVector<int64_t> unshardedShape =
         layout.getPhysicalShape(tileShape);
 
-    // Calculate optimal grid for given physical shape.
-    llvm::SmallVector<int64_t> optimalGrid =
-        gridAnalysis.computeOptimalGrid(unshardedShape);
+    // Use a simple 1s-padded grid (grid of all 1s).
+    // Grid optimization will be performed by the D2MGridOptimization pass.
+    llvm::SmallVector<int64_t> simpleGrid(unshardedShape.size(), 1);
 
-    // Get optimal sharded, on-device shape.
+    // Get sharded, on-device shape using the simple grid.
     llvm::SmallVector<int64_t> shardedShape =
-        layout.getDeviceShape(optimalGrid, tileShape);
+        layout.getDeviceShape(simpleGrid, tileShape);
 
     auto emptyOp = rewriter.create<d2m::EmptyOp>(value.getLoc(), shardedShape,
                                                  elementType, layout);
@@ -239,8 +244,8 @@ protected:
   }
 
   // Insert toLayout ops for a genericOp's operands and results; this includes
-  // sharding, tilizing, etc. This func computes appropriate optimal grid shape
-  // as well.
+  // sharding, tilizing, etc. Uses simple 1s-padded grids; grid optimization
+  // happens later in the D2MGridOptimization pass.
   std::array<mlir::SmallVector<Value>, 2> toLayoutOperandsAndResults(
       mlir::ConversionPatternRewriter &rewriter,
       std::array<mlir::SmallVector<Value>, 2> operandsAndResults,
