@@ -19,11 +19,9 @@ void populateTTModule(nb::module_ &m) {
       // 5-arg overload (no index_map provided)
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> logicalShape,
-                     std::vector<int64_t> gridShape, uint32_t oobValValue,
-                     uint32_t memorySpaceValue) {
+                     uint32_t oobValValue, uint32_t memorySpaceValue) {
                     return wrap(tt::ttcore::MetalLayoutAttr::get(
                         unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                        ArrayRef<int64_t>(gridShape),
                         static_cast<tt::ttcore::OOBVal>(oobValValue),
                         static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                         tt::ttcore::TensorMemoryLayout::Sharded));
@@ -31,30 +29,28 @@ void populateTTModule(nb::module_ &m) {
       // 7-arg overload (override memory layout)
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> logicalShape,
-                     std::vector<int64_t> gridShape, uint32_t oobValValue,
-                     uint32_t memorySpaceValue, uint32_t memoryLayoutValue) {
+                     uint32_t oobValValue, uint32_t memorySpaceValue,
+                     uint32_t memoryLayoutValue) {
                     return wrap(tt::ttcore::MetalLayoutAttr::get(
                         unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                        ArrayRef<int64_t>(gridShape),
                         static_cast<tt::ttcore::OOBVal>(oobValValue),
                         static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                         static_cast<tt::ttcore::TensorMemoryLayout>(
                             memoryLayoutValue)));
                   })
-      .def_static(
-          "get",
-          [](MlirContext ctx, std::vector<int64_t> logicalShape,
-             std::vector<int64_t> gridShape, uint32_t oobValValue,
-             uint32_t memorySpaceValue, uint32_t memoryLayoutValue,
-             MlirAffineMap indexAffineMap) {
-            return wrap(tt::ttcore::MetalLayoutAttr::get(
-                unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-                ArrayRef<int64_t>(gridShape),
-                static_cast<tt::ttcore::OOBVal>(oobValValue),
-                static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
-                static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
-                unwrap(indexAffineMap)));
-          })
+      // .def_static(
+      //     "get",
+      //     [](MlirContext ctx, std::vector<int64_t> logicalShape, uint32_t
+      //     oobValValue,
+      //        uint32_t memorySpaceValue, uint32_t memoryLayoutValue,
+      //        MlirAffineMap indexAffineMap) {
+      //       return wrap(tt::ttcore::MetalLayoutAttr::get(
+      //           unwrap(ctx), ArrayRef<int64_t>(logicalShape),
+      //           static_cast<tt::ttcore::OOBVal>(oobValValue),
+      //           static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
+      //           static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
+      //           unwrap(indexAffineMap)));
+      //     })
       .def("getLayout",
            [](MlirType &type)
                -> std::variant<tt::ttcore::MetalLayoutAttr, nb::object> {

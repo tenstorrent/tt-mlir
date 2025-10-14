@@ -506,8 +506,8 @@ def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
   let options = D2MStreamingOptions;
 }
 
-def D2MGridOptimization: Pass<"d2m-grid-optimization", "::mlir::ModuleOp"> {
-  let summary = "Optimize grid selection for D2M generic ops.";
+def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
+  let summary = "Optimized grid selection for D2M generic ops.";
   let description = [{
     This pass optimizes the grid selection for D2M generic operations. It walks through
     all d2m.generic ops and updates their operand ToLayoutOps with optimal grid sizes
@@ -518,7 +518,7 @@ def D2MGridOptimization: Pass<"d2m-grid-optimization", "::mlir::ModuleOp"> {
     its physical shape, finding the largest grid dimensions that evenly divide the shape.
     It also recomputes proper dimAlignments that account for grid-based alignment requirements.
 
-    Note: This pass is skipped in TTNN mode, where grids are already set by TTNN.
+    Note: This pass is skipped in TTNN mode, where grids are already set.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
   let options = [
@@ -527,7 +527,7 @@ def D2MGridOptimization: Pass<"d2m-grid-optimization", "::mlir::ModuleOp"> {
     Option<"enableDebugLogging", "enable-debug-logging", "bool", /*default=*/"false",
            "Enable debug logging for grid optimization">,
     Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false",
-           "Skip optimization in TTNN mode where grids are already set">,
+           "Skip selection in TTNN mode where grids are already set">,
   ];
 }
 

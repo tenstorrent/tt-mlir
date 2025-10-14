@@ -94,15 +94,15 @@ void createTTIRToTTMetalFrontendPipeline(
     toD2MOptions.collapseTensorsTo2D = options.collapseTensors;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
-  // Grid optimization pass: optimize grid selection after initial conversion
+  // Grid selection pass: optimize grid selection after initial conversion
   // (skipped in TTNN mode where grids are already set)
-  d2m::D2MGridOptimizationOptions gridOptOptions;
+  d2m::D2MGridSelectionOptions gridOptOptions;
   {
     gridOptOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
     gridOptOptions.ttnnMode = options.ttnnMode;
   }
-  pm.addPass(d2m::createD2MGridOptimization(gridOptOptions));
+  pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
 }

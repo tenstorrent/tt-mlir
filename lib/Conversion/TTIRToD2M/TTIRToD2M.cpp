@@ -46,63 +46,7 @@ protected:
                          ttcore::MemorySpace defaultOutputMemSpace,
                          bool ttnnMode, bool collapseTensors)
       : memorySpaces{defaultInputMemSpace, defaultOutputMemSpace},
-        ttnnMode(ttnnMode), collapseTensors(collapseTensors) {
-    assert(!targetGridShape.empty());
-  }
-
-  // Compute optimal grid shape for a given physical shape.
-  // Finds the largest grid dimensions that evenly divide the physical shape.
-  llvm::SmallVector<int64_t>
-  computeOptimalGrid(ArrayRef<int64_t> physicalShape) const {
-    llvm::SmallVector<int64_t> grid;
-    grid.reserve(physicalShape.size());
-
-    assert(physicalShape.size() >= targetSquareGridShape.size());
-
-    const size_t gridRankDiff =
-        physicalShape.size() - targetSquareGridShape.size();
-    grid.assign(gridRankDiff, 1);
-
-    for (size_t i = gridRankDiff; i < physicalShape.size(); ++i) {
-      const int64_t dim = physicalShape[i];
-      assert(dim > 0);
-      // Find largest grid dimension that divides evenly.
-      for (int64_t g = targetSquareGridShape[i - gridRankDiff]; g > 0; g--) {
-        if (dim % g == 0) {
-          grid.push_back(g);
-          break;
-        }
-      }
-    }
-
-    assert(grid.size() == physicalShape.size());
-    return grid;
-  }
-
-
-  const llvm::SmallVector<int64_t> &getTargetGridShape() const {
-    return targetGridShape;
-  }
-
-  const llvm::SmallVector<int64_t> &getTargetSquareGridShape() const {
-    return targetSquareGridShape;
-  }
-
-private:
-  llvm::SmallVector<int64_t> targetGridShape;
-  llvm::SmallVector<int64_t> targetSquareGridShape;
-};
-
-namespace {
-class D2MNamedRewriterCommon {
-protected:
-  using base = D2MNamedRewriterCommon;
-
-  D2MNamedRewriterCommon(ttcore::MemorySpace defaultInputMemSpace,
-                         ttcore::MemorySpace defaultOutputMemSpace,
-                         const GridAnalysis &gridAnalysis, bool ttnnMode)
-      : memorySpaces{defaultInputMemSpace, defaultOutputMemSpace},
-        gridAnalysis(gridAnalysis), ttnnMode(ttnnMode) {}
+        ttnnMode(ttnnMode), collapseTensors(collapseTensors) {}
 
   static bool isTTNNTensor(Type type) {
     auto tensor = mlir::dyn_cast<RankedTensorType>(type);
@@ -167,9 +111,8 @@ protected:
     // the tensor is sharded.
     // Note: Using full target grid shape here; grid optimization happens later.
     auto metalLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), tensorType.getShape(),
-        gridAnalysis.getTargetGridShape(), ttcore::OOBVal::Undef, memSpace,
-        memLayout, collapsedIntervals, dimAlignments);
+        rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
+        memSpace, memLayout, collapsedIntervals, dimAlignments);
 
     llvm::SmallVector<int64_t> unshardedShape =
         metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
@@ -422,7 +365,6 @@ private:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
-    mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
     auto [origInputs, origOutputs] =
@@ -430,17 +372,11 @@ private:
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
-
     const std::size_t numInputs = inputs.size();
-    const std::size_t numOutputs = outputs.size();
-    const std::size_t numOperands = (numInputs + numOutputs);
-
     assert(numOperands == op->getNumOperands());
 
-    ttcore::GridAttr grid =
-        getOutputGrid(ctx, mlir::cast<ShapedType>(outputs[0].getType()));
-
-    const std::size_t rank = grid.getShape().size();
+    const std::size_t rank =
+        mlir::cast<RankedTensorType>(outputs[0].getType()).getRank();
 
     SmallVector<mlir::AffineMap> indexingMaps =
         getAffineMapsArray(rewriter, numOperands, rank);
@@ -577,10 +513,8 @@ private:
     // Minus 1 for the scaler operand.
     assert((numOperands - 1) == op->getNumOperands());
 
-    ttcore::GridAttr grid =
-        getOutputGrid(ctx, mlir::cast<ShapedType>(outputs[0].getType()));
-
-    const std::size_t rank = grid.getShape().size();
+    const std::size_t rank =
+        mlir::cast<RankedTensorType>(outputs[0].getType()).getRank();
 
     SmallVector<mlir::AffineMap> indexingMaps =
         getAffineMapsArray(rewriter, op, numOperands, rank);
@@ -797,7 +731,6 @@ private:
                   mlir::ConversionPatternRewriter &rewriter) const final {
     checkPreconditions(op);
 
-    mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
     auto [origInputs, origOutputs] =
@@ -811,10 +744,8 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    ttcore::GridAttr grid =
-        getOutputGrid(ctx, mlir::cast<ShapedType>(outputs[0].getType()));
-
-    const std::size_t rank = grid.getShape().size();
+    const std::size_t rank =
+        mlir::cast<RankedTensorType>(outputs[0].getType()).getRank();
 
     // TODO(#2591) handle 'transpose_{a,b}' attributes.
 
@@ -1159,6 +1090,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, , ttnnMode, collapseTensors);
 
+
   // ToLayout 1:1 conversion.
   patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx);
 
@@ -1167,6 +1099,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Matmul.
   patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace,  ttnnMode, collapseTensors);
+
   // clang-format on
 }
 
@@ -1206,16 +1139,6 @@ public:
     // Get target grid shape from device or override.
     llvm::SmallVector<int64_t> gridShape = getTargetGridShape();
 
-    // Create grid analysis for this pass.
-    GridAnalysis gridAnalysis(gridShape);
-
-    // Setup type converter with materialization hooks.
-    // The conversion framework uses these to automatically insert layout
-    // conversion ops (ToLayoutOp) when operand/result types don't match.
-    //
-    // Note: The GridAnalysis is used by rewriters to compute optimal layouts
-    // before conversion. The materialization hooks here handle the mechanical
-    // insertion of ToLayout ops based on type mismatches.
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type t) { return t; });
 

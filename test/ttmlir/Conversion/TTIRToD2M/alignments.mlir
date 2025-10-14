@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-optimization %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection %s | FileCheck %s
 
 // Simple check to ensure we get valid metal_layout for each size.
 // We want to ensure dim_alignments round up to 256 (on 8x8) if the physical shape is > 8 after tilizing.

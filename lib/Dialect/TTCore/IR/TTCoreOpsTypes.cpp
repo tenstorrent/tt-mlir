@@ -893,13 +893,7 @@ MetalLayoutAttr::getIndexAffineMapOrIdentity(unsigned rank) const {
   return map;
 }
 
-// When tile-alignment is needed and the height dim of the physical shape is
-// collapsed from multiple logical dims, we record two alignment requirements:
-// - One for the 2nd last logical dim (intervalEnd), and it's always the height
-// of a tile.
-// - One for the outermost logical dim (intervalStart), the value that: after
-// applying it to the aligned & collapsed dim, the entire height dim becomes
-// tile/grid-aligned, depending on the need.
+// Helper func to compute tile-alignments to last 2 dims of a collapsed shape.
 //
 // For example, tensor<4x43x7> + grid<8x8> + tile<32x32> gives:
 // - Tile-aligned logical shape 4x64x32.
@@ -927,65 +921,22 @@ MetalLayoutAttr::getIndexAffineMapOrIdentity(unsigned rank) const {
 // reduction of 4x43x7 -> 4x1x7 is now worker-local).
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
-                                   ArrayRef<int64_t> deviceGridShape,
                                    ArrayRef<int64_t> normalizedIntervals) {
   constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
 
   const int64_t logicalRank = logicalShape.size();
-  const int64_t deviceGridRank = deviceGridShape.size();
-  const int64_t tensorGridRank = normalizedIntervals.size() / 2;
 
   assert(logicalRank >= 2);
-  assert(deviceGridRank == 2);
-  assert(normalizedIntervals.size() % 2 == 0);
-  assert(deviceGridRank <= tensorGridRank);
 
   llvm::SmallVector<int64_t> alignments(logicalRank, 1);
-  // Handle the last two intervals (which will map to tiles) with grid-aware
-  // alignments.
+  // Handle the last two intervals (which will map to tiles).
   for (int64_t idx = -1; idx >= -2; idx--) {
     const int64_t tileIdx = tileShape.size() + idx;
     const int64_t tileDim = tileShape[tileIdx];
 
-    const int64_t gridIdx = deviceGridRank + idx;
-    const int64_t gridDim = deviceGridShape[gridIdx];
+    const int64_t intervalEnd = normalizedIntervals[tileIdx * 2 + 1] - 1;
 
-    const int64_t intvIdx = tensorGridRank + idx;
-
-    const int64_t gridAlignmentThreshold = gridDim * tileDim;
-
-    // Inclusive indices.
-    const int64_t intervalStart = normalizedIntervals[intvIdx * 2];
-    const int64_t intervalEnd = normalizedIntervals[intvIdx * 2 + 1] - 1;
-
-    // Calculate collapsed size for this interval.
-    int64_t collapsedSize = 1;
-    for (int64_t i = intervalEnd; i >= intervalStart; i--) {
-      if (i >= logicalRank - 2) {
-        // Always tile-align the last two dimensions.
-        collapsedSize *= ttmlir::utils::alignUp(logicalShape[i], tileDim);
-      } else {
-        collapsedSize *= logicalShape[i];
-      }
-    }
-
-    // Align to grid boundary iff the collapsed size is strictly larger than
-    // gridAlignmentThreshold, else align to tile boundary.
-    const bool alignToGrid = collapsedSize > gridAlignmentThreshold;
-    const int64_t alignment = alignToGrid ? gridAlignmentThreshold : tileDim;
-
-    // Assume the collapsed intervals are always <[[0, N-2], [N-1, N]]>.
-    if (intervalStart == intervalEnd) {
-      alignments[intervalEnd] = alignment;
-    } else {
-      assert(idx == -2);
-      assert(intervalEnd == logicalRank - 2);
-      alignments[intervalEnd] = tileDim;
-      // Avoid results like [32x32]x32, it should be [1x32]x32.
-      if (alignToGrid) {
-        alignments[intervalStart] = alignment;
-      }
-    }
+    alignments[intervalEnd] = tileDim;
   }
   assert(alignments[logicalRank - 1] % tileShape[1] == 0);
   assert(alignments[logicalRank - 2] % tileShape[0] == 0);
@@ -995,25 +946,26 @@ MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
 // Getter with no intervals or alignments, we calculate them both.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout) {
+
+  constexpr size_t kGridRank = 2;
+
   // Create collapse intervals.
-  int64_t numDimsToCollapse = logicalShape.size() - deviceGridShape.size() + 1;
+  int64_t numDimsToCollapse = logicalShape.size() - kGridRank + 1;
   llvm::SmallVector<int64_t> flattenedIntervals;
 
   // First interval will be [0, numDimsToCollapse).
   flattenedIntervals.push_back(0);
   flattenedIntervals.push_back(numDimsToCollapse);
-  for (int64_t i = 1; i < static_cast<int64_t>(deviceGridShape.size()); ++i) {
+  for (int64_t i = 1; i < static_cast<int64_t>(kGridRank); ++i) {
     // Last gridRank - 1 intervals will be [i, i + 1).
     flattenedIntervals.push_back(numDimsToCollapse + i - 1);
     flattenedIntervals.push_back(numDimsToCollapse + i);
   }
 
-  auto intervalType =
-      RankedTensorType::get({static_cast<int64_t>(deviceGridShape.size()), 2},
-                            IntegerType::get(context, 64));
+  auto intervalType = RankedTensorType::get(
+      {static_cast<int64_t>(kGridRank), 2}, IntegerType::get(context, 64));
   DenseIntElementsAttr collapsedIntervals =
       DenseIntElementsAttr::get(intervalType, flattenedIntervals);
 
@@ -1022,7 +974,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
 
   // Set alignments based on the flattened intervals.
   llvm::SmallVector<int64_t> dimAlignmentsVec =
-      computeAlignments(logicalShape, deviceGridShape, flattenedIntervals);
+      computeAlignments(logicalShape, flattenedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
              oobVal, memorySpace, memoryLayout, mlir::AffineMap::get(context));
@@ -1031,14 +983,13 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
 // Getter with explicit collapsedIntervals, we calculate the alignments.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapsedIntervals) {
   llvm::SmallVector<int64_t> normalizedIntervals =
       normalizeAndFlattenIntervals(collapsedIntervals, logicalShape.size());
   llvm::SmallVector<int64_t> dimAlignmentsVec =
-      computeAlignments(logicalShape, deviceGridShape, normalizedIntervals);
+      computeAlignments(logicalShape, normalizedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
              oobVal, memorySpace, memoryLayout, mlir::AffineMap::get(context));
@@ -1047,7 +998,6 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
 // Getter with explicit collapsedIntervals and dimAlignments.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapsedIntervals,
@@ -1072,20 +1022,15 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
       MemorySpaceAttr::get(tensorType.getContext(), layout.getMemorySpace()));
 }
 
-// 6-arg + explicit index_map convenience overload.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
+                                     DenseIntElementsAttr collapsedIntervals,
+                                     ArrayRef<int64_t> dimAlignments,
                                      mlir::AffineMap indexAffineMap) {
-  // Reuse the existing path that computes intervals/alignments, then attach
-  // map.
-  MetalLayoutAttr base = get(context, logicalShape, deviceGridShape, oobVal,
-                             memorySpace, memoryLayout);
-  return get(context, base.getLogicalShape(), base.getDimAlignments(),
-             base.getCollapsedIntervals(), base.getOobVal(),
-             base.getMemorySpace(), base.getMemoryLayout(), indexAffineMap);
+  return get(context, logicalShape, dimAlignments, collapsedIntervals, oobVal,
+             memorySpace, memoryLayout, indexAffineMap);
 }
 
 // Get effective stride (use provided or calculate from shape)
