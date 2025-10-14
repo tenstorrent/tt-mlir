@@ -76,9 +76,10 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
              "Memory config must exist for device tensors");
 
   std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfig = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig();
-  sliceConfig->slice_type =
-      ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_FULL;
+      sliceConfig;
+  if (op->conv2d_slice_config()) {
+    sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
+  }
 
   ResultWithOptions result = ::ttnn::conv2d(
       input, weight, &targetDevice, op->in_channels(), op->out_channels(),

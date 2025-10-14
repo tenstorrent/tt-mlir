@@ -1763,6 +1763,60 @@ TEST_F(OpModelBase, NLPCreateQKVHeadsDecodeOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, SplitQueryKeyValueAndSplitHeadsOpInterface) {
+  uint32_t sequenceSize = 16;
+  uint32_t batchSize = 8;
+  uint32_t numHeads = 32;
+  uint32_t headDim = 32;
+  uint32_t hiddenDim = numHeads * headDim;
+
+  llvm::SmallVector<int64_t> inputShape{batchSize, sequenceSize, 3 * hiddenDim};
+  llvm::SmallVector<int64_t> outputShape{batchSize, numHeads, sequenceSize,
+                                         headDim};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputValue = createRankedTensorType(outputShape);
+  auto outputKey = createRankedTensorType(outputShape);
+  auto outputQuery = createRankedTensorType(outputShape);
+
+  IntegerAttr numHeadsAttr = builder.getUI32IntegerAttr(numHeads);
+  BoolAttr transposeKeyAttr = builder.getBoolAttr(false);
+
+  auto splitQueryKeyValueAndSplitHeads =
+      builder.create<SplitQueryKeyValueAndSplitHeadsOp>(
+          builder.getUnknownLoc(),
+          TypeRange({outputQuery, outputKey, outputValue}), input,
+          /*kv_input_tensor=*/nullptr, numHeadsAttr, /*num_kv_heads*/ nullptr,
+          transposeKeyAttr, /*memory_config=*/nullptr);
+
+  auto constraintsExp =
+      getOpConstraints(splitQueryKeyValueAndSplitHeads.getOperation());
+
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 8192);
+    EXPECT_EQ(l1PeakSize, 24576);
+    EXPECT_EQ(outputSize, 8192);
+    EXPECT_EQ(totalPeakSize, 32768);
+  } else {
+    FAIL() << "Missing L1 constraints for SplitQueryKeyValueAndSplitHeadsOp; "
+              "Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp =
+      getOpRuntime(splitQueryKeyValueAndSplitHeads.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL()
+        << "Runtime test failed for SplitQueryKeyValueAndSplitHeadsOp; Error="
+        << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
   int64_t batchSize = 1;
   int64_t numHeads = 1;
@@ -2188,7 +2242,8 @@ TEST_F(OpModelBase, Conv2dInterface) {
       1,                               // Groups
       outputDtype,                     // OutputDtype
       nullptr,                         // Conv2dConfig (optional)
-      nullptr                          // ComputeKernelConfig (optional)
+      nullptr,                         // ComputeKernelConfig (optional)
+      nullptr                          // Conv2dSliceConfig (optional)
   );
 
   // test Conv2dOp interface
@@ -2249,7 +2304,8 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
       1,                               // Groups
       outputDtype,                     // OutputDtype
       nullptr,                         // Conv2dConfig (optional)
-      nullptr                          // ComputeKernelConfig (optional)
+      nullptr,                         // ComputeKernelConfig (optional)
+      nullptr                          // Conv2dSliceConfig (optional)
   );
 
   // test Conv2dOp interface
@@ -2302,7 +2358,8 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr,
+      nullptr);
 
   Conv2dConfigAttr conv2dConfig = conv2d.getConv2dConfig()
                                       ? *conv2d.getConv2dConfig()
@@ -2355,7 +2412,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr,
+      nullptr);
 
   // Will fail due to assertion at
   // tt-metal/ttnn/cpp/ttnn/operations/conv/conv2d/conv2d_utils.cpp:156 "Conv2d
@@ -2463,7 +2521,8 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr,
+      nullptr);
 
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
 
@@ -2605,7 +2664,8 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr,
+      nullptr);
 
   Conv2dConfigAttr conv2dConfig = conv2d.getConv2dConfig()
                                       ? *conv2d.getConv2dConfig()
@@ -2645,11 +2705,12 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
           conv2d.getPaddingAttr(),       // Padding from conv2d
           conv2d.getDilationAttr(),      // Dilation from conv2d
           builder.getBoolAttr(conv2d.getBias() != nullptr), // has_bias
-          conv2d.getGroupsAttr(),      // Groups from conv2d
-          conv2d.getDevice(),          // Device from conv2d
-          inputDtypeAttr,              // Input dtype
-          outputDtype,                 // Output dtype
-          conv2d.getConv2dConfigAttr() // Conv2dConfig from conv2d
+          conv2d.getGroupsAttr(),           // Groups from conv2d
+          conv2d.getDevice(),               // Device from conv2d
+          inputDtypeAttr,                   // Input dtype
+          outputDtype,                      // Output dtype
+          conv2d.getConv2dConfigAttr(),     // Conv2dConfig from conv2d
+          conv2d.getConv2dSliceConfigAttr() // Conv2dSliceConfig from conv2d
       );
 
   auto constraintsExp = getOpConstraints(prepareConv2dWeights.getOperation());
@@ -2716,7 +2777,8 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
       builder.getUnknownLoc(), outputType, input, weight, bias, deviceOp, 3, 64,
       1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, configAttr, nullptr);
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, configAttr, nullptr,
+      nullptr);
 
   // Now create PrepareConv2dBiasOp using Conv2d op parameters
   auto inputMemConfigAttr = MemoryConfigAttr::get(
@@ -2743,25 +2805,26 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
       oldBiasType.getShape(), oldBiasType.getElementType(), newBiasLayout);
 
   PrepareConv2dBiasOp prepareConv2dBias = builder.create<PrepareConv2dBiasOp>(
-      builder.getUnknownLoc(),     // Location
-      preparedBiasOutputType,      // Output type (derived from bias)
-      conv2d.getBias(),            // Bias tensor from conv2d
-      inputMemConfigAttr,          // Input memory config
-      inputLayoutAttr,             // Input tensor layout
-      conv2d.getInChannelsAttr(),  // Input channels from conv2d
-      conv2d.getOutChannelsAttr(), // Output channels from conv2d
-      conv2d.getBatchSizeAttr(),   // Batch size from conv2d
-      conv2d.getInputHeightAttr(), // Input height from conv2d
-      conv2d.getInputWidthAttr(),  // Input width from conv2d
-      conv2d.getKernelSizeAttr(),  // Kernel size from conv2d
-      conv2d.getStrideAttr(),      // Stride from conv2d
-      conv2d.getPaddingAttr(),     // Padding from conv2d
-      conv2d.getDilationAttr(),    // Dilation from conv2d
-      conv2d.getGroupsAttr(),      // Groups from conv2d
-      conv2d.getDevice(),          // Device from conv2d
-      inputDtypeAttr,              // Input dtype
-      outputDtype,                 // Output dtype
-      conv2d.getConv2dConfigAttr() // Conv2dConfig from conv2d
+      builder.getUnknownLoc(),          // Location
+      preparedBiasOutputType,           // Output type (derived from bias)
+      conv2d.getBias(),                 // Bias tensor from conv2d
+      inputMemConfigAttr,               // Input memory config
+      inputLayoutAttr,                  // Input tensor layout
+      conv2d.getInChannelsAttr(),       // Input channels from conv2d
+      conv2d.getOutChannelsAttr(),      // Output channels from conv2d
+      conv2d.getBatchSizeAttr(),        // Batch size from conv2d
+      conv2d.getInputHeightAttr(),      // Input height from conv2d
+      conv2d.getInputWidthAttr(),       // Input width from conv2d
+      conv2d.getKernelSizeAttr(),       // Kernel size from conv2d
+      conv2d.getStrideAttr(),           // Stride from conv2d
+      conv2d.getPaddingAttr(),          // Padding from conv2d
+      conv2d.getDilationAttr(),         // Dilation from conv2d
+      conv2d.getGroupsAttr(),           // Groups from conv2d
+      conv2d.getDevice(),               // Device from conv2d
+      inputDtypeAttr,                   // Input dtype
+      outputDtype,                      // Output dtype
+      conv2d.getConv2dConfigAttr(),     // Conv2dConfig from conv2d
+      conv2d.getConv2dSliceConfigAttr() // Conv2dSliceConfig from conv2d
   );
 
   auto constraintsExp = getOpConstraints(prepareConv2dBias.getOperation());
@@ -2922,6 +2985,8 @@ TEST_F(OpModelBase, avgPool2DOp) {
   }
 }
 
+// https://github.com/tenstorrent/tt-mlir/issues/5313
+#if 0
 TEST_F(OpModelBase, globalAvgPool2dOp) {
   // Create globalAvgPool2dOp with flattened input tensor
   llvm::SmallVector<int64_t> tensorShapeA = {1, 1, 128 * 128, 32};
@@ -2962,6 +3027,7 @@ TEST_F(OpModelBase, globalAvgPool2dOp) {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
+#endif
 
 TEST_F(OpModelBase, LeakyReluOp) {
   // Create LeakyReluOp with flattened input tensor

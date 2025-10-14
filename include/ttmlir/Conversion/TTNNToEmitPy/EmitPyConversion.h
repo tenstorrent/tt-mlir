@@ -67,6 +67,7 @@ enum class VecMode {
 
 namespace conv::conv2d {
 struct Conv2dConfig;
+struct Conv2dSliceConfig;
 } // namespace conv::conv2d
 } // namespace operations
 } // namespace ttnn
@@ -104,6 +105,11 @@ struct TypeName<::ttnn::Tensor> {
 template <>
 struct TypeName<::ttnn::operations::conv::conv2d::Conv2dConfig> {
   inline static const std::string value = "ttnn.Conv2dConfig";
+};
+
+template <>
+struct TypeName<::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
+  inline static const std::string value = "ttnn.Conv2dSliceConfig";
 };
 
 template <typename T>
@@ -1138,6 +1144,49 @@ struct EmitPyTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
   }
 };
 
+template <>
+struct EmitPyTypeConverter<
+    ::ttnn::operations::conv::conv2d::Conv2dSliceConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto conv2dSliceConfigAttr =
+            mlir::dyn_cast_if_present<ttnn::Conv2dSliceConfigAttr>(attr)) {
+      return convert(conv2dSliceConfigAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::Conv2dSliceConfigAttr attr) {
+    if (!attr) {
+      return TypeNameV<std::nullopt_t>;
+    }
+
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<
+               ::ttnn::operations::conv::conv2d::Conv2dSliceConfig> << "(";
+    rso << "slice_type=";
+    // Convert enum to proper C++ enum value instead of integer
+    switch (attr.getSliceType()) {
+    case ttnn::Conv2dSliceType::DramHeight:
+      rso << "ttnn.Conv2dDRAMSliceHeight";
+      break;
+    case ttnn::Conv2dSliceType::DramWidth:
+      rso << "ttnn.Conv2dDRAMSliceWidth";
+      break;
+    case ttnn::Conv2dSliceType::L1Full:
+      rso << "ttnn.Conv2dL1Full";
+      break;
+    }
+    rso << ", ";
+    rso << "num_slices="
+        << EmitPyTypeConverter<uint32_t>::convert(attr.getNumSlices());
+    rso << ")";
+
+    return buf;
+  }
+};
+
 // This template struct retrieves the most relevant C++ type with a one-to-one
 // Python type correspondence for a given template type.
 template <typename T>
@@ -1218,6 +1267,11 @@ struct TTNNTarget<mlir::tt::ttnn::Conv2dConfigAttr> {
   using type = ::ttnn::operations::conv::conv2d::Conv2dConfig;
 };
 
+template <>
+struct TTNNTarget<tt::ttnn::Conv2dSliceConfigAttr> {
+  using type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig;
+};
+
 template <typename T>
 struct IsMLIRType {
   static constexpr bool value = std::is_convertible_v<T, mlir::Attribute> ||
@@ -1289,22 +1343,22 @@ public:
     return rewriter.getIndexAttr(operands.size() - 1);
   }
 
-  mlir::Attribute emit(mlir::Operation::operand_range operands,
+  mlir::Attribute emit(mlir::Operation::operand_range operandRange,
                        std::string attrName = "") {
     for (mlir::OpOperand &opOperand : op->getOpOperands()) {
       auto begin =
           std::next(op->getOperands().begin(), opOperand.getOperandNumber());
       if (mlir::Operation::operand_range(
-              begin, std::next(begin, operands.size())) != operands) {
+              begin, std::next(begin, operandRange.size())) != operandRange) {
         continue;
       }
       unsigned index = opOperand.getOperandNumber();
       llvm::SmallVector<mlir::Value> values(
           adaptor.getOperands().begin() + index,
-          adaptor.getOperands().begin() + index + operands.size());
+          adaptor.getOperands().begin() + index + operandRange.size());
       this->operands.push_back(createList(values));
       addKeywordArgument(attrName);
-      return rewriter.getIndexAttr(operands.size() - 1);
+      return rewriter.getIndexAttr(this->operands.size() - 1);
     }
     llvm_unreachable("Invalid operand range");
   }
