@@ -116,11 +116,12 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Number of backing buffers to allocate per stream storage "
                      "(>=1). Default is 2."),
       llvm::cl::init(2)};
-  // Allocator will not consider generic outputs eligible for spilling
-  // unless this option is turned on.
-  Option<bool> allowOutputSpilling{
-      *this, "allow-output-spilling",
-      llvm::cl::desc("Make generic outputs eligible for spilling to DRAM."),
+  // Allocator will not consider generic outputs in L1 eligible for spilling
+  // unless this option is turned on. DRAM outputs are always spilled.
+  Option<bool> allowL1OutputSpilling{
+      *this, "allow-l1-output-spilling",
+      llvm::cl::desc(
+          "Make generic outputs in L1 eligible for spilling to DRAM."),
       llvm::cl::init(false)};
 
   // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
