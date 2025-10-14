@@ -91,9 +91,8 @@ class StableHLOBuilder(Builder):
             )
 
             if organize_stablehlo_args is not None:
-                stablehlo_args = organize_stablehlo_args(inputs)
                 op = op_stablehlo_function(
-                    *stablehlo_args,
+                    *organize_stablehlo_args(inputs),
                     loc=loc,
                     **stablehlo_kwargs,
                 )
@@ -303,10 +302,9 @@ class StableHLOBuilder(Builder):
         (*OpView*)
         """
         from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType
-        from ttmlir.dialects.stablehlo import DotDimensionNumbers
 
         # Create dimension numbers attribute using proper MLIR attribute construction
-        dot_dimension_numbers = DotDimensionNumbers.get(
+        dot_dimension_numbers = stablehlo.DotDimensionNumbers.get(
             context=self._ctx,
             lhs_batching_dimensions=batch_dims_lhs,
             lhs_contracting_dimensions=contract_dims_lhs,
