@@ -6,6 +6,7 @@ import model_explorer
 from . import runner, utils, mlir
 import dataclasses
 import logging
+import os
 from ttmlir import optimizer_overrides
 
 OVERRIDE_PARAMETER_DISABLED_STR = "None"
@@ -142,7 +143,7 @@ class TTAdapter(model_explorer.Adapter):
         description="Adapter for Tenstorrent MLIR dialects used in the Forge compiler.",
         source_repo="https://github.com/tenstorrent/tt-mlir/tree/main/tools/explorer/tt_adapter",
         fileExts=["mlir", "ttir", "ttnn"],
-        settings={"optimizationPolicies": list(OPTIMIZATION_POLICIES.keys())},
+        settings={"optimizationPolicies": list(OPTIMIZATION_POLICIES.keys()), "supportsPreload": True },
     )
     model_runner = None
 
@@ -152,18 +153,10 @@ class TTAdapter(model_explorer.Adapter):
         self.model_runner = runner.ModelRunner()
 
     def preload(self, model_path: str, settings: Dict):
-        graph_paths = []
+        # TODO(ctr-mcampos): update path to be configurable
+        graph_paths = [os.path.abspath(os.path.join('ir_dumps', file)) for file in os.listdir('ir_dumps')]
 
-        return {"graphs": [{
-            "adapterInfo": {
-                "id": self.metadata.id,
-                "name": self.metadata.name,
-                "description": self.metadata.description,
-                "type": "adapter",
-                "fileExts": self.metadata.fileExts
-            },
-            "graphPaths": graph_paths
-        }]}
+        return {"graphs": graph_paths}
 
     def convert(
         self, model_path: str, settings: Dict
