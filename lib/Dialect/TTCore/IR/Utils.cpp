@@ -170,4 +170,31 @@ llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape) {
   return {collapsedHeight, width};
 }
 
+// Collapse an N-D grid indexing affine map to 2D by summing all leading
+// result expressions except the last one.
+// e.g., (d0, d1, d2, d3) -> (r0, r1, r2, r3)  becomes
+//       (d0, d1, d2, d3) -> (r2, r3)
+
+mlir::AffineMap collapseGridIndexingMapTo2D(mlir::AffineMap gridIndexingMap) {
+  unsigned numResults = gridIndexingMap.getNumResults();
+  if (numResults <= 2) {
+    // Already 2D or less, return as-is.
+    return gridIndexingMap;
+  }
+
+  mlir::MLIRContext *context = gridIndexingMap.getContext();
+  SmallVector<mlir::AffineExpr> newResults;
+
+  // Drop all leading grid dimensions (all except the last one) by summing.
+  // This matches collapseGridTo2D which does [a, b, c, d] -> [c, d].
+  newResults.push_back(gridIndexingMap.getResult(numResults - 2));
+
+  // Keep the last result as grid_x.
+  newResults.push_back(gridIndexingMap.getResult(numResults - 1));
+
+  return mlir::AffineMap::get(gridIndexingMap.getNumDims(),
+                              gridIndexingMap.getNumSymbols(), newResults,
+                              context);
+}
+
 } // namespace mlir::tt::ttcore

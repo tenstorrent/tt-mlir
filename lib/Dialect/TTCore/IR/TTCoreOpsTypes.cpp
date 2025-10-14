@@ -1372,6 +1372,40 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
   return get(context, systemDesc, meshShape, chipIds);
 }
 
+mlir::AffineMap collapseAffineMapWorkaround(mlir::AffineMap affineMap,
+                                            ArrayRef<int64_t> shape) {
+  // logic for collapsing the affine map to a 2D grid shape and a 1D shard
+  // offset always collapse the leading dimensions to grid_y
+
+  unsigned numResults = affineMap.getNumResults();
+  if (numResults <= 2) {
+    // Already collapsed or too few results, return as-is
+    return affineMap;
+  }
+
+  mlir::MLIRContext *context = affineMap.getContext();
+  SmallVector<mlir::AffineExpr> newResults;
+
+  // Sum all results except the last 2 to create grid_y
+  // mlir::AffineExpr gridY = getAffineConstantExpr(0, context);
+  // for (unsigned i = 0; i < numResults - 2; ++i) {
+  //   gridY = gridY + affineMap.getResult(i);
+  // }
+  // newResults.push_back(gridY);
+
+  // Keep the fourth-to-last result as grid_y
+  newResults.push_back(affineMap.getResult(numResults - 4));
+
+  // Keep the second-to-last result as grid_x
+  newResults.push_back(affineMap.getResult(numResults - 2));
+
+  // Keep the last result as the shard offset
+  newResults.push_back(affineMap.getResult(numResults - 1));
+
+  return mlir::AffineMap::get(affineMap.getNumDims(), affineMap.getNumSymbols(),
+                              newResults, context);
+}
+
 mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
                                          std::optional<AffineMap> view,
                                          size_t baseOffset) const {
@@ -1381,6 +1415,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
   if (view) {
     affineMap = affineMap.compose(*view);
   }
+  affineMap = collapseAffineMapWorkaround(affineMap, memrefType.getShape());
 
   if (mlir::isa<ShardLayoutAttr>(memrefType.getLayout())) {
 
@@ -1421,7 +1456,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
                    : interleavedLayout.getStride().front();
 
     // interleaved layout for DRAM is constrained to have unit grid dims,
-    // similar to TTNNLayoutAttr convention
+    // similar to TTNNLayoutAttr convention.
     assert(ttmlir::utils::volume(interleavedLayout.getGridShape(memrefType)) ==
                1 &&
            "All dims in grid shape for DRAM interleaved memref must be 1 (i.e. "

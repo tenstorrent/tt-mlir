@@ -61,6 +61,7 @@ def test_tilize(shape: Shape, target: str, request, device):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir="True",
     )
 
 
