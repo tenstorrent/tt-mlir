@@ -1798,22 +1798,12 @@ normalizeToNCHW(mlir::Value input, uint64_t featureIndex,
   // If feature index is not 1, permute the input tensor so that the feature
   // dimension is at index 1 (NCHW format).
   if (featureIndex != 1) {
-    llvm::SmallVector<int64_t> permutation;
-    llvm::SmallVector<int64_t> permutedShape;
-
     // Build permutation to move featureIndex to position 1.
-    for (int64_t i = 0; i < inputType.getRank(); ++i) {
-      if (i == 1) {
-        permutation.push_back(featureIndex);
-        permutedShape.push_back(currentShape[featureIndex]);
-      } else if (static_cast<uint64_t>(i) == featureIndex) {
-        permutation.push_back(1);
-        permutedShape.push_back(currentShape[1]);
-      } else {
-        permutation.push_back(i);
-        permutedShape.push_back(currentShape[i]);
-      }
-    }
+    llvm::SmallVector<int64_t> permutation(currentShape.size());
+    std::iota(permutation.begin(), permutation.end(), 0);
+    std::swap(permutation[featureIndex], permutation[1]);
+    llvm::SmallVector<int64_t> permutedShape = ttmlir::utils::applyPermutation(
+        llvm::ArrayRef(currentShape), llvm::ArrayRef(permutation));
 
     newInput = ttir::utils::createDPSOp<mlir::tt::ttir::PermuteOp>(
         rewriter, loc, permutedShape, inputType.getElementType(),
@@ -1889,16 +1879,9 @@ static mlir::Value denormalizeFromNCHW(mlir::Value output,
   if (originalFeatureIndex != 1) {
     // The inverse permutation is the same as the forward permutation
     // (swapping dimensions 1 and featureIndex is its own inverse)
-    llvm::SmallVector<int64_t> permutation;
-    for (int64_t i = 0; i < static_cast<int64_t>(originalShape.size()); ++i) {
-      if (i == 1) {
-        permutation.push_back(originalFeatureIndex);
-      } else if (static_cast<uint64_t>(i) == originalFeatureIndex) {
-        permutation.push_back(1);
-      } else {
-        permutation.push_back(i);
-      }
-    }
+    llvm::SmallVector<int64_t> permutation(originalShape.size());
+    std::iota(permutation.begin(), permutation.end(), 0);
+    std::swap(permutation[1], permutation[originalFeatureIndex]);
 
     result = ttir::utils::createDPSOp<mlir::tt::ttir::PermuteOp>(
         rewriter, loc, originalShape, outputType.getElementType(),
@@ -1986,18 +1969,11 @@ public:
     uint64_t featureIndex =
         adaptor.getDimensionAttr().getValue().getZExtValue();
 
-    // Normalize input to NCHW format
-    auto [normalizedInput, normalizedShape] =
-        normalizeToNCHW(adaptor.getOperand(), featureIndex, rewriter, loc);
-
-    // Reshape weight tensors to 4D (existing logic for TTNN compatibility)
     auto meanType = mlir::cast<RankedTensorType>(adaptor.getMean().getType());
     if (!isValidBatchNormWeightType(meanType)) {
       return rewriter.notifyMatchFailure(
           op, "BatchNormInferenceOp mean must be 1D tensor");
     }
-    mlir::Value mean_4d =
-        getBatchNorm4DTensor(rewriter, loc, adaptor.getMean());
 
     auto varType =
         mlir::cast<RankedTensorType>(adaptor.getVariance().getType());
@@ -2005,8 +1981,6 @@ public:
       return rewriter.notifyMatchFailure(
           op, "BatchNormInferenceOp var must be 1D or 4D tensor");
     }
-    mlir::Value variance_4d =
-        getBatchNorm4DTensor(rewriter, loc, adaptor.getVariance());
 
     auto weightType =
         mlir::cast<RankedTensorType>(adaptor.getScale().getType());
@@ -2014,15 +1988,24 @@ public:
       return rewriter.notifyMatchFailure(
           op, "BatchNormInferenceOp weight must be 1D or 4D tensor");
     }
-    mlir::Value scale_4d =
-        getBatchNorm4DTensor(rewriter, loc, adaptor.getScale());
 
     auto biasType = mlir::cast<RankedTensorType>(adaptor.getOffset().getType());
     if (!isValidBatchNormWeightType(biasType)) {
       return rewriter.notifyMatchFailure(
           op, "BatchNormInferenceOp bias must be 1D or 4D tensor");
     }
-    mlir::Value offset_4d =
+
+    // Normalize input to NCHW format
+    auto [normalizedInput, normalizedShape] =
+        normalizeToNCHW(adaptor.getOperand(), featureIndex, rewriter, loc);
+
+    // Reshape weight tensors to 4D (existing logic for TTNN compatibility)
+    mlir::Value mean4D = getBatchNorm4DTensor(rewriter, loc, adaptor.getMean());
+    mlir::Value variance4D =
+        getBatchNorm4DTensor(rewriter, loc, adaptor.getVariance());
+    mlir::Value scale4D =
+        getBatchNorm4DTensor(rewriter, loc, adaptor.getScale());
+    mlir::Value offset4D =
         getBatchNorm4DTensor(rewriter, loc, adaptor.getOffset());
 
     // Create output type with normalized shape
@@ -2039,8 +2022,8 @@ public:
     // Create the BatchNorm op with normalized input and 4D weight tensors
     auto batchNormInferenceOp =
         ttir::utils::createDPSOp<mlir::tt::ttir::BatchNormInferenceOp>(
-            rewriter, loc, normalizedOutputType, normalizedInput, scale_4d,
-            offset_4d, mean_4d, variance_4d, adaptor.getEpsilonAttr(),
+            rewriter, loc, normalizedOutputType, normalizedInput, scale4D,
+            offset4D, mean4D, variance4D, adaptor.getEpsilonAttr(),
             dimensionAttr);
 
     // Denormalize output back to original layout
@@ -2073,18 +2056,11 @@ public:
     uint64_t featureIndex =
         adaptor.getDimensionAttr().getValue().getZExtValue();
 
-    // Normalize input to NCHW format
-    auto [normalizedInput, normalizedShape] =
-        normalizeToNCHW(adaptor.getOperand(), featureIndex, rewriter, loc);
-
-    // Reshape all weight tensors to 4D (for TTNN compatibility)
     auto scaleType = mlir::cast<RankedTensorType>(adaptor.getScale().getType());
     if (!isValidBatchNormWeightType(scaleType)) {
       return rewriter.notifyMatchFailure(
           op, "BatchNormTrainingOp scale must be 1D or 4D tensor");
     }
-    mlir::Value scale_4d =
-        getBatchNorm4DTensor(rewriter, loc, adaptor.getScale());
 
     auto offsetType =
         mlir::cast<RankedTensorType>(adaptor.getOffset().getType());
@@ -2092,8 +2068,6 @@ public:
       return rewriter.notifyMatchFailure(
           op, "BatchNormTrainingOp offset must be 1D or 4D tensor");
     }
-    mlir::Value offset_4d =
-        getBatchNorm4DTensor(rewriter, loc, adaptor.getOffset());
 
     auto meanType =
         mlir::cast<RankedTensorType>(adaptor.getRunningMean().getType());
@@ -2101,8 +2075,6 @@ public:
       return rewriter.notifyMatchFailure(
           op, "BatchNormTrainingOp running_mean must be 1D or 4D tensor");
     }
-    mlir::Value mean_4d =
-        getBatchNorm4DTensor(rewriter, loc, adaptor.getRunningMean());
 
     auto varType =
         mlir::cast<RankedTensorType>(adaptor.getRunningVariance().getType());
@@ -2110,7 +2082,19 @@ public:
       return rewriter.notifyMatchFailure(
           op, "BatchNormTrainingOp running_variance must be 1D or 4D tensor");
     }
-    mlir::Value variance_4d =
+
+    // Normalize input to NCHW format
+    auto [normalizedInput, normalizedShape] =
+        normalizeToNCHW(adaptor.getOperand(), featureIndex, rewriter, loc);
+
+    // Reshape all weight tensors to 4D (for TTNN compatibility)
+    mlir::Value scale4D =
+        getBatchNorm4DTensor(rewriter, loc, adaptor.getScale());
+    mlir::Value offset4D =
+        getBatchNorm4DTensor(rewriter, loc, adaptor.getOffset());
+    mlir::Value mean4D =
+        getBatchNorm4DTensor(rewriter, loc, adaptor.getRunningMean());
+    mlir::Value variance4D =
         getBatchNorm4DTensor(rewriter, loc, adaptor.getRunningVariance());
 
     // Create output types with normalized shape and 4D weight tensors
@@ -2121,8 +2105,8 @@ public:
         originalOutputType.getEncoding());
 
     // running_mean and running_variance results should be 4D [1, C, 1, 1]
-    auto mean4DType = mlir::cast<RankedTensorType>(mean_4d.getType());
-    auto variance4DType = mlir::cast<RankedTensorType>(variance_4d.getType());
+    auto mean4DType = mlir::cast<RankedTensorType>(mean4D.getType());
+    auto variance4DType = mlir::cast<RankedTensorType>(variance4D.getType());
 
     // Create new empty tensors with normalized shapes for DPS outputs
     auto outputEmpty =
@@ -2140,7 +2124,7 @@ public:
     // tensors
     auto batchNormTrainingOp = rewriter.create<ttir::BatchNormTrainingOp>(
         loc, TypeRange{normalizedOutputType, mean4DType, variance4DType},
-        normalizedInput, scale_4d, offset_4d, mean_4d, variance_4d,
+        normalizedInput, scale4D, offset4D, mean4D, variance4D,
         ValueRange{outputEmpty, batchMeanEmpty, batchVarianceEmpty},
         adaptor.getEpsilonAttr(), dimensionAttr, adaptor.getMomentumAttr());
 
