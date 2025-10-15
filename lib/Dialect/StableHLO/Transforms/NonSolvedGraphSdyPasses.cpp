@@ -8,9 +8,8 @@
 #include "mlir/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 
-#include "ttmlir/Dialect/StableHLO/Pipelines/StableHLOPipelines.h"
 #include "shardy/dialect/sdy/transforms/propagation/aggressive_propagation.h"
-
+#include "ttmlir/Dialect/StableHLO/Pipelines/StableHLOPipelines.h"
 
 namespace mlir::tt::stablehlo {
 
@@ -22,10 +21,10 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_CLOSESHARDINGSPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
-
 // Wrapper for sdy::createApplyShardingConstraintsPass
 class ApplyShardingConstraintsPass
-    : public impl::ApplyShardingConstraintsPassBase<ApplyShardingConstraintsPass> {
+    : public impl::ApplyShardingConstraintsPassBase<
+          ApplyShardingConstraintsPass> {
 
 public:
   using impl::ApplyShardingConstraintsPassBase<
@@ -72,7 +71,8 @@ public:
     mlir::sdy::PropagationOptions propagationOptions;
     mlir::sdy::PropagationStrategy propagationStrategy =
         mlir::sdy::PropagationStrategy::Aggressive;
-    propagationOptions.conservativePropagation = true; // Use default conservative setting
+    propagationOptions.conservativePropagation =
+        true; // Use default conservative setting
     pm.addPass(mlir::sdy::createAggressivePropagationPass(propagationOptions,
                                                           propagationStrategy));
     if (failed(pm.run(module))) {
@@ -83,7 +83,8 @@ public:
 
 // Wrapper for sdy::createShardingConstraintToReshardPass
 class ShardingConstraintToReshardPass
-    : public impl::ShardingConstraintToReshardPassBase<ShardingConstraintToReshardPass> {
+    : public impl::ShardingConstraintToReshardPassBase<
+          ShardingConstraintToReshardPass> {
 
 public:
   using impl::ShardingConstraintToReshardPassBase<
@@ -189,6 +190,5 @@ public:
     }
   }
 };
-
 
 } // namespace mlir::tt::stablehlo
