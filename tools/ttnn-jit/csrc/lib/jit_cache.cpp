@@ -9,7 +9,6 @@
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include "ttnn/tensor/tensor.hpp"
-// #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
 #include <cstddef>
 #include <tt_stl/reflection.hpp>
@@ -26,10 +25,6 @@ void JitCache::compile(Operation *op, std::string options) {
   mlir::MLIRContext *context = op->getContext();
   context->appendDialectRegistry(registry);
   context->loadAllAvailableDialects();
-
-  // RTTI linking issues if we don't use pipeline lookup.
-  // mlir::tt::ttmetal::createTTIRToTTMetalPipeline(pm,
-  // mlir::tt::ttmetal::TTIRToTTMetalPipelineOptions());
   pm.addPass(tt::createConvertTTNNToTTIRPass());
   const auto *pipeline =
       mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-pipeline");
