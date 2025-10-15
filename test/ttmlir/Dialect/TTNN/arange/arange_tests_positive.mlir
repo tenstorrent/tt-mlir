@@ -19,7 +19,7 @@ module attributes {} {
     // Verify that the arange is op in IR is before both reshape ops
     // CHECK: "ttnn.arange"
     // CHECK: "ttnn.reshape"
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.view"
     return %2, %4: tensor<1x1024x1xi32>, tensor<1x1x1024xi32>
   }
 }

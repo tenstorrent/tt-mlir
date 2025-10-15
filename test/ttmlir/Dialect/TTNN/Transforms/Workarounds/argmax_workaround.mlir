@@ -26,7 +26,7 @@ module attributes {} {
     // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: (tensor<1x1x64x1xui32
     // CHECK-SAME: -> tensor<1x1x64x1xui32
-    // CHECK: = "ttnn.reshape"(%[[TO_LAYOUT]])
+    // CHECK: = "ttnn.view"(%[[TO_LAYOUT]])
     // CHECK-SAME: {shape = [64 : i32, 1 : i32]}
     // CHECK-SAME: tensor<1x1x64x1xui32
     // CHECK-SAME: -> tensor<64x1xui32

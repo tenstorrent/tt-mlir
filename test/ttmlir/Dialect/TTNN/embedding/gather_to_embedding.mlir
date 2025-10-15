@@ -114,7 +114,7 @@ module attributes {} {
   func.func @gather_6(%operand: tensor<1xbf16>, %start_indices: tensor<1xi32>) -> (tensor<1xbf16> {jax.result_info = "result"}) {
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<1x1xui32, {{.+}}>, tensor<1x1xbf16, {{.+}}>) -> tensor<1x1x1xbf16, {{.+}}>
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.view"
     %0 = ttir.empty() : tensor<1xbf16>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0>,
@@ -132,7 +132,7 @@ module attributes {} {
   func.func @gather_7(%operand: tensor<6xbf16>, %start_indices: tensor<1xi32>) -> (tensor<1xbf16> {jax.result_info = "result"}) {
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<1x1xui32, {{.+}}>, tensor<6x1xbf16, {{.+}}>) -> tensor<1x1x1xbf16, {{.+}}>
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.view"
     %0 = ttir.empty() : tensor<1xbf16>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0>,
@@ -189,7 +189,7 @@ module attributes {} {
     // CHECK: "ttnn.matmul"
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<1x1xui32, {{.+}}>, tensor<6x3xbf16, {{.+}}>) -> tensor<1x1x3xbf16, {{.+}}>
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.view"
     %0 = ttir.empty() : tensor<1x3xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0, 1>,
@@ -273,7 +273,7 @@ module attributes {} {
     // CHECK: "ttnn.matmul"
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<1x1xui32, {{.+}}>, tensor<7x2xbf16, {{.+}}>) -> tensor<1x1x2xbf16, {{.+}}>
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.view"
     %0 = ttir.empty() : tensor<1x2xbf16>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0, 1>,
@@ -294,7 +294,7 @@ module attributes {} {
     // CHECK: "ttnn.matmul"
     // CHECK: "ttnn.embedding"
     // CHECK-SAME: (tensor<1x1xui32, {{.+}}>, tensor<18x4xbf16, {{.+}}>) -> tensor<1x1x4xbf16, {{.+}}>
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.view"
     %0 = ttir.empty() : tensor<1x4xf32>
     %1 = "ttir.gather"(%operand, %start_indices, %0) <{
         collapsed_slice_dims = array<i64: 0, 1, 2>,

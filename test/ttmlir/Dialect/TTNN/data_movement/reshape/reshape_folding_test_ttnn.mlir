@@ -42,10 +42,10 @@ module {
     // Verify that both reshapes exists.
     // CHECK: "ttnn.reshape"(%arg0
     // CHECK: "ttnn.update_cache"(%0
-    // CHECK: "ttnn.reshape"(%0
+    // CHECK: "ttnn.view"(%0
     %0 = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 12 : i32, 32 : i32, 64 : i32]}> : (tensor<1x1x12x32x64xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3, d4) -> (d0 * 384 + d1 * 384 + d2 * 32 + d3, d4), <1x1>, memref<12x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> tensor<1x12x32x64xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 384 + d1 * 32 + d2, d3), <1x1>, memref<12x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
     "ttnn.update_cache"(%0, %arg1, %arg2) <{batch_offset = 0 : i32}> : (tensor<1x12x32x64xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 384 + d1 * 32 + d2, d3), <1x1>, memref<12x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>, tensor<1x12x1x64xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 384 + d1 * 32 + d2, d3), <1x1>, memref<12x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>, tensor<1xsi32, #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x1x!ttcore.tile<32x32, si32>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> ()
-    %1 = "ttnn.reshape"(%0) <{shape = [1 : i32, 1 : i32, 12 : i32, 32 : i32, 64 : i32]}> : (tensor<1x12x32x64xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 384 + d1 * 32 + d2, d3), <1x1>, memref<12x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> tensor<1x1x12x32x64xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3, d4) -> (d0 * 384 + d1 * 384 + d2 * 32 + d3, d4), <1x1>, memref<12x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
+    %1 = "ttnn.view"(%0) <{shape = [1 : i32, 1 : i32, 12 : i32, 32 : i32, 64 : i32]}> : (tensor<1x12x32x64xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 384 + d1 * 32 + d2, d3), <1x1>, memref<12x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>) -> tensor<1x1x12x32x64xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3, d4) -> (d0 * 384 + d1 * 384 + d2 * 32 + d3, d4), <1x1>, memref<12x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
     return %1 : tensor<1x1x12x32x64xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3, d4) -> (d0 * 384 + d1 * 384 + d2 * 32 + d3, d4), <1x1>, memref<12x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
   }
 }
