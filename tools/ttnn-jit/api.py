@@ -93,9 +93,19 @@ def jit(
                     raise NotImplementedError("Metal runtime is not implemented yet")
             elif backend == "ttnn":
                 options = f"system-desc-path={system_desc_path} ttnn-mode=true"
+                if compile_only:
+                    ir = ttnn_to_ttmetal_pipeline(ir, options)
+                    print("---- After ttnn_to_ttmetal_pipeline ----")
+                    print(ir)
+                    flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttn")
+                    ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+                    print(f"Flatbuffer created successfully at: {flatbuffer_bin}")
+                    return ir
 
+                func_sig = f"{f.__name__}{sig}"
+                print(f"func_sig: {func_sig}")
                 fb_capsule = _cache.get(
-                    f.__name__, str(ir), options, backend, max_grid, *args
+                    func_sig, str(ir), options, backend, max_grid, *args
                 )
                 print(f"Cache hits: {_cache.cache_hits()}\n")
                 return _run_binary_from_capsule(fb_capsule, args)

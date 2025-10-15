@@ -4,16 +4,15 @@
 
 #include "jit_cache.h"
 
-#include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
-#include <cstddef>
-#include <tt_stl/reflection.hpp>
-// #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 #include "mlir/Pass/PassManager.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/RegisterAll.h"
+#include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include "ttnn/tensor/tensor.hpp"
-#include "llvm/Support/raw_ostream.h"
+// #include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 
+#include <cstddef>
+#include <tt_stl/reflection.hpp>
 namespace mlir::tt::ttnn::jit {
 
 JitCache::JitCache(std::size_t cacheSize) {
@@ -27,11 +26,12 @@ std::shared_ptr<void> JitCache::get(
     const std::vector<::ttnn::Tensor> &tensor_args,
     const std::vector<std::variant<int, bool, float, std::string>> &params,
     std::string options) {
-  std::size_t hash = hash_key(key, tensor_args, params);
 
-  if (cache.contains(hash)) {
+  std::size_t hash = hash_key(key, tensor_args, params);
+  auto it = cache.find(hash);
+  if (it != cache.end()) {
     cache_hits++;
-    return cache[hash].flatbuffer_binary;
+    return it->second.flatbuffer_binary;
   }
 
   mlir::PassManager pm(op->getName());
@@ -66,7 +66,7 @@ std::size_t JitCache::hash_key(
     const std::vector<std::variant<int, bool, float, std::string>> &params)
     const {
   return ttsl::hash::hash_objects_with_default_seed(
-      key.func_name, key.backend, key.max_grid, tensor_args, params);
+      key.func_sig, key.backend, key.max_grid, tensor_args, params);
 }
 
 } // namespace mlir::tt::ttnn::jit
