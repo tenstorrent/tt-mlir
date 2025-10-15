@@ -43,7 +43,7 @@ private:
       const JitCacheKey &key, const std::vector<::ttnn::Tensor> &tensor_args,
       const std::vector<std::variant<int, bool, float, std::string>> &params)
       const;
-
+  void compile(Operation *op, std::string options);
   llvm::DenseMap<std::size_t, JitCacheEntry> cache;
   mlir::DialectRegistry registry;
   uint32_t cache_hits = 0;

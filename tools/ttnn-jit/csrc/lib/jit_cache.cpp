@@ -21,26 +21,15 @@ JitCache::JitCache(std::size_t cacheSize) {
   mlir::tt::registerAllExtensions(registry);
 }
 
-std::shared_ptr<void> JitCache::get(
-    Operation *op, const JitCacheKey &key,
-    const std::vector<::ttnn::Tensor> &tensor_args,
-    const std::vector<std::variant<int, bool, float, std::string>> &params,
-    std::string options) {
-
-  std::size_t hash = hash_key(key, tensor_args, params);
-  auto it = cache.find(hash);
-  if (it != cache.end()) {
-    cache_hits++;
-    return it->second.flatbuffer_binary;
-  }
-
+void JitCache::compile(Operation *op, std::string options) {
   mlir::PassManager pm(op->getName());
   mlir::MLIRContext *context = op->getContext();
   context->appendDialectRegistry(registry);
   context->loadAllAvailableDialects();
 
   // RTTI linking issues if we don't use pipeline lookup.
-  // mlir::tt::ttmetal::createTTIRToTTMetalPipeline(pm, metal_options);
+  // mlir::tt::ttmetal::createTTIRToTTMetalPipeline(pm,
+  // mlir::tt::ttmetal::TTIRToTTMetalPipelineOptions());
   pm.addPass(tt::createConvertTTNNToTTIRPass());
   const auto *pipeline =
       mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-pipeline");
@@ -55,7 +44,21 @@ std::shared_ptr<void> JitCache::get(
   if (mlir::failed(pm.run(op))) {
     throw std::runtime_error("Failed to run pass manager");
   }
+}
 
+std::shared_ptr<void> JitCache::get(
+    Operation *op, const JitCacheKey &key,
+    const std::vector<::ttnn::Tensor> &tensor_args,
+    const std::vector<std::variant<int, bool, float, std::string>> &params,
+    std::string options) {
+
+  std::size_t hash = hash_key(key, tensor_args, params);
+  auto it = cache.find(hash);
+  if (it != cache.end()) {
+    cache_hits++;
+    return it->second.flatbuffer_binary;
+  }
+  compile(op, options);
   std::shared_ptr<void> flatbuffer_binary = ttnnToFlatbuffer(op);
   cache.try_emplace(hash, JitCacheEntry{flatbuffer_binary});
   return flatbuffer_binary;
