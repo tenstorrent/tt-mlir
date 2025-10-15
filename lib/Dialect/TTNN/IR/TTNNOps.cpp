@@ -1367,30 +1367,31 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   return nullptr;
 }
 
-bool isReshapeView(mlir::tt::ttnn::ReshapeOp op) {
-  int64_t inputRank = op.getInput().getType().getRank();
-  int64_t outputRank = op.getResult().getType().getRank();
+static bool isValidTTNNView(const TypedValue<RankedTensorType> &input,
+                            const TypedValue<RankedTensorType> &result) {
+  int64_t inputRank = input.getType().getRank();
+  int64_t outputRank = result.getType().getRank();
   int64_t inputLastDimSize =
-      inputRank >= 1 ? op.getInput().getType().getShape().back() : 1;
+      inputRank >= 1 ? input.getType().getShape().back() : 1;
   int64_t outputLastDimSize =
-      outputRank >= 1 ? op.getResult().getType().getShape().back() : 1;
+      outputRank >= 1 ? result.getType().getShape().back() : 1;
 
   int64_t inputSecondLastDimsSize =
-      inputRank >= 2 ? op.getInput().getType().getShape()[inputRank - 2] : 1;
+      inputRank >= 2 ? input.getType().getShape()[inputRank - 2] : 1;
   int64_t outputSecondLastDimsSize =
-      outputRank >= 2 ? op.getResult().getType().getShape()[outputRank - 2] : 1;
+      outputRank >= 2 ? result.getType().getShape()[outputRank - 2] : 1;
 
   int64_t tileSecondDim = TILE_HEIGHT;
   int64_t tileFirstDim = TILE_WIDTH;
 
-  TTNNLayoutAttr inputLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
-      op.getInput().getType().getEncoding());
+  TTNNLayoutAttr inputLayout =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(input.getType().getEncoding());
   if (!inputLayout) {
     return false;
   }
 
-  TTNNLayoutAttr outputLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
-      op.getResult().getType().getEncoding());
+  TTNNLayoutAttr outputLayout =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(result.getType().getEncoding());
   if (!outputLayout) {
     return false;
   }
@@ -1417,20 +1418,16 @@ void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
             isLastUser = isLastUser && user->isBeforeInBlock(op);
           }
         }
-        bool returnIsUserOrOperandIsFuncArgument = false;
-        for (Operation *user : op.getResult().getUsers()) {
-          if (isa<func::ReturnOp>(user)) {
-            returnIsUserOrOperandIsFuncArgument = true;
-          }
-          Block *block = op->getBlock();
-          for (BlockArgument arg : block->getArguments()) {
-            if (arg == op.getInput()) {
-              returnIsUserOrOperandIsFuncArgument = true;
-            }
+        bool operandIsFuncArgument = false;
+        Block *block = op->getBlock();
+        for (BlockArgument arg : block->getArguments()) {
+          if (arg == op.getInput()) {
+            operandIsFuncArgument = true;
+            break;
           }
         }
-        if (!isLastUser || !isReshapeView(op) ||
-            returnIsUserOrOperandIsFuncArgument) {
+        if (!isLastUser || !isValidTTNNView(op.getInput(), op.getResult()) ||
+            operandIsFuncArgument) {
           return failure();
         }
 
@@ -1446,7 +1443,7 @@ void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
   // operand so that we can convert this to a valid view.
   patterns.add(
       +[](mlir::tt::ttnn::ReshapeOp op, mlir::PatternRewriter &rewriter) {
-        if (!isReshapeView(op)) {
+        if (!isValidTTNNView(op.getInput(), op.getResult())) {
           return mlir::failure();
         }
 
@@ -1516,12 +1513,44 @@ void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
     }
     if (user->getBlock() == getOperation()->getBlock()) {
       if (!user->isBeforeInBlock(getOperation())) {
-        // user->dump();
-        // getOperation()->dump();
         return emitOpError(
             "View op must be the last operation which uses its operand.");
       }
     }
+  }
+
+  bool operandIsFuncArgument = false;
+  Block *block = getOperation()->getBlock();
+  for (BlockArgument arg : block->getArguments()) {
+    if (arg == getInput()) {
+      operandIsFuncArgument = true;
+      break;
+    }
+  }
+
+  if (operandIsFuncArgument) {
+    return emitOpError(
+        "View op must not be used as an operand of a function argument as it "
+        "will modify the input tensors shape in-place.");
+  }
+
+  auto shape = getShape();
+  int64_t shapeSize = static_cast<int64_t>(shape.size());
+  auto outputShape = getResult().getType().getShape();
+
+  for (int64_t i = 0; i < shapeSize; i++) {
+    int64_t dimValue = mlir::cast<IntegerAttr>(shape[i]).getInt();
+
+    // Ensure that the non-negative dimensions match the output tensor shape
+    if (dimValue != outputShape[i]) {
+      return emitOpError() << "Shape attribute " << dimValue
+                           << " must match the output tensor shape "
+                           << outputShape[i] << " at index " << i << ".";
+    }
+  }
+
+  if (!isValidTTNNView(getInput(), getResult())) {
+    return emitOpError("Desired input -> output view is not valid.");
   }
 
   return success();
