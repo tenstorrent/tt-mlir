@@ -296,23 +296,42 @@ public:
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         viewInterface.applyViews();
 
-    // TODO: cleanup
-    AffineMap coreVirtualizationMap = AffineMap::getMultiDimIdentityMap(
-        memrefGridShape.size(), rewriter.getContext());
-    if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
-            underlyingMemrefAndView.first.getLayout())) {
-      if (shardLayout.getCoreVirtualizationMap()) {
-        coreVirtualizationMap = shardLayout.getCoreVirtualizationMap();
-        coreVirtualizationMap = ttmlir::utils::affineMapDropRange(
-            coreVirtualizationMap, memrefGridShape.size(),
-            coreVirtualizationMap.getNumResults() - 1);
-      }
-    }
-    llvm::dbgs() << "analyzeStream | grid coreVirtualizationMap: "
-                 << coreVirtualizationMap << "\n";
+    llvm::dbgs() << "analyzeStream | memrefGridShape: " << memref << "\n";
 
     unsigned outputOperandsIndex =
         genericParent.getOutputs().getBeginOperandIndex();
+
+    // TODO: cleanup
+    AffineMap coreVirtualizationMap = AffineMap::getMultiDimIdentityMap(
+        memrefGridShape.size(), rewriter.getContext());
+
+    // get core virtualization map from the output operand of the generic
+    for (OpOperand &operandHandle : genericParent->getOpOperands()) {
+      if (operandHandle.getOperandNumber() < outputOperandsIndex) {
+        continue;
+      }
+      auto operand = genericParent.getOperand(operandHandle.getOperandNumber());
+      auto [underlyingMemref, _] =
+          mlir::tt::d2m::applyViews(operand.getDefiningOp());
+
+      llvm::dbgs()
+          << "analyzeStream | underyling memref of generic output operand: "
+          << underlyingMemref << "\n";
+      if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
+              underlyingMemref.getLayout())) {
+        if (shardLayout.getCoreVirtualizationMap()) {
+          // llvm::dbgs() << "analyzeStream | generic output operand: " <<
+          // operand << "\n";
+          coreVirtualizationMap = shardLayout.getCoreVirtualizationMap();
+          coreVirtualizationMap = ttmlir::utils::affineMapDropRange(
+              coreVirtualizationMap, memrefGridShape.size(),
+              coreVirtualizationMap.getNumResults() - 1);
+          llvm::dbgs() << "    analyzeStream | grid coreVirtualizationMap: "
+                       << coreVirtualizationMap << "\n";
+        }
+      }
+    }
+
     // The output and the grid indexing must always be aligned.
     AffineMap gridIndexingMap =
         mlir::cast<AffineMapAttr>(
@@ -325,10 +344,6 @@ public:
         coreVirtualizationMap);
 
     ttcore::DeviceAttr device = genericParent.getDevice();
-    llvm::dbgs() << "analyzeStream | underlyingMemref "
-                 << underlyingMemrefAndView.first << "\n";
-    llvm::dbgs() << "analyzeStream | underlyingView: "
-                 << underlyingMemrefAndView.second << "\n";
     AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
                                               0 /* use default page size*/);
     size_t coalescingFactor =

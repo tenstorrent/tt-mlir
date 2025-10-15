@@ -2735,16 +2735,16 @@ bool mlir::tt::ttir::ToLayoutOp::isDeviceToHost() {
 void mlir::tt::ttir::ToLayoutOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // Fold into ttir.empty w/ desired layout
-  patterns.add(+[](ToLayoutOp op, mlir::PatternRewriter &rewriter) {
-    EmptyOp emptyOp = op.getInput().getDefiningOp<EmptyOp>();
-    if (!emptyOp) {
-      return failure();
-    }
-    rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType());
-    return success();
-  });
+  // patterns.add(+[](ToLayoutOp op, mlir::PatternRewriter &rewriter) {
+  //  EmptyOp emptyOp = op.getInput().getDefiningOp<EmptyOp>();
+  //  if (!emptyOp) {
+  //    return failure();
+  //  }
+  //  rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType());
+  //  return success();
+  //});
 
-  patterns.add(std::make_unique<ToLayoutFoldRedundantPattern>(context));
+  // patterns.add(std::make_unique<ToLayoutFoldRedundantPattern>(context));
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(

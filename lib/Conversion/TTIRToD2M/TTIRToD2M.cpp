@@ -95,9 +95,6 @@ protected:
           uint64_t{1}, std::multiplies<uint64_t>());
 
       // for now, can only support if largest dim is divisible by grid volume
-      llvm::dbgs() << "computeOptimalGrid | physicalShape: "
-                   << physicalShape[maxRatioIndex]
-                   << " gridVolume: " << gridVolume << "\n";
       assert(physicalShape[maxRatioIndex] % gridVolume == 0);
       for (size_t i = 0; i < physicalShape.size(); ++i) {
         if (i == maxRatioIndex) {
@@ -211,13 +208,8 @@ protected:
     int64_t rank = virtualGrid.size();
     int64_t totalDims = 2 * rank; // grid + shard dims
 
-    // llvm::dbgs() << "createCoreVirtMaps | virtualGridShape: " <<
-    // virtualGrid[0] << "x" << virtualGrid[1] << "\n"; llvm::dbgs() <<
-    // "createCoreVirtMaps | targetGridShape: " << targetGrid[0] << "x" <<
-    // targetGrid[1] << "\n";
-
-    bool is2DWidthSharded = (rank == 2) && virtualGrid[1] == 1;
-    bool is2DHeightSharded = (rank == 2) && virtualGrid[0] == 1;
+    bool is2DWidthSharded = (rank == 2) && virtualGrid[0] == 1;
+    bool is2DHeightSharded = (rank == 2) && virtualGrid[1] == 1;
 
     if (is2DWidthSharded || is2DHeightSharded) {
 
@@ -233,13 +225,13 @@ protected:
       AffineExpr gridColStride = getAffineConstantExpr(targetGrid[1], context);
 
       if (is2DWidthSharded) {
-        forwardMapExprs = {d0 % gridRowStride, d0.floorDiv(gridRowStride), d2,
-                           d3};
-        inverseMapExprs = {d0 * gridRowStride + d1, zero, d2, d3};
-      } else if (is2DHeightSharded) {
         forwardMapExprs = {d1.floorDiv(gridColStride), d1 % gridColStride, d2,
                            d3};
-        inverseMapExprs = {zero, d1 * gridColStride + d0, d2, d3};
+        inverseMapExprs = {zero, d0 * gridRowStride + d1, d2, d3};
+      } else if (is2DHeightSharded) {
+        forwardMapExprs = {d0 % gridRowStride, d0.floorDiv(gridRowStride), d2,
+                           d3};
+        inverseMapExprs = {d1 * gridColStride + d0, zero, d2, d3};
       }
       auto forward =
           mlir::AffineMap::get(totalDims, 0, forwardMapExprs, context);
@@ -316,11 +308,16 @@ protected:
           coreVirtMap);
       auto resultTy =
           RankedTensorType::get(shardedShape, elementType, virtualLayout);
+      llvm::dbgs() << "createOptimalLayoutOp | core virt map: " << coreVirtMap
+                   << "\n";
 
-      return rewriter
-          .create<d2m::ViewLayoutOp>(value.getLoc(), resultTy, emptyOp, false)
-          ->getResult(0);
+      auto view = rewriter
+                      .create<d2m::ViewLayoutOp>(value.getLoc(), resultTy,
+                                                 emptyOp, false)
+                      ->getResult(0);
 
+      to_layout = rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, view)
+                      ->getResult(0);
     } else {
 
       auto emptyOp = rewriter.create<d2m::EmptyOp>(value.getLoc(), shardedShape,

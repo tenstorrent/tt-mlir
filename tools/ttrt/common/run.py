@@ -993,6 +993,8 @@ class Run:
                                         self.logging.info(
                                             f"Input {j}:\n{golden_input_tensor_torch}"
                                         )
+                                    torch.set_printoptions(threshold=1_000_000)
+                                    torch.set_printoptions(linewidth=200000)
                                     self.logging.info(
                                         f"Output {i}:\n{output_tensor_torch}"
                                     )

@@ -457,6 +457,34 @@ void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
     if (!emptyOp) {
       return failure();
     }
+
+    // do not fold away virtual grid types
+    if (auto tensorType =
+            mlir::dyn_cast<mlir::RankedTensorType>(op.getOutput().getType())) {
+      auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+          tensorType.getEncoding());
+      if (layout) {
+        auto gridShape = layout.getGridShape(tensorType);
+        if (gridShape[0] > 8 || gridShape[1] > 8) {
+
+          return failure();
+          // Check if any uses of the ToLayout op result are as inputs to a
+          // GenericOp
+          // for (OpOperand &use : op.getResult(0).getUses()) {
+          //  if (auto genericOp = mlir::dyn_cast<GenericOp>(use.getOwner())) {
+          //    // Check if this is an input operand (not an output operand)
+          //    if (genericOp.isDpsInput(&use)) {
+          //      llvm::dbgs() << "ToLayoutOp::getCanonicalizationPatterns | "
+          //                      "virtual grid type, do not fold away : \n"
+          //                   << op << "\n";
+          //      return failure();
+          //    }
+          //  }
+          //}
+        }
+      }
+    }
+
     rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType());
     return success();
   });
