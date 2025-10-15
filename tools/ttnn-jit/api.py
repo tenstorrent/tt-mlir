@@ -103,7 +103,6 @@ def jit(
                     return ir
 
                 func_sig = f"{f.__name__}{sig}"
-                print(f"func_sig: {func_sig}")
                 fb_capsule = _cache.get(
                     func_sig, str(ir), options, backend, max_grid, *args
                 )
