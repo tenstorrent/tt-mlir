@@ -1408,7 +1408,7 @@ def permute(
     )
 
 
-@pytest.mark.parametrize("shapes", [[(1, 32, 32, 32)]])
+@pytest.mark.parametrize("shapes", [[(1, 32, 32, 32)]])  # , [(1, 24, 24, 32)]])
 @pytest.mark.parametrize("permutation", [[0, 2, 1, 3]])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_permute(shapes: List[Shape], permutation: List[int], target: str, request):

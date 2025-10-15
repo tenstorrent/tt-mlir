@@ -31,11 +31,12 @@ public:
   // represents the position in the stream that the DMA is currently on,
   // and is relative per core. The index bounds represent the index upper
   // bounds.
-  static std::tuple<SmallVector<Value>, SmallVector<int64_t>>
-  buildStreamIndex(OpBuilder &builder, Location loc,
-                   ArrayRef<int64_t> gridShape, ArrayRef<int64_t> blockFactors,
-                   ArrayRef<int64_t> shardShape, AffineMap dmaIndexingMap,
-                   AffineMap gridIndexingMap) {
+  static SmallVector<Value> buildStreamIndex(OpBuilder &builder, Location loc,
+                                             ArrayRef<int64_t> gridShape,
+                                             ArrayRef<int64_t> blockFactors,
+                                             ArrayRef<int64_t> shardShape,
+                                             AffineMap dmaIndexingMap,
+                                             AffineMap gridIndexingMap) {
     assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
     assert(dmaIndexingMap.getNumResults() >= gridIndexingMap.getNumResults());
     assert(dmaIndexingMap.getNumResults() == shardShape.size());
@@ -43,9 +44,7 @@ public:
            "Grid indexing map must be a permutation");
 
     SmallVector<Value> streamIndex;
-    SmallVector<int64_t> indexBounds;
     streamIndex.reserve(dmaIndexingMap.getNumResults());
-    indexBounds.reserve(dmaIndexingMap.getNumResults());
     for (unsigned result = 0; result < dmaIndexingMap.getNumResults();
          result++) {
 
@@ -67,6 +66,8 @@ public:
       } else {
         unsigned dim = mlir::cast<AffineDimExpr>(dimOrConstant).getPosition();
 
+        // Identify the corresponding grid dimension that participates in the
+        // dma access.
         std::optional<unsigned> gridResult =
             gridIndexingMap.getResultPosition(dmaIndexingMap.getResult(result));
 
@@ -86,20 +87,23 @@ public:
         //
         // Not currently supported.
         //
-        // assert(!gridResult || *gridResult == result);
+        if (gridIndexingMap.getNumResults() == dmaIndexingMap.getNumResults()) {
+          // Only enforce a 1-1 relationship between the participating dma and
+          // grid dimensions when the maps have the same dimensionality.
+          assert(!gridResult || *gridResult == result);
+        }
         bool isGridDim = gridResult.has_value();
         Value iterIndex = builder.create<IterIndexOp>(
             loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
 
         if (isGridDim) {
-          // The grid dimension is always 1-1 with the result position. Consider
-          // the case where interchange moves k to the outermost loop. We'd have
-          // output map: (k, m, n) -> (m, n)
-          // In this example we want (m, n) to map to grid dims (0, 1) (not
-          // their dim positions i.e. (1, 2)).
+          // Consider the case where interchange moves k to the outermost loop.
+          // We'd have output map: (k, m, n) -> (m, n) In this example we want
+          // (m, n) to map to grid dims (0, 1) (not their dim positions i.e. (1,
+          // 2)).
           const unsigned gridDim = gridResult.value();
 
-          // gridI * blockFactorI + iterI
+          // gridI * blockFactorI + iterI = index in virtual space
           Value blockFactor = builder.create<arith::ConstantOp>(
               loc, builder.getIndexType(),
               builder.getIndexAttr(blockFactors[dim]));
@@ -114,9 +118,8 @@ public:
         }
       }
       streamIndex.push_back(index);
-      indexBounds.push_back(0); // gridShape[result]); just put 0 for now
     }
-    return std::make_tuple(streamIndex, indexBounds);
+    return streamIndex;
   }
 
   static size_t getElementSizeBytes(MemRefType memref) {
@@ -269,8 +272,8 @@ public:
     return loopNest;
   }
 
-  // Analyzes a DMA stream and returns a vector of stream indices, the
-  // underlying shard shape, and the max coalescing factor
+  // Analyzes a DMA stream and returns a vector of stream indices and the max
+  // coalescing factor.
   static std::pair<SmallVector<Value>, size_t>
   analyzeStream(PatternRewriter &rewriter, Location loc,
                 AffineMap dmaIndexingMap, MemRefType memref,
@@ -289,18 +292,17 @@ public:
             genericParent.getIndexingMaps()[outputOperandsIndex])
             .getValue();
 
-    // Collapse the N-D grid to 2D physical grid before generating core_index
-    // ops. This ensures that buildStreamIndex only creates core_index
-    // operations for dimensions 0 and 1, which map to physical Y and X
-    // coordinates. e.g., [1, 1, 1, 1] -> [1, 1]  (collapses first 3 dims into
-    // dim 0)
+    // in the case of a N-D grid, collapse the grid to 2D and drop the leading
+    // grid dimensions before building the stream indices.
     SmallVector<int64_t> collapsedGridShape =
         ttcore::collapseGridTo2D(memrefGridShape);
 
     AffineMap collapsedGridIndexingMap =
-        ttcore::collapseGridIndexingMapTo2D(gridIndexingMap);
+        (collapsedGridShape == memrefGridShape)
+            ? gridIndexingMap
+            : ttcore::dropLeadingGridDimensions2D(gridIndexingMap);
 
-    auto [streamIndices, _] = buildStreamIndex(
+    SmallVector<Value> streamIndices = buildStreamIndex(
         rewriter, loc, collapsedGridShape, genericParent.getBlockFactorsValue(),
         memrefShardShape, dmaIndexingMap, collapsedGridIndexingMap);
 
@@ -332,10 +334,7 @@ public:
 
     // analyze remote stream (either src or dst) to extract a vec of stream
     // indices and a max coalescing factor.
-    // StreamIndices are the runtime index values needed to access the remote
-    // memory buffer.
-    //  - They are built from the grid coordinates (CoreIndexOp) and the
-    //  iteration variables.
+    // StreamIndices are the index values of the remote buffer.
     // CoalescingFactor is the greatest common divisor of the number of elements
     // that can be coalesced into a single DMA operation.
     auto [streamIndices, coalescingFactor] =
@@ -349,7 +348,7 @@ public:
 
     Operation *newDma;
     if (coalescingFactor == shardVolume) {
-      // Fully contiguous DMA; lower to a single operation
+      // Fully contiguous DMA; lower to a single operation.
       auto srcIndices =
           dma.isSrcRemote() ? streamIndices : SmallVector<Value>();
       auto dstIndices =

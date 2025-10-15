@@ -862,8 +862,8 @@ public:
     const int64_t permuteSize = static_cast<int64_t>(permutation.size());
     assert(permuteSize >= 2 && "Permute size must be >= 2");
     bool isInnerPermute =
-        (permuteSize == 2 || (permutation[0] == permuteSize - 1 &&
-                              permutation[1] == permuteSize - 2));
+        (permuteSize == 2 || (permutation[permuteSize - 2] == permuteSize - 1 &&
+                              permutation[permuteSize - 1] == permuteSize - 2));
     if (permuteSize > 2 && isInnerPermute) {
       // Will need to implement splitInnerPermute here to recursively handle the
       // inner permute.
@@ -891,14 +891,14 @@ public:
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ false);
 
-    mlir::RankedTensorType inputTensorType =
+    const auto inputTensorType =
         mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
-    ArrayRef<int64_t> inputShape = inputTensorType.getShape();
+    const ArrayRef<int64_t> inputShape = inputTensorType.getShape();
     const unsigned deviceRank = static_cast<unsigned>(inputShape.size());
 
-    ttcore::MetalLayoutAttr inputLayout =
+    const auto inputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
-    ArrayRef<int64_t> permutation = op.getPermutation();
+    const ArrayRef<int64_t> permutation = op.getPermutation();
     auto [transposeMap, resultShape] = computePermutationMapAndShape(
         rewriter, permutation, inputShape, deviceRank);
 
@@ -906,12 +906,12 @@ public:
     AffineMap composedMap = transposeMap.compose(
         inputLayout.getIndexAffineMapOrIdentity(deviceRank));
 
-    ttcore::MetalLayoutAttr viewLayout = ttcore::MetalLayoutAttr::get(
+    const auto viewLayout = ttcore::MetalLayoutAttr::get(
         ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
         inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
         inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
         composedMap);
-    mlir::RankedTensorType viewTensorType = mlir::RankedTensorType::get(
+    const auto viewTensorType = mlir::RankedTensorType::get(
         resultShape, inputTensorType.getElementType(), viewLayout);
 
     auto storage = rewriter.create<d2m::EmptyOp>(
@@ -942,9 +942,9 @@ public:
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
 
-    auto inputTensorType =
+    const auto inputTensorType =
         mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
-    auto inputShape = inputTensorType.getShape();
+    const ArrayRef<int64_t> inputShape = inputTensorType.getShape();
     const unsigned deviceRank = static_cast<unsigned>(inputShape.size());
     auto inputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
