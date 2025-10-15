@@ -7,10 +7,6 @@
 
 #include "mlir/CAPI/IR.h"
 #include "mlir/IR/DialectRegistry.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Format.h"
 
 #include "ttnn/tensor/tensor.hpp"
 
@@ -21,7 +17,7 @@ struct JitCacheEntry {
 };
 
 struct JitCacheKey {
-  std::string func_name;
+  std::string func_sig;
   std::string backend;
   std::tuple<uint32_t, uint32_t> max_grid;
 };
