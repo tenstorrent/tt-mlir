@@ -71,7 +71,7 @@ protected:
            "are supported");
   }
 
-  std::tuple<RankedTensorType, RankedTensorType>
+  std::tuple<RankedTensorType, RankedTensorType, RankedTensorType>
   getDRAMMetalTensorFromTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
                                    RankedTensorType tensorType) const {
     auto ttnnLayout =
@@ -113,17 +113,27 @@ protected:
     Type elementType = ttnnLayout.getElementType();
     auto baseTensor =
         mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
+    llvm::SmallVector<int64_t> workerGrid = computeOptimalGrid(unshardedShape);
+    llvm::SmallVector<int64_t> fakeShardedShape = metalLayout.getDeviceShape(
+        workerGrid, ttcore::TileType::getDefaultShape());
+
+    auto streamOutputLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), tensorType.getShape(), dimAlignments,
+        collapsedIntervals, ttcore::OOBVal::Undef, memSpace, memLayout,
+        mlir::tt::d2m::utils::calculateReblockMap(
+            shardedShape, fakeShardedShape, rewriter.getContext()));
+
+    auto streamOutput = mlir::RankedTensorType::get(
+        fakeShardedShape, elementType, streamOutputLayout);
 
     auto storageLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), targetSquareGridShape,
         ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
         ttcore::TensorMemoryLayout::Sharded, collapsedIntervals, dimAlignments);
-    llvm::SmallVector<int64_t> workerGrid = computeOptimalGrid(unshardedShape);
-    llvm::SmallVector<int64_t> fakeShardedShape = storageLayout.getDeviceShape(
-        workerGrid, ttcore::TileType::getDefaultShape());
-    auto streamStorage = mlir::RankedTensorType::get(
-        fakeShardedShape, elementType, storageLayout);
-    return {baseTensor, streamStorage};
+
+    auto storage = mlir::RankedTensorType::get(fakeShardedShape, elementType,
+                                               storageLayout);
+    return {baseTensor, storage, streamOutput};
   }
 
   RankedTensorType
@@ -174,14 +184,14 @@ protected:
     assertTTNNLayoutSupported(ttnnLayout);
 
     if (ttnnLayout.getBufferType() == ttnn::BufferType::DRAM) {
-      auto [metalTensor, storageTensor] =
+      auto [metalTensor, storageTensor, streamOutputTensor] =
           getDRAMMetalTensorFromTTNNTensor(rewriter, tensorType);
       auto castOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
           value.getLoc(), metalTensor, value);
       auto storage =
           rewriter.create<d2m::EmptyOp>(value.getLoc(), storageTensor);
       auto stream = rewriter.create<d2m::StreamLayoutOp>(
-          value.getLoc(), storageTensor, castOp.getResult(), storage);
+          value.getLoc(), streamOutputTensor, castOp.getResult(), storage);
       return stream;
     } else {
       return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
