@@ -32,7 +32,7 @@ public:
 
   static bool compatibleDeviceGrid(ttcore::DeviceAttr device,
                                    ttcore::GridAttr grid) {
-    return device.getWorkerGrid().getShape().size() == grid.getShape().size();
+    return device.getWorkerGrid().getShape().size() <= grid.getShape().size();
   }
 
   static BlockArgument createSemaphore(PatternRewriter &builder, Location loc,
@@ -59,7 +59,7 @@ public:
                           AffineMap operandIndexingMap,
                           ArrayAttr iteratorTypes) {
     assert(grid.getShape().size() == operandIndexingMap.getNumResults());
-    // assert(compatibleDeviceGrid(device, grid));
+    assert(compatibleDeviceGrid(device, grid));
 
     bool allParallel = true;
     SmallVector<ttcore::IteratorType> mcastIterators;

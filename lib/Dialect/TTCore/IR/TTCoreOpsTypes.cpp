@@ -1386,13 +1386,6 @@ mlir::AffineMap collapseAffineMapWorkaround(mlir::AffineMap affineMap,
   mlir::MLIRContext *context = affineMap.getContext();
   SmallVector<mlir::AffineExpr> newResults;
 
-  // Sum all results except the last 2 to create grid_y
-  // mlir::AffineExpr gridY = getAffineConstantExpr(0, context);
-  // for (unsigned i = 0; i < numResults - 2; ++i) {
-  //   gridY = gridY + affineMap.getResult(i);
-  // }
-  // newResults.push_back(gridY);
-
   // Keep the fourth-to-last result as grid_y
   newResults.push_back(affineMap.getResult(numResults - 4));
 
