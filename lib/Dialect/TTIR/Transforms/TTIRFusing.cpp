@@ -1930,22 +1930,25 @@ class SplitQueryKeyValueAndSplitHeadsUpdatePattern
   using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
 
   // Reshape input is [batch_size, sequence_length, hidden_dimensions].
+  // For Multi-Head Attention:
   // Query is [batch_size, number of kv heads, sequence_length, head_size].
-  // Key is [batch_size, number of kv heads, head_size, sequence_length].
+  // Key is [batch_size, number of kv heads, sequence_length, head_size].
   // Value is [batch_size, number of kv heads, sequence_length, head_size].
+  // If key is transposed:
+  // Key is [batch_size, number of kv heads, head_size, sequence_length].
 
   enum InputDimensions {
     I_BATCH_SIZE = 0,
     I_SEQUENCE_LENGTH = 1,
     I_HIDDEN_DIMENSION = 2,
   };
-  enum ExpectedOutputDimensions {
+  enum MHAExpectedOutputDimensions {
     O_BATCH_SIZE = 0,
     O_NUM_KV_HEADS = 1,
     O_SEQUENCE_LENGTH = 2,
     O_HEAD_SIZE = 3,
   };
-  enum TransposedKeyDimensions {
+  enum MHATransposedKeyDimensions {
     K_BATCH_SIZE = 0,
     K_NUM_KV_HEADS = 1,
     K_HEAD_SIZE = 2,
@@ -1977,48 +1980,31 @@ public:
     hoistPreprocessingOps(linearOps);
     rewriter.setInsertionPointAfter(linearOps.front());
 
-    // Concatenate weights along dimension 1.
-    // Weights are the second input (B) of linear op, shape [hidden, hidden].
-    Value queryWeightMatrix = linearOps[0].getB();
-    Value keyWeightMatrix = linearOps[1].getB();
-    Value valueWeightMatrix = linearOps[2].getB();
-
+    // Extract dimensions from reshape op input and output.
     Value reshapeOutput = reshapeOp.getResult();
     ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
     int32_t batchSize = inputShape[I_BATCH_SIZE];
     int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
     int32_t hiddenSize = inputShape[I_HIDDEN_DIMENSION];
 
-    SmallVector<int64_t> concatenatedWeightShape = {hiddenSize, hiddenSize * 3};
-    RankedTensorType concatenatedWeightType = RankedTensorType::get(
-        concatenatedWeightShape,
-        mlir::cast<RankedTensorType>(queryWeightMatrix.getType())
-            .getElementType());
+    // Concatenate weights along dimension 1.
+    // Weights are the second input (B) of linear op, shape [hidden, hidden].
+    Value queryWeightMatrix = linearOps[0].getB();
+    Value keyWeightMatrix = linearOps[1].getB();
+    Value valueWeightMatrix = linearOps[2].getB();
 
-    ConcatOp concatenatedWeightMatrix =
-        ttir::utils::createDPSOp<ttir::ConcatOp>(
-            rewriter, valueWeightMatrix.getLoc(), concatenatedWeightType,
-            ValueRange{queryWeightMatrix, keyWeightMatrix, valueWeightMatrix},
-            rewriter.getSI32IntegerAttr(1) /* axis */);
+    Value concatenatedWeightMatrix = concatenateAlongLastDim(
+        rewriter, valueWeightMatrix.getLoc(),
+        ValueRange{queryWeightMatrix, keyWeightMatrix, valueWeightMatrix});
 
-    // Concatenate bias along dimension 1 (last dimension).
-    // TODO: What happens if bias is 1D?
+    // Concatenate bias along last dimension.
     Value queryBias = linearOps[0].getBias();
     Value keyBias = linearOps[1].getBias();
     Value valueBias = linearOps[2].getBias();
 
-    ArrayRef<int64_t> biasShape =
-        mlir::cast<RankedTensorType>(queryBias.getType()).getShape();
-    SmallVector<int64_t> concatenatedBiasShape = {biasShape[0],
-                                                  biasShape[1] * 3};
-    RankedTensorType concatenatedBiasType = RankedTensorType::get(
-        concatenatedBiasShape,
-        mlir::cast<RankedTensorType>(queryBias.getType()).getElementType());
-
-    ConcatOp concatenatedBias = ttir::utils::createDPSOp<ttir::ConcatOp>(
-        rewriter, valueBias.getLoc(), concatenatedBiasType,
-        ValueRange{queryBias, keyBias, valueBias},
-        rewriter.getSI32IntegerAttr(1) /* axis */);
+    Value concatenatedBias =
+        concatenateAlongLastDim(rewriter, valueBias.getLoc(),
+                                ValueRange{queryBias, keyBias, valueBias});
 
     // Create linear operation with concatenated weights and bias.
     RankedTensorType linearOutputType = RankedTensorType::get(
@@ -2026,7 +2012,7 @@ public:
         mlir::cast<RankedTensorType>(reshapeOutput.getType()).getElementType());
     LinearOp linearOp = ttir::utils::createDPSOp<ttir::LinearOp>(
         rewriter, valueBias.getLoc(), linearOutputType, reshapeOutput,
-        concatenatedWeightMatrix.getResult(), concatenatedBias.getResult(),
+        concatenatedWeightMatrix, concatenatedBias,
         /*transpose_a=*/false, /*transpose_b=*/false);
 
     // Create reshape operation to convert from [batch*seq, hidden*3] to [batch,
@@ -2067,7 +2053,7 @@ public:
                                                  valueType.getElementType(),
                                                  valueType.getEncoding());
 
-    // Determine if need to transpose based on key and value.
+    // Determine if need to transpose key based on key and value.
     bool transposeKey = isKeyTransposed(keyShape, valueShape);
 
     auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
@@ -2087,6 +2073,48 @@ public:
   }
 
 private:
+  // Helper function to concatenate tensors along the last dimension
+  Value
+  concatenateAlongLastDim(OpBuilder &rewriter, Location loc,
+                          ValueRange tensors) const { // Fixed: added const
+    assert(!tensors.empty() && "Cannot concatenate empty tensor list");
+
+    auto firstType = mlir::cast<RankedTensorType>(tensors[0].getType());
+    ArrayRef<int64_t> firstShape = firstType.getShape();
+    int64_t rank = firstShape.size();
+
+    // Calculate the concatenated size along the last dimension
+    int64_t concatDimSize = 0;
+    for (Value tensor : tensors) {
+      auto tensorType = mlir::cast<RankedTensorType>(tensor.getType());
+      ArrayRef<int64_t> shape = tensorType.getShape();
+
+      // Verify all tensors have the same rank and shape except last dim
+      assert(static_cast<int64_t>(shape.size()) ==
+                 rank && // Fixed: cast to int64_t
+             "All tensors must have the same rank");
+      for (int64_t i = 0; i < rank - 1; ++i) {
+        assert(shape[i] == firstShape[i] &&
+               "All tensors must have the same shape except last dimension");
+      }
+
+      concatDimSize += shape[rank - 1];
+    }
+
+    // Build the concatenated shape
+    SmallVector<int64_t> concatenatedShape(firstShape.begin(),
+                                           firstShape.end());
+    concatenatedShape[rank - 1] = concatDimSize;
+
+    RankedTensorType concatenatedType =
+        RankedTensorType::get(concatenatedShape, firstType.getElementType());
+
+    // Create concat op along last dimension (rank - 1)
+    return ttir::utils::createDPSOp<ttir::ConcatOp>(
+        rewriter, loc, concatenatedType, tensors,
+        rewriter.getSI32IntegerAttr(rank - 1) /* axis */);
+  }
+
   // Recursively collect all defining ops of a value and their dependencies.
   // Avoid cycles or duplicates using a visited set.
   void collectRecursivePreprocessingOps(Value val, Operation *QueryLinearOp,
