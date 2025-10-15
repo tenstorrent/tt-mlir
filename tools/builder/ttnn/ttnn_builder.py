@@ -86,6 +86,31 @@ class TTNNBuilder(Builder):
 
     # ----- Public Helper Methods ----
 
+    def create_tensor_encoding(
+        self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
+    ) -> ttnn.ir.TTNNLayoutAttr:
+        """
+        TTNN tensors require that encoding information is present.
+        This method creates a TTNN tensor with encoding information.
+        For simplicity we will always create DRAM/Interlaved tiled tensor.
+        """
+        if isinstance(element_type, torch.dtype):
+            element_type = self._get_type_from_torch_dtype(element_type)
+        with self._ctx, self._loc:
+            data_type = util.element_type_to_data_type(element_type)
+            tile_element_type = ttcore.ir.TileType.get(self._ctx, 32, 32, data_type)
+            buffer_type = ttnn.BufferType.DRAM
+            grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
+            ttnn_layout_attr = ttnn.ir.TTNNLayoutAttr.get(
+                self._ctx,
+                shape,
+                tile_element_type,
+                buffer_type,
+                grid_attr,
+                ttnn.TensorMemoryLayout.Interleaved,
+            )
+            return ttnn_layout_attr
+
     def create_ttnn_tensor(self, shape: Shape, element_type: Type) -> RankedTensorType:
         """
         TTNN tensors require that encoding information is present.
