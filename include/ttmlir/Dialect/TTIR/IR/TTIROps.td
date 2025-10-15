@@ -4150,7 +4150,7 @@ def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
-    
+
     let hasCanonicalizer = 1;
 }
 
