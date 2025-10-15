@@ -23,63 +23,70 @@ done
 
 pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=$TEST_REPORT_PATH
 
+# Messy file management temporary until issue #5309 is resolved
 if [[ "$runttrt" == "1" ]]; then
     if [ -d ttir-builder-artifacts/emitpy ]; then
         # Create renamed copies of ttnn files so emitpy can find them for comparison
-        for file in ttir-builder-artifacts/ttnn/*; do
-            if [ -f "$file" ]; then
+        for file in ttir-builder-artifacts/emitpy/*; do
+            if [ -f "$file" ] && [[ "$file" == *.py ]]; then
+                # Get the basename of the .py file
                 basename_file=$(basename "$file")
-                renamed_file=$(echo "$basename_file" | sed 's/ttnn/emitpy/')
-                cp "$file" "ttir-builder-artifacts/ttnn/$renamed_file"
+
+                # Create the corresponding TTNN filename by replacing "emitpy" with "ttnn" and ".py" with ".ttnn"
+                ttnn_basename=$(echo "$basename_file" | sed 's/emitpy/ttnn/' | sed 's/\.py$/.ttnn/')
+                ttnn_file="ttir-builder-artifacts/ttnn/$ttnn_basename"
+
+                # Check if the corresponding TTNN file exists
+                if [ -f "$ttnn_file" ]; then
+                    echo "Found matching TTNN file: $ttnn_file"
+
+                    # Create the new filename (replace first "ttnn" with "emitpy")
+                    new_basename=$(echo "$ttnn_basename" | sed 's/ttnn/emitpy/')
+                    new_file="ttir-builder-artifacts/ttnn/$new_basename"
+
+                    # Copy the TTNN file with the new name
+                    cp "$ttnn_file" "$new_file"
+                    echo "Copied $ttnn_file to $new_file"
+                else
+                    echo "No matching TTNN file found for $basename_file (looking for $ttnn_basename)"
+                fi
             fi
         done
         ttrt emitpy $TTRT_ARGS ttir-builder-artifacts/emitpy/ --flatbuffer ttir-builder-artifacts/ttnn/
         cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
         cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_emitpy_${TEST_REPORT_PATH##*_} || true
     fi
-    if [ -d stablehlo-builder-artifacts/emitpy ]; then
-        # Create renamed copies of ttnn files so emitpy can find them for comparison
-        for file in stablehlo-builder-artifacts/ttnn/*; do
-            if [ -f "$file" ]; then
-                basename_file=$(basename "$file")
-                renamed_file=$(echo "$basename_file" | sed 's/ttnn/emitpy/')
-                cp "$file" "stablehlo-builder-artifacts/ttnn/$renamed_file"
-            fi
-        done
-        ttrt emitpy $TTRT_ARGS stablehlo-builder-artifacts/emitpy/ --flatbuffer stablehlo-builder-artifacts/ttnn/
-        cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
-        cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_stablehlo_emitpy_${TEST_REPORT_PATH##*_} || true
-    fi
     if [ -d ttir-builder-artifacts/emitc ]; then
-        find . -name _ttnncpp.so
-        echo $TT_METAL_LIB
         export TT_METAL_LIB="${INSTALL_DIR}/lib"
-        echo $TT_METAL_LIB
-        ls ${TT_METAL_LIB}
         ${INSTALL_DIR}/tools/ttnn-standalone/ci_compile_dylib.py --dir ttir-builder-artifacts/emitc
         # Create renamed copies of ttnn files so emitc can find them for comparison
-        for file in ttir-builder-artifacts/ttnn/*; do
-            if [ -f "$file" ]; then
+        for file in ttir-builder-artifacts/emitc/*; do
+            if [ -f "$file" ] && [[ "$file" == *.so ]]; then
+                # Get the basename of the .so file
                 basename_file=$(basename "$file")
-                renamed_file=$(echo "$basename_file" | sed 's/ttnn/emitc/')
-                cp "$file" "ttir-builder-artifacts/ttnn/$renamed_file"
+
+                # Create the corresponding TTNN filename by replacing "emitc" with "ttnn" and ".so" with ".ttnn"
+                ttnn_basename=$(echo "$basename_file" | sed 's/emitc/ttnn/' | sed 's/\.so$/.ttnn/')
+                ttnn_file="ttir-builder-artifacts/ttnn/$ttnn_basename"
+
+                # Check if the corresponding TTNN file exists
+                if [ -f "$ttnn_file" ]; then
+                    echo "Found matching TTNN file: $ttnn_file"
+
+                    # Create the new filename (replace first "ttnn" with "emitc")
+                    new_basename=$(echo "$ttnn_basename" | sed 's/ttnn/emitc/')
+                    new_file="ttir-builder-artifacts/ttnn/$new_basename"
+
+                    # Copy the TTNN file with the new name
+                    cp "$ttnn_file" "$new_file"
+                    echo "Copied $ttnn_file to $new_file"
+                else
+                    echo "No matching TTNN file found for $basename_file (looking for $ttnn_basename)"
+                fi
             fi
         done
         ttrt emitc $TTRT_ARGS ttir-builder-artifacts/emitc/ --flatbuffer ttir-builder-artifacts/ttnn/
         cp emitc_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
-    fi
-    if [ -d stablehlo-builder-artifacts/emitc ]; then
-        export TT_METAL_LIB="${INSTALL_DIR}/lib"
-        ${INSTALL_DIR}/tools/ttnn-standalone/ci_compile_dylib.py --dir stablehlo-builder-artifacts/emitc
-        # Create renamed copies of ttnn files so emitc can find them for comparison
-        for file in stablehlo-builder-artifacts/ttnn/*; do
-            if [ -f "$file" ]; then
-                basename_file=$(basename "$file")
-                renamed_file=$(echo "$basename_file" | sed 's/ttnn/emitc/')
-                cp "$file" "stablehlo-builder-artifacts/ttnn/$renamed_file"
-            fi
-        done
-        ttrt emitc $TTRT_ARGS stablehlo-builder-artifacts/emitc/ --flatbuffer stablehlo-builder-artifacts/ttnn/
-        cp emitc_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
+        cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_emitpc_${TEST_REPORT_PATH##*_} || true
     fi
 fi
