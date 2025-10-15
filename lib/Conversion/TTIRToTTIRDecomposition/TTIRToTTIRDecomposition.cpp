@@ -1465,8 +1465,14 @@ public:
     // If all the inputs are constant ops with splat values then we can easily
     // cannonicalize this
     for (size_t i = 0; i < op.getInputs().size(); i++) {
-      ttir::FullOp constant =
-          dyn_cast_or_null<ttir::FullOp>(op.getInputs()[i].getDefiningOp());
+      Operation *currentOp = op.getInputs()[i].getDefiningOp();
+
+      // Traverse through reshape and broadcast operations
+      while (isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp>(currentOp)) {
+        currentOp = currentOp->getOperand(0).getDefiningOp();
+      }
+
+      ttir::FullOp constant = dyn_cast_or_null<ttir::FullOp>(currentOp);
       if (!constant) {
         return failure();
       }
