@@ -12,7 +12,7 @@ from ttmlir.dialects import ttir
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import build_ttir_module, compile_and_execute_ttir
+from builder.base.builder_utils import compile_and_execute_ttir
 from test_utils import (
     Marks,
     shape_str,

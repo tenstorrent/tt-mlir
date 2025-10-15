@@ -1158,7 +1158,7 @@ def compile_d2m_to_flatbuffer(
 
     This decorator is a wrapper around:
 
-    1. `build_d2m_module`
+    1. `build_module`
     2. `_run_ttir_pipeline`
     3. `to_target`
 
