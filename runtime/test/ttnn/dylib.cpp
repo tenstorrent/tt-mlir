@@ -38,7 +38,7 @@ static std::string getMangledName(std::string_view funcName) {
 // The names of input creation functions are mangled unpredictably
 static std::string getCreateInputsMangledName(std::string_view funcName,
                                               std::string path) {
-  std::string command = "nm -D -r " + path + " | grep ' T ' | awk '{print $3}'";
+  std::string command = "nm -D -n " + path + " | grep ' T ' | awk '{print $3}'";
   FILE *pipe = popen(command.c_str(), "r");
   if (!pipe) {
     std::cerr << "Failed to execute command to get mangled function name"
@@ -96,7 +96,7 @@ std::vector<std::string> getSoPrograms(void *so, std::string path) {
   }
 
   std::string command =
-      "nm -D -C -r " + path + " | grep ' T ' | awk '{print $3}'";
+      "nm -D -C -n " + path + " | grep ' T ' | awk '{print $3}'";
 
   FILE *pipe = popen(command.c_str(), "r");
   if (!pipe) {
@@ -131,6 +131,7 @@ std::vector<std::string> getSoPrograms(void *so, std::string path) {
     if (cleanName != "setDevice" && cleanName != "main" &&
         cleanName != "ttnn::constEvalFuncWrapper" &&
         cleanName != "ttnn::getScalarFromTensor" &&
+        cleanName.find("const_eval") == std::string::npos &&
         "create_inputs_for_" != cleanName.substr(0, 18)) {
       cleanedNames.push_back(cleanName);
     }
