@@ -10,7 +10,7 @@ from test_utils import shape_str
 
 from builder.base.builder import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -37,18 +37,14 @@ def create_matmul_constrained_inputs(lhs_shape, rhs_shape):
     return matmul_constrained_inputs
 
 
+@pytest.mark.skip_config(["p150"], ["p300"])
+@pytest.mark.xfail(reason="fails golden")
 @pytest.mark.parametrize("m", [2])
 @pytest.mark.parametrize("k", [4])
 @pytest.mark.parametrize("n", [4])
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Single core matmuls, 8 output tiles per core max
-def test_matmul_single_core_8otpc(
-    m: int,
-    k: int,
-    n: int,
-    target: str,
-    request,
-):
+def test_matmul_single_core_8otpc(m: int, k: int, n: int, target: str, request, device):
     tile_size = 32
     lhs = (
         m * tile_size,
@@ -64,10 +60,12 @@ def test_matmul_single_core_8otpc(
         f"num-stream-buffers=1",
     ]
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs),
+        matmul,
         [lhs, rhs],
         target=target,
+        device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
         print_ir=True,
@@ -76,18 +74,13 @@ def test_matmul_single_core_8otpc(
     )
 
 
+@pytest.mark.xfail(reason="fails golden")
 @pytest.mark.parametrize("m", [3, 6, 9])
 @pytest.mark.parametrize("k", [4])
 @pytest.mark.parametrize("n", [3, 6])
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Multi core matmuls, 8 output tiles per core max
-def test_matmul_multi_core_8otpc(
-    m: int,
-    k: int,
-    n: int,
-    target: str,
-    request,
-):
+def test_matmul_multi_core_8otpc(m: int, k: int, n: int, target: str, request, device):
     tile_size = 32
     lhs = (
         m * tile_size,
@@ -102,10 +95,11 @@ def test_matmul_multi_core_8otpc(
         f"num-stream-buffers=1",
     ]
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs),
         [lhs, rhs],
         target=target,
+        device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
         print_ir=True,
@@ -115,6 +109,8 @@ def test_matmul_multi_core_8otpc(
 
 
 @pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
+@pytest.mark.skip_config(["p150"], ["p300"])
+@pytest.mark.xfail(reason="fails golden")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -136,6 +132,7 @@ def test_matmul_ttnn_shapes_single_buffered(
     use_tile_matmul: bool,
     target: str,
     request,
+    device,
 ):
     lhs = (
         shape[0],
@@ -151,10 +148,11 @@ def test_matmul_ttnn_shapes_single_buffered(
         f"num-stream-buffers=1",
         f"use-tile-matmul={use_tile_matmul}",
     ]
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs),
         [lhs, rhs],
         target=target,
+        device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
         module_dump=True,
@@ -165,6 +163,8 @@ def test_matmul_ttnn_shapes_single_buffered(
 
 
 @pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
+@pytest.mark.skip_config(["p150"], ["p300"])
+@pytest.mark.xfail(reason="fails golden")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -184,6 +184,7 @@ def test_matmul_ttnn_shapes_double_buffered(
     use_tile_matmul: bool,
     target: str,
     request,
+    device,
 ):
     lhs = (
         shape[0],
@@ -198,10 +199,11 @@ def test_matmul_ttnn_shapes_double_buffered(
         f"matmul-interchange=2,0,1",
         f"use-tile-matmul={use_tile_matmul}",
     ]
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs),
         [lhs, rhs],
         target=target,
+        device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
         module_dump=True,

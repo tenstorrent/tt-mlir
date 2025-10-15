@@ -86,7 +86,6 @@ pytest test/python/golden/test_ttir_ops.py
 Be sure to file an issue for failing tests and add a pytest mark for any failing or unsupported tests. The pytest marks instruct CI to ignore tests.
 ```bash
 pytest.mark.skip("Issue number") : skip flatbuffer creation for this test
-pytest.mark.fails_golden : expect this test to fail the ttrt golden check
 pytest.mark.skip_config(config, ... reason=None): skip test if all of the specified targets/backends per config are present
 ```
 
