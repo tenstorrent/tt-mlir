@@ -59,14 +59,18 @@ struct MLIRModuleLogger {
                      std::vector<std::string> passNamesToCache = {});
 
   // Enhanced version with environment variable support
-  void attachContextWithDumping(mlir::MLIRContext *ctx);
+  void attachContextWithDumping(mlir::MLIRContext *ctx, 
+                                const std::string &modelName = "unknown",
+                                const std::string &pipelineName = "unknown");
 
   // Dump IR at dialect creation
   static void dumpDialectCreation(const std::string &dialectName,
                                   mlir::MLIRContext *ctx);
 
   // Global utility to set up IR dumping for any PassManager/MLIRContext
-  static void enableGlobalIRDumping(mlir::MLIRContext *ctx);
+  static void enableGlobalIRDumping(mlir::MLIRContext *ctx, 
+                                   const std::string &modelName = "unknown",
+                                   const std::string &pipelineName = "unknown");
 
   // Utility to check if IR dumping should be enabled
   static bool shouldEnableIRDumping();
@@ -76,10 +80,17 @@ struct MLIRModuleLogger {
 
 private:
   Config config;
+  std::string modelName = "unknown";
+  std::string pipelineName = "unknown";
+  int totalPassCount = 0;
+  
   std::string getOutputFilename(const std::string &passName,
                                 const std::string &stage = "") const;
   void dumpIRToFile(const std::string &irContent,
                     const std::string &filename) const;
+  void setModelName(const std::string &name);
+  void setPipelineName(const std::string &name);
+  std::string extractModelNameFromLocation(mlir::Operation *op) const;
 };
 
 } // namespace mlir::tt
