@@ -184,7 +184,7 @@ inline void print_cb_details_(DebugPrinter dp, uint32_t cb_id) {
   dp << "rd_ptr: " << get_local_cb_interface(cb_id).fifo_rd_ptr << ", ";
   dp << "wr_ptr: " << get_local_cb_interface(cb_id).fifo_wr_ptr << ", ";
   dp << "wr_tile_ptr: " << get_local_cb_interface(cb_id).fifo_wr_tile_ptr;
-  dp << " }" << ENDL();
+  dp << " }";
 }
 
 struct CBPrinter {
