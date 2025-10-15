@@ -10,6 +10,7 @@ from functools import reduce
 import operator
 from conftest import x86_only
 
+from op_wrapper_functions import *
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -26,42 +27,43 @@ from test_utils import (
 pytestmark = pytest.mark.frontend("ttir")
 
 
-def exp(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.exp(in0, unit_attrs=unit_attrs)
+@pytest.mark.parametrize("test_fn", funcs_with_other_args.keys())
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+def test_funcs_with_other_args(test_fn, target, request):
+    shapes = funcs_with_other_args[test_fn]["shapes"]
+    dtypes = (
+        funcs_with_other_args[test_fn]["dtypes"]
+        if "dtypes" in funcs_with_other_args[test_fn]
+        else None
+    )
+    args = (
+        funcs_with_other_args[test_fn]["args"].values()
+        if "args" in funcs_with_other_args[test_fn]
+        else []
+    )
+    print(test_fn, type(test_fn))
 
+    def wrapper(
+        operands: List[Operand],
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        # print(operands, type(operands), type(operands[0]))
+        return test_fn(
+            operands,  # *****
+            **funcs_with_other_args[test_fn]["args"],
+            builder=builder,
+            unit_attrs=unit_attrs,
+        )
 
-def expm1(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.expm1(in0, unit_attrs=unit_attrs)
-
-
-def ceil(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.ceil(in0, unit_attrs=unit_attrs)
-
-
-def floor(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.floor(in0, unit_attrs=unit_attrs)
-
-
-def abs(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.abs(in0, unit_attrs=unit_attrs)
-
-
-def logical_not(
-    in0: Operand,
-    builder: TTIRBuilder,
-    shape: Shape,
-    dtype: torch.dtype,
-    unit_attrs: Optional[List[str]] = None,
-):
-    randn_tensor = torch.randn(shape, dtype=torch.float32)
-    input_tensor = randn_tensor.uniform_(-10.0, 10.0)
-    input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
-    input_tensor = input_tensor.to(dtype)
-    # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype.
-    golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
-    logical_not_0 = builder.logical_not(in0, unit_attrs=unit_attrs)
-    builder.set_goldens({in0: input_tensor}, {logical_not_0: golden_output_tensor})
-    return logical_not_0
+    compile_ttir_to_flatbuffer(
+        wrapper,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
 
 
 # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
@@ -110,46 +112,12 @@ def test_hoisted_logical_not(
     )
 
 
-def bitwise_not(
-    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-):
-    return builder.bitwise_not(in0, unit_attrs=unit_attrs)
-
-
-def neg(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.neg(in0, unit_attrs=unit_attrs)
-
-
-def sign(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.sign(in0, unit_attrs=unit_attrs)
-
-
-def sin(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.sin(in0, unit_attrs=unit_attrs)
-
-
-def cos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.cos(in0, unit_attrs=unit_attrs)
-
-
 # Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
 @pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-        import math
-
-        randn_tensor = torch.randn(shape, dtype=dtype)
-        input_golden = randn_tensor.uniform_(
-            (-math.pi / 2 + 0.05), (math.pi / 2 - 0.05)
-        )
-        output_golden = torch.tan(input_golden)
-        tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
-        builder.set_goldens({in0: input_golden}, {tan_0: output_golden})
-        return tan_0
-
     compile_and_execute_ttir(
         tan,
         [shape],
@@ -160,14 +128,6 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
         target=target,
         device=device,
     )
-
-
-def atan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.atan(in0, unit_attrs=unit_attrs)
-
-
-def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.tanh(in0, unit_attrs=unit_attrs)
 
 
 # Special handling for log PCC checks. Due to the vertical asymptote on the log graph, small changes in input values result in large changes in output values at negative values, so both graph and golden tensors must be constrained accordingly.
@@ -225,14 +185,6 @@ def test_log1p(shape: Shape, dtype: torch.dtype, request, device):
     )
 
 
-def relu(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.relu(in0, unit_attrs=unit_attrs)
-
-
-def gelu(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.gelu(in0, unit_attrs=unit_attrs)
-
-
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
 def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, device):
@@ -276,25 +228,10 @@ def test_clamp_tensor(shapes: List[Shape], request, device):
     )
 
 
-def leaky_relu(
-    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-):
-    return builder.leaky_relu(in0, unit_attrs=unit_attrs)
-
-
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_sqrt(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def sqrt(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
-        golden_output_tensor = torch.sqrt(input_tensor)
-        sqrt_0 = builder.sqrt(in0, unit_attrs=unit_attrs)
-        builder.set_goldens({in0: input_tensor}, {sqrt_0: golden_output_tensor})
-        return sqrt_0
-
     compile_and_execute_ttir(
         sqrt,
         [shape],
@@ -307,23 +244,10 @@ def test_sqrt(shape: Shape, dtype: torch.dtype, target: str, request, device):
     )
 
 
-def cbrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.cbrt(in0, unit_attrs=unit_attrs)
-
-
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def rsqrt(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        input_tensor = torch.abs(torch.randn(shape, dtype=dtype))
-        golden_output_tensor = torch.rsqrt(input_tensor)
-        rsqrt_0 = builder.rsqrt(in0, unit_attrs=unit_attrs)
-        builder.set_goldens({in0: input_tensor}, {rsqrt_0: golden_output_tensor})
-        return rsqrt_0
-
     compile_and_execute_ttir(
         rsqrt,
         [shape],
@@ -334,28 +258,6 @@ def test_rsqrt(shape: Shape, dtype: torch.dtype, target: str, request, device):
         target=target,
         device=device,
     )
-
-
-def sigmoid(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.sigmoid(in0, unit_attrs=unit_attrs)
-
-
-def reciprocal(
-    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-):
-    return builder.reciprocal(in0, unit_attrs=unit_attrs)
-
-
-def is_finite(
-    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-):
-    return builder.is_finite(in0, unit_attrs=unit_attrs)
-
-
-def get_dimension_size(
-    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-):
-    return builder.get_dimension_size(in0, unit_attrs=unit_attrs)
 
 
 @pytest.mark.parametrize(
@@ -405,174 +307,6 @@ def test_dot_general(
     )
 
 
-def add(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.add(in0, in1, unit_attrs=unit_attrs)
-
-
-def multiply(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.multiply(in0, in1, unit_attrs=unit_attrs)
-
-
-def logical_and(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.logical_and(in0, in1, unit_attrs=unit_attrs)
-
-
-def logical_or(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.logical_or(in0, in1, unit_attrs=unit_attrs)
-
-
-def logical_xor(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.logical_xor(in0, in1, unit_attrs=unit_attrs)
-
-
-def bitwise_and(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.bitwise_and(in0, in1, unit_attrs=unit_attrs)
-
-
-def bitwise_or(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.bitwise_or(in0, in1, unit_attrs=unit_attrs)
-
-
-def bitwise_xor(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.bitwise_xor(in0, in1, unit_attrs=unit_attrs)
-
-
-def subtract(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.subtract(in0, in1, unit_attrs=unit_attrs)
-
-
-def eq(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.eq(in0, in1, unit_attrs=unit_attrs)
-
-
-def ne(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.ne(in0, in1, unit_attrs=unit_attrs)
-
-
-def ge(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.ge(in0, in1, unit_attrs=unit_attrs)
-
-
-def gt(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.gt(in0, in1, unit_attrs=unit_attrs)
-
-
-def le(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.le(in0, in1, unit_attrs=unit_attrs)
-
-
-def lt(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.lt(in0, in1, unit_attrs=unit_attrs)
-
-
-def div(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    dividend_tensor = builder._get_golden_tensor(in0)
-    divisor_tensor = builder._get_golden_tensor(in1)
-
-    dividend_tensor = dividend_tensor.apply_shardwise(
-        lambda shard: (
-            shard.__setitem__(shard.abs() < 0.01, 0.03) or shard
-            if torch.is_floating_point(shard)
-            else shard
-        )
-    )
-
-    divisor_tensor = divisor_tensor.apply_shardwise(
-        lambda shard: (
-            shard.__setitem__(shard.abs() < 0.01, -0.03) or shard
-            if torch.is_floating_point(shard)
-            else shard
-        )
-    )
-
-    output_golden = torch.div(dividend_tensor, divisor_tensor)
-    div0 = builder.div(in0, in1, unit_attrs=unit_attrs)
-    builder.set_goldens_from_builder_tensor(
-        {in0: dividend_tensor, in1: divisor_tensor}, {div0: output_golden}
-    )
-    return div0
-
-
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -620,46 +354,10 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request, dev
     )
 
 
-def remainder(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.remainder(in0, in1, unit_attrs=unit_attrs)
-
-
-def maximum(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.maximum(in0, in1, unit_attrs=unit_attrs)
-
-
-def minimum(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.minimum(in0, in1, unit_attrs=unit_attrs)
-
-
 @pytest.mark.parametrize(
     "shapes", [[(10, 64, 32), (32, 128), (128,)]], ids=shapes_list_str
 )
 def test_linear(shapes: List[Shape], request, device):
-    def linear(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.linear(in0, in1, in2, unit_attrs=unit_attrs)
-
     compile_and_execute_ttir(
         linear,
         shapes,
@@ -668,31 +366,6 @@ def test_linear(shapes: List[Shape], request, device):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
-
-
-def pow(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    randn_base_tensor = builder._get_golden_tensor(in0)
-    randn_exponent_tensor = builder._get_golden_tensor(in1)
-
-    randn_base_tensor = randn_base_tensor.apply_shardwise(
-        lambda shard: (
-            shard.abs() if torch.is_floating_point(randn_exponent_tensor) else shard
-        )
-    )
-
-    if torch.is_floating_point(randn_exponent_tensor):
-        randn_base_tensor = torch.abs(randn_base_tensor)
-    output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
-    pow0 = builder.pow(in0, in1, unit_attrs=unit_attrs)
-    builder.set_goldens_from_builder_tensor(
-        {in0: randn_base_tensor, in1: randn_exponent_tensor}, {pow0: output_golden}
-    )
-    return pow0
 
 
 @pytest.mark.xfail(reason="Fails Golden")
@@ -738,53 +411,6 @@ def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request, dev
     )
 
 
-def matmul(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.matmul(in0, in1, unit_attrs=unit_attrs)
-
-
-def sum(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.sum(in0, unit_attrs=unit_attrs)
-
-
-def mean(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.mean(in0, unit_attrs=unit_attrs)
-
-
-def max(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.max(in0, unit_attrs=unit_attrs)
-
-
-def min(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.min(in0, unit_attrs=unit_attrs)
-
-
-def reshape(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    # Calculate total elements in the input tensor
-    input_shape = builder.get_shape(in0)
-    total_elements = 1
-    for dim in input_shape:
-        total_elements *= dim
-
-    # Reshape to a 1D tensor with all elements
-    new_shape = [int(total_elements)]  # This must be a list of integers
-    return builder.reshape(in0, new_shape, unit_attrs=unit_attrs)
-
-
-def transpose(
-    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-):
-    return builder.transpose(in0, unit_attrs=unit_attrs)
-
-
-def squeeze(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    return builder.squeeze(in0, unit_attrs=unit_attrs)
-
-
 @pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dim_arg", [0])
@@ -803,38 +429,6 @@ def test_prod(shape: Shape, dim_arg: int, keep_dim: bool, request, device):
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
-
-
-def where(
-    in0: Operand,
-    in1: Operand,
-    in2: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
-
-
-def broadcast(
-    in0: Operand,
-    builder: TTIRBuilder,
-    broadcast_dimensions: Optional[List[int]] = None,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.broadcast(
-        in0, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
-    )
-
-
-def concat(
-    in0: Operand,
-    in1: Operand,
-    in2: Operand,
-    dim: int,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.concat([in0, in1, in2], dim=dim, unit_attrs=unit_attrs)
 
 
 @pytest.mark.parametrize("shape", [(1, 1, 32)], ids=shape_str)
@@ -1918,13 +1512,6 @@ def test_typecast(
     request,
     device,
 ):
-    def typecast(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.typecast(in0, output_type=to_type, unit_attrs=unit_attrs)
-
     pipeline_options = []
     # Workaround for ttmetal, only support 1x1 grid atm
     if target == "ttmetal":
@@ -2845,26 +2432,6 @@ def test_unary_ops_int32(
     [
         add,
         multiply,
-        subtract,
-        remainder
-        | Marks(
-            pytest.mark.skip_config(["ttmetal"]), pytest.mark.skip_config(["emitpy"])
-        ),
-        maximum
-        | Marks(
-            pytest.mark.skip_config(
-                ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
-            ),
-            pytest.mark.skip_config(["emitpy"]),
-        ),
-        minimum
-        | Marks(
-            pytest.mark.skip_config(["ttmetal"]), pytest.mark.skip_config(["emitpy"])
-        ),
-        matmul | Marks(pytest.mark.skip_config(["ttmetal"])),
-        logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
-        logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),
-        logical_xor | Marks(pytest.mark.skip_config(["ttmetal"])),
     ],
 )
 def test_binary_ops(
