@@ -31,13 +31,24 @@ The following environment variables control IR dumping behavior:
 - **Default**: Enabled
 - **Description**: Preserve debug info in IR dumps
 
+### `TTMLIR_DUMP_IR_MODEL_NAME`
+- **Values**: Model name string (e.g., `constant_op`, `resnet50`)
+- **Default**: Auto-extracted from input filename (falls back to `unknown`)
+- **Description**: Model name used for subdirectory organization. If not set, automatically extracted from the input file's location information
+
+### `TTMLIR_DUMP_IR_PIPELINE_NAME`
+- **Values**: Pipeline name string (e.g., `stablehlo-to-ttir`, `ttir-to-ttnn-backend`)
+- **Default**: `unknown`
+- **Description**: Pipeline name used for subdirectory organization
+
 ## Usage Examples
 
 ### Basic Usage
 ```bash
-# Enable IR dumping with default settings
+# Enable IR dumping with automatic filename extraction
 export TTMLIR_DUMP_IR=1
-ttmlir-opt input.mlir -pass1 -pass2
+ttmlir-opt test/ttmlir/Conversion/ArithToStableHLO/constant_op.mlir -pass1 -pass2
+# Creates: ir_dumps/constant_op/unknown/0_PRE-PIPELINE.mlir
 ```
 
 ### Custom Directory
@@ -69,6 +80,8 @@ ttmlir-opt input.mlir -pass1 -pass2
 # Full configuration
 export TTMLIR_DUMP_IR=1
 export TTMLIR_DUMP_IR_DIR=/home/user/ir_analysis
+export TTMLIR_DUMP_IR_MODEL_NAME=resnet50
+export TTMLIR_DUMP_IR_PIPELINE_NAME=ttir-to-ttnn-backend
 export TTMLIR_DUMP_IR_PASSES="ttir-layout,ttnn-optimizer"
 export TTMLIR_DUMP_IR_DIALECTS=1
 export TTMLIR_DUMP_IR_DEBUG_INFO=1
@@ -77,13 +90,17 @@ ttmlir-opt input.mlir -ttir-to-ttnn-backend-pipeline
 
 ## Output Files
 
-The IR dumping system creates the following files in the specified directory:
+The IR dumping system creates the following files in a structured subdirectory layout:
+
+### Directory Structure
+- **Format**: `<model_name>/<pipeline_name>/<total_pass_count>_<pass_name>.mlir`
+- **Example**: `constant_op/stablehlo-to-ttir/3_stablehlo-to-ttir.mlir`
 
 ### Pass IR Dumps
-- **Filename format**: `{pass_name}.mlir`
+- **Filename format**: `<total_pass_count>_<pass_name>.mlir`
 - **Content**: Complete MLIR module after the specified pass
 - **Special files**:
-  - `PRE-PIPELINE.mlir`: IR before any passes run
+  - `0_PRE-PIPELINE.mlir`: IR before any passes run
 
 ### Dialect Creation Logs
 - **Filename format**: `dialect_{dialect_name}_created.log`
