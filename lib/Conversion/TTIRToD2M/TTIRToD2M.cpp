@@ -1098,7 +1098,6 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
   }
 };
 
-// Simple conversion for ttir.full -> d2m.full.
 class D2MFullOpRewriter : public OpConversionPattern<ttir::FullOp> {
   using OpConversionPattern<ttir::FullOp>::OpConversionPattern;
 
@@ -1111,7 +1110,6 @@ class D2MFullOpRewriter : public OpConversionPattern<ttir::FullOp> {
   }
 };
 
-// Simple conversion for ttir.constant -> d2m.constant.
 class D2MConstantOpRewriter : public OpConversionPattern<ttir::ConstantOp> {
   using OpConversionPattern<ttir::ConstantOp>::OpConversionPattern;
 
@@ -1124,7 +1122,6 @@ class D2MConstantOpRewriter : public OpConversionPattern<ttir::ConstantOp> {
   }
 };
 
-// Simple conversion for ttir.mesh_shard -> d2m.mesh_shard.
 class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   using OpConversionPattern<ttir::MeshShardOp>::OpConversionPattern;
 

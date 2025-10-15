@@ -62,6 +62,10 @@ MemRefType getBufferType(Type type, bool isView,
   fullMemrefShape.append(gridShape.begin(), gridShape.end());
   fullMemrefShape.append(shardShape.begin(), shardShape.end());
 
+  // Create the appropriate layout attribute based on whether this is a view or
+  // a materialized buffer. Views use affine maps for flexible indexing, while
+  // materialized buffers use shard or interleaved layouts depending on the
+  // tensor's memory layout strategy.
   MemRefLayoutAttrInterface layoutAttr;
   if (isView) {
     const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());

@@ -245,9 +245,11 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Value input = adaptor.getInput();
 
-    // After bufferization, the result type should already be the correct memref
-    // type with the appropriate shape (which may differ from input for
-    // shard_to_full/full_to_shard)
+    // Use the op's result type directly because bufferization has already
+    // determined the correct output shape. For shard_to_full operations, the
+    // result shape differs from the input (e.g., concatenating shards), while
+    // for full_to_shard it's the opposite. The bufferization pass correctly
+    // handles these transformations.
     Type resultType = op.getResult().getType();
 
     rewriter.replaceOpWithNewOp<ttmetal::MeshShardOp>(
