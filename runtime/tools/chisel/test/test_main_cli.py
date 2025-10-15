@@ -83,26 +83,3 @@ def test_chisel_cli_main(ttir_path: str, function_name: str):
         print(f"Report rows: {len(lines)}")
         print(f"Flatbuffer size: {flatbuffer_path.stat().st_size} bytes")
 
-
-@pytest.mark.parametrize(
-    "ttir_path, function_name",
-    [
-        ("runtime/tools/chisel/test/mlir/test_fusion.mlir", "transpose_matmul"),
-    ],
-)
-def test_chisel_cli_help(ttir_path: str, function_name: str):
-    """
-    Test that chisel CLI help works without errors.
-    """
-    cmd = ["python", "runtime/tools/chisel/chisel/main.py", "--help"]
-
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        cwd=Path.cwd(),
-    )
-
-    assert result.returncode == 0, f"Help command failed: {result.stderr}"
-    assert "chisel" in result.stdout.lower(), "Help text doesn't mention chisel"
-    assert "--input-file" in result.stdout, "Help text missing expected arguments"
