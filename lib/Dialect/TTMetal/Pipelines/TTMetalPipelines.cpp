@@ -111,13 +111,17 @@ void createTTIRToTTMetalMiddleendPipeline(
   createTTIRBufferizationPipeline(pm, options);
   if (options.ttnnMode) {
     d2m::D2MInsertStreamsOptions insertStreamsOptions;
-    { insertStreamsOptions.numStreamBuffers = options.numStreamBuffers; }
+    {
+      insertStreamsOptions.numStreamBuffers = options.numStreamBuffers;
+      insertStreamsOptions.allowL1OutputSpilling =
+          options.allowL1OutputSpilling;
+    }
     pm.addPass(d2m::createD2MInsertStreams(insertStreamsOptions));
   } else {
     d2m::D2MAllocateOptions allocateOptions;
     {
       allocateOptions.numStreamBuffers = options.numStreamBuffers;
-      allocateOptions.allowOutputSpilling = options.allowOutputSpilling;
+      allocateOptions.allowL1OutputSpilling = options.allowL1OutputSpilling;
     }
     pm.addPass(d2m::createD2MAllocate(allocateOptions));
   }

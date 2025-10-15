@@ -450,23 +450,10 @@ def D2M_TileMatmulBlockOp : D2M_GenericRegionComputeOp<"tile_matmul_block",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$a,
                          AnyRankedTensorOrMemRef:$b,
-                         AnyRankedTensorOrMemRef:$output,
-                         OptionalAttr<I64Attr>:$block_m,
-                         OptionalAttr<I64Attr>:$block_k,
-                         OptionalAttr<I64Attr>:$block_n,
-                         OptionalAttr<I64Attr>:$b_block_stride);
-
-    let builders = [
-      OpBuilder<(ins "Value": $a, "Value": $b, "Value": $output), [{
-        build($_builder, $_state, a, b, output, /*block_m=*/nullptr,
-              /*block_k=*/nullptr, /*block_n=*/nullptr,
-              /*b_block_stride=*/nullptr);
-      }]>
-    ];
+                         AnyRankedTensorOrMemRef:$output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-      bool hasBlockDims();
     }];
 
     let hasVerifier = 1;

@@ -5,7 +5,7 @@
 
 # arg $1: path to pytest test files
 # arg $2: pytest marker expression to select tests to run
-# arg $3: "run-ttrt" or predefined additional flags for pytest and ttrt
+# arg $3: "run-ttrt" or predefined additional flags for pytest
 
 set -e -o pipefail
 
@@ -14,7 +14,7 @@ TTRT_ARGS=""
 PYTEST_ARGS=""
 
 [[ "$RUNS_ON" != "n150" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-exact-mesh"
-[[ "$RUNS_ON" == "p150" ]] && TTRT_ARGS="$TTRT_ARGS --disable-eth-dispatch"
+[[ "$RUNS_ON" == "p150" ]] && PYTEST_ARGS="$PYTEST_ARGS --disable-eth-dispatch" && TTRT_ARGS="$TTRT_ARGS --disable-eth-dispatch"
 
 for flag in $3; do
     [[ "$flag" == "run-ttrt" ]] && runttrt=1
@@ -22,12 +22,8 @@ for flag in $3; do
 done
 
 pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=$TEST_REPORT_PATH
+
 if [[ "$runttrt" == "1" ]]; then
-    ttrt run $TTRT_ARGS ttir-builder-artifacts/
-    cp run_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
-    cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_${TEST_REPORT_PATH##*_} || true
-    ttrt run $TTRT_ARGS stablehlo-builder-artifacts/
-    cp run_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
     if [ -d ttir-builder-artifacts/emitpy ]; then
         # Create renamed copies of ttnn files so emitpy can find them for comparison
         for file in ttir-builder-artifacts/ttnn/*; do
