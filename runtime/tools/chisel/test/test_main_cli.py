@@ -82,4 +82,3 @@ def test_chisel_cli_main(ttir_path: str, function_name: str):
         print(f"CLI test passed successfully for function: {function_name}")
         print(f"Report rows: {len(lines)}")
         print(f"Flatbuffer size: {flatbuffer_path.stat().st_size} bytes")
-
