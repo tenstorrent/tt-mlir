@@ -101,6 +101,9 @@ def add_to_dataclass(dataclass, new_attr_name: str, new_attr_value):
     dataclass[new_attr_name] = new_attr_value
     return to_dataclass(dataclass, dc_name=classname)
 
+def to_adapter_collection_format(*objs, **kwargs):
+    res = [x if is_dataclass(x) else to_dataclass(x) for x in objs]
+    return {"graphCollections": [to_dataclass({ "label": kwargs.get('label', 'Unlabeled collection'), "graphs": res })]}
 
 def to_adapter_format(*objs):
     res = [x if is_dataclass(x) else to_dataclass(x) for x in objs]
