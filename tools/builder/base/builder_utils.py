@@ -416,22 +416,15 @@ def build_module(
     encoding_fn = None
     if builder_type == "ttir":
         builder = TTIRBuilder(ctx, loc, mesh_name, mesh_dict)
-        dir_name = "ttir-builder-artifacts"
-        subdir_name = "ttir"
     elif builder_type == "stablehlo":
         builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
-        dir_name = "stablehlo-builder-artifacts"
-        subdir_name = "shlo"
     elif builder_type == "ttnn":
         builder = TTNNBuilder(ctx, loc)
-        dir_name = "ttnn-builder-artifacts"
-        subdir_name = "ttnn"
         encoding_fn = builder.create_tensor_encoding
     elif builder_type == "d2m":
         builder = D2MBuilder(ctx, loc, mesh_name, mesh_dict)
-        dir_name = "d2m-builder-artifacts"
-        subdir_name = "d2m"
-    mlir_suffix = "_" + subdir_name + ".mlir"
+    dir_name = builder_type + "-builder-artifacts"
+    mlir_suffix = "_" + builder_type + ".mlir"
 
     # Default to all f32s
     if inputs_types is None:
@@ -1912,7 +1905,7 @@ def experimental_build_stablehlo_module(
         print(f"`{fn.__name__}` sucessfully transformed into a MLIR module.")
         base = fn.__name__ if base is None else base
         filename = _get_target_path(
-            output_root, "stablehlo-builder-artifacts", "shlo.mlir", base
+            output_root, "stablehlo-builder-artifacts", "stablehlo.mlir", base
         )
 
         if module_dump:
