@@ -59,7 +59,7 @@ if [[ "$runttrt" == "1" ]]; then
         echo $TT_METAL_LIB
         export TT_METAL_LIB="${INSTALL_DIR}/lib"
         echo $TT_METAL_LIB
-        ls ${TT_METAL_LIB}/
+        ls ${TT_METAL_LIB}
         ${INSTALL_DIR}/tools/ttnn-standalone/ci_compile_dylib.py --dir ttir-builder-artifacts/emitc
         # Create renamed copies of ttnn files so emitc can find them for comparison
         for file in ttir-builder-artifacts/ttnn/*; do
