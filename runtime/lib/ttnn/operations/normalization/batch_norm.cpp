@@ -9,13 +9,15 @@ void run(const ::tt::target::ttnn::BatchNormInferenceOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->input());
+  const ::ttnn::Tensor &input =
+      tensorPool.getTTNNTensorAndValidate(op->input());
   ::ttnn::Tensor &runningMean =
       tensorPool.getTTNNTensorAndValidate(op->running_mean());
   ::ttnn::Tensor &runningVar =
       tensorPool.getTTNNTensorAndValidate(op->running_var());
-  ::ttnn::Tensor &weight = tensorPool.getTTNNTensorAndValidate(op->weight());
-  ::ttnn::Tensor &bias = tensorPool.getTTNNTensorAndValidate(op->bias());
+  const ::ttnn::Tensor &weight =
+      tensorPool.getTTNNTensorAndValidate(op->weight());
+  const ::ttnn::Tensor &bias = tensorPool.getTTNNTensorAndValidate(op->bias());
 
   float epsilon = op->epsilon();
 
@@ -31,13 +33,15 @@ void run(const ::tt::target::ttnn::BatchNormTrainingOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->input());
+  const ::ttnn::Tensor &input =
+      tensorPool.getTTNNTensorAndValidate(op->input());
   ::ttnn::Tensor &runningMean =
       tensorPool.getTTNNTensorAndValidate(op->running_mean());
   ::ttnn::Tensor &runningVar =
       tensorPool.getTTNNTensorAndValidate(op->running_var());
-  ::ttnn::Tensor &weight = tensorPool.getTTNNTensorAndValidate(op->weight());
-  ::ttnn::Tensor &bias = tensorPool.getTTNNTensorAndValidate(op->bias());
+  const ::ttnn::Tensor &weight =
+      tensorPool.getTTNNTensorAndValidate(op->weight());
+  const ::ttnn::Tensor &bias = tensorPool.getTTNNTensorAndValidate(op->bias());
 
   float epsilon = op->epsilon();
   float momentum = op->momentum();

@@ -1751,8 +1751,8 @@ def TTNN_BatchNormTrainingOp : TTNN_Op<"batch_norm_training", [AttrSizedOperandS
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         Optional<AnyRankedTensor>:$running_mean,
-                         Optional<AnyRankedTensor>:$running_var,
+                         Arg<Optional<AnyRankedTensor>, "running mean", [MemWrite]>:$running_mean,
+                         Arg<Optional<AnyRankedTensor>, "running variance", [MemWrite]>:$running_var,
                          DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
                          DefaultValuedAttr<F32Attr, "0.1">:$momentum,
                          Optional<AnyRankedTensor>:$weight,
