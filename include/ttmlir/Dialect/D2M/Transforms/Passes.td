@@ -525,8 +525,6 @@ def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
   let options = [
     ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
         "Override the device shape for grid optimization.">,
-    Option<"enableDebugLogging", "enable-debug-logging", "bool", /*default=*/"false",
-           "Enable debug logging for grid optimization">,
   ];
 }
 

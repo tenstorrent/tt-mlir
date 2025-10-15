@@ -454,7 +454,6 @@ public:
 
   D2MGridSelectionPass(const D2MGridSelectionOptions &options) : Base() {
     this->overrideDeviceShape = llvm::to_vector(options.overrideDeviceShape);
-    this->enableDebugLogging = options.enableDebugLogging;
   }
 
   void runOnOperation() override {
