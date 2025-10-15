@@ -458,53 +458,6 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
 // EmptyOp
 //===----------------------------------------------------------------------===//
 
-bool mlir::tt::ttir::EmptyOp::bufferizesToMemoryRead(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  // If the operand is an input, it is a bufferized to a memory read.
-  return false;
-}
-
-bool mlir::tt::ttir::EmptyOp::bufferizesToMemoryWrite(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  // If the operand is an output, it is a bufferized to a memory write.
-  return false;
-}
-
-bool mlir::tt::ttir::EmptyOp::bufferizesToAllocation(Value value) {
-  return true;
-}
-
-mlir::LogicalResult mlir::tt::ttir::EmptyOp::bufferize(
-    mlir::RewriterBase &rewriter,
-    const mlir::bufferization::BufferizationOptions &options,
-    mlir::bufferization::BufferizationState &state) {
-  if (getOperation()->getUses().empty()) {
-    rewriter.eraseOp(*this);
-    return success();
-  }
-
-  ::llvm::SmallVector<mlir::Value> invocationStack;
-  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::AllocOp>(
-      rewriter, *this,
-      mlir::cast<MemRefType>(
-          *getBufferType(getResult(), options, state, invocationStack)));
-  return mlir::success();
-}
-
-mlir::bufferization::AliasingValueList
-mlir::tt::ttir::EmptyOp::getAliasingValues(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  bufferization::AliasingValueList result;
-  return result;
-}
-
-mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::EmptyOp::getBufferType(
-    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
-    const mlir::bufferization::BufferizationState &,
-    ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
-}
-
 //===----------------------------------------------------------------------===//
 // RandOp
 //===----------------------------------------------------------------------===//
@@ -598,46 +551,6 @@ void mlir::tt::ttir::ConstantOp::getCanonicalizationPatterns(
   }
 
   return success();
-}
-
-bool mlir::tt::ttir::ConstantOp::bufferizesToMemoryRead(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  return false;
-}
-
-bool mlir::tt::ttir::ConstantOp::bufferizesToMemoryWrite(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  return false;
-}
-
-mlir::LogicalResult mlir::tt::ttir::ConstantOp::bufferize(
-    mlir::RewriterBase &rewriter,
-    const mlir::bufferization::BufferizationOptions &options,
-    mlir::bufferization::BufferizationState &state) {
-  ::llvm::SmallVector<mlir::Value> invocationStack;
-  auto memrefType = mlir::cast<mlir::MemRefType>(
-      getBufferType(getResult(), options, state, invocationStack).value());
-
-  mlir::memref::GlobalOp global = ttcore::createGlobal(
-      getOperation()->getParentOfType<ModuleOp>(), memrefType, getValue());
-  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
-      rewriter, *this, global.getType(), global.getName());
-
-  return mlir::success();
-}
-
-mlir::bufferization::AliasingValueList
-mlir::tt::ttir::ConstantOp::getAliasingValues(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  bufferization::AliasingValueList result;
-  return result;
-}
-
-mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ConstantOp::getBufferType(
-    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
-    const mlir::bufferization::BufferizationState &,
-    ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2746,85 +2659,6 @@ void mlir::tt::ttir::ToLayoutOp::getCanonicalizationPatterns(
   patterns.add(std::make_unique<ToLayoutFoldRedundantPattern>(context));
 }
 
-mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(
-    mlir::RewriterBase &rewriter,
-    const mlir::bufferization::BufferizationOptions &options,
-    mlir::bufferization::BufferizationState &state) {
-  if (getNumResults() == 0) {
-    return failure();
-  }
-
-  assert(getNumResults() == 1 && "ToLayoutOp should have exactly one result");
-
-  if (!mlir::isa<::mlir::RankedTensorType>(getResult(0).getType())) {
-    return failure();
-  }
-
-  auto maybeInput =
-      mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
-  if (failed(maybeInput)) {
-    return maybeInput;
-  }
-
-  auto maybeOutput =
-      mlir::bufferization::getBuffer(rewriter, getOutput(), options, state);
-  if (failed(maybeOutput)) {
-    return maybeOutput;
-  }
-
-  // For unaligned H2D, copy the unaligned host tensor to an aligned & padded
-  // bounce buffer, then write to the device.
-  if (isHostToDevice()) {
-    llvm::SmallVector<mlir::Value> invocationStack;
-    MemRefType alignedHostMemref = mlir::cast<MemRefType>(
-        *getBufferType(getInput(), options, state, invocationStack));
-
-    if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
-            .isPadded()) {
-      auto alignedHostTensor =
-          rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
-      rewriter.create<memref::CopyOp>(getLoc(), *maybeInput, alignedHostTensor);
-      maybeInput = alignedHostTensor.getResult();
-    }
-  }
-
-  auto toLayoutOp = rewriter.create<::mlir::tt::ttir::ToLayoutOp>(
-      getLoc(), TypeRange(), *maybeInput, *maybeOutput,
-      getLayout().value_or(nullptr));
-
-  // For unaligned D2H, read the device tensor to an aligned & padded bounce
-  // buffer, then do strided memcpy to copy the data into the unaligned tensor.
-  if (isDeviceToHost()) {
-    llvm::SmallVector<mlir::Value> invocationStack;
-    MemRefType alignedHostMemref = mlir::cast<MemRefType>(
-        *getBufferType(getOutput(), options, state, invocationStack));
-
-    if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
-            .isPadded()) {
-      rewriter.setInsertionPoint(toLayoutOp);
-      auto alignedHostTensor =
-          rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
-
-      rewriter.setInsertionPointAfter(toLayoutOp);
-      rewriter.create<memref::CopyOp>(getLoc(), alignedHostTensor,
-                                      *maybeOutput);
-      toLayoutOp.getOutputMutable().assign(alignedHostTensor);
-    }
-  }
-
-  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
-                                                     *maybeOutput);
-  return success();
-}
-
-mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::ToLayoutOp::getBufferType(
-    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
-    const mlir::bufferization::BufferizationState &,
-    ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false,
-                                       getLayout());
-}
-
 //===----------------------------------------------------------------------===//
 // TTNNMetalLayoutCastOp
 //===----------------------------------------------------------------------===//
@@ -3776,43 +3610,6 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   return success();
 }
 
-mlir::LogicalResult mlir::tt::ttir::MeshShardOp::bufferize(
-    mlir::RewriterBase &rewriter,
-    const mlir::bufferization::BufferizationOptions &options,
-    mlir::bufferization::BufferizationState &state) {
-
-  if (mlir::isa<::mlir::MemRefType>(getInput().getType())) {
-    return failure();
-  }
-
-  auto maybeInput =
-      mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
-  if (failed(maybeInput)) {
-    return maybeInput;
-  }
-
-  auto maybeResult =
-      mlir::bufferization::getBuffer(rewriter, getResult(), options, state);
-  if (failed(maybeResult)) {
-    return maybeResult;
-  }
-
-  mlir::bufferization::replaceOpWithNewBufferizedOp<
-      mlir::tt::ttir::MeshShardOp>(
-      rewriter, *this, maybeResult->getType(), *maybeInput, getShardType(),
-      getShardDirection(), getShardShape(), getShardDims());
-
-  return success();
-}
-
-mlir::FailureOr<mlir::BaseMemRefType>
-mlir::tt::ttir::MeshShardOp::getBufferType(
-    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
-    const mlir::bufferization::BufferizationState &,
-    ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), false);
-}
-
 ::mlir::OpFoldResult mlir::tt::ttir::MeshShardOp::fold(FoldAdaptor adaptor) {
   auto shardShapeArray = getShardShape();
   auto shardType = getShardType();
@@ -4129,49 +3926,6 @@ mlir::LogicalResult mlir::tt::ttir::FullOp::verify() {
   }
 
   return mlir::success();
-}
-
-bool mlir::tt::ttir::FullOp::bufferizesToMemoryRead(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  return false;
-}
-
-bool mlir::tt::ttir::FullOp::bufferizesToMemoryWrite(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  return false;
-}
-
-mlir::LogicalResult mlir::tt::ttir::FullOp::bufferize(
-    mlir::RewriterBase &rewriter,
-    const mlir::bufferization::BufferizationOptions &options,
-    mlir::bufferization::BufferizationState &state) {
-  ::llvm::SmallVector<mlir::Value> invocationStack;
-  auto memrefType = mlir::cast<mlir::MemRefType>(
-      getBufferType(getResult(), options, state, invocationStack).value());
-
-  auto denseAttr =
-      mlir::DenseElementsAttr::get(getResult().getType(), getFillValueAttr());
-
-  mlir::memref::GlobalOp global = ttcore::createGlobal(
-      getOperation()->getParentOfType<ModuleOp>(), memrefType, denseAttr);
-  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
-      rewriter, *this, global.getType(), global.getName());
-
-  return mlir::success();
-}
-
-mlir::bufferization::AliasingValueList
-mlir::tt::ttir::FullOp::getAliasingValues(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  bufferization::AliasingValueList result;
-  return result;
-}
-
-mlir::FailureOr<mlir::BaseMemRefType> mlir::tt::ttir::FullOp::getBufferType(
-    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
-    const mlir::bufferization::BufferizationState &,
-    ::llvm::SmallVector<mlir::Value> &) {
-  return mlir::tt::ttir::getBufferType(value.getType(), /*isView=*/false);
 }
 
 static std::optional<std::string>

@@ -71,7 +71,15 @@ MemRefType getBufferType(Type type, bool isView,
     layoutAttr = ttcore::ViewLayoutAttr::get(ctx, map);
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-    layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Sharded) {
+      layoutAttr =
+          ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    } else if (layout.getMemoryLayout() ==
+               ttcore::TensorMemoryLayout::Interleaved) {
+      layoutAttr = ttcore::InterleavedLayoutAttr::get(ctx, shardStride);
+    } else {
+      llvm_unreachable("Unsupported memory layout");
+    }
   }
 
   return MemRefType::get(
@@ -185,6 +193,163 @@ d2m::EmptyOp::getBufferType(mlir::Value value,
                             ::llvm::SmallVector<mlir::Value> &) {
   return d2m::getBufferType(value.getType(), /*isView=*/false);
 }
+
+//===----------------------------------------------------------------------===//
+// FullOp
+//===----------------------------------------------------------------------===//
+
+bool d2m::FullOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool d2m::FullOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::LogicalResult
+d2m::FullOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  auto memrefType = mlir::cast<mlir::MemRefType>(
+      getBufferType(getResult(), options, state, invocationStack).value());
+
+  auto denseAttr =
+      mlir::DenseElementsAttr::get(getResult().getType(), getFillValueAttr());
+
+  mlir::memref::GlobalOp global = ttcore::createGlobal(
+      getOperation()->getParentOfType<ModuleOp>(), memrefType, denseAttr);
+  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
+      rewriter, *this, global.getType(), global.getName());
+
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList
+d2m::FullOp::getAliasingValues(mlir::OpOperand &,
+                               const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType>
+d2m::FullOp::getBufferType(mlir::Value value,
+                           const mlir::bufferization::BufferizationOptions &,
+                           const mlir::bufferization::BufferizationState &,
+                           ::llvm::SmallVector<mlir::Value> &) {
+  return d2m::getBufferType(value.getType(), /*isView=*/false);
+}
+
+::mlir::LogicalResult d2m::FullOp::verify() { return mlir::success(); }
+
+//===----------------------------------------------------------------------===//
+// ConstantOp
+//===----------------------------------------------------------------------===//
+
+bool d2m::ConstantOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool d2m::ConstantOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::LogicalResult d2m::ConstantOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  auto memrefType = mlir::cast<mlir::MemRefType>(
+      getBufferType(getResult(), options, state, invocationStack).value());
+
+  mlir::memref::GlobalOp global = ttcore::createGlobal(
+      getOperation()->getParentOfType<ModuleOp>(), memrefType, getValue());
+  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
+      rewriter, *this, global.getType(), global.getName());
+
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList
+d2m::ConstantOp::getAliasingValues(mlir::OpOperand &,
+                                   const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType> d2m::ConstantOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return d2m::getBufferType(value.getType(), /*isView=*/false);
+}
+
+::mlir::OpFoldResult d2m::ConstantOp::fold(FoldAdaptor adaptor) {
+  return getValue();
+}
+
+void d2m::ConstantOp::getCanonicalizationPatterns(RewritePatternSet &results,
+                                                  MLIRContext *context) {
+  // No canonicalization patterns for now
+}
+
+::mlir::LogicalResult d2m::ConstantOp::verify() { return mlir::success(); }
+
+//===----------------------------------------------------------------------===//
+// MeshShardOp
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult d2m::MeshShardOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+
+  if (mlir::isa<::mlir::MemRefType>(getInput().getType())) {
+    return failure();
+  }
+
+  auto maybeInput =
+      mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
+  if (failed(maybeInput)) {
+    return maybeInput;
+  }
+
+  auto maybeResult =
+      mlir::bufferization::getBuffer(rewriter, getResult(), options, state);
+  if (failed(maybeResult)) {
+    return maybeResult;
+  }
+
+  mlir::bufferization::replaceOpWithNewBufferizedOp<d2m::MeshShardOp>(
+      rewriter, *this, maybeResult->getType(), *maybeInput, getShardType(),
+      getShardDirection(), getShardShape(), getShardDims());
+
+  return success();
+}
+
+mlir::FailureOr<mlir::BaseMemRefType> d2m::MeshShardOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return d2m::getBufferType(value.getType(), false);
+}
+
+::mlir::OpFoldResult d2m::MeshShardOp::fold(FoldAdaptor adaptor) {
+  auto shardShapeArray = getShardShape();
+  auto shardType = getShardType();
+  if (shardType != mlir::tt::ttcore::MeshShardType::Replicate &&
+      ttmlir::utils::volume(shardShapeArray) == 1) {
+    return getInput();
+  }
+
+  return {};
+}
+
+::mlir::LogicalResult d2m::MeshShardOp::verify() { return mlir::success(); }
 
 //===----------------------------------------------------------------------===//
 // ToLayoutOp
