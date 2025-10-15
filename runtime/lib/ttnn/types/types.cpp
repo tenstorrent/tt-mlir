@@ -200,6 +200,14 @@ std::vector<::tt::runtime::Tensor> ProgramTensorPool::gatherOutputTensors() {
   std::transform(programOutputIds.begin(), programOutputIds.end(),
                  std::back_inserter(outputs), [this](std::uint32_t globalId) {
                    ::tt::runtime::Tensor &out = getRuntimeTensor(globalId);
+                   std::vector<std::uint32_t> shape = getTensorShape(out);
+                   std::string shapeStr = "[";
+                   for (std::uint32_t j : shape) {
+                     shapeStr += ", ";
+                     shapeStr += std::to_string(j);
+                   }
+                   shapeStr += "]";
+                   std::cout << "SHAPE " << shapeStr << std::endl;
                    return out;
                  });
   return outputs;

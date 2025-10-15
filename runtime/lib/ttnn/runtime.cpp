@@ -1642,6 +1642,17 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();
 
+  std::string shapeStr;
+  for (auto &tensor : outputTensors) {
+    std::vector<std::uint32_t> shape = getTensorShape(tensor);
+    shapeStr = "[";
+    for (std::uint32_t j : shape) {
+      shapeStr += ", ";
+      shapeStr += std::to_string(j);
+    }
+    shapeStr += "]";
+    LOG_DEBUG("  shape: " + shapeStr);
+  }
   return outputTensors;
 }
 
