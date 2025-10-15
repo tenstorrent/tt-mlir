@@ -28,37 +28,6 @@ if [[ "$runttrt" == "1" ]]; then
     cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_${TEST_REPORT_PATH##*_} || true
     ttrt run $TTRT_ARGS stablehlo-builder-artifacts/
     cp run_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
-    if [ -d ttir-builder-artifacts/emitc ]; then
-        echo $TT_METAL_HOME #Temporary check
-        export TT_METAL_LIB="$BUILD_DIR/tools/ttrt/build/lib/ttrt/runtime"
-        python3 tools/ttnn-standalone/ci_compile_dylib.py --dir ttir-builder-artifacts/emitc
-        # Create renamed copies of ttnn files so emitc can find them for comparison
-        for file in ttir-builder-artifacts/ttnn/*; do
-            if [ -f "$file" ]; then
-                basename_file=$(basename "$file")
-                renamed_file=$(echo "$basename_file" | sed 's/ttnn/emitc/')
-                cp "$file" "ttir-builder-artifacts/ttnn/$renamed_file"
-            fi
-        done
-        ttrt emitc $TTRT_ARGS ttir-builder-artifacts/emitc/ --flatbuffer ttir-builder-artifacts/ttnn/
-        cp emitc_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
-    fi
-    if [ -d stablehlo-builder-artifacts/emitc ]; then
-        export TT_METAL_HOME="$PWD/third_party/tt-metal/src/tt-metal"
-        export TT_METAL_LIB="$TT_METAL_HOME/build/lib"
-        export PYTHONPATH="$TT_METAL_HOME/ttnn:$PYTHONPATH"
-        python3 tools/ttnn-standalone/ci_compile_dylib.py --dir stablehlo-builder-artifacts/emitc
-        # Create renamed copies of ttnn files so emitc can find them for comparison
-        for file in stablehlo-builder-artifacts/ttnn/*; do
-            if [ -f "$file" ]; then
-                basename_file=$(basename "$file")
-                renamed_file=$(echo "$basename_file" | sed 's/ttnn/emitc/')
-                cp "$file" "stablehlo-builder-artifacts/ttnn/$renamed_file"
-            fi
-        done
-        ttrt emitc $TTRT_ARGS stablehlo-builder-artifacts/emitc/ --flatbuffer stablehlo-builder-artifacts/ttnn/
-        cp emitc_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
-    fi
     if [ -d ttir-builder-artifacts/emitpy ]; then
         # Create renamed copies of ttnn files so emitpy can find them for comparison
         for file in ttir-builder-artifacts/ttnn/*; do
@@ -84,5 +53,31 @@ if [[ "$runttrt" == "1" ]]; then
         ttrt emitpy $TTRT_ARGS stablehlo-builder-artifacts/emitpy/ --flatbuffer stablehlo-builder-artifacts/ttnn/
         cp emitpy_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
         cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_stablehlo_emitpy_${TEST_REPORT_PATH##*_} || true
+    fi
+    if [ -d ttir-builder-artifacts/emitc ]; then
+        tools/ttnn-standalone/ci_compile_dylib.py --dir ttir-builder-artifacts/emitc
+        # Create renamed copies of ttnn files so emitc can find them for comparison
+        for file in ttir-builder-artifacts/ttnn/*; do
+            if [ -f "$file" ]; then
+                basename_file=$(basename "$file")
+                renamed_file=$(echo "$basename_file" | sed 's/ttnn/emitc/')
+                cp "$file" "ttir-builder-artifacts/ttnn/$renamed_file"
+            fi
+        done
+        ttrt emitc $TTRT_ARGS ttir-builder-artifacts/emitc/ --flatbuffer ttir-builder-artifacts/ttnn/
+        cp emitc_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
+    fi
+    if [ -d stablehlo-builder-artifacts/emitc ]; then
+        tools/ttnn-standalone/ci_compile_dylib.py --dir stablehlo-builder-artifacts/emitc
+        # Create renamed copies of ttnn files so emitc can find them for comparison
+        for file in stablehlo-builder-artifacts/ttnn/*; do
+            if [ -f "$file" ]; then
+                basename_file=$(basename "$file")
+                renamed_file=$(echo "$basename_file" | sed 's/ttnn/emitc/')
+                cp "$file" "stablehlo-builder-artifacts/ttnn/$renamed_file"
+            fi
+        done
+        ttrt emitc $TTRT_ARGS stablehlo-builder-artifacts/emitc/ --flatbuffer stablehlo-builder-artifacts/ttnn/
+        cp emitc_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
     fi
 fi

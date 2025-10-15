@@ -586,9 +586,7 @@ class FileManager:
         filename = self.get_file_name(path)
         ttnn_filename = filename.replace(EmitCDylib.get_so_file_extension(), ".ttnn")
         found_paths = self.find_file_paths(ttnn_directory, ".ttnn")
-        import os
 
-        print(os.environ.get("TT_METAL_HOME"))
         for file_name in found_paths:
             if re.match(rf".*{ttnn_filename}$", file_name):
                 return file_name
@@ -603,7 +601,12 @@ class FileManager:
         self.logging.debug(f"Loading .pt tensors from directory: {artifacts_path}")
         for program in program_names:
             program_dir = os.path.join(artifacts_path, program)
-            files = sorted([d for d in os.listdir(program_dir)])
+            files = sorted(
+                [d for d in os.listdir(program_dir)],
+                key=lambda x: int(re.search(r"_(\d+)\.pt$", x).group(1))
+                if re.search(r"_(\d+)\.pt$", x)
+                else 0,
+            )
             tensors = []
             for file in files:
                 file = os.path.join(program_dir, file)
