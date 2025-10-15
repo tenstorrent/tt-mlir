@@ -38,19 +38,6 @@ void populateTTModule(nb::module_ &m) {
                         static_cast<tt::ttcore::TensorMemoryLayout>(
                             memoryLayoutValue)));
                   })
-      // .def_static(
-      //     "get",
-      //     [](MlirContext ctx, std::vector<int64_t> logicalShape, uint32_t
-      //     oobValValue,
-      //        uint32_t memorySpaceValue, uint32_t memoryLayoutValue,
-      //        MlirAffineMap indexAffineMap) {
-      //       return wrap(tt::ttcore::MetalLayoutAttr::get(
-      //           unwrap(ctx), ArrayRef<int64_t>(logicalShape),
-      //           static_cast<tt::ttcore::OOBVal>(oobValValue),
-      //           static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
-      //           static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
-      //           unwrap(indexAffineMap)));
-      //     })
       .def("getLayout",
            [](MlirType &type)
                -> std::variant<tt::ttcore::MetalLayoutAttr, nb::object> {

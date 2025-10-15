@@ -159,9 +159,11 @@ protected:
           ttcore::TensorMemoryLayout::Sharded);
     }
 
+    // Get raw, unsharded physical shape.
     llvm::SmallVector<int64_t> unshardedShape =
         layout.getPhysicalShape(tileShape);
 
+    // Use a placeholder, 1-filled grid for this pass.
     llvm::SmallVector<int64_t> simpleGrid(unshardedShape.size(), 1);
 
     llvm::SmallVector<int64_t> shardedShape =
@@ -1107,6 +1109,8 @@ public:
     typeConverter.addSourceMaterialization(
         [](OpBuilder &builder, RankedTensorType type, ValueRange inputs,
            Location loc) -> Value {
+          // We expect exactly one input value (the TTIR tensor to convert).
+          // Return null to signal failure if called with 0 or multiple inputs.
           if (inputs.size() != 1) {
             return Value();
           }
@@ -1122,6 +1126,8 @@ public:
     typeConverter.addTargetMaterialization([](OpBuilder &builder, Type type,
                                               ValueRange inputs,
                                               Location loc) -> Value {
+      // We expect exactly one input value (the D2M tensor to convert).
+      // Return null to signal failure if called with 0 or multiple inputs.
       if (inputs.size() != 1) {
         return Value();
       }

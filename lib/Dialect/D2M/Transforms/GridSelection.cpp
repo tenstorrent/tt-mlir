@@ -328,38 +328,23 @@ static void assignGrids(d2m::GenericOp genericOp,
       storageLogicalShape = llvm::to_vector(storageLayout.getLogicalShape());
     }
 
-    // Extract or construct the normalized intervals for alignment computation.
-    llvm::SmallVector<int64_t> normalizedIntervals;
-    auto collapsedIntervals = storageLayout.getCollapsedIntervals();
-    if (collapsedIntervals) {
-      auto intervalsArray = collapsedIntervals.getValues<int64_t>();
-      normalizedIntervals.assign(intervalsArray.begin(), intervalsArray.end());
-    } else {
-      int64_t rank = storageLogicalShape.size();
-      if (rank >= 2) {
-        normalizedIntervals = {0, rank - 1, rank - 1, rank};
-      } else {
-        normalizedIntervals = {0, rank};
-      }
-    }
-
     llvm::SmallVector<int64_t> storageDimAlignments =
         computeGridAwareDimAlignments(storageLogicalShape, targetGridShape,
-                                      normalizedIntervals);
+                                      storageLayout.getNormalizedIntervals());
 
     auto newStorageLayout =
         (hasIndexMap)
             ? ttcore::MetalLayoutAttr::get(
                   builder.getContext(), storageLogicalShape,
-                  storageDimAlignments, collapsedIntervals,
+                  storageDimAlignments, storageLayout.getCollapsedIntervals(),
                   storageLayout.getOobVal(), storageLayout.getMemorySpace(),
                   storageLayout.getMemoryLayout(),
                   storageLayout.getIndexAffineMap())
             : ttcore::MetalLayoutAttr::get(
                   builder.getContext(), storageLogicalShape,
                   storageLayout.getOobVal(), storageLayout.getMemorySpace(),
-                  storageLayout.getMemoryLayout(), collapsedIntervals,
-                  storageDimAlignments);
+                  storageLayout.getMemoryLayout(),
+                  storageLayout.getCollapsedIntervals(), storageDimAlignments);
 
     llvm::SmallVector<int64_t> tileShape;
     if (auto tileType =
@@ -470,14 +455,9 @@ public:
   D2MGridSelectionPass(const D2MGridSelectionOptions &options) : Base() {
     this->overrideDeviceShape = llvm::to_vector(options.overrideDeviceShape);
     this->enableDebugLogging = options.enableDebugLogging;
-    this->ttnnMode = options.ttnnMode;
   }
 
   void runOnOperation() override {
-    if (ttnnMode) {
-      return;
-    }
-
     ModuleOp module = getOperation();
 
     llvm::SmallVector<int64_t> targetGridShape = getTargetGridShape();

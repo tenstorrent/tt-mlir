@@ -518,7 +518,8 @@ def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
     its physical shape, finding the largest grid dimensions that evenly divide the shape.
     It also recomputes proper dimAlignments that account for grid-based alignment requirements.
 
-    Note: This pass is skipped in TTNN mode, where grids are already set.
+    Note: This pass is not used in TTNN mode, where grids are already correctly set.
+    The pipeline conditionally adds this pass only for non-TTNN mode.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
   let options = [
@@ -526,8 +527,6 @@ def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
         "Override the device shape for grid optimization.">,
     Option<"enableDebugLogging", "enable-debug-logging", "bool", /*default=*/"false",
            "Enable debug logging for grid optimization">,
-    Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false",
-           "Skip selection in TTNN mode where grids are already set">,
   ];
 }
 
