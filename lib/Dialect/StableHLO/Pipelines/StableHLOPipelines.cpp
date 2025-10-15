@@ -62,13 +62,13 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(createWrapUnderManualComputationPass());
 
   // Convert reshards to collectives conditionally.
-  pm.nest<mlir::func::FuncOp>().addPass(createReshardToCollectivesPass());
+  pm.nest<mlir::func::FuncOp>().addPass(sdy::createReshardToCollectivesPass());
 
   // Split tensor dimensions according to tensor sharding annotations.
   pm.addPass(createUpdateGlobalToLocalShapesPass());
 
   // Close tensor shardings as analysis is complete conditionally.
-  pm.addPass(createCloseShardingsPass());
+  pm.addPass(sdy::createCloseShardingsPass());
 
   // Run canonicalizer pass.
   pm.addPass(mlir::createCanonicalizerPass());

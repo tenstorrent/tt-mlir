@@ -257,32 +257,4 @@ def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::func:
   ];
 }
 
-def ReshardToCollectivesPass : Pass<"reshard-to-collectives", "::mlir::func::FuncOp">
-{
-  let summary = "Convert reshards to collectives only on non-solved graphs.";
-  let description = [{
-    This pass checks if the graph is already solved before running sdy.reshard_to_collectives.
-    A graph is considered solved if it contains sdy.manual_computation operations with non-empty
-    manual_axes, indicating that the sharding propagation has already been completed.
-  }];
-
-  let dependentDialects = [
-    "::mlir::sdy::SdyDialect"
-  ];
-}
-
-def CloseShardingsPass : Pass<"close-shardings", "::mlir::ModuleOp">
-{
-  let summary = "Close tensor shardings only on non-solved graphs.";
-  let description = [{
-    This pass checks if the graph is already solved before running sdy.close_shardings.
-    A graph is considered solved if it contains sdy.manual_computation operations with non-empty
-    manual_axes, indicating that the sharding propagation has already been completed.
-  }];
-
-  let dependentDialects = [
-    "::mlir::sdy::SdyDialect"
-  ];
-}
-
 #endif
