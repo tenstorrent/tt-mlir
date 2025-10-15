@@ -118,18 +118,7 @@ class TTNNBuilder(Builder):
         For simplicity we will always create DRAM/Interlaved tiled tensor.
         """
         with self._ctx, self._loc:
-            data_type = util.element_type_to_data_type(element_type)
-            tile_element_type = ttcore.ir.TileType.get(self._ctx, 32, 32, data_type)
-            buffer_type = ttnn.BufferType.DRAM
-            grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
-            ttnn_layout_attr = ttnn.ir.TTNNLayoutAttr.get(
-                self._ctx,
-                shape,
-                tile_element_type,
-                buffer_type,
-                grid_attr,
-                ttnn.TensorMemoryLayout.Interleaved,
-            )
+            ttnn_layout_attr = self.create_tensor_encoding(shape, element_type)
             return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
 
     # ----- Public TTNN Op Generators ----
