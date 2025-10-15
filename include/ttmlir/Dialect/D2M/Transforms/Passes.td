@@ -432,10 +432,10 @@ defvar D2MStreamingOptions = [
          "num-stream-buffers",
          "unsigned", /*default=*/"2",
          "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
-  Option<"allowOutputSpilling",
-         "allow-output-spilling",
+  Option<"allowL1OutputSpilling",
+         "allow-l1-output-spilling",
          "bool", /*default=*/"false",
-         "Make generic outputs eligible for spilling to DRAM.">,
+         "Make generic outputs eligible for spilling from L1 to DRAM.">,
 ];
 
 def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {

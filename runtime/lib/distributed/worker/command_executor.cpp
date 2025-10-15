@@ -13,13 +13,12 @@
 
 namespace tt::runtime::distributed::worker {
 
-static const ::tt::runtime::distributed::flatbuffer::Command *
-getCommand(const SizedBuffer &command) {
-  bool isDistributedCommand =
-      ::tt::runtime::distributed::flatbuffer::CommandBufferHasIdentifier(
-          command.data());
+namespace fb = ::tt::runtime::distributed::flatbuffer;
+
+static const fb::Command *getCommand(const SizedBuffer &command) {
+  bool isDistributedCommand = fb::CommandBufferHasIdentifier(command.data());
   LOG_ASSERT(isDistributedCommand, "Command is not a distributed command");
-  return ::tt::runtime::distributed::flatbuffer::GetCommand(command.data());
+  return fb::GetCommand(command.data());
 }
 
 void CommandExecutor::connect(const std::string &host, uint16_t port) {
@@ -47,10 +46,15 @@ void CommandExecutor::run() {
   launchResponseSender();
   while (!shutdownRequested_.load(std::memory_order_relaxed)) {
     SizedBuffer commandData = commandQueue_.popBlocking();
-    const ::tt::runtime::distributed::flatbuffer::Command *command =
-        getCommand(commandData);
+    const fb::Command *command = getCommand(commandData);
+
+    LOG_DEBUG("Executing command: ",
+              fb::EnumNameCommandType(command->type_type()));
 
     executeCommand(command);
+
+    LOG_DEBUG("Finished executing command: ",
+              fb::EnumNameCommandType(command->type_type()));
   }
 }
 
@@ -96,10 +100,8 @@ void CommandExecutor::sendResponses() {
   }
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::GetSystemDescCommand
-        *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::GetSystemDescCommand *command) {
 
   auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
@@ -125,16 +127,13 @@ void CommandExecutor::execute(
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::OpenMeshDeviceCommand
-        *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::OpenMeshDeviceCommand *command) {
 
   auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
   uint32_t deviceGlobalId = command->device_global_id();
-  const ::tt::runtime::distributed::flatbuffer::MeshDeviceOptions *options =
-      command->options();
+  const fb::MeshDeviceOptions *options = command->options();
 
   ::tt::runtime::MeshDeviceOptions meshDeviceOptions;
   if (options->mesh_offset()) {
@@ -187,10 +186,8 @@ void CommandExecutor::execute(
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::CloseMeshDeviceCommand
-        *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::CloseMeshDeviceCommand *command) {
 
   auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
@@ -207,10 +204,8 @@ void CommandExecutor::execute(
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::CreateHostTensorCommand
-        *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::CreateHostTensorCommand *command) {
 
   auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
@@ -235,9 +230,8 @@ void CommandExecutor::execute(
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::GetLayoutCommand *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::GetLayoutCommand *command) {
 
   auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
@@ -255,9 +249,8 @@ void CommandExecutor::execute(
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::ToLayoutCommand *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::ToLayoutCommand *command) {
 
   auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
@@ -286,9 +279,8 @@ void CommandExecutor::execute(
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::SubmitCommand *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::SubmitCommand *command) {
 
   auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
@@ -322,10 +314,8 @@ void CommandExecutor::execute(
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::GetNumShardsCommand
-        *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::GetNumShardsCommand *command) {
   auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
   uint64_t tensorGlobalId = command->input_global_id();
   ::tt::runtime::Tensor tensor = tensorPool_.at(tensorGlobalId);
@@ -338,9 +328,8 @@ void CommandExecutor::execute(
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::ToHostCommand *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::ToHostCommand *command) {
 
   auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
@@ -371,9 +360,8 @@ void CommandExecutor::execute(
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::MemcpyCommand *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::MemcpyCommand *command) {
   auto responseBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
   uint64_t srcGlobalId = command->src_global_id();
@@ -409,9 +397,8 @@ void CommandExecutor::execute(
   responseQueue_.push(std::move(responseBuilder));
 }
 
-void CommandExecutor::execute(
-    uint64_t commandId,
-    const ::tt::runtime::distributed::flatbuffer::ShutdownCommand *command) {
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::ShutdownCommand *command) {
 
   LOG_INFO("Shutdown command received, shutting down command executor");
 
@@ -427,56 +414,49 @@ void CommandExecutor::execute(
   LOG_INFO("Command executor shutdown complete");
 }
 
-void CommandExecutor::executeCommand(
-    const ::tt::runtime::distributed::flatbuffer::Command *command) {
+void CommandExecutor::executeCommand(const fb::Command *command) {
   switch (command->type_type()) {
-  case ::tt::runtime::distributed::flatbuffer::CommandType::
-      GetSystemDescCommand: {
+  case fb::CommandType::GetSystemDescCommand: {
     return execute(command->command_id(),
                    command->type_as_GetSystemDescCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::
-      OpenMeshDeviceCommand: {
+  case fb::CommandType::OpenMeshDeviceCommand: {
     return execute(command->command_id(),
                    command->type_as_OpenMeshDeviceCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::
-      CloseMeshDeviceCommand: {
+  case fb::CommandType::CloseMeshDeviceCommand: {
     return execute(command->command_id(),
                    command->type_as_CloseMeshDeviceCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::
-      CreateHostTensorCommand: {
+  case fb::CommandType::CreateHostTensorCommand: {
     return execute(command->command_id(),
                    command->type_as_CreateHostTensorCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::GetLayoutCommand: {
+  case fb::CommandType::GetLayoutCommand: {
     return execute(command->command_id(), command->type_as_GetLayoutCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::ToLayoutCommand: {
+  case fb::CommandType::ToLayoutCommand: {
     return execute(command->command_id(), command->type_as_ToLayoutCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::SubmitCommand: {
+  case fb::CommandType::SubmitCommand: {
     return execute(command->command_id(), command->type_as_SubmitCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::
-      GetNumShardsCommand: {
+  case fb::CommandType::GetNumShardsCommand: {
     return execute(command->command_id(),
                    command->type_as_GetNumShardsCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::ToHostCommand: {
+  case fb::CommandType::ToHostCommand: {
     return execute(command->command_id(), command->type_as_ToHostCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::MemcpyCommand: {
+  case fb::CommandType::MemcpyCommand: {
     return execute(command->command_id(), command->type_as_MemcpyCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::ShutdownCommand: {
+  case fb::CommandType::ShutdownCommand: {
     return execute(command->command_id(), command->type_as_ShutdownCommand());
   }
-  case ::tt::runtime::distributed::flatbuffer::CommandType::NONE: {
+  case fb::CommandType::NONE: {
     LOG_FATAL("Unhandled command type: ",
-              ::tt::runtime::distributed::flatbuffer::EnumNameCommandType(
-                  command->type_type()));
+              fb::EnumNameCommandType(command->type_type()));
   }
   }
 

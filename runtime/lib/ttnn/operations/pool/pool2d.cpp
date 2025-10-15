@@ -26,7 +26,7 @@ void runAvgPool2dOp(
         bool, std::optional<int32_t>,
         const std::optional<const ::ttnn::MemoryConfig> &,
         const std::optional<const ::ttnn::TensorMemoryLayout>, bool)> &ttnnOp) {
-  ::ttnn::Tensor input = tensorPool.getTTNNTensorAndValidate(op->in());
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
@@ -78,7 +78,7 @@ void runMaxPool2dOp(
         const std::optional<::ttnn::MemoryConfig> &,
         const std::optional<::ttnn::TensorMemoryLayout> &, bool, bool)>
         &ttnnOp) {
-  ::ttnn::Tensor input = tensorPool.getTTNNTensorAndValidate(op->in());
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(

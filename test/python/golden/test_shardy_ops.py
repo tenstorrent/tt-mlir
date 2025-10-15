@@ -10,7 +10,7 @@ from collections import OrderedDict
 
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
-from builder.base.builder_utils import compile_stablehlo_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_shlo
 from test_utils import Marks, shape_str, sharding_str
 
 pytestmark = pytest.mark.frontend("shlo")
@@ -51,13 +51,9 @@ def sharding_constraint(
     ],
 )
 def test_sharding_constraint(
-    test_fn: Callable,
-    shape: Shape,
-    dtype: torch.dtype,
-    target: str,
-    request,
+    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    compile_stablehlo_to_flatbuffer(
+    compile_and_execute_shlo(
         test_fn,
         [shape, shape],
         [dtype, dtype],
@@ -67,6 +63,7 @@ def test_sharding_constraint(
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
         target=target,
+        device=device,
     )
 
 

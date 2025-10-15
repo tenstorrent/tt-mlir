@@ -65,22 +65,6 @@ void ResponseFactory::buildOpenMeshDeviceResponse(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  std::vector<uint32_t> meshShape = ::tt::runtime::getMeshShape(device);
-  std::vector<int> deviceIds = ::tt::runtime::getDeviceIds(device);
-  size_t numHwCqs = ::tt::runtime::getNumHwCqs(device);
-  bool programCacheEnabled = ::tt::runtime::isProgramCacheEnabled(device);
-  size_t l1SmallSize = ::tt::runtime::getL1SmallSize(device);
-  size_t traceRegionSize = ::tt::runtime::getTraceRegionSize(device);
-  size_t numDramChannels = ::tt::runtime::getNumDramChannels(device);
-  size_t dramSizePerChannel = ::tt::runtime::getDramSizePerChannel(device);
-  size_t l1SizePerCore = ::tt::runtime::getL1SizePerCore(device);
-
-  auto meshDeviceDesc =
-      ::tt::runtime::distributed::flatbuffer::CreateMeshDeviceDescDirect(
-          fbb, &meshShape, &deviceIds, numHwCqs, programCacheEnabled,
-          l1SmallSize, traceRegionSize, numDramChannels, dramSizePerChannel,
-          l1SizePerCore);
-
   auto deviceRef = ::tt::target::CreateDeviceRef(fbb, device.getGlobalId());
 
   auto responseType = ::tt::runtime::distributed::flatbuffer::ResponseType::
@@ -88,7 +72,7 @@ void ResponseFactory::buildOpenMeshDeviceResponse(
 
   auto openMeshDeviceResponse =
       ::tt::runtime::distributed::flatbuffer::CreateOpenMeshDeviceResponse(
-          fbb, deviceRef, meshDeviceDesc);
+          fbb, deviceRef);
 
   auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
       fbb, commandId, responseType, openMeshDeviceResponse.Union());
