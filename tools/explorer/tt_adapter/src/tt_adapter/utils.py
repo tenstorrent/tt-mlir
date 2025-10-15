@@ -4,6 +4,7 @@
 import ttmlir
 from dataclasses import make_dataclass, is_dataclass, asdict
 from collections import defaultdict
+from pathlib import Path
 from ttmlir.compile_and_run_utils import ModuleDialect
 
 import importlib
@@ -133,3 +134,14 @@ def needs_stablehlo_pass(module_path: str) -> bool:
     module_dialect = ModuleDialect.detect(module_str)
 
     return module_dialect == ModuleDialect.STABLE_HLO
+
+def get_collection_label(model_path: str, ir_dir: str):
+    resolved_ir_dir = Path(ir_dir).resolve()
+    resolved_model_path = Path(model_path).resolve()
+
+    for parent in resolved_model_path.parents:
+        if parent == resolved_ir_dir:
+            # Resolve to the directory right after the IR directory
+            return str(resolved_model_path.relative_to(parent).parent)
+
+    return resolved_model_path.name
