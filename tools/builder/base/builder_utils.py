@@ -456,6 +456,9 @@ def build_module(
         ]
 
         module = Module.create()
+        if builder_type == "stablehlo":
+            module.body.append(builder._get_mesh(mesh_name))
+
         with InsertionPoint(module.body):
 
             @func.func(*fn_input_types, name=fn.__name__)
