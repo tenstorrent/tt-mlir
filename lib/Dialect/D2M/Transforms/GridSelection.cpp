@@ -145,10 +145,15 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
                                  ArrayRef<int64_t> targetGridShape,
                                  ArrayRef<int64_t> targetSquareGridShape,
                                  ArrayRef<int64_t> optimalGrid,
-                                 OpBuilder &builder,
-                                 bool swapAlignments = false) {
+                                 OpBuilder &builder) {
   auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
   if (!emptyOp) {
+    return;
+  }
+
+  // Check if we're already at the target grid.
+  auto emptyType = mlir::cast<mlir::RankedTensorType>(emptyOp.getType());
+  if (emptyType.getShape().take_front(2) == llvm::ArrayRef(optimalGrid)) {
     return;
   }
 
@@ -223,7 +228,6 @@ static void assignGrids(d2m::GenericOp genericOp,
   struct ToLayoutUpdateInfo {
     d2m::ToLayoutOp op;
     llvm::SmallVector<int64_t> grid;
-    bool swapLogicalShape;
   };
   llvm::SmallVector<ToLayoutUpdateInfo> toLayoutsToUpdate;
   llvm::SmallVector<std::pair<d2m::StreamLayoutOp, llvm::SmallVector<int64_t>>>
@@ -247,7 +251,8 @@ static void assignGrids(d2m::GenericOp genericOp,
     }
 
     // Compute alignments assuming the target grid, then get the physical shape
-    // that would result from those alignments.
+    // that would result from those alignments. The logical shape is already
+    // correct from TTIRToD2M (transposed if needed).
     llvm::SmallVector<int64_t> targetAlignments = computeGridAwareDimAlignments(
         operandLayout.getLogicalShape(), targetGridShape,
         operandLayout.getNormalizedIntervals());
@@ -267,20 +272,45 @@ static void assignGrids(d2m::GenericOp genericOp,
 
     // Identify which operations need updating based on the operand type.
     if (auto streamLayout = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
-      auto storageType = mlir::cast<mlir::RankedTensorType>(
-          streamLayout.getStorage().getType());
-      auto storageLayout =
-          mlir::cast<ttcore::MetalLayoutAttr>(storageType.getEncoding());
-      bool hasIndexMap = static_cast<bool>(storageLayout.getIndexAffineMap());
-
-      // For stream_layout ops, we need to update both the storage and the
-      // input.
+      // For stream_layout ops, the output optimal grid (already computed) will
+      // be used for the storage. The input needs its own grid computed
+      // independently based on its own shape.
       streamLayoutsToUpdate.push_back({streamLayout, optimalGrid});
       if (auto toLayoutOp =
               streamLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
         if (!toLayoutOp.getInput()
                  .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-          toLayoutsToUpdate.push_back({toLayoutOp, optimalGrid, hasIndexMap});
+          // Compute the input's grid independently based on its own shape.
+          auto inputType = mlir::cast<mlir::RankedTensorType>(
+              streamLayout.getInput().getType());
+          auto inputLayout =
+              mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+
+          llvm::SmallVector<int64_t> inputTileShape;
+          if (auto tileType = mlir::dyn_cast<ttcore::TileType>(
+                  inputType.getElementType())) {
+            inputTileShape = llvm::to_vector(tileType.getShape());
+          }
+
+          llvm::SmallVector<int64_t> inputAlignments =
+              computeGridAwareDimAlignments(
+                  inputLayout.getLogicalShape(), targetGridShape,
+                  inputLayout.getNormalizedIntervals());
+
+          auto inputTempLayout = ttcore::MetalLayoutAttr::get(
+              builder.getContext(), inputLayout.getLogicalShape(),
+              inputLayout.getOobVal(), inputLayout.getMemorySpace(),
+              inputLayout.getMemoryLayout(),
+              inputLayout.getCollapsedIntervals(), inputAlignments);
+
+          llvm::SmallVector<int64_t> inputPhysShape =
+              inputTempLayout.getPhysicalShape(
+                  llvm::ArrayRef(inputTileShape.data(), inputTileShape.size()));
+
+          llvm::SmallVector<int64_t> inputOptimalGrid =
+              computeOptimalGrid(inputPhysShape, targetSquareGridShape);
+
+          toLayoutsToUpdate.push_back({toLayoutOp, inputOptimalGrid});
         }
       }
     } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
@@ -288,7 +318,7 @@ static void assignGrids(d2m::GenericOp genericOp,
       if (toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
         continue;
       }
-      toLayoutsToUpdate.push_back({toLayoutOp, optimalGrid, false});
+      toLayoutsToUpdate.push_back({toLayoutOp, optimalGrid});
     }
   }
 
@@ -299,7 +329,7 @@ static void assignGrids(d2m::GenericOp genericOp,
   // Phase 2: Update ToLayoutOps with their optimal grids.
   for (auto &info : toLayoutsToUpdate) {
     optimizeToLayoutGrid(info.op, targetGridShape, targetSquareGridShape,
-                         info.grid, builder, info.swapLogicalShape);
+                         info.grid, builder);
   }
 
   // Phase 3: Update StreamLayoutOps by recreating their storage with the new
@@ -316,32 +346,25 @@ static void assignGrids(d2m::GenericOp genericOp,
     auto storageLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(storageType.getEncoding());
 
-    // For storage with an index_map that transposes dimensions (e.g., for
-    // transpose operations), we need to compute alignments using the transposed
-    // logical shape to ensure correct shard shapes after reblocking.
-    llvm::SmallVector<int64_t> storageLogicalShape;
+    // Storage logical shape is already correct from TTIRToD2M (transposed if
+    // needed). Just recompute alignments for the target grid.
     bool hasIndexMap = static_cast<bool>(storageLayout.getIndexAffineMap());
-    if (hasIndexMap && storageLayout.getLogicalShape().size() == 2) {
-      storageLogicalShape = {storageLayout.getLogicalShape()[1],
-                             storageLayout.getLogicalShape()[0]};
-    } else {
-      storageLogicalShape = llvm::to_vector(storageLayout.getLogicalShape());
-    }
 
     llvm::SmallVector<int64_t> storageDimAlignments =
-        computeGridAwareDimAlignments(storageLogicalShape, targetGridShape,
+        computeGridAwareDimAlignments(storageLayout.getLogicalShape(),
+                                      targetGridShape,
                                       storageLayout.getNormalizedIntervals());
 
     auto newStorageLayout =
         (hasIndexMap)
             ? ttcore::MetalLayoutAttr::get(
-                  builder.getContext(), storageLogicalShape,
+                  builder.getContext(), storageLayout.getLogicalShape(),
                   storageDimAlignments, storageLayout.getCollapsedIntervals(),
                   storageLayout.getOobVal(), storageLayout.getMemorySpace(),
                   storageLayout.getMemoryLayout(),
                   storageLayout.getIndexAffineMap())
             : ttcore::MetalLayoutAttr::get(
-                  builder.getContext(), storageLogicalShape,
+                  builder.getContext(), storageLayout.getLogicalShape(),
                   storageLayout.getOobVal(), storageLayout.getMemorySpace(),
                   storageLayout.getMemoryLayout(),
                   storageLayout.getCollapsedIntervals(), storageDimAlignments);

@@ -877,29 +877,31 @@ public:
         mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
     auto inputShape = inputTensorType.getShape();
     const unsigned deviceRank = static_cast<unsigned>(inputShape.size());
-
-    // Compute permutation map and permuted shape.
-    auto [transposeMap, resultShape] = computePermutationMapAndShape(
-        rewriter, permutation, inputShape, deviceRank);
-
-    // Create the result layout by composing with input layout.
     auto inputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
-    AffineMap composedMap = transposeMap.compose(
+
+    // Compute permutation for all relevant attributes.
+    auto permuted = computePermutation(
+        rewriter, permutation, inputShape, deviceRank,
+        inputLayout.getLogicalShape(), inputLayout.getDimAlignments());
+
+    // Create the result layout by composing with input layout.
+    AffineMap composedMap = permuted.transposeMap.compose(
         inputLayout.getIndexAffineMapOrIdentity(deviceRank));
 
     auto resultLayout = ttcore::MetalLayoutAttr::get(
-        ctx, inputLayout.getLogicalShape(), inputLayout.getDimAlignments(),
+        ctx, permuted.logicalShape, permuted.dimAlignments,
         inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
         inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
         composedMap);
 
     auto viewType = mlir::RankedTensorType::get(
-        resultShape, inputTensorType.getElementType(), resultLayout);
+        permuted.physicalShape, inputTensorType.getElementType(), resultLayout);
 
     // For inner permute, we need as streamLayout to do reblocking.
     auto storage = rewriter.create<d2m::EmptyOp>(
-        loc, resultShape, inputTensorType.getElementType(), resultLayout);
+        loc, permuted.physicalShape, inputTensorType.getElementType(),
+        resultLayout);
     auto stream =
         rewriter.create<d2m::StreamLayoutOp>(loc, viewType, inputs[0], storage);
     inputs[0] = stream.getResult();
@@ -937,16 +939,31 @@ public:
   }
 
 private:
-  // Apply permutation mapping to affine map and input shape to get permuted map
-  // and shape.
-  std::pair<AffineMap, SmallVector<int64_t>> computePermutationMapAndShape(
-      mlir::ConversionPatternRewriter &rewriter, ArrayRef<int64_t> permutation,
-      ArrayRef<int64_t> inputShape, unsigned deviceRank) const {
+  // Apply permutation mapping to affine map, physical shape, logical shape, and
+  // dimension alignments to get permuted versions.
+  struct PermutationResult {
+    AffineMap transposeMap;
+    SmallVector<int64_t> physicalShape;
+    SmallVector<int64_t> logicalShape;
+    SmallVector<int64_t> dimAlignments;
+  };
+
+  PermutationResult
+  computePermutation(mlir::ConversionPatternRewriter &rewriter,
+                     ArrayRef<int64_t> permutation,
+                     ArrayRef<int64_t> inputPhysicalShape, unsigned deviceRank,
+                     ArrayRef<int64_t> inputLogicalShape,
+                     ArrayRef<int64_t> inputDimAlignments) const {
 
     unsigned logicalRank = deviceRank / 2;
     assert(logicalRank == permutation.size());
+    assert(inputLogicalShape.size() == permutation.size());
+    assert(inputDimAlignments.size() == permutation.size());
+
     SmallVector<AffineExpr> results(deviceRank);
-    SmallVector<int64_t> resultShape(deviceRank);
+    SmallVector<int64_t> resultPhysicalShape(deviceRank);
+    SmallVector<int64_t> resultLogicalShape(logicalRank);
+    SmallVector<int64_t> resultDimAlignments(logicalRank);
 
     for (auto [dstIdx, srcIdx] : llvm::enumerate(permutation)) {
       // Permute grid mapping.
@@ -956,14 +973,20 @@ private:
           rewriter.getAffineDimExpr(logicalRank + srcIdx);
 
       // Permute grid shape.
-      resultShape[dstIdx] = inputShape[srcIdx];
+      resultPhysicalShape[dstIdx] = inputPhysicalShape[srcIdx];
       // Permute shard shape.
-      resultShape[dstIdx + logicalRank] = inputShape[srcIdx + logicalRank];
+      resultPhysicalShape[dstIdx + logicalRank] =
+          inputPhysicalShape[srcIdx + logicalRank];
+
+      // Permute logical shape and dimension alignments.
+      resultLogicalShape[dstIdx] = inputLogicalShape[srcIdx];
+      resultDimAlignments[dstIdx] = inputDimAlignments[srcIdx];
     }
 
     AffineMap transposeMap =
         AffineMap::get(deviceRank, 0, results, rewriter.getContext());
-    return {transposeMap, resultShape};
+    return {transposeMap, resultPhysicalShape, resultLogicalShape,
+            resultDimAlignments};
   }
 };
 } // namespace
