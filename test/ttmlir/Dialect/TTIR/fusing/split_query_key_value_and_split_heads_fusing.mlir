@@ -184,4 +184,177 @@ module {
 
     return %103 : tensor<2x34x1024xf32>
   }
+
+  func.func @bert_attention(%arg0: tensor<1x128x768xbf16>,
+                          %arg1: tensor<768x768xbf16>, %arg2: tensor<768xbf16>, // query weight, bias
+                          %arg3: tensor<768x768xbf16>, %arg4: tensor<768xbf16>, // key weight, bias
+                          %arg5: tensor<768x768xbf16>, %arg6: tensor<768xbf16>, // value weight, bias
+                          %arg7: tensor<768x768xbf16>, %arg8: tensor<768xbf16>, // output weight, bias
+                          %arg9: tensor<1x128xi64>) -> (tensor<1x128x768xbf16>) {
+
+    // CHECK: func.func @bert_attention
+
+    // Concatenate Q, K, V weights:
+    // CHECK: "ttir.concat"
+    // CHECK-SAME: <{dim = 1 : si32}>
+    // CHECK-SAME: (tensor<768x768xbf16>, tensor<768x768xbf16>, tensor<768x768xbf16>, tensor<768x2304xbf16>) -> tensor<768x2304xbf16>
+
+    // Concatenate Q, K, V biases:
+    // CHECK: "ttir.concat"
+    // CHECK-SAME: <{dim = 1 : si32}>
+    // CHECK-SAME: (tensor<128x768xbf16>, tensor<128x768xbf16>, tensor<128x768xbf16>, tensor<128x2304xbf16>) -> tensor<128x2304xbf16>
+
+    // Linear Q, K, V projections with concatenated bias:
+    // CHECK: "ttir.linear"
+    // CHECK-SAME: (tensor<128x768xbf16>, tensor<768x2304xbf16>, tensor<128x2304xbf16>, tensor<128x2304xbf16>) -> tensor<128x2304xbf16>
+
+    // Check reshape [batch*seq, hidden*3] to [batch, seq, hidden*3]
+    // CHECK: "ttir.reshape"
+    // CHECK-SAME: (tensor<128x2304xbf16>, tensor<1x128x2304xbf16>) -> tensor<1x128x2304xbf16>
+
+    // Reshape input to 2D for linear operations
+    %0 = ttir.empty() : tensor<128x768xbf16>
+    %1 = "ttir.reshape"(%arg0, %0) <{shape = [128 : i32, 768 : i32]}> : (tensor<1x128x768xbf16>, tensor<128x768xbf16>) -> tensor<128x768xbf16>
+
+    // Split Q, K, V heads:
+    // CHECK: "ttir.split_query_key_value_and_split_heads"
+    // CHECK-SAME: <{num_heads = 12 : ui32, transpose_key = true}>
+    // CHECK-SAME: (tensor<1x128x2304xbf16>, tensor<1x12x128x64xbf16>, tensor<1x12x64x128xbf16>, tensor<1x12x128x64xbf16>) -> (tensor<1x12x128x64xbf16>, tensor<1x12x64x128xbf16>, tensor<1x12x128x64xbf16>)
+
+    // Query projection
+    %2 = ttir.empty() : tensor<768x768xbf16>
+    %3 = "ttir.permute"(%arg1, %2) <{permutation = array<i64: 1, 0>}> : (tensor<768x768xbf16>, tensor<768x768xbf16>) -> tensor<768x768xbf16>
+    %4 = "ttir.dot_general"(%1, %3) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<128x768xbf16>, tensor<768x768xbf16>) -> tensor<128x768xbf16>
+    %5 = ttir.empty() : tensor<1x128x768xbf16>
+    %6 = "ttir.reshape"(%4, %5) <{shape = [1 : i32, 128 : i32, 768 : i32]}> : (tensor<128x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
+
+    // Add query bias
+    %7 = ttir.empty() : tensor<1x1x768xbf16>
+    %8 = "ttir.reshape"(%arg2, %7) <{shape = [1 : i32, 1 : i32, 768 : i32]}> : (tensor<768xbf16>, tensor<1x1x768xbf16>) -> tensor<1x1x768xbf16>
+    %9 = ttir.empty() : tensor<1x128x768xbf16>
+    %10 = "ttir.broadcast"(%8, %9) <{broadcast_dimensions = array<i64: 1, 128, 1>}> : (tensor<1x1x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
+    %11 = ttir.empty() : tensor<1x128x768xbf16>
+    %12 = "ttir.add"(%6, %10, %11) : (tensor<1x128x768xbf16>, tensor<1x128x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
+
+    // Split query heads: [1, 128, 768] -> [1, 128, 12, 64] -> [1, 12, 128, 64] -> [12, 128, 64]
+    %13 = ttir.empty() : tensor<1x128x12x64xbf16>
+    %14 = "ttir.reshape"(%12, %13) <{shape = [1 : i32, 128 : i32, 12 : i32, 64 : i32]}> : (tensor<1x128x768xbf16>, tensor<1x128x12x64xbf16>) -> tensor<1x128x12x64xbf16>
+    %15 = ttir.empty() : tensor<1x12x128x64xbf16>
+    %16 = "ttir.permute"(%14, %15) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x128x12x64xbf16>, tensor<1x12x128x64xbf16>) -> tensor<1x12x128x64xbf16>
+    %17 = ttir.empty() : tensor<12x128x64xbf16>
+    %18 = "ttir.reshape"(%16, %17) <{shape = [12 : i32, 128 : i32, 64 : i32]}> : (tensor<1x12x128x64xbf16>, tensor<12x128x64xbf16>) -> tensor<12x128x64xbf16>
+
+    // Key projection
+    %19 = ttir.empty() : tensor<768x768xbf16>
+    %20 = "ttir.permute"(%arg3, %19) <{permutation = array<i64: 1, 0>}> : (tensor<768x768xbf16>, tensor<768x768xbf16>) -> tensor<768x768xbf16>
+    %21 = "ttir.dot_general"(%1, %20) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<128x768xbf16>, tensor<768x768xbf16>) -> tensor<128x768xbf16>
+    %22 = ttir.empty() : tensor<1x128x768xbf16>
+    %23 = "ttir.reshape"(%21, %22) <{shape = [1 : i32, 128 : i32, 768 : i32]}> : (tensor<128x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
+
+    // Add key bias
+    %24 = ttir.empty() : tensor<1x1x768xbf16>
+    %25 = "ttir.reshape"(%arg4, %24) <{shape = [1 : i32, 1 : i32, 768 : i32]}> : (tensor<768xbf16>, tensor<1x1x768xbf16>) -> tensor<1x1x768xbf16>
+    %26 = ttir.empty() : tensor<1x128x768xbf16>
+    %27 = "ttir.broadcast"(%25, %26) <{broadcast_dimensions = array<i64: 1, 128, 1>}> : (tensor<1x1x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
+    %28 = ttir.empty() : tensor<1x128x768xbf16>
+    %29 = "ttir.add"(%23, %27, %28) : (tensor<1x128x768xbf16>, tensor<1x128x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
+
+    // Split key heads: [1, 128, 768] -> [1, 128, 12, 64] -> [1, 12, 64, 128] -> [12, 64, 128] (transposed)
+    %30 = ttir.empty() : tensor<1x128x12x64xbf16>
+    %31 = "ttir.reshape"(%29, %30) <{shape = [1 : i32, 128 : i32, 12 : i32, 64 : i32]}> : (tensor<1x128x768xbf16>, tensor<1x128x12x64xbf16>) -> tensor<1x128x12x64xbf16>
+    %32 = ttir.empty() : tensor<1x12x64x128xbf16>
+    %33 = "ttir.permute"(%31, %32) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<1x128x12x64xbf16>, tensor<1x12x64x128xbf16>) -> tensor<1x12x64x128xbf16>
+    %34 = ttir.empty() : tensor<12x64x128xbf16>
+    %35 = "ttir.reshape"(%33, %34) <{shape = [12 : i32, 64 : i32, 128 : i32]}> : (tensor<1x12x64x128xbf16>, tensor<12x64x128xbf16>) -> tensor<12x64x128xbf16>
+
+    // Attention scores: Q @ K^T with batched matmul
+    %36 = "ttir.dot_general"(%18, %35) <{batch_dims_lhs = array<i64: 0>, batch_dims_rhs = array<i64: 0>, contract_dims_lhs = array<i64: 2>, contract_dims_rhs = array<i64: 1>}> : (tensor<12x128x64xbf16>, tensor<12x64x128xbf16>) -> tensor<12x128x128xbf16>
+    %37 = ttir.empty() : tensor<1x12x128x128xbf16>
+    %38 = "ttir.reshape"(%36, %37) <{shape = [1 : i32, 12 : i32, 128 : i32, 128 : i32]}> : (tensor<12x128x128xbf16>, tensor<1x12x128x128xbf16>) -> tensor<1x12x128x128xbf16>
+
+    // Scale by sqrt(d_k) = sqrt(64) = 8
+    %39 = "ttir.constant"() <{value = dense<8.0> : tensor<bf16>}> : () -> tensor<bf16>
+    %40 = ttir.empty() : tensor<1x1x1x1xbf16>
+    %41 = "ttir.reshape"(%39, %40) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<bf16>, tensor<1x1x1x1xbf16>) -> tensor<1x1x1x1xbf16>
+    %42 = ttir.empty() : tensor<1x12x128x128xbf16>
+    %43 = "ttir.broadcast"(%41, %42) <{broadcast_dimensions = array<i64: 1, 12, 128, 128>}> : (tensor<1x1x1x1xbf16>, tensor<1x12x128x128xbf16>) -> tensor<1x12x128x128xbf16>
+    %44 = ttir.empty() : tensor<1x12x128x128xbf16>
+    %45 = "ttir.div"(%38, %43, %44) : (tensor<1x12x128x128xbf16>, tensor<1x12x128x128xbf16>, tensor<1x12x128x128xbf16>) -> tensor<1x12x128x128xbf16>
+
+    // Apply attention mask (add mask before softmax)
+    // Mask processing would go here using arg9
+
+    // Softmax
+    %46 = ttir.empty() : tensor<1x12x128xbf16>
+    %47 = "ttir.max"(%45, %46) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<1x12x128x128xbf16>, tensor<1x12x128xbf16>) -> tensor<1x12x128xbf16>
+    %48 = ttir.empty() : tensor<1x12x128x1xbf16>
+    %49 = "ttir.reshape"(%47, %48) <{shape = [1 : i32, 12 : i32, 128 : i32, 1 : i32]}> : (tensor<1x12x128xbf16>, tensor<1x12x128x1xbf16>) -> tensor<1x12x128x1xbf16>
+    %50 = ttir.empty() : tensor<1x12x128x128xbf16>
+    %51 = "ttir.broadcast"(%49, %50) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<1x12x128x1xbf16>, tensor<1x12x128x128xbf16>) -> tensor<1x12x128x128xbf16>
+    %52 = ttir.empty() : tensor<1x12x128x128xbf16>
+    %53 = "ttir.subtract"(%45, %51, %52) : (tensor<1x12x128x128xbf16>, tensor<1x12x128x128xbf16>, tensor<1x12x128x128xbf16>) -> tensor<1x12x128x128xbf16>
+    %54 = ttir.empty() : tensor<1x12x128x128xbf16>
+    %55 = "ttir.exp"(%53, %54) : (tensor<1x12x128x128xbf16>, tensor<1x12x128x128xbf16>) -> tensor<1x12x128x128xbf16>
+    %56 = ttir.empty() : tensor<1x12x128xbf16>
+    %57 = "ttir.sum"(%55, %56) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<1x12x128x128xbf16>, tensor<1x12x128xbf16>) -> tensor<1x12x128xbf16>
+    %58 = ttir.empty() : tensor<1x12x128x1xbf16>
+    %59 = "ttir.reshape"(%57, %58) <{shape = [1 : i32, 12 : i32, 128 : i32, 1 : i32]}> : (tensor<1x12x128xbf16>, tensor<1x12x128x1xbf16>) -> tensor<1x12x128x1xbf16>
+    %60 = ttir.empty() : tensor<1x12x128x128xbf16>
+    %61 = "ttir.broadcast"(%59, %60) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<1x12x128x1xbf16>, tensor<1x12x128x128xbf16>) -> tensor<1x12x128x128xbf16>
+    %62 = ttir.empty() : tensor<1x12x128x128xbf16>
+    %63 = "ttir.div"(%55, %61, %62) : (tensor<1x12x128x128xbf16>, tensor<1x12x128x128xbf16>, tensor<1x12x128x128xbf16>) -> tensor<1x12x128x128xbf16>
+    %64 = ttir.empty() : tensor<12x128x128xbf16>
+    %65 = "ttir.reshape"(%63, %64) <{shape = [12 : i32, 128 : i32, 128 : i32]}> : (tensor<1x12x128x128xbf16>, tensor<12x128x128xbf16>) -> tensor<12x128x128xbf16>
+
+    // Value projection
+    %66 = ttir.empty() : tensor<768x768xbf16>
+    %67 = "ttir.permute"(%arg5, %66) <{permutation = array<i64: 1, 0>}> : (tensor<768x768xbf16>, tensor<768x768xbf16>) -> tensor<768x768xbf16>
+    %68 = "ttir.dot_general"(%1, %67) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<128x768xbf16>, tensor<768x768xbf16>) -> tensor<128x768xbf16>
+    %69 = ttir.empty() : tensor<1x128x768xbf16>
+    %70 = "ttir.reshape"(%68, %69) <{shape = [1 : i32, 128 : i32, 768 : i32]}> : (tensor<128x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
+
+    // Add value bias
+    %71 = ttir.empty() : tensor<1x1x768xbf16>
+    %72 = "ttir.reshape"(%arg6, %71) <{shape = [1 : i32, 1 : i32, 768 : i32]}> : (tensor<768xbf16>, tensor<1x1x768xbf16>) -> tensor<1x1x768xbf16>
+    %73 = ttir.empty() : tensor<1x128x768xbf16>
+    %74 = "ttir.broadcast"(%72, %73) <{broadcast_dimensions = array<i64: 1, 128, 1>}> : (tensor<1x1x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
+    %75 = ttir.empty() : tensor<1x128x768xbf16>
+    %76 = "ttir.add"(%70, %74, %75) : (tensor<1x128x768xbf16>, tensor<1x128x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
+
+    // Split value heads
+    %77 = ttir.empty() : tensor<1x128x12x64xbf16>
+    %78 = "ttir.reshape"(%76, %77) <{shape = [1 : i32, 128 : i32, 12 : i32, 64 : i32]}> : (tensor<1x128x768xbf16>, tensor<1x128x12x64xbf16>) -> tensor<1x128x12x64xbf16>
+    %79 = ttir.empty() : tensor<1x12x128x64xbf16>
+    %80 = "ttir.permute"(%78, %79) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x128x12x64xbf16>, tensor<1x12x128x64xbf16>) -> tensor<1x12x128x64xbf16>
+    %81 = ttir.empty() : tensor<12x128x64xbf16>
+    %82 = "ttir.reshape"(%80, %81) <{shape = [12 : i32, 128 : i32, 64 : i32]}> : (tensor<1x12x128x64xbf16>, tensor<12x128x64xbf16>) -> tensor<12x128x64xbf16>
+
+    // Apply attention: attention_weights @ V
+    %83 = "ttir.dot_general"(%65, %82) <{batch_dims_lhs = array<i64: 0>, batch_dims_rhs = array<i64: 0>, contract_dims_lhs = array<i64: 2>, contract_dims_rhs = array<i64: 1>}> : (tensor<12x128x128xbf16>, tensor<12x128x64xbf16>) -> tensor<12x128x64xbf16>
+    %84 = ttir.empty() : tensor<1x12x128x64xbf16>
+    %85 = "ttir.reshape"(%83, %84) <{shape = [1 : i32, 12 : i32, 128 : i32, 64 : i32]}> : (tensor<12x128x64xbf16>, tensor<1x12x128x64xbf16>) -> tensor<1x12x128x64xbf16>
+
+    // Merge heads: [1, 12, 128, 64] -> [1, 128, 12, 64] -> [1, 128, 768]
+    %86 = ttir.empty() : tensor<1x128x12x64xbf16>
+    %87 = "ttir.permute"(%85, %86) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x12x128x64xbf16>, tensor<1x128x12x64xbf16>) -> tensor<1x128x12x64xbf16>
+    %88 = ttir.empty() : tensor<128x768xbf16>
+    %89 = "ttir.reshape"(%87, %88) <{shape = [128 : i32, 768 : i32]}> : (tensor<1x128x12x64xbf16>, tensor<128x768xbf16>) -> tensor<128x768xbf16>
+
+    // Output projection
+    %90 = ttir.empty() : tensor<768x768xbf16>
+    %91 = "ttir.permute"(%arg7, %90) <{permutation = array<i64: 1, 0>}> : (tensor<768x768xbf16>, tensor<768x768xbf16>) -> tensor<768x768xbf16>
+    %92 = "ttir.dot_general"(%89, %91) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<128x768xbf16>, tensor<768x768xbf16>) -> tensor<128x768xbf16>
+    %93 = ttir.empty() : tensor<1x128x768xbf16>
+    %94 = "ttir.reshape"(%92, %93) <{shape = [1 : i32, 128 : i32, 768 : i32]}> : (tensor<128x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
+
+    // Add output bias
+    %95 = ttir.empty() : tensor<1x1x768xbf16>
+    %96 = "ttir.reshape"(%arg8, %95) <{shape = [1 : i32, 1 : i32, 768 : i32]}> : (tensor<768xbf16>, tensor<1x1x768xbf16>) -> tensor<1x1x768xbf16>
+    %97 = ttir.empty() : tensor<1x128x768xbf16>
+    %98 = "ttir.broadcast"(%96, %97) <{broadcast_dimensions = array<i64: 1, 128, 1>}> : (tensor<1x1x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
+    %99 = ttir.empty() : tensor<1x128x768xbf16>
+    %100 = "ttir.add"(%94, %98, %99) : (tensor<1x128x768xbf16>, tensor<1x128x768xbf16>, tensor<1x128x768xbf16>) -> tensor<1x128x768xbf16>
+
+    return %100 : tensor<1x128x768xbf16>
+  }
 }
