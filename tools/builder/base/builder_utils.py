@@ -525,6 +525,105 @@ def compile_and_execute_shlo(
     )
 
 
+def compile_and_execute_ttnn(
+    fn: Callable,
+    input_shapes: List[Shape],
+    input_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
+    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    test_base: str = "test",
+    output_root: str = ".",
+    target: Literal["ttnn", "ttnn-standalone", "emitpy"] = "ttnn",
+    mesh_name: str = "mesh",
+    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    module_dump: bool = True,
+    argument_types_string: Optional[str] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    pipeline_options: Optional[List[str]] = None,
+    print_ir: Union[bool, str] = False,
+    device=None,
+    pcc: float = 0.99,
+    atol: float = 1e-08,
+    rtol: float = 1e-05,
+    disable_golden: bool = False,
+    skip_exec: bool = False,
+) -> str:
+    """
+    Compiles and executes a TTNNBuilder function through the complete pipeline.
+    This function:
+    1. Builds a TTNN MLIR module from the function
+    2. Compiles it to a flatbuffer
+    3. Executes the flatbuffer on device
+
+    Parameters
+    ----------
+    fn : Callable
+        The TTNNBuilder function to compile and execute
+    input_shapes : List[Shape]
+        Shapes of the respective ranked tensor inputs
+    input_types : Optional[List[Union[torch.dtype, TypeInfo]]]
+        The dtypes to use for the inputs
+    system_desc_path : str
+        Path to the system descriptor file
+    test_base : str
+        Base name for dumped files
+    output_root : str
+        Path to dump all generated files
+    target : Literal["ttnn", "ttnn-standalone", "emitpy"]
+        Target backend to use
+    mesh_name : str
+        Name of the mesh to be used
+    mesh_dict : OrderedDict[str, int]
+        Dictionary defining the mesh shape
+    module_dump : bool
+        Whether to dump generated MLIR modules
+    argument_types_string : Optional[str]
+        String defining argument types for constant evaluation
+    custom_pipeline : Optional[Union[Callable, str]]
+        Custom pipeline function or string
+    ttir_pipeline_options : Optional[List[str]]
+        Pipeline options for TTIR pipeline
+    shlo_pipeline_options : Optional[List[str]]
+        Pipeline options for StableHLO pipeline
+    shlo_to_ttir_pipeline_options : Optional[List[str]]
+        Pipeline options for StableHLO to TTIR conversion
+    print_ir : Union[bool, str]
+        Controls intermediate IR dumping
+    device : Optional
+        Device to execute on (if None, opens a new device)
+    pcc : float
+        PCC threshold for golden comparison
+    atol : float
+        Absolute tolerance for golden comparison
+    rtol : float
+        Relative tolerance for golden comparison
+    disable_golden : bool
+        Whether to disable golden comparison
+    """
+    return _compile_and_execute(
+        compile_fn=compile_ttnn_to_flatbuffer,
+        fn=fn,
+        inputs_shapes=input_shapes,
+        inputs_types=input_types,
+        system_desc_path=system_desc_path,
+        test_base=test_base,
+        output_root=output_root,
+        target=target,
+        mesh_name=mesh_name,
+        mesh_dict=mesh_dict,
+        module_dump=module_dump,
+        argument_types_string=argument_types_string,
+        custom_pipeline=custom_pipeline,
+        pipeline_options=pipeline_options,
+        print_ir=print_ir,
+        device=device,
+        pcc=pcc,
+        atol=atol,
+        rtol=rtol,
+        disable_golden=disable_golden,
+        skip_exec=skip_exec,
+    )
+
+
 def compile_and_execute_ttir(
     fn: Callable,
     inputs_shapes: List[Shape],
@@ -1136,8 +1235,14 @@ def compile_ttnn_to_flatbuffer(
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     test_base: str = "test",
     output_root: str = ".",
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
+    mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
-    pipeline_options: List[str] = [],
+    module_dump: bool = True,
+    argument_types_string: Optional[str] = None,
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    pipeline_options: Optional[List[str]] = None,
+    print_ir: Union[bool, str] = False,
 ) -> str:
     """
     Compiles a TTNN function to flatbuffer format.
@@ -1210,10 +1315,14 @@ def compile_ttnn_to_flatbuffer(
         system_desc_path=system_desc_path,
         test_base=test_base,
         output_root=output_root,
-        target="ttnn",
+        target=target,
         builder_dir="ttnn-builder-artifacts",
         mesh_dict=mesh_dict,
         pipeline_options=pipeline_options,
+        print_ir=print_ir,
+        module_dump=module_dump,
+        argument_types_string=argument_types_string,
+        custom_pipeline=custom_pipeline,
     )
 
 
