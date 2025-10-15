@@ -21,6 +21,9 @@ OPTIMIZATION_POLICIES = {
 }
 
 
+# TODO(ctr-mcampos): update path to be configurable
+IR_DUMPS_DIR = 'ir_dumps'
+
 @dataclasses.dataclass
 class TTAdapterMetadata(model_explorer.AdapterMetadata):
     settings: Dict[str, list] = dataclasses.field(default_factory=dict)
@@ -153,15 +156,12 @@ class TTAdapter(model_explorer.Adapter):
         self.model_runner = runner.ModelRunner()
 
     def preload(self, model_path: str, settings: Dict):
-        # TODO(ctr-mcampos): update path to be configurable
-        ir_dumps_dir = 'ir_dumps'
-
-        if not os.path.exists(ir_dumps_dir) or not os.path.isdir(ir_dumps_dir):
-            return utils.to_adapter_collection_format({"graphPaths": []}, label="Preload graphs")
+        if not os.path.exists(IR_DUMPS_DIR) or not os.path.isdir(IR_DUMPS_DIR):
+            return utils.to_adapter_format({"graphPaths": []})
 
         graph_paths = []
-        for file in os.listdir(ir_dumps_dir):
-            file_path = os.path.join(ir_dumps_dir, file)
+        for file in os.listdir(IR_DUMPS_DIR):
+            file_path = os.path.join(IR_DUMPS_DIR, file)
 
             if file.endswith('.mlir') and os.path.isfile(file_path) and os.access(file_path, os.R_OK):
                 graph_paths.append(os.path.abspath(file_path))
