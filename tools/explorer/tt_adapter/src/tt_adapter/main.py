@@ -160,13 +160,30 @@ class TTAdapter(model_explorer.Adapter):
             return utils.to_adapter_format({"graphPaths": []})
 
         graph_paths = []
-        for file in os.listdir(IR_DUMPS_DIR):
-            file_path = os.path.join(IR_DUMPS_DIR, file)
+        for root, dirs, files in os.walk(IR_DUMPS_DIR):
+            for file in files:
+                if file.endswith('.mlir'):
+                    file_path = os.path.join(root, file)
+                    abs_path = os.path.abspath(file_path)
+                    graph_paths.append(abs_path)
+        # Sort paths by directory structure first, then by numeric prefix in filename
+        def natural_sort_key(path):
+            import re
+            # Split path into directory and filename components
+            dirname = os.path.dirname(path)
+            filename = os.path.basename(path)
+            
+            # Extract numeric prefix from filename
+            match = re.match(r'^(\d+)_', filename)
+            numeric_key = int(match.group(1)) if match else float('inf')
+            
+            # Return tuple: (directory_path, numeric_key)
+            # This sorts by directory first, then by numeric prefix within each directory
+            return (dirname, numeric_key)
+        
+        sorted_graph_paths = sorted(graph_paths, key=natural_sort_key)
+        return utils.to_adapter_format({"graphPaths": sorted_graph_paths})
 
-            if file.endswith('.mlir') and os.path.isfile(file_path) and os.access(file_path, os.R_OK):
-                graph_paths.append(os.path.abspath(file_path))
-
-        return utils.to_adapter_format({"graphPaths": graph_paths})
 
     def convert(
         self, model_path: str, settings: Dict
