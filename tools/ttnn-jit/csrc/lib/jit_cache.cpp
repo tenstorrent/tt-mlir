@@ -22,17 +22,18 @@ JitCache::JitCache(std::size_t cacheSize) {
   mlir::tt::registerAllExtensions(registry);
 }
 
-std::shared_ptr<void> JitCache::get(Operation *op, const JitCacheKey &key,
-                                    const ::ttnn::Tensor &tensor_arg,
-                                    std::string options) {
-  std::size_t hash = hash_key(key, tensor_arg);
+std::shared_ptr<void> JitCache::get(
+    Operation *op, const JitCacheKey &key,
+    const std::vector<::ttnn::Tensor> &tensor_args,
+    const std::vector<std::variant<int, bool, float, std::string>> &params,
+    std::string options) {
+  std::size_t hash = hash_key(key, tensor_args, params);
 
   if (cache.contains(hash)) {
-    llvm::outs() << "cache hit \n";
+    cache_hits++;
     return cache[hash].flatbuffer_binary;
   }
 
-  llvm::outs() << "cache miss \n";
   mlir::PassManager pm(op->getName());
   mlir::MLIRContext *context = op->getContext();
   context->appendDialectRegistry(registry);
@@ -56,15 +57,16 @@ std::shared_ptr<void> JitCache::get(Operation *op, const JitCacheKey &key,
   }
 
   std::shared_ptr<void> flatbuffer_binary = ttnnToFlatbuffer(op);
-  JitCacheEntry entry = {flatbuffer_binary};
-  cache[hash] = entry;
+  cache.try_emplace(hash, JitCacheEntry{flatbuffer_binary});
   return flatbuffer_binary;
 }
 
-std::size_t JitCache::hash_key(const JitCacheKey &key,
-                               const ::ttnn::Tensor &tensor_arg) const {
-  return ttsl::hash::hash_objects_with_default_seed(key.func_name, key.backend,
-                                                    key.max_grid, tensor_arg);
+std::size_t JitCache::hash_key(
+    const JitCacheKey &key, const std::vector<::ttnn::Tensor> &tensor_args,
+    const std::vector<std::variant<int, bool, float, std::string>> &params)
+    const {
+  return ttsl::hash::hash_objects_with_default_seed(
+      key.func_name, key.backend, key.max_grid, tensor_args, params);
 }
 
 } // namespace mlir::tt::ttnn::jit

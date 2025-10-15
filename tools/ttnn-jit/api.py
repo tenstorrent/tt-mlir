@@ -95,8 +95,9 @@ def jit(
                 options = f"system-desc-path={system_desc_path} ttnn-mode=true"
 
                 fb_capsule = _cache.get(
-                    f.__name__, str(ir), backend, max_grid, args[0], options
+                    f.__name__, str(ir), options, backend, max_grid, *args
                 )
+                print(f"Cache hits: {_cache.cache_hits()}\n")
                 return _run_binary_from_capsule(fb_capsule, args)
             else:
                 raise ValueError(f"Unsupported backend: {backend}")

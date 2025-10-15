@@ -35,15 +35,22 @@ public:
   JitCache &operator=(const JitCache &) = delete;
   JitCache &operator=(JitCache &&) = delete;
 
-  std::shared_ptr<void> get(Operation *op, const JitCacheKey &key,
-                            const ::ttnn::Tensor &tensor_arg,
-                            std::string options = "");
+  std::shared_ptr<void>
+  get(Operation *op, const JitCacheKey &key,
+      const std::vector<::ttnn::Tensor> &tensor_args,
+      const std::vector<std::variant<int, bool, float, std::string>> &params,
+      std::string options = "");
+  uint32_t get_cache_hits() const { return cache_hits; }
 
 private:
-  std::size_t hash_key(const JitCacheKey &key,
-                       const ::ttnn::Tensor &tensor_arg) const;
+  std::size_t hash_key(
+      const JitCacheKey &key, const std::vector<::ttnn::Tensor> &tensor_args,
+      const std::vector<std::variant<int, bool, float, std::string>> &params)
+      const;
+
   llvm::DenseMap<std::size_t, JitCacheEntry> cache;
   mlir::DialectRegistry registry;
+  uint32_t cache_hits = 0;
 };
 
 } // namespace mlir::tt::ttnn::jit
