@@ -585,9 +585,13 @@ class FileManager:
     def find_so_corresponding_ttnn_in_directory(self, path, ttnn_directory):
         filename = self.get_file_name(path)
         ttnn_filename = filename.replace(EmitCDylib.get_so_file_extension(), ".ttnn")
-        ttnn_path = os.path.join(ttnn_directory, ttnn_filename)
-        if self.check_file_exists(ttnn_path):
-            return ttnn_path
+        found_paths = self.find_file_paths(ttnn_directory, ".ttnn")
+        import os
+
+        print(os.environ.get("TT_METAL_HOME"))
+        for file_name in found_paths:
+            if re.match(rf".*{ttnn_filename}$", file_name):
+                return file_name
         return None
 
     def load_tensors_from_artifacts(self, bin, key, artifacts_path):

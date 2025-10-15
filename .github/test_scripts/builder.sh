@@ -29,8 +29,8 @@ if [[ "$runttrt" == "1" ]]; then
     ttrt run $TTRT_ARGS stablehlo-builder-artifacts/
     cp run_results.json ${TTRT_REPORT_PATH%_*}_stablehlo_${TTRT_REPORT_PATH##*_} || true
     if [ -d ttir-builder-artifacts/emitc ]; then
-        export TT_METAL_HOME="$PWD/third_party/tt-metal/src/tt-metal"
-        export TT_METAL_LIB="$TT_METAL_HOME/build/lib"
+        echo $TT_METAL_HOME #Temporary check
+        export TT_METAL_LIB="$BUILD_DIR/tools/ttrt/build/lib/ttrt/runtime"
         python3 tools/ttnn-standalone/ci_compile_dylib.py --dir ttir-builder-artifacts/emitc
         # Create renamed copies of ttnn files so emitc can find them for comparison
         for file in ttir-builder-artifacts/ttnn/*; do
