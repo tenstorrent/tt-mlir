@@ -188,8 +188,8 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
       mlir::cast<ttnn::TTNNLayoutAttr>(sourceType.getEncoding());
 
   bool isLayoutWorkaroundRequired =
-      inputLayoutAttr.isTiled() && inputType.getElementType().isF32() &&
-      sourceLayoutAttr.isTiled() && sourceType.getElementType().isF32();
+      (inputLayoutAttr.isTiled() && inputType.getElementType().isF32()) ||
+      (sourceLayoutAttr.isTiled() && sourceType.getElementType().isF32());
 
   TTNNOperandWorkarounds operandWorkaround;
 
@@ -198,11 +198,8 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(operandWorkaround) // input_tensor
-      .addInputOperandWorkaround(
-          TTNNOperandWorkarounds::
-              createEmptyTTNNOperandWorkarounds())    // index_tensor (no
-                                                      // workaround)
+      .addInputOperandWorkaround(operandWorkaround)   // input_tensor
+      .addInputOperandWorkaround(operandWorkaround)   // index_tensor
       .addInputOperandWorkaround(operandWorkaround)   // source_tensor
       .addOutputOperandWorkaround(operandWorkaround); // result
 }
