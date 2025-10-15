@@ -166,7 +166,7 @@ class TTAdapter(model_explorer.Adapter):
             if file.endswith('.mlir') and os.path.isfile(file_path) and os.access(file_path, os.R_OK):
                 graph_paths.append(os.path.abspath(file_path))
 
-        return utils.to_adapter_collection_format({"graphPaths": graph_paths}, label="Preload graphs")
+        return utils.to_adapter_format({"graphPaths": graph_paths})
 
     def convert(
         self, model_path: str, settings: Dict
@@ -222,7 +222,7 @@ class TTAdapter(model_explorer.Adapter):
             graph_handler = mlir.GraphHandler()
             graph, _ = graph_handler.build_graph(model_path, module, self.model_runner)
 
-        return {"graphs": [graph]}
+        return utils.to_adapter_collection_format(graph, label=utils.get_collection_label(model_path, IR_DUMPS_DIR))
 
     def execute(
         self, model_path: str, settings: Dict
