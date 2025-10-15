@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -20,6 +21,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -278,6 +280,17 @@ private:
     if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(operation)) {
       config.opSpecificAttrs = Conv2dAttrs{conv2dOp.getConv2dConfigAttr(),
                                            conv2dOp.getComputeConfigAttr()};
+    }
+
+    // TODO(rpavlovicTT): Once
+    // https://github.com/tenstorrent/tt-mlir/issues/3994 is
+    // resolved, set the deviceComputeKernelConfig here as
+    // well and merge with the Conv2dOp case above.
+    if (auto convTranspose2dOp =
+            mlir::dyn_cast<ttnn::ConvTranspose2dOp>(operation)) {
+      config.opSpecificAttrs =
+          Conv2dAttrs{convTranspose2dOp.getConv2dConfigAttr(),
+                      /*deviceComputeConfigAttr*/ std::nullopt};
     }
 
     return config;

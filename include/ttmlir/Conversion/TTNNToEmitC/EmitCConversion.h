@@ -67,6 +67,7 @@ struct Tensor;
 
 namespace operations {
 namespace unary {
+struct UnaryWithParam;
 
 // Mock definition of VecMode enum from tt-metal
 enum class VecMode {
@@ -227,6 +228,12 @@ struct TypeName<::ttnn::operations::creation::detail::OptionalMeshDevice> {
 template <>
 struct TypeName<::ttnn::Tensor> {
   inline static const std::string value = "::ttnn::Tensor";
+};
+
+template <>
+struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
+  inline static const std::string value =
+      "::ttnn::operations::unary::UnaryWithParam";
 };
 
 template <>
@@ -1170,6 +1177,158 @@ struct EmitCTypeConverter<::ttnn::MemoryConfig> {
   }
 };
 
+inline std::string convert(ttnn::UnaryOpType opType) {
+  static const std::unordered_map<ttnn::UnaryOpType, std::string> opTypeMap = {
+      {ttnn::UnaryOpType::Exp, "::ttnn::operations::unary::UnaryOpType::EXP"},
+      {ttnn::UnaryOpType::Recip,
+       "::ttnn::operations::unary::UnaryOpType::RECIP"},
+      {ttnn::UnaryOpType::Gelu, "::ttnn::operations::unary::UnaryOpType::GELU"},
+      {ttnn::UnaryOpType::Relu, "::ttnn::operations::unary::UnaryOpType::RELU"},
+      {ttnn::UnaryOpType::Sqrt, "::ttnn::operations::unary::UnaryOpType::SQRT"},
+      {ttnn::UnaryOpType::Sigmoid,
+       "::ttnn::operations::unary::UnaryOpType::SIGMOID"},
+      {ttnn::UnaryOpType::Log, "::ttnn::operations::unary::UnaryOpType::LOG"},
+      {ttnn::UnaryOpType::Tanh, "::ttnn::operations::unary::UnaryOpType::TANH"},
+      {ttnn::UnaryOpType::Log2, "::ttnn::operations::unary::UnaryOpType::LOG2"},
+      {ttnn::UnaryOpType::Log10,
+       "::ttnn::operations::unary::UnaryOpType::LOG10"},
+      {ttnn::UnaryOpType::Sin, "::ttnn::operations::unary::UnaryOpType::SIN"},
+      {ttnn::UnaryOpType::Cos, "::ttnn::operations::unary::UnaryOpType::COS"},
+      {ttnn::UnaryOpType::Abs, "::ttnn::operations::unary::UnaryOpType::ABS"},
+      {ttnn::UnaryOpType::AbsInt32,
+       "::ttnn::operations::unary::UnaryOpType::ABS_INT32"},
+      {ttnn::UnaryOpType::Sign, "::ttnn::operations::unary::UnaryOpType::SIGN"},
+      {ttnn::UnaryOpType::Square,
+       "::ttnn::operations::unary::UnaryOpType::SQUARE"},
+      {ttnn::UnaryOpType::Eqz, "::ttnn::operations::unary::UnaryOpType::EQZ"},
+      {ttnn::UnaryOpType::Nez, "::ttnn::operations::unary::UnaryOpType::NEZ"},
+      {ttnn::UnaryOpType::Gtz, "::ttnn::operations::unary::UnaryOpType::GTZ"},
+      {ttnn::UnaryOpType::Ltz, "::ttnn::operations::unary::UnaryOpType::LTZ"},
+      {ttnn::UnaryOpType::Gez, "::ttnn::operations::unary::UnaryOpType::GEZ"},
+      {ttnn::UnaryOpType::Lez, "::ttnn::operations::unary::UnaryOpType::LEZ"},
+      {ttnn::UnaryOpType::ReluMax,
+       "::ttnn::operations::unary::UnaryOpType::RELU_MAX"},
+      {ttnn::UnaryOpType::ReluMin,
+       "::ttnn::operations::unary::UnaryOpType::RELU_MIN"},
+      {ttnn::UnaryOpType::Power,
+       "::ttnn::operations::unary::UnaryOpType::POWER"},
+      {ttnn::UnaryOpType::LeakyRelu,
+       "::ttnn::operations::unary::UnaryOpType::LEAKY_RELU"},
+      {ttnn::UnaryOpType::Elu, "::ttnn::operations::unary::UnaryOpType::ELU"},
+      {ttnn::UnaryOpType::Exp2, "::ttnn::operations::unary::UnaryOpType::EXP2"},
+      {ttnn::UnaryOpType::Heaviside,
+       "::ttnn::operations::unary::UnaryOpType::HEAVISIDE"},
+      {ttnn::UnaryOpType::Expm1,
+       "::ttnn::operations::unary::UnaryOpType::EXPM1"},
+      {ttnn::UnaryOpType::Signbit,
+       "::ttnn::operations::unary::UnaryOpType::SIGNBIT"},
+      {ttnn::UnaryOpType::Asin, "::ttnn::operations::unary::UnaryOpType::ASIN"},
+      {ttnn::UnaryOpType::Acos, "::ttnn::operations::unary::UnaryOpType::ACOS"},
+      {ttnn::UnaryOpType::Rsqrt,
+       "::ttnn::operations::unary::UnaryOpType::RSQRT"},
+      {ttnn::UnaryOpType::Relu6,
+       "::ttnn::operations::unary::UnaryOpType::RELU6"},
+      {ttnn::UnaryOpType::Atan, "::ttnn::operations::unary::UnaryOpType::ATAN"},
+      {ttnn::UnaryOpType::Erf, "::ttnn::operations::unary::UnaryOpType::ERF"},
+      {ttnn::UnaryOpType::Erfc, "::ttnn::operations::unary::UnaryOpType::ERFC"},
+      {ttnn::UnaryOpType::IsInf, "TTNNUnaryOpType::ISINF"},
+      {ttnn::UnaryOpType::IsPosInf, "TTNNUnaryOpType::ISPOSINF"},
+      {ttnn::UnaryOpType::IsNegInf, "TTNNUnaryOpType::ISNEGINF"},
+      {ttnn::UnaryOpType::IsNan, "TTNNUnaryOpType::ISNAN"},
+      {ttnn::UnaryOpType::LogicalNotUnary,
+       "::ttnn::operations::unary::UnaryOpType::LOGICAL_NOT_UNARY"},
+      {ttnn::UnaryOpType::IsFinite, "TTNNUnaryOpType::ISFINITE"},
+      {ttnn::UnaryOpType::Erfinv,
+       "::ttnn::operations::unary::UnaryOpType::ERFINV"},
+      {ttnn::UnaryOpType::I0, "::ttnn::operations::unary::UnaryOpType::I0"},
+      {ttnn::UnaryOpType::I1, "::ttnn::operations::unary::UnaryOpType::I1"},
+      {ttnn::UnaryOpType::Tan, "::ttnn::operations::unary::UnaryOpType::TAN"},
+      {ttnn::UnaryOpType::Rsub, "::ttnn::operations::unary::UnaryOpType::RSUB"},
+      {ttnn::UnaryOpType::Rdiv, "::ttnn::operations::unary::UnaryOpType::RDIV"},
+      {ttnn::UnaryOpType::Silu, "::ttnn::operations::unary::UnaryOpType::SILU"},
+      {ttnn::UnaryOpType::SoftPlus,
+       "::ttnn::operations::unary::UnaryOpType::SOFTPLUS"},
+      {ttnn::UnaryOpType::Identity,
+       "::ttnn::operations::unary::UnaryOpType::IDENTITY"},
+      {ttnn::UnaryOpType::Neg, "::ttnn::operations::unary::UnaryOpType::NEG"},
+      {ttnn::UnaryOpType::AddUnarySfpu,
+       "::ttnn::operations::unary::UnaryOpType::ADD_UNARY_SFPU"},
+      {ttnn::UnaryOpType::SubUnarySfpu,
+       "::ttnn::operations::unary::UnaryOpType::SUB_UNARY_SFPU"},
+      {ttnn::UnaryOpType::MulUnarySfpu,
+       "::ttnn::operations::unary::UnaryOpType::MUL_UNARY_SFPU"},
+      {ttnn::UnaryOpType::DivUnarySfpu,
+       "::ttnn::operations::unary::UnaryOpType::DIV_UNARY_SFPU"},
+      {ttnn::UnaryOpType::IdentityUint32,
+       "::ttnn::operations::unary::UnaryOpType::IDENTITY"},
+      {ttnn::UnaryOpType::UnaryNe,
+       "::ttnn::operations::unary::UnaryOpType::UNARY_NE"},
+      {ttnn::UnaryOpType::UnaryGt,
+       "::ttnn::operations::unary::UnaryOpType::UNARY_GT"},
+      {ttnn::UnaryOpType::UnaryLt,
+       "::ttnn::operations::unary::UnaryOpType::UNARY_LT"},
+      {ttnn::UnaryOpType::TiledProd,
+       "::ttnn::operations::unary::UnaryOpType::TILED_PROD"},
+      {ttnn::UnaryOpType::Typecast,
+       "::ttnn::operations::unary::UnaryOpType::TYPECAST"},
+      {ttnn::UnaryOpType::BitwiseXor,
+       "::ttnn::operations::unary::UnaryOpType::BITWISE_XOR"},
+      {ttnn::UnaryOpType::BitwiseNot,
+       "::ttnn::operations::unary::UnaryOpType::BITWISE_NOT"},
+      {ttnn::UnaryOpType::BitwiseAnd,
+       "::ttnn::operations::unary::UnaryOpType::BITWISE_AND"},
+      {ttnn::UnaryOpType::BitwiseOr,
+       "::ttnn::operations::unary::UnaryOpType::BITWISE_OR"},
+      {ttnn::UnaryOpType::RightShift,
+       "::ttnn::operations::unary::UnaryOpType::RIGHT_SHIFT"},
+      {ttnn::UnaryOpType::Floor,
+       "::ttnn::operations::unary::UnaryOpType::FLOOR"},
+      {ttnn::UnaryOpType::Ceil, "::ttnn::operations::unary::UnaryOpType::CEIL"},
+      {ttnn::UnaryOpType::Round,
+       "::ttnn::operations::unary::UnaryOpType::ROUND"},
+      {ttnn::UnaryOpType::LeftShift,
+       "::ttnn::operations::unary::UnaryOpType::LEFT_SHIFT"},
+      {ttnn::UnaryOpType::Remainder,
+       "::ttnn::operations::unary::UnaryOpType::REMAINDER"},
+      {ttnn::UnaryOpType::Fmod, "::ttnn::operations::unary::UnaryOpType::FMOD"},
+      {ttnn::UnaryOpType::Dropout,
+       "::ttnn::operations::unary::UnaryOpType::DROPOUT"},
+      {ttnn::UnaryOpType::Fill, "::ttnn::operations::unary::UnaryOpType::FILL"},
+      {ttnn::UnaryOpType::PreluSfpu,
+       "::ttnn::operations::unary::UnaryOpType::PRELU_SFPU"},
+      {ttnn::UnaryOpType::ZeroPoint,
+       "::ttnn::operations::unary::UnaryOpType::ZERO_POINT"},
+  };
+
+  return opTypeMap.at(opType);
+}
+
+template <>
+struct EmitCTypeConverter<::ttnn::operations::unary::UnaryWithParam> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto unaryWithParamAttr =
+            mlir::dyn_cast_if_present<ttnn::UnaryWithParamAttr>(attr)) {
+      return convert(unaryWithParamAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::UnaryWithParamAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::operations::unary::UnaryWithParam> << "(";
+    rso << ttnn_to_emitc::convert(attr.getOpType());
+    if (!attr.getParams().empty()) {
+      rso << ", ";
+      rso << EmitCTypeConverter<std::vector<float>>::convert(attr.getParams());
+    }
+    rso << ")";
+
+    return buf;
+  }
+};
+
 template <>
 struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
@@ -1194,7 +1353,8 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
     }
     if (attr.getActivation()) {
       rso << (firstElement ? "" : ", ") << ".activation = "
-          << EmitCTypeConverter<std::string>::convert(attr.getActivation());
+          << EmitCTypeConverter<::ttnn::operations::unary::UnaryWithParam>::
+                 convert(attr.getActivation());
       firstElement = false;
     }
     if (attr.getDeallocateActivation()) {
@@ -1400,6 +1560,11 @@ struct TTNNTarget<tt::ttnn::TensorMemoryLayoutAttr> {
 template <>
 struct TTNNTarget<tt::ttnn::MemoryConfigAttr> {
   using type = ::ttnn::MemoryConfig;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::UnaryWithParamAttr> {
+  using type = ::ttnn::operations::unary::UnaryWithParam;
 };
 
 template <>
