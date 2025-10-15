@@ -409,18 +409,7 @@ mlir::OpFoldResult CoreIndexOp::fold(FoldAdaptor adaptor) {
                        "element type");
   }
 
-  int numAttrsSet = getBlockM().has_value() + getBlockK().has_value() +
-                    getBlockN().has_value() + getBBlockStride().has_value();
-  if (numAttrsSet != 0 && numAttrsSet != 4) {
-    return emitOpError(
-        "all or none of the block dim attributes must be present");
-  }
-
   return success();
-}
-
-bool TileMatmulBlockOp::hasBlockDims() {
-  return getBlockM() && getBlockK() && getBlockN() && getBBlockStride();
 }
 
 void TileMatmulBlockOp::getEffects(
