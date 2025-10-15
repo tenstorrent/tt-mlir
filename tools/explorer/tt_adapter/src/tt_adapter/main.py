@@ -157,7 +157,7 @@ class TTAdapter(model_explorer.Adapter):
         ir_dumps_dir = 'ir_dumps'
 
         if not os.path.exists(ir_dumps_dir) or not os.path.isdir(ir_dumps_dir):
-            return utils.to_adapter_format({"graphPaths": []})
+            return utils.to_adapter_collection_format({"graphPaths": []}, label="Preload graphs")
 
         graph_paths = []
         for file in os.listdir(ir_dumps_dir):
@@ -166,7 +166,7 @@ class TTAdapter(model_explorer.Adapter):
             if file.endswith('.mlir') and os.path.isfile(file_path) and os.access(file_path, os.R_OK):
                 graph_paths.append(os.path.abspath(file_path))
 
-        return utils.to_adapter_format({"graphPaths": graph_paths})
+        return utils.to_adapter_collection_format({"graphPaths": graph_paths}, label="Preload graphs")
 
     def convert(
         self, model_path: str, settings: Dict
