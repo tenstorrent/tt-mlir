@@ -154,9 +154,19 @@ class TTAdapter(model_explorer.Adapter):
 
     def preload(self, model_path: str, settings: Dict):
         # TODO(ctr-mcampos): update path to be configurable
-        graph_paths = [os.path.abspath(os.path.join('ir_dumps', file)) for file in os.listdir('ir_dumps')]
+        ir_dumps_dir = 'ir_dumps'
 
-        return {"graphs": graph_paths}
+        if not os.path.exists(ir_dumps_dir) or not os.path.isdir(ir_dumps_dir):
+            return {"graphs": [{"graphPaths": []}]}
+
+        graph_paths = []
+        for file in os.listdir(ir_dumps_dir):
+            file_path = os.path.join(ir_dumps_dir, file)
+
+            if file.endswith('.mlir') and os.path.isfile(file_path) and os.access(file_path, os.R_OK):
+                graph_paths.append(os.path.abspath(file_path))
+
+        return {"graphs": [{"graphPaths": graph_paths}]}
 
     def convert(
         self, model_path: str, settings: Dict
