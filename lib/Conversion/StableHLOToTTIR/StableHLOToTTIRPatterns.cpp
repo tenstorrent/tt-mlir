@@ -673,8 +673,7 @@ namespace {
 template <typename OpType, typename OpAdaptor>
 static LogicalResult
 checkBatchNormConversionLegality(OpType &srcOp, OpAdaptor adaptor,
-                                 ConversionPatternRewriter &rewriter,
-                                 llvm::StringRef opName) {
+                                 ConversionPatternRewriter &rewriter) {
   auto inputType = mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
   int64_t rank = inputType.getRank();
   uint64_t featureIndex = srcOp.getFeatureIndex();
@@ -682,19 +681,21 @@ checkBatchNormConversionLegality(OpType &srcOp, OpAdaptor adaptor,
   // BatchNorm requires at least 2 dimensions (batch and feature)
   if (rank < 2) {
     return rewriter.notifyMatchFailure(
-        srcOp, opName.str() + " input must have at least 2 dimensions.");
+        srcOp,
+        srcOp.getOperationName() + " input must have at least 2 dimensions.");
   }
 
   // BatchNorm supports up to 5 dimensions
   if (rank > 5) {
     return rewriter.notifyMatchFailure(
-        srcOp, opName.str() + " input must have at most 5 dimensions.");
+        srcOp,
+        srcOp.getOperationName() + " input must have at most 5 dimensions.");
   }
 
   // Feature index must be valid
   if (featureIndex >= static_cast<uint64_t>(rank)) {
     return rewriter.notifyMatchFailure(
-        srcOp, opName.str() + " feature_index is out of bounds.");
+        srcOp, srcOp.getOperationName() + " feature_index is out of bounds.");
   }
 
   return success();
@@ -712,8 +713,8 @@ public:
                   mlir::stablehlo::BatchNormInferenceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Check legality of the conversion.
-    LogicalResult legalityResult = checkBatchNormConversionLegality(
-        srcOp, adaptor, rewriter, "BatchNormInferenceOp");
+    LogicalResult legalityResult =
+        checkBatchNormConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
@@ -749,8 +750,8 @@ public:
                   mlir::stablehlo::BatchNormTrainingOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Check legality of the conversion.
-    LogicalResult legalityResult = checkBatchNormConversionLegality(
-        srcOp, adaptor, rewriter, "BatchNormTrainingOp");
+    LogicalResult legalityResult =
+        checkBatchNormConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
@@ -774,18 +775,13 @@ public:
     FloatAttr momentumAttr = rewriter.getF32FloatAttr(0.1f);
 
     // Create empty tensors for running mean and variance
-    auto runningMean =
-        rewriter.create<ttir::EmptyOp>(loc, meanType).getResult();
-    auto runningVariance =
-        rewriter.create<ttir::EmptyOp>(loc, varianceType).getResult();
+    auto runningMean = rewriter.create<ttir::EmptyOp>(loc, meanType);
+    auto runningVariance = rewriter.create<ttir::EmptyOp>(loc, varianceType);
 
     // Create empty output tensors
-    auto outputEmpty =
-        rewriter.create<ttir::EmptyOp>(loc, outputType).getResult();
-    auto batchMeanEmpty =
-        rewriter.create<ttir::EmptyOp>(loc, meanType).getResult();
-    auto batchVarianceEmpty =
-        rewriter.create<ttir::EmptyOp>(loc, varianceType).getResult();
+    auto outputEmpty = rewriter.create<ttir::EmptyOp>(loc, outputType);
+    auto batchMeanEmpty = rewriter.create<ttir::EmptyOp>(loc, meanType);
+    auto batchVarianceEmpty = rewriter.create<ttir::EmptyOp>(loc, varianceType);
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormTrainingOp>(
         srcOp, TypeRange{outputType, meanType, varianceType},
@@ -3705,10 +3701,9 @@ static void addPadOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpPadOpConversionPattern>(typeConverter, ctx);
 }
 
-static void
-addBatchNormInferenceOpConversionPattern(MLIRContext *ctx,
-                                         RewritePatternSet &patterns,
-                                         TypeConverter &typeConverter) {
+static void addBatchNormOpConversionPattern(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
   patterns.add<StableHLOToBatchNormInferenceOpConversionPattern>(typeConverter,
                                                                  ctx);
   patterns.add<StableHLOToBatchNormTrainingOpConversionPattern>(typeConverter,
@@ -3794,7 +3789,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
   addPadOpConversionPattern(ctx, patterns, typeConverter);
-  addBatchNormInferenceOpConversionPattern(ctx, patterns, typeConverter);
+  addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
   addRngOpConversionPattern(ctx, patterns, typeConverter);
   addRngBitGeneratorOpConversionPattern(ctx, patterns, typeConverter);
   addErfOpConversionPattern(ctx, patterns, typeConverter);
