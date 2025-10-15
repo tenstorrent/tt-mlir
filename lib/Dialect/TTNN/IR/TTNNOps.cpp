@@ -1417,19 +1417,20 @@ void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
             isLastUser = isLastUser && user->isBeforeInBlock(op);
           }
         }
-        bool returnIsUserAndOperandIsFuncArgument = false;
+        bool returnIsUserOrOperandIsFuncArgument = false;
         for (Operation *user : op.getResult().getUsers()) {
           if (isa<func::ReturnOp>(user)) {
-            Block *block = op->getBlock();
-            for (BlockArgument arg : block->getArguments()) {
-              if (arg == op.getInput()) {
-                returnIsUserAndOperandIsFuncArgument = true;
-              }
+            returnIsUserOrOperandIsFuncArgument = true;
+          }
+          Block *block = op->getBlock();
+          for (BlockArgument arg : block->getArguments()) {
+            if (arg == op.getInput()) {
+              returnIsUserOrOperandIsFuncArgument = true;
             }
           }
         }
         if (!isLastUser || !isReshapeView(op) ||
-            returnIsUserAndOperandIsFuncArgument) {
+            returnIsUserOrOperandIsFuncArgument) {
           return failure();
         }
 
