@@ -106,4 +106,3 @@ def test_chisel_cli_help(ttir_path: str, function_name: str):
     assert result.returncode == 0, f"Help command failed: {result.stderr}"
     assert "chisel" in result.stdout.lower(), "Help text doesn't mention chisel"
     assert "--input-file" in result.stdout, "Help text missing expected arguments"
-
