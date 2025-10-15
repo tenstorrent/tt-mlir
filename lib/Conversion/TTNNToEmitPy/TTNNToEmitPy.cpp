@@ -2349,6 +2349,14 @@ namespace {
 class BatchNormInferenceOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<
           mlir::tt::ttnn::BatchNormInferenceOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.batch_norm_inference";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.batch_norm";
+  }
+
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::BatchNormInferenceOp>::
@@ -2390,6 +2398,14 @@ namespace {
 class BatchNormTrainingOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<
           mlir::tt::ttnn::BatchNormTrainingOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.batch_norm_training";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.batch_norm";
+  }
+
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::BatchNormTrainingOp>::TTNNToEmitPyBaseOpConversionPattern;
