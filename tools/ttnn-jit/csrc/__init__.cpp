@@ -40,7 +40,7 @@ NB_MODULE(_ttnn_jit, m) {
   nb::class_<JitCache>(m, "JitCache")
       .def(nb::init<std::size_t>(), nb::rv_policy::take_ownership)
       .def("get",
-           [](JitCache *self, std::string func_name, std::string ir,
+           [](JitCache *self, std::string func_sig, std::string ir,
               std::string options, std::string backend, nb::tuple max_grid_,
               nb::args args) {
              std::tuple<uint32_t, uint32_t> max_grid = {
@@ -92,7 +92,7 @@ NB_MODULE(_ttnn_jit, m) {
 
              mlir::Operation *op = unwrap(mlirModuleGetOperation(module));
              auto result = wrapInCapsule(
-                 self->get(op, JitCacheKey{func_name, backend, max_grid},
+                 self->get(op, JitCacheKey{func_sig, backend, max_grid},
                            tensor_args, other_params, options));
 
              mlirModuleDestroy(module);
