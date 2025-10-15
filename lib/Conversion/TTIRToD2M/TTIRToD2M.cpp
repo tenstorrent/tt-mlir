@@ -1082,7 +1082,6 @@ public:
   TTIRToD2MPass(const TTIRToD2MOptions &options) : Base() {
     this->defaultInputMemSpace = options.defaultInputMemSpace;
     this->defaultOutputMemSpace = options.defaultOutputMemSpace;
-    this->overrideDeviceShape = options.overrideDeviceShape;
     this->ttnnMode = options.ttnnMode;
     this->collapseTensorsTo2D = options.collapseTensorsTo2D;
   }
@@ -1092,7 +1091,6 @@ public:
     // base class copy constructors ignore Pass option fields.
     this->defaultInputMemSpace = rhs.defaultInputMemSpace;
     this->defaultOutputMemSpace = rhs.defaultOutputMemSpace;
-    this->overrideDeviceShape = rhs.overrideDeviceShape;
     this->ttnnMode = rhs.ttnnMode;
     this->collapseTensorsTo2D = rhs.collapseTensorsTo2D;
   }
