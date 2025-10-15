@@ -115,11 +115,13 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   if (!l1UsageExp) {
     llvm::Error error = l1UsageExp.takeError();
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                 "OpModel constraints failed: {} @ {} :: {}, "
-                 "config.outputLayout: {}",
-                 op->getName(), op->getLoc(),
-                 llvm::toStringWithoutConsuming(error), config.outputLayout);
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::OpValidation,
+        "OpModel constraints failed: {} @ {} :: \n{}"
+        "\n\tconfig.outputLayout: {}",
+        op->getName(), op->getLoc(),
+        ttmlir::utils::firstNLines(llvm::toStringWithoutConsuming(error), 8),
+        config.outputLayout);
 
     return llvm::Expected<TTNNLayoutAttr>(std::move(error));
   }

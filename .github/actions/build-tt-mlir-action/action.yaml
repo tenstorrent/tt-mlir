@@ -126,6 +126,7 @@ runs:
         cmake --install ${{ inputs.build-output-dir }} --component Test
         cmake --install ${{ inputs.build-output-dir }} --component SharedLib
         cmake --install ${{ inputs.build-output-dir }} --component TTNNStandalone
+        cmake --install ${{ inputs.build-output-dir }} --component DistributedRuntime
 
     - name: Build ttnn-standalone
       shell: bash

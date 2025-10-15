@@ -37,7 +37,6 @@ def create_matmul_constrained_inputs(lhs_shape, rhs_shape):
     return matmul_constrained_inputs
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("m", [2])
 @pytest.mark.parametrize("k", [4])
 @pytest.mark.parametrize("n", [4])
@@ -77,7 +76,6 @@ def test_matmul_single_core_8otpc(
     )
 
 
-@pytest.mark.fails_golden
 @pytest.mark.parametrize("m", [3, 6, 9])
 @pytest.mark.parametrize("k", [4])
 @pytest.mark.parametrize("n", [3, 6])
@@ -116,7 +114,7 @@ def test_matmul_multi_core_8otpc(
     )
 
 
-@pytest.mark.fails_golden
+@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -166,7 +164,7 @@ def test_matmul_ttnn_shapes_single_buffered(
     )
 
 
-@pytest.mark.fails_golden
+@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [
