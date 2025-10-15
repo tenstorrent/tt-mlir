@@ -253,9 +253,20 @@ mlir::tt::MLIRModuleLogger::Config::fromEnvironment() {
 }
 
 void mlir::tt::MLIRModuleLogger::attachContextWithDumping(
-    mlir::MLIRContext *ctx) {
+    mlir::MLIRContext *ctx, const std::string &modelName, const std::string &pipelineName) {
   context = ctx;
   config = Config::fromEnvironment();
+  
+  // Use environment variable for model name if available, otherwise use parameter
+  const char *envModelName = std::getenv("TTMLIR_DUMP_IR_MODEL_NAME");
+  std::string finalModelName = envModelName ? std::string(envModelName) : modelName;
+  
+  // Use environment variable for pipeline name if available, otherwise use parameter
+  const char *envPipelineName = std::getenv("TTMLIR_DUMP_IR_PIPELINE_NAME");
+  std::string finalPipelineName = envPipelineName ? std::string(envPipelineName) : pipelineName;
+  
+  setModelName(finalModelName);
+  setPipelineName(finalPipelineName);
 
   if (!config.dumpEnabled) {
     // Fall back to original behavior
@@ -266,7 +277,7 @@ void mlir::tt::MLIRModuleLogger::attachContextWithDumping(
   // Create dump directory if it doesn't exist
   std::filesystem::create_directories(config.dumpDir);
 
-  context->registerActionHandler([this](llvm::function_ref<void()> transform,
+  context->registerActionHandler([this, &modelName = this->modelName](llvm::function_ref<void()> transform,
                                         const mlir::tracing::Action &action) {
     // Dump pre-pipeline IR
     if (moduleCache.empty()) {
@@ -292,11 +303,25 @@ void mlir::tt::MLIRModuleLogger::attachContextWithDumping(
       auto passAction = mlir::cast<mlir::PassExecutionAction>(action);
       std::string passName = passAction.getPass().getName().str();
 
+      // Extract model name from the operation's location on first pass
+      if (modelName == "unknown") {
+        mlir::Operation *op = passAction.getOp();
+        if (op) {
+          std::string extractedName = extractModelNameFromLocation(op);
+          if (extractedName != "unknown") {
+            setModelName(extractedName);
+          }
+        }
+      }
+
       // Check if we should dump this specific pass
       bool shouldDump = config.specificPasses.empty() ||
                         config.specificPasses.count(passName) > 0;
 
       if (shouldDump) {
+        // Increment total pass count
+        totalPassCount++;
+        
         std::string outString;
         llvm::raw_string_ostream os(outString);
         mlir::OpPrintingFlags flags;
@@ -324,22 +349,108 @@ mlir::tt::MLIRModuleLogger::getOutputFilename(const std::string &passName,
   std::replace(safeName.begin(), safeName.end(), '>', '_');
   std::replace(safeName.begin(), safeName.end(), ' ', '_');
 
-  std::string filename = safeName;
+  // Create safe model name
+  std::string safeModelName = modelName;
+  std::replace(safeModelName.begin(), safeModelName.end(), '/', '_');
+  std::replace(safeModelName.begin(), safeModelName.end(), '<', '_');
+  std::replace(safeModelName.begin(), safeModelName.end(), '>', '_');
+  std::replace(safeModelName.begin(), safeModelName.end(), ' ', '_');
+  std::replace(safeModelName.begin(), safeModelName.end(), '.', '_');
+
+  // Create safe pipeline name
+  std::string safePipelineName = pipelineName;
+  std::replace(safePipelineName.begin(), safePipelineName.end(), '/', '_');
+  std::replace(safePipelineName.begin(), safePipelineName.end(), '<', '_');
+  std::replace(safePipelineName.begin(), safePipelineName.end(), '>', '_');
+  std::replace(safePipelineName.begin(), safePipelineName.end(), ' ', '_');
+  std::replace(safePipelineName.begin(), safePipelineName.end(), '.', '_');
+
+  // Create filename with total pass count: <total_pass_count>_<pass_name>.mlir
+  std::string filename = std::to_string(totalPassCount) + "_" + safeName;
   if (!stage.empty()) {
     filename += "_" + stage;
   }
   filename += ".mlir";
 
-  return config.dumpDir + "/" + filename;
+  // Create subdirectory structure: <model_name>/<pipeline_name>/
+  std::string subdirPath = config.dumpDir + "/" + safeModelName + "/" + safePipelineName;
+  
+  return subdirPath + "/" + filename;
 }
 
 void mlir::tt::MLIRModuleLogger::dumpIRToFile(
     const std::string &irContent, const std::string &filename) const {
+  // Create directory if it doesn't exist
+  std::filesystem::path filePath(filename);
+  std::filesystem::create_directories(filePath.parent_path());
+  
   std::ofstream file(filename);
   if (file.is_open()) {
     file << irContent;
     file.close();
   }
+}
+
+void mlir::tt::MLIRModuleLogger::setModelName(const std::string &name) {
+  modelName = name;
+}
+
+void mlir::tt::MLIRModuleLogger::setPipelineName(const std::string &name) {
+  pipelineName = name;
+}
+
+std::string mlir::tt::MLIRModuleLogger::extractModelNameFromLocation(
+    mlir::Operation *op) const {
+  if (!op) {
+    return "unknown";
+  }
+
+  mlir::Location loc = op->getLoc();
+  
+  // Try to extract filename from FileLineColLoc
+  if (mlir::isa<mlir::FileLineColLoc>(loc)) {
+    mlir::FileLineColLoc fileLoc = mlir::cast<mlir::FileLineColLoc>(loc);
+    llvm::StringRef filename = fileLoc.getFilename();
+    if (!filename.empty()) {
+      // Extract just the filename without path and extension
+      std::string filenameStr = filename.str();
+      size_t lastSlash = filenameStr.find_last_of("/\\");
+      if (lastSlash != std::string::npos) {
+        filenameStr = filenameStr.substr(lastSlash + 1);
+      }
+      size_t lastDot = filenameStr.find_last_of(".");
+      if (lastDot != std::string::npos) {
+        filenameStr = filenameStr.substr(0, lastDot);
+      }
+      return filenameStr;
+    }
+  }
+  
+  // Try to extract from FusedLoc
+  if (mlir::isa<mlir::FusedLoc>(loc)) {
+    mlir::FusedLoc fusedLoc = mlir::cast<mlir::FusedLoc>(loc);
+    for (mlir::Location subLoc : fusedLoc.getLocations()) {
+      if (mlir::isa<mlir::FileLineColLoc>(subLoc)) {
+        mlir::FileLineColLoc fileLoc = mlir::cast<mlir::FileLineColLoc>(subLoc);
+        llvm::StringRef filename = fileLoc.getFilename();
+        if (!filename.empty()) {
+          // Extract just the filename without path and extension
+          std::string filenameStr = filename.str();
+          size_t lastSlash = filenameStr.find_last_of("/\\");
+          if (lastSlash != std::string::npos) {
+            filenameStr = filenameStr.substr(lastSlash + 1);
+          }
+          size_t lastDot = filenameStr.find_last_of(".");
+          if (lastDot != std::string::npos) {
+            filenameStr = filenameStr.substr(0, lastDot);
+          }
+          return filenameStr;
+        }
+      }
+    }
+  }
+  
+  return "unknown";
 }
 
 void mlir::tt::MLIRModuleLogger::dumpDialectCreation(
@@ -370,7 +481,9 @@ void mlir::tt::MLIRModuleLogger::dumpDialectCreation(
   }
 }
 
-void mlir::tt::MLIRModuleLogger::enableGlobalIRDumping(mlir::MLIRContext *ctx) {
+void mlir::tt::MLIRModuleLogger::enableGlobalIRDumping(mlir::MLIRContext *ctx, 
+                                                      const std::string &modelName,
+                                                      const std::string &pipelineName) {
   Config config = Config::fromEnvironment();
 
   if (!config.dumpEnabled) {
@@ -379,7 +492,7 @@ void mlir::tt::MLIRModuleLogger::enableGlobalIRDumping(mlir::MLIRContext *ctx) {
 
   // Create a static logger to ensure it stays alive
   static MLIRModuleLogger logger;
-  logger.attachContextWithDumping(ctx);
+  logger.attachContextWithDumping(ctx, modelName, pipelineName);
 }
 
 // Global static initializer that will be called when this library loads
