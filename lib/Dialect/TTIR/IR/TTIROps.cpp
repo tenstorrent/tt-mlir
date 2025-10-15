@@ -278,6 +278,21 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
                                                op.getOutput(), newMin, newMax);
     return mlir::success();
   });
+
+  // Fold clamp with min=0 and max=6 to relu6
+  patterns.add(+[](mlir::tt::ttir::ClampScalarOp op,
+                   mlir::PatternRewriter &rewriter) {
+    auto minVal = op.getMin();
+    auto maxVal = op.getMax();
+
+    if (minVal.convertToFloat() == 0.0f && maxVal.convertToFloat() == 6.0f) {
+      rewriter.replaceOpWithNewOp<ttir::Relu6Op>(op, op.getResult().getType(),
+                                                 op.getInput(), op.getOutput());
+      return mlir::success();
+    }
+
+    return mlir::failure();
+  });
 }
 
 //===----------------------------------------------------------------------===//
