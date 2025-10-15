@@ -20,6 +20,9 @@ from ttmlir.passes import (
 from ttnn_jit._src.ttir_ast import TTIRCompiler
 from ttnn_jit._src.utils import _cleanup_source_code
 from ttnn_jit._src.dispatch_op import _run_binary_from_capsule
+from ttnn_jit._ttnn_jit import JitCache
+
+_cache = JitCache(1024)
 
 
 def jit(
@@ -31,16 +34,19 @@ def jit(
     debug: bool = False,
 ):
     def _decorator(f):
+        source_code = _cleanup_source_code(f)
+
         @functools.wraps(f)
         def _wrapper(*args, **kwargs):
-            source_code = _cleanup_source_code(f)
 
             # Pass the actual tensors through as kwargs
             tensor_args = {}
             sig = inspect.signature(f)
             param_names = list(sig.parameters.keys())
             if len(param_names) != len(args):
-                raise ValueError(f"How is this even possible???")
+                raise ValueError(
+                    f"Passed {len(args)} args, but function expects {len(param_names)}"
+                )
 
             for i, arg in enumerate(args):
                 tensor_args[param_names[i]] = arg
@@ -86,21 +92,12 @@ def jit(
                     # TODO: hook up metal runtime here
                     raise NotImplementedError("Metal runtime is not implemented yet")
             elif backend == "ttnn":
-                # TODO (#5224): use pipeline once hooked up
-                ttnn_to_ttmetal_pipeline(
-                    ir, f"system-desc-path={system_desc_path} ttnn-mode=true"
-                )
-                if debug:
-                    print("---- After ttnn_to_ttmetal_pipeline ----")
-                    print(ir)
+                options = f"system-desc-path={system_desc_path} ttnn-mode=true"
 
-                if compile_only:
-                    flatbuffer_bin = os.path.join(out_dir, f.__name__ + ".ttnn")
-                    ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
-                    return ir
-                else:
-                    fb_capsule = ttnn_to_flatbuffer_bin(ir)
-                    return _run_binary_from_capsule(fb_capsule, args)
+                fb_capsule = _cache.get(
+                    f.__name__, str(ir), backend, max_grid, args[0], options
+                )
+                return _run_binary_from_capsule(fb_capsule, args)
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
 

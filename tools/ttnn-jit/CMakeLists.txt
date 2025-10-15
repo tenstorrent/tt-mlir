@@ -1,5 +1,7 @@
 include(AddMLIRPython)
 
+add_subdirectory(csrc)
+
 set(TTNNJIT_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 declare_mlir_python_sources(TTNNJITSources
