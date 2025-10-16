@@ -3577,17 +3577,14 @@ TEST_F(OpModelBase, batchNormOpTraining) {
   auto weight = createEmptyTensor(weightShape);
   auto bias = createEmptyTensor(biasShape);
   auto outputType = createRankedTensorType(inputShape);
-  auto batchMeanType = outputType;
-  auto batchVarType = outputType;
 
   // BatchNorm parameters
   llvm::APFloat epsilon(1e-05f);
   llvm::APFloat momentum(0.1f);
 
   BatchNormTrainingOp batchNormTrainingOp = builder.create<BatchNormTrainingOp>(
-      builder.getUnknownLoc(),
-      TypeRange{outputType, batchMeanType, batchVarType}, input, runningMean,
-      runningVar, epsilon, momentum, weight, bias, nullptr);
+      builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
+      epsilon, momentum, weight, bias, nullptr);
   batchNormTrainingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(batchNormTrainingOp.getOperation());
@@ -3615,17 +3612,14 @@ TEST_F(OpModelBase, batchNormOpTrainingMinimal) {
 
   auto input = createEmptyTensor(inputShape);
   auto outputType = createRankedTensorType(inputShape);
-  auto batchMeanType = outputType;
-  auto batchVarType = outputType;
 
   // BatchNorm parameters
   llvm::APFloat epsilon(1e-05f);
   llvm::APFloat momentum(0.1f);
 
   BatchNormTrainingOp batchNormTrainingOp = builder.create<BatchNormTrainingOp>(
-      builder.getUnknownLoc(),
-      TypeRange{outputType, batchMeanType, batchVarType}, input, nullptr,
-      nullptr, epsilon, momentum, nullptr, nullptr, nullptr);
+      builder.getUnknownLoc(), outputType, input, nullptr, nullptr, epsilon,
+      momentum, nullptr, nullptr, nullptr);
   batchNormTrainingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(batchNormTrainingOp.getOperation());
@@ -3673,17 +3667,14 @@ TEST_F(OpModelBase, batchNormOpTrainingL1Memory) {
   auto bias =
       createEmptyTensor(biasShape, builder.getBF16Type(), tensorLayout_L1);
   auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
-  auto batchMeanType = outputType;
-  auto batchVarType = outputType;
 
   // BatchNorm parameters
   llvm::APFloat epsilon(1e-05f);
   llvm::APFloat momentum(0.1f);
 
   BatchNormTrainingOp batchNormTrainingOp = builder.create<BatchNormTrainingOp>(
-      builder.getUnknownLoc(),
-      TypeRange{outputType, batchMeanType, batchVarType}, input, runningMean,
-      runningVar, epsilon, momentum, weight, bias, nullptr);
+      builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
+      epsilon, momentum, weight, bias, nullptr);
   batchNormTrainingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(batchNormTrainingOp.getOperation());
