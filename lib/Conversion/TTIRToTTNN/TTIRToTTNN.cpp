@@ -1048,19 +1048,18 @@ public:
     // Convert result types
     auto resultType =
         this->getTypeConverter()->convertType(op.getResult().getType());
-    auto batchMeanType =
-        this->getTypeConverter()->convertType(op.getBatchMean().getType());
-    auto batchVarianceType =
-        this->getTypeConverter()->convertType(op.getBatchVariance().getType());
 
     auto batchNormTrainingOp = rewriter.create<ttnn::BatchNormTrainingOp>(
-        op.getLoc(), TypeRange{resultType, batchMeanType, batchVarianceType},
-        adaptor.getOperand(), adaptor.getRunningMean(),
+        op.getLoc(), resultType, adaptor.getOperand(), adaptor.getRunningMean(),
         adaptor.getRunningVariance(), adaptor.getEpsilon(),
         adaptor.getMomentum(), adaptor.getScale(), adaptor.getOffset(),
         /*memoryConfig*/ nullptr);
 
-    rewriter.replaceOp(op, batchNormTrainingOp.getResults());
+    // TTIR expects the running mean and variance to be returned as separate
+    // results.
+    rewriter.replaceOp(op, {batchNormTrainingOp.getResult(),
+                            batchNormTrainingOp.getRunningMean(),
+                            batchNormTrainingOp.getRunningVar()});
     return success();
   }
 };

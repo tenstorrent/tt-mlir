@@ -2541,8 +2541,7 @@ public:
         adaptor.getOperands());
 
     // The batch stats are the updated running_mean and running_var
-    rewriter.replaceOp(srcOp, {callOp.getResult(0), adaptor.getRunningMean(),
-                               adaptor.getRunningVar()});
+    rewriter.replaceOp(srcOp, callOp.getResult(0));
 
     return success();
   }

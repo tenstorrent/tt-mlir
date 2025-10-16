@@ -1306,12 +1306,40 @@ static mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttnn::ReshapeOp op) {
 
 // Back to back reshapes can be replaced with the final reshape.
 static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
-  if (auto reshapeOperand =
-          op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>()) {
-    op.getOperation()->setOperand(0, reshapeOperand.getInput());
-    return op.getResult();
+  auto reshapeOperand =
+      op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>();
+  if (!reshapeOperand) {
+    return nullptr;
   }
-  return nullptr;
+
+  // Check if any user (except this reshape) writes to the intermediate value
+  mlir::Value intermediate = reshapeOperand.getResult();
+
+  auto hasWriteEffect = [&](mlir::Operation *user) {
+    if (user == op.getOperation()) {
+      return false;
+    }
+
+    auto memEffectOp = dyn_cast<mlir::MemoryEffectOpInterface>(user);
+    if (!memEffectOp) {
+      return false;
+    }
+
+    llvm::SmallVector<mlir::MemoryEffects::EffectInstance> effects;
+    memEffectOp.getEffects(effects);
+
+    return llvm::any_of(effects, [&](const auto &effect) {
+      return isa<mlir::MemoryEffects::Write>(effect.getEffect()) &&
+             effect.getValue() == intermediate;
+    });
+  };
+
+  if (llvm::any_of(intermediate.getUsers(), hasWriteEffect)) {
+    return nullptr;
+  }
+
+  op.getOperation()->setOperand(0, reshapeOperand.getInput());
+  return op.getResult();
 }
 
 // ReshapeOp folder

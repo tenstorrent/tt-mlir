@@ -31,8 +31,6 @@ table BatchNormTrainingOp {
   bias: tt.target.ttnn.TensorRef;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
-  batch_mean: tt.target.ttnn.TensorRef;
-  batch_variance: tt.target.ttnn.TensorRef;
 }
 
 table RMSNormOp {

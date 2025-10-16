@@ -1759,9 +1759,7 @@ def TTNN_BatchNormTrainingOp : TTNN_Op<"batch_norm_training", [AttrSizedOperandS
                          Optional<AnyRankedTensor>:$bias,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
-    let results = (outs AnyRankedTensor:$result,
-                        AnyRankedTensor:$batch_mean,
-                        AnyRankedTensor:$batch_variance);
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }

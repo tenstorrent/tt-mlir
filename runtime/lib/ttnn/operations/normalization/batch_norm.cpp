@@ -51,10 +51,5 @@ void run(const ::tt::target::ttnn::BatchNormTrainingOp *op,
       input, runningMean, runningVar, true, epsilon, momentum, weight, bias);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
-
-  // Note: ttnn::batch_norm with training=true updates running_mean and
-  // running_var in-place.
-  tensorPool.insertTTNNTensorAndValidate(op->batch_mean(), runningMean);
-  tensorPool.insertTTNNTensorAndValidate(op->batch_variance(), runningVar);
 }
 } // namespace tt::runtime::ttnn::operations::batch_norm

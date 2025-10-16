@@ -842,10 +842,6 @@ createOp(FlatbufferObjectCache &cache, BatchNormTrainingOp op) {
   // BatchNormTrainingOp has 3 MLIR results
   ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
       cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> batchMean =
-      cache.getOrCreate(op.getBatchMean(), tensorValueToFlatbuffer);
-  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> batchVariance =
-      cache.getOrCreate(op.getBatchVariance(), tensorValueToFlatbuffer);
 
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       op.getMemoryConfig() ? toFlatbuffer(cache, *op.getMemoryConfig()) : 0;
@@ -854,7 +850,7 @@ createOp(FlatbufferObjectCache &cache, BatchNormTrainingOp op) {
   return ::tt::target::ttnn::CreateBatchNormTrainingOp(
       *cache.fbb, input, runningMean, runningVar,
       op.getEpsilon().convertToFloat(), op.getMomentum().convertToFloat(),
-      weight, bias, memoryConfig, output, batchMean, batchVariance);
+      weight, bias, memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
