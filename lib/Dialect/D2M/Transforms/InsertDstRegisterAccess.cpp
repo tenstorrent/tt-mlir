@@ -646,11 +646,11 @@ public:
       Value replacementValue = loadedResult.getResult();
       // Cast back to original type if we had to cast for storage
       if (replacementValue.getType() != op->getResult(0).getType()) {
-        replacementValue = rewriter
-                               .create<UnrealizedConversionCastOp>(
-                                   loc, op->getResult(0).getType(),
-                                   replacementValue)
-                               .getResult(0);
+        replacementValue =
+            rewriter
+                .create<UnrealizedConversionCastOp>(
+                    loc, op->getResult(0).getType(), replacementValue)
+                .getResult(0);
       }
 
       // Replace all uses of the original result with the loaded result from dst
