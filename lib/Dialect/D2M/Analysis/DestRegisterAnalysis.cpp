@@ -5,18 +5,19 @@
 #include "ttmlir/Dialect/D2M/Analysis/DestRegisterAnalysis.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::d2m {
 
-int findDstCapacity(GenericOp genericOp) {
+int findDstCapacity(linalg::GenericOp genericOp) {
   int dstCapacity = 8;
   return dstCapacity;
 }
 
 DestRegisterAnalysis::DestRegisterAnalysis(Operation *op) {
   // TODO: Implement analysis logic
-  op->walk([&](GenericOp genericOp) {
+  op->walk([&](linalg::GenericOp genericOp) {
     llvm::errs() << "Processing GenericOp: " << genericOp << "\n";
 
     DstRegisterInfo info;
