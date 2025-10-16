@@ -61,7 +61,7 @@ def logical_not(
         for j in range(shape[1]):
             tili = math.floor(i / 32)
             tilej = math.floor(j / 32)
-            value = (tili * shape[0]) + tilej
+            value = (tili * (shape[1] / 32)) + tilej
             input_tensor[i, j] = value
 
     input_tensor = input_tensor.to(dtype)
