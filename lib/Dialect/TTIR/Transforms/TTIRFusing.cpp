@@ -13,7 +13,6 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
-#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -367,6 +366,35 @@ public:
   }
 };
 
+static bool isFullOpWithValue(Value value, float expectedValue,
+                              float tolerance = 1e-6f) {
+  Operation *op = value.getDefiningOp();
+  if (!op) {
+    return false;
+  }
+
+  // Check if it's a ZerosOp and expected value is 0
+  if (expectedValue == 0.0f && isa<ZerosOp>(op)) {
+    return true;
+  }
+
+  // Check if it's a FullOp with the expected fill value
+  if (auto fullOp = dyn_cast<FullOp>(op)) {
+    mlir::Attribute fillValue = fullOp.getFillValue();
+    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
+      return integerAttr.getValue().getSExtValue() ==
+             static_cast<int64_t>(expectedValue);
+    }
+    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
+      float actualValue = floatAttr.getValue().convertToFloat();
+      return std::abs(actualValue - expectedValue) <= tolerance;
+    }
+    llvm_unreachable("Fill value should be integer or float");
+  }
+
+  return false;
+}
+
 // This pattern detects and fuses a sequence of operations that implement
 // relu. If a zeros op is consumed by a maximum op, we can fuse the zeros and
 // maximum op into a relu op.
@@ -389,9 +417,9 @@ public:
 
     Value input;
 
-    if (isCreatingZeros(maximumOp.getLhs())) {
+    if (isFullOpWithValue(maximumOp.getLhs(), 0)) {
       input = maximumOp.getRhs();
-    } else if (isCreatingZeros(maximumOp.getRhs())) {
+    } else if (isFullOpWithValue(maximumOp.getRhs(), 0)) {
       input = maximumOp.getLhs();
     } else {
       return mlir::failure();
@@ -402,30 +430,6 @@ public:
         rewriter, maximumOp, maximumOp.getResult().getType(), input);
 
     return mlir::success();
-  }
-
-private:
-  // Check if the fill value of the full op is zero.
-  bool isFillValueZero(FullOp op) const {
-    mlir::Attribute fillValue = op.getFillValue();
-    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
-      return integerAttr.getValue().isZero();
-    }
-    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
-      return floatAttr.getValue().isZero();
-    }
-    llvm_unreachable("Fill value should be integer or float");
-  }
-
-  bool isCreatingZeros(mlir::Value value) const {
-    if (auto creationOp = value.getDefiningOp<ZerosOp>()) {
-      return true;
-    }
-    if (auto creationOp = value.getDefiningOp<FullOp>()) {
-      return isFillValueZero(creationOp);
-    }
-
-    return false;
   }
 };
 
@@ -451,41 +455,23 @@ public:
     Value rhs = minimumOp.getRhs();
 
     auto reluOp = lhs.getDefiningOp<ReluOp>();
-    auto fullOp = rhs.getDefiningOp<FullOp>();
 
     // Check the reversed pattern if initial match fails
     if (!reluOp) {
       reluOp = rhs.getDefiningOp<ReluOp>();
-      fullOp = lhs.getDefiningOp<FullOp>();
+      std::swap(lhs, rhs);
     }
 
     // Verify we found the expected pattern
-    if (!reluOp || !fullOp || !isFillValueSix(fullOp)) {
+    if (!reluOp || !isFullOpWithValue(rhs, 6)) {
       return mlir::failure();
     }
 
     // Replace with ReLU6
-    rewriter.setInsertionPoint(minimumOp);
     utils::replaceOpWithNewDPSOp<Relu6Op>(rewriter, minimumOp,
                                           minimumOp.getResult().getType(),
                                           reluOp.getInput());
     return mlir::success();
-  }
-
-private:
-  // Check if the fill value of the full op is six.
-  bool isFillValueSix(FullOp op) const {
-    if (!op) {
-      return false;
-    }
-    mlir::Attribute fillValue = op.getFillValue();
-    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
-      return integerAttr.getValue().getSExtValue() == 6;
-    }
-    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
-      return floatAttr.getValue().convertToFloat() == 6.0;
-    }
-    return false;
   }
 };
 
@@ -503,91 +489,34 @@ public:
     Value numerator = divOp.getLhs();
     Value denominator = divOp.getRhs();
     auto relu6Op = numerator.getDefiningOp<Relu6Op>();
-    if (!relu6Op) {
+    if (!relu6Op || !relu6Op.getResult().hasOneUse()) {
       return mlir::failure();
     }
-    auto fullOp = getFullOpThroughTMOps(denominator);
-    if (!fullOp || !checkFillValue(fullOp, 6.0)) {
+    if (!isFullOpWithValue(denominator, 6)) {
       return mlir::failure();
     }
 
     auto addOp = relu6Op.getInput().getDefiningOp<AddOp>();
-    if (!addOp) {
+    if (!addOp || !addOp.getResult().hasOneUse()) {
       return mlir::failure();
     }
-    Value addLhs = addOp.getLhs();
-    Value addRhs = addOp.getRhs();
 
-    // Check if one operand is the input and the other is constant 3
-    Value input;
-    if (auto fullOpThree = getFullOpThroughTMOps(addRhs);
-        fullOpThree && checkFillValue(fullOpThree, 3.0)) {
-      input = addLhs;
-    } else if (auto fullOpThree = getFullOpThroughTMOps(addLhs);
-               fullOpThree && checkFillValue(fullOpThree, 3.0)) {
-      input = addRhs;
+    // Check if one operand is constant 3 and the other is the input
+    TypedValue<RankedTensorType> input;
+    if (isFullOpWithValue(addOp.getRhs(), 3)) {
+      input = addOp.getLhs();
+    } else if (isFullOpWithValue(addOp.getLhs(), 3)) {
+      input = addOp.getRhs();
     } else {
       return mlir::failure();
     }
 
-    // Check usage patterns to ensure we can safely fuse.
-    if (!addOp.getResult().hasOneUse() || !relu6Op.getResult().hasOneUse()) {
-      return mlir::failure();
-    }
-
-    // Get input and output types to handle potential typecast differences
-    auto inputType = addOp.getLhs().getType();
-    // auto outputType = divOp.getResult().getType();
     auto hardsigmoidOp = utils::createDPSOp<HardsigmoidOp>(
-        rewriter, divOp.getLoc(), inputType, input);
+        rewriter, divOp.getLoc(), input.getType(), input);
 
-    // If inputs and output are typecasted, we need to add a typecast
-    // after hardsigmoid to convert back to the div output type.
-    // if (inputType != outputType) {
-    //   auto typecastOp = utils::createDPSOp<TypecastOp>(
-    //       rewriter, divOp.getLoc(), inputType, hardsigmoidOp.getResult());
-    //   rewriter.replaceAllOpUsesWith(divOp, typecastOp);
-    // } else {
     rewriter.replaceAllOpUsesWith(divOp, hardsigmoidOp);
-    // }
+
     return mlir::success();
-  }
-
-private:
-  // Check if the fill value of the full op is the expected value.
-  bool checkFillValue(FullOp op, double expectedValue) const {
-    if (!op) {
-      return false;
-    }
-    mlir::Attribute fillValue = op.getFillValue();
-    if (auto integerAttr = dyn_cast<IntegerAttr>(fillValue)) {
-      return integerAttr.getValue().getSExtValue() ==
-             static_cast<int64_t>(expectedValue);
-    }
-    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
-      return floatAttr.getValue().convertToFloat() == expectedValue;
-    }
-    return false;
-  }
-
-  // Helper function to get defining op while skipping typecast operations
-  template <typename OpType>
-  OpType getDefiningOpThroughTypecast(Value value) const {
-    if (auto typecastOp = value.getDefiningOp<TypecastOp>()) {
-      return typecastOp.getInput().getDefiningOp<OpType>();
-    }
-    return value.getDefiningOp<OpType>();
-  }
-  // Helper function to get FullOp while skipping tensor manipulation operations
-  FullOp getFullOpThroughTMOps(Value value) const {
-    Operation *currentOp = value.getDefiningOp();
-
-    while (isa_and_nonnull<TypecastOp, ReshapeOp, BroadcastOp, PermuteOp>(
-        currentOp)) {
-      currentOp = currentOp->getOperand(0).getDefiningOp();
-    }
-
-    return mlir::dyn_cast_if_present<FullOp>(currentOp);
   }
 };
 
@@ -1725,18 +1654,12 @@ private:
     if (!fullOp) {
       return false;
     }
-    Attribute fillValueAttr = fullOp.getFillValue();
-    auto floatAttr = mlir::dyn_cast_or_null<FloatAttr>(fillValueAttr);
-    if (!floatAttr) {
-      return false;
-    }
-    float fillValue = floatAttr.getValue().convertToFloat();
     int64_t inputHeight = inputShape[SPATIAL_HEIGHT_DIM];
     int64_t inputWidth = inputShape[SPATIAL_WIDTH_DIM];
     float expectedValue = 1.0f / static_cast<float>(inputHeight * inputWidth);
     float tolerance =
         std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
-    return std::abs(fillValue - expectedValue) <= tolerance;
+    return isFullOpWithValue(fullOp, expectedValue, tolerance);
   }
 
   bool validateSumOp(SumOp sumOp) const {
