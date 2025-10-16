@@ -55,40 +55,102 @@ private:
   void launchResponseSender();
   void sendResponses();
 
+  void execute(uint64_t commandId,
+               const ::tt::runtime::distributed::flatbuffer::
+                   ConfigureRuntimeContextCommand *command);
+
   void
   execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::GetSystemDescCommand
               *command);
+
+  void
+  execute(uint64_t commandId,
+          const ::tt::runtime::distributed::flatbuffer::SetFabricConfigCommand
+              *command);
+
+  void execute(uint64_t commandId,
+               const ::tt::runtime::distributed::flatbuffer::
+                   GetNumAvailableDevicesCommand *command);
+
   void
   execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::OpenMeshDeviceCommand
               *command);
+
   void
   execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::CloseMeshDeviceCommand
               *command);
+
+  void execute(
+      uint64_t commandId,
+      const ::tt::runtime::distributed::flatbuffer::CreateSubMeshDeviceCommand
+          *command);
+
+  void execute(
+      uint64_t commandId,
+      const ::tt::runtime::distributed::flatbuffer::ReleaseSubMeshDeviceCommand
+          *command);
+
+  void execute(uint64_t commandId,
+               const ::tt::runtime::distributed::flatbuffer::GetMeshShapeCommand
+                   *command);
+
   void
   execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::CreateHostTensorCommand
               *command);
+
+  void
+  execute(uint64_t commandId,
+          const ::tt::runtime::distributed::flatbuffer::IsTensorAllocatedCommand
+              *command);
+
+  void
+  execute(uint64_t commandId,
+          const ::tt::runtime::distributed::flatbuffer::GetTensorVolumeCommand
+              *command);
+
+  void
+  execute(uint64_t commandId,
+          const ::tt::runtime::distributed::flatbuffer::GetTensorRetainCommand
+              *command);
+
+  void
+  execute(uint64_t commandId,
+          const ::tt::runtime::distributed::flatbuffer::SetTensorRetainCommand
+              *command);
+
   void execute(
       uint64_t commandId,
       const ::tt::runtime::distributed::flatbuffer::GetLayoutCommand *command);
+
   void execute(
       uint64_t commandId,
       const ::tt::runtime::distributed::flatbuffer::ToLayoutCommand *command);
+
   void
   execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::SubmitCommand *command);
+
   void execute(uint64_t commandId,
                const ::tt::runtime::distributed::flatbuffer::GetNumShardsCommand
                    *command);
+
   void
   execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::ToHostCommand *command);
+
   void
   execute(uint64_t commandId,
           const ::tt::runtime::distributed::flatbuffer::MemcpyCommand *command);
+
+  void
+  execute(uint64_t commandId,
+          const ::tt::runtime::distributed::flatbuffer::DeallocateTensorCommand
+              *command);
+
   void execute(
       uint64_t commandId,
       const ::tt::runtime::distributed::flatbuffer::ShutdownCommand *command);
