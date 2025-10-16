@@ -112,7 +112,9 @@ def run_op_test(
         min_f16_normal = 6.104e-5  # Minimum normal float16 value
         sign_lost = (input_torch != 0) & (torch.abs(input_torch) < min_f16_normal)
         if torch.any(sign_lost):
-            pytest.skip(f"skipping sign test with f32: {sign_lost.sum().item()} non-zero values have |x| < {min_f16_normal} (min f16 normal, may flush to zero in hw)")
+            pytest.skip(
+                f"skipping sign test with f32: {sign_lost.sum().item()} non-zero values have |x| < {min_f16_normal} (min f16 normal, may flush to zero in hw)"
+            )
 
     print("inputs", inputs)
     golden_op = _get_ttnn_op(op)
