@@ -154,10 +154,9 @@ test_data/transformer_inputs/
 # Activate the tt-mlir environment (required)
 source env/activate
 
-# Generate system descriptor (required for device execution) 
+# Generate system descriptor (required for device execution)
 ttrt query --save-artifacts
 
 # Verify system descriptor exists
 ls -la ttrt-artifacts/system_desc.ttsys
 ```
-
