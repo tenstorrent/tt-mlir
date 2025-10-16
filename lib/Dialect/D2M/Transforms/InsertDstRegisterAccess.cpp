@@ -629,11 +629,12 @@ public:
       // Insert unrealized conversion cast if compute result type differs from
       // dst type
       Value valueToStore = op->getResult(0);
+      Operation *castOp = nullptr;
       if (valueToStore.getType() != dstType.getElementType()) {
-        valueToStore = rewriter
-                           .create<UnrealizedConversionCastOp>(
-                               loc, dstType.getElementType(), valueToStore)
-                           .getResult(0);
+        auto cast = rewriter.create<UnrealizedConversionCastOp>(
+            loc, dstType.getElementType(), valueToStore);
+        valueToStore = cast.getResult(0);
+        castOp = cast.getOperation();
       }
 
       auto storeOp = rewriter.create<affine::AffineStoreOp>(
@@ -642,11 +643,22 @@ public:
       auto loadedResult = rewriter.create<affine::AffineLoadOp>(
           loc, dst, storeMap, storeIndices);
 
+      Value replacementValue = loadedResult.getResult();
+      // Cast back to original type if we had to cast for storage
+      if (replacementValue.getType() != op->getResult(0).getType()) {
+        replacementValue = rewriter
+                               .create<UnrealizedConversionCastOp>(
+                                   loc, op->getResult(0).getType(),
+                                   replacementValue)
+                               .getResult(0);
+      }
+
       // Replace all uses of the original result with the loaded result from dst
-      // register, but exclude the store operation we just created.
-      rewriter.replaceUsesWithIf(op->getResult(0), loadedResult.getResult(),
+      // register, but exclude the store and cast operations we just created.
+      rewriter.replaceUsesWithIf(op->getResult(0), replacementValue,
                                  [&](mlir::OpOperand &operand) {
-                                   return operand.getOwner() != storeOp;
+                                   Operation *owner = operand.getOwner();
+                                   return owner != storeOp && owner != castOp;
                                  });
     }
   }
