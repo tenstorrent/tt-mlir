@@ -37,18 +37,16 @@ static nb::capsule wrapInCapsule(std::shared_ptr<void> underlying) {
 NB_MODULE(_ttnn_jit, m) {
   m.doc() = "TTNN JIT C++ bindings";
 
+  mlir::tt::registerAllPasses();
+
   nb::class_<JitCache>(m, "JitCache")
       .def(nb::init<std::size_t>(), nb::rv_policy::take_ownership)
       .def("get",
-           [](JitCache *self, std::string func_sig, std::string ir,
-              std::string options, std::string backend, nb::tuple max_grid_,
+           [](JitCache *self, std::string ir, std::string options,
               nb::args args) {
-             std::tuple<uint32_t, uint32_t> max_grid = {
-                 nb::cast<uint32_t>(max_grid_[0]),
-                 nb::cast<uint32_t>(max_grid_[1])};
-
-             // Parse IR string into MLIR module, since we don't have access to
-             // MLIR types. Can remove this once we have tracer.
+             // Parse IR string into MLIR module; unable to recognize MlirModule
+             // from python, without using MLIR cmake macros for python
+             // bindings.
              MlirContext ctx = mlirContextCreate();
              mlir::MLIRContext *ctx_ptr = unwrap(ctx);
              mlir::DialectRegistry registry;
@@ -63,37 +61,22 @@ NB_MODULE(_ttnn_jit, m) {
                throw std::runtime_error("Failed to parse IR string");
              }
 
+             // Note: Along with tensors, we should allow any other params to be
+             // passed into a jit'ed function
              std::vector<::ttnn::Tensor> tensor_args;
-             std::vector<std::variant<int, bool, float, std::string>>
-                 other_params;
              for (auto arg : args) {
                py::handle arg_pybind_obj(arg.ptr());
                if (py::isinstance<::ttnn::Tensor>(arg_pybind_obj)) {
                  tensor_args.push_back(
                      py::cast<::ttnn::Tensor>(arg_pybind_obj));
                } else {
-                 // other_params.push_back(py::cast<std::variant<int, bool,
-                 // float, std::string>>(arg_pybind_obj));
-                 if (nb::isinstance<nb::int_>(arg)) {
-                   other_params.emplace_back(nb::cast<int>(arg));
-                 } else if (nb::isinstance<nb::bool_>(arg)) {
-                   other_params.emplace_back(nb::cast<bool>(arg));
-                 } else if (nb::isinstance<nb::float_>(arg)) {
-                   other_params.emplace_back(nb::cast<float>(arg));
-                 } else if (nb::isinstance<nb::str>(arg)) {
-                   other_params.emplace_back(nb::cast<std::string>(arg));
-                 } else {
-                   throw std::runtime_error(
-                       "Unsupported argument type. Expected ttnn.Tensor, int, "
-                       "bool, float, or str");
-                 }
+                 throw std::runtime_error(
+                     "Unsupported argument type: expected ttnn.Tensor");
                }
              }
 
              mlir::Operation *op = unwrap(mlirModuleGetOperation(module));
-             auto result = wrapInCapsule(
-                 self->get(op, JitCacheKey{func_sig, backend, max_grid},
-                           tensor_args, other_params, options));
+             auto result = wrapInCapsule(self->get(op, tensor_args, options));
 
              mlirModuleDestroy(module);
              mlirContextDestroy(ctx);
@@ -102,5 +85,4 @@ NB_MODULE(_ttnn_jit, m) {
       .def("cache_hits", &JitCache::get_cache_hits);
 }
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
-
 } // namespace mlir::tt::ttnn::jit
