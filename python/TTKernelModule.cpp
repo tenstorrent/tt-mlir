@@ -18,15 +18,9 @@ void populateTTKernelModule(nb::module_ &m) {
                   [](MlirContext ctx, MlirType memrefType) {
                     return ttmlirTTKernelCBTypeGet(ctx, memrefType);
                   })
-      .def_static("cast",
-                  [](MlirType &ty) {
-                    return mlir::cast<tt::ttkernel::CBType>(unwrap(ty));
-                  })
-      .def_prop_ro("shape",
-                   [](tt::ttkernel::CBType &cb) {
-                     return std::vector<int64_t>(cb.getShape());
-                   })
-      .def_prop_ro("memref", &tt::ttkernel::CBType::getMemref);
+      .def_static("cast", [](MlirType &ty) {
+        return mlir::cast<tt::ttkernel::CBType>(unwrap(ty));
+      });
 
   tt_type_class<tt::ttkernel::SemaphoreType>(m, "SemaphoreType")
       .def_static("get", &ttmlirTTKernelSemaphoreTypeGet);

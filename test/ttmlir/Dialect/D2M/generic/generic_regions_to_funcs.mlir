@@ -19,15 +19,15 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0
                 memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #ttcore.memory_space<l1>>,
                 memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0>, #l1_>)
                outs(%alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0>, #l1_>) {
-  ^datamovement0(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
+  ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    %mem1 = d2m.pop %cb1 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     %c0 = arith.constant 0 : index
-    %tx = d2m.dma_read %view[%c0, %c0, %c0], %cb1[%c0], <1> : (
+    %tx = d2m.dma_read %view[%c0, %c0, %c0], %mem1[%c0], <1> : (
       memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, #ttcore.memory_space<l1>>,
       memref<2x4x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
     d2m.dma_wait %tx
   }, {
-  ^compute0(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
-    "d2m.yield"() : () -> ()
+  ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
   }
   return %alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0>, #l1_>
 }
