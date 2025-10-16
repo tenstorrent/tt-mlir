@@ -14,7 +14,11 @@
 
 #include "stablehlo/dialect/StablehloOps.h"
 
+#include <mlir/IR/Attributes.h>
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/Value.h>
 #include <numeric>
+#include <optional>
 
 namespace mlir::tt::shardy_utils {
 
@@ -715,10 +719,93 @@ parseDimensionShardings(const std::string &dimsContent,
   return dimShardings;
 }
 
+std::vector<std::string> parseItemList(const std::string &input) {
+  std::vector<std::string> items;
+  size_t pos = 0;
+
+  // Skip leading whitespace
+  while (pos < input.length() && std::isspace(input[pos])) {
+    pos++;
+  }
+
+  while (pos < input.length()) {
+    // Skip whitespace and commas
+    while (pos < input.length() && 
+           (std::isspace(input[pos]) || input[pos] == ',')) {
+      pos++;
+    }
+    
+    if (pos >= input.length()) {
+      break;
+    }
+
+    // Check for opening angle bracket
+    if (input[pos] != '<') {
+      break; // Invalid format, skip this item
+    }
+    
+    size_t itemStart = pos;
+    pos++; // Skip opening angle bracket
+    
+    // Find the matching closing angle bracket
+    int bracketCount = 1;
+    while (pos < input.length() && bracketCount > 0) {
+      if (input[pos] == '<') {
+        bracketCount++;
+      } else if (input[pos] == '>') {
+        bracketCount--;
+      }
+      pos++;
+    }
+    
+    if (bracketCount == 0) {
+      // Found matching closing bracket
+      std::string item = input.substr(itemStart, pos - itemStart);
+      items.push_back(item);
+    } else {
+      // No matching closing bracket found, break
+      break;
+    }
+  }
+
+  return items;
+}
+
+std::optional<mlir::sdy::TensorShardingAttr> handleSingleSharding(
+    const std::string &shardingValue,
+    mlir::MLIRContext *context) {
+
+  // Sharding string is "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}]>"
+  size_t atPos = shardingValue.find("@");
+  size_t commaPos = shardingValue.find(",", atPos);
+  std::string meshName = shardingValue.substr(atPos + 1, commaPos - atPos - 1);
+
+  size_t startPos = shardingValue.find("[");
+  size_t endPos = shardingValue.rfind("]");
+  if (startPos != std::string::npos && endPos != std::string::npos) {
+    std::string dimsContent =
+        shardingValue.substr(startPos + 1, endPos - startPos - 1);
+
+    llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings =
+        parseDimensionShardings(dimsContent, context);
+
+    if (!dimShardings.empty()) {
+      mlir::sdy::TensorShardingAttr sharding =
+          mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings,
+                                            {}, {});
+      return sharding;
+    }
+  }
+  return std::nullopt;
+}
+
 // Convert dictionary with frontend attributes to dictionary with sdy.sharding.
 mlir::DictionaryAttr
 convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
                              mlir::DictionaryAttr currentArgAttrDict) {
+  // llvm::outs() << "CURRENT ARG ATTR DICT: \n";
+  // currentArgAttrDict.dump();
+  // llvm::outs() << "\n";
   if (!currentArgAttrDict) {
     return mlir::DictionaryAttr::get(context, {});
   }
@@ -742,6 +829,7 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
   }
 
   std::string shardingValue = shardingStr.getValue().str();
+  llvm::outs() << "SHARDING VALUE: " << shardingValue << "\n";
   llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
   llvm::copy_if(currentArgAttrDict.getValue(), std::back_inserter(newArgAttrs),
                 [&](mlir::NamedAttribute attr) {
@@ -752,26 +840,30 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
 
   // Find mesh name from the sharding string.
   // Example sharding string: "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}]>"
-  size_t atPos = shardingValue.find("@");
-  size_t commaPos = shardingValue.find(",", atPos);
-  std::string meshName = shardingValue.substr(atPos + 1, commaPos - atPos - 1);
-
-  size_t startPos = shardingValue.find("[");
-  size_t endPos = shardingValue.rfind("]");
-  if (startPos != std::string::npos && endPos != std::string::npos) {
-    std::string dimsContent =
-        shardingValue.substr(startPos + 1, endPos - startPos - 1);
-
-    llvm::SmallVector<mlir::sdy::DimensionShardingAttr> dimShardings =
-        parseDimensionShardings(dimsContent, context);
-
-    if (!dimShardings.empty()) {
-      mlir::sdy::TensorShardingAttr sharding =
-          mlir::sdy::TensorShardingAttr::get(context, meshName, dimShardings,
-                                             {}, {});
+  // Check for sharding_per_value
+  if (shardingValue.find("sharding_per_value") != std::string::npos) {
+    // Sharding string is "#sdy.sharding_per_value<[<@mesh, [{}, {}]>]>"
+    size_t startPos = shardingValue.find("[");
+    size_t endPos = shardingValue.rfind("]");
+    std::string shardingList = shardingValue.substr(startPos + 1, endPos - startPos - 1);
+    std::vector<std::string> shardingListItems = parseItemList(shardingList);
+    llvm::SmallVector<mlir::sdy::TensorShardingAttr> shardingListAttrs;
+    for (const std::string &shardingItem : shardingListItems) {
+      std::optional<mlir::sdy::TensorShardingAttr> maybeSharding = handleSingleSharding(shardingItem, context);
+      if (maybeSharding) {
+        shardingListAttrs.push_back(maybeSharding.value());
+      }
+    }
+    newArgAttrs.emplace_back(
+        mlir::StringAttr::get(context,
+                              mlir::sdy::TensorShardingPerValueAttr::name),
+        mlir::sdy::TensorShardingPerValueAttr::get(context, shardingListAttrs));
+  } else {
+    std::optional<mlir::sdy::TensorShardingAttr> maybeSharding = handleSingleSharding(shardingValue, context);
+    if (maybeSharding) {
       newArgAttrs.emplace_back(
           mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
-          sharding);
+          maybeSharding.value());
     }
   }
 
@@ -782,15 +874,37 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
 mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
                                                    mlir::MLIRContext *context) {
   rootModule.walk([&](func::FuncOp funcOp) {
+    llvm::outs() << "--------------------------------\n";
+    funcOp->dumpPretty();
+    llvm::outs() << "--------------------------------\n";
     for (BlockArgument arg : funcOp.getArguments()) {
+      llvm::outs() << "arg: \n";
+      arg.dump();
+      llvm::outs() << "\n";
       funcOp.setArgAttrs(
           arg.getArgNumber(),
           shardy_utils::convertXlaSdyToSdyDictionary(
               context, funcOp.getArgAttrDict(arg.getArgNumber())));
     }
+    // Walk through the funcOp as well
+    funcOp->walk([&](Operation *op) {
+      llvm::outs() << "op before: \n";
+      op->dump();
+      llvm::outs() << "\n";
+      mlir::DictionaryAttr newAttrDict =
+          shardy_utils::convertXlaSdyToSdyDictionary(
+              context, op->getAttrDictionary());
+      op->setAttrs(newAttrDict);
+      llvm::outs() << "op after: \n";
+      op->dump();
+      llvm::outs() << "\n";
+    });
   });
 
   mlir::DictionaryAttr moduleAttrs = rootModule->getAttrDictionary();
+  llvm::outs() << "ROOT MODULE ATTRS: \n";
+  moduleAttrs.dump();
+  llvm::outs() << "\n";
   llvm::SmallVector<mlir::NamedAttribute> newModuleAttrs;
   llvm::copy_if(moduleAttrs.getValue(), std::back_inserter(newModuleAttrs),
                 [&](mlir::NamedAttribute currentArgAttr) {
