@@ -124,18 +124,15 @@ def get_metal_tensor_layout(
     else:
         grid_shape = list(grid)
 
-    worker_grid = [8, 8]
-
     # Create layout with original logical shape.
     if index_map is None:
         layout = ttcore.ir.MetalLayoutAttr.get(
-            ctx, logical_shape, worker_grid, oobVal, memorySpace, memory_layout
+            ctx, logical_shape, oobVal, memorySpace, memory_layout
         )
     else:
         layout = ttcore.ir.MetalLayoutAttr.get(
             ctx,
             logical_shape,
-            worker_grid,
             oobVal,
             memorySpace,
             memory_layout,

@@ -833,9 +833,8 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
   return deviceShape;
 }
 
-static llvm::SmallVector<int64_t>
-normalizeAndFlattenIntervals(const mlir::DenseIntElementsAttr &inputIntervals,
-                             size_t inputRank) {
+llvm::SmallVector<int64_t> MetalLayoutAttr::normalizeAndFlattenIntervals(
+    DenseIntElementsAttr inputIntervals, size_t inputRank) {
   auto values = inputIntervals.getValues<int64_t>();
   auto it = values.begin();
 
