@@ -577,9 +577,12 @@ class FileManager:
     def find_py_corresponding_ttnn_in_directory(self, path, ttnn_directory):
         filename = self.get_file_name(path)
         ttnn_filename = filename.replace(EmitPyDylib.get_py_file_extension(), ".ttnn")
-        ttnn_path = os.path.join(ttnn_directory, ttnn_filename)
-        if self.check_file_exists(ttnn_path):
-            return ttnn_path
+        found_paths = self.find_file_paths(ttnn_directory, ".ttnn")
+
+        for file_path in found_paths:
+            file_basename = self.get_file_name(file_path)
+            if file_basename == ttnn_filename:
+                return file_path
         return None
 
     def find_so_corresponding_ttnn_in_directory(self, path, ttnn_directory):
@@ -587,9 +590,10 @@ class FileManager:
         ttnn_filename = filename.replace(EmitCDylib.get_so_file_extension(), ".ttnn")
         found_paths = self.find_file_paths(ttnn_directory, ".ttnn")
 
-        for file_name in found_paths:
-            if re.match(rf".*{ttnn_filename}$", file_name):
-                return file_name
+        for file_path in found_paths:
+            file_basename = self.get_file_name(file_path)
+            if file_basename == ttnn_filename:
+                return file_path
         return None
 
     def load_tensors_from_artifacts(self, bin, key, artifacts_path):

@@ -87,6 +87,6 @@ if [[ "$runttrt" == "1" ]]; then
         done
         ttrt emitc $TTRT_ARGS ttir-builder-artifacts/emitc/ --flatbuffer ttir-builder-artifacts/ttnn/
         cp emitc_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
-        cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_emitpc_${TEST_REPORT_PATH##*_} || true
+        cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_emitc_${TEST_REPORT_PATH##*_} || true
     fi
 fi
