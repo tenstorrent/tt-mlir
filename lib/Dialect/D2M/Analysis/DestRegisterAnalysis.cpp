@@ -3,20 +3,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Analysis/DestRegisterAnalysis.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::d2m {
 
-int findDstCapacity(GenericOp genericOp) {
+int findDstCapacity(linalg::GenericOp genericOp) {
   int dstCapacity = 8;
   return dstCapacity;
 }
 
 DestRegisterAnalysis::DestRegisterAnalysis(Operation *op) {
   // TODO: Implement analysis logic
-  op->walk([&](GenericOp genericOp) {
+  op->walk([&](linalg::GenericOp genericOp) {
     llvm::errs() << "Processing GenericOp: " << genericOp << "\n";
 
     DstRegisterInfo info;
@@ -68,32 +70,64 @@ DestRegisterAnalysis::DestRegisterAnalysis(Operation *op) {
       if (innerOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
         int numOperands = innerOp->getNumOperands();
 
+        // Check if this is an in-place operation
+        bool isInPlace = false;
+        if (auto loadStoreInterface =
+                llvm::dyn_cast<OperandLoadStoreRegisterOpInterface>(innerOp)) {
+          isInPlace = loadStoreInterface.getDstRegInPlace();
+        }
+
+        // Get the input destination index (for in-place ops)
+        int inputIndex = -1;
+        if (isInPlace && numOperands > 0) {
+          Value operand = innerOp->getOperand(0);
+          if (Operation *definingOp = operand.getDefiningOp()) {
+            if (definingOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+              inputIndex = opToDstIndex[definingOp];
+            } else {
+              inputIndex = valueToDstIndex[operand];
+            }
+          } else {
+            // Block argument
+            inputIndex = valueToDstIndex[operand];
+          }
+        }
+
         // Show which dst indices the inputs are using
         for (Value operand : innerOp->getOperands()) {
           if (Operation *definingOp = operand.getDefiningOp()) {
             if (definingOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
               // Input comes from previous compute op
-              int inputIndex = opToDstIndex[definingOp];
+              int idx = opToDstIndex[definingOp];
               llvm::errs() << "    Input from compute op "
                            << definingOp->getName() << " using dst index "
-                           << inputIndex << "\n";
+                           << idx << "\n";
             } else {
               // Input from non-compute op (already loaded)
-              int inputIndex = valueToDstIndex[operand];
+              int idx = valueToDstIndex[operand];
               llvm::errs() << "    Input from pre-loaded value using dst index "
-                           << inputIndex << "\n";
+                           << idx << "\n";
             }
           } else {
             // Block argument (already loaded)
-            int inputIndex = valueToDstIndex[operand];
+            int idx = valueToDstIndex[operand];
             llvm::errs()
-                << "    Input from pre-loaded block arg using dst index "
-                << inputIndex << "\n";
+                << "    Input from pre-loaded block arg using dst index " << idx
+                << "\n";
           }
         }
 
-        // Allocate destination index for the output of this compute op
-        int outputIndex = nextAvailableIndex++;
+        // Allocate or reuse destination index
+        int outputIndex;
+        if (isInPlace) {
+          // Reuse the input's destination register
+          outputIndex = inputIndex;
+          llvm::errs() << "  In-place operation, reusing dst index "
+                       << outputIndex << "\n";
+        } else {
+          // Allocate new destination register
+          outputIndex = nextAvailableIndex++;
+        }
         opToDstIndex[innerOp] = outputIndex;
         info.computeOpMap[innerOp] = outputIndex;
 
@@ -105,7 +139,8 @@ DestRegisterAnalysis::DestRegisterAnalysis(Operation *op) {
         if (numOperands == 1) {
           llvm::errs() << "  Found unary compute op: " << innerOp->getName()
                        << " at " << innerOp << " location: " << locStr
-                       << " -> dst index " << outputIndex << "\n";
+                       << " -> dst index " << outputIndex
+                       << (isInPlace ? " (in-place)" : "") << "\n";
         } else if (numOperands == 2) {
           llvm::errs() << "  Found binary compute op: " << innerOp->getName()
                        << " at " << innerOp << " location: " << locStr

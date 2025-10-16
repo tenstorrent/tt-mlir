@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/Operation.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -23,13 +24,13 @@ struct DstRegisterInfo {
 struct DestRegisterAnalysis {
   DestRegisterAnalysis(Operation *op);
 
-  int getDstMaxUsage(GenericOp genericOp) const {
+  int getDstMaxUsage(linalg::GenericOp genericOp) const {
     auto match = genericOpMap.find(genericOp);
     assert(match != genericOpMap.end() && "Generic op not found.");
     return match->second.dstMaxUsage;
   }
 
-  llvm::DenseMap<GenericOp, DstRegisterInfo> genericOpMap;
+  llvm::DenseMap<linalg::GenericOp, DstRegisterInfo> genericOpMap;
 };
 
 } // namespace mlir::tt::d2m
