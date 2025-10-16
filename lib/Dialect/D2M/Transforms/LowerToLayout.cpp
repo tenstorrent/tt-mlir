@@ -145,19 +145,15 @@ public:
       // compose reblocking map with existing index map on toTy
       auto toIndexMap =
           toLayout.getIndexAffineMapOrIdentity(toTy.getShape().size());
-      llvm::dbgs() << "buildConcreteView | toIndexMap: " << toIndexMap << "\n";
       AffineMap mergedMap = toIndexMap.compose(reblockMap);
-      llvm::dbgs() << "buildConcreteView | mergedMap: " << mergedMap << "\n";
 
       auto baseLayout =
           mlir::cast<ttcore::MetalLayoutAttr>(fromTy.getEncoding());
-      llvm::dbgs() << "buildConcreteView | toTy: " << toTy << "\n";
 
       auto enc = ttcore::MetalLayoutAttr::get(
           ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
           baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
           baseLayout.getMemorySpace(), baseLayout.getMemoryLayout(), mergedMap);
-      llvm::dbgs() << "buildConcreteView | enc: " << enc << "\n";
       auto resultTy =
           RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
       return rewriter
@@ -226,9 +222,6 @@ public:
         ttcore::GridAttr::get(rewriter.getContext(), gridShape);
     if (outputShape[0] > 8 || outputShape[1] > 8) {
       grid = ttcore::GridAttr::get(rewriter.getContext(), {8, 8});
-    } else {
-      // llvm::dbgs() << "gridShape: " << gridShape[0] << "x" << gridShape[1]
-      //              << "\n";
     }
 
     rewriter.replaceOpWithNewOp<GenericOp>(
@@ -267,7 +260,6 @@ public:
     }
 
     if (components.isLayoutChange) {
-      // llvm::dbgs() << "matchAndRewrite | isLayoutChange" << op << "\n";
       return lowerLayoutChange(rewriter, op);
     }
 
@@ -395,9 +387,6 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
       auto elementType = newElementType.value_or(baseType.getElementType());
 
-      // llvm::dbgs() << "modifyDeviceType | baseType: " << baseType << "\n";
-      // llvm::dbgs() << "modifyDeviceType | baseLayout: " << baseLayout <<
-      // "\n";
       SmallVector<int64_t> tensorGrid;
       if (newTensorGrid.has_value()) {
         tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
@@ -418,10 +407,6 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       }
       auto deviceShape = layout.getDeviceShape(tensorGrid, tileShape);
 
-      // llvm::dbgs() << "modifyDeviceType | deviceShape: " <<
-      // ttmlir::utils::formatIterable(deviceShape) << "\n"; llvm::dbgs() <<
-      // "modifyDeviceType | elementType: " << elementType << "\n"; llvm::dbgs()
-      // << "modifyDeviceType | layout: " << layout << "\n";
       return RankedTensorType::get(deviceShape, elementType, layout);
     }
 
@@ -430,8 +415,12 @@ class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
   };
 
 public:
-  D2MSplitCompoundLayoutRewriter(MLIRContext *context)
-      : OpRewritePattern(context, PatternBenefit(2)) {}
+  D2MSplitCompoundLayoutRewriter(MLIRContext *context,
+                                 ArrayRef<int64_t> targetGridShape)
+      : OpRewritePattern(context, PatternBenefit(2)) {
+    this->targetGridShape.assign(targetGridShape.begin(),
+                                 targetGridShape.end());
+  }
 
   // TODO: share one impl between LowerToLayout and TTIRToD2M passes
   static std::pair<AffineMap, AffineMap>
@@ -441,11 +430,6 @@ public:
     assert(targetGrid.size() == 2);
     int64_t rank = virtualGrid.size();
     int64_t totalDims = 2 * rank; // grid + shard dims
-
-    // llvm::dbgs() << "createCoreVirtMaps | virtualGridShape: " <<
-    // virtualGrid[0] << "x" << virtualGrid[1] << "\n"; llvm::dbgs() <<
-    // "createCoreVirtMaps | targetGridShape: " << targetGrid[0] << "x" <<
-    // targetGrid[1] << "\n";
 
     bool is2DWidthSharded = (rank == 2) && virtualGrid[1] == 1;
     bool is2DHeightSharded = (rank == 2) && virtualGrid[0] == 1;
@@ -482,6 +466,38 @@ public:
     }
   }
 
+  // computes a workable bounce shape grid for a virtual grid
+  llvm::SmallVector<int64_t>
+  computeVirtualGridBounceShape(ArrayRef<int64_t> virtualGridShape,
+                                ArrayRef<int64_t> deviceGridShape) const {
+    // TODO: generalize to N dimensions
+    assert(virtualGridShape.size() == 2);
+    assert(virtualGridShape[0] > deviceGridShape[0] ^
+           virtualGridShape[1] > deviceGridShape[1]);
+
+    // Helper lambda for finding the greatest divisor <= maxDivisor for n
+    auto greatestDivisor = [](int64_t n, int64_t maxDivisor) -> int64_t {
+      for (int64_t i = maxDivisor; i > 0; --i) {
+        if (n % i == 0) {
+          return i;
+        }
+      }
+    };
+
+    llvm::SmallVector<int64_t> ret;
+    if (virtualGridShape[0] > deviceGridShape[0]) {
+      int64_t divisor =
+          greatestDivisor(virtualGridShape[0], deviceGridShape[0]);
+      ret = {divisor, virtualGridShape[1]};
+    } else {
+      int64_t divisor =
+          greatestDivisor(virtualGridShape[1], deviceGridShape[1]);
+      ret = {virtualGridShape[0], divisor};
+    }
+    assert(ret.size());
+    return ret;
+  }
+
   d2m::ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
                                    Value input,
                                    RankedTensorType desiredType) const {
@@ -502,11 +518,14 @@ public:
         tileShape =
             SmallVector<int64_t>(defaultShape.begin(), defaultShape.end());
       }
+      llvm::SmallVector<int64_t> unshardedShape =
+          layout.getPhysicalShape(tileShape);
 
+      auto bounceGridShape =
+          computeVirtualGridBounceShape(gridShape, targetGridShape);
       llvm::SmallVector<int64_t> shardedShape =
-          layout.getDeviceShape({1, 2}, tileShape);
-      llvm::dbgs() << "toLayoutDest | shardedShape: "
-                   << ttmlir::utils::formatIterable(shardedShape, "x") << "\n";
+          layout.getDeviceShape(bounceGridShape, tileShape);
+
       emptyShape = shardedShape;
 
       // remove index affine map from layout, preserving everything else
@@ -547,14 +566,6 @@ public:
     auto outputInfo = TensorInfo::from(op.getOutput());
 
     BounceTypeBuilder typeBuilder(rewriter.getContext());
-
-    // llvm::dbgs() << "\nmatchAndRewrite | compound toLayoutOp: " << op <<
-    // "\n"; llvm::dbgs() << "                | components: format="
-    //              << components.isFormatChange
-    //              << " grid=" << components.isGridChange
-    //              << " layout=" << components.isLayoutChange
-    //              << " memorySpace=" << components.isMemorySpaceChange <<
-    //              "\n";
 
     // Handle system <-> device transitions specially.
     if (inputInfo.hasLayout() != outputInfo.hasLayout()) {
@@ -651,6 +662,9 @@ public:
 
     return success();
   }
+
+private:
+  llvm::SmallVector<int64_t> targetGridShape;
 };
 } // namespace
 
@@ -659,10 +673,22 @@ class D2MLowerToLayout : public impl::D2MLowerToLayoutBase<D2MLowerToLayout> {
 public:
   using impl::D2MLowerToLayoutBase<D2MLowerToLayout>::D2MLowerToLayoutBase;
 
+  llvm::SmallVector<int64_t> getTargetGridShape() {
+    ::mlir::ModuleOp moduleOp = getOperation();
+    mlir::tt::ttcore::DeviceAttr device =
+        mlir::tt::ttcore::lookupDevice(moduleOp);
+    assert(device && "Device not found");
+    return llvm::to_vector(device.getWorkerGrid().getShape());
+  }
+
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<D2MSplitCompoundLayoutRewriter, D2MLowerToLayoutRewriter>(
-        &getContext());
+
+    llvm::SmallVector<int64_t> targetGridShape = getTargetGridShape();
+
+    patterns.add<D2MSplitCompoundLayoutRewriter>(&getContext(),
+                                                 targetGridShape);
+    patterns.add<D2MLowerToLayoutRewriter>(&getContext());
     GreedyRewriteConfig config;
     config.setMaxNumRewrites(2);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
@@ -670,14 +696,6 @@ public:
       signalPassFailure();
       return;
     }
-
-    // RewritePatternSet patterns2(&getContext());
-    // patterns2.add<D2MVirtualGridRewriter>(&getContext());
-    // if (failed(applyPatternsGreedily(getOperation(), std::move(patterns2))))
-    // {
-    //   signalPassFailure();
-    //   return;
-    // }
   }
 };
 } // namespace
