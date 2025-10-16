@@ -66,6 +66,11 @@ void populateUtilModule(nb::module_ &m) {
   m.def("is_dps", [](MlirOperation op) {
     return mlir::isa<DestinationStyleOpInterface>(unwrap(op));
   });
+
+  m.def("element_type_to_data_type", [](MlirType type) {
+    return static_cast<uint32_t>(
+        tt::ttcore::elementTypeToDataType(unwrap(type)));
+  });
 }
 
 } // namespace mlir::ttmlir::python

@@ -213,6 +213,9 @@ void createTTIRToTTNNBackendPipeline(
 
 void createTTNNBackendToEmitCPipeline(
     OpPassManager &pm, const TTNNBackendToEmitCPipelineOptions &options) {
+
+  pm.addPass(createTTNNAdjustDeallocs());
+
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
   if (options.targetDylib) {
@@ -240,6 +243,8 @@ void createTTNNBackendToEmitCPipeline(
 
 void createTTNNBackendToEmitPyPipeline(
     OpPassManager &pm, const TTNNBackendToEmitPyPipelineOptions &options) {
+
+  pm.addPass(createTTNNAdjustDeallocs());
 
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 

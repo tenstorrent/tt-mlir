@@ -11,7 +11,7 @@ from ttmlir.ir import *
 
 from builder.base.builder import Operand
 from builder.d2m.d2m_builder import D2MBuilder
-from builder.base.builder_utils import compile_d2m_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_d2m
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -34,6 +34,7 @@ def test_to_layout(
     tiled: bool,
     target: str,
     request,
+    device,
 ):
     tile_size = 32 if tiled else 4  # 4 because of 16byte noc alignment
     input_grid = (input_grid_y, input_grid_x)
@@ -68,11 +69,12 @@ def test_to_layout(
         )
         return from_device
 
-    compile_d2m_to_flatbuffer(
+    compile_and_execute_d2m(
         to_layout,
         [shape],
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
