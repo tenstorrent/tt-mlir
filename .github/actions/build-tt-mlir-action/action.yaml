@@ -37,9 +37,6 @@ inputs:
   work-dir:
     description: "tt-mlir root"
     required: true
-  test_report_path:
-    description: "Path to test report"
-    required: true
 
 runs:
   using: "composite"
@@ -129,6 +126,7 @@ runs:
         cmake --install ${{ inputs.build-output-dir }} --component Test
         cmake --install ${{ inputs.build-output-dir }} --component SharedLib
         cmake --install ${{ inputs.build-output-dir }} --component TTNNStandalone
+        cmake --install ${{ inputs.build-output-dir }} --component DistributedRuntime
 
     - name: Build ttnn-standalone
       shell: bash

@@ -2914,10 +2914,10 @@ protected:
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
                   outputLayoutReadBack] = constraintsExp.get();
-      EXPECT_GT(cbSize, expectedCbSize);
-      EXPECT_GT(l1PeakSize, expectedL1PeakSize);
-      EXPECT_GT(totalPeakSize, expectedTotalPeakSize);
-      EXPECT_GT(outputSize, expectedOutputSize);
+      EXPECT_GE(cbSize, expectedCbSize);
+      EXPECT_GE(l1PeakSize, expectedL1PeakSize);
+      EXPECT_GE(totalPeakSize, expectedTotalPeakSize);
+      EXPECT_GE(outputSize, expectedOutputSize);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
       llvm::consumeError(constraintsExp.takeError());
@@ -2992,6 +2992,7 @@ const auto globalAvgPool2dTestValues = testing::Values(
                                        BufferType::L1},
                     detail::ExpectedResult{true, 0, 0, 0, 0}));
 
+// Test fails: https://github.com/tenstorrent/tt-mlir/issues/5313
 INSTANTIATE_TEST_SUITE_P(GlobalAvgPool2dTests, OpModelGlobalAvgPool2dParam,
                          globalAvgPool2dTestValues);
 

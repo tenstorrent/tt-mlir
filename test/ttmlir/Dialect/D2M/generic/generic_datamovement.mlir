@@ -75,7 +75,7 @@ func.func @matmul_single_core_stream(%arg0: memref<1x2x2x2x!ttcore.tile<32x32, f
   // CHECK: d2m.generic
   // CHECK-NEXT: ins([[lhs:%[a-z0-9_]+]], [[rhs:%[a-z0-9_]+]] : {{.*}})
   // CHECK-NEXT: outs([[out:%[a-z0-9_]+]] : {{.*}})
-  "d2m.generic"(%0, %1, %alloc) <{block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
+  "d2m.generic"(%0, %1, %alloc) <{block_factors = [1, 1, 2], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
@@ -110,7 +110,7 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!ttcore.tile<32x32, f32>, #tt
   // CHECK: d2m.generic
   // CHECK-NEXT: ins([[lhs:%[a-z0-9_]+]], [[rhs:%[a-z0-9_]+]] : {{.*}})
   // CHECK-NEXT: outs([[out:%[a-z0-9_]+]] : {{.*}})
-  "d2m.generic"(%0, %1, %alloc) <{block_factors = [1, 1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
+  "d2m.generic"(%0, %1, %alloc) <{block_factors = [1, 1, 4], grid = #ttcore.grid<2x4>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
@@ -157,7 +157,7 @@ func.func @matmul_multi_core_dram_params(%arg0: memref<2x4x4x6x!ttcore.tile<32x3
   // CHECK: d2m.generic
   // CHECK-NEXT: ins([[lhs:%[a-z0-9_]+]], [[rhs:%[a-z0-9_]+]] : {{.*}})
   // CHECK-NEXT: outs([[out:%[a-z0-9_]+]] : {{.*}})
-  "d2m.generic"(%0, %1, %alloc) <{block_factors = [1, 1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
+  "d2m.generic"(%0, %1, %alloc) <{block_factors = [1, 1, 4], grid = #ttcore.grid<2x4>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
   // Look for 4 regions, one for each operand and one for the compute
   // Operand 0 (input)
   // CHECK: ^datamovement0
