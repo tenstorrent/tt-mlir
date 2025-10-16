@@ -47,7 +47,6 @@ JitCacheEntry JitCache::get(Operation *op,
   std::size_t hash = hash_key(tensor_args);
   auto it = cache.find(hash);
   if (it != cache.end()) {
-    cache_hits++;
     return it->second;
   }
   compile(op, options);

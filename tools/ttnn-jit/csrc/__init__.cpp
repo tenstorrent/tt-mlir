@@ -82,7 +82,7 @@ NB_MODULE(_ttnn_jit, m) {
              mlirContextDestroy(ctx);
              return result;
            })
-      .def("cache_hits", &JitCache::get_cache_hits);
+      .def("num_entries", &JitCache::num_entries);
 }
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 } // namespace mlir::tt::ttnn::jit
