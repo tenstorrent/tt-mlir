@@ -173,13 +173,27 @@ public:
     rewriter.replaceOpWithNewOp<GenericOp>(
         op, viewInput, viewOutput,
         [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-          DMAOp dma = isSrcDramOrReblock
-                          ? builder.create<d2m::DMAOp>(
-                                loc, viewInput, indexingMap, blockArgs[1])
-                          : builder.create<d2m::DMAOp>(loc, blockArgs[0],
-                                                       viewOutput, indexingMap);
+          DMAOp dma;
+          Value yield;
+          if (isSrcDramOrReblock) {
+            Value outputCB =
+                builder.create<ReserveOp>(loc, blockArgs[1]).getResult();
+            dma = builder.create<d2m::DMAOp>(loc, viewInput, indexingMap,
+                                             outputCB);
+            yield = outputCB;
+          } else {
+            // Note: Naturally you'd think to use a WaitOp since this is in
+            // input cb, but in the layout lowering there is no producer thread.
+            // The ReserveOp here effectively unwraps the CB so the DMA can
+            // access it.
+            Value inputCB =
+                builder.create<ReserveOp>(loc, blockArgs[0]).getResult();
+            dma = builder.create<d2m::DMAOp>(loc, inputCB, viewOutput,
+                                             indexingMap);
+            yield = inputCB;
+          }
           builder.create<d2m::DMAWaitOp>(loc, dma);
-          builder.create<YieldOp>(loc, blockArgs[1]);
+          builder.create<YieldOp>(loc, yield);
         },
         ThreadType::Datamovement);
 
@@ -198,13 +212,14 @@ public:
     rewriter.replaceOpWithNewOp<GenericOp>(
         op, op.getInput(), op.getOutput(),
         [=](OpBuilder &builder, Location loc, ValueRange blockArgs) {
+          Value src = builder.create<WaitOp>(loc, blockArgs[0]).getResult();
+          Value dst = builder.create<ReserveOp>(loc, blockArgs[1]).getResult();
           if (inputTiled) {
-            builder.create<TileUntilizeBlockOp>(loc, blockArgs[0],
-                                                blockArgs[1]);
+            builder.create<TileUntilizeBlockOp>(loc, src, dst);
           } else {
-            builder.create<TileTilizeBlockOp>(loc, blockArgs[0], blockArgs[1]);
+            builder.create<TileTilizeBlockOp>(loc, src, dst);
           }
-          builder.create<YieldOp>(loc, blockArgs[1]);
+          builder.create<YieldOp>(loc, dst);
         });
 
     return success();
