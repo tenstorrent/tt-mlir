@@ -153,7 +153,8 @@ static bool hasDeferredEmission(Operation *op) {
 
 StringRef PythonEmitter::getOrCreateName(Value value, std::string name) {
   if (!valueMapper.count(value)) {
-    valueMapper.insert(value, formatv("{0}_{1}", name, ++valueInScopeCount.top()[name]));
+    valueMapper.insert(
+        value, formatv("{0}_{1}", name, ++valueInScopeCount.top()[name]));
   }
   return *valueMapper.begin(value);
 }
@@ -483,26 +484,28 @@ LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
     break;
   }
   default: {
-    interleaveComma(op.getResults(), os,
-                    [&](Value result) { os << getOrCreateName(result, "prefix"); });
+    interleaveComma(op.getResults(), os, [&](Value result) {
+      os << getOrCreateName(result, "prefix");
+    });
     os << " = ";
   }
   }
   return success();
 }
 
-LogicalResult PythonEmitter::emitVariableAssignment(OpResult result, Operation &op) {
+LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
+                                                    Operation &op) {
   std::string name = "var";
-  if(auto functionOp = dyn_cast<func::CallOp>(op)) {
+  if (auto functionOp = dyn_cast<func::CallOp>(op)) {
     name = functionOp.getCallee().str();
   }
-  if(auto callOpaqueOp = dyn_cast<CallOpaqueOp>(op)) {
+  if (auto callOpaqueOp = dyn_cast<CallOpaqueOp>(op)) {
     name = callOpaqueOp.getCallee().str();
-    if(name.find("ttnn.") != std::string::npos) {
+    if (name.find("ttnn.") != std::string::npos) {
       name = name.substr(name.find("ttnn.") + 5);
     }
   }
-  if(auto subscriptOp = dyn_cast<SubscriptOp>(op)) {
+  if (auto subscriptOp = dyn_cast<SubscriptOp>(op)) {
     name = getOrCreateName(subscriptOp.getValue(), "var").str();
   }
   os << getOrCreateName(result, name) << " = ";
