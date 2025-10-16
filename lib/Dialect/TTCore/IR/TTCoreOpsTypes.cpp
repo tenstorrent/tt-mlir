@@ -804,11 +804,6 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
   llvm::SmallVector<int64_t> deviceShape(gridShape);
   deviceShape.reserve(physicalShape.size() * 2);
 
-  // llvm::dbgs() << "getDeviceShape | physicalShape: " <<
-  // ttmlir::utils::formatIterable(physicalShape) << "\n"; llvm::dbgs() <<
-  // "getDeviceShape | gridShape: " << ttmlir::utils::formatIterable(gridShape)
-  // << "\n";
-
   assert(physicalShape.size() == gridShape.size() &&
          "Grid rank must equalcollapsed tensor rank");
   // Without tiling, distribute dimensions across grid.
@@ -1355,8 +1350,6 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
   MemorySpace memorySpace =
       mlir::cast<MemorySpaceAttr>(memrefType.getMemorySpace()).getValue();
   AffineMap affineMap = memrefType.getLayout().getAffineMap();
-  llvm::dbgs() << "getMemoryMap | memrefType: " << memrefType << "\n";
-  llvm::dbgs() << "getMemoryMap | affineMap: " << affineMap << "\n";
   if (view) {
     affineMap = affineMap.compose(*view);
   }

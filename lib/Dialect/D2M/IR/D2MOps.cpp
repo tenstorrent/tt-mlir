@@ -1400,8 +1400,6 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
       flattenedGridShapes[i] /= computeGridVolume;
     }
   }
-  llvm::dbgs() << "getLoopBounds | flattenedGridShapes: "
-               << ttmlir::utils::shapeToString(flattenedGridShapes) << "\n";
 
   return inverse.compose(flattenedGridShapes);
 }

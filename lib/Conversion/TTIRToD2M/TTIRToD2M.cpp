@@ -308,8 +308,6 @@ protected:
           coreVirtMap);
       auto resultTy =
           RankedTensorType::get(shardedShape, elementType, virtualLayout);
-      llvm::dbgs() << "createOptimalLayoutOp | core virt map: " << coreVirtMap
-                   << "\n";
 
       auto view = rewriter
                       .create<d2m::ViewLayoutOp>(value.getLoc(), resultTy,

@@ -54,8 +54,6 @@ public:
       physicalCoreIndices[gridIndex] = builder.create<CoreIndexOp>(
           loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex));
     }
-    llvm::dbgs() << "buildStreamIndex | physicalCoreIndices: "
-                 << ttmlir::utils::formatIterable(physicalCoreIndices) << "\n";
 
     // build inputs to affine map, zeroing shard dims
     Value zero = builder.create<arith::ConstantOp>(
@@ -65,13 +63,9 @@ public:
          dim < coreVirtualizationMap.getNumDims(); dim++) {
       virt2PhysIndex.push_back(zero);
     }
-    llvm::dbgs() << "buildStreamIndex | virt2PhysIndex: "
-                 << ttmlir::utils::formatIterable(virt2PhysIndex) << "\n";
 
     SmallVector<Value> virtualGridValues = ttmlir::utils::fullyApplyAffineMap(
         builder, loc, coreVirtualizationMap, virt2PhysIndex);
-    llvm::dbgs() << "buildStreamIndex | virtualGridValues: "
-                 << ttmlir::utils::formatIterable(virtualGridValues) << "\n";
 
     for (unsigned result = 0; result < dmaIndexingMap.getNumResults();
          result++) {
@@ -296,8 +290,6 @@ public:
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         viewInterface.applyViews();
 
-    llvm::dbgs() << "analyzeStream | memrefGridShape: " << memref << "\n";
-
     unsigned outputOperandsIndex =
         genericParent.getOutputs().getBeginOperandIndex();
 
@@ -314,20 +306,13 @@ public:
       auto [underlyingMemref, _] =
           mlir::tt::d2m::applyViews(operand.getDefiningOp());
 
-      llvm::dbgs()
-          << "analyzeStream | underyling memref of generic output operand: "
-          << underlyingMemref << "\n";
       if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
               underlyingMemref.getLayout())) {
         if (shardLayout.getCoreVirtualizationMap()) {
-          // llvm::dbgs() << "analyzeStream | generic output operand: " <<
-          // operand << "\n";
           coreVirtualizationMap = shardLayout.getCoreVirtualizationMap();
           coreVirtualizationMap = ttmlir::utils::affineMapDropRange(
               coreVirtualizationMap, memrefGridShape.size(),
               coreVirtualizationMap.getNumResults() - 1);
-          llvm::dbgs() << "    analyzeStream | grid coreVirtualizationMap: "
-                       << coreVirtualizationMap << "\n";
         }
       }
     }
