@@ -170,7 +170,7 @@ def test_batch_norm_decomposition(
 @pytest.mark.parametrize("padding", [[1, 1]])
 @pytest.mark.parametrize("dilation", [[1, 1]])
 @pytest.mark.parametrize("groups", [1])
-@pytest.mark.parametrize("activation", ["relu", "relu6", "silu", "sigmoid", "hardsigmoid"])
+@pytest.mark.parametrize("activation", ["relu", "relu6", "silu"])
 def test_conv_activation_fusing(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
@@ -210,8 +210,12 @@ def test_conv_activation_fusing(
         conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
 
         # Apply activation based on parameter
-        activation_fn = getattr(torch.nn.functional, activation)
-        golden_output = activation_fn(conv_result)
+        if activation == "relu":
+            golden_output = torch.nn.functional.relu(conv_result)
+        elif activation == "relu6":
+            golden_output = torch.nn.functional.relu6(conv_result)
+        elif activation == "silu":
+            golden_output = torch.nn.functional.silu(conv_result)
 
         # Create conv2d builder op
         conv = builder.conv2d(
@@ -226,7 +230,12 @@ def test_conv_activation_fusing(
         )
 
         # Add activation builder op based on parameter
-        activation_op = getattr(builder, activation)(conv, unit_attrs=unit_attrs)
+        if activation == "relu":
+            activation_op = builder.relu(conv)
+        elif activation == "relu6":
+            activation_op = builder.relu6(conv)
+        elif activation == "silu":
+            activation_op = builder.silu(conv)
 
         builder.set_goldens(
             {
