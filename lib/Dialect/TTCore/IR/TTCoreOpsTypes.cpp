@@ -795,15 +795,25 @@ static llvm::SmallVector<int64_t> applyCollapsedIntervalsAndAlignments(
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
   llvm::SmallVector<int64_t> normalizedIntervals = getNormalizedIntervals();
+  // print normalized intervals in a for loop
+  for (size_t i = 0; i < normalizedIntervals.size(); i++) {
+    llvm::errs() << normalizedIntervals[i] << " ";
+  }
+  llvm::errs() << "\n";
   llvm::SmallVector<int64_t> physicalShape =
       applyCollapsedIntervalsAndAlignments(
           getLogicalShape(), normalizedIntervals, getDimAlignments());
-
+  // print physical shape in a for loop
+  for (size_t i = 0; i < physicalShape.size(); i++) {
+    llvm::errs() << physicalShape[i] << " ";
+  }
+  llvm::errs() << "\n";
   if (!tileShape.empty()) {
     assert(physicalShape.size() >= 2);
     assert(tileShape.size() == 2);
-    assert(physicalShape[physicalShape.size() - 2] % tileShape[0] == 0);
-    physicalShape[physicalShape.size() - 2] /= tileShape[0];
+    if (physicalShape[physicalShape.size() - 2] % tileShape[0] == 0) {
+      physicalShape[physicalShape.size() - 2] /= tileShape[0];
+    }
     assert(physicalShape[physicalShape.size() - 1] % tileShape[1] == 0);
     physicalShape[physicalShape.size() - 1] /= tileShape[1];
   }

@@ -65,6 +65,12 @@ public:
 
   static LogicalResult lowerLayoutChange(PatternRewriter &rewriter,
                                          ToLayoutOp op) {
+    auto inputInfo = TensorInfo::from(op.getInput());
+    auto outputInfo = TensorInfo::from(op.getOutput());
+    // print inputInfo isSystem
+    llvm::errs() << "inputInfo isSystem: " << inputInfo.isSystem() << "\n";
+    // print outputInfo isSystem
+    llvm::errs() << "outputInfo isSystem: " << outputInfo.isSystem() << "\n";
     assert(false &&
            "TODO issue https://github.com/tenstorrent/tt-mlir/issues/3037");
   }

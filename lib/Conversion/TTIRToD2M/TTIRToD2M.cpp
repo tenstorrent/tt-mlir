@@ -119,7 +119,9 @@ protected:
   // dimension alignments are computed later in the D2MGridSelection pass.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled,
-                              mlir::ConversionPatternRewriter &rewriter) const {
+                              mlir::ConversionPatternRewriter &rewriter,
+                              std::optional<llvm::SmallVector<int64_t>>
+                                  customDimAlignments = std::nullopt) const {
     if (isTTNNTensor(value.getType())) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
       return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
@@ -146,10 +148,18 @@ protected:
       DenseIntElementsAttr emptyCollapseIntervals =
           DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
 
-      layout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
-          ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
-
+      if (customDimAlignments.has_value()) {
+        layout = ttcore::MetalLayoutAttr::get(
+            rewriter.getContext(), logicalShape,
+            ttcore::OOBVal::Undef, memSpace,
+            ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals,
+            customDimAlignments.value());
+      } else {
+        layout = ttcore::MetalLayoutAttr::get(
+            rewriter.getContext(), logicalShape,
+            ttcore::OOBVal::Undef, memSpace,
+            ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
+      }
     } else {
       layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
@@ -177,17 +187,18 @@ protected:
   // happens later in the D2MGridSelection pass.
   std::array<mlir::SmallVector<Value>, 2> toLayoutOperandsAndResults(
       mlir::ConversionPatternRewriter &rewriter,
-      std::array<mlir::SmallVector<Value>, 2> operandsAndResults,
-      bool tiled) const {
+      std::array<mlir::SmallVector<Value>, 2> operandsAndResults, bool tiled,
+      std::optional<llvm::SmallVector<int64_t>> customDimAlignments =
+          std::nullopt) const {
     std::array<mlir::SmallVector<Value>, 2> result;
 
     for (Value operand : operandsAndResults[0]) {
-      result[0].push_back(
-          createOptimalLayoutOp(operand, memorySpaces[0], tiled, rewriter));
+      result[0].push_back(createOptimalLayoutOp(operand, memorySpaces[0], tiled,
+                                                rewriter, customDimAlignments));
     }
     for (Value operand : operandsAndResults[1]) {
-      result[1].push_back(
-          createOptimalLayoutOp(operand, memorySpaces[1], tiled, rewriter));
+      result[1].push_back(createOptimalLayoutOp(operand, memorySpaces[1], tiled,
+                                                rewriter, customDimAlignments));
     }
 
     return result;
@@ -886,10 +897,19 @@ public:
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
 
+    // Only tile-align the last dimension.
+    auto origInputTensorType =
+        mlir::cast<mlir::RankedTensorType>(origInputs[0].getType());
+    llvm::SmallVector<int64_t> dimAlignments(
+        origInputTensorType.getShape().size(), 1);
+    dimAlignments[origInputTensorType.getShape().size() - 1] =
+        ttmlir::utils::alignUp<int64_t>(1,
+                                        ttcore::TileType::getDefaultShape()[1]);
+
     // Do not tilize.
     auto [inputs, _] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
-                                   /*tiled*/ false);
+                                   /*tiled*/ false, dimAlignments);
 
     const auto inputTensorType =
         mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
