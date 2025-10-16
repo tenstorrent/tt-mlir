@@ -83,6 +83,7 @@ def test_op_sharding_annotation(
     mesh_shape: Tuple[int, int],
     sharding: List[Tuple[str, bool]],
     request,
+    device,
 ):
     def op_sharding_annotation(
         in0: Operand,
@@ -94,7 +95,7 @@ def test_op_sharding_annotation(
         sharding_attr = builder.create_sharding_attr_from_tuples("mesh", sharding)
         return builder.add(in0, in1, unit_attrs=unit_attrs, sharding_attr=sharding_attr)
 
-    compile_stablehlo_to_flatbuffer(
+    compile_and_execute_shlo(
         op_sharding_annotation,
         [shape, shape],
         [dtype, dtype],
@@ -103,6 +104,7 @@ def test_op_sharding_annotation(
         system_desc_path=request.config.getoption("--sys-desc"),
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        device=device,
     )
 
 
@@ -114,6 +116,7 @@ def test_input_annotation(
     dtype: torch.dtype,
     mesh_shape: Tuple[int, int],
     request,
+    device,
 ):
     def input_annotation(
         in0: Operand,
@@ -138,7 +141,7 @@ def test_input_annotation(
         builder.arg_attrs[in0] = {"sdy.sharding": tensor_sharding_attr}
         return builder.add(in0, in1, unit_attrs=unit_attrs)
 
-    compile_stablehlo_to_flatbuffer(
+    compile_and_execute_shlo(
         input_annotation,
         [shape, shape],
         [dtype, dtype],
@@ -147,4 +150,5 @@ def test_input_annotation(
         system_desc_path=request.config.getoption("--sys-desc"),
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        device=device,
     )
