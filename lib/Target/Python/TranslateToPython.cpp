@@ -18,6 +18,9 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <llvm/ADT/StringMap.h>
+#include <mlir/IR/BuiltinOps.h>
 #include <stack>
 
 using namespace mlir;
@@ -68,7 +71,7 @@ namespace {
 /// Emitter that uses dialect specific emitters to emit Python code.
 struct PythonEmitter {
   explicit PythonEmitter(raw_ostream &os) : os(os) {
-    valueInScopeCount.push(0);
+    valueInScopeCount.push(llvm::StringMap<int64_t>{});
   }
 
   /// Emits attribute or returns failure.
@@ -83,7 +86,7 @@ struct PythonEmitter {
 
   /// Emits an assignment for a variable which has been declared previously or
   /// returns failure.
-  LogicalResult emitVariableAssignment(OpResult result);
+  LogicalResult emitVariableAssignment(OpResult result, Operation &op);
 
   /// Emits the variable declaration and assignment prefix for 'op'.
   /// - emits multiple variables separated with comma for multi-valued
@@ -98,10 +101,10 @@ struct PythonEmitter {
   LogicalResult emitOperands(Operation &op);
 
   /// Emits value as an operand of an operation.
-  LogicalResult emitOperand(Value value);
+  LogicalResult emitOperand(Value value, std::string name);
 
   /// Return the existing or a new name for a Value.
-  StringRef getOrCreateName(Value value);
+  StringRef getOrCreateName(Value value, std::string name);
 
   // Return the textual representation of a subscript operation.
   std::string getSubscriptName(SubscriptOp op);
@@ -139,7 +142,7 @@ private:
 
   /// The number of values in the current scope. This is used to declare the
   /// names of values in a scope.
-  std::stack<int64_t> valueInScopeCount;
+  std::stack<llvm::StringMap<int64_t>> valueInScopeCount;
 };
 } // namespace
 
@@ -148,9 +151,9 @@ static bool hasDeferredEmission(Operation *op) {
   return isa_and_nonnull<LiteralOp>(op);
 }
 
-StringRef PythonEmitter::getOrCreateName(Value value) {
+StringRef PythonEmitter::getOrCreateName(Value value, std::string name) {
   if (!valueMapper.count(value)) {
-    valueMapper.insert(value, formatv("v{0}", ++valueInScopeCount.top()));
+    valueMapper.insert(value, formatv("{0}_{1}", name, ++valueInScopeCount.top()[name]));
   }
   return *valueMapper.begin(value);
 }
@@ -159,7 +162,7 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
   std::string name;
   llvm::raw_string_ostream ss(name);
   auto index = op.getIndex();
-  ss << "[" << getOrCreateName(index) << "]";
+  ss << "[" << getOrCreateName(index, "subscript") << "]";
   return name;
 }
 
@@ -191,7 +194,7 @@ static LogicalResult printOperation(PythonEmitter &emitter,
           return op.emitOpError("operand ")
                  << idx << "'s value not defined in scope";
         }
-        if (failed(emitter.emitOperand(operand))) {
+        if (failed(emitter.emitOperand(operand, "print_arg"))) {
           return failure();
         }
         return success();
@@ -291,7 +294,7 @@ static LogicalResult printFunctionArgs(PythonEmitter &emitter, Operation &op,
                                        Region::BlockArgListType arguments) {
   raw_indented_ostream &os = emitter.ostream();
   return interleaveCommaWithError(arguments, os, [&](BlockArgument arg) {
-    return emitter.emitOperand(arg);
+    return emitter.emitOperand(arg, "input");
   });
 }
 
@@ -349,7 +352,7 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     break;
   case 1: {
     os << " ";
-    if (failed(emitter.emitOperand(returnOp.getOperand(0)))) {
+    if (failed(emitter.emitOperand(returnOp.getOperand(0), "return_arg"))) {
       return failure();
     }
     break;
@@ -371,7 +374,7 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   }
 
   raw_indented_ostream &os = emitter.ostream();
-  if (failed(emitter.emitOperand(subscriptOp.getOperand(0)))) {
+  if (failed(emitter.emitOperand(subscriptOp.getOperand(0), "subscript_arg"))) {
     return failure();
   }
 
@@ -431,15 +434,15 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
   return success();
 }
 
-LogicalResult PythonEmitter::emitOperand(Value value) {
-  os << getOrCreateName(value);
+LogicalResult PythonEmitter::emitOperand(Value value, std::string name) {
+  os << getOrCreateName(value, name);
 
   return success();
 }
 
 LogicalResult PythonEmitter::emitOperands(Operation &op) {
   return interleaveCommaWithError(op.getOperands(), os, [&](Value value) {
-    if (failed(emitOperand(value))) {
+    if (failed(emitOperand(value, "op_arg"))) {
       return failure();
     }
 
@@ -474,22 +477,35 @@ LogicalResult PythonEmitter::emitAssignPrefix(Operation &op) {
     break;
   case 1: {
     OpResult result = op.getResult(0);
-    if (failed(emitVariableAssignment(result))) {
+    if (failed(emitVariableAssignment(result, op))) {
       return failure();
     }
     break;
   }
   default: {
     interleaveComma(op.getResults(), os,
-                    [&](Value result) { os << getOrCreateName(result); });
+                    [&](Value result) { os << getOrCreateName(result, "prefix"); });
     os << " = ";
   }
   }
   return success();
 }
 
-LogicalResult PythonEmitter::emitVariableAssignment(OpResult result) {
-  os << getOrCreateName(result) << " = ";
+LogicalResult PythonEmitter::emitVariableAssignment(OpResult result, Operation &op) {
+  std::string name = "var";
+  if(auto functionOp = dyn_cast<func::CallOp>(op)) {
+    name = functionOp.getCallee().str();
+  }
+  if(auto callOpaqueOp = dyn_cast<CallOpaqueOp>(op)) {
+    name = callOpaqueOp.getCallee().str();
+    if(name.find("ttnn.") != std::string::npos) {
+      name = name.substr(name.find("ttnn.") + 5);
+    }
+  }
+  if(auto subscriptOp = dyn_cast<SubscriptOp>(op)) {
+    name = getOrCreateName(subscriptOp.getValue(), "var").str();
+  }
+  os << getOrCreateName(result, name) << " = ";
   return success();
 }
 
