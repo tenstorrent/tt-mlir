@@ -283,9 +283,19 @@ void closeMeshDevice(Device parentMesh) {
   LOG_ASSERT(metalMeshDevice.is_parent_mesh(),
              "Mesh device must be a parent mesh");
 
-  if (uint32_t numSubMeshes = metalMeshDevice.get_submeshes().size()) {
+  uint32_t numUnreleasedSubMeshes = 0;
+  for (const auto &subMesh : metalMeshDevice.get_submeshes()) {
+    if (subMesh->is_initialized()) {
+      numUnreleasedSubMeshes++;
+    }
+  }
+  if (numUnreleasedSubMeshes > 0) {
     LOG_WARNING("Calling close on parent mesh device ", metalMeshDevice,
-                " that has ", numSubMeshes, " unreleased submeshes.");
+                " that has ", numUnreleasedSubMeshes,
+                " unreleased submeshes."
+                "These submeshes will keep the parent mesh device alive. "
+                "To fully close the parent mesh device, please release all of "
+                "its submeshes.");
   }
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
