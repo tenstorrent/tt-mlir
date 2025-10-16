@@ -194,9 +194,9 @@ void setCurrentHostRuntime(const HostRuntime &runtime) {
   LOG_FATAL("Runtime is not enabled");
 }
 
-SystemDesc
-getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
-                     std::optional<Device> meshDevice) {
+SystemDesc getCurrentSystemDesc(
+    std::optional<tt::target::DispatchCoreType> dispatchCoreType,
+    std::optional<Device> meshDevice) {
 
   using RetType = SystemDesc;
   return DISPATCH_TO_CURRENT_RUNTIME(
@@ -458,8 +458,7 @@ std::uint32_t getTensorVolume(Tensor t) {
       [&]() -> RetType { return ::tt::runtime::ttnn::getTensorVolume(t); },
       [&]() -> RetType { return ::tt::runtime::ttmetal::getTensorVolume(t); },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getTensorVolume",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::getTensorVolume(t);
       });
 }
 
@@ -483,8 +482,7 @@ bool getTensorRetain(Tensor tensor) {
         return ::tt::runtime::ttmetal::getTensorRetain(tensor);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getTensorRetain",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::getTensorRetain(tensor);
       });
 }
 
@@ -493,14 +491,11 @@ void setTensorRetain(Tensor tensor, bool retain) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::setTensorRetain(tensor, retain); },
       [&]() { ::tt::runtime::ttmetal::setTensorRetain(tensor, retain); },
-      [&]() {
-        detail::fatalNotImplemented("setTensorRetain",
-                                    HostRuntime::Distributed);
-      });
+      [&]() { ::tt::runtime::distributed::setTensorRetain(tensor, retain); });
 }
 
-Arch getArch() {
-  using RetType = Arch;
+tt::target::Arch getArch() {
+  using RetType = tt::target::Arch;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() -> RetType { return ::tt::runtime::ttnn::getArch(); },
       [&]() -> RetType { return ::tt::runtime::ttmetal::getArch(); },
@@ -542,8 +537,7 @@ size_t getNumAvailableDevices() {
         return ::tt::runtime::ttmetal::getNumAvailableDevices();
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getNumAvailableDevices",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::getNumAvailableDevices();
       });
 }
 
@@ -625,7 +619,7 @@ std::vector<uint32_t> getMeshShape(Device meshDevice) {
         return ::tt::runtime::ttmetal::getMeshShape(meshDevice);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getMeshShape", HostRuntime::Distributed);
+        return ::tt::runtime::distributed::getMeshShape(meshDevice);
       });
 }
 
@@ -916,7 +910,7 @@ void memcpy(void *dst, Tensor src,
       RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src, dstDataType); },
       [&]() { ::tt::runtime::ttmetal::memcpy(dst, src, dstDataType); },
       [&]() -> RetType {
-        return ::tt::runtime::distributed::memcpy(dst, src, dstDataType);
+        ::tt::runtime::distributed::memcpy(dst, src, dstDataType);
       });
 }
 
@@ -925,9 +919,7 @@ void memcpy(Tensor dst, Tensor src) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src); },
       [&]() { ::tt::runtime::ttmetal::memcpy(dst, src); },
-      [&]() -> RetType {
-        detail::fatalNotImplemented("memcpy", HostRuntime::Distributed);
-      });
+      [&]() -> RetType { ::tt::runtime::distributed::memcpy(dst, src); });
 }
 
 void deallocateTensor(Tensor &tensor, bool force) {
@@ -1070,7 +1062,7 @@ void updateTensorInPool(CallbackContext programContextHandle,
       });
 }
 
-void setFabricConfig(FabricConfig config) {
+void setFabricConfig(tt::target::FabricConfig config) {
   using RetType = void;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
@@ -1079,8 +1071,7 @@ void setFabricConfig(FabricConfig config) {
         return ::tt::runtime::ttmetal::setFabricConfig(config);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("setFabricConfig",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::setFabricConfig(config);
       });
 }
 

@@ -114,7 +114,7 @@ void registerRuntimeBindings(nb::module_ &m) {
                 value.is_none()
                     ? std::nullopt
                     : std::make_optional(
-                          nb::cast<tt::runtime::DispatchCoreType>(value));
+                          nb::cast<tt::target::DispatchCoreType>(value));
           });
 
   nb::class_<tt::runtime::MultiProcessArgs>(m, "MultiProcessArgs")
@@ -254,36 +254,32 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("LocalSubprocess", ::tt::runtime::DistributedMode::LocalSubprocess)
       .value("MultiProcess", ::tt::runtime::DistributedMode::MultiProcess);
 
-  nb::enum_<::tt::runtime::DispatchCoreType>(m, "DispatchCoreType")
-      .value("WORKER", ::tt::runtime::DispatchCoreType::WORKER)
-      .value("ETH", ::tt::runtime::DispatchCoreType::ETH);
+  nb::enum_<::tt::target::DispatchCoreType>(m, "DispatchCoreType")
+      .value("WORKER", ::tt::target::DispatchCoreType::Worker)
+      .value("ETH", ::tt::target::DispatchCoreType::Ethernet);
 
-  nb::enum_<::tt::runtime::FabricConfig>(m, "FabricConfig")
-      .value("DISABLED", ::tt::runtime::FabricConfig::DISABLED)
-      .value("FABRIC_1D", ::tt::runtime::FabricConfig::FABRIC_1D)
-      .value("FABRIC_1D_RING", ::tt::runtime::FabricConfig::FABRIC_1D_RING)
-      .value("FABRIC_2D", ::tt::runtime::FabricConfig::FABRIC_2D)
-      .value("FABRIC_2D_TORUS_X",
-             ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_X)
-      .value("FABRIC_2D_TORUS_Y",
-             ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_Y)
+  nb::enum_<::tt::target::FabricConfig>(m, "FabricConfig")
+      .value("DISABLED", ::tt::target::FabricConfig::DISABLED)
+      .value("FABRIC_1D", ::tt::target::FabricConfig::FABRIC_1D)
+      .value("FABRIC_1D_RING", ::tt::target::FabricConfig::FABRIC_1D_RING)
+      .value("FABRIC_2D", ::tt::target::FabricConfig::FABRIC_2D)
+      .value("FABRIC_2D_TORUS_X", ::tt::target::FabricConfig::FABRIC_2D_TORUS_X)
+      .value("FABRIC_2D_TORUS_Y", ::tt::target::FabricConfig::FABRIC_2D_TORUS_Y)
       .value("FABRIC_2D_TORUS_XY",
-             ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_XY)
-      .value("FABRIC_2D_DYNAMIC",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC)
+             ::tt::target::FabricConfig::FABRIC_2D_TORUS_XY)
+      .value("FABRIC_2D_DYNAMIC", ::tt::target::FabricConfig::FABRIC_2D_DYNAMIC)
       .value("FABRIC_2D_DYNAMIC_TORUS_X",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X)
+             ::tt::target::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X)
       .value("FABRIC_2D_DYNAMIC_TORUS_Y",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y)
+             ::tt::target::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y)
       .value("FABRIC_2D_DYNAMIC_TORUS_XY",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY)
-      .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
+             ::tt::target::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY)
+      .value("CUSTOM", ::tt::target::FabricConfig::CUSTOM);
 
-  nb::enum_<::tt::runtime::Arch>(m, "Arch")
-      .value("GRAYSKULL", ::tt::runtime::Arch::GRAYSKULL)
-      .value("WORMHOLE_B0", ::tt::runtime::Arch::WORMHOLE_B0)
-      .value("BLACKHOLE", ::tt::runtime::Arch::BLACKHOLE)
-      .value("QUASAR", ::tt::runtime::Arch::QUASAR);
+  nb::enum_<::tt::target::Arch>(m, "Arch")
+      .value("GRAYSKULL", ::tt::target::Arch::Grayskull)
+      .value("WORMHOLE_B0", ::tt::target::Arch::Wormhole_b0)
+      .value("BLACKHOLE", ::tt::target::Arch::Blackhole);
 
   m.def("set_mlir_home", &tt::runtime::setMlirHome, nb::arg("mlir_home"),
         "Set the MLIR home directory");

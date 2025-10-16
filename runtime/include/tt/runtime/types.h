@@ -78,28 +78,6 @@ enum class DistributedMode {
   MultiProcess,
 };
 
-enum class DispatchCoreType {
-  WORKER,
-  ETH,
-};
-
-enum class FabricConfig {
-  DISABLED,
-  FABRIC_1D,
-  FABRIC_1D_RING,
-  FABRIC_2D,
-  FABRIC_2D_TORUS_X,
-  FABRIC_2D_TORUS_Y,
-  FABRIC_2D_TORUS_XY,
-  FABRIC_2D_DYNAMIC,
-  FABRIC_2D_DYNAMIC_TORUS_X,
-  FABRIC_2D_DYNAMIC_TORUS_Y,
-  FABRIC_2D_DYNAMIC_TORUS_XY,
-  CUSTOM,
-};
-
-enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
-
 namespace detail {
 
 struct ObjectImpl {
@@ -235,7 +213,7 @@ struct MeshDeviceOptions {
   std::optional<std::vector<uint32_t>> meshShape = std::nullopt;
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<size_t> traceRegionSize = std::nullopt;
-  std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
+  std::optional<::tt::target::DispatchCoreType> dispatchCoreType = std::nullopt;
 };
 
 class MultiProcessArgs {

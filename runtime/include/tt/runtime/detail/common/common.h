@@ -7,6 +7,8 @@
 
 #include <optional>
 
+#include "ttmlir/Target/Common/Target.h"
+
 #define FMT_HEADER_ONLY
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/mesh_device.hpp"
@@ -18,14 +20,14 @@
 
 namespace tt::runtime::common {
 
-inline ::tt::tt_metal::DispatchCoreType
-getDispatchCoreType(std::optional<DispatchCoreType> dispatchCoreType) {
+inline ::tt::tt_metal::DispatchCoreType getDispatchCoreType(
+    std::optional<::tt::target::DispatchCoreType> dispatchCoreType) {
 
   ::tt::tt_metal::DispatchCoreType type;
   if (dispatchCoreType.has_value()) {
-    if (dispatchCoreType == DispatchCoreType::ETH) {
+    if (dispatchCoreType == ::tt::target::DispatchCoreType::Ethernet) {
       type = ::tt::tt_metal::DispatchCoreType::ETH;
-    } else if (dispatchCoreType == DispatchCoreType::WORKER) {
+    } else if (dispatchCoreType == ::tt::target::DispatchCoreType::Worker) {
       type = ::tt::tt_metal::DispatchCoreType::WORKER;
     } else {
       LOG_FATAL("Unsupported dispatch core type");
@@ -41,34 +43,34 @@ getDispatchCoreType(std::optional<DispatchCoreType> dispatchCoreType) {
 }
 
 inline ::tt::tt_fabric::FabricConfig
-toTTFabricConfig(tt::runtime::FabricConfig cfg) {
+toMetalFabricConfig(tt::target::FabricConfig cfg) {
   switch (cfg) {
-  case tt::runtime::FabricConfig::DISABLED:
+  case tt::target::FabricConfig::DISABLED:
     return ::tt::tt_fabric::FabricConfig::DISABLED;
-  case tt::runtime::FabricConfig::FABRIC_1D:
+  case tt::target::FabricConfig::FABRIC_1D:
     return ::tt::tt_fabric::FabricConfig::FABRIC_1D;
-  case tt::runtime::FabricConfig::FABRIC_1D_RING:
+  case tt::target::FabricConfig::FABRIC_1D_RING:
     return ::tt::tt_fabric::FabricConfig::FABRIC_1D_RING;
-  case tt::runtime::FabricConfig::FABRIC_2D:
+  case tt::target::FabricConfig::FABRIC_2D:
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D;
-  case tt::runtime::FabricConfig::FABRIC_2D_TORUS_X:
+  case tt::target::FabricConfig::FABRIC_2D_TORUS_X:
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_TORUS_X;
-  case tt::runtime::FabricConfig::FABRIC_2D_TORUS_Y:
+  case tt::target::FabricConfig::FABRIC_2D_TORUS_Y:
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_TORUS_Y;
-  case tt::runtime::FabricConfig::FABRIC_2D_TORUS_XY:
+  case tt::target::FabricConfig::FABRIC_2D_TORUS_XY:
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_TORUS_XY;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC:
+  case tt::target::FabricConfig::FABRIC_2D_DYNAMIC:
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X:
+  case tt::target::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X:
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y:
+  case tt::target::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y:
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y;
-  case tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY:
+  case tt::target::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY:
     return ::tt::tt_fabric::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY;
-  case tt::runtime::FabricConfig::CUSTOM:
+  case tt::target::FabricConfig::CUSTOM:
     return ::tt::tt_fabric::FabricConfig::CUSTOM;
   }
-  LOG_FATAL("Unknown tt::runtime::FabricConfig value");
+  LOG_FATAL("Unknown tt::target::FabricConfig value");
 }
 
 inline CoreRangeSet toCoreRangeSet(
@@ -105,18 +107,18 @@ inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
   }
 }
 
-inline ::tt::runtime::Arch toRuntimeArch(::tt::ARCH arch) {
+inline ::tt::target::Arch toTargetArch(::tt::ARCH arch) {
   switch (arch) {
   case ::tt::ARCH::GRAYSKULL:
-    return ::tt::runtime::Arch::GRAYSKULL;
+    return ::tt::target::Arch::Grayskull;
   case ::tt::ARCH::WORMHOLE_B0:
-    return ::tt::runtime::Arch::WORMHOLE_B0;
+    return ::tt::target::Arch::Wormhole_b0;
   case ::tt::ARCH::BLACKHOLE:
-    return ::tt::runtime::Arch::BLACKHOLE;
+    return ::tt::target::Arch::Blackhole;
   case ::tt::ARCH::QUASAR:
-    return ::tt::runtime::Arch::QUASAR;
-  default:
-    LOG_FATAL("Unsupported device architecture");
+    LOG_FATAL("Quasar architecture is not supported");
+  case ::tt::ARCH::Invalid:
+    LOG_FATAL("Invalid architecture");
   }
 }
 
@@ -150,7 +152,7 @@ toUnpackToDestModes(const ::flatbuffers::Vector<tt::target::UnpackToDestMode>
 
 inline std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>
 createFullMeshDevice(
-    std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType) {
+    std::optional<::tt::target::DispatchCoreType> dispatchCoreType) {
 
   ::tt::tt_metal::DispatchCoreType type =
       tt::runtime::common::getDispatchCoreType(dispatchCoreType);

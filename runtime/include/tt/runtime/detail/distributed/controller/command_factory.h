@@ -15,9 +15,16 @@ class CommandFactory {
 public:
   static uint64_t buildGetSystemDescCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
-      const std::optional<::tt::runtime::DispatchCoreType> &dispatchCoreType =
+      const std::optional<::tt::target::DispatchCoreType> &dispatchCoreType =
           std::nullopt,
       const std::optional<::tt::runtime::Device> &deviceHandle = std::nullopt);
+
+  static uint64_t
+  buildSetFabricConfigCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                              const ::tt::target::FabricConfig &fabricConfig);
+
+  static uint64_t
+  buildGetNumAvailableDevicesCommand(::flatbuffers::FlatBufferBuilder &fbb);
 
   static uint64_t buildOpenMeshDeviceCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
@@ -28,11 +35,27 @@ public:
   buildCloseMeshDeviceCommand(::flatbuffers::FlatBufferBuilder &fbb,
                               const ::tt::runtime::Device &deviceHandle);
 
+  static uint64_t
+  buildGetMeshShapeCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                           const ::tt::runtime::Device &deviceHandle);
+
   static uint64_t buildCreateHostTensorCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
       const ::tt::runtime::Tensor &outputTensor, const void *data,
       const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,
       uint32_t itemSize, ::tt::target::DataType dataType);
+
+  static uint64_t
+  buildGetTensorVolumeCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                              const ::tt::runtime::Tensor &tensor);
+
+  static uint64_t
+  buildGetTensorRetainCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                              const ::tt::runtime::Tensor &tensor);
+
+  static uint64_t
+  buildSetTensorRetainCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                              const ::tt::runtime::Tensor &tensor, bool retain);
 
   static uint64_t
   buildGetLayoutCommand(::flatbuffers::FlatBufferBuilder &fbb,

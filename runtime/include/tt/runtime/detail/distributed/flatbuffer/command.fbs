@@ -9,6 +9,10 @@ table GetSystemDescCommand {
   dispatch_core_type: tt.target.DispatchCoreType = null;
 }
 
+table SetFabricConfigCommand {
+  config: tt.target.FabricConfig;
+}
+
 table MeshDeviceOptions {
   mesh_offset: [uint32];
   device_ids: [int];
@@ -20,12 +24,19 @@ table MeshDeviceOptions {
   dispatch_core_type: tt.target.DispatchCoreType = null;
 }
 
+table GetNumAvailableDevicesCommand {
+}
+
 table OpenMeshDeviceCommand {
   device_global_id: uint32;
   options: MeshDeviceOptions;
 }
 
 table CloseMeshDeviceCommand {
+  device: tt.target.DeviceRef;
+}
+
+table GetMeshShapeCommand {
   device: tt.target.DeviceRef;
 }
 
@@ -36,6 +47,19 @@ table CreateHostTensorCommand {
   stride: [uint32];
   item_size: uint32;
   data_type: tt.target.DataType;
+}
+
+table GetTensorVolumeCommand {
+  tensor_global_id: uint64;
+}
+
+table GetTensorRetainCommand {
+  tensor_global_id: uint64;
+}
+
+table SetTensorRetainCommand {
+  tensor_global_id: uint64;
+  retain: bool;
 }
 
 table GetLayoutCommand {
@@ -86,9 +110,15 @@ table ShutdownCommand {
 
 union CommandType {
   GetSystemDescCommand,
+  SetFabricConfigCommand,
+  GetNumAvailableDevicesCommand,
   OpenMeshDeviceCommand,
   CloseMeshDeviceCommand,
+  GetMeshShapeCommand,
   CreateHostTensorCommand,
+  GetTensorVolumeCommand,
+  GetTensorRetainCommand,
+  SetTensorRetainCommand,
   GetLayoutCommand,
   ToLayoutCommand,
   SubmitCommand,

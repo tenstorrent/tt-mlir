@@ -143,26 +143,6 @@ std::shared_ptr<void> callocShared(const size_t size) {
   return std::shared_ptr<void>(std::calloc(size, 1), std::free);
 }
 
-::tt::target::DispatchCoreType
-fromRuntimeDispatchCoreType(::tt::runtime::DispatchCoreType dispatchCoreType) {
-  switch (dispatchCoreType) {
-  case ::tt::runtime::DispatchCoreType::WORKER:
-    return ::tt::target::DispatchCoreType::Worker;
-  case ::tt::runtime::DispatchCoreType::ETH:
-    return ::tt::target::DispatchCoreType::Ethernet;
-  }
-}
-
-::tt::runtime::DispatchCoreType
-toRuntimeDispatchCoreType(::tt::target::DispatchCoreType dispatchCoreType) {
-  switch (dispatchCoreType) {
-  case ::tt::target::DispatchCoreType::Worker:
-    return ::tt::runtime::DispatchCoreType::WORKER;
-  case ::tt::target::DispatchCoreType::Ethernet:
-    return ::tt::runtime::DispatchCoreType::ETH;
-  }
-}
-
 std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
   switch (dataType) {
   case ::tt::target::DataType::Float64:

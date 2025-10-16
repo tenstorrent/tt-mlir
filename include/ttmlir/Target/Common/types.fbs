@@ -79,6 +79,21 @@ enum BufferType: ushort {
   Trace,
 }
 
+enum FabricConfig: uint32 {
+  DISABLED,
+  FABRIC_1D,
+  FABRIC_1D_RING,
+  FABRIC_2D,
+  FABRIC_2D_TORUS_X,
+  FABRIC_2D_TORUS_Y,
+  FABRIC_2D_TORUS_XY,
+  FABRIC_2D_DYNAMIC,
+  FABRIC_2D_DYNAMIC_TORUS_X,
+  FABRIC_2D_DYNAMIC_TORUS_Y,
+  FABRIC_2D_DYNAMIC_TORUS_XY,
+  CUSTOM,
+}
+
 table ChipDesc {
   arch: Arch;
   grid_size: Dim2d;

@@ -144,7 +144,7 @@ void Controller::setWorkerShutdownTimeout(const std::chrono::seconds &timeout) {
 }
 
 SystemDesc Controller::getCurrentSystemDesc(
-    std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType,
+    std::optional<::tt::target::DispatchCoreType> dispatchCoreType,
     std::optional<::tt::runtime::Device> deviceHandle) {
 
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
@@ -172,6 +172,41 @@ SystemDesc Controller::getCurrentSystemDesc(
   return *systemDescHandle;
 }
 
+void Controller::setFabricConfig(
+    const ::tt::target::FabricConfig &fabricConfig) {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildSetFabricConfigCommand(
+      *commandBuilder, fabricConfig);
+
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::SetFabricConfigCommand,
+                                 std::move(commandBuilder));
+}
+
+size_t Controller::getNumAvailableDevices() {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId =
+      CommandFactory::buildGetNumAvailableDevicesCommand(*commandBuilder);
+
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  std::shared_ptr<size_t> numDevicesHandle = std::make_shared<size_t>(0);
+  awaitingHandles->push_back(std::static_pointer_cast<void>(numDevicesHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::GetNumAvailableDevicesCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *numDevicesHandle;
+}
+
 ::tt::runtime::Device
 Controller::openMeshDevice(const ::tt::runtime::MeshDeviceOptions &options) {
 
@@ -189,7 +224,7 @@ Controller::openMeshDevice(const ::tt::runtime::MeshDeviceOptions &options) {
   return outputDeviceHandle;
 }
 
-void Controller::closeMeshDevice(const ::tt::runtime::Device &deviceHandle) {
+void Controller::closeMeshDevice(::tt::runtime::Device &deviceHandle) {
 
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
@@ -199,6 +234,36 @@ void Controller::closeMeshDevice(const ::tt::runtime::Device &deviceHandle) {
   pushToCommandAndResponseQueues(commandId,
                                  fb::CommandType::CloseMeshDeviceCommand,
                                  std::move(commandBuilder));
+}
+
+std::vector<uint32_t>
+Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId =
+      CommandFactory::buildGetMeshShapeCommand(*commandBuilder, deviceHandle);
+
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::GetMeshShapeCommand,
+                                 std::move(commandBuilder));
+
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  std::shared_ptr<std::vector<uint32_t>> shapeHandle =
+      std::make_shared<std::vector<uint32_t>>();
+  awaitingHandles->push_back(std::static_pointer_cast<void>(shapeHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::GetMeshShapeCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *shapeHandle;
 }
 
 ::tt::runtime::Tensor Controller::createOwnedHostTensor(
@@ -219,6 +284,68 @@ void Controller::closeMeshDevice(const ::tt::runtime::Device &deviceHandle) {
                                  std::move(commandBuilder));
 
   return outputTensorHandle;
+}
+
+std::uint32_t
+Controller::getTensorVolume(const ::tt::runtime::Tensor &tensorHandle) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildGetTensorVolumeCommand(
+      *commandBuilder, tensorHandle);
+
+  auto volumeHandle = std::make_shared<std::uint32_t>(0);
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  awaitingHandles->push_back(std::static_pointer_cast<void>(volumeHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::GetTensorVolumeCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *volumeHandle;
+}
+
+bool Controller::getTensorRetain(const ::tt::runtime::Tensor &tensorHandle) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildGetTensorRetainCommand(
+      *commandBuilder, tensorHandle);
+
+  auto retainHandle = std::make_shared<bool>(false);
+
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  awaitingHandles->push_back(std::static_pointer_cast<void>(retainHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::GetTensorRetainCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *retainHandle;
+}
+
+void Controller::setTensorRetain(const ::tt::runtime::Tensor &tensorHandle,
+                                 bool retain) {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildSetTensorRetainCommand(
+      *commandBuilder, tensorHandle, retain);
+
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::SetTensorRetainCommand,
+                                 std::move(commandBuilder));
 }
 
 ::tt::runtime::Layout
@@ -357,6 +484,17 @@ void Controller::memcpy(void *dst, const ::tt::runtime::Tensor &srcHandle,
       std::move(awaitingHandles), std::move(awaitingPromise));
 
   awaitingFuture.wait();
+}
+
+void Controller::memcpy(const ::tt::runtime::Tensor &dstHandle,
+                        const ::tt::runtime::Tensor &srcHandle) {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId =
+      CommandFactory::buildMemcpyCommand(*commandBuilder, srcHandle, dstHandle);
+
+  pushToCommandAndResponseQueues(commandId, fb::CommandType::MemcpyCommand,
+                                 std::move(commandBuilder));
 }
 
 void Controller::pushToCommandAndResponseQueues(
@@ -533,6 +671,47 @@ void Controller::handleGetSystemDescResponse(
   awaitingPromise->set_value();
 }
 
+void Controller::handleSetFabricConfigResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::SetFabricConfigResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse, "SetFabricConfig");
+}
+
+void Controller::handleGetNumAvailableDevicesResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetNumAvailableDevicesResponse);
+
+  const fb::GetNumAvailableDevicesResponse *response =
+      getResponse(responseBuffers[0])->type_as_GetNumAvailableDevicesResponse();
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+
+  DEBUG_ASSERT(
+      awaitingHandles && awaitingHandles->size() == 1,
+      "GetNumAvailableDevices: Awaiting handles must be populated and contain "
+      "exactly one handle");
+
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  std::shared_ptr<size_t> numDevicesHandle =
+      std::static_pointer_cast<size_t>(awaitingHandles->at(0));
+  *numDevicesHandle = response->num_devices();
+
+  awaitingPromise->set_value();
+}
+
 void Controller::handleOpenMeshDeviceResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
@@ -555,6 +734,37 @@ void Controller::handleCloseMeshDeviceResponse(
                             fb::ResponseType::CloseMeshDeviceResponse);
 
   debug::assertNoAwaitingState(*awaitingResponse, "CloseMeshDevice");
+}
+
+void Controller::handleGetMeshShapeResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetMeshShapeResponse);
+
+  const fb::GetMeshShapeResponse *response =
+      getResponse(responseBuffers[0])->type_as_GetMeshShapeResponse();
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+
+  DEBUG_ASSERT(awaitingHandles && awaitingHandles->size() == 1,
+               "GetMeshShape: Awaiting handles must be populated and contain "
+               "exactly one handle");
+
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  std::shared_ptr<std::vector<uint32_t>> shapeHandle =
+      std::static_pointer_cast<std::vector<uint32_t>>(awaitingHandles->at(0));
+
+  for (const uint32_t &dim : *response->shape()) {
+    shapeHandle->push_back(dim);
+  }
+
+  awaitingPromise->set_value();
 }
 
 void Controller::handleGetNumShardsResponse(
@@ -597,6 +807,70 @@ void Controller::handleCreateHostTensorResponse(
                             fb::ResponseType::CreateHostTensorResponse);
 
   debug::assertNoAwaitingState(*awaitingResponse, "CreateHostTensor");
+}
+
+void Controller::handleGetTensorVolumeResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetTensorVolumeResponse);
+
+  const fb::GetTensorVolumeResponse *response =
+      getResponse(responseBuffers[0])->type_as_GetTensorVolumeResponse();
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+  DEBUG_ASSERT(
+      awaitingHandles && awaitingHandles->size() == 1,
+      "GetTensorVolume: Awaiting handles must be populated and contain "
+      "exactly one handle");
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  std::shared_ptr<std::uint32_t> volumeHandle =
+      std::static_pointer_cast<std::uint32_t>(awaitingHandles->at(0));
+  *volumeHandle = response->volume();
+
+  awaitingPromise->set_value();
+}
+
+void Controller::handleGetTensorRetainResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetTensorRetainResponse);
+
+  const fb::GetTensorRetainResponse *response =
+      getResponse(responseBuffers[0])->type_as_GetTensorRetainResponse();
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+  DEBUG_ASSERT(
+      awaitingHandles && awaitingHandles->size() == 1,
+      "GetTensorRetain: Awaiting handles must be populated and contain "
+      "exactly one handle");
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  std::shared_ptr<bool> retainHandle =
+      std::static_pointer_cast<bool>(awaitingHandles->at(0));
+  *retainHandle = response->retain();
+  awaitingPromise->set_value();
+}
+
+void Controller::handleSetTensorRetainResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::SetTensorRetainResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse, "SetTensorRetain");
 }
 
 void Controller::handleGetLayoutResponse(
@@ -705,6 +979,14 @@ void Controller::handleResponse(
     return handleGetSystemDescResponse(responseBuffers,
                                        std::move(awaitingResponse));
   }
+  case fb::CommandType::SetFabricConfigCommand: {
+    return handleSetFabricConfigResponse(responseBuffers,
+                                         std::move(awaitingResponse));
+  }
+  case fb::CommandType::GetNumAvailableDevicesCommand: {
+    return handleGetNumAvailableDevicesResponse(responseBuffers,
+                                                std::move(awaitingResponse));
+  }
   case fb::CommandType::OpenMeshDeviceCommand: {
     return handleOpenMeshDeviceResponse(responseBuffers,
                                         std::move(awaitingResponse));
@@ -713,6 +995,10 @@ void Controller::handleResponse(
     return handleCloseMeshDeviceResponse(responseBuffers,
                                          std::move(awaitingResponse));
   }
+  case fb::CommandType::GetMeshShapeCommand: {
+    return handleGetMeshShapeResponse(responseBuffers,
+                                      std::move(awaitingResponse));
+  }
   case fb::CommandType::CreateHostTensorCommand: {
     return handleCreateHostTensorResponse(responseBuffers,
                                           std::move(awaitingResponse));
@@ -720,6 +1006,18 @@ void Controller::handleResponse(
   case fb::CommandType::GetLayoutCommand: {
     return handleGetLayoutResponse(responseBuffers,
                                    std::move(awaitingResponse));
+  }
+  case fb::CommandType::GetTensorVolumeCommand: {
+    return handleGetTensorVolumeResponse(responseBuffers,
+                                         std::move(awaitingResponse));
+  }
+  case fb::CommandType::GetTensorRetainCommand: {
+    return handleGetTensorRetainResponse(responseBuffers,
+                                         std::move(awaitingResponse));
+  }
+  case fb::CommandType::SetTensorRetainCommand: {
+    return handleSetTensorRetainResponse(responseBuffers,
+                                         std::move(awaitingResponse));
   }
   case fb::CommandType::ToLayoutCommand: {
     return handleToLayoutResponse(responseBuffers, std::move(awaitingResponse));

@@ -170,12 +170,6 @@ inline std::shared_ptr<void> unsafeBorrowShared(T *ptr) {
   return std::shared_ptr<void>(static_cast<void *>(ptr), [](void *) {});
 }
 
-::tt::target::DispatchCoreType
-fromRuntimeDispatchCoreType(::tt::runtime::DispatchCoreType dispatchCoreType);
-
-::tt::runtime::DispatchCoreType
-toRuntimeDispatchCoreType(::tt::target::DispatchCoreType dispatchCoreType);
-
 std::uint32_t dataTypeElementSize(::tt::target::DataType dataType);
 
 bool isSupportedDataType(::tt::target::DataType dataType);
