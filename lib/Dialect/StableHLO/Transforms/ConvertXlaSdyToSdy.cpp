@@ -32,7 +32,6 @@ public:
         gspmd_utils::hasFrontendSdyAttributes(rootModule);
 
     if (hasFrontendSdyAttrs) {
-      llvm::outs() << "[HET DEBUG] ConvertXlaSdyToSdyPass: hasFrontendSdyAttrs\n";
       // Handle frontend_attributes conversion
       // Parse mesh information from module attributes and create sdy.mesh
       if (mlir::failed(gspmd_utils::parseMeshFromFrontendAttributes(rootModule,

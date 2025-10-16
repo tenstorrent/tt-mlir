@@ -803,9 +803,6 @@ std::optional<mlir::sdy::TensorShardingAttr> handleSingleSharding(
 mlir::DictionaryAttr
 convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
                              mlir::DictionaryAttr currentArgAttrDict) {
-  // llvm::outs() << "CURRENT ARG ATTR DICT: \n";
-  // currentArgAttrDict.dump();
-  // llvm::outs() << "\n";
   if (!currentArgAttrDict) {
     return mlir::DictionaryAttr::get(context, {});
   }
@@ -829,7 +826,6 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
   }
 
   std::string shardingValue = shardingStr.getValue().str();
-  llvm::outs() << "SHARDING VALUE: " << shardingValue << "\n";
   llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
   llvm::copy_if(currentArgAttrDict.getValue(), std::back_inserter(newArgAttrs),
                 [&](mlir::NamedAttribute attr) {
@@ -856,7 +852,7 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
     }
     newArgAttrs.emplace_back(
         mlir::StringAttr::get(context,
-                              mlir::sdy::TensorShardingPerValueAttr::name),
+                              mlir::sdy::TensorShardingAttr::name),
         mlir::sdy::TensorShardingPerValueAttr::get(context, shardingListAttrs));
   } else {
     std::optional<mlir::sdy::TensorShardingAttr> maybeSharding = handleSingleSharding(shardingValue, context);
@@ -874,13 +870,7 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
 mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
                                                    mlir::MLIRContext *context) {
   rootModule.walk([&](func::FuncOp funcOp) {
-    llvm::outs() << "--------------------------------\n";
-    funcOp->dumpPretty();
-    llvm::outs() << "--------------------------------\n";
     for (BlockArgument arg : funcOp.getArguments()) {
-      llvm::outs() << "arg: \n";
-      arg.dump();
-      llvm::outs() << "\n";
       funcOp.setArgAttrs(
           arg.getArgNumber(),
           shardy_utils::convertXlaSdyToSdyDictionary(
@@ -888,23 +878,14 @@ mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
     }
     // Walk through the funcOp as well
     funcOp->walk([&](Operation *op) {
-      llvm::outs() << "op before: \n";
-      op->dump();
-      llvm::outs() << "\n";
       mlir::DictionaryAttr newAttrDict =
           shardy_utils::convertXlaSdyToSdyDictionary(
               context, op->getAttrDictionary());
       op->setAttrs(newAttrDict);
-      llvm::outs() << "op after: \n";
-      op->dump();
-      llvm::outs() << "\n";
     });
   });
 
   mlir::DictionaryAttr moduleAttrs = rootModule->getAttrDictionary();
-  llvm::outs() << "ROOT MODULE ATTRS: \n";
-  moduleAttrs.dump();
-  llvm::outs() << "\n";
   llvm::SmallVector<mlir::NamedAttribute> newModuleAttrs;
   llvm::copy_if(moduleAttrs.getValue(), std::back_inserter(newModuleAttrs),
                 [&](mlir::NamedAttribute currentArgAttr) {
