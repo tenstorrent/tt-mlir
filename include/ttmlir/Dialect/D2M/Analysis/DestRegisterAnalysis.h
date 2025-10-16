@@ -15,7 +15,7 @@ namespace mlir::tt::d2m {
 
 /// Information about destination register usage for a GenericOp.
 struct DstRegisterInfo {
-  int dstCapacity = 0;
+  int dstMaxUsage = 0;
   llvm::DenseMap<Operation *, int> computeOpMap;
 };
 
@@ -23,10 +23,10 @@ struct DstRegisterInfo {
 struct DestRegisterAnalysis {
   DestRegisterAnalysis(Operation *op);
 
-  int getDstCapacity(GenericOp genericOp) const {
+  int getDstMaxUsage(GenericOp genericOp) const {
     auto match = genericOpMap.find(genericOp);
     assert(match != genericOpMap.end() && "Generic op not found.");
-    return match->second.dstCapacity;
+    return match->second.dstMaxUsage;
   }
 
   llvm::DenseMap<GenericOp, DstRegisterInfo> genericOpMap;
@@ -35,4 +35,3 @@ struct DestRegisterAnalysis {
 } // namespace mlir::tt::d2m
 
 #endif // TTMLIR_DIALECT_D2M_ANALYSIS_DESTREGISTERANALYSIS_H
-

@@ -49,6 +49,8 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
     blockSize = dstCapacity;
   }
 
+  blockSize = 1;
+
   int dstTilesRemaining = dstCapacity;
 
   // Account for number of tiles needed to store input operands after fusion.
