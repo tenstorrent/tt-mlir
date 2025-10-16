@@ -116,11 +116,14 @@ struct ConvertD2MToTTKernel
       if (mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout())) {
         // This memref has a device layout meaning it's an address.
         return IntegerType::get(memref.getContext(), 32);
-      } else if (memorySpace == ttcore::MemorySpace::RegisterDst) {
+      }
+
+      if (memorySpace == ttcore::MemorySpace::RegisterDst) {
         // This memref abstracts tile indices in dst register, convert to index
         // type.
         return IndexType::get(memref.getContext());
       }
+
       // Since none of the above is true, this memref abstracts cb backing.
       return ttkernel::CBType::get(memref);
     });

@@ -296,11 +296,13 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
                  const mlir::bufferization::BufferizationOptions &options,
                  mlir::bufferization::BufferizationState &state) {
   auto src = mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+  // NOLINTNEXTLINE
   if (failed(src)) {
     return src;
   }
 
   auto dst = mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
+  // NOLINTNEXTLINE
   if (failed(dst)) {
     return dst;
   }
