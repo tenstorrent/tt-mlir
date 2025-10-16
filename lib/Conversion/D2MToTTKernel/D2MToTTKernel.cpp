@@ -217,6 +217,21 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
 } // namespace
 
 namespace {
+template <typename ConcreteOp>
+class PassthroughRewriter : public OpConversionPattern<ConcreteOp> {
+public:
+  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOp(op, adaptor.getOperands());
+    return success();
+  };
+};
+} // namespace
+
+namespace {
 class AcquireDstRewriter : public OpConversionPattern<d2m::AcquireDstOp> {
 public:
   using OpConversionPattern<d2m::AcquireDstOp>::OpConversionPattern;
@@ -499,8 +514,8 @@ public:
       }
 
       auto insertionPoint = rewriter.getInsertionPoint();
-      auto cbA = getCB(rewriter, op.getA());
-      auto cbB = getCB(rewriter, op.getB());
+      auto cbA = adaptor.getA();
+      auto cbB = adaptor.getB();
       auto outCB = getOutCB(rewriter, op);
       setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
                                      /*allowHoisting*/ true);
@@ -659,65 +674,55 @@ public:
 } // namespace
 
 namespace {
-
-class D2MTilizeUntilizeRewriter
-    : public OpTraitConversionPattern<
-          mlir::tt::d2m::D2MGenericRegionComputeOpTrait> {
+template <typename ConcreteOp, typename BlockOp>
+class D2MTilizeUntilizeRewriter : public OpConversionPattern<ConcreteOp> {
 public:
-  using OpTraitConversionPattern<
-      mlir::tt::d2m::D2MGenericRegionComputeOpTrait>::OpTraitConversionPattern;
+  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
 
   static Value findPreLinearizedMemref(Value memref) {
-    if (auto funcArg = mlir::dyn_cast<BlockArgument>(memref)) {
-      return funcArg;
+    if (mlir::isa_and_nonnull<d2m::PopOp, d2m::ReserveOp>(
+            memref.getDefiningOp())) {
+      return memref;
     }
-    if (auto collapseOp =
-            mlir::dyn_cast<memref::CollapseShapeOp>(memref.getDefiningOp())) {
+    if (auto collapseOp = mlir::dyn_cast_if_present<memref::CollapseShapeOp>(
+            memref.getDefiningOp())) {
       return findPreLinearizedMemref(collapseOp.getSrc());
     }
     llvm_unreachable("Expected BlockArgument or CollapseShapeOp");
   }
 
   LogicalResult
-  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (auto tilizeOp = mlir::dyn_cast<d2m::TileTilizeBlockOp>(op)) {
-      assert(operands.size() == 2);
-      Value src = operands[0];
-      Value dst = operands[1];
-      auto preLinearizedMemrefType = mlir::cast<MemRefType>(
-          findPreLinearizedMemref(tilizeOp.getOutput()).getType());
-      auto collapsed2DShape =
-          ttcore::collapseGridTo2D(preLinearizedMemrefType.getShape());
+    Value src = adaptor.getInput();
+    Value dst = adaptor.getOutput();
+    bool constexpr tilize =
+        std::is_same_v<BlockOp, ttkernel::ExperimentalTilizeBlockOp>;
+    auto preLinearizedMemrefType = mlir::cast<MemRefType>(
+        findPreLinearizedMemref(tilize ? op.getOutput() : op.getInput())
+            .getType());
+    auto collapsed2DShape =
+        ttcore::collapseGridTo2D(preLinearizedMemrefType.getShape());
 
-      auto blockR = i32(rewriter, op->getLoc(), collapsed2DShape[0]);
-      auto blockC = i32(rewriter, op->getLoc(), collapsed2DShape[1]);
-      rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
-                                                          nullptr, dst);
+    auto blockR = i32(rewriter, op->getLoc(), collapsed2DShape[0]);
+    auto blockC = i32(rewriter, op->getLoc(), collapsed2DShape[1]);
+    rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
+                                                        nullptr, dst);
+
+    if constexpr (std::is_same_v<BlockOp,
+                                 ttkernel::ExperimentalTilizeBlockOp>) {
       rewriter.create<ttkernel::TilizeInitOp>(op->getLoc(), src, blockC, dst);
-      rewriter.create<ttkernel::ExperimentalTilizeBlockOp>(op->getLoc(), src,
-                                                           dst, blockR, blockC);
-    } else if (auto untilizeOp = mlir::dyn_cast<d2m::TileUntilizeBlockOp>(op)) {
-      assert(operands.size() == 2);
-      Value src = operands[0];
-      Value dst = operands[1];
-      auto preLinearizedMemrefType = mlir::cast<MemRefType>(
-          findPreLinearizedMemref(untilizeOp.getInput()).getType());
-      auto collapsed2DShape =
-          ttcore::collapseGridTo2D(preLinearizedMemrefType.getShape());
-
-      auto blockR = i32(rewriter, op->getLoc(), collapsed2DShape[0]);
-      auto blockC = i32(rewriter, op->getLoc(), collapsed2DShape[1]);
-      rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), src,
-                                                          nullptr, dst);
+    } else if constexpr (std::is_same_v<
+                             BlockOp, ttkernel::ExperimentalUntilizeBlockOp>) {
       rewriter.create<ttkernel::UntilizeInitOp>(op->getLoc(), src);
-      rewriter.create<ttkernel::ExperimentalUntilizeBlockOp>(
-          op->getLoc(), src, dst, blockR, blockC);
     } else {
-      return failure();
+      llvm_unreachable("unsupported tilize/untilize op");
     }
 
+    rewriter.create<BlockOp>(op->getLoc(), src, dst, blockR, blockC);
+
     rewriter.eraseOp(op);
+
     return success();
   };
 };
@@ -791,50 +796,40 @@ public:
 } // namespace
 
 namespace {
-
-template <typename ConcreteOp>
-class D2MAwaitYieldRewriter : public OpConversionPattern<ConcreteOp> {
+template <typename D2MCBOp, typename TTKernelAcquireOp,
+          typename TTKernelReleaseOp>
+class D2MCBOpRewriter : public OpConversionPattern<D2MCBOp> {
 public:
-  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+  using OpConversionPattern<D2MCBOp>::OpConversionPattern;
 
-  static_assert(std::is_same_v<ConcreteOp, d2m::AwaitOp> ||
-                    std::is_same_v<ConcreteOp, d2m::YieldOp>,
-                "Expected Await or Yield op passed to D2MAwaitYieldRewriter.");
+  static_assert(std::is_same_v<D2MCBOp, d2m::PopOp> ||
+                std::is_same_v<D2MCBOp, d2m::ReserveOp>);
 
   LogicalResult
-  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+  matchAndRewrite(D2MCBOp op, typename D2MCBOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto device = ttcore::lookupDevice(op);
-    for (Value input : adaptor.getValues()) {
-      auto cb = mlir::dyn_cast<ttkernel::CBType>(input.getType());
-      assert(cb && "Expected CB input type to await/yield, failing.");
-      auto memref = cb.getMemref();
-      auto cbNumPages = device.getMemrefCBNumPages(memref);
-      auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
-      Block *block = op->getBlock();
-      if (mlir::isa<d2m::AwaitOp>(op)) {
-        rewriter.create<ttkernel::CBWaitFrontOp>(op.getLoc(), input, numPages);
-        auto popFront = rewriter.create<ttkernel::CBPopFrontOp>(
-            op.getLoc(), input, numPages);
-        rewriter.moveOpBefore(popFront, block->getTerminator());
-      } else if (mlir::isa<d2m::YieldOp>(op)) {
-        auto reserveBack = rewriter.create<ttkernel::CBReserveBackOp>(
-            op.getLoc(), input, numPages);
-        if (mlir::isa<func::FuncOp>(block->getParentOp())) {
-          rewriter.moveOpAfter(reserveBack, input.getDefiningOp());
-        } else {
-          rewriter.moveOpBefore(reserveBack, &block->front());
-        }
-        rewriter.moveOpBefore(numPages.getDefiningOp(), reserveBack);
-        rewriter.create<ttkernel::CBPushBackOp>(op.getLoc(), input, numPages);
-      }
+
+    auto cbNumPages = device.getMemrefCBNumPages(
+        op.getCb().getType().template getUnderlyingAs<MemRefType>());
+    auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
+
+    rewriter.create<TTKernelAcquireOp>(op.getLoc(), adaptor.getCb(), numPages);
+
+    Block *block = op->getBlock();
+    auto release = rewriter.create<TTKernelReleaseOp>(
+        op.getLoc(), adaptor.getCb(), numPages);
+    if (block->mightHaveTerminator()) {
+      rewriter.moveOpBefore(release, block->getTerminator());
+    } else {
+      rewriter.moveOpAfter(release, &block->back());
     }
 
-    rewriter.eraseOp(op);
+    rewriter.replaceOp(op, adaptor.getCb());
+
     return success();
   };
 };
-
 } // namespace
 
 namespace {
@@ -1208,14 +1203,7 @@ public:
   matchAndRewrite(memref::CollapseShapeOp op,
                   memref::CollapseShapeOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (ttcore::getMemorySpace(op.getSrc()) ==
-        ttcore::MemorySpace::RegisterDst) {
-      rewriter.replaceOp(op, adaptor.getSrc());
-      return success();
-    }
-    rewriter.replaceOpWithNewOp<CBReinterpretShapeOp>(
-        op, getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getSrc());
+    rewriter.replaceOp(op, adaptor.getSrc());
     return success();
   }
 };
@@ -1274,7 +1262,7 @@ public:
       Type argType = getTypeConverter()->convertType(arg.getType());
       if (mlir::isa<CBType>(argType)) {
         auto cb = rewriter.create<GetCompileArgValOp>(
-            op.getLoc(), getTypeConverter()->convertType(arg.getType()),
+            op.getLoc(), argType,
             rewriter.getI32IntegerAttr(arg.getArgNumber()));
         signatureConverter.remapInput(arg.getArgNumber(), {cb});
         ctArgSpecVector.push_back(
@@ -1414,6 +1402,7 @@ void populateD2MToTTKernelPatterns(
     const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode) {
   // clang-format off
   patterns.add<ttkernel::D2MKernelFunctionArgsRewriter,
+               ttkernel::PassthroughRewriter<memref::CastOp>,
 
                // FPU.
                ttkernel::D2MFPUOpsRewriter<d2m::TileMatmulOp>,
@@ -1454,14 +1443,15 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TilePowOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileSubOp>,
 
-               ttkernel::D2MTilizeUntilizeRewriter,
+               ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
+               ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalUntilizeBlockOp>,
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MTypecastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,
-               ttkernel::D2MAwaitYieldRewriter<d2m::AwaitOp>,
-               ttkernel::D2MAwaitYieldRewriter<d2m::YieldOp>,
+               ttkernel::D2MCBOpRewriter<d2m::PopOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,
+               ttkernel::D2MCBOpRewriter<d2m::ReserveOp, ttkernel::CBReserveBackOp, ttkernel::CBPushBackOp>,
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MNullTxRewriter,

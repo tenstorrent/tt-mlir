@@ -173,13 +173,20 @@ public:
     rewriter.replaceOpWithNewOp<GenericOp>(
         op, viewInput, viewOutput,
         [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-          DMAOp dma = isSrcDramOrReblock
-                          ? builder.create<d2m::DMAOp>(
-                                loc, viewInput, indexingMap, blockArgs[1])
-                          : builder.create<d2m::DMAOp>(loc, blockArgs[0],
-                                                       viewOutput, indexingMap);
+          Value outputCB =
+              builder.create<ReserveOp>(loc, blockArgs[1]).getResult();
+          DMAOp dma;
+          if (isSrcDramOrReblock) {
+            dma = builder.create<d2m::DMAOp>(loc, viewInput, indexingMap,
+                                             outputCB);
+          } else {
+            Value inputCB =
+                builder.create<PopOp>(loc, blockArgs[0]).getResult();
+            dma = builder.create<d2m::DMAOp>(loc, inputCB, viewOutput,
+                                             indexingMap);
+          }
           builder.create<d2m::DMAWaitOp>(loc, dma);
-          builder.create<YieldOp>(loc, blockArgs[1]);
+          builder.create<YieldOp>(loc, outputCB);
         },
         ThreadType::Datamovement);
 
@@ -198,13 +205,14 @@ public:
     rewriter.replaceOpWithNewOp<GenericOp>(
         op, op.getInput(), op.getOutput(),
         [=](OpBuilder &builder, Location loc, ValueRange blockArgs) {
+          Value src = builder.create<PopOp>(loc, blockArgs[0]).getResult();
+          Value dst = builder.create<ReserveOp>(loc, blockArgs[1]).getResult();
           if (inputTiled) {
-            builder.create<TileUntilizeBlockOp>(loc, blockArgs[0],
-                                                blockArgs[1]);
+            builder.create<TileUntilizeBlockOp>(loc, src, dst);
           } else {
-            builder.create<TileTilizeBlockOp>(loc, blockArgs[0], blockArgs[1]);
+            builder.create<TileTilizeBlockOp>(loc, src, dst);
           }
-          builder.create<YieldOp>(loc, blockArgs[1]);
+          builder.create<YieldOp>(loc, dst);
         });
 
     return success();

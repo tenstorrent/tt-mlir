@@ -3,13 +3,13 @@
 
 #l1_ = #ttcore.memory_space<l1>
 
-!cb0_scalar = !ttkernel.cb<memref<64x128xf32, #l1_>>
-!cb1_scalar = !ttkernel.cb<memref<64x128xf32, #l1_>>
-!cb2_scalar = !ttkernel.cb<memref<64x128xf32, #l1_>>
+!cb0_scalar = !ttkernel.cb<8192, f32>
+!cb1_scalar = !ttkernel.cb<8192, f32>
+!cb2_scalar = !ttkernel.cb<8192, f32>
 
-!cb0_tiles = !ttkernel.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
-!cb1_tiles = !ttkernel.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
-!cb2_tiles = !ttkernel.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+!cb0_tiles = !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
+!cb1_tiles = !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
+!cb2_tiles = !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
 
 module {
   //===----------------------------------------------------------------------===//

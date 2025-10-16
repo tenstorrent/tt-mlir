@@ -227,14 +227,14 @@ public:
                          ttcore::GridAttr grid, ttcore::DeviceAttr device,
                          AffineMap operandIndexingMap, ArrayAttr iteratorTypes,
                          bool isOutput, MutableArrayRef<Region> regions) {
-    if (isOutput) {
-      // Wait for compute.
-      builder.create<d2m::AwaitOp>(loc, blockOperand);
-    }
+    Value cb =
+        isOutput
+            ? builder.create<d2m::PopOp>(loc, blockOperand).getResult()
+            : builder.create<d2m::ReserveOp>(loc, blockOperand).getResult();
 
     if (isStream(genericOperand)) {
-      Value src = isOutput ? blockOperand : genericOperand;
-      Value dst = isOutput ? genericOperand : blockOperand;
+      Value src = isOutput ? cb : genericOperand;
+      Value dst = isOutput ? genericOperand : cb;
       SmallVector<ttcore::IteratorType> mcastIterators =
           calculateMcastIterators(grid, device, operandIndexingMap,
                                   iteratorTypes);
@@ -247,11 +247,6 @@ public:
             createDMA(builder, loc, src, dst, operandIndexingMap, isOutput);
         builder.create<d2m::DMAWaitOp>(loc, memTx);
       }
-    }
-
-    if (!isOutput) {
-      // Push input to compute.
-      builder.create<d2m::YieldOp>(loc, blockOperand);
     }
 
     return success();
@@ -291,7 +286,6 @@ public:
 
     // Insert the new data movement regions.
     unsigned outputOperandsIndex = generic.getOutputs().getBeginOperandIndex();
-    unsigned outputOperandsLength = generic.getOutputs().size();
     auto device = ttcore::lookupDevice(generic);
     for (OpOperand &operand : generic->getOpOperands()) {
       Block *datamovementBlock =
@@ -321,24 +315,6 @@ public:
     rewriter.mergeBlocks(&oldRegion.front(), &newRegion.front(),
                          newRegion.front().getArguments().take_front(
                              generic.getOperands().size()));
-
-    // Await / Yield insertion to compute region.
-    {
-      Block *computeBlock = &newGeneric.getRegion(computeRegionIndex).front();
-      rewriter.setInsertionPointToStart(computeBlock);
-
-      // Await the inputs.
-      rewriter.create<d2m::AwaitOp>(
-          generic->getLoc(),
-          computeBlock->getArguments().take_front(generic.getInputs().size()));
-
-      rewriter.setInsertionPointToEnd(computeBlock);
-
-      // Yield the outputs.
-      rewriter.create<d2m::YieldOp>(
-          generic->getLoc(), computeBlock->getArguments().slice(
-                                 outputOperandsIndex, outputOperandsLength));
-    }
 
     rewriter.replaceOp(generic, newGeneric);
     return success();
