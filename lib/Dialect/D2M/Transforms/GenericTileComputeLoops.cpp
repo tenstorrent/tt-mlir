@@ -155,8 +155,21 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
 
     SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(), 1);
     if (optimizeSubblocking) {
+      llvm::errs() << "  Calculating optimal subblock sizes\n";
+      SmallVector<int64_t> hardcodedShape;
+      // First dimension is capped at the actual output shape
+      int64_t dim0 = std::min(static_cast<int64_t>(subblockFactor),
+                              outputTensor.getShape()[0]);
+      hardcodedShape.push_back(dim0);
+      // Remainder is distributed to the second dimension
+      int64_t remainder = subblockFactor / dim0;
+      int64_t dim1 = std::min(remainder, outputTensor.getShape()[1]);
+      hardcodedShape.push_back(dim1);
+      llvm::errs() << "  Output shape: [";
+      llvm::interleaveComma(hardcodedShape, llvm::errs());
+      llvm::errs() << "]\n";
       subblockSizes = calculateOptimalSubblockSizes(
-          op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
+          op.getIndexingMapsArray(), op.getInputs(), hardcodedShape,
           dstCapacity);
     }
 
