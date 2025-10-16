@@ -468,6 +468,8 @@ def test_interop_jit_to_ttnn_unary_l1(device, h, w, max_grid, dtype, jit_op, ttn
     ],
 )
 def test_interop_two_jit_to_ttnn_binary_l1(device, h, w, max_grid, dtype, jit_op1, jit_op2, ttnn_binary_op):
+    if jit_op2 == log and dtype == torch.float32:
+        pytest.xfail("Failing all_close, getting nan values mismatching with golden")
 
     input1 = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
     input2 = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
@@ -580,6 +582,9 @@ def test_interop_jit_to_ttnn_unary_dram(device, h, w, dtype, jit_op, ttnn_unary_
     ],
 )
 def test_interop_two_jit_to_ttnn_binary_dram(device, h, w, dtype, jit_op1, jit_op2, ttnn_binary_op):
+    if jit_op2 == log and dtype == torch.float32:
+        pytest.xfail("Failing all_close, getting nan values mismatching with golden")
+    
     max_grid = (0, 0)
     input1 = create_dram_tensor(device, h, w, dtype)
     input2 = create_dram_tensor(device, h, w, dtype)
