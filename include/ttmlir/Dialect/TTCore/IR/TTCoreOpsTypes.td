@@ -440,7 +440,7 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
 
-    static llvm::SmallVector<int64_t> computeAlignments(ArrayRef<int64_t> logicalShape,
+    static llvm::SmallVector<int64_t> computeTileAlignments(ArrayRef<int64_t> logicalShape,
                                    ArrayRef<int64_t> normIntervals);
 
     static llvm::SmallVector<int64_t> normalizeAndFlattenIntervals(DenseIntElementsAttr inputIntervals,

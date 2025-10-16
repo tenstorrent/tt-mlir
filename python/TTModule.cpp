@@ -56,8 +56,9 @@ void populateTTModule(nb::module_ &m) {
             auto normalizedIntervals =
                 tt::ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
                     collapsedIntervals, logicalShape.size());
-            auto dimAlignments = tt::ttcore::MetalLayoutAttr::computeAlignments(
-                logicalShape, normalizedIntervals);
+            auto dimAlignments =
+                tt::ttcore::MetalLayoutAttr::computeTileAlignments(
+                    logicalShape, normalizedIntervals);
 
             return wrap(tt::ttcore::MetalLayoutAttr::get(
                 context, ArrayRef<int64_t>(logicalShape),

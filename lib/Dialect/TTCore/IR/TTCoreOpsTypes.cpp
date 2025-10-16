@@ -894,35 +894,22 @@ MetalLayoutAttr::getIndexAffineMapOrIdentity(unsigned rank) const {
   return map;
 }
 
-// Helper func to compute tile-alignments to last 2 dims of a collapsed shape.
+// Compute basic tile-based dimension alignments for the last two dimensions of
+// a collapsed shape. This function applies only tile alignment (e.g., 32x32)
+// without considering worker grid distribution.
 //
-// For example, tensor<4x43x7> + grid<8x8> + tile<32x32> gives:
-// - Tile-aligned logical shape 4x64x32.
-// - Collapsed physical 2D shape 256x32.
-// - Dim alignments 1x32x32.
-// - Unsharded device shape 256x32.
-// - Grid & shard is 256x32 / 32x32 = 8x1.
-// - Tiled device shape 8x1x1x1x!tile<32x32>.
-// So there will be 8 workers, each handling a shard containing a single tile.
-// This achieves high worker utilization, and ensures the majority of the
-// padding are at the end of the tensor buffer so the memory access strides are
-// small.
+// For example, tensor<4x43x7> with tile<32x32> and collapsed intervals
+// [[0,1],[2,3]]:
+// - Logical shape: 4x43x7
+// - Dimension alignments: 1x32x32 (align last two dims to tile boundaries)
+// - Tile-aligned logical shape: 4x64x32 (after applying alignments)
+// - Collapsed physical shape: 256x32 (collapse [0,1] and [2,3])
 //
-// This strategy has good work utilization but also has its issues. Consider the
-// same example as above but with tensor<9x43x7>:
-// - Tile-aligned logical shape 9x64x32.
-// - Collapsed physical 2D shape 576x32.
-// - Dim alignments 256x32x32.
-// - Unsharded device shape [alignUp(9 * alignUp(43, 32), 256)]x32 = 768x32.
-// - Grid & shard is 768x32 / 32x32 = 24x1.
-// - Tiled device shape 8x1x3x1x!tile<32x32>.
-// Similar to the example above, both result in 'unnatural' shard shapes like
-// 1x1x!tile<32x32> and 3x1x!tile<32x32>. The 'natural' shard shape should be
-// 2x1x!tile<32x32>, which has the potential to save some NoC traffic (e.g.
-// reduction of 4x43x7 -> 4x1x7 is now worker-local).
+// Grid-aware alignment strategies that consider worker distribution are
+// implemented separately in D2MGridSelection pass.
 llvm::SmallVector<int64_t>
-MetalLayoutAttr::computeAlignments(ArrayRef<int64_t> logicalShape,
-                                   ArrayRef<int64_t> normalizedIntervals) {
+MetalLayoutAttr::computeTileAlignments(ArrayRef<int64_t> logicalShape,
+                                       ArrayRef<int64_t> normalizedIntervals) {
   constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
 
   const int64_t logicalRank = logicalShape.size();
@@ -978,7 +965,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
 
   // Set alignments based on the flattened intervals.
   llvm::SmallVector<int64_t> dimAlignmentsVec =
-      computeAlignments(logicalShape, flattenedIntervals);
+      computeTileAlignments(logicalShape, flattenedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
              oobVal, memorySpace, memoryLayout, mlir::AffineMap::get(context));
@@ -993,7 +980,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
   llvm::SmallVector<int64_t> normalizedIntervals =
       normalizeAndFlattenIntervals(collapsedIntervals, logicalShape.size());
   llvm::SmallVector<int64_t> dimAlignmentsVec =
-      computeAlignments(logicalShape, normalizedIntervals);
+      computeTileAlignments(logicalShape, normalizedIntervals);
 
   return get(context, logicalShape, dimAlignmentsVec, collapsedIntervals,
              oobVal, memorySpace, memoryLayout, mlir::AffineMap::get(context));

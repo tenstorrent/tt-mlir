@@ -24,11 +24,33 @@
 namespace mlir::tt::d2m {
 
 // Compute dimension alignments for a MetalLayoutAttr that align to the worker
-// grid shape for a given operation. For example, a collapsed shape of 31x33x447
-// given an 8x8 grid would start with dimension alignments [1x32x32] in
-// TTIRToD2M, but since the last dimension exceeds tile*grid (32*8=256), we
-// instead use [1x32x256] (forcing a shape of 31x64x512) to saturate the worker
-// grid properly.
+// grid shape for a given operation. This extends basic tile alignment (32x32)
+// with grid-aware strategies to maximize worker utilization.
+//
+// For example, tensor<4x43x7> with grid<8x8> and tile<32x32>:
+// - Basic tile alignments: 1x32x32
+// - Tile-aligned logical shape: 4x64x32
+// - Collapsed physical shape: 256x32
+// - Grid & shard: 256x32 / 32x32 = 8x1
+// - Result: 8 workers, each with a 1x1 tile shard
+// This achieves good worker utilization with padding at tensor buffer ends,
+// minimizing memory access stride issues.
+//
+// However, consider tensor<9x43x7> with the same grid and tile:
+// - Collapsed physical shape: 576x32
+// - Without grid alignment: 576x32 with 8x8 grid gives uneven distribution
+// - With grid alignment (256x32x32): forces shape to 768x32
+// - Grid & shard: 768x32 / 32x32 = 24x1
+// - Result: More even distribution, though creates 'unnatural' shards
+//
+// For a collapsed shape of 31x33x447 with grid<8x8>:
+// - Basic alignments: 1x32x32 (from TTIRToD2M)
+// - Last dim exceeds tile*grid threshold (32*8=256)
+// - Grid-aware alignments: 1x32x256
+// - Forces shape: 31x64x512 to saturate the 8x8 worker grid
+//
+// This strategy trades some padding overhead for better worker utilization and
+// more predictable NoC traffic patterns.
 static llvm::SmallVector<int64_t>
 computeGridAwareDimAlignments(ArrayRef<int64_t> logicalShape,
                               ArrayRef<int64_t> deviceGridShape,
