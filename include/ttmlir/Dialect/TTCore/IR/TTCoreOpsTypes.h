@@ -231,6 +231,12 @@ inline mlir::Type toTTMLIRSupportedDataType(Type elementType) {
   std::optional<DataType> dataType = elementTypeToDataTypeImpl(elementType);
 
   if (dataType) {
+    // Normalize Bool to BFloat16 for tensor storage since hardware doesn't
+    // support bool
+    if (*dataType == DataType::Bool) {
+      return dataTypeToElementType(elementType.getContext(),
+                                   DataType::BFloat16);
+    }
     return dataTypeToElementType(elementType.getContext(), *dataType);
   }
 
