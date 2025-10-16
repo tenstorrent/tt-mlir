@@ -7,7 +7,7 @@ import torch
 
 import pytest
 
-from utils import _get_ttnn_op
+from utils import _get_ttnn_op, _create_sharded_tile_tensor, _create_dram_tensor
 
 COMMON_SHAPE_GRID_PARAMS = [
     (32, 32, (0, 0)),
@@ -96,11 +96,11 @@ def run_op_test(
 ):
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
-            create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+            _create_sharded_tile_tensor(device, h, w, max_grid, dtype)
             for _ in range(num_inputs)
         ]
     else:
-        inputs = [create_dram_tensor(device, h, w, dtype) for _ in range(num_inputs)]
+        inputs = [_create_dram_tensor(device, h, w, dtype) for _ in range(num_inputs)]
     print("inputs", inputs)
     golden_op = _get_ttnn_op(op)
 
