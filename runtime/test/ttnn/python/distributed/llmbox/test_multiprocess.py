@@ -8,7 +8,7 @@ import pytest
 import ttrt
 import ttrt.runtime
 from ttrt.common.util import *
-from ..utils import (
+from ...utils import (
     TT_MLIR_HOME,
     TT_METAL_HOME_EXTERNAL,
     DeviceContext,
