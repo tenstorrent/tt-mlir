@@ -408,67 +408,8 @@ def test_composite_ops(device, h, w, max_grid, dtype, op):
 # Interop tests
 # ------------------------------------------------------------
 
-def run_interop_test(
-    device, h, w, max_grid, dtype, jit_ops, ttnn_op, num_jit_ops, ttnn_tensor_separate=False, buffer_type=ttnn.BufferType.L1
-):
+def all_close_check(interop_result, golden_result, atol=1e-1, rtol=1e-1):
 
-    if buffer_type == ttnn.BufferType.L1:
-        jit_inputs = [
-            create_sharded_tile_tensor(device, h, w, max_grid, dtype)
-            for _ in range(num_jit_ops)
-        ]
-        if ttnn_tensor_separate:
-            ttnn_tensor = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
-    else:
-        jit_inputs = [
-            create_dram_tensor(device, h, w, dtype) 
-            for _ in range(num_jit_ops)
-        ]
-        if ttnn_tensor_separate:
-            ttnn_tensor = create_dram_tensor(device, h, w, dtype)
-    
-    jit_compiled = [
-        ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(op) 
-        for op in jit_ops
-    ]
-    
-    jit_outputs = [
-        jit_compiled[i](jit_inputs[i]) for i in range(num_jit_ops)
-    ]
-    
-    if num_jit_ops == 1:
-        if ttnn_tensor_separate:
-            #JIT op + ttnn tensor -> ttnn binary op
-            interop_result = ttnn_op(jit_outputs[0], ttnn_tensor)
-        else:
-            #JIT op -> ttnn unary op
-            interop_result = ttnn_op(jit_outputs[0])
-    else:
-        #2 JIT ops -> ttnn binary op
-        interop_result = ttnn_op(jit_outputs[0], jit_outputs[1])
-    
-    #golden result uses full ttnn chain
-    golden_ops = [_get_ttnn_op(op) or op for op in jit_ops]
-    if num_jit_ops == 1:
-        golden_jit_output = golden_ops[0](jit_inputs[0])
-        if ttnn_tensor_separate:
-            golden_result = ttnn_op(golden_jit_output, ttnn_tensor)
-        else:
-            golden_result = ttnn_op(golden_jit_output)
-    else:
-        golden_jit_outputs = [golden_ops[i](jit_inputs[i]) for i in range(num_jit_ops)]
-        golden_result = ttnn_op(golden_jit_outputs[0], golden_jit_outputs[1])
-    
-    print("--------------------------------")
-    print("JIT inputs:")
-    for i, tensor in enumerate(jit_inputs):
-        print(f"  Input {i}: {tensor}")
-    if ttnn_tensor_separate:
-        print(f"  TTNN tensor: {ttnn_tensor}")
-    print("--------------------------------")
-    print("JIT outputs:")
-    for i, tensor in enumerate(jit_outputs):
-        print(f"  JIT output {i}: {tensor}")
     print("--------------------------------")
     print("Interop result:")
     print(interop_result)
@@ -476,15 +417,16 @@ def run_interop_test(
     print("Golden result:")
     print(golden_result)
     print("--------------------------------")
-    
+
     all_close = torch.allclose(
         interop_result.cpu().to_torch(),
         golden_result.cpu().to_torch(),
-        atol=1e-1,
-        rtol=1e-1,
+        atol=atol,
+        rtol=rtol,
     )
     print("all_close", all_close)
     assert all_close
+
 
 #JIT op -> ttnn unary op test
 @pytest.mark.parametrize("h, w, max_grid", COMMON_SHAPE_GRID_PARAMS)
@@ -499,14 +441,19 @@ def run_interop_test(
     ],
 )
 def test_interop_jit_to_ttnn_unary_l1(device, h, w, max_grid, dtype, jit_op, ttnn_unary_op):
-    run_interop_test(
-        device, h, w, max_grid, dtype,
-        jit_ops=[jit_op],
-        ttnn_op=ttnn_unary_op,
-        num_jit_ops=1,
-        ttnn_tensor_separate=False,
-        buffer_type=ttnn.BufferType.L1
-    )
+    input_tensor = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+    
+    #jit path
+    compiled_op = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op)
+    jit_output = compiled_op(input_tensor)
+    interop_result = ttnn_unary_op(jit_output)
+
+    #golden path
+    golden_jit_op = _get_ttnn_op(jit_op) or jit_op
+    golden_jit_output = golden_jit_op(input_tensor)
+    golden_result = ttnn_unary_op(golden_jit_output)
+
+    all_close_check(interop_result, golden_result)
 
 
 #2 JIT ops -> TTNN binary op test
@@ -521,14 +468,25 @@ def test_interop_jit_to_ttnn_unary_l1(device, h, w, max_grid, dtype, jit_op, ttn
     ],
 )
 def test_interop_two_jit_to_ttnn_binary_l1(device, h, w, max_grid, dtype, jit_op1, jit_op2, ttnn_binary_op):
-    run_interop_test(
-        device, h, w, max_grid, dtype,
-        jit_ops=[jit_op1, jit_op2],
-        ttnn_op=ttnn_binary_op,
-        num_jit_ops=2,
-        ttnn_tensor_separate=False,
-        buffer_type=ttnn.BufferType.L1
-    )
+
+    input1 = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+    input2 = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+
+    #interop path
+    compiled_op1 = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op1)
+    compiled_op2 = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op2)
+    jit_output1 = compiled_op1(input1)
+    jit_output2 = compiled_op2(input2)
+    interop_result = ttnn_binary_op(jit_output1, jit_output2)
+
+    #golden path
+    golden_jit_op1 = _get_ttnn_op(jit_op1) or jit_op1
+    golden_jit_op2 = _get_ttnn_op(jit_op2) or jit_op2
+    golden_output1 = golden_jit_op1(input1)
+    golden_output2 = golden_jit_op2(input2)
+    golden_result = ttnn_binary_op(golden_output1, golden_output2)
+
+    all_close_check(interop_result, golden_result)
 
 
 #JIT op + ttnn tensor -> ttnn binary op test
@@ -543,14 +501,20 @@ def test_interop_two_jit_to_ttnn_binary_l1(device, h, w, max_grid, dtype, jit_op
     ],
 )
 def test_interop_jit_and_ttnn_to_binary_l1(device, h, w, max_grid, dtype, jit_op, ttnn_binary_op):
-    run_interop_test(
-        device, h, w, max_grid, dtype,
-        jit_ops=[jit_op],
-        ttnn_op=ttnn_binary_op,
-        num_jit_ops=1,
-        ttnn_tensor_separate=True,
-        buffer_type=ttnn.BufferType.L1
-    )
+    input_tensor = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+    ttnn_tensor = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+
+    #interop path
+    compiled_op = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op)
+    jit_output = compiled_op(input_tensor)
+    interop_result = ttnn_binary_op(jit_output, ttnn_tensor)
+
+    #golden path
+    golden_jit_op = _get_ttnn_op(jit_op) or jit_op
+    golden_jit_output = golden_jit_op(input_tensor)
+    golden_result = ttnn_binary_op(golden_jit_output, ttnn_tensor)
+
+    all_close_check(interop_result, golden_result)
 
 
 #JIT op -> ttnn unary op test (DRAM)
@@ -578,14 +542,19 @@ def test_interop_jit_and_ttnn_to_binary_l1(device, h, w, max_grid, dtype, jit_op
 )
 def test_interop_jit_to_ttnn_unary_dram(device, h, w, dtype, jit_op, ttnn_unary_op):
     max_grid = (0, 0)
-    run_interop_test(
-        device, h, w, max_grid, dtype,
-        jit_ops=[jit_op],
-        ttnn_op=ttnn_unary_op,
-        num_jit_ops=1,
-        ttnn_tensor_separate=False,
-        buffer_type=ttnn.BufferType.DRAM
-    )
+    input_tensor = create_dram_tensor(device, h, w, dtype)
+
+    # Interop path
+    compiled_op = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op)
+    jit_output = compiled_op(input_tensor)
+    interop_result = ttnn_unary_op(jit_output)
+
+    # Golden path
+    golden_jit_op = _get_ttnn_op(jit_op) or jit_op
+    golden_jit_output = golden_jit_op(input_tensor)
+    golden_result = ttnn_unary_op(golden_jit_output)
+
+    all_close_check(interop_result, golden_result)
 
 
 #2 JIT ops -> ttnn binary op test (DRAM)
@@ -612,14 +581,24 @@ def test_interop_jit_to_ttnn_unary_dram(device, h, w, dtype, jit_op, ttnn_unary_
 )
 def test_interop_two_jit_to_ttnn_binary_dram(device, h, w, dtype, jit_op1, jit_op2, ttnn_binary_op):
     max_grid = (0, 0)
-    run_interop_test(
-        device, h, w, max_grid, dtype,
-        jit_ops=[jit_op1, jit_op2],
-        ttnn_op=ttnn_binary_op,
-        num_jit_ops=2,
-        ttnn_tensor_separate=False,
-        buffer_type=ttnn.BufferType.DRAM
-    )
+    input1 = create_dram_tensor(device, h, w, dtype)
+    input2 = create_dram_tensor(device, h, w, dtype)
+
+    # Interop path
+    compiled_op1 = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op1)
+    compiled_op2 = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op2)
+    jit_output1 = compiled_op1(input1)
+    jit_output2 = compiled_op2(input2)
+    interop_result = ttnn_binary_op(jit_output1, jit_output2)
+
+    # Golden path
+    golden_jit_op1 = _get_ttnn_op(jit_op1) or jit_op1
+    golden_jit_op2 = _get_ttnn_op(jit_op2) or jit_op2
+    golden_output1 = golden_jit_op1(input1)
+    golden_output2 = golden_jit_op2(input2)
+    golden_result = ttnn_binary_op(golden_output1, golden_output2)
+
+    all_close_check(interop_result, golden_result)
 
 
 #JIT op + ttnn tensor -> ttnn binary op test (DRAM)
@@ -646,11 +625,17 @@ def test_interop_two_jit_to_ttnn_binary_dram(device, h, w, dtype, jit_op1, jit_o
 )
 def test_interop_jit_and_ttnn_to_binary_dram(device, h, w, dtype, jit_op, ttnn_binary_op):
     max_grid = (0, 0)
-    run_interop_test(
-        device, h, w, max_grid, dtype,
-        jit_ops=[jit_op],
-        ttnn_op=ttnn_binary_op,
-        num_jit_ops=1,
-        ttnn_tensor_separate=True,
-        buffer_type=ttnn.BufferType.DRAM
-    )
+    input_tensor = create_dram_tensor(device, h, w, dtype)
+    ttnn_tensor = create_dram_tensor(device, h, w, dtype)
+
+    # Interop path
+    compiled_op = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(jit_op)
+    jit_output = compiled_op(input_tensor)
+    interop_result = ttnn_binary_op(jit_output, ttnn_tensor)
+
+    # Golden path
+    golden_jit_op = _get_ttnn_op(jit_op) or jit_op
+    golden_jit_output = golden_jit_op(input_tensor)
+    golden_result = ttnn_binary_op(golden_jit_output, ttnn_tensor)
+
+    all_close_check(interop_result, golden_result)
