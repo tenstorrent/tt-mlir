@@ -55,6 +55,8 @@ jobs:
             - **Frontend CI passing links**
               - [ ] [tt-forge-fe](https://github.com/tenstorrent/tt-forge-fe/actions/workflows/on-pr.yml):
               - [ ] [tt-xla (basic + models)](https://github.com/tenstorrent/tt-xla/actions/workflows/manual-test.yml):
+            - **Metal dependency updates**
+              - [ ] Update the commit hash in .github/Dockerfile.base if metal's install_dependencies.sh or tt_metal/sfpi-version.sh is changed
             - **Follow-up Actions**
               - [ ] **Issues filed** to follow up on incomplete changes (if any):
               - [ ] **Frontend fix PRs** ready (if needed by this uplift):
