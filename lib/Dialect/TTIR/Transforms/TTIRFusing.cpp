@@ -488,77 +488,6 @@ private:
     return false;
   }
 };
-// ReLU6 fusion pattern matcher that transforms:
-//   clamp_scalar(x, min=0, max=6)
-// or:
-//   clamp_scalar(clamp_scalar(x, min=0), max=6)
-//   clamp_scalar(clamp_scalar(x, max=6), min=0)
-// into:
-//   relu6(x)
-class Relu6FromClampScalarFusionPattern
-    : public mlir::OpRewritePattern<ClampScalarOp> {
-  using mlir::OpRewritePattern<ClampScalarOp>::OpRewritePattern;
-
-public:
-  mlir::LogicalResult
-  matchAndRewrite(ClampScalarOp clampOp,
-                  mlir::PatternRewriter &rewriter) const final {
-    // Try single clamp pattern first: clamp(x, min=0, max=6)
-    if (isSingleClampRelu6(clampOp)) {
-      utils::replaceOpWithNewDPSOp<Relu6Op>(
-          rewriter, clampOp, clampOp.getResult().getType(), clampOp.getInput());
-      return mlir::success();
-    }
-
-    // Try double clamp pattern: clamp(clamp(x, max=6), min=0)
-    Value originalInput = getDoubleClampRelu6Input(clampOp);
-    if (originalInput) {
-      utils::replaceOpWithNewDPSOp<Relu6Op>(
-          rewriter, clampOp, clampOp.getResult().getType(), originalInput);
-      return mlir::success();
-    }
-
-    return mlir::failure();
-  }
-
-private:
-  // Check if single clamp has min=0 and max=6
-  bool isSingleClampRelu6(ClampScalarOp clampOp) const {
-    return isScalarValue(clampOp.getMin(), 0.0f) &&
-           isScalarValue(clampOp.getMax(), 6.0f);
-  }
-
-  // Check if this is a double clamp pattern and return the original input
-  Value getDoubleClampRelu6Input(ClampScalarOp outerClamp) const {
-    ClampScalarOp innerClamp =
-        outerClamp.getInput().getDefiningOp<ClampScalarOp>();
-    if (!innerClamp || !innerClamp->hasOneUse()) {
-      return nullptr;
-    }
-
-    // Check if we have complementary clamp operations
-    APFloat outerMin = outerClamp.getMin();
-    APFloat outerMax = outerClamp.getMax();
-    APFloat innerMin = innerClamp.getMin();
-    APFloat innerMax = innerClamp.getMax();
-
-    // Pattern 1: inner clamp has min=0, outer clamp has max=6
-    if (isScalarValue(innerMin, 0.0f) && isScalarValue(outerMax, 6.0f)) {
-      return innerClamp.getInput();
-    }
-
-    // Pattern 2: inner clamp has max=6, outer clamp has min=0
-    if (isScalarValue(innerMax, 6.0f) && isScalarValue(outerMin, 0.0f)) {
-      return innerClamp.getInput();
-    }
-    return nullptr;
-  }
-
-  // Helper to check if an APFloat value equals expected value
-  bool isScalarValue(APFloat value, float expectedValue) const {
-    return value.convertToFloat() == expectedValue;
-  }
-};
 
 // Hardsigmoid fusion pattern matcher that transforms:
 //   relu6(x+3) / 6
@@ -2485,7 +2414,6 @@ public:
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());
-      patterns.add<Relu6FromClampScalarFusionPattern>(&getContext());
       patterns.add<SiluFusionPattern>(&getContext());
       patterns.add<HardsigmoidFusionPattern>(&getContext());
 
