@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "4eff6bc65a1d98d00f9751c57a25bf78d94ce2ae")
+set(TT_METAL_VERSION "2b185f1aea1d3d48917b081ebd2044ddbde66273")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -136,9 +136,11 @@ install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn
   DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  USE_SOURCE_PERMISSIONS
   COMPONENT SharedLib
   EXCLUDE_FROM_ALL
 )
+
 install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/runtime
@@ -233,6 +235,25 @@ install(
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
   DESTINATION tt-metal
   COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+
+# DistributedRuntime install commands
+#
+
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tests/tt_metal/distributed/config
+  DESTINATION tt-metal/tests/tt_metal/distributed
+  COMPONENT DistributedRuntime
+  EXCLUDE_FROM_ALL
+)
+
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tests/tt_metal/tt_fabric/custom_mesh_descriptors
+  DESTINATION tt-metal/tests/tt_metal/tt_fabric
+  COMPONENT DistributedRuntime
   EXCLUDE_FROM_ALL
 )
 

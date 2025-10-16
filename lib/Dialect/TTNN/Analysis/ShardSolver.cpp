@@ -290,7 +290,7 @@ bool ShardSolver::resolveStep() {
 bool ShardSolver::supportsInterleavedInputShardedOutput(
     Operation *op, OpConfig outputConfig, bool rowMajorInputOverride) {
   RankedTensorType tensorType =
-      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+      mlir::cast<RankedTensorType>(op->getOperand(0).getType());
   TTNNLayoutAttr inputLayout =
       mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
   llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
@@ -302,6 +302,12 @@ bool ShardSolver::supportsInterleavedInputShardedOutput(
     inputLayout = inputLayout.withLayout(Layout::RowMajor, tensorShape);
   }
 
+  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+               "Checking interleaved to sharded for op {} \n\tinputTensor {} "
+               "\n\tinputLayout: {} "
+               "\n\toutputLayout: {}",
+               op->getName(), tensorType, inputLayout,
+               outputConfig.outputLayout);
   llvm::Expected<TTNNLayoutAttr> shardCompatible =
       checkShardCompatible(op->getOperand(0), inputLayout, op, outputConfig);
 
@@ -527,8 +533,8 @@ bool ShardSolver::insertReshard(const Edge &edge) {
                    config.outputLayout);
     }
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Error count: {}",
-                 errorCount.size());
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "Error count: {} types of errors", errorCount.size());
     for (const auto &[error, layouts] : errorCount) {
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Count: {} Error: {}",
                    layouts.size(), error);
@@ -913,7 +919,7 @@ llvm::Expected<TTNNLayoutAttr> ShardSolver::checkShardCompatible(
   if (!l1UsageValid) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
                  "Not enough L1 memory. OpModel constraints failed: {0}->{1} "
-                 "\n producerLayout: {2}, outputLayout: {3}, l1Usage: {4}, "
+                 "\n producerLayout: {2}, \noutputLayout: {3}, \nl1Usage: {4}, "
                  "producerL1OutputUsage: {5}, "
                  "outputTensorUsage: {6}, cBUsagePeak: {7}",
                  producerOperand.getLoc(), consumerOp->getName(),

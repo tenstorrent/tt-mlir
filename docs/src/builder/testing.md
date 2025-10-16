@@ -95,7 +95,9 @@ ops. There are some special rules to follow when defining parametrizations for t
     ...
     stride, padding, dilation, groups = stride_padding_dilation_groups
 - If a different backend to `"ttnn"` is desired, then it must be parametrized
-  under the name `"target"`
+  under the name `"target"`. This is true even of test cases that don't need to
+  be over multiple targets, since the `device` fixture must be able to read the
+  target from the parameters to initialize the device for execution
 - All tests must contain the `pytest.mark.frontend` mark, denoting either
   `"ttir"` or `"shlo"`. The easiest way to do this is by utilizing file wide
   marks (set the `pytestmark` variable to the mark or a list of marks you want
@@ -105,8 +107,6 @@ ops. There are some special rules to follow when defining parametrizations for t
 There are a number of custom marks provided for this test suite, most of them
 having to do with skipping tests on specific hardware or with specific
 parameter configurations. They are as follows:
-- `fails_golden`: Marks a test that will produce a flatbuffer that will fail golden comparison
-- `run_error`: Marks a test that will produce a flatbuffer that will hit a runtime error
 - `x86_only`: Skips a test if the host is not running x86 hardware
 - `skip_config(...)`: Given a set of target and hardware params, this will skip
   the test if the specific config is met. For example, `skip_config(["ttmetal",
