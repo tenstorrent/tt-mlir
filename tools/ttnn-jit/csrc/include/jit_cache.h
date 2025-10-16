@@ -12,15 +12,7 @@
 
 namespace mlir::tt::ttnn::jit {
 
-struct JitCacheEntry {
-  std::shared_ptr<void> flatbuffer_binary;
-};
-
-struct JitCacheKey {
-  std::string func_sig;
-  std::string backend;
-  std::tuple<uint32_t, uint32_t> max_grid;
-};
+using JitCacheEntry = std::shared_ptr<void>;
 
 class JitCache {
 public:
@@ -31,18 +23,13 @@ public:
   JitCache &operator=(const JitCache &) = delete;
   JitCache &operator=(JitCache &&) = delete;
 
-  std::shared_ptr<void>
-  get(Operation *op, const JitCacheKey &key,
-      const std::vector<::ttnn::Tensor> &tensor_args,
-      const std::vector<std::variant<int, bool, float, std::string>> &params,
-      std::string options = "");
+  JitCacheEntry get(Operation *op,
+                    const std::vector<::ttnn::Tensor> &tensor_args,
+                    std::string options = "");
   uint32_t get_cache_hits() const { return cache_hits; }
 
 private:
-  std::size_t hash_key(
-      const JitCacheKey &key, const std::vector<::ttnn::Tensor> &tensor_args,
-      const std::vector<std::variant<int, bool, float, std::string>> &params)
-      const;
+  std::size_t hash_key(const std::vector<::ttnn::Tensor> &tensor_args) const;
   void compile(Operation *op, std::string options);
   llvm::DenseMap<std::size_t, JitCacheEntry> cache;
   mlir::DialectRegistry registry;

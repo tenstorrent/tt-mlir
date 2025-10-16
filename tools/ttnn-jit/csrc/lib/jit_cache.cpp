@@ -16,7 +16,6 @@ namespace mlir::tt::ttnn::jit {
 
 JitCache::JitCache(std::size_t cacheSize) {
   cache.reserve(cacheSize);
-  mlir::tt::registerAllPasses();
   mlir::tt::registerAllExtensions(registry);
 }
 
@@ -41,30 +40,25 @@ void JitCache::compile(Operation *op, std::string options) {
   }
 }
 
-std::shared_ptr<void> JitCache::get(
-    Operation *op, const JitCacheKey &key,
-    const std::vector<::ttnn::Tensor> &tensor_args,
-    const std::vector<std::variant<int, bool, float, std::string>> &params,
-    std::string options) {
+JitCacheEntry JitCache::get(Operation *op,
+                            const std::vector<::ttnn::Tensor> &tensor_args,
+                            std::string options) {
 
-  std::size_t hash = hash_key(key, tensor_args, params);
+  std::size_t hash = hash_key(tensor_args);
   auto it = cache.find(hash);
   if (it != cache.end()) {
     cache_hits++;
-    return it->second.flatbuffer_binary;
+    return it->second;
   }
   compile(op, options);
-  std::shared_ptr<void> flatbuffer_binary = ttnnToFlatbuffer(op);
-  cache.try_emplace(hash, JitCacheEntry{flatbuffer_binary});
+  JitCacheEntry flatbuffer_binary = ttnnToFlatbuffer(op);
+  cache.try_emplace(hash, flatbuffer_binary);
   return flatbuffer_binary;
 }
 
-std::size_t JitCache::hash_key(
-    const JitCacheKey &key, const std::vector<::ttnn::Tensor> &tensor_args,
-    const std::vector<std::variant<int, bool, float, std::string>> &params)
-    const {
-  return ttsl::hash::hash_objects_with_default_seed(
-      key.func_sig, key.backend, key.max_grid, tensor_args, params);
+std::size_t
+JitCache::hash_key(const std::vector<::ttnn::Tensor> &tensor_args) const {
+  return ttsl::hash::hash_objects_with_default_seed(tensor_args);
 }
 
 } // namespace mlir::tt::ttnn::jit
