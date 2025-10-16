@@ -26,14 +26,13 @@ public:
   JitCacheEntry get(Operation *op,
                     const std::vector<::ttnn::Tensor> &tensor_args,
                     std::string options = "");
-  uint32_t get_cache_hits() const { return cache_hits; }
+  std::size_t num_entries() const { return this->cache.size(); }
 
 private:
   std::size_t hash_key(const std::vector<::ttnn::Tensor> &tensor_args) const;
   void compile(Operation *op, std::string options);
   llvm::DenseMap<std::size_t, JitCacheEntry> cache;
   mlir::DialectRegistry registry;
-  uint32_t cache_hits = 0;
 };
 
 } // namespace mlir::tt::ttnn::jit

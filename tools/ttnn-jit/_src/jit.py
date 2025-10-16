@@ -113,6 +113,6 @@ class JitFunction:
             raise ValueError(f"Unsupported backend: {self.backend}")
 
     @property
-    def cache_hits(self):
-        """Return the number of cache hits."""
-        return self.cache.cache_hits()
+    def num_entries(self):
+        """Return the number of cache entries."""
+        return self.cache.num_entries()
