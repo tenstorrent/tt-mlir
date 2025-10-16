@@ -210,6 +210,7 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
 ::mlir::LogicalResult DPrintOp::verify() {
   StringRef fmt = getFmt();
   size_t numFormatSpecifiers = fmt.count("{}");
+
   if (numFormatSpecifiers != getOperands().size()) {
     return emitOpError("number of format specifiers must match number of "
                        "operands");

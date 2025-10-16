@@ -56,12 +56,16 @@ def test_system_desc(request):
 
 
 @pytest.mark.parametrize("num_loops", [64])
-def test_flatbuffer_execution(request, num_loops):
+@pytest.mark.parametrize("mesh_shape", ["1x8", "2x4"])
+def test_flatbuffer_execution(request, num_loops, mesh_shape):
     assert os.path.exists(
         RANK_BINDING_PATH
     ), f"Rank binding path not found: {RANK_BINDING_PATH}"
 
-    binary_path = os.path.join(FLATBUFFER_BASE_PATH, "simple_add.mlir.tmp.ttnn")
+    mesh_shape_list = list(map(int, mesh_shape.split("x")))
+    binary_path = os.path.join(
+        FLATBUFFER_BASE_PATH, f"simple_add_{mesh_shape}.mlir.tmp.ttnn"
+    )
     assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
 
     test_config = ProgramTestConfig(
@@ -97,7 +101,7 @@ def test_flatbuffer_execution(request, num_loops):
     ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Distributed)
     ttrt.runtime.launch_distributed_runtime(distributed_options)
 
-    with DeviceContext(mesh_shape=[2, 4]) as device:
+    with DeviceContext(mesh_shape=mesh_shape_list) as device:
         inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(
             device, borrow=False
         )
