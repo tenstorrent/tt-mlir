@@ -469,14 +469,14 @@ public:
                 loc, dst, dstAccessMap, dstAccessIndices);
             Value valueToStore = dstLoad.getResult();
 
-            // Insert unrealized conversion cast if destination CB type differs
+            // Insert dst reinterpret cast if destination CB type differs
             // from dst type
             auto cbType = mlir::cast<MemRefType>(cb.getType());
             if (valueToStore.getType() != cbType.getElementType()) {
               valueToStore = rewriter
-                                 .create<UnrealizedConversionCastOp>(
+                                 .create<d2m::DstReinterpretCastOp>(
                                      loc, cbType.getElementType(), valueToStore)
-                                 .getResult(0);
+                                 .getResult();
             }
 
             rewriter.create<affine::AffineStoreOp>(
@@ -486,15 +486,15 @@ public:
           [&](PatternRewriter &rewriter, affine::AffineStoreOp op,
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             Value valueToStore = op.getValue();
-            // Insert unrealized conversion cast if value type differs from dst
+            // Insert dst reinterpret cast if value type differs from dst
             // type
             auto dstType = mlir::cast<MemRefType>(dst.getType());
             if (valueToStore.getType() != dstType.getElementType()) {
               valueToStore =
                   rewriter
-                      .create<UnrealizedConversionCastOp>(
+                      .create<d2m::DstReinterpretCastOp>(
                           op.getLoc(), dstType.getElementType(), valueToStore)
-                      .getResult(0);
+                      .getResult();
             }
             rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
                 op, valueToStore, dst, dstAccessMap, dstAccessIndices);
@@ -654,14 +654,19 @@ public:
 
       rewriter.setInsertionPointAfter(op);
 
-      // Insert unrealized conversion cast if compute result type differs from
+      // Insert dst reinterpret cast if compute result type differs from
       // dst type
-      Value valueToStore = op->getResult(0);
-      if (valueToStore.getType() != dstType.getElementType()) {
-        valueToStore = rewriter
-                           .create<UnrealizedConversionCastOp>(
-                               loc, dstType.getElementType(), valueToStore)
-                           .getResult(0);
+      Value originalResult = op->getResult(0);
+      Type originalType = originalResult.getType();
+      Value valueToStore = originalResult;
+      Operation *castOp = nullptr;
+      bool needsTypeCast = (originalType != dstType.getElementType());
+
+      if (needsTypeCast) {
+        auto cast = rewriter.create<d2m::DstReinterpretCastOp>(
+            loc, dstType.getElementType(), valueToStore);
+        valueToStore = cast.getResult();
+        castOp = cast.getOperation();
       }
 
       auto storeOp = rewriter.create<affine::AffineStoreOp>(
@@ -670,12 +675,25 @@ public:
       auto loadedResult = rewriter.create<affine::AffineLoadOp>(
           loc, dst, storeMap, storeIndices);
 
-      // Replace all uses of the original result with the loaded result from dst
-      // register, but exclude the store operation we just created.
-      rewriter.replaceUsesWithIf(op->getResult(0), loadedResult.getResult(),
-                                 [&](mlir::OpOperand &operand) {
-                                   return operand.getOwner() != storeOp;
-                                 });
+      // If we cast for storage, we need to cast back to the original type
+      // after loading, since downstream ops expect the original type.
+      Value replacementValue = loadedResult.getResult();
+      Operation *castBackOp = nullptr;
+      if (needsTypeCast) {
+        auto castBack = rewriter.create<d2m::DstReinterpretCastOp>(
+            loc, originalType, replacementValue);
+        replacementValue = castBack.getResult();
+        castBackOp = castBack.getOperation();
+      }
+
+      // Replace all uses of the original result with the (possibly cast back)
+      // loaded result from dst register, but exclude the store operation and
+      // cast operations to avoid circular dependencies.
+      rewriter.replaceUsesWithIf(
+          originalResult, replacementValue, [&](mlir::OpOperand &operand) {
+            Operation *owner = operand.getOwner();
+            return owner != storeOp && owner != castOp && owner != castBackOp;
+          });
     }
   }
 

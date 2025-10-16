@@ -290,20 +290,17 @@ public:
   LogicalResult
   matchAndRewrite(memref::StoreOp op, memref::StoreOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    // Look for the load operation, potentially through an unrealized conversion
-    // cast
+    // Look for the load operation, potentially through a dst reinterpret cast
     Operation *definingOp = op.getValue().getDefiningOp();
     auto load = mlir::dyn_cast<memref::LoadOp>(definingOp);
 
-    // If not a direct load, check if it's an unrealized cast wrapping a load
+    // If not a direct load, check if it's a cast wrapping a load
     if (!load && definingOp) {
-      if (auto unrealizedCast =
-              mlir::dyn_cast<UnrealizedConversionCastOp>(definingOp)) {
-        // Look through the unrealized cast to find the actual load
-        if (unrealizedCast.getNumOperands() == 1) {
-          load = mlir::dyn_cast_or_null<memref::LoadOp>(
-              unrealizedCast.getOperand(0).getDefiningOp());
-        }
+      if (auto dstCast =
+              mlir::dyn_cast<d2m::DstReinterpretCastOp>(definingOp)) {
+        // Look through the dst reinterpret cast to find the actual load
+        load = mlir::dyn_cast_or_null<memref::LoadOp>(
+            dstCast.getInput().getDefiningOp());
       }
     }
 
@@ -314,9 +311,9 @@ public:
       // If we are coming from a load, then we are a copy tile. Pattern:
       //    %0 = memref.load %arg0, %c0 : memref<1x!tt.tile, l1>
       //    tt.store %0, %arg1, %c0 : memref<1x!tt.tile, dst>
-      // OR with unrealized cast:
+      // OR with dst reinterpret cast:
       //    %0 = memref.load %arg0, %c0 : memref<1x!tt.tile, l1>
-      //    %1 = unrealized_conversion_cast %0 : type1 -> type2
+      //    %1 = d2m.dst_reinterpret_cast %0 : type1 -> type2
       //    tt.store %1, %arg1, %c0 : memref<1x!tt.tile, dst>
       return lowerCopyTile(load, op, adaptor, rewriter);
     }
@@ -830,6 +827,20 @@ public:
     }
 
     rewriter.eraseOp(op);
+    return success();
+  };
+};
+
+class D2MDstReinterpretCastRewriter
+    : public OpConversionPattern<d2m::DstReinterpretCastOp> {
+public:
+  using OpConversionPattern<d2m::DstReinterpretCastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::DstReinterpretCastOp op,
+                  d2m::DstReinterpretCastOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOp(op, adaptor.getInput());
     return success();
   };
 };
@@ -1502,6 +1513,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTilizeUntilizeRewriter,
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MTypecastRewriter,
+               ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,
