@@ -1,6 +1,6 @@
-// UNSUPPORTED: true
+
 // TODO: Need to figure out the correct pass pipeline to go from TTIR all the way to TTKernel.
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --convert-d2m-to-ttkernel -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --ttir-bufferization-pipeline --d2m-insert-dst-register-access --lower-affine --d2m-generic-linearize-memref --lower-affine --convert-d2m-to-ttkernel --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 !ttype_f32 = tensor<128x96xf32>

@@ -466,8 +466,9 @@ ToLayoutOp::bufferize(mlir::RewriterBase &rewriter,
     MemRefType alignedHostMemref = mlir::cast<MemRefType>(
         *getBufferType(getInput(), options, state, invocationStack));
 
-    if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
-            .isPadded()) {
+    auto hostLayoutAttr = mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(
+        alignedHostMemref.getLayout());
+    if (hostLayoutAttr && hostLayoutAttr.isPadded()) {
       auto alignedHostTensor =
           rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
       rewriter.create<memref::CopyOp>(getLoc(), *maybeInput, alignedHostTensor);
@@ -488,8 +489,9 @@ ToLayoutOp::bufferize(mlir::RewriterBase &rewriter,
     MemRefType alignedHostMemref = mlir::cast<MemRefType>(
         *getBufferType(getOutput(), options, state, invocationStack));
 
-    if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
-            .isPadded()) {
+    auto hostLayoutAttr = mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(
+        alignedHostMemref.getLayout());
+    if (hostLayoutAttr && hostLayoutAttr.isPadded()) {
       rewriter.setInsertionPoint(toLayoutOp);
       auto alignedHostTensor =
           rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
