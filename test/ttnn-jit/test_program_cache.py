@@ -32,6 +32,9 @@ def test_program_cache(device):
     op_single_core = jit(backend="ttnn", max_grid=(0, 0))(abs)
     op_full_grid = jit(backend="ttnn", max_grid=(7, 7))(abs)
 
+    assert op_single_core.num_entries == 0, "No entries should be in the cache"
+    assert op_full_grid.num_entries == 0, "No entries should be in the cache"
+
     tensor_single_h1_w1_bf16_0 = _create_sharded_tile_tensor(
         device, h1, w1, (0, 0), torch.bfloat16
     )
@@ -57,48 +60,50 @@ def test_program_cache(device):
 
     # Test 1: Cache miss - first compilation (op_single_core + L1 single + h1,w1 + bf16)
     output = op_single_core(tensor_single_h1_w1_bf16_0)
-    assert op_single_core.cache_hits == 0, "First call should be a cache miss"
+    assert op_single_core.num_entries == 1, "First call should be a cache miss"
     ttnn.deallocate(tensor_single_h1_w1_bf16_0)
     ttnn.deallocate(output)
 
     # Test 2: Cache HIT - same op, same tensor properties, different data
     output = op_single_core(tensor_single_h1_w1_bf16_1)
     assert (
-        op_single_core.cache_hits == 1
+        op_single_core.num_entries == 1
     ), "Same op with same tensor metadata but different data should be a cache hit"
     ttnn.deallocate(tensor_single_h1_w1_bf16_1)
     ttnn.deallocate(output)
 
     # Test 3: Cache miss - completely different op with it's own cache
     output = op_full_grid(tensor_full_h1_w1_bf16_0)
-    assert op_full_grid.cache_hits == 0, "New op, should be cache miss"
+    assert op_full_grid.num_entries == 1, "New op, should be cache miss"
     ttnn.deallocate(tensor_full_h1_w1_bf16_0)
     ttnn.deallocate(output)
 
     # Test 4: Cache HIT - op_full_grid with same properties, different data
     output = op_full_grid(tensor_full_h1_w1_bf16_1)
     assert (
-        op_full_grid.cache_hits == 1
+        op_full_grid.num_entries == 1
     ), "Same op with same tensor metadata but different data should be a cache hit"
     ttnn.deallocate(tensor_full_h1_w1_bf16_1)
     ttnn.deallocate(output)
 
     # Test 5: Cache miss - different dtype (fp32)
     output = op_single_core(tensor_single_h1_w1_fp32)
-    assert op_single_core.cache_hits == 1, "Different dtype should be cache miss"
+    assert op_single_core.num_entries == 2, "Different dtype should be cache miss"
     ttnn.deallocate(tensor_single_h1_w1_fp32)
     ttnn.deallocate(output)
 
     # Test 6: Cache miss - different shape (h2, w2)
     output = op_single_core(tensor_single_h2_w2_bf16)
-    assert op_single_core.cache_hits == 1, "Different tensor shape should be cache miss"
+    assert (
+        op_single_core.num_entries == 3
+    ), "Different tensor shape should be cache miss"
     ttnn.deallocate(tensor_single_h2_w2_bf16)
     ttnn.deallocate(output)
 
     # Test 7: Cache miss - different memory config (DRAM))
     output = op_single_core(tensor_dram_h1_w1_bf16_0)
     assert (
-        op_single_core.cache_hits == 1
+        op_single_core.num_entries == 4
     ), "Different memory config (L1 vs DRAM) should be cache miss"
     ttnn.deallocate(tensor_dram_h1_w1_bf16_0)
     ttnn.deallocate(output)
@@ -106,7 +111,7 @@ def test_program_cache(device):
     # Test 8: Cache HIT - DRAM tensor with same properties, different data
     output = op_single_core(tensor_dram_h1_w1_bf16_1)
     assert (
-        op_single_core.cache_hits == 2
+        op_single_core.num_entries == 4
     ), "DRAM tensor with same properties should be a cache hit"
     ttnn.deallocate(tensor_dram_h1_w1_bf16_1)
     ttnn.deallocate(output)
