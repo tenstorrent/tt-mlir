@@ -129,7 +129,7 @@ class TTIRCompiler(ast.NodeVisitor):
                 [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
             )
 
-            ttnn_layout = ttnn.ir.TTNNLayoutAttr.get(
+            ttnn_layout = ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
                 identity_map,
                 grid,
@@ -146,7 +146,7 @@ class TTIRCompiler(ast.NodeVisitor):
             grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
             shape = [tensor_arg.shape[0] // 32, tensor_arg.shape[1] // 32]
             memref = MemRefType.get(shape, tile_type, None, buffer_type)
-            return ttnn.ir.TTNNLayoutAttr.get(
+            return ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
                 identity_map,
                 grid,
