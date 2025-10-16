@@ -36,9 +36,9 @@ enablePrintIR = True
 
 gridParams = [
     "override-device-shape=1,1",
-    # "override-device-shape=2,2",
-    # "override-device-shape=4,4",
-    # "override-device-shape=8,8",
+    "override-device-shape=2,2",
+    "override-device-shape=4,4",
+    "override-device-shape=8,8",
 ]
 
 ### ----------------------------------------------------------------------- ###
@@ -233,14 +233,14 @@ def test_eltwise_fuse_cosh(
 
 @pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_tanh(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     options = [grid]
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         tanh,
         [shape],
         [dtype],
@@ -251,6 +251,7 @@ def test_eltwise_fuse_tanh(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=enablePrintIR,
+        device=device,
     )
 
 
@@ -429,6 +430,59 @@ def test_eltwise_fuse_converging_unary_branches(
 
 
 ##--##-------------------------------------------------------------------##--##
+@pytest.mark.parametrize("grid", gridParams)
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_binary_reduction_tree_4_to_1(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    options = [grid]
+
+    def add_tree_4_to_1(
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        in3: Operand,
+        builder: TTIRBuilder,
+    ):
+        input_0 = torch.full(shape, 1).to(dtype)
+        input_1 = torch.full(shape, 2).to(dtype)
+        input_2 = torch.full(shape, 3).to(dtype)
+        input_3 = torch.full(shape, 4).to(dtype)
+
+        add_0_0 = builder.add(in0, in1)
+        add_0_1 = builder.add(in2, in3)
+        add_1_0 = builder.add(add_0_0, add_0_1)
+
+        output_0 = torch.full(shape, 10).to(dtype)
+
+        builder.set_goldens(
+            {
+                in0: input_0,
+                in1: input_1,
+                in2: input_2,
+                in3: input_3,
+            },
+            {add_1_0: output_0},
+        )
+
+        return add_1_0
+
+    compile_and_execute_ttir(
+        add_tree_4_to_1,
+        [shape] * 4,
+        [dtype] * 4,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=enablePrintIR,
+        device=device,
+    )
+
 
 # TODO(mbagherbeikTT): figure out why a 4 input add fails without setting goldens
 # so we can use the helper functions and not have to manually copy paste
@@ -438,7 +492,7 @@ def test_eltwise_fuse_converging_unary_branches(
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_eltwise_fuse_binary_reduction_tree(
+def test_eltwise_fuse_binary_reduction_tree_8_to_1(
     grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     options = [grid]
@@ -446,55 +500,55 @@ def test_eltwise_fuse_binary_reduction_tree(
     def add_tree_8_to_1(
         in0: Operand,
         in1: Operand,
-        # in2: Operand,
-        # in3: Operand,
-        # in4: Operand,
-        # in5: Operand,
-        # in6: Operand,
-        # in7: Operand,
+        in2: Operand,
+        in3: Operand,
+        in4: Operand,
+        in5: Operand,
+        in6: Operand,
+        in7: Operand,
         builder: TTIRBuilder,
     ):
         input_0 = torch.full(shape, 1).to(dtype)
         input_1 = torch.full(shape, 2).to(dtype)
-        # input_2 = torch.full(shape, 3).to(dtype)
-        # input_3 = torch.full(shape, 4).to(dtype)
-        # input_4 = torch.full(shape, 5).to(dtype)
-        # input_5 = torch.full(shape, 6).to(dtype)
-        # input_6 = torch.full(shape, 7).to(dtype)
-        # input_7 = torch.full(shape, 8).to(dtype)
+        input_2 = torch.full(shape, 3).to(dtype)
+        input_3 = torch.full(shape, 4).to(dtype)
+        input_4 = torch.full(shape, 5).to(dtype)
+        input_5 = torch.full(shape, 6).to(dtype)
+        input_6 = torch.full(shape, 7).to(dtype)
+        input_7 = torch.full(shape, 8).to(dtype)
 
         add_0_0 = builder.add(in0, in1)
-        # add_0_1 = builder.add(in2, in3)
-        # add_1_0 = builder.add(add_0_0, add_0_1)
+        add_0_1 = builder.add(in2, in3)
+        add_1_0 = builder.add(add_0_0, add_0_1)
 
-        # add_0_2 = builder.add(in4, in5)
-        # add_0_3 = builder.add(in6, in7)
-        # add_1_1 = builder.add(add_0_2, add_0_3)
+        add_0_2 = builder.add(in4, in5)
+        add_0_3 = builder.add(in6, in7)
+        add_1_1 = builder.add(add_0_2, add_0_3)
 
-        # add_2_0 = builder.add(add_1_0, add_1_1)
+        add_2_0 = builder.add(add_1_0, add_1_1)
 
-        output_0 = torch.full(shape, 3).to(dtype)
+        output_0 = torch.full(shape, 36).to(dtype)
 
         builder.set_goldens(
             {
                 in0: input_0,
                 in1: input_1,
-                # in2: input_2,
-                # in3: input_3,
-                # in4: input_4,
-                # in5: input_5,
-                # in6: input_6,
-                # in7: input_7,
+                in2: input_2,
+                in3: input_3,
+                in4: input_4,
+                in5: input_5,
+                in6: input_6,
+                in7: input_7,
             },
-            {add_0_0: output_0},
+            {add_2_0: output_0},
         )
 
-        return add_0_0
+        return add_2_0
 
     compile_and_execute_ttir(
         add_tree_8_to_1,
-        [shape] * 2,
-        [dtype] * 2,
+        [shape] * 8,
+        [dtype] * 8,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -559,7 +613,7 @@ def test_diamond_unary_op_fanout(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_binary_sequential_chain(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     options = [grid]
 
@@ -609,7 +663,7 @@ def test_eltwise_fuse_binary_sequential_chain(
 
         return add_6
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_ttir(
         add_chain_8_to_1,
         [shape] * 8,
         [dtype] * 8,
@@ -620,6 +674,7 @@ def test_eltwise_fuse_binary_sequential_chain(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=enablePrintIR,
+        device=device,
     )
 
 

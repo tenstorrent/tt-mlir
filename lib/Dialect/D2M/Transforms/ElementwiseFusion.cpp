@@ -36,20 +36,11 @@ static int countBinaryOps(Operation *op) {
   return count;
 }
 
+// Aggressively fuse without considering block sizes. DestRegisterAnalysis and
+// GenericTileComputeLoops handle the tradeoff between compute density and
+// register pressure by computing optimal subblock factors.
 static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
                                 OpOperand *use, unsigned dstCapacity) {
-  auto tensorType = mlir::cast<RankedTensorType>(use->get().getType());
-
-  auto shape = tensorType.getShape();
-  int blockSize = shape.back();
-  shape = shape.drop_back(1);
-  blockSize *= shape.back();
-
-  if (blockSize > static_cast<int>(dstCapacity)) {
-    blockSize = dstCapacity;
-  }
-
-  blockSize = 1;
 
   int dstTilesRemaining = dstCapacity;
 
@@ -62,15 +53,14 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
   int numConsOperands = static_cast<int>(consumer.getNumOperands());
   int numProdOperands = static_cast<int>(producer.getNumOperands());
 
-  dstTilesRemaining -= blockSize * (numConsOperands + numProdOperands - 2 - 1);
+  dstTilesRemaining -= (numConsOperands + numProdOperands - 2 - 1);
 
   if (dstTilesRemaining < 0) {
     return false;
   }
 
   // Subtract # of intermediate tiles needed
-  dstTilesRemaining -=
-      blockSize * (countBinaryOps(consumer) + countBinaryOps(producer));
+  dstTilesRemaining -= (countBinaryOps(consumer) + countBinaryOps(producer));
 
   if (dstTilesRemaining < 0) {
     return false;

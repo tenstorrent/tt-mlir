@@ -10,27 +10,23 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/Operation.h"
 
-#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::d2m {
 
 /// Information about destination register usage for a GenericOp.
 struct DstRegisterInfo {
   int dstMaxUsage = 0;
-  llvm::DenseMap<Operation *, int> computeOpMap;
+  // Store intermediate DST slice indices instead of a map of operations.
+  // This avoids keeping stale Operation pointers around.
+  llvm::SmallVector<int> dstSliceIndices;
 };
 
 /// Analysis for determining destination register tile usage in GenericOps.
 struct DestRegisterAnalysis {
   DestRegisterAnalysis(Operation *op);
 
-  int getDstMaxUsage(linalg::GenericOp genericOp) const {
-    auto match = genericOpMap.find(genericOp);
-    assert(match != genericOpMap.end() && "Generic op not found.");
-    return match->second.dstMaxUsage;
-  }
-
-  llvm::DenseMap<linalg::GenericOp, DstRegisterInfo> genericOpMap;
+  llvm::SmallVector<DstRegisterInfo> dstRegisterInfoList;
 };
 
 } // namespace mlir::tt::d2m
