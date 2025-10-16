@@ -4,14 +4,12 @@
 
 import pytest
 import torch
-import math
 from typing import Callable, List, Optional, Tuple, Union
 from collections import OrderedDict
 from functools import reduce
 import operator
 from conftest import x86_only
 
-from ttmlir.dialects import ttir, ttcore
 from builder.base.builder import Operand, Shape, TypeInfo
 from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -54,39 +52,18 @@ def logical_not(
     dtype: torch.dtype,
     unit_attrs: Optional[List[str]] = None,
 ):
-    # Create position-based input tensor where value = (pos[1] / 32) * shape[0] + (pos[0] / 32)
-    input_tensor = torch.zeros(shape, dtype=torch.float32)
-    print()
-    for i in range(shape[0]):
-        for j in range(shape[1]):
-            tili = math.floor(i / 32)
-            tilej = math.floor(j / 32)
-            value = (tili * (shape[1] / 32)) + tilej
-            input_tensor[i, j] = value
-
+    randn_tensor = torch.randn(shape, dtype=torch.float32)
+    input_tensor = randn_tensor.uniform_(-10.0, 10.0)
+    input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
     input_tensor = input_tensor.to(dtype)
-    # for i in range(shape[0]):
-    #    for j in range(shape[1]):
-    #        print(f"{int(input_tensor[i, j]):<3}", end=" ")
-    #    print()
-
     # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype.
-    golden_output_tensor = torch.abs(input_tensor).to(dtype)
-    print("golden_output_tensor:\n")
-    for i in range(shape[0]):
-        for j in range(shape[1]):
-            print(f"{int(golden_output_tensor[i, j]):<3}", end=" ")
-        print()
-
-    logical_not_0 = builder.abs(in0, unit_attrs=unit_attrs)
-
+    golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
+    logical_not_0 = builder.logical_not(in0, unit_attrs=unit_attrs)
     builder.set_goldens({in0: input_tensor}, {logical_not_0: golden_output_tensor})
     return logical_not_0
 
 
 # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
-@pytest.mark.parametrize("shape", [(64, 2048)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
     def logical_not_wrapper(
@@ -94,19 +71,11 @@ def test_logical_not(shape: Shape, dtype: torch.dtype, target: str, request):
     ):
         return logical_not(in0, builder, shape, dtype, unit_attrs)
 
-    # pipeline_options = "{disable-tolayout-folding=1}"
-    # pipeline = ",".join(
-    #    [
-    #        f"ttir-to-ttmetal-pipeline{pipeline_options}",
-    #    ]
-    # )
     compile_ttir_to_flatbuffer(
         logical_not_wrapper,
         [shape],
         [dtype],
         test_base=request.node.name,
-        # custom_pipeline=pipeline,
-        print_ir="test_logical_not_ir",
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
