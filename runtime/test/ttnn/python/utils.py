@@ -102,10 +102,13 @@ class ProgramTestRunner:
 
         return inputs_runtime_with_layout, golden
 
+    def submit_program(self, device, inputs):
+        return ttrt.runtime.submit(device, self.binary.fbb, self.program_index, inputs)[
+            0
+        ]
+
     def run_program(self, device, inputs, blocking_to_host=True):
-        output = ttrt.runtime.submit(
-            device, self.binary.fbb, self.program_index, inputs
-        )[0]
+        output = self.submit_program(device, inputs)
         output = ttrt.runtime.to_host(output, untilize=True, blocking=blocking_to_host)[
             0
         ]

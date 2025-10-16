@@ -21,6 +21,8 @@
 #include "ttmlir/Target/Common/types_generated.h"
 #pragma clang diagnostic pop
 
+#include "tt/runtime/flatbuffer/flatbuffer.h"
+
 namespace tt::runtime {
 /*
 MemoryBlockTable is a list of memory blocks in the following format:
@@ -77,28 +79,6 @@ enum class DistributedMode {
   // across multiple hosts
   MultiProcess,
 };
-
-enum class DispatchCoreType {
-  WORKER,
-  ETH,
-};
-
-enum class FabricConfig {
-  DISABLED,
-  FABRIC_1D,
-  FABRIC_1D_RING,
-  FABRIC_2D,
-  FABRIC_2D_TORUS_X,
-  FABRIC_2D_TORUS_Y,
-  FABRIC_2D_TORUS_XY,
-  FABRIC_2D_DYNAMIC,
-  FABRIC_2D_DYNAMIC_TORUS_X,
-  FABRIC_2D_DYNAMIC_TORUS_Y,
-  FABRIC_2D_DYNAMIC_TORUS_XY,
-  CUSTOM,
-};
-
-enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
 namespace detail {
 
@@ -235,7 +215,8 @@ struct MeshDeviceOptions {
   std::optional<std::vector<uint32_t>> meshShape = std::nullopt;
   std::optional<size_t> l1SmallSize = std::nullopt;
   std::optional<size_t> traceRegionSize = std::nullopt;
-  std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
+  std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType =
+      std::nullopt;
 };
 
 class MultiProcessArgs {

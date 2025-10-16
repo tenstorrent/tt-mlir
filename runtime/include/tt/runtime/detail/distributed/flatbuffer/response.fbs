@@ -14,6 +14,13 @@ table GetSystemDescResponse {
   system_desc: [ubyte]; // size-prefixed SystemDescRoot buffer
 }
 
+table SetFabricConfigResponse {
+}
+
+table GetNumAvailableDevicesResponse {
+  num_devices: uint32;
+}
+
 table OpenMeshDeviceResponse {
   device: tt.target.DeviceRef;
 }
@@ -21,7 +28,29 @@ table OpenMeshDeviceResponse {
 table CloseMeshDeviceResponse {
 }
 
+table CreateSubMeshDeviceResponse {
+  sub_mesh: tt.target.DeviceRef;
+}
+
+table ReleaseSubMeshDeviceResponse {
+}
+
+table GetMeshShapeResponse {
+  shape: [uint32];
+}
+
 table CreateHostTensorResponse {
+}
+
+table GetTensorVolumeResponse {
+  volume: uint32;
+}
+
+table GetTensorRetainResponse {
+  retain: bool;
+}
+
+table SetTensorRetainResponse {
 }
 
 table GetLayoutResponse {
@@ -50,9 +79,17 @@ table ShutdownResponse {
 union ResponseType {
   ErrorResponse,
   GetSystemDescResponse,
+  SetFabricConfigResponse,
+  GetNumAvailableDevicesResponse,
   OpenMeshDeviceResponse,
   CloseMeshDeviceResponse,
+  CreateSubMeshDeviceResponse,
+  ReleaseSubMeshDeviceResponse,
+  GetMeshShapeResponse,
   CreateHostTensorResponse,
+  GetTensorVolumeResponse,
+  GetTensorRetainResponse,
+  SetTensorRetainResponse,
   GetLayoutResponse,
   ToLayoutResponse,
   SubmitResponse,

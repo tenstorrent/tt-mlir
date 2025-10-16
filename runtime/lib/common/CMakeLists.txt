@@ -43,6 +43,7 @@ set_property(TARGET TTRuntimeTypes PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeTypes
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
 )
 target_link_libraries(TTRuntimeTypes PUBLIC coverage_config)
 
@@ -51,6 +52,7 @@ set_property(TARGET TTRuntimeUtils PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeUtils
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
 )
 target_link_libraries(TTRuntimeUtils PUBLIC coverage_config)
 
@@ -59,6 +61,7 @@ set_property(TARGET TTRuntimeSysDesc PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeSysDesc
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 
@@ -71,6 +74,7 @@ set_property(TARGET TTRuntimeContext PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeContext
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
 )
 target_link_libraries(TTRuntimeContext PUBLIC coverage_config)
 
@@ -79,6 +83,7 @@ set_property(TARGET TTRuntimeSocket PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeSocket
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
 )
 target_link_libraries(TTRuntimeSocket PUBLIC coverage_config)
 
@@ -87,6 +92,7 @@ set_property(TARGET TTRuntimeDebug PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeDebug
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
 )
 target_link_libraries(TTRuntimeDebug PUBLIC coverage_config)
 
@@ -95,6 +101,7 @@ set_property(TARGET TTRuntimePerf PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimePerf
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
     "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>"
 )
 add_dependencies(TTRuntimePerf tt-metal)
@@ -105,6 +112,7 @@ set_property(TARGET TTRuntimeWorkarounds PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeWorkarounds
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
 )
 target_link_libraries(TTRuntimeWorkarounds PUBLIC coverage_config)
 
@@ -113,5 +121,6 @@ set_property(TARGET TTRuntimeDylibs PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeDylibs
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
 )
 target_link_libraries(TTRuntimeDylibs PUBLIC coverage_config)

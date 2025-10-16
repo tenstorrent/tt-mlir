@@ -9,6 +9,7 @@ set_property(TARGET TTBinary PROPERTY CXX_STANDARD 20)
 target_include_directories(TTBinary
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 add_dependencies(TTBinary FBS_GENERATION)
@@ -19,6 +20,7 @@ set_property(TARGET TTMLIRRuntime PROPERTY CXX_STANDARD 20)
 target_include_directories(TTMLIRRuntime
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 
@@ -73,6 +75,12 @@ if (TTMLIR_ENABLE_RUNTIME)
     LIBRARY
       DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
       COMPONENT SharedLib
+  )
+  install(DIRECTORY ${PROJECT_BINARY_DIR}/runtime/include/tt/runtime/flatbuffer
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime
+    COMPONENT SharedLib
+    FILES_MATCHING
+    PATTERN "*.h"
   )
 endif()
 
