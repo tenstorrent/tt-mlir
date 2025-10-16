@@ -72,12 +72,6 @@ public:
         generic.getNumRegions());
 
     SmallVector<int64_t> loopBounds = generic.getLoopBounds();
-    if (llvm::all_of(loopBounds, [](int64_t x) { return x == 0; })) {
-      for (auto &bound : loopBounds) {
-        bound = 1;
-      }
-    }
-
     for (Region &region : generic.getRegions()) {
       Block *regionBlock = &region.front();
       Block *loopedBlock =
