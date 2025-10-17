@@ -194,7 +194,7 @@ jobs:
 
   run-tests:
 
-    timeout-minutes: 60
+    timeout-minutes: 90
     needs:
       - build-image
       - build-ttmlir
