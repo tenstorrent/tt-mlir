@@ -335,31 +335,10 @@ ToLayoutOp::CompoundComponents ToLayoutOp::compoundComponents() {
       inputTensor.getElementType() != outputTensor.getElementType();
 
   // Check layout (collapsed intervals and alignments).
-  // print inputlayout get normalized intervals in a for loop
-  for (size_t i = 0; i < inputLayout.getNormalizedIntervals().size(); i++) {
-    llvm::errs() << inputLayout.getNormalizedIntervals()[i] << " ";
-  }
-  llvm::errs() << "\n";
-  // print outputlayout get normalized intervals in a for loop
-  for (size_t i = 0; i < outputLayout.getNormalizedIntervals().size(); i++) {
-    llvm::errs() << outputLayout.getNormalizedIntervals()[i] << " ";
-  }
-  llvm::errs() << "\n";
-  // print inputlayout get dim alignments in a for loop
-  for (size_t i = 0; i < inputLayout.getDimAlignments().size(); i++) {
-    llvm::errs() << inputLayout.getDimAlignments()[i] << " ";
-  }
-  llvm::errs() << "\n";
-  // print outputlayout get dim alignments in a for loop
-  for (size_t i = 0; i < outputLayout.getDimAlignments().size(); i++) {
-    llvm::errs() << outputLayout.getDimAlignments()[i] << " ";
-  }
-  llvm::errs() << "\n";
   components.isLayoutChange =
       inputLayout.getNormalizedIntervals() !=
           outputLayout.getNormalizedIntervals() ||
       inputLayout.getDimAlignments() != outputLayout.getDimAlignments();
-  llvm::errs() << "isLayoutChange: " << components.isLayoutChange << "\n";
 
   return components;
 }
