@@ -91,9 +91,8 @@ MemRefType getBufferType(Type type, bool isView,
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
     if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Sharded) {
-      layoutAttr = ttcore::ShardLayoutAttr::get(
-          ctx, shardStride, /*buffered=*/1,
-          mlir::AffineMap::getMultiDimIdentityMap(rank, ctx));
+      layoutAttr =
+          ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
     } else if (layout.getMemoryLayout() ==
                ttcore::TensorMemoryLayout::Interleaved) {
       layoutAttr = ttcore::InterleavedLayoutAttr::get(ctx, shardStride);
@@ -2735,16 +2734,16 @@ bool mlir::tt::ttir::ToLayoutOp::isDeviceToHost() {
 void mlir::tt::ttir::ToLayoutOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   // Fold into ttir.empty w/ desired layout
-  // patterns.add(+[](ToLayoutOp op, mlir::PatternRewriter &rewriter) {
-  //  EmptyOp emptyOp = op.getInput().getDefiningOp<EmptyOp>();
-  //  if (!emptyOp) {
-  //    return failure();
-  //  }
-  //  rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType());
-  //  return success();
-  //});
+  patterns.add(+[](ToLayoutOp op, mlir::PatternRewriter &rewriter) {
+    EmptyOp emptyOp = op.getInput().getDefiningOp<EmptyOp>();
+    if (!emptyOp) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType());
+    return success();
+  });
 
-  // patterns.add(std::make_unique<ToLayoutFoldRedundantPattern>(context));
+  patterns.add(std::make_unique<ToLayoutFoldRedundantPattern>(context));
 }
 
 mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::bufferize(

@@ -1372,7 +1372,7 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getVirtualComputeGrid() {
 
   if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
           underlyingMemref.getLayout())) {
-    if (shardLayout.getCoreVirtualizationMap()) {
+    if (!shardLayout.getCoreVirtualizationMap().isEmpty()) {
       auto outputType = mlir::cast<ShapedType>(getOutputOperand().getType());
       auto outputGridShape = shardLayout.getGridShape(outputType);
 

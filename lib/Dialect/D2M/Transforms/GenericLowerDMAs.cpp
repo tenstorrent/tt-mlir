@@ -301,7 +301,7 @@ public:
 
     if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
             underlyingMemref.getLayout())) {
-      if (shardLayout.getCoreVirtualizationMap()) {
+      if (!shardLayout.getCoreVirtualizationMap().isEmpty()) {
         coreVirtualizationMap = shardLayout.getCoreVirtualizationMap();
         coreVirtualizationMap = ttmlir::utils::affineMapDropRange(
             coreVirtualizationMap, memrefGridShape.size(),

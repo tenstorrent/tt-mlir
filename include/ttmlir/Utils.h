@@ -21,7 +21,6 @@
 
 #include <cstdint>
 #include <numeric>
-#include <sstream>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -212,50 +211,13 @@ llvm::SmallVector<std::string> iterableToStrings(Range &&iterable) {
 }
 
 // Formats an iterable collection as a string with parentheses and separator.
-// Adds newlines when line length exceeds threshold.
 // Example: formatIterable({1, 2, 3}) -> "(1, 2, 3)"
 // Example: formatIterable({1, 2, 3}, "x") -> "(1x2x3)"
 template <typename Range>
-std::string formatIterable(Range &&iterable, llvm::StringRef separator = ",",
-                           int addNewlinesOnThreshold = 80) {
-  std::string result = "(";
-
-  // Convert iterable to vector of strings using stringstream
+std::string formatIterable(Range &&iterable, llvm::StringRef separator = ",") {
   auto stringVec = iterableToStrings(iterable);
   std::string content = ttmlir::utils::join(stringVec, separator);
-
-  if (content.length() + 2 <= static_cast<size_t>(addNewlinesOnThreshold)) {
-    // Simple case: content fits within threshold
-    result += content;
-  } else {
-    // Complex case: need to break into multiple lines
-    result += "\n";
-    size_t currentLineLength = 0;
-    bool first = true;
-
-    for (const auto &elem : stringVec) {
-      if (!first) {
-        result += separator;
-        currentLineLength += separator.size();
-      }
-
-      // Check if adding this element would exceed threshold
-      if (currentLineLength + elem.length() >
-              static_cast<size_t>(addNewlinesOnThreshold) &&
-          !first) {
-        result += "\n";
-        currentLineLength = 0;
-      }
-
-      result += elem;
-      currentLineLength += elem.length();
-      first = false;
-    }
-    result += "\n";
-  }
-
-  result += ")";
-  return result;
+  return "(" + content + ")";
 }
 
 // Prepacks `MlirAttribute`s stored in input array into a vector of
@@ -717,27 +679,6 @@ denseElementsAttrTo2D(mlir::DenseElementsAttr attr) {
       result[r][c] = *it++;
     }
   }
-  return result;
-}
-
-//
-template <typename Iterable>
-std::string shapeToString(const Iterable &shape) {
-  std::string result;
-  for (const auto &dim : shape) {
-    result.append(std::to_string(dim).append("x"));
-  }
-  return result;
-}
-
-template <typename Iterable>
-std::string vecToString(const Iterable &vec) {
-  std::string result;
-  result.append("{");
-  for (const auto &elem : vec) {
-    result.append(std::to_string(elem).append(", "));
-  }
-  result.append("}");
   return result;
 }
 

@@ -838,7 +838,6 @@ static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
     // Translate the src coordinates to virtual coordinates.
     auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
         rewriter, loc, chipDesc, ValueRange{gridY, gridX});
-
     noc_addr_op =
         rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
   } else {

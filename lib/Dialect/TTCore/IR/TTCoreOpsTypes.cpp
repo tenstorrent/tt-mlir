@@ -535,7 +535,7 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
   return get(
       context,
       ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize)),
-      buffers, mlir::AffineMap::getMultiDimIdentityMap(shape.size(), context));
+      buffers, mlir::AffineMap{});
 }
 
 ShardLayoutAttr ShardLayoutAttr::get(ArrayRef<int64_t> shape, Type elementType,
@@ -552,6 +552,12 @@ ShardLayoutAttr ShardLayoutAttr::get(mlir::MemRefType memrefType,
     shape = layout.getShardShape(memrefType);
   }
   return get(shape, memrefType.getElementType(), buffers);
+}
+
+ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> strides,
+                                     uint32_t buffers) {
+  return get(context, strides, buffers, mlir::AffineMap{});
 }
 
 mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
