@@ -9,7 +9,7 @@ module {
   func.func @test_sign_f16(%arg: !ttype_f16, %out: !ttype_f16) -> (!ttype_f16) {
     // CHECK-NOT: d2m.tile_sign
     // CHECK: ttkernel.init_sfpu
-    // CHECK: ttkernel.copy_tile_initdsf
+    // CHECK: ttkernel.copy_tile_init
     // CHECK: ttkernel.copy_tile
     // CHECK: ttkernel.sign_tile_init
     // CHECK: ttkernel.sign_tile
