@@ -234,8 +234,8 @@ static ::tt::tt_metal::ProgramDescriptor createProgramDescriptor(
     programDescriptor.semaphores.push_back(
         createSemaphoreDescriptor(*semaphoreDesc));
   }
-  programDescriptor.custom_program_hash =
-      reinterpret_cast<ttsl::hash::hash_t>(programDesc);
+  // programDescriptor.custom_program_hash =
+  //     reinterpret_cast<ttsl::hash::hash_t>(programDesc);
   return programDescriptor;
 }
 
