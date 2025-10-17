@@ -400,9 +400,27 @@ public:
       Block &block = region.getBlocks().front();
 
       Type largestDstType = utils::getRegionLargestDstElemType(region);
-      const unsigned dstCapacity =
+      unsigned dstCapacity =
           ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
               largestDstType, false, maxDstPhysicalSizeTiles);
+
+      // Temporary START
+      // TODO(mbagherbeik) remove when fixing fusions/dstAllocs
+      
+      // NumOperands includes the output/init operand ( > vs >= )
+      // halve the capacity if we have a binary fused op
+      if (op->getNumOperands() > 2) {
+        dstCapacity /= 2;
+      }
+      // halve capacity again if fused op is ternary or more
+      if (op->getNumOperands() > 3) {
+        dstCapacity /= 2;
+      }
+      // halve capacity again if data type is more than 16 bits
+      if (largestDstType.getIntOrFloatBitWidth() > 16) {
+        dstCapacity /= 2;
+      }
+      // Temporary END
 
       bool linalgToAffineFailed = false;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
@@ -412,40 +430,51 @@ public:
           return;
         }
 
-        auto [opTreeRoot, leafNodes] = buildOpTree(linalgGenericOp);
-        if (opTreeRoot) {
+        // if all parallel --> no reductions --> eltwise only
+        bool isEltwiseOnly = op.isAllParallel();
+        // doesn't contain skippable eltwise ops (i.e. went through eltwise fusion)
+        bool noSkip = !op.hasSkipOpEltwiseFusionTrait();
+
+        if (isEltwiseOnly && noSkip) {
+          // NEW: Try tree-based approach with Sethi-Ullman register allocation.
+          auto [opTreeRoot, leafNodes] = buildOpTree(linalgGenericOp);
+
+          assert(opTreeRoot && "buildOpTree() returned empty opTreeRoot");
+
           // Mark node weights using Sethi-Ullman algorithm.
           markNodeWeights(opTreeRoot.get());
-          
-          // Print the tree for debugging.
+
           llvm::errs() << "\n=== Operation Tree (Sethi-Ullman) ===\n";
           printOpTree(opTreeRoot.get());
           llvm::errs() << "=====================================\n\n";
-    
+
           // Generate code for the expression tree.
           // generateCodeForTree(rewriter, loc, opTreeRoot.get(),
           //                    outermostInnerComputeLoop);
-    
+
           // TODO(mbagherbeik): This is currently a placeholder implementation.
           // The code generation needs to be completed with proper DST management,
           // operand loading, and operation cloning. For now, we fall back to the
           // original approach. Issue: #TBD
           // return true;
+          
         }
-
-        rewriter.setInsertionPoint(linalgGenericOp);
-        // Apply linalg to affine loops pass.
-        auto linalgLoops =
-            linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
-        if (failed(linalgLoops)) {
-          linalgToAffineFailed = true;
-          return;
+        // original allocator
+        else {
+          rewriter.setInsertionPoint(linalgGenericOp);
+          // Apply linalg to affine loops pass.
+          auto linalgLoops =
+              linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
+          if (failed(linalgLoops)) {
+            linalgToAffineFailed = true;
+            return;
+          }
+          rewriter.eraseOp(linalgGenericOp);
+          modified |= insertDstRegisterAccess(rewriter, op, region, dstCapacity,
+                                              !linalgLoops.value().empty()
+                                                  ? linalgLoops.value().front()
+                                                  : nullptr);
         }
-        rewriter.eraseOp(linalgGenericOp);
-        modified |= insertDstRegisterAccess(rewriter, op, region, dstCapacity,
-                                            !linalgLoops.value().empty()
-                                                ? linalgLoops.value().front()
-                                                : nullptr);
       });
       if (linalgToAffineFailed) {
         return failure();
@@ -464,23 +493,6 @@ public:
     }
 
     Location loc = op.getLoc();
-
-    // NEW: Try tree-based approach with Sethi-Ullman register allocation.
-    // auto [opTreeRoot, leafNodes] = buildOpTree(outermostInnerComputeLoop);
-    // if (opTreeRoot) {
-    //   // Mark node weights using Sethi-Ullman algorithm.
-    //   markNodeWeights(opTreeRoot, leafNodes);
-
-    //   // Generate code for the expression tree.
-    //   // generateCodeForTree(rewriter, loc, opTreeRoot.get(),
-    //   //                    outermostInnerComputeLoop);
-
-    //   // TODO(mbagherbeik): This is currently a placeholder implementation.
-    //   // The code generation needs to be completed with proper DST management,
-    //   // operand loading, and operation cloning. For now, we fall back to the
-    //   // original approach. Issue: #TBD
-    //   // return true;
-    // }
 
     // FALLBACK: Original approach.
     // 1. Collect all loads/stores to dst organized by loop nest.
