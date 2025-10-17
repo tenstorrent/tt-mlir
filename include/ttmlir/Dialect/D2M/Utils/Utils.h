@@ -18,6 +18,13 @@ mlir::AffineMap calculateReblockMap(ArrayRef<int64_t> fromTensorShape,
 llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape);
 
+// Trace IR to find underlying physical (non-view) tensor/memref
+Value getPhysicalTensor(mlir::Value tensor);
+
+// Trace IR to find underlying physical (non-view) tensor/memref and return its
+// grid shape
+llvm::SmallVector<int64_t> getPhysicalGridShape(mlir::Value tensor);
+
 } // namespace mlir::tt::d2m::utils
 
 #endif

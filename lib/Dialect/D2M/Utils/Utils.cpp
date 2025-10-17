@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Utils.h"
 
 namespace mlir::tt::d2m::utils {
@@ -52,6 +54,45 @@ getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
   llvm::SmallVector<int64_t, 2> squareGrid(targetGridShape.size(),
                                            minGridValue);
   return squareGrid;
+}
+
+Value getPhysicalTensor(mlir::Value tensor) {
+
+  auto physTensor = tensor;
+  if (auto viewOp = mlir::dyn_cast<mlir::tt::d2m::ViewOpInterface>(
+          tensor.getDefiningOp())) {
+    physTensor = viewOp.getInput();
+  } else if (auto toLayoutOp = mlir::dyn_cast<mlir::tt::d2m::ToLayoutOp>(
+                 tensor.getDefiningOp())) {
+    physTensor = toLayoutOp.getInitOperand();
+    if (auto viewOp = mlir::dyn_cast<mlir::tt::d2m::ViewOpInterface>(
+            physTensor.getDefiningOp())) {
+      physTensor = viewOp.getInput();
+    }
+  }
+  return physTensor;
+}
+
+llvm::SmallVector<int64_t> getPhysicalGridShape(mlir::Value tensor) {
+
+  auto physTensor = getPhysicalTensor(tensor);
+
+  llvm::SmallVector<int64_t> result;
+  if (auto tensorType =
+          mlir::dyn_cast<mlir::RankedTensorType>(physTensor.getType())) {
+    auto layout = mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+        tensorType.getEncoding());
+    result = llvm::SmallVector<int64_t>(layout.getGridShape(tensorType));
+  } else if (auto memrefType =
+                 mlir::dyn_cast<mlir::MemRefType>(physTensor.getType())) {
+    auto layout = mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+        memrefType.getLayout());
+    result = llvm::SmallVector<int64_t>(layout.getGridShape(memrefType));
+  } else {
+    result = {1, 1};
+  }
+
+  return result;
 }
 
 } // namespace mlir::tt::d2m::utils

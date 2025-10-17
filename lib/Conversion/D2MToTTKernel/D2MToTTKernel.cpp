@@ -839,12 +839,6 @@ static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
     auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
         rewriter, loc, chipDesc, ValueRange{gridY, gridX});
 
-    auto gridY_i32 = gridY;
-    auto gridX_i32 = gridX;
-
-    rewriter.create<ttkernel::DPrintOp>(loc,
-                                        "noc addr | gridYX={},{} offset={} \\n",
-                                        gridY_i32, gridX_i32, offsetInt);
     noc_addr_op =
         rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
   } else {

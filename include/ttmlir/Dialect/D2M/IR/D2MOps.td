@@ -108,6 +108,7 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
       bool isCompound() { return compoundComponents().isCompound(); }
       ttcore::MetalLayoutAttr getOrCreateInputLayout();
       ttcore::MetalLayoutAttr getOrCreateOutputLayout();
+      Value getInitOperand() { return getOperand(1); }
 
       bool isHostToDevice();
       bool isDeviceToHost();
@@ -196,13 +197,7 @@ def D2M_GenericOp : D2M_Op<"generic",
         assert(!indexingMaps.empty() && "expected non-empty indexing maps");
         assert(outputs.size() == 1 && "expected single output");
         if (!grid) {
-          if (RankedTensorType tensorType = mlir::dyn_cast<RankedTensorType>(outputs[0].getType()); tensorType) {
-             grid = $_builder.getAttr<ttcore::GridAttr>(mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding()).getGridShape(tensorType));
-          } else {
-            MemRefType memrefType = mlir::cast<MemRefType>(outputs[0].getType());
-            ttcore::DeviceLayoutInterface layout = mlir::cast<ttcore::DeviceLayoutInterface>(memrefType.getLayout());
-            grid = $_builder.getAttr<ttcore::GridAttr>(layout.getGridShape(memrefType));
-          }
+            grid = $_builder.getAttr<ttcore::GridAttr>(utils::getPhysicalGridShape(outputs[0]));
         }
         auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(singleThreadType));
         auto blockFactorsAttr = $_builder.getI64ArrayAttr(blockFactors.empty() ?
