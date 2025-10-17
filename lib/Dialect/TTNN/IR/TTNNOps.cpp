@@ -1308,6 +1308,19 @@ static mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttnn::ReshapeOp op) {
 static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   if (auto reshapeOperand =
           op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>()) {
+
+    // We do not want to fold the consecutive reshapes if the first reshape's
+    // result is consumed by an op which has memory effects on it BEFORE the
+    // second reshape.
+    auto reshapeOperandUsers = reshapeOperand.getResult().getUsers();
+    for (Operation *user : reshapeOperandUsers) {
+      if (utils::operationHasNonReadMemoryEffectsOnValue(
+              reshapeOperand.getResult(), user) &&
+          user->getBlock() == op->getBlock() && user->isBeforeInBlock(op)) {
+        return nullptr;
+      }
+    }
+
     op.getOperation()->setOperand(0, reshapeOperand.getInput());
     return op.getResult();
   }
@@ -1322,7 +1335,197 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   if (auto foldResult = foldConsecutiveReshape(*this)) {
     return foldResult;
   }
+
   return nullptr;
+}
+
+static bool isValidTTNNView(const TypedValue<RankedTensorType> &input,
+                            const TypedValue<RankedTensorType> &result) {
+  int64_t inputRank = input.getType().getRank();
+  int64_t outputRank = result.getType().getRank();
+  int64_t inputLastDimSize =
+      inputRank >= 1 ? input.getType().getShape().back() : 1;
+  int64_t outputLastDimSize =
+      outputRank >= 1 ? result.getType().getShape().back() : 1;
+
+  int64_t inputSecondLastDimsSize =
+      inputRank >= 2 ? input.getType().getShape()[inputRank - 2] : 1;
+  int64_t outputSecondLastDimsSize =
+      outputRank >= 2 ? result.getType().getShape()[outputRank - 2] : 1;
+
+  int64_t tileSecondDim = TILE_HEIGHT;
+  int64_t tileFirstDim = TILE_WIDTH;
+
+  TTNNLayoutAttr inputLayout =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(input.getType().getEncoding());
+  if (!inputLayout) {
+    return false;
+  }
+
+  TTNNLayoutAttr outputLayout =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(result.getType().getEncoding());
+  if (!outputLayout) {
+    return false;
+  }
+
+  bool isView = inputLastDimSize == outputLastDimSize;
+  isView = isView && inputLayout.getMemLayout().getValue() ==
+                         outputLayout.getMemLayout().getValue();
+  isView = isView && (!inputLayout.isTiled() ||
+                      (inputSecondLastDimsSize == outputSecondLastDimsSize) ||
+                      (outputSecondLastDimsSize % tileSecondDim == 0 &&
+                       inputSecondLastDimsSize % tileFirstDim == 0));
+
+  return isView;
+}
+
+void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(
+      +[](mlir::tt::ttnn::ReshapeOp op, mlir::PatternRewriter &rewriter) {
+        bool isLastUser = true;
+        auto input = op.getInput();
+        for (Operation *user : input.getUsers()) {
+          if (user != op) {
+            isLastUser = isLastUser && user->isBeforeInBlock(op);
+          }
+        }
+        bool operandIsFuncArgument = false;
+        Block *block = op->getBlock();
+        for (BlockArgument arg : block->getArguments()) {
+          if (arg == op.getInput()) {
+            operandIsFuncArgument = true;
+            break;
+          }
+        }
+        if (!isLastUser || !isValidTTNNView(op.getInput(), op.getResult()) ||
+            operandIsFuncArgument) {
+          return failure();
+        }
+
+        auto viewOp = rewriter.create<mlir::tt::ttnn::ViewOp>(
+            op.getLoc(), op.getResult().getType(), op.getInput(),
+            op.getShape());
+        rewriter.replaceOp(op, viewOp);
+        return success();
+      },
+      0);
+
+  // If a reshape is a valid view, we want to move it after the last user of its
+  // operand so that we can convert this to a valid view.
+  patterns.add(
+      +[](mlir::tt::ttnn::ReshapeOp op, mlir::PatternRewriter &rewriter) {
+        if (!isValidTTNNView(op.getInput(), op.getResult())) {
+          return mlir::failure();
+        }
+
+        mlir::Block *block = op->getBlock();
+
+        // Pick the operand you care about.
+        mlir::Value v = op.getInput(); // adjust
+        mlir::Operation *lastSiblingUser = nullptr;
+        for (mlir::Operation *user : v.getUsers()) {
+          if (user == op.getOperation()) {
+            continue;
+          }
+          if (user->getBlock() != block) {
+            continue;
+          }
+          if (op->isAncestor(user)) {
+            continue; // exclude descendants
+          }
+          if (!lastSiblingUser || lastSiblingUser->isBeforeInBlock(user)) {
+            lastSiblingUser = user;
+          }
+        }
+        if (!lastSiblingUser) {
+          return mlir::failure();
+        }
+
+        // Earliest user of op’s results (same block).
+        mlir::Operation *earliestOpUser = nullptr;
+        for (mlir::OpResult res : op->getResults()) {
+          for (mlir::Operation *u : res.getUsers()) {
+            if (u->getBlock() != block) {
+              continue;
+            }
+            if (!earliestOpUser || u->isBeforeInBlock(earliestOpUser)) {
+              earliestOpUser = u;
+            }
+          }
+        }
+
+        mlir::Operation *target = lastSiblingUser;
+        if (earliestOpUser &&
+            earliestOpUser->isBeforeInBlock(lastSiblingUser)) {
+          target = earliestOpUser->getPrevNode();
+          if (!target) {
+            return mlir::failure(); // can't move before block start
+          }
+        }
+
+        if (target && op->isBeforeInBlock(target)) {
+          rewriter.moveOpAfter(op, target);
+          return mlir::success();
+        }
+        return mlir::failure();
+      },
+      1);
+}
+
+//===----------------------------------------------------------------------===//
+// ViewOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::ViewOp::verify() {
+
+  for (Operation *user : getInput().getUsers()) {
+    if (user == getOperation()) {
+      continue;
+    }
+    if (user->getBlock() == getOperation()->getBlock()) {
+      if (!user->isBeforeInBlock(getOperation())) {
+        return emitOpError(
+            "View op must be the last operation which uses its operand.");
+      }
+    }
+  }
+
+  bool operandIsFuncArgument = false;
+  Block *block = getOperation()->getBlock();
+  for (BlockArgument arg : block->getArguments()) {
+    if (arg == getInput()) {
+      operandIsFuncArgument = true;
+      break;
+    }
+  }
+
+  if (operandIsFuncArgument) {
+    return emitOpError(
+        "View op must not be used as an operand of a function argument as it "
+        "will modify the input tensors shape in-place.");
+  }
+
+  auto shape = getShape();
+  int64_t shapeSize = static_cast<int64_t>(shape.size());
+  auto outputShape = getResult().getType().getShape();
+
+  for (int64_t i = 0; i < shapeSize; i++) {
+    int64_t dimValue = mlir::cast<IntegerAttr>(shape[i]).getInt();
+
+    // Ensure that the non-negative dimensions match the output tensor shape
+    if (dimValue != outputShape[i]) {
+      return emitOpError() << "Shape attribute " << dimValue
+                           << " must match the output tensor shape "
+                           << outputShape[i] << " at index " << i << ".";
+    }
+  }
+
+  if (!isValidTTNNView(getInput(), getResult())) {
+    return emitOpError("Desired input -> output view is not valid.");
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

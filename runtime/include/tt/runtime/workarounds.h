@@ -13,7 +13,8 @@ struct Env {
   static const Env &get(bool swapBinaryOperands = true,
                         bool readUpdateIndexFromDeviceForKVCache = true,
                         bool traceImplicitFromDevice = true,
-                        bool blackholeWorkarounds = true);
+                        bool blackholeWorkarounds = true,
+                        bool forceOutOfPlaceReshape = true);
 
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the
@@ -39,15 +40,27 @@ struct Env {
   // host for now.
   bool blackholeWorkarounds;
 
+  // TODO(issue #5312): We currently model ttnn::reshape as out-of-place. For
+  // some cases, ttnn::reshape performs a view instead, which is in-place. This
+  // breaking of our assumption can causes issues with passing tensors between
+  // programs and within programs themselves.
+  //
+  // This workaround will copy the input tensor to a reshape IF we know the
+  // reshape is a view. That way the in-place operation is performed on a brand
+  // new tensor, and we do not return the same tensor object as the input.
+  bool forceOutOfPlaceReshape;
+
 private:
   constexpr Env(bool swapBinaryOperands,
                 bool readUpdateIndexFromDeviceForKVCache,
-                bool traceImplicitFromDevice, bool blackholeWorkarounds)
+                bool traceImplicitFromDevice, bool blackholeWorkarounds,
+                bool forceOutOfPlaceReshape)
       : swapBinaryOperands(swapBinaryOperands),
         readUpdateIndexFromDeviceForKVCache(
             readUpdateIndexFromDeviceForKVCache),
         traceImplicitFromDevice(traceImplicitFromDevice),
-        blackholeWorkarounds(blackholeWorkarounds) {}
+        blackholeWorkarounds(blackholeWorkarounds),
+        forceOutOfPlaceReshape(forceOutOfPlaceReshape) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -61,6 +74,8 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << "traceImplicitFromDevice: " << env.traceImplicitFromDevice << "\n";
   os << "\t"
      << "blackholeWorkarounds: " << env.blackholeWorkarounds << "\n";
+  os << "\t"
+     << "forceOutOfPlaceReshape: " << env.forceOutOfPlaceReshape << "\n";
   os << "}";
   return os;
 }

@@ -40,7 +40,7 @@ module attributes {} {
     // CHECK-SAME: shape = [1 : i32, 1 : i32, 32 : i32, 128 : i32]
     // CHECK-SAME: tensor<32x128xbf16
     // CHECK: "ttnn.all_gather"
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.view"
     // CHECK-SAME: {shape = [128 : i32, 128 : i32]}
     // CHECK-SAME: tensor<128x128xbf16
     return %1 : tensor<128x128xbf16>
@@ -59,7 +59,7 @@ module attributes {} {
     // CHECK-SAME: shape = [1 : i32, 1 : i32, 1 : i32, 32 : i32]
     // CHECK-SAME: tensor<32xbf16
     // CHECK: "ttnn.all_gather"
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.view"
     // CHECK-SAME: {shape = [128 : i32]}
     // CHECK-SAME: tensor<128xbf16
     return %1 : tensor<128xbf16>

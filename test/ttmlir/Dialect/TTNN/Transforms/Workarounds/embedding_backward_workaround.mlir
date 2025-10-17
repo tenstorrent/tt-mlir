@@ -13,8 +13,8 @@ module attributes {} {
     %0 = "ttnn.to_layout"(%arg0) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x32xf32, #ttnn_layout>) -> tensor<1x32xf32, #ttnn_layout3>
     %1 = "ttnn.to_layout"(%arg1) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<512x128xf32, #ttnn_layout1>) -> tensor<512x128xf32, #ttnn_layout4>
     %2 = "ttnn.to_layout"(%arg2) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1x32x128xf32, #ttnn_layout2>) -> tensor<1x32x128xf32, #ttnn_layout5>
-    // CHECK: "ttnn.reshape"
-    %3 = "ttnn.reshape"(%2) <{shape = [1 : i32, 1 : i32, 32 : i32, 128 : i32]}> : (tensor<1x32x128xf32, #ttnn_layout5>) -> tensor<1x1x32x128xf32, #ttnn_layout5>
+    // CHECK: "ttnn.view"
+    %3 = "ttnn.view"(%2) <{shape = [1 : i32, 1 : i32, 32 : i32, 128 : i32]}> : (tensor<1x32x128xf32, #ttnn_layout5>) -> tensor<1x1x32x128xf32, #ttnn_layout5>
     // Check that the input operand is transformed into the row major layout.
     // CHECK-NEXT: %[[TO_LAYOUT_INPUT:.*]] = "ttnn.to_layout"
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<u32>
