@@ -119,6 +119,13 @@ void setMlirHome(std::string_view mlirHome) {
   LOG_FATAL("runtime is not enabled");
 }
 
+void setMetalHome(std::string_view metalHome) {
+#if defined(DEVICE_RUNTIME_ENABLED)
+  return RuntimeContext::instance().setMetalHome(metalHome);
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 std::vector<DeviceRuntime> getAvailableDeviceRuntimes() {
   std::vector<DeviceRuntime> runtimes;
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
@@ -190,10 +197,22 @@ void setCurrentHostRuntime(const HostRuntime &runtime) {
 SystemDesc
 getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
                      std::optional<Device> meshDevice) {
-#if defined(DEVICE_RUNTIME_ENABLED)
-  return system_desc::getCurrentSystemDesc(dispatchCoreType, meshDevice);
-#endif
-  LOG_FATAL("runtime is not enabled");
+
+  using RetType = SystemDesc;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::system_desc::getCurrentSystemDesc(
+            dispatchCoreType, meshDevice);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::system_desc::getCurrentSystemDesc(
+            dispatchCoreType, meshDevice);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::distributed::getCurrentSystemDesc(
+            dispatchCoreType, meshDevice);
+      });
 }
 
 void launchDistributedRuntime(const DistributedOptions &options) {

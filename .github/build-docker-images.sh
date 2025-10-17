@@ -1,9 +1,15 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 
 set -e
+
+# Parse command line arguments
+CHECK_ONLY=false
+if [[ "$1" == "--check-only" ]]; then
+    CHECK_ONLY=true
+fi
 
 REPO=tenstorrent/tt-mlir
 BASE_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ubuntu-22-04
@@ -25,27 +31,40 @@ build_and_push() {
     local on_main=$3
     local from_image=$4
 
-
+    IMAGE_EXISTS=false
     if docker manifest inspect $image_name:$DOCKER_TAG > /dev/null; then
+        IMAGE_EXISTS=true
+    fi
+
+    if [ "$IMAGE_EXISTS" = true ]; then
         echo "Image $image_name:$DOCKER_TAG already exists"
+        if [ "$CHECK_ONLY" = true ]; then
+          return 0
+        fi
     else
+      if [ "$CHECK_ONLY" = true ]; then
+        echo "Image $image_name:$DOCKER_TAG does not exist (check-only mode)"
+        return 2
+      else
+        echo "Docker build neccessary, ensure dependencies for toolchain build..."
+        sudo apt-get update && sudo apt-get install -y cmake build-essential
+
         echo "Building image $image_name:$DOCKER_TAG"
         docker build \
             --progress=plain \
             --build-arg FROM_TAG=$DOCKER_TAG \
-            ${from_image:+--build-arg FROM_IMAGE=$from_image} \
+            ${target_image:+--target $target_image} \
             -t $image_name:$DOCKER_TAG \
             -t $image_name:latest \
             -f $dockerfile .
 
         echo "Pushing image $image_name:$DOCKER_TAG"
         docker push $image_name:$DOCKER_TAG
+      fi
     fi
 
-    # If we are on main branch also push the latest tag
-    if [ "$on_main" = "true" ]; then
-        printf "\nPushing latest tag for $image_name"
-        # Used to push both tags in one command on the original sha256 sum layer remotely (docker create manifest create a new sha256 sum only with only with new tag)
+    if [ "$ON_MAIN" = "true" ]; then
+        echo "Pushing latest tag for $image_name"
         docker buildx imagetools create $image_name:$DOCKER_TAG --tag $image_name:latest --tag $image_name:$DOCKER_TAG
     fi
 }

@@ -29,9 +29,6 @@ jobs:
   pre-commit:
     uses: ./.github/workflows/call-pre-commit.yml
     secrets: inherit
-  spdx:
-    uses: ./.github/workflows/call-spdx.yml
-    secrets: inherit
   build-image:
     uses: ./.github/workflows/call-build-docker.yml
     secrets: inherit
@@ -39,9 +36,21 @@ jobs:
     uses: ./.github/workflows/call-prepare-run.yml
     with:
       builder_build: ${{ inputs.builder_build || github.event.pull_request.head.ref == 'uplift' }}
+      build_all: ${{ github.event.pull_request.head.ref == 'uplift' }}
     secrets: inherit
+  release-build:
+    needs: [ prepare-run, build-image ]
+    if: needs.prepare-run.outputs.skip_build != 'true'
+    uses: ./.github/workflows/call-build-release.yml
+    secrets: inherit
+    with:
+      metal_override: ${{ inputs.metal_override }}
+      docker_image: ${{ needs.build-image.outputs.docker-image }}
+      runner: ${{ needs.prepare-run.outputs.runner }}
+      sh_builder: ${{ fromJson(needs.prepare-run.outputs.sh_builder) }}
+      component_matrix: ${{ needs.prepare-run.outputs.build_matrix }}
   debug-build:
-    needs: [ pre-commit, spdx, prepare-run, build-image ]
+    needs: [ prepare-run, build-image ]
     if: needs.prepare-run.outputs.skip_build != 'true'
     uses: ./.github/workflows/call-build-debug.yml
     secrets: inherit
@@ -54,26 +63,8 @@ jobs:
     secrets: inherit
     with:
       docker-image: ${{ needs.build-image.outputs.docker-image }}
-  release-build:
-    needs: [ pre-commit, spdx, prepare-run, build-image ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
-    uses: ./.github/workflows/call-build-release.yml
-    secrets: inherit
-    with:
-      metal_override: ${{ inputs.metal_override }}
-      docker_image: ${{ needs.build-image.outputs.docker-image }}
-      runner: ${{ needs.prepare-run.outputs.runner }}
-      sh_builder: ${{ needs.prepare-run.outputs.sh_builder }}
-  wheel-build:
-    needs: [ prepare-run, build-image ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
-    uses: ./.github/workflows/call-build-wheels.yml
-    secrets: inherit
-    with:
-      docker_image: ${{ needs.build-image.outputs.docker-image }}
-      docker-tag: ${{ needs.build-image.outputs.docker-tag }}
   test:
-    needs: [ pre-commit, spdx, prepare-run, build-image, release-build ]
+    needs: [ pre-commit, prepare-run, build-image, release-build ]
     if: needs.prepare-run.outputs.skip_build != 'true'
     uses: ./.github/workflows/call-test.yml
     secrets: inherit
@@ -84,7 +75,7 @@ jobs:
   # When a PR runs on the uplift branch trigger the downstream checks
   downstream-checks:
     runs-on: ubuntu-latest
-    needs: [ release-build, debug-build, wheel-build, test ]
+    needs: [ release-build, debug-build, test ]
     if: github.event.pull_request.head.ref == 'uplift'
     strategy:
       matrix:
@@ -118,14 +109,12 @@ jobs:
     if: always()
     needs:
       - pre-commit
-      - spdx
       - prepare-run
       - build-image
+      - release-build
+      - test
       - debug-build
       - lint
-      - release-build
-      - wheel-build
-      - test
       - downstream-checks
     runs-on: ubuntu-latest
     steps:
@@ -133,5 +122,5 @@ jobs:
         id: check-jobs
         uses: re-actors/alls-green@release/v1
         with:
-          allowed-skips: debug-build, lint, release-build, wheel-build, test, downstream-checks
+          allowed-skips: debug-build, lint, release-build, test, downstream-checks
           jobs: ${{ toJSON(needs) }}

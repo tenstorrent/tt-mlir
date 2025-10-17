@@ -1,10 +1,21 @@
 name: Prepare Run
 
 on:
+  workflow_dispatch:
+    inputs:
+      builder_build:
+        description: 'Run build on builder'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       builder_build:
         description: 'Run build on builder'
+        required: false
+        type: boolean
+      build_all:
+        description: 'Build all components'
         required: false
         type: boolean
     outputs:
@@ -14,6 +25,9 @@ on:
       test_matrix:
         description: 'Test matrix for run-tests job'
         value: ${{ jobs.prepare-run.outputs.test_matrix }}
+      build_matrix:
+        description: 'Build matrix for build-release job'
+        value: ${{ jobs.prepare-run.outputs.build_matrix }}
       runner:
         description: Runner type
         value: ${{ jobs.prepare-run.outputs.runner }}
@@ -30,6 +44,7 @@ jobs:
     outputs:
       skip_build: ${{ steps.skip_build.outputs.skip_build }}
       test_matrix: ${{ steps.generate-test-matrix.outputs.test-matrix }}
+      build_matrix: ${{ steps.generate-build-matrix.outputs.component-matrix }}
       runner: ${{ steps.decide-runner.outputs.runner }}
       sh_builder: ${{ steps.decide-runner.outputs.sh_builder }}
       test_timeout: ${{ steps.generate-test-matrix.outputs.test_timeout }}
@@ -39,7 +54,7 @@ jobs:
           fetch-depth: 0
       - name: Ignore files
         id: ignore-files
-        uses: tj-actions/changed-files@v46
+        uses: tj-actions/changed-files@v47
         with:
           files: |
             docs/**
@@ -65,24 +80,72 @@ jobs:
               # Only use builder runner for uplift jobs
               # REF: https://github.com/tenstorrent/tt-mlir/pull/5114/files/480d8b9216ab7b578d07d500d9fc16f448135f75#r2405470436
               echo "runner=builder" >> "$GITHUB_OUTPUT"
+              echo runner="builder"
             else
               echo "runner=tt-ubuntu-2204-large-stable" >> "$GITHUB_OUTPUT"
+              echo runner="tt-ubuntu-2204-large-stable"
               sh_builder=true
           fi
-          echo sh_builder=$sh_builder
           echo "sh_builder=$sh_builder" >> "$GITHUB_OUTPUT"
+          echo sh_builder=$sh_builder
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Check components
+        id: components
+        uses: tj-actions/changed-files@v47
+        with:
+          files_yaml_from_source_file: '.github/settings/optional-components.yml'
+
+      - name: Generate build matrix
+        id: generate-build-matrix
+        shell: bash
+        run: |
+          # If build_all is true, include all components
+          if [[ "${{ inputs.build_all }}" == "true" ]]; then
+            echo "Including all components in build matrix"
+            cp .github/settings/build.json _components_matrix.json
+          else
+            comp=(${{ steps.components.outputs.modified_keys }})
+            if [ ${#comp[@]} -gt 0 ]; then
+              echo "Including only modified components '${{ steps.components.outputs.modified_keys }}' in build matrix"
+              # Create a temporary file with the components as a JSON array
+              printf '%s\n' "${comp[@]}" | jq -R . | jq -s . > _components_array.json
+
+              # Filter the build matrix to remove elements where "if" field is not in comp array
+              jq --argjson components "$(cat _components_array.json)" '
+                map(select(
+                  if has("if") then
+                    (.if as $if | $components | index($if) != null)
+                  else
+                    true
+                  end
+                ))
+              ' .github/settings/build.json > _components_matrix.json
+            else
+              # If no components modified, keep only items without "if" field
+              echo "No components modified, including only always-build components in build matrix"
+              jq 'map(select(has("if") | not))' .github/settings/build.json > _components_matrix.json
+            fi
+          fi
+
+          echo "component-matrix=$(cat _components_matrix.json | jq -c)" >> $GITHUB_OUTPUT
+
       - name: Generate test matrix
         id: generate-test-matrix
         shell: bash
         run: |
+          echo "Modified components: ${{ steps.components.outputs.modified_keys }}"
+          if [[ "${{ inputs.build_all }}" == "true" ]]; then
+            comp="-all"
+          else
+            comp="${{ steps.components.outputs.modified_keys }}"
+          fi
           cat << 'EOF' > _test_durations
             ${{ vars.TEST_DURATIONS }}
           EOF
-          python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json ${{ vars.TARGET_DURATION }}
+          python .github/scripts/python/generate_test_matrix.py .github/settings/tests.json ${{ vars.TARGET_DURATION }} "$comp"
           echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
           timeout=$((${{ vars.TARGET_DURATION }} * 2 + 10))
           echo "Test timeout set to $timeout minutes"

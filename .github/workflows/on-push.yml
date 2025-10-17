@@ -16,9 +16,6 @@ jobs:
   pre-commit:
     uses: ./.github/workflows/call-pre-commit.yml
     secrets: inherit
-  spdx:
-    uses: ./.github/workflows/call-spdx.yml
-    secrets: inherit
   build-image:
     uses: ./.github/workflows/call-build-docker.yml
     secrets: inherit
@@ -27,32 +24,25 @@ jobs:
     with:
       builder_build: false
     secrets: inherit
-  debug-build:
-    needs: [ pre-commit, spdx, prepare-run, build-image ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
-    uses: ./.github/workflows/call-build-debug.yml
-    secrets: inherit
-    with:
-      docker-image: ${{ needs.build-image.outputs.docker-image }}
   release-build:
-    needs: [ pre-commit, spdx, prepare-run, build-image ]
+    needs: [ prepare-run, build-image ]
     if: needs.prepare-run.outputs.skip_build != 'true'
     uses: ./.github/workflows/call-build-release.yml
     secrets: inherit
     with:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
       runner: ${{ needs.prepare-run.outputs.runner }}
-      sh_builder: ${{ needs.prepare-run.outputs.sh_builder }}
-  wheel-build:
+      sh_builder: ${{ fromJson(needs.prepare-run.outputs.sh_builder) }}
+      component_matrix: ${{ needs.prepare-run.outputs.build_matrix }}
+  debug-build:
     needs: [ prepare-run, build-image ]
     if: needs.prepare-run.outputs.skip_build != 'true'
-    uses: ./.github/workflows/call-build-wheels.yml
+    uses: ./.github/workflows/call-build-debug.yml
     secrets: inherit
     with:
-      docker_image: ${{ needs.build-image.outputs.docker-image }}
-      docker-tag: ${{ needs.build-image.outputs.docker-tag }}
+      docker-image: ${{ needs.build-image.outputs.docker-image }}
   test:
-    needs: [ pre-commit, spdx, prepare-run, build-image, release-build ]
+    needs: [ prepare-run, build-image, release-build ]
     if: needs.prepare-run.outputs.skip_build != 'true'
     uses: ./.github/workflows/call-test.yml
     secrets: inherit
@@ -77,5 +67,6 @@ jobs:
           gh variable set test_durations --body "$(cat _test_durations)" --repo tenstorrent/tt-mlir
           rm -rf _test_durations*
   docs:
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/call-build-docs.yml
     secrets: inherit

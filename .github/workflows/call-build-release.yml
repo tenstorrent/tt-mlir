@@ -9,17 +9,28 @@ on:
         type: string
       docker_image:
         description: 'Docker image for the build'
-        required: true
+        required: false
         type: string
+        default: 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest'
       runner:
         description: Runner machine
         required: false
         type: string
-        default: 'ubuntu-latest'
+        default: 'tt-ubuntu-2204-large-stable'
       sh_builder:
         description: Run on shared runner
         required: false
         type: boolean
+        default: true
+      component_matrix:
+        description: 'Component list to build'
+        required: false
+        type: string
+        default: '[]'
+
+permissions:
+  checks: write
+  packages: write
 
 jobs:
 
@@ -29,16 +40,16 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          { enable_op_model: "ON", enable_emitc: "ON", name: "speedy"},
-          { enable_perf: "ON", enable_emitc: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", name: "tracy"},
+          { enable_op_model: "ON", enable_emitc: "ON", name: "speedy" },
+          { enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", name: "tracy" }
         ]
 
-    name: Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})
-    runs-on: ${{ inputs.runner }}
+    name: Build ${{ matrix.build.name }} Release
 
+    runs-on: ${{ inputs.sh_builder && inputs.runner || fromJson(format('["{0}", "in-service"]',inputs.runner)) }}
 
     container:
-      image: ${{ inputs.sh_builder == 'true' && format('harbor.ci.tenstorrent.net/{0}', inputs.docker_image) || inputs.docker_image }}
+      image: ${{ inputs.sh_builder && format('harbor.ci.tenstorrent.net/{0}', inputs.docker_image) || inputs.docker_image }}
 
     env:
       # TODO: Revisit the addition of these env vars https://github.com/tenstorrent/tt-metal/issues/20161
@@ -63,7 +74,7 @@ jobs:
       id: fetch-job-id
       uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
       with:
-        job_name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.enable_runtime_debug}}, ${{ matrix.build.name }})"
+        job_name: "Build ${{ matrix.build.name }} Release"
 
     - name: Set reusable strings
       id: strings
@@ -100,71 +111,25 @@ jobs:
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
           -DTTMLIR_ENABLE_RUNTIME=ON \
           -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
-          -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable-perf }} \
-          -DTTMLIR_ENABLE_PYKERNEL=${{ matrix.build.enable-pykernel }} \
+          -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
+          -DTTMLIR_ENABLE_PYKERNEL=${{ matrix.build.enable_pykernel }} \
           -DTTMLIR_ENABLE_STABLEHLO=ON \
-          -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable-op-model }} \
-          -DTT_RUNTIME_DEBUG=${{ matrix.build.enable-runtime-debug }} \
+          -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
+          -DTT_RUNTIME_DEBUG=${{ matrix.build.enable_runtime_debug }} \
           -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build
       shell: bash
       run: |
         source env/activate
-        ccache -z
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
-        ccache -s
 
-    - name: Build ttrt
+    - name: Build tests
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }}
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- compile-ttmlir-tests
 
-    - name: Build ttnn-jit wheel
-      if: matrix.build.enable-pykernel == 'ON'
-      shell: bash
-      run: |
-        source env/activate
-        export CURRENT_DIR=$(pwd)
-        cd ${{ steps.strings.outputs.work-dir }}/tools/ttnn-jit
-        mkdir -p dist
-        pip install build setuptools wheel
-        python3 -m build --wheel
-        cd $CURRENT_DIR
-
-    - name: Build tt-alchemist
-      if: matrix.build.image == 'speedy'
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- tt-alchemist
-
-    - name: Install chisel
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- chisel
-
-    - name: Compile dylibs for EmitC
-      shell: bash
-      if: matrix.build.enable-emitc == 'ON'
-      run: |
-        source env/activate
-        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        llvm-lit -sv ${{ steps.strings.outputs.work-dir }}/test/ttmlir/EmitC/TTNN
-        ${{ steps.strings.outputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
-
-    - name: Build tt-explorer
-      if: matrix.build.enable-explorer == 'ON'
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- explorer
-
-    # Install needs to run after the "Compile dylibs" step
-    #
     - name: Install
       shell: bash
       run: |
@@ -172,66 +137,90 @@ jobs:
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component SharedLib
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component TTNNStandalone
+        cmake --install ${{ steps.strings.outputs.build-output-dir }} --component DistributedRuntime
 
-    - name: Build ttnn-standalone
+    - name: Build components
       shell: bash
       run: |
         source env/activate
-        export TT_METAL_HOME="${{ steps.strings.outputs.work-dir }}/third_party/tt-metal/src/tt-metal"
-        export TT_METAL_LIB="${{ steps.strings.outputs.install-output-dir }}/lib"
-        cd tools/ttnn-standalone
-        cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
-        cmake --build build -- ttnn-standalone
-        cp build/ttnn-standalone ${{ steps.strings.outputs.install-output-dir }}/tools/ttnn-standalone
+        cat << 'EOF' > _components_matrix.json
+          ${{ inputs.component_matrix }}
+        EOF
+        export WORK_DIR="${{ steps.strings.outputs.work-dir }}"
+        export INSTALL_DIR="${{ steps.strings.outputs.install-output-dir }}"
+        export BUILD_DIR="${{ steps.strings.outputs.build-output-dir }}"
+        export BUILD_NAME="${{ matrix.build.name }}"
+        export UPLOAD_LIST="$WORK_DIR/_components_upload.json"
+        echo "[" >$UPLOAD_LIST
+        echo "{\"name\":\"ttrt-whl-$BUILD_NAME\",\"path\":\"$WORK_DIR/build/tools/ttrt/build/ttrt*.whl\"}," >> $UPLOAD_LIST
 
-    - name: Upload ttrt .whl
-      uses: actions/upload-artifact@v4
-      with:
-        name: ttrt-whl-${{ matrix.build.build-name }}
-        path: build/tools/ttrt/build/ttrt*.whl
+        # run all component build scripts
+        if [ -f ".github/settings/build.json" ]; then
+          # Parse the JSON file and execute scripts for matching build name
+          scripts=$(jq -r --arg build_name "$BUILD_NAME" '.[] | select(.image == $build_name) | .script' _components_matrix.json)
+          if [ -n "$scripts" ]; then
+            echo "$scripts" | while IFS= read -r script; do
+            if [ -n "$script" ] && [ -f "$WORK_DIR/.github/build_scripts/$script" ]; then
+              cd $WORK_DIR
+              echo "========================="
+              echo "Executing script: $script"
+              echo "========================="
+              echo
+              time $WORK_DIR/.github/build_scripts/$script
+              echo
+              echo
+              echo
+              echo
+            else
+              echo "Script file not found: $script"
+            fi
+            done
+          else
+            echo "No scripts found for build name: $BUILD_NAME"
+          fi
+        else
+          echo ".github/settings/build.json file not found!"
+        fi
+        echo "{}]" >> $UPLOAD_LIST
+        cat $UPLOAD_LIST
+        cat $UPLOAD_LIST | jq .
 
-    - name: Upload ttnn-jit .whl
-      if: matrix.build.enable-pykernel == 'ON'
-      uses: actions/upload-artifact@v4
+    - name: Upload wheels
+      uses: nsumrakTT/upload-multiple-artifacts@main
       with:
-        name: ttnn-jit-whl-${{ matrix.build.build-name }}
-        path: ${{ steps.strings.outputs.work-dir }}/tools/ttnn-jit/dist/ttnn_jit*.whl
-        if-no-files-found: error
-
-    - name: Upload tt-alchemist .whl
-      if: matrix.build.image == 'speedy'
-      uses: actions/upload-artifact@v4
-      with:
-        name: tt-alchemist-whl-${{ matrix.build.build-name }}
-        path: build/tools/tt-alchemist/csrc/dist/tt_alchemist*.whl
-        if-no-files-found: error
+        continue-on-error: 'false'
+        config: _components_upload.json
+        compression-level: 0
 
     - name: Archive Install Directory
       shell: bash
       working-directory: ${{ steps.strings.outputs.install-output-dir }}
-      run: tar cf artifact.tar lib tt-metal bin tools
+      run: tar -I 'zstd --adapt=min=9 -T0' -cf artifact.tar.zst lib tt-metal bin tools
 
     - name: Upload Install Folder
       uses: actions/upload-artifact@v4
       with:
-        name: install-artifacts-${{ matrix.build.build-name }}
-        path: ${{ steps.strings.outputs.install-output-dir }}/artifact.tar
+        name: install-artifacts-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.install-output-dir }}/artifact.tar.zst
+        compression-level: 0
 
     - name: Remove tar archive
       shell: bash
-      run: rm -f ${{ steps.strings.outputs.install-output-dir }}/artifact.tar
+      run: rm -f ${{ steps.strings.outputs.install-output-dir }}/artifact.tar.zst
 
     - name: Archive Build Directory
       shell: bash
       working-directory: ${{ steps.strings.outputs.build-output-dir }}
-      run: tar cf artifact.tar test runtime bin python_packages python stablehlo shardy
+      run: |
+        tar -I 'zstd --adapt=min=9 -T0' -cf artifact.tar.zst test runtime bin python_packages python stablehlo shardy
 
     - name: Upload Build Folder
       uses: actions/upload-artifact@v4
       with:
-        name: build-artifacts-${{ matrix.build.build-name }}
-        path: ${{ steps.strings.outputs.build-output-dir }}/artifact.tar
+        name: build-artifacts-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.build-output-dir }}/artifact.tar.zst
+        compression-level: 0
 
     - name: Remove tar archive
       shell: bash
-      run: rm -f ${{ steps.strings.outputs.build-output-dir }}/artifact.tar
+      run: rm -f ${{ steps.strings.outputs.build-output-dir }}/artifact.tar.zst

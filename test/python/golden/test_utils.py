@@ -68,6 +68,38 @@ def shape_str(shape):
     return "x".join(map(str, shape))
 
 
+def shapes_list_str(shapes):
+    """
+    Converts a list of shapes to string, joined by "-".
+    Parameters
+    ----------
+    shapes : Sequence[*Union[Tuple[int, ...], List[int]]*]
+        Shapes to convert to string
+    Returns
+    -------
+    str
+        String representation of the shapes (e.g., '1x2-3x4' for input [(1, 2), (3, 4)])
+    """
+    return "-".join(shape_str(s) for s in shapes)
+
+
+def sharding_str(sharding):
+    """
+    Converts shape tuple to string.
+
+    Parameters
+    ----------
+    sharding : *List[Tuple[str, bool]]*
+        Sharding annotation config to convert to string
+
+    Returns
+    -------
+    str
+        String representation of the sharding config (e.g., '32x32' for shape (32, 32))
+    """
+    return "".join(map(str, sharding))
+
+
 def make_shard_shape(
     tensor_rank: int,
     shard_dims: Sequence[int],
