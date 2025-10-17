@@ -6,6 +6,8 @@ import model_explorer
 from . import runner, utils, mlir
 import dataclasses
 import logging
+import os
+import glob
 from ttmlir import optimizer_overrides
 
 OVERRIDE_PARAMETER_DISABLED_STR = "None"
@@ -19,6 +21,8 @@ OPTIMIZATION_POLICIES = {
     # "BF Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved,
 }
 
+# TODO(ctr-mcampos): update path to be configurable
+IR_DUMPS_DIR = 'ir_dumps'
 
 @dataclasses.dataclass
 class TTAdapterMetadata(model_explorer.AdapterMetadata):
@@ -142,7 +146,7 @@ class TTAdapter(model_explorer.Adapter):
         description="Adapter for Tenstorrent MLIR dialects used in the Forge compiler.",
         source_repo="https://github.com/tenstorrent/tt-mlir/tree/main/tools/explorer/tt_adapter",
         fileExts=["mlir", "ttir", "ttnn"],
-        settings={"optimizationPolicies": list(OPTIMIZATION_POLICIES.keys())},
+        settings={"optimizationPolicies": list(OPTIMIZATION_POLICIES.keys()), "supportsPreload": True },
     )
     model_runner = None
 
@@ -150,6 +154,22 @@ class TTAdapter(model_explorer.Adapter):
     def __init__(self):
         super().__init__()
         self.model_runner = runner.ModelRunner()
+
+    def preload(self, model_path: str, settings: Dict):
+        if not os.path.exists(IR_DUMPS_DIR) or not os.path.isdir(IR_DUMPS_DIR):
+            return utils.to_adapter_format({"graphPaths": []})
+
+        ir_paths = glob.glob(os.path.join(IR_DUMPS_DIR, "**/*.mlir")) + glob.glob(os.path.join(IR_DUMPS_DIR, "**/*.ttir")) + glob.glob(os.path.join(IR_DUMPS_DIR, "**/*.ttnn"))
+        graph_paths = []
+        for path in ir_paths:
+            full_path = os.path.abspath(path)
+
+            if os.access(full_path, os.R_OK) and full_path not in graph_paths:
+                if os.path.isdir(full_path):
+                    graph_paths.append(full_path)
+                # TODO(ctr-mcampos): add loose files (i.e. files not under a folder that ends in one of the extensions)?
+
+        return utils.to_adapter_format({"graphPaths": graph_paths})
 
     def convert(
         self, model_path: str, settings: Dict
@@ -205,7 +225,7 @@ class TTAdapter(model_explorer.Adapter):
             graph_handler = mlir.GraphHandler()
             graph, _ = graph_handler.build_graph(model_path, module, self.model_runner)
 
-        return {"graphs": [graph]}
+        return utils.to_adapter_collection_format(graph, label=utils.get_collection_label(model_path, IR_DUMPS_DIR))
 
     def execute(
         self, model_path: str, settings: Dict
@@ -217,7 +237,7 @@ class TTAdapter(model_explorer.Adapter):
 
         return {"graphs": []}
 
-    def status_check(self, model_path: str, settings: Dict) -> bool:
+    def status_check(self, model_path: str, settings: Dict):
         done = not self.model_runner.is_busy()
         logs = self.model_runner.get_logs()
         progress = self.model_runner.get_progress()
