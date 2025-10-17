@@ -32,6 +32,352 @@ public:
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
         maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {};
 
+  // OpTreeNode for building binary trees for register allocation using
+  // Sethi-Ullman algorithm.
+  class OpTreeNode {
+  public:
+    Operation *op = nullptr;
+    unsigned int weight = 0;
+    OpTreeNode *left = nullptr;
+    OpTreeNode *right = nullptr;
+    OpTreeNode *parent = nullptr;
+
+    OpTreeNode() = default;
+    OpTreeNode(Operation *op) : op(op) {}
+    ~OpTreeNode() {
+      delete left;
+      delete right;
+    }
+  };
+
+  // Build an OpTreeNode binary tree from the outermostInnerComputeLoop
+  // operation.
+  static std::pair<std::unique_ptr<OpTreeNode>, SmallVector<OpTreeNode *>>
+  buildOpTree(linalg::GenericOp &linalgGenericOp) {
+    SmallVector<OpTreeNode *> leafNodes;
+
+    // Get the linalg.yield operation.
+    auto &block = linalgGenericOp.getBody()->front();
+    linalg::YieldOp yieldOp = nullptr;
+    block.walk([&](linalg::YieldOp op) {
+      if (!yieldOp) {
+        yieldOp = op;
+      }
+    });
+    
+    if (!yieldOp || yieldOp.getValues().empty()) {
+      return {nullptr, leafNodes};
+    }
+
+    // Get the operation that generates the yielded SSA value.
+    Value yieldedValue = yieldOp.getValues()[0];
+    Operation *rootOp = yieldedValue.getDefiningOp();
+    if (!rootOp) {
+      return {nullptr, leafNodes};
+    }
+
+    // Build the tree recursively starting from the root operation.
+    auto rootNode = buildOpTreeRecursive(rootOp, block, leafNodes);
+    return {std::move(rootNode), leafNodes};
+  }
+
+  // Recursive helper to build the OpTreeNode from an operation.
+  static std::unique_ptr<OpTreeNode>
+  buildOpTreeRecursive(Operation *op, Block &linalgBlock,
+                       SmallVector<OpTreeNode *> &leafNodes) {
+    auto node = std::make_unique<OpTreeNode>(op);
+
+    // Check if this is a leaf (block argument).
+    bool isLeaf = true;
+    for (Value operand : op->getOperands()) {
+      if (operand.getDefiningOp() &&
+          operand.getDefiningOp()->getBlock() == &linalgBlock) {
+        isLeaf = false;
+        break;
+      }
+    }
+
+    if (isLeaf) {
+      // This is a leaf node - add to leafNodes.
+      leafNodes.push_back(node.get());
+      return node;
+    }
+
+    // Process operands to build child nodes.
+    SmallVector<std::unique_ptr<OpTreeNode>> children;
+    for (Value operand : op->getOperands()) {
+      if (Operation *definingOp = operand.getDefiningOp()) {
+        if (definingOp->getBlock() == &linalgBlock) {
+          children.push_back(
+              buildOpTreeRecursive(definingOp, linalgBlock, leafNodes));
+        }
+      }
+    }
+
+    // Assign children based on operand count.
+    if (children.size() == 1) {
+      // Unary operation.
+      node->left = children[0].release();
+      node->left->parent = node.get();
+    } else if (children.size() == 2) {
+      // Binary operation.
+      node->left = children[0].release();
+      node->right = children[1].release();
+      node->left->parent = node.get();
+      node->right->parent = node.get();
+    }
+    // For operations with more than 2 operands, we only handle the first two.
+
+    return node;
+  }
+
+  // Helper function to add parent node to processing queue.
+  static void addParentToQueue(OpTreeNode *node,
+                               llvm::SmallSet<OpTreeNode *, 16> &queueSet,
+                               SmallVector<OpTreeNode *> &queue) {
+    if (node->parent && !queueSet.contains(node->parent)) {
+      queueSet.insert(node->parent);
+      queue.push_back(node->parent);
+    }
+  }
+
+  // Mark node weights using the Sethi-Ullman algorithm for register
+  // allocation.
+  static void markNodeWeights(std::unique_ptr<OpTreeNode> &root,
+                              SmallVector<OpTreeNode *> &leafNodes) {
+    if (!root) {
+      return;
+    }
+
+    // Process nodes using a set-based approach for bottom-up traversal.
+    llvm::SmallSet<OpTreeNode *, 16> processedNodes;
+    llvm::SmallSet<OpTreeNode *, 16> queueSet;
+    SmallVector<OpTreeNode *> queue;
+
+    // Initialize leaf nodes with weight 1 and add their parents to queue.
+    for (OpTreeNode *leafNode : leafNodes) {
+      leafNode->weight = 1;
+      addParentToQueue(leafNode, queueSet, queue);
+    }
+
+    // Process non-leaf nodes.
+    while (!queue.empty()) {
+      OpTreeNode *node = queue.front();
+      queue.erase(queue.begin());
+      queueSet.erase(node);
+
+      if (processedNodes.contains(node)) {
+        continue; // Already processed.
+      }
+
+      // Check if all children have been processed.
+      bool allChildrenProcessed = true;
+      if (node->left && !processedNodes.contains(node->left)) {
+        allChildrenProcessed = false;
+      }
+      if (node->right && !processedNodes.contains(node->right)) {
+        allChildrenProcessed = false;
+      }
+
+      if (!allChildrenProcessed) {
+        // Re-add to queue for later processing.
+        if (!queueSet.contains(node)) {
+          queueSet.insert(node);
+          queue.push_back(node);
+        }
+        continue;
+      }
+
+      // Calculate weight based on Sethi-Ullman algorithm.
+      if (node->right == nullptr) {
+        // Unary operation.
+        assert(node->left && "Unary operation must have left child");
+        node->weight = node->left->weight;
+      } else {
+        // Binary operation.
+        assert(node->left && "Binary operation must have left child");
+        assert(node->right && "Binary operation must have right child");
+        unsigned leftWeight = node->left->weight;
+        unsigned rightWeight = node->right->weight;
+
+        if (leftWeight == rightWeight) {
+          node->weight = leftWeight + 1;
+        } else {
+          node->weight = std::max(leftWeight, rightWeight);
+        }
+      }
+
+      // Mark this node as processed.
+      processedNodes.insert(node);
+
+      // Add parent to queue.
+      addParentToQueue(node, queueSet, queue);
+    }
+  }
+
+  // // Generate code for the expression tree using register allocation.
+  // static void generateCodeForTree(PatternRewriter &rewriter, Location loc,
+  //                                 OpTreeNode *root,
+  //                                 Operation *outermostInnerComputeLoop) {
+  //   if (!root || !outermostInnerComputeLoop) {
+  //     return;
+  //   }
+
+  //   // Find the linalg.generic operation to get operand count.
+  //   linalg::GenericOp linalgGenericOp = nullptr;
+  //   outermostInnerComputeLoop->walk([&](linalg::GenericOp op) {
+  //     if (!linalgGenericOp) {
+  //       linalgGenericOp = op;
+  //     }
+  //   });
+
+  //   if (!linalgGenericOp) {
+  //     return;
+  //   }
+
+  //   // Determine inner dimension limit based on operand count.
+  //   unsigned totalOperands = linalgGenericOp.getInputs().size();
+  //   unsigned innerDimLimit;
+  //   if (totalOperands == 3) {
+  //     innerDimLimit = 4;
+  //   } else if (totalOperands == 2) {
+  //     innerDimLimit = 8;
+  //   } else {
+  //     innerDimLimit = 2; // 4 or more operands.
+  //   }
+
+  //   // Create DST allocation.
+  //   // TODO(mbagherbeik): Calculate proper DST capacity and type. Issue: #TBD
+  //   auto dstType = MemRefType::get(
+  //       {8, 1, 1}, rewriter.getBF16Type(),
+  //       mlir::AffineMap::getMultiDimIdentityMap(3, rewriter.getContext()),
+  //       rewriter.getAttr<ttcore::MemorySpaceAttr>(
+  //           ttcore::MemorySpace::RegisterDst));
+
+  //   rewriter.setInsertionPoint(outermostInnerComputeLoop);
+  //   auto acquireDst = rewriter.create<AcquireDstOp>(loc, dstType);
+  //   Value dst = acquireDst.getResult();
+
+  //   // Start recursive code generation.
+  //   llvm::SmallSet<OpTreeNode *, 16> processedNodes;
+  //   generateCodeRecursive(rewriter, loc, root, dst, innerDimLimit,
+  //                        processedNodes);
+  // }
+
+  // // Recursive function to generate code by traversing highest weight path.
+  // static void generateCodeRecursive(PatternRewriter &rewriter, Location loc,
+  //                                   OpTreeNode *node, Value dst,
+  //                                   unsigned innerDimLimit,
+  //                                   llvm::SmallSet<OpTreeNode *, 16>
+  //                                       &processedNodes) {
+  //   if (!node || processedNodes.contains(node)) {
+  //     return;
+  //   }
+
+  //   // If this is a leaf node, we need to handle it differently.
+  //   if (!node->left && !node->right) {
+  //     // Leaf nodes are handled when their parent is processed.
+  //     return;
+  //   }
+
+  //   // For binary operations, process highest weight child first.
+  //   if (node->left && node->right) {
+  //     if (node->left->weight >= node->right->weight) {
+  //       generateCodeRecursive(rewriter, loc, node->left, dst, innerDimLimit,
+  //                            processedNodes);
+  //       generateCodeRecursive(rewriter, loc, node->right, dst, innerDimLimit,
+  //                            processedNodes);
+  //     } else {
+  //       generateCodeRecursive(rewriter, loc, node->right, dst, innerDimLimit,
+  //                            processedNodes);
+  //       generateCodeRecursive(rewriter, loc, node->left, dst, innerDimLimit,
+  //                            processedNodes);
+  //     }
+  //   } else if (node->left) {
+  //     // Unary operation.
+  //     generateCodeRecursive(rewriter, loc, node->left, dst, innerDimLimit,
+  //                          processedNodes);
+  //   }
+
+  //   // Generate code for this operation.
+  //   generateOperationCode(rewriter, loc, node, dst, innerDimLimit);
+  //   processedNodes.insert(node);
+  // }
+
+  // // Generate code for a single operation (creates loops, loads, compute,
+  // // stores).
+  // static void generateOperationCode(PatternRewriter &rewriter, Location loc,
+  //                                   OpTreeNode *node, Value dst,
+  //                                   unsigned innerDimLimit) {
+  //   // TODO(mbagherbeik): Implement proper loop bounds calculation. Issue: #TBD
+  //   // Generate affine loop nest.
+  //   auto outerLoop = rewriter.create<affine::AffineForOp>(loc, 0, 1, 1);
+  //   rewriter.setInsertionPointToStart(outerLoop.getBody());
+
+  //   auto innerLoop =
+  //       rewriter.create<affine::AffineForOp>(loc, 0, innerDimLimit, 1);
+  //   rewriter.setInsertionPointToStart(innerLoop.getBody());
+
+  //   // Get loop induction variables.
+  //   Value outerIV = outerLoop.getInductionVar();
+  //   Value innerIV = innerLoop.getInductionVar();
+
+  //   // Generate loads for operands.
+  //   SmallVector<Value> operandValues;
+
+  //   if (node->left) {
+  //     // Load left operand (either from DST or generate load from source).
+  //     Value leftValue =
+  //         generateOperandLoad(rewriter, loc, node->left, dst, outerIV, innerIV);
+  //     operandValues.push_back(leftValue);
+  //   }
+
+  //   if (node->right) {
+  //     // Load right operand.
+  //     Value rightValue = generateOperandLoad(rewriter, loc, node->right, dst,
+  //                                           outerIV, innerIV);
+  //     operandValues.push_back(rightValue);
+  //   }
+
+  //   // Generate the compute operation.
+  //   Value result = generateComputeOp(rewriter, loc, node->op, operandValues);
+
+  //   // Store result to DST.
+  //   // TODO(mbagherbeik): Calculate proper DST index based on register
+  //   // allocation. Issue: #TBD
+  //   auto storeIndices = SmallVector<Value>{
+  //       rewriter.create<arith::ConstantIndexOp>(loc, 0), // DST slice index.
+  //       outerIV, innerIV};
+  //   rewriter.create<affine::AffineStoreOp>(loc, result, dst, storeIndices);
+  // }
+
+  // // Generate load for an operand (either from DST or from source).
+  // static Value generateOperandLoad(PatternRewriter &rewriter, Location loc,
+  //                                  OpTreeNode *operandNode, Value dst,
+  //                                  Value outerIV, Value innerIV) {
+  //   // TODO(mbagherbeik): Implement proper operand loading logic to distinguish
+  //   // between leaf inputs and computed values. Issue: #TBD
+  //   // If operand is a leaf (input), load from source.
+  //   // If operand is computed, load from DST.
+
+  //   // For now, create a placeholder load from DST.
+  //   auto loadIndices = SmallVector<Value>{
+  //       rewriter.create<arith::ConstantIndexOp>(loc, 0), // DST slice index.
+  //       outerIV, innerIV};
+  //   return rewriter.create<affine::AffineLoadOp>(loc, dst, loadIndices);
+  // }
+
+  // // Generate the actual compute operation.
+  // static Value generateComputeOp(PatternRewriter &rewriter, Location loc,
+  //                                Operation *originalOp,
+  //                                ArrayRef<Value> operands) {
+  //   // TODO(mbagherbeik): Implement proper operation cloning with operand
+  //   // replacement. Issue: #TBD
+
+  //   // For now, return the first operand as placeholder.
+  //   return operands.empty() ? Value() : operands[0];
+  // }
+
   template <typename OpT>
   using OpAndIndexOffset = std::pair<OpT, int64_t>;
 
@@ -89,6 +435,22 @@ public:
           return;
         }
 
+        auto [opTreeRoot, leafNodes] = buildOpTree(outermostInnerComputeLoop);
+        if (opTreeRoot) {
+          // Mark node weights using Sethi-Ullman algorithm.
+          markNodeWeights(opTreeRoot, leafNodes);
+    
+          // Generate code for the expression tree.
+          // generateCodeForTree(rewriter, loc, opTreeRoot.get(),
+          //                    outermostInnerComputeLoop);
+    
+          // TODO(mbagherbeik): This is currently a placeholder implementation.
+          // The code generation needs to be completed with proper DST management,
+          // operand loading, and operation cloning. For now, we fall back to the
+          // original approach. Issue: #TBD
+          // return true;
+        }
+
         rewriter.setInsertionPoint(linalgGenericOp);
         // Apply linalg to affine loops pass.
         auto linalgLoops =
@@ -121,6 +483,24 @@ public:
 
     Location loc = op.getLoc();
 
+    // NEW: Try tree-based approach with Sethi-Ullman register allocation.
+    // auto [opTreeRoot, leafNodes] = buildOpTree(outermostInnerComputeLoop);
+    // if (opTreeRoot) {
+    //   // Mark node weights using Sethi-Ullman algorithm.
+    //   markNodeWeights(opTreeRoot, leafNodes);
+
+    //   // Generate code for the expression tree.
+    //   // generateCodeForTree(rewriter, loc, opTreeRoot.get(),
+    //   //                    outermostInnerComputeLoop);
+
+    //   // TODO(mbagherbeik): This is currently a placeholder implementation.
+    //   // The code generation needs to be completed with proper DST management,
+    //   // operand loading, and operation cloning. For now, we fall back to the
+    //   // original approach. Issue: #TBD
+    //   // return true;
+    // }
+
+    // FALLBACK: Original approach.
     // 1. Collect all loads/stores to dst organized by loop nest.
     auto [copyInfos, dstAllocation] =
         collectDstAccesses(op, region, outermostInnerComputeLoop);
