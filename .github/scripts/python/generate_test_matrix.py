@@ -53,11 +53,12 @@ def main(input_filename, target_duration, component_filter):
         filtered_tests = []
         for test in tests:
             if "if" in test:
-                components = [
-                    comp.strip() for comp in test["if"].split(",") if comp.strip()
-                ]
-                if component_filter in components:
+                if test["if"] in component_filter:
                     filtered_tests.append(test)
+                else:
+                    print(
+                        f"Excluding test '{test.get('name', '')}' due to component filter '{component_filter}'"
+                    )
             else:
                 # If no "if" field, include the test by default
                 filtered_tests.append(test)

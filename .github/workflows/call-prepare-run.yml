@@ -146,6 +146,7 @@ jobs:
             fi
           fi
 
+          echo "Generated component matrix: $(cat _components_matrix.json)"
           echo "component-matrix=$(cat _components_matrix.json | jq -c)" >> $GITHUB_OUTPUT
 
       - name: Generate test matrix
