@@ -43,6 +43,8 @@ DestRegisterAnalysis::DestRegisterAnalysis(Operation *op) {
     for (Value input : inputValues) {
       int inputIndex = nextAvailableIndex++;
       valueToDstIndex[input] = inputIndex;
+      // Record input indices for DST allocation
+      info.dstSliceIndices.push_back(inputIndex);
     }
 
     // Phase 3: Process compute ops.
@@ -80,7 +82,8 @@ DestRegisterAnalysis::DestRegisterAnalysis(Operation *op) {
           outputIndex = nextAvailableIndex++;
         }
         opToDstIndex[innerOp] = outputIndex;
-        info.computeOpMap[innerOp] = outputIndex;
+        // Store the intermediate DST slice indices for this compute op.
+        info.dstSliceIndices.push_back(outputIndex);
       }
     });
 
