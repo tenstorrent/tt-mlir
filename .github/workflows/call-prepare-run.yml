@@ -52,25 +52,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Ignore files
-        id: ignore-files
-        uses: tj-actions/changed-files@v47
-        with:
-          files: |
-            docs/**
-      - name: echo ignore_files
-        id: skip_build
-        run: |
-          echo "any_changed=${{ steps.ignore-files.outputs.any_changed }}"
-          echo "only_changed=${{ steps.ignore-files.outputs.only_changed }}"
-          echo "other_changed_files=${{ steps.ignore-files.outputs.other_changed_files }}"
-          echo "all_changed_files=${{ steps.ignore-files.outputs.all_changed_files }}"
-          echo "other_deleted_files=${{ steps.ignore-files.outputs.other_deleted_files }}"
-          if [[ -n "${{ steps.ignore-files.outputs.other_changed_files }}" || -n "${{ steps.ignore-files.outputs.other_deleted_files }}" ]]; then
-            echo "skip_build=false" >> $GITHUB_OUTPUT
-          else
-            echo "skip_build=true" >> $GITHUB_OUTPUT
-          fi
 
       - name: Decide on build runner
         id: decide-runner
@@ -92,11 +73,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Check components
         id: components
         uses: tj-actions/changed-files@v47
         with:
           files_yaml_from_source_file: '.github/settings/optional-components.yml'
+
+      - name: echo ignore_files
+        id: skip_build
+        run: |
+          echo "any_changed=${{ steps.components.outputs.any_changed }}"
+          echo "only_changed=${{ steps.components.outputs.only_changed }}"
+          echo "other_changed_files=${{ steps.components.outputs.other_changed_files }}"
+          echo "all_changed_files=${{ steps.components.outputs.all_changed_files }}"
+          echo "other_deleted_files=${{ steps.components.outputs.other_deleted_files }}"
+
+          comp=(${{ steps.components.outputs.modified_keys }})
+          if [[ " ${comp[*]} " =~ " ignore-build " ]]; then
+            echo "skip_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip_build=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Generate build matrix
         id: generate-build-matrix

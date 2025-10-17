@@ -1,3 +1,9 @@
+ignore-build:
+  - docs/**
+  - .github/CODEOWNERS
+  - .gitignore
+  - LICENSE
+  - '*.md'
 chisel:
   - runtime/tools/chisel/**
 emitc:
