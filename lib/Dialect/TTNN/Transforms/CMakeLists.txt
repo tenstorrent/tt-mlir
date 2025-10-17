@@ -7,6 +7,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/OperationValidationAndFallback.cpp
         OptimizerPasses/Optimizer.cpp
         OptimizerPasses/OptimizerPassesWrapper.cpp
+        OptimizerPasses/RowMajorLayoutPropagation.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNLayout.cpp
         TTNNDecomposeLayouts.cpp

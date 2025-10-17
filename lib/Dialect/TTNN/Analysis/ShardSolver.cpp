@@ -509,12 +509,6 @@ bool ShardSolver::insertReshard(const Edge &edge) {
     checkShardCompatibleForInputLayout(edge, consumerOp, inputLayout,
                                        consumerConfigSet, consumerConfigs,
                                        inputLayoutBoundCB);
-
-    if (foundSolution) {
-      // Breaking as soon as we find one valid layout. In future, we might
-      // want to keep all valid configs for optimal resharding.
-      break;
-    }
   }
 
   if (memReconfigEntry.reshardOutputConfigMap.empty()) {

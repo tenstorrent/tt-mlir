@@ -97,6 +97,8 @@ void createTTNNPipelineAnalysisPasses(
         [optimizerOptions, validationOptions](OpPassManager &innerPm) {
           // All Optimizer passes will be run inside the wrapper.
           innerPm.addPass(
+              mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
+          innerPm.addPass(
               mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
           innerPm.addPass(mlir::createCanonicalizerPass());
           innerPm.addPass(
