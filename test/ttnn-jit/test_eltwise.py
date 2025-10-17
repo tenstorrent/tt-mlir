@@ -71,6 +71,26 @@ def create_sharded_tile_tensor(device, h, w, max_grid, dtype):
     )
 
 
+def all_close_check(interop_result, golden_result, atol=1e-1, rtol=1e-1):
+
+    print("--------------------------------")
+    print("Interop result:")
+    print(interop_result)
+    print("--------------------------------")
+    print("Golden result:")
+    print(golden_result)
+    print("--------------------------------")
+
+    all_close = torch.allclose(
+        interop_result.cpu().to_torch(),
+        golden_result.cpu().to_torch(),
+        atol=atol,
+        rtol=rtol,
+    )
+    print("all_close", all_close)
+    assert all_close
+
+
 def run_op_test(
     device, h, w, max_grid, dtype, op, num_inputs, buffer_type=ttnn.BufferType.L1
 ):
@@ -88,26 +108,7 @@ def run_op_test(
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
-    print("--------------------------------")
-    print("input tensor(s)")
-    for tensor in inputs:
-        print(tensor)
-    print("--------------------------------")
-    print("output_tensor")
-    print(output_tensor)
-    print("--------------------------------")
-    print("golden_tensor")
-    print(golden_tensor)
-    print("--------------------------------")
-
-    all_close = torch.allclose(
-        output_tensor.cpu().to_torch(),
-        golden_tensor.cpu().to_torch(),
-        atol=1e-1,
-        rtol=1e-1,
-    )
-    print("all_close", all_close)
-    assert all_close
+    all_close_check(output_tensor, golden_tensor)
 
 
 # ------------------------------------------------------------
@@ -408,26 +409,6 @@ def test_composite_ops(device, h, w, max_grid, dtype, op):
 # ------------------------------------------------------------
 # Interop tests
 # ------------------------------------------------------------
-
-
-def all_close_check(interop_result, golden_result, atol=1e-1, rtol=1e-1):
-
-    print("--------------------------------")
-    print("Interop result:")
-    print(interop_result)
-    print("--------------------------------")
-    print("Golden result:")
-    print(golden_result)
-    print("--------------------------------")
-
-    all_close = torch.allclose(
-        interop_result.cpu().to_torch(),
-        golden_result.cpu().to_torch(),
-        atol=atol,
-        rtol=rtol,
-    )
-    print("all_close", all_close)
-    assert all_close
 
 
 # JIT op -> ttnn unary op test
