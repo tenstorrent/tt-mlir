@@ -394,6 +394,8 @@ public:
   LogicalResult
   matchAndRewrite(ttkernel::DPrintOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    StringRef fmt = op.getFmt();
+
     auto stringlit = [&](StringRef str) {
       return rewriter
           .create<emitc::LiteralOp>(
@@ -404,7 +406,7 @@ public:
 
     auto operandsIter = adaptor.getOperands().begin();
     auto operandsEnd = adaptor.getOperands().end();
-    StringRef rest, fmt = op.getFmt();
+    StringRef rest;
     SmallVector<Value> vargs;
     do {
       std::tie(fmt, rest) = fmt.split("{}");
@@ -412,7 +414,24 @@ public:
         vargs.push_back(stringlit(fmt));
       }
       if (operandsIter != operandsEnd) {
-        vargs.push_back(*operandsIter++);
+        if (mlir::isa<ttkernel::CBType>(
+                op.getOperands()[operandsIter.getIndex()].getType()) &&
+            op->getParentOfType<func::FuncOp>()
+                    ->getAttrOfType<ttkernel::ThreadTypeAttr>(
+                        ttkernel::ThreadTypeAttr::name)
+                    .getValue() == ttkernel::ThreadType::Compute) {
+          auto cbPrinter =
+              rewriter
+                  .create<emitc::CallOpaqueOp>(
+                      op.getLoc(),
+                      rewriter.getType<emitc::OpaqueType>("ttmlir::CBPrinter"),
+                      "ttmlir::CBPrinter", nullptr, nullptr,
+                      ValueRange{*operandsIter++})
+                  .getResult(0);
+          vargs.push_back(cbPrinter);
+        } else {
+          vargs.push_back(*operandsIter++);
+        }
       }
       fmt = rest;
     } while (!fmt.empty());

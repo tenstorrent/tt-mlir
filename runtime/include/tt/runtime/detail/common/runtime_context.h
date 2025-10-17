@@ -24,6 +24,7 @@ public:
   void setMlirHome(std::string_view mlirHome);
 
   std::string getMetalHome() const;
+  void setMetalHome(std::string_view metalHome);
 
   DeviceRuntime getCurrentDeviceRuntime() const;
   void setCurrentDeviceRuntime(const DeviceRuntime &runtime);

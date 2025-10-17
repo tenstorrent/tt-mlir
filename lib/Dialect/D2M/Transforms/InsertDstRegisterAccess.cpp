@@ -24,13 +24,12 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
-template <typename GenericOrFuncOp>
 struct D2MInsertDstRegisterAccessRewriter final
-    : public OpRewritePattern<GenericOrFuncOp> {
+    : public OpRewritePattern<GenericOp> {
 public:
   D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
                                      unsigned maxDstPhysicalSizeTiles)
-      : OpRewritePattern<GenericOrFuncOp>(ctx), useTileMatmul(useTileMatmul),
+      : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
         maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {};
 
   template <typename OpT>
@@ -65,89 +64,66 @@ public:
     bool storedToDst = false;
   };
 
-  LogicalResult matchAndRewrite(GenericOrFuncOp op,
+  LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
-    if constexpr (std::is_same_v<GenericOrFuncOp, GenericOp>) {
-      for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
-           regionIndex++) {
-        if (op.getRegionThreadType(regionIndex) != ThreadType::Compute) {
-          continue;
-        }
-
-        Region &region = op.getRegion(regionIndex);
-        Block &block = region.getBlocks().front();
-
-        Type largestDstType = utils::getRegionLargestDstElemType(region);
-        const unsigned dstCapacity =
-            ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
-                largestDstType, false, maxDstPhysicalSizeTiles);
-
-        bool linalgToAffineFailed = false;
-        block.walk([&](linalg::GenericOp linalgGenericOp) {
-          if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
-            linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
-                rewriter, op, region, linalgGenericOp, dstCapacity, modified);
-            return;
-          }
-
-          rewriter.setInsertionPoint(linalgGenericOp);
-          // Apply linalg to affine loops pass.
-          auto linalgLoops =
-              linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
-          if (failed(linalgLoops)) {
-            linalgToAffineFailed = true;
-            return;
-          }
-          rewriter.eraseOp(linalgGenericOp);
-          modified |= insertDstRegisterAccess(
-              rewriter, op.getLoc(), region, dstCapacity,
-              !linalgLoops.value().empty() ? linalgLoops.value().front()
-                                           : nullptr,
-              [&](int64_t index) {
-                return op.getNonParticipatingLoopDims(index);
-              });
-        });
-        if (linalgToAffineFailed) {
-          return failure();
-        }
+    for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
+         regionIndex++) {
+      if (op.getRegionThreadType(regionIndex) != ThreadType::Compute) {
+        continue;
       }
-    } else {
-      // This branch is for lit tests only.
-      static_assert(std::is_same_v<GenericOrFuncOp, func::FuncOp>);
-      d2m::ThreadAttr threadAttr =
-          op->template getAttrOfType<d2m::ThreadAttr>(d2m::ThreadAttr::name);
-      if (!threadAttr || threadAttr.getThreadType() != ThreadType::Compute) {
+
+      Region &region = op.getRegion(regionIndex);
+      Block &block = region.getBlocks().front();
+
+      Type largestDstType = utils::getRegionLargestDstElemType(region);
+      const unsigned dstCapacity =
+          ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
+              largestDstType, false, maxDstPhysicalSizeTiles);
+
+      bool linalgToAffineFailed = false;
+      block.walk([&](linalg::GenericOp linalgGenericOp) {
+        if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
+          linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
+              rewriter, op, region, linalgGenericOp, dstCapacity, modified);
+          return;
+        }
+
+        rewriter.setInsertionPoint(linalgGenericOp);
+        // Apply linalg to affine loops pass.
+        auto linalgLoops =
+            linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
+        if (failed(linalgLoops)) {
+          linalgToAffineFailed = true;
+          return;
+        }
+        rewriter.eraseOp(linalgGenericOp);
+        modified |= insertDstRegisterAccess(rewriter, op, region, dstCapacity,
+                                            !linalgLoops.value().empty()
+                                                ? linalgLoops.value().front()
+                                                : nullptr);
+      });
+      if (linalgToAffineFailed) {
         return failure();
       }
-
-      Type largestDstType = utils::getRegionLargestDstElemType(op.getRegion());
-      const unsigned dstCapacity =
-          ttcore::SystemDescAttr::getDefault(rewriter.getContext())
-              .getChipDesc(0)
-              .getDstLogicalSizeTiles(largestDstType, false,
-                                      maxDstPhysicalSizeTiles);
-
-      modified |= insertDstRegisterAccess(rewriter, op.getLoc(), op.getBody(),
-                                          dstCapacity);
     }
     return success(modified);
   }
 
-  static bool insertDstRegisterAccess(
-      PatternRewriter &rewriter, Location loc, Region &region,
-      unsigned dstCapacity, Operation *outermostInnerComputeLoop = nullptr,
-      llvm::function_ref<SmallVector<int64_t>(int64_t)>
-          getNonParticipatingLoopDims =
-              [](int64_t) { return SmallVector<int64_t>{}; }) {
+  static bool
+  insertDstRegisterAccess(PatternRewriter &rewriter, GenericOp op,
+                          Region &region, unsigned dstCapacity,
+                          Operation *outermostInnerComputeLoop = nullptr) {
     assert(region.getBlocks().size() == 1);
     if (hasAcquireDstOp(region)) {
       return false;
     }
 
+    Location loc = op.getLoc();
+
     // 1. Collect all loads/stores to dst organized by loop nest.
-    auto [copyInfos, dstAllocation] = collectDstAccesses(
-        region, getNonParticipatingLoopDims, outermostInnerComputeLoop);
+    auto [copyInfos, dstAllocation] =
+        collectDstAccesses(op, region, outermostInnerComputeLoop);
     if (copyInfos.empty()) {
       return false;
     }
@@ -255,14 +231,12 @@ public:
 
   // Return both the copy nest info and dst allocation info.
   static DstAccessCollection
-  collectDstAccesses(Region &region,
-                     llvm::function_ref<SmallVector<int64_t>(int64_t)>
-                         getNonParticipatingLoopDims,
+  collectDstAccesses(GenericOp op, Region &region,
                      Operation *outermostInnerComputeLoop) {
     CopyInfoMap copyInfos;
     DstSliceAllocationState dstSliceAllocationState;
     DstRegisterAllocation dstRegisterAllocation;
-    region.walk([&](OperandLoadStoreRegisterOpInterface op) {
+    region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
       // We're generating loads and stores for dst, so we can ignore loads and
       // stores that are already on dst.
       auto notDstMemspace = [](auto op) {
@@ -271,31 +245,31 @@ public:
       };
 
       // Collect loads to this op.
-      for (int64_t operandIdx : op.getOperandsLoadFromDstRegister()) {
-        if (auto potentialLoad = op->getOperand(operandIdx)
+      for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
+        if (auto potentialLoad = computeOp->getOperand(operandIdx)
                                      .getDefiningOp<affine::AffineLoadOp>();
             notDstMemspace(potentialLoad)) {
           collectDstAccess<affine::AffineLoadOp>(
-              potentialLoad, copyInfos, dstSliceAllocationState.allocate(),
-              getNonParticipatingLoopDims, outermostInnerComputeLoop);
+              op, potentialLoad, copyInfos, dstSliceAllocationState.allocate(),
+              outermostInnerComputeLoop);
         }
       }
 
       // Collect stores from this op.
-      for (auto *user : op->getUsers()) {
+      for (auto *user : computeOp->getUsers()) {
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
             notDstMemspace(potentialStore)) {
 
           assert(!dstSliceAllocationState.didStoreToDst() &&
                  "Multiple stores from last op to dst not supported");
 
-          auto dstRegInPlace = op.getDstRegInPlace();
+          auto dstRegInPlace = computeOp.getDstRegInPlace();
           int64_t dstSliceIndex = -1;
           if (dstRegInPlace) {
-            bool isUnaryOp = op->getNumOperands() == 1;
-            bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(op);
-            bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(op) ||
-                               mlir::isa<d2m::TileReduceSumOp>(op);
+            bool isUnaryOp = computeOp->getNumOperands() == 1;
+            bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
+            bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
+                               mlir::isa<d2m::TileReduceSumOp>(computeOp);
             assert((isUnaryOp || isTileMatmul || isReduction) &&
                    "Only unary ops, tile matmul, and reductions supported for "
                    "destination register in "
@@ -306,28 +280,29 @@ public:
             dstSliceIndex = dstSliceAllocationState.allocate();
             dstSliceAllocationState.setStoreToDst();
           }
-          collectDstAccess<affine::AffineStoreOp>(
-              potentialStore, copyInfos, dstSliceIndex,
-              getNonParticipatingLoopDims, outermostInnerComputeLoop);
+          collectDstAccess<affine::AffineStoreOp>(op, potentialStore, copyInfos,
+                                                  dstSliceIndex,
+                                                  outermostInnerComputeLoop);
 
         }
         // If the user isn't a store, it must be another compute consumer and we
         // need to set or allocate a dest register intermediate for it.
         else {
           assert(user->hasTrait<D2MGenericRegionComputeOpTrait>());
-          assert(op->hasOneUse() && "Currently we do not support multiple "
-                                    "users in the same compute dst region.");
-          assert(op->getNumResults() == 1);
-          assert(!dstRegisterAllocation.contains(op));
+          assert(computeOp->hasOneUse() &&
+                 "Currently we do not support multiple "
+                 "users in the same compute dst region.");
+          assert(computeOp->getNumResults() == 1);
+          assert(!dstRegisterAllocation.contains(computeOp));
           // If op stores to dst in place, we don't need to allocate a new dst
           // register, just use the current dst index.
           int32_t allocatedIndex =
-              op.getDstRegInPlace()
+              computeOp.getDstRegInPlace()
                   ? dstSliceAllocationState.getCurrSliceIndex()
                   : dstSliceAllocationState.allocate();
 
-          dstRegisterAllocation[op] = {allocatedIndex,
-                                       outermostInnerComputeLoop};
+          dstRegisterAllocation[computeOp] = {allocatedIndex,
+                                              outermostInnerComputeLoop};
         }
       }
     });
@@ -344,11 +319,9 @@ public:
 
   // Collect a single load or store to dst organized by loop nest.
   template <typename LoadOrStoreOp>
-  static void collectDstAccess(LoadOrStoreOp loadOrStore,
+  static void collectDstAccess(GenericOp op, LoadOrStoreOp loadOrStore,
                                CopyInfoMap &copyInfos,
                                int64_t nextDstSliceIndex,
-                               llvm::function_ref<SmallVector<int64_t>(int64_t)>
-                                   getNonParticipatingLoopDims,
                                Operation *outermostInnerComputeLoop) {
     if (!outermostInnerComputeLoop) {
       // If there is no outermostInnerComputeLoop, the common ancestor is the
@@ -359,7 +332,7 @@ public:
     auto [iter, inserted] = copyInfos.try_emplace(outermostInnerComputeLoop);
     CopyInfo &copyInfo = iter->second;
     copyInfo.push_back(loadOrStore, nextDstSliceIndex);
-    SmallVector<int64_t> guardIndices = getNonParticipatingLoopDims(
+    SmallVector<int64_t> guardIndices = op.getNonParticipatingLoopDims(
         lookThroughSubView(loadOrStore.getMemRef()).getArgNumber());
     if (inserted) {
       // First access in this loop nest - set the guard indices.
@@ -408,9 +381,8 @@ public:
     }
     rewriter.eraseOp(linalgGenericOp);
     modified |= insertDstRegisterAccess(
-        rewriter, op.getLoc(), region, dstCapacity,
-        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr,
-        [&](int64_t index) { return op.getNonParticipatingLoopDims(index); });
+        rewriter, op, region, dstCapacity,
+        !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr);
 
     Operation *outerLoop = linalgLoops.value()[0];
     Block *parentBlk = outerLoop->getBlock();
@@ -747,8 +719,7 @@ public:
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
 
-    patterns.add<D2MInsertDstRegisterAccessRewriter<GenericOp>,
-                 D2MInsertDstRegisterAccessRewriter<func::FuncOp>>(
+    patterns.add<D2MInsertDstRegisterAccessRewriter>(
         ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue());
 
     patterns.add<D2MPackerMaskResetRewriter<TileReduceSumOp>,

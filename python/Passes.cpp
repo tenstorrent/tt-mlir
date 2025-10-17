@@ -31,6 +31,18 @@ void registerTTNNToFlatbuffer();
 
 namespace mlir::ttmlir::python {
 
+static nb::capsule wrapInCapsule(std::shared_ptr<void> underlying) {
+  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+  std::shared_ptr<void> *binary = static_cast<std::shared_ptr<void> *>(
+      std::malloc(sizeof(std::shared_ptr<void>)));
+  assert(binary);
+  *binary = underlying;
+  return nb::capsule(
+      static_cast<void *>(
+          binary), // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+      +[](void *data) noexcept { std::free(data); });
+}
+
 void populatePassesModule(nb::module_ &m) {
   // When populating passes, need to first register them
 
@@ -274,6 +286,38 @@ void populatePassesModule(nb::module_ &m) {
                                      filepath);
           }
         });
+  m.def("ttmetal_to_flatbuffer_bin", [](MlirModule module) {
+    mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+
+    // Create a dialect registry and register all necessary dialects and
+    // translations
+    mlir::DialectRegistry registry;
+
+    // Register all LLVM IR translations
+    registerAllToLLVMIRTranslations(registry);
+
+    // Apply the registry to the module's context
+    moduleOp->getContext()->appendDialectRegistry(registry);
+
+    return wrapInCapsule(
+        mlir::tt::ttmetal::translateTTMetalToFlatbuffer(moduleOp));
+  });
+
+  m.def("ttnn_to_flatbuffer_bin", [](MlirModule module) {
+    mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+
+    // Create a dialect registry and register all necessary dialects and
+    // translations
+    mlir::DialectRegistry registry;
+
+    // Register all LLVM IR translations
+    registerAllToLLVMIRTranslations(registry);
+
+    // Apply the registry to the module's context
+    moduleOp->getContext()->appendDialectRegistry(registry);
+
+    return wrapInCapsule(mlir::tt::ttnn::ttnnToFlatbuffer(moduleOp));
+  });
 
   m.def(
       "ttkernel_to_cpp",

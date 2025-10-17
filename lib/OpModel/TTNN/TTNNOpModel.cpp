@@ -569,6 +569,11 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfig = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig{
+          .slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
+              SliceType::L1_FULL};
+
   // Create query closure
   auto prepareConv2dWeightsOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -582,8 +587,7 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
-        /* compute_config_ */ std::nullopt,
-        /* dram_slice_config_ */ std::nullopt);
+        /* compute_config_ */ std::nullopt, sliceConfig);
   };
 
   auto prepareConvTranspose2dWeightsOpQuery = [=]() {
@@ -4395,7 +4399,9 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
   }
   // The following parameter does not exist in the op yet.
   std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfig = std::nullopt;
+      sliceConfig = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig{
+          .slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
+              SliceType::L1_FULL};
 
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(

@@ -518,12 +518,20 @@ void closeMeshDevice(Device parentMesh) {
   LOG_ASSERT(ttnnMeshDevice.is_parent_mesh(),
              "Mesh device must be a parent mesh");
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  if (uint32_t numSubMeshes = ttnnMeshDevice.get_submeshes().size()) {
-    LOG_WARNING("Calling close on parent mesh device ", ttnnMeshDevice,
-                " that has ", numSubMeshes, " unreleased submeshes.");
+  uint32_t numUnreleasedSubMeshes = 0;
+  for (const auto &subMesh : ttnnMeshDevice.get_submeshes()) {
+    if (subMesh->is_initialized()) {
+      numUnreleasedSubMeshes++;
+    }
   }
-#endif
+  if (numUnreleasedSubMeshes > 0) {
+    LOG_WARNING("Calling close on parent mesh device ", ttnnMeshDevice,
+                " that has ", numUnreleasedSubMeshes,
+                " unreleased submeshes."
+                "These submeshes will keep the parent mesh device alive. "
+                "To fully close the parent mesh device, please release all of "
+                "its submeshes.");
+  }
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   ::tt::tt_metal::ReadMeshDeviceProfilerResults(ttnnMeshDevice);
