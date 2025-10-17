@@ -422,20 +422,18 @@ private:
       auto tileType = mlir::cast<ttcore::TileType>(input.getType());
 
       if (tileType.getDataType() != ttcore::DataType::Float16) {
-        auto f16TileType = ttcore::TileType::get(
-            bbBuilder.getF16Type(), tileType.getShape());
-        input = bbBuilder.create<d2m::TileTypecastOp>(
-            loc, f16TileType, input);
+        auto f16TileType =
+            ttcore::TileType::get(bbBuilder.getF16Type(), tileType.getShape());
+        input = bbBuilder.create<d2m::TileTypecastOp>(loc, f16TileType, input);
       }
 
-      auto f16TileType = ttcore::TileType::get(
-          bbBuilder.getF16Type(), tileType.getShape());
+      auto f16TileType =
+          ttcore::TileType::get(bbBuilder.getF16Type(), tileType.getShape());
       yield = bbBuilder.create<TileOp>(loc, f16TileType, input);
 
       // Cast back to original type if needed.
       if (tileType.getDataType() != ttcore::DataType::Float16) {
-        yield = bbBuilder.create<d2m::TileTypecastOp>(
-            loc, tileType, yield);
+        yield = bbBuilder.create<d2m::TileTypecastOp>(loc, tileType, yield);
       }
     } else {
       yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
