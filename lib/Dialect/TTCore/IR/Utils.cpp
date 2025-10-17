@@ -174,7 +174,9 @@ llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape) {
 // result expressions except the last one.
 // e.g., (d0, d1, d2, d3) -> (r0, r1, r2, r3)  becomes
 //       (d0, d1, d2, d3) -> (r2, r3)
-
+// temporary function to collapse an N-D grid indexing affine map with shard
+// offset to 2D grid with shard offset. this will be replaced with virtual grid
+// indexing once we have virtual grids.
 mlir::AffineMap dropLeadingGridDimensions2D(mlir::AffineMap gridIndexingMap) {
   unsigned numResults = gridIndexingMap.getNumResults();
   if (numResults <= 2) {
@@ -189,6 +191,27 @@ mlir::AffineMap dropLeadingGridDimensions2D(mlir::AffineMap gridIndexingMap) {
   newResults.push_back(gridIndexingMap.getResult(numResults - 2));
   // Keep the last result as grid_x.
   newResults.push_back(gridIndexingMap.getResult(numResults - 1));
+  return mlir::AffineMap::get(gridIndexingMap.getNumDims(),
+                              gridIndexingMap.getNumSymbols(), newResults,
+                              context);
+}
+
+// temporary function to collapse an N-D grid indexing affine map with shard
+// offset to 2D grid with shard offset. this will be replaced with virtual grid
+// indexing once we have virtual grids.
+mlir::AffineMap
+collapseGridWithShardOffsetTo2D(mlir::AffineMap gridIndexingMap) {
+  unsigned numResults = gridIndexingMap.getNumResults();
+  if (numResults <= 3) {
+    return gridIndexingMap;
+  }
+
+  mlir::MLIRContext *context = gridIndexingMap.getContext();
+  SmallVector<mlir::AffineExpr> newResults;
+  newResults.push_back(gridIndexingMap.getResult(numResults - 3));
+  newResults.push_back(gridIndexingMap.getResult(numResults - 2));
+  newResults.push_back(gridIndexingMap.getResult(numResults - 1));
+
   return mlir::AffineMap::get(gridIndexingMap.getNumDims(),
                               gridIndexingMap.getNumSymbols(), newResults,
                               context);
