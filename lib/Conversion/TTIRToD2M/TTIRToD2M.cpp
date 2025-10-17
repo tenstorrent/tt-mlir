@@ -897,14 +897,24 @@ public:
     auto [origInputs, origOutputs] =
         splitDpsSignature(adaptor, op.getDpsInits().size());
 
-    // Only tile-align the last dimension.
+    // TODO (anuragsingh): Support custom dim alignments in LowerToLayout.cpp
+    // (Issue: #3037). For now, we require tile-alignment on the last two
+    // dimensions for outer permutes to work correctly (for downstream tiling
+    // ops).
     auto origInputTensorType =
         mlir::cast<mlir::RankedTensorType>(origInputs[0].getType());
-    llvm::SmallVector<int64_t> dimAlignments(
-        origInputTensorType.getShape().size(), 1);
-    dimAlignments[origInputTensorType.getShape().size() - 1] =
-        ttmlir::utils::alignUp<int64_t>(1,
-                                        ttcore::TileType::getDefaultShape()[1]);
+    const auto origInputShape = origInputTensorType.getShape();
+    constexpr int64_t tileHeight = ttcore::TileType::getDefaultShape()[0];
+    constexpr int64_t tileWidth = ttcore::TileType::getDefaultShape()[1];
+    assert(origInputShape[origInputShape.size() - 2] % tileHeight == 0 &&
+           "Second-to-last dimension must be tile-aligned for outer permute");
+    assert(origInputShape[origInputShape.size() - 1] % tileWidth == 0 &&
+           "Last dimension must be tile-aligned for outer permute");
+
+    // Tile-align the last two dimensions.
+    llvm::SmallVector<int64_t> dimAlignments(origInputShape.size(), 1);
+    dimAlignments[origInputShape.size() - 2] = tileHeight;
+    dimAlignments[origInputShape.size() - 1] = tileWidth;
 
     // Do not tilize.
     auto [inputs, _] =
