@@ -4,6 +4,7 @@
 import ttnn_jit
 import ttnn
 import torch
+import numpy as np
 
 import pytest
 
@@ -109,7 +110,7 @@ def run_op_test(
     # The hardware may flush subnormals to zero, so we skip any values below f16's minimum normal value.
     if op.__name__ == "sign" and dtype == torch.float32:
         input_torch = inputs[0].cpu().to_torch()
-        min_f16_normal = 6.104e-5  # Minimum normal float16 value
+        min_f16_normal = np.finfo(np.float16).eps  # Minimum normal float16 value
         sign_lost = (input_torch != 0) & (torch.abs(input_torch) < min_f16_normal)
         if torch.any(sign_lost):
             pytest.skip(
