@@ -145,7 +145,16 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
     }
 
     SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(), 1);
-    if (optimizeSubblocking) {
+    // Check if the first dimension is divisible by the subblock factor. If not,
+    // disable subblocking because we cannot create dynamic dimensions in affine
+    // loops (e.g., affine.min). Example output shape: [677, 1, 1] and subblock
+    // factor: 4 and shard shape is 85x1 tiles. 85 is not divisible by 4, so we
+    // would have dynamic dimension in the first loop which is not supported in
+    // affine loops. So we disable subblocking.
+    // Todo @dloke figure out how to get by this, do we set dst shape in
+    // analysis pass or does it have to be done in runtime, or do we pad.
+    if (optimizeSubblocking &&
+        outputTensor.getShape()[0] % subblockFactor == 0) {
       // Calculate output subblock shape based on subblockFactor.
       // First dimension is capped at the actual output shape.
       int64_t dim0 = std::min(static_cast<int64_t>(subblockFactor),
