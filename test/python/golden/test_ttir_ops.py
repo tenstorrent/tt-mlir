@@ -2682,7 +2682,7 @@ unary_ops = [
     floor | Marks(pytest.mark.xfail(reason="Fails Golden")),
     abs,
     neg,
-    sign | Marks(pytest.mark.skip_config(["ttmetal"])),
+    sign,
     cos,
     sin,
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
