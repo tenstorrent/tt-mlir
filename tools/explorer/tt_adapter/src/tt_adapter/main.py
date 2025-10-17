@@ -164,8 +164,10 @@ class TTAdapter(model_explorer.Adapter):
         for path in ir_paths:
             full_path = os.path.abspath(path)
 
-            if os.path.isdir(full_path) and os.access(full_path, os.R_OK) and full_path not in graph_paths:
-                graph_paths.append(full_path)
+            if os.access(full_path, os.R_OK) and full_path not in graph_paths:
+                if os.path.isdir(full_path):
+                    graph_paths.append(full_path)
+                # TODO(ctr-mcampos): add loose files (i.e. files not under a folder that ends in one of the extensions)?
 
         return utils.to_adapter_format({"graphPaths": graph_paths})
 
