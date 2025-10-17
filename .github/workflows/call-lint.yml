@@ -1,0 +1,96 @@
+name: Lint
+
+on:
+  workflow_call:
+    inputs:
+      docker-image:
+        description: 'Docker image for the build'
+        required: true
+        type: string
+
+permissions:
+  checks: write
+  packages: write
+  pull-requests: write
+  contents: write
+
+jobs:
+
+  lint:
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+    name: Lint (clang-tidy)
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.docker-image }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build_tidy" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        source env/activate
+        cmake -G Ninja \
+        -B ${{ steps.strings.outputs.build-output-dir }} \
+        -DCMAKE_CXX_COMPILER=clang++-17 \
+        -DCMAKE_C_COMPILER=clang-17 \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        -DTTMLIR_ENABLE_RUNTIME=ON \
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
+        -DTTMLIR_ENABLE_STABLEHLO=ON \
+        -DTTMLIR_ENABLE_OPMODEL=ON \
+        -S ${{ steps.strings.outputs.work-dir }}
+
+    - name: Lint
+      id: lint
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy-ci
+
+    - name: Unique-ify clang-tidy fixes
+      shell: bash
+      if: failure() && steps.lint.outcome == 'failure'
+      run: |
+        source env/activate
+        python tools/scripts/filter-clang-tidy-fixes.py ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+
+    - name: Upload clang-tidy fixes
+      uses: actions/upload-artifact@v4
+      if: failure() && steps.lint.outcome == 'failure'
+      with:
+        name: clang-tidy-result
+        path: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+
+    - name: Clang-tidy PR Comments
+      continue-on-error: true
+      uses: platisd/clang-tidy-pr-comments@a8811fa17cd6bd02c52a3791b44f9840777e396a
+      if: failure() && steps.lint.outcome == 'failure'
+      with:
+        # The GitHub token (or a personal access token)
+        github_token: ${{ secrets.GH_TOKEN }}
+        # The path to the clang-tidy fixes generated above
+        clang_tidy_fixes: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+        # Optionally set to true if you want the Action to request
+        # changes in case warnings are found
+        request_changes: false
+        # Optionally set the number of comments per review
+        # to avoid GitHub API timeouts for heavily loaded
+        # pull requests
+        suggestions_per_comment: 10
+        python_path: "python3"

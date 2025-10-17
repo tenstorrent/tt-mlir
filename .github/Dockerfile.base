@@ -33,6 +33,7 @@ apt-get install -y \
     sudo \
     gh \
     lcov \
+    zstd \
     unzip
 
 # Install Python 3.11

@@ -8,6 +8,11 @@ on:
         required: false
         type: string
         default: 'latest'
+      docker_image:
+        description: 'Docker image to use for building wheels'
+        required: false
+        type: string
+        default: 'ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04:latest'
   workflow_call:
     inputs:
       docker-tag:
@@ -15,6 +20,10 @@ on:
         required: false
         type: string
         default: 'latest'
+      docker_image:
+        description: 'Docker image to use for building wheels'
+        required: true
+        type: string
 
 jobs:
   build-ttmlir-wheel:
@@ -125,7 +134,6 @@ jobs:
           path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
           if-no-files-found: error
 
-
   test-pykernel-wheel-install:
     needs: build-pykernel-wheel
     timeout-minutes: 30
@@ -134,14 +142,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Git safe dir
         run: git config --global --add safe.directory $(pwd)
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -172,14 +178,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Git safe dir
         run: git config --global --add safe.directory $(pwd)
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -198,3 +202,41 @@ jobs:
 
           # Test the installation
           python -c "from ttmlir import ir; print('Imported ttmlir & Created CTX: ', ir.Context())"
+
+  test-ttnn-jit:
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    container: # this should work on base image https://github.com/tenstorrent/tt-mlir/issues/5232
+      image: ${{ inputs.docker_image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download ttnn-jit whl
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          echo "Downloading ttnn-jit whl"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Getting latest run id"
+            runid="$(gh run list --workflow 'schedule-nightly.yml' --repo tenstorrent/tt-mlir --limit 1 --json databaseId --jq '.[0].databaseId')"
+            echo "Latest run id: $runid"
+          else
+            runid="${{ github.run_id }}"
+          fi
+          gh run download $runid -R tenstorrent/tt-mlir --repo tenstorrent/tt-mlir --name "ttnn_jit-whl-tracy.whl"
+      - name: Install ttnn-jit whl
+        shell: bash
+        run: |
+          # ----- remove comments after solving issue: https://github.com/tenstorrent/tt-mlir/issues/5232
+          # python3 -m venv testenv
+          # source testenv/bin/activate
+          # pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0
+          # pip install numpy
+          # -----
+          source env/activate
+          pip install ttnn_jit-*.whl --upgrade
+          python -c "import ttnn_jit; print('Successfully imported ttnn_jit:', ttnn_jit.__file__)"
+          python -c "import ttnn; print('Successfully imported ttnn:', ttnn.__file__)"

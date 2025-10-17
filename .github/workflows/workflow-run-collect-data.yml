@@ -6,8 +6,8 @@ on:
     workflows: # List workflow that we want to collect data for
       - "On PR"
       - "On push"
-      - "Build on macos-latest"
-      - "Build and Test"
+      - "Nightly run"
+      - "Run Perf Benchmarks"
     types:
       - completed
 
