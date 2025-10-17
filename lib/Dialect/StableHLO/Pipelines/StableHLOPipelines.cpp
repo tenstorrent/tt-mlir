@@ -21,8 +21,8 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
 
-//   // Annotate arguments with whether they are already pre-sharded or not.
-//   pm.addPass(createApplyArgumentShardStatusPass());
+  // Annotate arguments with whether they are already pre-sharded or not.
+  pm.addPass(createApplyArgumentShardStatusPass());
 
   // Convert any xla.sdy ops to sdy ops.
   pm.addPass(createConvertXlaSdyToSdyPass());
