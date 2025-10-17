@@ -38,6 +38,8 @@ public:
   class OpTreeNode {
   public:
     Operation *op = nullptr;
+    BlockArgument blockArg = nullptr;
+    bool isBlockArg = false;
     unsigned int weight = 0;
     OpTreeNode *left = nullptr;
     OpTreeNode *right = nullptr;
@@ -45,6 +47,7 @@ public:
 
     OpTreeNode() = default;
     OpTreeNode(Operation *op) : op(op) {}
+    OpTreeNode(BlockArgument blockArg) : blockArg(blockArg), isBlockArg(true) {}
     ~OpTreeNode() {
       delete left;
       delete right;
@@ -58,9 +61,8 @@ public:
     SmallVector<OpTreeNode *> leafNodes;
 
     // Get the linalg.yield operation.
-    auto &block = linalgGenericOp.getBody()->front();
     linalg::YieldOp yieldOp = nullptr;
-    block.walk([&](linalg::YieldOp op) {
+    linalgGenericOp.walk([&](linalg::YieldOp op) {
       if (!yieldOp) {
         yieldOp = op;
       }
@@ -78,7 +80,7 @@ public:
     }
 
     // Build the tree recursively starting from the root operation.
-    auto rootNode = buildOpTreeRecursive(rootOp, block, leafNodes);
+    auto rootNode = buildOpTreeRecursive(rootOp, *linalgGenericOp.getBody(), leafNodes);
     return {std::move(rootNode), leafNodes};
   }
 
@@ -86,32 +88,24 @@ public:
   static std::unique_ptr<OpTreeNode>
   buildOpTreeRecursive(Operation *op, Block &linalgBlock,
                        SmallVector<OpTreeNode *> &leafNodes) {
+    // Create the node for this operation.
     auto node = std::make_unique<OpTreeNode>(op);
-
-    // Check if this is a leaf (block argument).
-    bool isLeaf = true;
-    for (Value operand : op->getOperands()) {
-      if (operand.getDefiningOp() &&
-          operand.getDefiningOp()->getBlock() == &linalgBlock) {
-        isLeaf = false;
-        break;
-      }
-    }
-
-    if (isLeaf) {
-      // This is a leaf node - add to leafNodes.
-      leafNodes.push_back(node.get());
-      return node;
-    }
 
     // Process operands to build child nodes.
     SmallVector<std::unique_ptr<OpTreeNode>> children;
     for (Value operand : op->getOperands()) {
       if (Operation *definingOp = operand.getDefiningOp()) {
+        // If operand is defined by an operation in the linalg block, recurse.
         if (definingOp->getBlock() == &linalgBlock) {
           children.push_back(
               buildOpTreeRecursive(definingOp, linalgBlock, leafNodes));
         }
+      } else {
+        // Operand is a block argument - create a leaf node for it.
+        auto blockArg = mlir::cast<BlockArgument>(operand);
+        auto leafNode = std::make_unique<OpTreeNode>(blockArg);
+        leafNodes.push_back(leafNode.get());
+        children.push_back(std::move(leafNode));
       }
     }
 
@@ -127,92 +121,75 @@ public:
       node->left->parent = node.get();
       node->right->parent = node.get();
     }
-    // For operations with more than 2 operands, we only handle the first two.
 
     return node;
   }
 
-  // Helper function to add parent node to processing queue.
-  static void addParentToQueue(OpTreeNode *node,
-                               llvm::SmallSet<OpTreeNode *, 16> &queueSet,
-                               SmallVector<OpTreeNode *> &queue) {
-    if (node->parent && !queueSet.contains(node->parent)) {
-      queueSet.insert(node->parent);
-      queue.push_back(node->parent);
-    }
-  }
-
   // Mark node weights using the Sethi-Ullman algorithm for register
-  // allocation.
-  static void markNodeWeights(std::unique_ptr<OpTreeNode> &root,
-                              SmallVector<OpTreeNode *> &leafNodes) {
-    if (!root) {
+  // allocation. Uses post-order traversal (children before parent).
+  static void markNodeWeights(OpTreeNode *node) {
+    if (!node) {
       return;
     }
 
-    // Process nodes using a set-based approach for bottom-up traversal.
-    llvm::SmallSet<OpTreeNode *, 16> processedNodes;
-    llvm::SmallSet<OpTreeNode *, 16> queueSet;
-    SmallVector<OpTreeNode *> queue;
+    // Post-order: process children first.
+    markNodeWeights(node->left);
+    markNodeWeights(node->right);
 
-    // Initialize leaf nodes with weight 1 and add their parents to queue.
-    for (OpTreeNode *leafNode : leafNodes) {
-      leafNode->weight = 1;
-      addParentToQueue(leafNode, queueSet, queue);
+    // Calculate weight for this node.
+    if (!node->left && !node->right) {
+      // Leaf node (block argument).
+      node->weight = 1;
+    } else if (node->right == nullptr) {
+      // Unary operation.
+      assert(node->left && "Unary operation must have left child");
+      node->weight = node->left->weight;
+    } else {
+      // Binary operation.
+      assert(node->left && "Binary operation must have left child");
+      assert(node->right && "Binary operation must have right child");
+      unsigned leftWeight = node->left->weight;
+      unsigned rightWeight = node->right->weight;
+
+      if (leftWeight == rightWeight) {
+        node->weight = leftWeight + 1;
+      } else {
+        node->weight = std::max(leftWeight, rightWeight);
+      }
+    }
+  }
+
+  // Print the operation tree for debugging/visualization.
+  static void printOpTree(OpTreeNode *node, int depth = 0) {
+    if (!node) {
+      return;
     }
 
-    // Process non-leaf nodes.
-    while (!queue.empty()) {
-      OpTreeNode *node = queue.front();
-      queue.erase(queue.begin());
-      queueSet.erase(node);
+    // Create indentation based on depth.
+    std::string indent(depth * 2, ' ');
+    
+    // Print current node information.
+    if (node->isBlockArg) {
+      // This is a block argument leaf node.
+      llvm::errs() << indent << "├─ BlockArg #" << node->blockArg.getArgNumber();
+      llvm::errs() << " | Weight: " << node->weight << " [LEAF]";
+    } else {
+      // This is an operation node.
+      llvm::errs() << indent << "├─ Op: " << node->op->getName();
+      llvm::errs() << " | Weight: " << node->weight;
+    }
+    llvm::errs() << "\n";
 
-      if (processedNodes.contains(node)) {
-        continue; // Already processed.
+    // Print children with appropriate labels.
+    if (node->left || node->right) {
+      if (node->left) {
+        llvm::errs() << indent << "  Left:\n";
+        printOpTree(node->left, depth + 1);
       }
-
-      // Check if all children have been processed.
-      bool allChildrenProcessed = true;
-      if (node->left && !processedNodes.contains(node->left)) {
-        allChildrenProcessed = false;
+      if (node->right) {
+        llvm::errs() << indent << "  Right:\n";
+        printOpTree(node->right, depth + 1);
       }
-      if (node->right && !processedNodes.contains(node->right)) {
-        allChildrenProcessed = false;
-      }
-
-      if (!allChildrenProcessed) {
-        // Re-add to queue for later processing.
-        if (!queueSet.contains(node)) {
-          queueSet.insert(node);
-          queue.push_back(node);
-        }
-        continue;
-      }
-
-      // Calculate weight based on Sethi-Ullman algorithm.
-      if (node->right == nullptr) {
-        // Unary operation.
-        assert(node->left && "Unary operation must have left child");
-        node->weight = node->left->weight;
-      } else {
-        // Binary operation.
-        assert(node->left && "Binary operation must have left child");
-        assert(node->right && "Binary operation must have right child");
-        unsigned leftWeight = node->left->weight;
-        unsigned rightWeight = node->right->weight;
-
-        if (leftWeight == rightWeight) {
-          node->weight = leftWeight + 1;
-        } else {
-          node->weight = std::max(leftWeight, rightWeight);
-        }
-      }
-
-      // Mark this node as processed.
-      processedNodes.insert(node);
-
-      // Add parent to queue.
-      addParentToQueue(node, queueSet, queue);
     }
   }
 
@@ -436,10 +413,15 @@ public:
           return;
         }
 
-        auto [opTreeRoot, leafNodes] = buildOpTree(outermostInnerComputeLoop);
+        auto [opTreeRoot, leafNodes] = buildOpTree(linalgGenericOp);
         if (opTreeRoot) {
           // Mark node weights using Sethi-Ullman algorithm.
-          markNodeWeights(opTreeRoot, leafNodes);
+          markNodeWeights(opTreeRoot.get());
+          
+          // Print the tree for debugging.
+          llvm::errs() << "\n=== Operation Tree (Sethi-Ullman) ===\n";
+          printOpTree(opTreeRoot.get());
+          llvm::errs() << "=====================================\n\n";
     
           // Generate code for the expression tree.
           // generateCodeForTree(rewriter, loc, opTreeRoot.get(),
