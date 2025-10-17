@@ -12,12 +12,14 @@ from typing import List, Optional
 
 class MeshShardDirection(Enum):
     """Direction for mesh sharding operations."""
+
     FullToShard = 0
     ShardToFull = 1
 
 
 class MeshShardType(Enum):
     """Type of sharding strategy for mesh operations."""
+
     Identity = 0
     Replicate = 1
     Maximal = 2
@@ -30,7 +32,7 @@ def mesh_shard(
     shard_direction: MeshShardDirection,
     shard_type: MeshShardType,
     shard_shape: List[int],
-    shard_dims: List[int]
+    shard_dims: List[int],
 ) -> ttnn.Tensor:
     """
     Shard or aggregate a tensor across a mesh device.
@@ -48,13 +50,15 @@ def mesh_shard(
     """
     # Identity type - just return the input as-is
     if shard_type == MeshShardType.Identity:
-        assert input.storage_type() == ttnn.StorageType.DEVICE, \
-            "Input of mesh_shard with identity shard_type must be Device Storage."
+        assert (
+            input.storage_type() == ttnn.StorageType.DEVICE
+        ), "Input of mesh_shard with identity shard_type must be Device Storage."
         return input
 
     # For non-identity operations, input should be on host
-    assert input.storage_type() == ttnn.StorageType.HOST, \
-        "Input of mesh_shard should be host tensor for replicate and devices operations."
+    assert (
+        input.storage_type() == ttnn.StorageType.HOST
+    ), "Input of mesh_shard should be host tensor for replicate and devices operations."
 
     mesh_shape = mesh_device.shape
 
@@ -83,8 +87,7 @@ def mesh_shard(
             dims = [0]
             mesh_shape_override = ttnn.MeshShape([1])
             mesh_composer_config = ttnn.MeshComposerConfig(
-                dims=dims,
-                mesh_shape_override=mesh_shape_override
+                dims=dims, mesh_shape_override=mesh_shape_override
             )
         elif shard_type == MeshShardType.Devices:
             # For devices, setup dimensions and mesh shape for concatenation
@@ -92,11 +95,14 @@ def mesh_shard(
 
             # Helper to find non-overlapping dimension
             dims = []
+
             def get_non_overlapping_dim():
                 for d in range(input_rank - 1, -1, -1):
                     if d not in shard_dims and d not in dims:
                         return d
-                raise ValueError("All dimensions are overlapping, cannot find non-overlapping dimension")
+                raise ValueError(
+                    "All dimensions are overlapping, cannot find non-overlapping dimension"
+                )
 
             target_sub_mesh_shape = []
             for dim_idx, dim in enumerate(shard_dims):
@@ -108,8 +114,7 @@ def mesh_shard(
                     target_sub_mesh_shape.append(1)
 
             mesh_composer_config = ttnn.MeshComposerConfig(
-                dims=dims,
-                mesh_shape_override=ttnn.MeshShape(target_sub_mesh_shape)
+                dims=dims, mesh_shape_override=ttnn.MeshShape(target_sub_mesh_shape)
             )
         else:
             raise ValueError(f"Unsupported shard_type: {shard_type}")
@@ -127,7 +132,7 @@ def all_gather(
     dim: int,
     cluster_axis: int,
     num_links: int,
-    memory_config: Optional[ttnn.MemoryConfig] = None
+    memory_config: Optional[ttnn.MemoryConfig] = None,
 ) -> ttnn.Tensor:
     """
     Perform all-gather operation on a tensor across mesh devices.
@@ -145,25 +150,28 @@ def all_gather(
     Returns:
         The gathered tensor with concatenated data from all devices
     """
-    assert input.storage_type() == ttnn.StorageType.DEVICE, \
-        "Input of all_gather must be DEVICE."
+    assert (
+        input.storage_type() == ttnn.StorageType.DEVICE
+    ), "Input of all_gather must be DEVICE."
 
-    output_mem_config = memory_config if memory_config is not None else input.memory_config()
+    output_mem_config = (
+        memory_config if memory_config is not None else input.memory_config()
+    )
 
     # Create global semaphores as required by all_gather_async
     compute_grid_size = mesh_device.compute_with_storage_grid_size()
     worker_cores = ttnn.CoreRangeSet(
-        {ttnn.CoreRange(
-            ttnn.CoreCoord(0, 0),
-            ttnn.CoreCoord(compute_grid_size.x - 1, compute_grid_size.y - 1)
-        )}
+        {
+            ttnn.CoreRange(
+                ttnn.CoreCoord(0, 0),
+                ttnn.CoreCoord(compute_grid_size.x - 1, compute_grid_size.y - 1),
+            )
+        }
     )
 
     semaphores = []
     for _ in range(2):
-        semaphores.append(
-            ttnn.create_global_semaphore(mesh_device, worker_cores, 0)
-        )
+        semaphores.append(ttnn.create_global_semaphore(mesh_device, worker_cores, 0))
 
     # Use ttnn's experimental all_gather_async (overload #3)
     # Signature: (input_tensor, dim, cluster_axis, mesh_device, topology,
@@ -178,7 +186,7 @@ def all_gather(
         persistent_output_tensor=None,
         num_links=num_links,
         memory_config=output_mem_config,
-        subdevice_id=None
+        subdevice_id=None,
     )
 
     return output
@@ -190,7 +198,7 @@ def reduce_scatter(
     scatter_dim: int,
     cluster_axis: int,
     num_links: int,
-    memory_config: Optional[ttnn.MemoryConfig] = None
+    memory_config: Optional[ttnn.MemoryConfig] = None,
 ) -> ttnn.Tensor:
     """
     Perform reduce-scatter operation on a tensor across mesh devices.
@@ -209,25 +217,28 @@ def reduce_scatter(
     Returns:
         The reduced and scattered tensor
     """
-    assert input.storage_type() == ttnn.StorageType.DEVICE, \
-        "Input of reduce_scatter must be DEVICE."
+    assert (
+        input.storage_type() == ttnn.StorageType.DEVICE
+    ), "Input of reduce_scatter must be DEVICE."
 
-    output_mem_config = memory_config if memory_config is not None else input.memory_config()
+    output_mem_config = (
+        memory_config if memory_config is not None else input.memory_config()
+    )
 
     # Create 3 global semaphores as required by reduce_scatter_minimal_async
     compute_grid_size = mesh_device.compute_with_storage_grid_size()
     worker_cores = ttnn.CoreRangeSet(
-        {ttnn.CoreRange(
-            ttnn.CoreCoord(0, 0),
-            ttnn.CoreCoord(compute_grid_size.x - 1, compute_grid_size.y - 1)
-        )}
+        {
+            ttnn.CoreRange(
+                ttnn.CoreCoord(0, 0),
+                ttnn.CoreCoord(compute_grid_size.x - 1, compute_grid_size.y - 1),
+            )
+        }
     )
 
     semaphores = []
     for _ in range(3):
-        semaphores.append(
-            ttnn.create_global_semaphore(mesh_device, worker_cores, 0)
-        )
+        semaphores.append(ttnn.create_global_semaphore(mesh_device, worker_cores, 0))
 
     # Use ttnn's experimental reduce_scatter_minimal_async
     output = ttnn.experimental.reduce_scatter_minimal_async(
@@ -241,15 +252,14 @@ def reduce_scatter(
         None,  # intermediate_memory_config
         ttnn.Topology.Linear,
         None,  # subdevice_id
-        cluster_axis
+        cluster_axis,
     )
 
     return output
 
 
 def collective_permute(
-    input: ttnn.Tensor,
-    source_target_pairs: List[int]
+    input: ttnn.Tensor, source_target_pairs: List[int]
 ) -> ttnn.Tensor:
     """
     Perform collective permute operation to remap tensor shards across devices.
@@ -267,10 +277,12 @@ def collective_permute(
     """
     mesh_device = input.device()
     assert mesh_device is not None, "Tensor must belong to a mesh device"
-    assert len(source_target_pairs) % 2 == 0, \
-        "Expected source_target_pairs to have size multiple of 2"
-    assert input.storage_type() == ttnn.StorageType.DEVICE, \
-        "Input of collective_permute must be device storage."
+    assert (
+        len(source_target_pairs) % 2 == 0
+    ), "Expected source_target_pairs to have size multiple of 2"
+    assert (
+        input.storage_type() == ttnn.StorageType.DEVICE
+    ), "Input of collective_permute must be device storage."
 
     # Get individual device tensors
     host_tensors = ttnn.get_device_tensors(ttnn.from_device(input))
@@ -286,7 +298,9 @@ def collective_permute(
         dest = source_target_pairs[i + 1]
 
         assert 0 <= src < num_devices, f"Source device id {src} is out of bounds!"
-        assert 0 <= dest < num_devices, f"Destination device id {dest} is out of bounds!"
+        assert (
+            0 <= dest < num_devices
+        ), f"Destination device id {dest} is out of bounds!"
 
         new_host_tensors[dest] = host_tensors[src]
         found_dest_devices[dest] = True
@@ -309,7 +323,7 @@ def point_to_point(
     input: ttnn.Tensor,
     send_coord: List[int],
     receive_coord: List[int],
-    accum_tensor: Optional[ttnn.Tensor] = None
+    accum_tensor: Optional[ttnn.Tensor] = None,
 ) -> ttnn.Tensor:
     """
     Perform point-to-point communication between devices in a mesh.
@@ -327,8 +341,9 @@ def point_to_point(
     Returns:
         The output tensor with data transferred from sender to receiver
     """
-    assert input.storage_type() == ttnn.StorageType.DEVICE, \
-        "Input tensor of point to point must be on device."
+    assert (
+        input.storage_type() == ttnn.StorageType.DEVICE
+    ), "Input tensor of point to point must be on device."
 
     # Helper to extract device tensors to host
     def extract_shards_to_host(device_tensor):
