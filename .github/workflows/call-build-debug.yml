@@ -86,7 +86,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/workflows/gcov_for_clang.sh
+        lcov --directory ${{ steps.strings.outputs.build-output-dir }} --capture --initial --output-file baseline.info --gcov-tool ${{ steps.strings.outputs.work-dir }}/.github/gcov_for_clang.sh
         # this will output `test/report.xml` in the build dir:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --target check-ttmlir
         mv ${{ steps.strings.outputs.build-output-dir }}/test/report.xml ${{ steps.strings.outputs.build-output-dir }}/test/report_${{ steps.fetch-job-id.outputs.job_id }}.xml

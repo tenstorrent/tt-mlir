@@ -17,3 +17,14 @@ jobs:
           python-version: 3.11
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
+
+  check-spdx-headers:
+
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - uses: enarx/spdx@master
+      with:
+        licenses: Apache-2.0

@@ -117,7 +117,6 @@ jobs:
 
     - name: Run Tests
       shell: bash
-      id: run-tests
       env:
         GH_TOKEN: ${{ secrets.GH_TOKEN }}
         TTRT_LOGGER_LEVEL: "WARNING"
@@ -151,6 +150,11 @@ jobs:
 
         python .github/scripts/python/run_tests_from_json.py "${{ matrix.build.runs-on }}" "${{ matrix.build.image }}" "${{ steps.fetch-job-id.outputs.job_id }}"
 
+    - name: Process Test Summary
+      if: success() || failure()
+      id: run-tests
+      shell: bash
+      run: |
         summary_content=$(cat _test_summary | tr '\n' '\r' | sed 's/\r/<br \/>/g')
         echo "summary=$summary_content" >> $GITHUB_OUTPUT
         mv _test_summary ${{ steps.strings.outputs.work-dir }}/test_reports/summary_${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ strategy.job-index }}_${{ steps.fetch-job-id.outputs.job_id }}.md
@@ -193,6 +197,7 @@ jobs:
   test-summary:
     runs-on: ubuntu-latest
     needs: run-tests
+    if: success() || failure()
     steps:
       - uses: actions/checkout@v4
       - name: Process test summary

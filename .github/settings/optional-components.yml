@@ -1,0 +1,7 @@
+chisel:
+  - runtime/tools/chisel/**
+emitc:
+  - test/ttmlir/EmitC/**
+  - tools//ttnn-standalone/ci_compile_dylib.py
+  - include/ttmlir/Conversion/TTNNToEmitC/**
+  - lib/Conversion/TTNNToEmitC/**

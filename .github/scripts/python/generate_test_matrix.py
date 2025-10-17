@@ -40,15 +40,46 @@ def unroll_arrays(tests):
     return unrolled_tests
 
 
-def main(input_filename, target_duration):
+def main(input_filename, target_duration, component_filter):
     # Load the input JSON file
     with open(input_filename, "r") as f:
         tests = json.load(f)
 
     tests = unroll_arrays(tests)
+    if component_filter != "-all":
+        # Filter tests based on the component filter
+        filtered_tests = []
+        for test in tests:
+            if "if" in test:
+                components = [
+                    comp.strip() for comp in test["if"].split(",") if comp.strip()
+                ]
+                if component_filter in components:
+                    filtered_tests.append(test)
+            else:
+                # If no "if" field, include the test by default
+                filtered_tests.append(test)
+        tests = filtered_tests
+
     # debug print
-    print(f"Unrolled to {len(tests)} tests:")
-    print(json.dumps(tests, indent=2))
+    print(f"Unrolled to {len(tests)} tests.")
+
+    if component_filter != "-all":
+        # Filter tests based on the component filter
+        filtered_tests = []
+        for test in tests:
+            if "if" in test:
+                components = [
+                    comp.strip() for comp in test["if"].split(",") if comp.strip()
+                ]
+                if component_filter in components:
+                    filtered_tests.append(test)
+            else:
+                # If no "if" field, include the test by default
+                filtered_tests.append(test)
+        tests = filtered_tests
+
+    print(f"Filtered to {len(tests)} tests for component '{component_filter}'.")
 
     # load saved durations
     durations = {}
@@ -180,10 +211,10 @@ def main(input_filename, target_duration):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print(
-            "Usage: python generate_test_matrix.py <input_filename> <target_duration_minutes>"
+            "Usage: python generate_test_matrix.py <input_filename> <target_duration_minutes> <component_filter>"
         )
         sys.exit(1)
 
-    main(sys.argv[1], float(sys.argv[2]) * 60.0)
+    main(sys.argv[1], float(sys.argv[2]) * 60.0, sys.argv[3])
