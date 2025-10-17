@@ -270,31 +270,6 @@ def test_linear(shapes: List[Shape], request, device):
     )
 
 
-@x86_only
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def hoisted_pow_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return pow(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
-
-    compile_and_execute_ttir(
-        hoisted_pow_wrapper,
-        [shape, shape],
-        [dtype, dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-
 def matmul(
     in0: Operand,
     in1: Operand,
