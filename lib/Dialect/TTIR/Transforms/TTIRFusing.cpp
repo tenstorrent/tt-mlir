@@ -267,9 +267,23 @@ public:
       return mlir::failure();
     }
 
+
+
     mlir::ArrayAttr reduceDims = *sumOp.getDimArg();
     if (reduceDims.size() != 1) {
       // Softmax reduces along a single dimension.
+      return mlir::failure();
+    }
+
+        // Get the output shape
+    mlir::RankedTensorType resultType =
+    mlir::cast<mlir::RankedTensorType>(divOp.getResult().getType());
+
+    llvm::ArrayRef<int64_t> resultShape = resultType.getShape();
+
+    // this is the lowest confirmed upper bound for the softmax spatial dims 
+    // that can be fused into a softmax op
+    if (resultShape[2] * resultShape[3] >= 4096*4096) {
       return mlir::failure();
     }
 
