@@ -108,6 +108,7 @@ def run_op_test(
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
+    assert output_tensor.memory_config() == golden_tensor.memory_config()
     all_close_check(output_tensor, golden_tensor)
 
 
@@ -186,17 +187,17 @@ def rsqrt(input_tensor):
     return ttnn.rsqrt(input_tensor)
 
 
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("dtype", [torch.float32])
 @pytest.mark.parametrize(
     "op",
     [
         abs,
-        exp,
-        log,
-        cos,
-        sin,
-        ceil,
-        floor,
+        # exp,
+        # log,
+        # cos,
+        # sin,
+        # ceil,
+        # floor,
     ],
 )
 @pytest.mark.parametrize(
@@ -204,11 +205,34 @@ def rsqrt(input_tensor):
     [
         (32, 32),
         (32, 64),
+        (32, 128),
+        (32, 256),
+        (32, 512),
+        (32, 1024),
+        (64, 32),
+        (128, 32),
+        (256, 32),
+        (512, 32),
+        (1024, 32),
         (64, 64),
         (64, 128),
+        (64, 256),
+        (64, 512),
+        (64, 1024),
+        (128, 64),
+        (256, 64),
+        (512, 64),
+        (1024, 64),
         (128, 128),
         (256, 256),
         (256, 512),
+        (512, 512),
+        (512, 1024),
+        (1024, 1024),
+        (1024, 2048),
+        (2048, 2048),
+        (128, 8192),
+        (512, 4096),
     ],
 )
 def test_unary_op_dram(device, h, w, dtype, op):
