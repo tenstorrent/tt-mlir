@@ -13,12 +13,7 @@ mlir::LogicalResult Conv2dSliceConfigRewritePattern::matchAndRewrite(
     return failure();
   }
 
-  auto conv2dSliceConfigAttr = mlir::tt::ttnn::Conv2dSliceConfigAttr::get(
-      rewriter.getContext(), mlir::tt::ttnn::Conv2dSliceType::L1Full, 0);
 
-  rewriter.modifyOpInPlace(
-      srcOp, [&]() { srcOp.setConv2dSliceConfigAttr(conv2dSliceConfigAttr); });
-
-  return success();
+  return failure();
 }
 } // namespace mlir::tt::ttnn::workarounds::decomposition
