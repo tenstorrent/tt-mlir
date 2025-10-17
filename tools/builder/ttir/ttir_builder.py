@@ -93,16 +93,14 @@ class TTIRBuilder(Builder):
         if organize_golden_args is None:
             organize_golden_args = self._organize_eltwise_golden
 
-        print("=============DEBUG: ConstantOp=============")
-        print(f"ttir_kwargs: {ttir_kwargs}")
-        print("=============DEBUG: ConstantOp=============")
-
         with self._ctx, self._loc:
             # If output shape or type is not provided, calculate it using golden function.
             # This is needed because TTIR ops do not have shape or type MLIR inference trait.
             output_shape_and_type = self._get_output_shape_and_type(
                 organize_golden_args, inputs, op_ttir_function, golden_kwargs
             )
+            calculated_output_shape = None
+            calculated_output_type = None
             if not output_shape_and_type:
                 assert (
                     output_shape is not None
@@ -117,10 +115,12 @@ class TTIRBuilder(Builder):
                 ) = output_shape_and_type
 
             # Use provided output shape/type if available, otherwise use calculated ones.
-            output_shape = calculated_output_shape if not output_shape else output_shape
+            output_shape = (
+                calculated_output_shape if output_shape is None else output_shape
+            )
             output_type = (
                 self._get_type_from_torch_dtype(calculated_output_type)
-                if not output_type
+                if output_type is None and calculated_output_type is not None
                 else output_type
             )
 
@@ -3462,38 +3462,85 @@ class TTIRBuilder(Builder):
 
     def constant(
         self,
-        value: Operand,
+        value: Union[int, float, List, torch.Tensor],
+        dtype: Optional[torch.dtype] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
         Creates ``ttir.constant``.
 
-        *Tensor constant creation operation.*
+        *Creates a tensor with the specified values.*
 
-        Returns a tensor with the specified constant value.
+        Returns a tensor of given shape with the specified values.
 
         Parameters
         ----------
-        value : Union[DenseIntElementsAttr, DenseFPElementsAttr]
-            The constant value of the tensor
+        value : Union[int, float, List, torch.Tensor]
+            Values to fill the tensor with
+        dtype : *Optional[torch.dtype]*, optional
+            If provided, overrides the inferred dtype for plain Python values
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
         Returns
         -------
         (*OpView*)
-            The tensor with the specified constant value
+            Tensor with the specified values
         """
+        print(f"Value: {value}")
+        print(f"Dtype: {dtype}")
 
-        print("DEBUG: ConstantOp")
-        print(f"value: {value}")
-        print("DEBUG: ConstantOp")
+        torch_value = torch.as_tensor(value)
+        print(f"Torch value: {torch_value}")
+        print(f"Torch value dtype: {torch_value.dtype}")
+
+        if dtype is None:
+            inferred = self._get_torch_dtype_from_plain_value(value)
+            if torch_value.dtype != inferred:
+                torch_value = torch_value.to(inferred)
+        elif torch_value.dtype != dtype:
+            torch_value = torch_value.to(dtype)
+
+        inferred_dtype = torch_value.dtype
+        print(f"Inferred dtype: {inferred_dtype}")
+        mlir_dtype = self._get_type_from_torch_dtype(inferred_dtype)
+
+        shape = list(torch_value.shape)
+        tensor_type = RankedTensorType.get(shape, mlir_dtype)
+
+        flat_values = torch_value.flatten().tolist()
+        num_elements = len(flat_values)
+
+        if num_elements == 0:
+            raise ValueError("Cannot create constant with empty tensor")
+
+        if num_elements == 1 or len(set(flat_values)) == 1:
+            # Splat case
+            if isinstance(mlir_dtype, IntegerType):
+                attr = IntegerAttr.get(mlir_dtype, int(flat_values[0]))
+            elif isinstance(mlir_dtype, FloatType):
+                attr = FloatAttr.get(mlir_dtype, float(flat_values[0]))
+            else:
+                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
+
+            value_attr = DenseElementsAttr.get_splat(tensor_type, attr)
+        else:
+            # Non-splat case
+            if isinstance(mlir_dtype, IntegerType):
+                elems = [IntegerAttr.get(mlir_dtype, int(v)) for v in flat_values]
+            elif isinstance(mlir_dtype, FloatType):
+                elems = [FloatAttr.get(mlir_dtype, float(v)) for v in flat_values]
+            else:
+                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
+
+            value_attr = DenseElementsAttr.get(elems, tensor_type)
 
         return self._op_proxy(
             ttir.ConstantOp,
             [],
-            ttir_kwargs={"value": value},
-            organize_ttir_args=lambda i, o, _: o,
+            golden_kwargs={"value": torch_value, "dtype": inferred_dtype},
+            ttir_kwargs={"result": tensor_type, "value": value_attr},
+            organize_ttir_args=lambda i, o, _: 0,
             unit_attrs=unit_attrs,
         )
 

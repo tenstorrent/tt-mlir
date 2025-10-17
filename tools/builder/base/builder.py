@@ -219,6 +219,56 @@ class Builder:
 
         return typ
 
+    def _get_torch_dtype_from_plain_value(self, value) -> torch.dtype:
+        if isinstance(value, torch.Tensor):
+            t = value
+        else:
+            t = torch.as_tensor(value)
+
+        # Empty -> int64 default
+        if t.numel() == 0:
+            return torch.int64
+
+        # Floats -> smallest float dtype within tolerance
+        if t.dtype.is_floating_point:
+            base64 = t.to(torch.float64)
+            candidates = [
+                (torch.float16, 1e-3, 1e-3),
+                (torch.bfloat16, 1e-2, 1e-2),
+                (torch.float32, 1e-6, 1e-6),
+            ]
+            for cand_dtype, rtol, atol in candidates:
+                cand = base64.to(cand_dtype)
+                if not torch.all(torch.isfinite(cand)):
+                    continue
+                if torch.allclose(base64, cand.to(torch.float64), rtol=rtol, atol=atol):
+                    return cand_dtype
+            return torch.float64
+
+        # Integers -> smallest fitting integer dtype
+        try:
+            min = int(torch.min(t).item())
+            max = int(torch.max(t).item())
+        except Exception:
+            return torch.int64
+
+        if min < 0:
+            if -128 <= min and max <= 127:
+                return torch.int8
+            if -32768 <= min and max <= 32767:
+                return torch.int16
+            if -2147483648 <= min and max <= 2147483647:
+                return torch.int32
+            return torch.int64
+        else:
+            if max <= 255:
+                return torch.uint8
+            if max <= 65535:
+                return torch.uint16
+            if max <= 4294967295:
+                return torch.uint32
+            return torch.uint64
+
     def _get_type_from_torch_dtype(
         self,
         dtype: Union[torch.dtype, TypeInfo],

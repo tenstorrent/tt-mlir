@@ -14,14 +14,6 @@ from builder.base.builder import Operand, Shape, TypeInfo
 from builder.base.builder_golden import BuilderGoldenTensor
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_ttir_to_flatbuffer
-from ttmlir.ir import (
-    DenseI32ArrayAttr,
-    DenseIntElementsAttr,
-    DenseFPElementsAttr,
-    RankedTensorType,
-    IntegerType,
-    F32Type,
-)
 from test_utils import (
     Marks,
     shape_str,
@@ -1485,16 +1477,33 @@ def test_ones(shape: Shape, request):
     )
 
 
-@pytest.mark.parametrize("value", [(1), ([1, 2, 3])], ids=["scalar", "1d"])
-def test_constant(value: Operand, request):
-    def constant(
-        builder: TTIRBuilder, value: Operand, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.constant(value, unit_attrs=unit_attrs)
+@pytest.mark.parametrize(
+    "value,dtype",
+    [
+        (1, None),
+        ([1.0, 2.0, 3.0], torch.bfloat16),
+        ([1.0, 2.0, 3.0], torch.float64),
+        ([[1, 2], [3, 4]], None),
+        ([1, 2, 3, 4], None),
+        (torch.tensor([1.0, 2.0, 3.0]), None),
+    ],
+    ids=[
+        "scalar_int-none",
+        "1d_float-bf16",
+        "1d_float-f64",
+        "2d_int-none",
+        "nested_int_array-none",
+        "torch_float_tensor-none",
+    ],
+)
+def test_constant(value, dtype, request):
+    def constant(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+        return builder.constant(value, dtype=dtype, unit_attrs=unit_attrs)
 
     compile_ttir_to_flatbuffer(
         constant,
-        [value],
+        [],
+        [],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
