@@ -1408,37 +1408,27 @@ def permute(
     )
 
 
-@pytest.mark.parametrize("shapes", [[(1, 32, 32, 32)]])  # , [(1, 24, 24, 32)]])
-@pytest.mark.parametrize("permutation", [[0, 2, 1, 3]])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_permute(shapes: List[Shape], permutation: List[int], target: str, request):
+@pytest.mark.parametrize("shapes", [[(2, 3, 4)]], ids=shapes_list_str)
+@pytest.mark.parametrize("permutation", [[1, 2, 0]])
+def test_permute(shapes: List[Shape], permutation: List[int], request, device):
     # Create a wrapper function that captures permutation
     def permute_wrapper(
         in0: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        blah = permute(in0, builder, permutation, unit_attrs)
-        blah = builder.abs(blah)
-        return blah
+        return permute(in0, builder, permutation, unit_attrs)
 
-    # Set the name for better test identification
+    # Set the name for better test identification.
     permute_wrapper.__name__ = "permute"
-    options = [f"override-device-shape=1,1"]
-    # Workaround for ttmetal, only support 1x1 grid atm
-    if target == "ttmetal":
-        options.append("collapse-tensors-2d=false")
 
     compile_and_execute_ttir(
         permute_wrapper,
         shapes,
-        system_desc_path=request.config.getoption("--sys-desc"),
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
-        target=target,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        print_ir="True",
+        system_desc_path=request.config.getoption("--sys-desc"),
     )
 
 
@@ -2174,7 +2164,7 @@ def test_matmul(
 @pytest.mark.parametrize(
     "test_fn,inputs_shapes,inputs_dtypes",
     [
-        (transpose, [(32, 32)], [torch.float32]),
+        (transpose, [(64, 32)], [torch.float32]),
         pytest.param(
             reshape,
             [(64, 32)],
@@ -2189,7 +2179,7 @@ def test_matmul(
         ),
     ],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_unique_ops(
     test_fn: Callable,
     inputs_shapes: List[Shape],
