@@ -2584,14 +2584,10 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AllReduceOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // TODO: complete this
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emit(srcOp.getDevice(), "mesh_device"),
-        /*barrier_semaphores*/
-        /*rs_global_semaphores*/
-        /*ag_global_semaphores*/
         emitter.emit(srcOp.getReduceType(), "math_op"),
         emitter.emit(emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
@@ -2623,7 +2619,6 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PointToPointOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // TODO: complete this
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emitMeshCoordinate(srcOp.getSendCoord(), "send_coord"),
