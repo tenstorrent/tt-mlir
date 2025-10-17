@@ -46,22 +46,6 @@ def main(input_filename, target_duration, component_filter):
         tests = json.load(f)
 
     tests = unroll_arrays(tests)
-    if component_filter != "-all":
-        # Filter tests based on the component filter
-        filtered_tests = []
-        for test in tests:
-            if "if" in test:
-                components = [
-                    comp.strip() for comp in test["if"].split(",") if comp.strip()
-                ]
-                if component_filter in components:
-                    filtered_tests.append(test)
-            else:
-                # If no "if" field, include the test by default
-                filtered_tests.append(test)
-        tests = filtered_tests
-
-    # debug print
     print(f"Unrolled to {len(tests)} tests.")
 
     if component_filter != "-all":
@@ -79,7 +63,7 @@ def main(input_filename, target_duration, component_filter):
                 filtered_tests.append(test)
         tests = filtered_tests
 
-    print(f"Filtered to {len(tests)} tests for component '{component_filter}'.")
+    print(f"Filtered to {len(tests)} tests with opt components '{component_filter}'.")
 
     # load saved durations
     durations = {}
