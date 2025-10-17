@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
@@ -2087,26 +2088,25 @@ class ScatterToScatterInDimPattern
               "dimensions");
     }
 
-    // Validate update_window_dims and inserted_window_dims
+    // Validate update_window_dims and inserted_window_dims.
     ArrayRef<int32_t> updateWindowDims = op.getUpdateWindowDims();
     ArrayRef<int32_t> insertedWindowDims = op.getInsertedWindowDims();
 
-    // Get update tensor rank
-    RankedTensorType updateType =
-        mlir::cast<RankedTensorType>(op.getUpdate().getType());
+    // Get update tensor rank.
+    RankedTensorType updateType = op.getUpdate().getType();
     int64_t updateRank = updateType.getRank();
 
-    // Create array to track which dimensions are covered
+    // Create array to track which dimensions are covered.
     llvm::SmallVector<bool> dimsCovered(updateRank, false);
 
-    // Check update_window_dims
+    // Check update_window_dims.
     for (auto dim : updateWindowDims) {
       assert(dim >= 0 && dim < updateRank &&
              "update_window_dims contains invalid dimension index");
       dimsCovered[dim] = true;
     }
 
-    // Check inserted_window_dims
+    // Check inserted_window_dims.
     for (auto dim : insertedWindowDims) {
       assert(dim >= 0 && dim < updateRank &&
              "inserted_window_dims contains invalid dimension index");
@@ -2118,13 +2118,24 @@ class ScatterToScatterInDimPattern
       dimsCovered[dim] = true;
     }
 
-    // Check that all dimensions are covered
+    // Check that all dimensions are covered.
     for (int64_t i = 0; i < updateRank; ++i) {
       if (!dimsCovered[i]) {
         return rewriter.notifyMatchFailure(
             op, "ScatterInDim does not support window scatter.");
       }
     }
+
+    // Check that scatter_dims_to_operand_dims is in order.
+    ArrayRef<int32_t> scatterDimsToOperandDims =
+        op.getScatterDimsToOperandDims();
+    if (!std::is_sorted(scatterDimsToOperandDims.begin(),
+                        scatterDimsToOperandDims.end(), std::less<>())) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "scatter_dims_to_operand_dims must be in strictly increasing order.");
+    }
+
     return success();
   }
 
@@ -2154,15 +2165,12 @@ class ScatterToScatterInDimPattern
     return flattenedTensor;
   }
 
-  Value extractElementWiseScatterIndices(ttir::ScatterOp op, OpAdaptor adaptor,
+  Value extractElementWiseScatterIndices(ttir::ScatterOp op,
                                          PatternRewriter &rewriter) const {
     // Indices need to match updates tensor
-    Value indexTensor = adaptor.getScatterIndices();
-    Value updateTensor = adaptor.getUpdate();
-    RankedTensorType updateType =
-        mlir::cast<RankedTensorType>(updateTensor.getType());
-    RankedTensorType indexType =
-        mlir::cast<RankedTensorType>(indexTensor.getType());
+    TypedValue<RankedTensorType> indexTensor = op.getScatterIndices();
+    RankedTensorType updateType = op.getUpdate().getType();
+    RankedTensorType indexType = indexTensor.getType();
     ArrayRef<int64_t> indexShape = indexType.getShape();
     ArrayRef<int64_t> updateShape = updateType.getShape();
 
@@ -2211,29 +2219,26 @@ class ScatterToScatterInDimPattern
 
     return indexTensor;
   }
-  Value extractMultiDimensionalScatterIndices(ttir::ScatterOp op,
-                                              OpAdaptor adaptor,
-                                              PatternRewriter &rewriter) const {
 
-    // last dimension of indices is index_vector_dim
-    Value indexTensor = adaptor.getScatterIndices();
-    RankedTensorType indexType =
-        mlir::cast<RankedTensorType>(indexTensor.getType());
+  Value extractMultiDimensionalScatterIndices(ttir::ScatterOp op,
+                                              PatternRewriter &rewriter) const {
+    // Last dimension of indices is index_vector_dim.
+    TypedValue<RankedTensorType> indexTensor = op.getScatterIndices();
+    RankedTensorType indexType = indexTensor.getType();
     ArrayRef<int64_t> indexShape = indexType.getShape();
     int64_t indexVectorDim = op.getIndexVectorDim();
     assert(indexVectorDim == static_cast<int64_t>(indexShape.size() - 1) &&
            "Currently only supports index_vector_dim being the last dimension");
 
-    // Get the input tensor to determine its shape for stride calculation
-    Value inputTensor = adaptor.getInput();
-    RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(inputTensor.getType());
+    // Get the input tensor to determine its shape for stride calculation.
+    TypedValue<RankedTensorType> inputTensor = op.getInput();
+    RankedTensorType inputType = inputTensor.getType();
     ArrayRef<int64_t> inputShape = inputType.getShape();
 
-    // Number of dimensions being indexed
+    // Number of dimensions being indexed.
     int64_t numIndexDims = indexShape[indexVectorDim];
 
-    // Calculate strides for each dimension (product of subsequent dimensions)
+    // Calculate strides for each dimension (product of subsequent dimensions).
     llvm::SmallVector<int64_t> strides(numIndexDims);
     for (int64_t i = 0; i < numIndexDims; ++i) {
       int64_t stride = 1;
@@ -2243,16 +2248,16 @@ class ScatterToScatterInDimPattern
       strides[i] = stride;
     }
 
-    // Create shape for sliced dimension indices (remove the index_vector_dim)
+    // Create shape for sliced dimension indices (remove the index_vector_dim).
     llvm::SmallVector<int64_t> dimIndexShape(indexShape.begin(),
                                              indexShape.end());
-    dimIndexShape.pop_back(); // Remove index_vector_dim
+    dimIndexShape.pop_back(); // Remove index_vector_dim.
 
     Value flatIndices = nullptr;
 
-    // Process each dimension
+    // Process each dimension.
     for (int64_t dim = 0; dim < numIndexDims; ++dim) {
-      // Slice to get indices for this dimension
+      // Slice to get indices for this dimension.
       llvm::SmallVector<int32_t> begins(indexType.getRank(), 0);
       llvm::SmallVector<int32_t> ends(indexType.getShape().begin(),
                                       indexType.getShape().end());
@@ -2261,7 +2266,7 @@ class ScatterToScatterInDimPattern
       begins[indexVectorDim] = static_cast<int32_t>(dim);
       ends[indexVectorDim] = static_cast<int32_t>(dim + 1);
 
-      // Calculate slice shape
+      // Calculate slice shape.
       llvm::SmallVector<int64_t> sliceShape(indexType.getShape());
       sliceShape[indexVectorDim] = 1;
 
@@ -2276,16 +2281,16 @@ class ScatterToScatterInDimPattern
           sliceShape, indexType.getElementType(), indexType.getEncoding(),
           indexTensor, beginsAttr, endsAttr, stepsAttr);
 
-      // Reshape to remove the singleton dimension
+      // Reshape to remove the singleton dimension.
       Value dimensionIndices = createReshapeOp(
           rewriter,
           ttmlir::utils::appendLocationSuffix(
               op.getLoc(), "_dim_" + std::to_string(dim) + "_reshape"),
           dimensionSlice, dimIndexShape);
 
-      // Multiply by stride if stride > 1
+      // Multiply by stride if stride > 1.
       if (strides[dim] > 1) {
-        // Create constant tensor with stride value (scalar)
+        // Create constant tensor with stride value (scalar).
         auto scalarType = RankedTensorType::get({}, indexType.getElementType(),
                                                 indexType.getEncoding());
 
@@ -2297,7 +2302,7 @@ class ScatterToScatterInDimPattern
                 op.getLoc(), "_stride_" + std::to_string(dim)),
             scalarType, denseAttr);
 
-        // Reshape scalar to have same rank as dimIndexShape (all dims = 1)
+        // Reshape scalar to have same rank as dimIndexShape (all dims = 1).
         llvm::SmallVector<int64_t> onesShape(dimIndexShape.size(), 1);
         Value reshapedConstant = createReshapeOp(
             rewriter,
@@ -2327,7 +2332,7 @@ class ScatterToScatterInDimPattern
             dimensionIndices, strideTensor);
       }
 
-      // Add to flat indices
+      // Add to flat indices.
       if (flatIndices == nullptr) {
         flatIndices = dimensionIndices;
       } else {
@@ -2340,7 +2345,7 @@ class ScatterToScatterInDimPattern
       }
     }
 
-    // Flatten the indices to 1D
+    // Flatten the indices to 1D.
     Value flattenedIndices =
         flattenTensor(rewriter, op.getLoc(), flatIndices, "_indices_flatten");
 
@@ -2364,39 +2369,35 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::outs() << "Here\n";
-
     LogicalResult legalityResult = checkBasicLegality(op, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
 
-    Value inputTensor = adaptor.getInput();
-    Value updateTensor = adaptor.getUpdate();
-    Value indexTensor = adaptor.getScatterIndices();
-    Value outputTensor = adaptor.getOutput();
-    RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(inputTensor.getType());
-    RankedTensorType updateType =
-        mlir::cast<RankedTensorType>(updateTensor.getType());
-    RankedTensorType indexType =
-        mlir::cast<RankedTensorType>(indexTensor.getType());
+    TypedValue<RankedTensorType> inputTensor = op.getInput();
+    TypedValue<RankedTensorType> updateTensor = op.getUpdate();
+    TypedValue<RankedTensorType> indexTensor = op.getScatterIndices();
+    TypedValue<RankedTensorType> outputTensor = op.getOutput();
+    RankedTensorType inputType = inputTensor.getType();
+    RankedTensorType updateType = updateTensor.getType();
+    RankedTensorType indexType = indexTensor.getType();
     ArrayRef<int64_t> inputShape = inputType.getShape();
     ArrayRef<int64_t> updateShape = updateType.getShape();
     ArrayRef<int64_t> indexShape = indexType.getShape();
 
     auto scatterDimsToOperandDims = op.getScatterDimsToOperandDims();
 
-    // Check if single dimension scatter
+    // Check if single dimension scatter.
     if (scatterDimsToOperandDims.size() == 1) {
-      // Single-dimensional scatter
-      assert(
-          op.getIndexVectorDim() == 1 &&
+      // Single-dimensional scatter.
+      TT_assertv(
+          op.getIndexVectorDim() == 1,
           "TTIR single dimensional scatter requires index_vector_dim to be 1");
+      TT_assertv()
 
-      int32_t dim = scatterDimsToOperandDims[0];
+          int32_t dim = scatterDimsToOperandDims[0];
 
-      // Check ranks of input, update, and index
+      // Check ranks of input, update, and index.
       size_t targetRank =
           std::max({inputShape.size(), updateShape.size(), indexShape.size()});
 
@@ -2407,9 +2408,8 @@ public:
                 "if needed.");
       }
 
-      // Process indices to match update tensor shape
-      Value finalIndexTensor =
-          extractElementWiseScatterIndices(op, adaptor, rewriter);
+      // Process indices to match update tensor shape.
+      Value finalIndexTensor = extractElementWiseScatterIndices(op, rewriter);
 
       auto dimAttr = rewriter.getI32IntegerAttr(dim);
 
@@ -2440,7 +2440,7 @@ public:
 
       // Extract multi-dimensional indices and flatten to 1D
       Value finalIndexTensor =
-          extractMultiDimensionalScatterIndices(op, adaptor, rewriter);
+          extractMultiDimensionalScatterIndices(op, rewriter);
 
       // Flatten input tensor to 1D
       Value flattenedInput =
