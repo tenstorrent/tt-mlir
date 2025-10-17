@@ -46,10 +46,13 @@ if [[ "$INPUT" == *.json ]]; then
     # JSON to FlatBuffer
     flatc -I "$INCLUDE_DIR" -b --size-prefixed --root-type "$ROOT_TYPE" "$SCHEMA" "$INPUT"
     OUTPUT="$(basename "$INPUT" .json).ttsys"
-else
+elif [[ "$INPUT" == *.ttsys ]]; then
     # FlatBuffer to JSON
     flatc -I "$INCLUDE_DIR" --json --size-prefixed --root-type "$ROOT_TYPE" "$SCHEMA" -- "$INPUT"
     OUTPUT="$(basename "$INPUT" .ttsys).json"
+else
+    echo "Error: Unknown file extension for input $INPUT"
+    exit 1
 fi
 
 echo "Converted $INPUT -> $OUTPUT"
