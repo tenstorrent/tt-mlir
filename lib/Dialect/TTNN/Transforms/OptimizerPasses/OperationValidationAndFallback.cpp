@@ -129,7 +129,8 @@ public:
 
   void runOnOperation() override {
     // Device lifecycle is managed by OpModelDeviceWrapperPass in the pipeline,
-    // but for standalone pass usage (e.g., in tests), the guard opens/closes it.
+    // but for standalone pass usage (e.g., in tests), the guard opens/closes
+    // it.
     op_model::OpModelDeviceGuard deviceGuard;
 
 #ifndef TTMLIR_ENABLE_OPMODEL
@@ -180,9 +181,10 @@ public:
             utils::extractInputLayouts(operation);
 
         TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                     "Validating operation {} at {} with {} input layouts",
+                     "Validating operation {} at {} with {} input layouts, {} "
+                     "output layout",
                      operation->getName(), operation->getLoc(),
-                     inputLayouts.size());
+                     inputLayouts.size(), config.outputLayout);
 
         // Test original configuration
         llvm::Expected<op_constraint_validation::ValidationResult>
