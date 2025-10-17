@@ -290,32 +290,27 @@ public:
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         viewInterface.applyViews();
 
-    unsigned outputOperandsIndex =
-        genericParent.getOutputs().getBeginOperandIndex();
-
     // TODO: cleanup
     AffineMap coreVirtualizationMap = AffineMap::getMultiDimIdentityMap(
         memrefGridShape.size(), rewriter.getContext());
 
     // get core virtualization map from the output operand of the generic
-    for (OpOperand &operandHandle : genericParent->getOpOperands()) {
-      if (operandHandle.getOperandNumber() < outputOperandsIndex) {
-        continue;
-      }
-      auto operand = genericParent.getOperand(operandHandle.getOperandNumber());
-      auto [underlyingMemref, _] =
-          mlir::tt::d2m::applyViews(operand.getDefiningOp());
+    auto outputOperand = genericParent.getOutputOperand();
+    auto [underlyingMemref, _] =
+        mlir::tt::d2m::applyViews(outputOperand.getDefiningOp());
 
-      if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
-              underlyingMemref.getLayout())) {
-        if (shardLayout.getCoreVirtualizationMap()) {
-          coreVirtualizationMap = shardLayout.getCoreVirtualizationMap();
-          coreVirtualizationMap = ttmlir::utils::affineMapDropRange(
-              coreVirtualizationMap, memrefGridShape.size(),
-              coreVirtualizationMap.getNumResults() - 1);
-        }
+    if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
+            underlyingMemref.getLayout())) {
+      if (shardLayout.getCoreVirtualizationMap()) {
+        coreVirtualizationMap = shardLayout.getCoreVirtualizationMap();
+        coreVirtualizationMap = ttmlir::utils::affineMapDropRange(
+            coreVirtualizationMap, memrefGridShape.size(),
+            coreVirtualizationMap.getNumResults() - 1);
       }
     }
+
+    unsigned outputOperandsIndex =
+        genericParent.getOutputs().getBeginOperandIndex();
 
     // The output and the grid indexing must always be aligned.
     AffineMap gridIndexingMap =

@@ -275,6 +275,10 @@ def D2M_GenericOp : D2M_Op<"generic",
                 d2m::ThreadType::Compute;
         });
       }
+      Value getOutputOperand() {
+        return getOperand(getOutputs().getBeginOperandIndex());
+      }
+
       bool isAffineMapForm() { return !getIndexingMaps().empty(); }
       bool isLoweredLoopForm() { return !isAffineMapForm(); }
       bool isExternalSymbolForm() { return getRegions().empty(); }
