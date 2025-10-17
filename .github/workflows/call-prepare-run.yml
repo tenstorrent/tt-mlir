@@ -21,7 +21,7 @@ on:
     outputs:
       skip_build:
         description: 'Skip build if no relevant files changed'
-        value: ${{ jobs.prepare-run.outputs.skip_build }}
+        value: ${{ jobs.ignore-files.outputs.skip_build }}
       test_matrix:
         description: 'Test matrix for run-tests job'
         value: ${{ jobs.prepare-run.outputs.test_matrix }}
@@ -39,10 +39,44 @@ on:
         value: ${{ jobs.prepare-run.outputs.test_timeout }}
 
 jobs:
-  prepare-run:
+  ignore-files:
     runs-on: ubuntu-latest
     outputs:
       skip_build: ${{ steps.skip_build.outputs.skip_build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Ignore files
+        id: ignore-files
+        uses: tj-actions/changed-files@v47
+        with:
+          files: |
+            docs/**
+            .github/CODEOWNERS
+            .gitignore
+            LICENSE
+            '*.md'
+
+      - name: echo ignore_files
+        id: skip_build
+        run: |
+          echo "any_changed=${{ steps.ignore-files.outputs.any_changed }}"
+          echo "only_changed=${{ steps.ignore-files.outputs.only_changed }}"
+          echo "other_changed_files=${{ steps.ignore-files.outputs.other_changed_files }}"
+          echo "all_changed_files=${{ steps.ignore-files.outputs.all_changed_files }}"
+          echo "other_deleted_files=${{ steps.ignore-files.outputs.other_deleted_files }}"
+          if [[ -n "${{ steps.ignore-files.outputs.other_changed_files }}" || -n "${{ steps.ignore-files.outputs.other_deleted_files }}" ]]; then
+            echo "Changes outside ignored files detected, proceeding with build"
+            echo "skip_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "Only ignored files changed, skipping build"
+            echo "skip_build=true" >> $GITHUB_OUTPUT
+          fi
+
+  prepare-run:
+    runs-on: ubuntu-latest
+    outputs:
       test_matrix: ${{ steps.generate-test-matrix.outputs.test-matrix }}
       build_matrix: ${{ steps.generate-build-matrix.outputs.component-matrix }}
       runner: ${{ steps.decide-runner.outputs.runner }}
@@ -79,22 +113,6 @@ jobs:
         uses: tj-actions/changed-files@v47
         with:
           files_yaml_from_source_file: '.github/settings/optional-components.yml'
-
-      - name: echo ignore_files
-        id: skip_build
-        run: |
-          echo "any_changed=${{ steps.components.outputs.any_changed }}"
-          echo "only_changed=${{ steps.components.outputs.only_changed }}"
-          echo "other_changed_files=${{ steps.components.outputs.other_changed_files }}"
-          echo "all_changed_files=${{ steps.components.outputs.all_changed_files }}"
-          echo "other_deleted_files=${{ steps.components.outputs.other_deleted_files }}"
-
-          comp=(${{ steps.components.outputs.modified_keys }})
-          if [[ " ${comp[*]} " =~ " ignore-build " ]]; then
-            echo "skip_build=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip_build=false" >> $GITHUB_OUTPUT
-          fi
 
       - name: Generate build matrix
         id: generate-build-matrix
