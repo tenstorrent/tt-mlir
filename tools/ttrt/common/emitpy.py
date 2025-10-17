@@ -19,12 +19,12 @@ from ttrt.common.util import *
 from ttrt.common.query import Query
 from ttrt.common.run import Run
 
-# Add tt-alchemist file my_get_device.py to path for EmitPy tests
+# Add tt-alchemist file utils.py to path for EmitPy tests
 TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
-get_device_path = os.path.join(
+utils_path = os.path.join(
     TT_MLIR_HOME, "tools/tt-alchemist/templates/python/local"
 )
-sys.path.append(get_device_path)
+sys.path.append(utils_path)
 # Add ttnn python package location to path for EmitPy tests
 sys.path.append(f"{get_ttrt_metal_home_path()}/ttnn")
 

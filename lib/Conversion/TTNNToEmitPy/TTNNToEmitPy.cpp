@@ -817,7 +817,7 @@ private:
     return "ttnn.get_device";
   }
   std::string getPrefixSwapPattern() const override {
-    return "my_get_device.DeviceGetter.get_device";
+    return "utils.DeviceGetter.get_device";
   }
 
 public:

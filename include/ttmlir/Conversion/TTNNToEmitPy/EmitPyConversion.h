@@ -1705,7 +1705,7 @@ public:
 
     auto opName = op.getOperationName();
     if (opName == "ttnn.get_device") {
-      opName = "my_get_device.DeviceGetter.get_device";
+      opName = "utils.DeviceGetter.get_device";
     }
 
     auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
