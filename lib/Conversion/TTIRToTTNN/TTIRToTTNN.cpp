@@ -984,34 +984,82 @@ public:
 } // namespace
 
 namespace {
-class BatchNormOpConversionPattern
-    : public OpConversionPattern<ttir::BatchNormOp> {
+// Used by both BatchNormInferenceOp and BatchNormTrainingOp.
+template <typename OpType, typename OpAdaptor>
+static LogicalResult
+checkBatchNormToTTNNLegality(OpType &op, OpAdaptor adaptor,
+                             ConversionPatternRewriter &rewriter) {
+  // Check if the operand is a 4-dimensional tensor.
+  if (mlir::cast<RankedTensorType>(adaptor.getOperand().getType()).getRank() !=
+      4) {
+    return rewriter.notifyMatchFailure(
+        op, "Operand must be a 4-dimensional tensor");
+  }
+
+  // We only support excluded_dimension=1 for ttnn::batch_norm
+  if (adaptor.getDimension() != 1) {
+    return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
+  }
+
+  return success();
+}
+
+class BatchNormInferenceOpConversionPattern
+    : public OpConversionPattern<ttir::BatchNormInferenceOp> {
 public:
-  using OpConversionPattern<ttir::BatchNormOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::BatchNormInferenceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::BatchNormOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::BatchNormInferenceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check if the operand is a 4-dimensional tensor.
-    if (mlir::cast<RankedTensorType>(adaptor.getOperand().getType())
-            .getRank() != 4) {
-      return rewriter.notifyMatchFailure(
-          op, "Operand must be a 4-dimensional tensor");
+    // Check legality of the conversion.
+    LogicalResult legalityResult =
+        checkBatchNormToTTNNLegality(op, adaptor, rewriter);
+    if (failed(legalityResult)) {
+      return legalityResult;
     }
 
-    // We only support excluded_dimension=1 for ttnn::batch_norm
-    if (adaptor.getDimension() != 1) {
-      return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
-    }
-
-    mlir::APFloat defaultMomentum(0.1f);
-
-    rewriter.replaceOpWithNewOp<ttnn::BatchNormOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
+    rewriter.replaceOpWithNewOp<ttnn::BatchNormInferenceOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getOperand(), adaptor.getMean(), adaptor.getVariance(),
-        adaptor.getTraining(), adaptor.getEpsilon(), defaultMomentum,
-        adaptor.getScale(), adaptor.getOffset(),
+        adaptor.getEpsilon(), adaptor.getScale(), adaptor.getOffset(),
         /*memoryConfig*/ nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class BatchNormTrainingOpConversionPattern
+    : public OpConversionPattern<ttir::BatchNormTrainingOp> {
+public:
+  using OpConversionPattern<ttir::BatchNormTrainingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::BatchNormTrainingOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the conversion.
+    LogicalResult legalityResult =
+        checkBatchNormToTTNNLegality(op, adaptor, rewriter);
+    if (failed(legalityResult)) {
+      return legalityResult;
+    }
+
+    // Convert result types
+    auto resultType =
+        this->getTypeConverter()->convertType(op.getResult().getType());
+
+    auto batchNormTrainingOp = rewriter.create<ttnn::BatchNormTrainingOp>(
+        op.getLoc(), resultType, adaptor.getOperand(), adaptor.getRunningMean(),
+        adaptor.getRunningVariance(), adaptor.getEpsilon(),
+        adaptor.getMomentum(), adaptor.getScale(), adaptor.getOffset(),
+        /*memoryConfig*/ nullptr);
+
+    // TTIR expects the running mean and variance to be returned as separate
+    // results.
+    rewriter.replaceOp(op, {batchNormTrainingOp.getResult(),
+                            batchNormTrainingOp.getRunningMean(),
+                            batchNormTrainingOp.getRunningVar()});
     return success();
   }
 };
@@ -2105,7 +2153,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,
            LinearOpConversionPattern,
-           BatchNormOpConversionPattern,
+           BatchNormInferenceOpConversionPattern,
+           BatchNormTrainingOpConversionPattern,
            RMSNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,

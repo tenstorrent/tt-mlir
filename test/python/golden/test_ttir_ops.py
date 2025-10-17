@@ -1388,13 +1388,11 @@ def test_avg_pool2d(
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 5])
 @pytest.mark.parametrize("dimension", [1])  # channel dimension
 @pytest.mark.parametrize("epsilon", [1e-5])
-@pytest.mark.parametrize("training", [False])
 def test_batch_norm(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
     dimension: int,
     epsilon: float,
-    training: bool,
     request,
     device,
 ):
@@ -1416,7 +1414,6 @@ def test_batch_norm(
             variance,
             epsilon=epsilon,
             dimension=dimension,
-            training=training,
             unit_attrs=unit_attrs,
         )
 

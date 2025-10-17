@@ -16,10 +16,10 @@ LICENSE @nsmithtt
 /docs/ @nsmithtt @sdjordjevicTT
 
 # tt-mlir Bindings
-/include/ttmlir/Bindings/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
-/include/ttmlir-c/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
-/lib/CAPI/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
-/python/ @ctodTT @tapspatel @vprajapati-tt @vcanicTT
+/include/ttmlir/Bindings/ @ctodTT @tapspatel @vcanicTT
+/include/ttmlir-c/ @ctodTT @tapspatel @vcanicTT
+/lib/CAPI/ @ctodTT @tapspatel @vcanicTT
+/python/ @ctodTT @tapspatel @vcanicTT
 
 # StableHLO Dialect
 include/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
@@ -150,9 +150,11 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /runtime/ @tenstorrent/forge-developers-mlir-runtime
 /runtime/tools/ @tapspatel @ctodTT
 
-# PyKernel
-/tools/pykernel/ @xanderchin @vprajapati-tt @vtangTT
-/test/pykernel/ @xanderchin @vprajapati-tt @vtangTT
+# PyKernel & ttnn-jit
+/tools/pykernel/ @xanderchin @vtangTT
+/test/pykernel/ @xanderchin @vtangTT
+/tools/ttnn-jit/ @xanderchin @vtangTT
+/test/ttnn-jit/ @xanderchin @vtangTT @arminaleTT
 
 # TTIRBuilder
 /tools/builder @ctodTT @tapspatel @jgrimTT

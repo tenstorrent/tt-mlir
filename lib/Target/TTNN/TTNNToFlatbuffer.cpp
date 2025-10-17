@@ -791,8 +791,8 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
                                              memoryConfig, padValue, output);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::BatchNormOp>
-createOp(FlatbufferObjectCache &cache, BatchNormOp op) {
+::flatbuffers::Offset<::tt::target::ttnn::BatchNormInferenceOp>
+createOp(FlatbufferObjectCache &cache, BatchNormInferenceOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
       cache.at<::tt::target::ttnn::TensorRef>(
           getOperandThroughDPSOps(op.getInput()));
@@ -815,8 +815,40 @@ createOp(FlatbufferObjectCache &cache, BatchNormOp op) {
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       op.getMemoryConfig() ? toFlatbuffer(cache, *op.getMemoryConfig()) : 0;
 
-  return ::tt::target::ttnn::CreateBatchNormOp(
-      *cache.fbb, input, runningMean, runningVar, op.getTraining(),
+  // For inference BatchNormInferenceOp: no momentum, no batch stats
+  return ::tt::target::ttnn::CreateBatchNormInferenceOp(
+      *cache.fbb, input, runningMean, runningVar,
+      op.getEpsilon().convertToFloat(), weight, bias, memoryConfig, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::BatchNormTrainingOp>
+createOp(FlatbufferObjectCache &cache, BatchNormTrainingOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> runningMean =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getRunningMean()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> runningVar =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getRunningVar()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getWeight()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getBias()));
+
+  // BatchNormTrainingOp has 3 MLIR results
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      op.getMemoryConfig() ? toFlatbuffer(cache, *op.getMemoryConfig()) : 0;
+
+  // For training BatchNormTrainingOp with momentum
+  return ::tt::target::ttnn::CreateBatchNormTrainingOp(
+      *cache.fbb, input, runningMean, runningVar,
       op.getEpsilon().convertToFloat(), op.getMomentum().convertToFloat(),
       weight, bias, memoryConfig, output);
 }
@@ -2757,9 +2789,14 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, upsampleOp), debugString,
                            locInfo);
   }
-  if (auto batchNormOp = dyn_cast<BatchNormOp>(op); batchNormOp) {
+  if (auto batchNormOp = dyn_cast<BatchNormInferenceOp>(op); batchNormOp) {
     return createOperation(cache, createOp(cache, batchNormOp), debugString,
                            locInfo);
+  }
+  if (auto batchNormTrainingOp = dyn_cast<BatchNormTrainingOp>(op);
+      batchNormTrainingOp) {
+    return createOperation(cache, createOp(cache, batchNormTrainingOp),
+                           debugString, locInfo);
   }
   if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {
     return createOperation(cache, createOp(cache, rmsNormOp), debugString,
