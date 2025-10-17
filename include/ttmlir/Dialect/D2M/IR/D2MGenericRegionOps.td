@@ -555,10 +555,6 @@ def D2M_DstReinterpretCastOp : D2M_GenericRegionOp<"dst_reinterpret_cast"> {
 
     let arguments = (ins TTCore_Tile:$input);
     let results = (outs TTCore_Tile:$result);
-
-    let assemblyFormat = [{
-        $input `:` type($input) `->` type($result) attr-dict
-    }];
 }
 
 //===----------------------------------------------------------------------===//
