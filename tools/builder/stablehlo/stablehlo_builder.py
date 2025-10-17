@@ -34,7 +34,65 @@ class StableHLOBuilder(Builder):
     ):
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
+        self._arg_attrs: Dict[Operand, Dict[str, Attribute]] = {}
+
+    # ----- Public methods -----
+
+    @property
+    def arg_attrs(self) -> Dict[Operand, Dict[str, Attribute]]:
+        return self._arg_attrs
+
+    def get_arg_attrs(self, func_op: FuncOp) -> ArrayAttr:
+        attrs = []
+        for i, operand in enumerate(self._ordered_inputs):
+            if operand in self._arg_attrs:
+                attrs.append(DictAttr.get(self._arg_attrs[operand]))
+            else:
+                attrs.append(func_op.arg_attrs[i])
+
+        return ArrayAttr.get(attrs)
+
+    def create_sharding_attr_from_tuples(
+        self,
+        mesh_name: str,
+        shardings: List[Tuple[str, bool]],
+        replicated_axes: List[sdy.AxisRefAttr] = [],
+        unreduced_axes: List[sdy.AxisRefAttr] = [],
+    ) -> sdy.TensorShardingPerValueAttr:
+        """
+        Creates a tensor sharding per value attribute from a list of tuples.
+        Each tuple contains a mesh name and a boolean indicating whether the sharding is closed.
+
+        Parameters
+        ----------
+        mesh_name : str
+            The name of the mesh to which the tensor sharding applies
+        shardings : List[Tuple[str, bool]]
+            A list of tuples, each containing a mesh name and a boolean indicating whether the sharding is closed
+
+        Returns
+        -------
+        (*sdy.TensorShardingPerValueAttr*)
+            A tensor sharding per value attribute that describes how tensors are distributed across the mesh
+        """
+        dimension_shardings = []
+        for sharding in shardings:
+            axis_ref_name, is_closed = sharding
+            axes = []
+            if axis_ref_name != "":
+                axes = [self.axis_ref_attr(name=axis_ref_name)]
+            dimension_sharding = self.dimension_sharding_attr(
+                axes=axes, is_closed=is_closed
+            )
+            dimension_shardings.append(dimension_sharding)
+
+        tensor_sharding = self.tensor_sharding_attr(
+            mesh_name, dimension_shardings, replicated_axes, unreduced_axes
+        )
+        return self.tensor_sharding_per_value_attr([tensor_sharding])
+
     # ----- Private Methods ----
+
     def _create_mesh_attr_from_ordered_dict(
         self,
         mesh_dict: OrderedDict[str, int],
@@ -66,6 +124,7 @@ class StableHLOBuilder(Builder):
         op_stablehlo_function: Callable,
         inputs: List[Operand],
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
         organize_stablehlo_args: Optional[Callable] = None,
         organize_golden_args: Optional[Callable] = None,
         output_shape: Optional[Shape] = None,
@@ -107,6 +166,9 @@ class StableHLOBuilder(Builder):
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
+            if sharding_attr is not None:
+                op.operation.attributes["sdy.sharding"] = sharding_attr
+
             if not skip_golden and not self._disable_golden_check:
                 op_golden_function = builder_golden.get_golden_function(
                     op_stablehlo_function, **golden_kwargs
@@ -124,13 +186,18 @@ class StableHLOBuilder(Builder):
         op_stablehlo_function: Callable,
         inputs: List[Operand],
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
-        return self._op_proxy(op_stablehlo_function, inputs, unit_attrs)
+        return self._op_proxy(op_stablehlo_function, inputs, unit_attrs, sharding_attr)
 
     # ----- Public StableHLO Op Generators ----
 
     def add(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.add``.
@@ -172,11 +239,17 @@ class StableHLOBuilder(Builder):
             stablehlo.AddOp,
             [in0, in1],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     # ----- Elementwise Unary Operations -----
 
-    def abs(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def abs(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.abs``.
 
@@ -202,9 +275,15 @@ class StableHLOBuilder(Builder):
             stablehlo.AbsOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def ceil(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def ceil(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.ceil``.
 
@@ -230,9 +309,15 @@ class StableHLOBuilder(Builder):
             stablehlo.CeilOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def cosine(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def cosine(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.cosine``.
 
@@ -258,6 +343,7 @@ class StableHLOBuilder(Builder):
             stablehlo.CosineOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
     def dot_general(
@@ -348,6 +434,12 @@ class StableHLOBuilder(Builder):
         )
 
     def exp(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def exp(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.exponential``.
 
@@ -373,9 +465,15 @@ class StableHLOBuilder(Builder):
             stablehlo.ExpOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def floor(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def floor(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.floor``.
 
@@ -401,9 +499,15 @@ class StableHLOBuilder(Builder):
             stablehlo.FloorOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def neg(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def neg(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.negate``.
 
@@ -429,9 +533,15 @@ class StableHLOBuilder(Builder):
             stablehlo.NegOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def rsqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def rsqrt(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.rsqrt``.
 
@@ -457,9 +567,15 @@ class StableHLOBuilder(Builder):
             stablehlo.RsqrtOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def sine(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def sine(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.sine``.
 
@@ -485,9 +601,15 @@ class StableHLOBuilder(Builder):
             stablehlo.SineOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def sqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def sqrt(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.sqrt``.
 
@@ -513,9 +635,15 @@ class StableHLOBuilder(Builder):
             stablehlo.SqrtOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def logistic(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def logistic(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.logistic``.
 
@@ -541,9 +669,15 @@ class StableHLOBuilder(Builder):
             stablehlo.LogisticOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def tan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def tan(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.tan``.
 
@@ -569,9 +703,15 @@ class StableHLOBuilder(Builder):
             stablehlo.TanOp,
             [in0],
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def log(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def log(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
         """
         Creates ``stablehlo.log``.
 
@@ -729,6 +869,28 @@ class StableHLOBuilder(Builder):
             dimension_shardings,
             replicated_axes,
             unreduced_axes,
+        )
+
+    def tensor_sharding_per_value_attr(
+        self,
+        shardings: List[sdy.TensorShardingAttr],
+    ) -> sdy.TensorShardingPerValueAttr:
+        """
+        Creates a tensor sharding per value attribute from a list of tensor sharding attributes.
+        This attribute allows for specifying different sharding strategies for different tensors.
+
+        Parameters
+        ----------
+        shardings : List[sdy.TensorShardingAttr]
+            A list of tensor sharding attributes, each defining a sharding strategy for a tensor
+
+        Returns
+        -------
+        (*sdy.TensorShardingPerValueAttr*)
+            A tensor sharding per value attribute that describes how multiple tensors are distributed across the mesh
+        """
+        return sdy.TensorShardingPerValueAttr.get(
+            shardings,
         )
 
     # ----- Public Shardy Op Generators ----

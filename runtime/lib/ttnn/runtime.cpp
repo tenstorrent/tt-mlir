@@ -1159,8 +1159,8 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_PrepareConv2dBiasOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::BatchNormOp: {
-    tensorRef = opContext.type_as_BatchNormOp()->out();
+  case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
+    tensorRef = opContext.type_as_BatchNormInferenceOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
@@ -1243,6 +1243,7 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
   case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1459,12 +1460,20 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->bias_tensor()};
     break;
   }
-  case ::tt::target::ttnn::OpType::BatchNormOp: {
-    tensorRefs = {opContext.type_as_BatchNormOp()->input(),
-                  opContext.type_as_BatchNormOp()->running_mean(),
-                  opContext.type_as_BatchNormOp()->running_var(),
-                  opContext.type_as_BatchNormOp()->weight(),
-                  opContext.type_as_BatchNormOp()->bias()};
+  case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
+    tensorRefs = {opContext.type_as_BatchNormInferenceOp()->input(),
+                  opContext.type_as_BatchNormInferenceOp()->running_mean(),
+                  opContext.type_as_BatchNormInferenceOp()->running_var(),
+                  opContext.type_as_BatchNormInferenceOp()->weight(),
+                  opContext.type_as_BatchNormInferenceOp()->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BatchNormTrainingOp: {
+    tensorRefs = {opContext.type_as_BatchNormTrainingOp()->input(),
+                  opContext.type_as_BatchNormTrainingOp()->running_mean(),
+                  opContext.type_as_BatchNormTrainingOp()->running_var(),
+                  opContext.type_as_BatchNormTrainingOp()->weight(),
+                  opContext.type_as_BatchNormTrainingOp()->bias()};
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {
