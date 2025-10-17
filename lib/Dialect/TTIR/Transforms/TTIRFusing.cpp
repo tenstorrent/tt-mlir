@@ -622,6 +622,13 @@ public:
     // Update conv to use scaled weights and replace multiply operation.
     rewriter.modifyOpInPlace(
         convOp, [&]() { convOp.getWeightMutable().assign(scaledWeights); });
+
+    if (auto bias = convOp.getBias()) {
+      Value scaledBias = createScaledBias(rewriter, bias, convOp, scaleValue);
+      rewriter.modifyOpInPlace(
+          convOp, [&]() { convOp.getBiasMutable().assign(scaledBias); });
+    }
+
     rewriter.replaceAllOpUsesWith(multiplyOp, convOp);
 
     return mlir::success();
@@ -823,6 +830,17 @@ private:
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_multiply"),
         mlir::cast<RankedTensorType>(weightValue.getType()), weightValue,
         reshapedScale);
+  }
+  static Value createScaledBias(mlir::PatternRewriter &rewriter,
+                                Value biasValue, ConvOpType convOp,
+                                Value scaleValue) {
+    // Create a multiplication of the bias by the scale.
+    return utils::createDPSOp<MultiplyOp>(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(biasValue.getLoc(),
+                                            "_bias_multiply"),
+        mlir::cast<RankedTensorType>(biasValue.getType()), biasValue,
+        scaleValue);
   }
 };
 
