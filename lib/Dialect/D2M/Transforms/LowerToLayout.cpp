@@ -476,22 +476,21 @@ public:
            virtualGridShape[1] > deviceGridShape[1]);
 
     // Helper lambda for finding the greatest divisor <= maxDivisor for n
-    auto greatestDivisor = [](int64_t n, int64_t maxDivisor) -> int64_t {
+    auto findMaxDivisor = [](int64_t n, int64_t maxDivisor) -> int64_t {
       for (int64_t i = maxDivisor; i > 0; --i) {
         if (n % i == 0) {
           return i;
         }
       }
+      llvm_unreachable("No greatest divisor found");
     };
 
     llvm::SmallVector<int64_t> ret;
     if (virtualGridShape[0] > deviceGridShape[0]) {
-      int64_t divisor =
-          greatestDivisor(virtualGridShape[0], deviceGridShape[0]);
+      int64_t divisor = findMaxDivisor(virtualGridShape[0], deviceGridShape[0]);
       ret = {divisor, virtualGridShape[1]};
     } else {
-      int64_t divisor =
-          greatestDivisor(virtualGridShape[1], deviceGridShape[1]);
+      int64_t divisor = findMaxDivisor(virtualGridShape[1], deviceGridShape[1]);
       ret = {virtualGridShape[0], divisor};
     }
     assert(ret.size());

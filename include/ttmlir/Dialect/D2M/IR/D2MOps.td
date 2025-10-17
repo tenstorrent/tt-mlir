@@ -286,6 +286,8 @@ def D2M_GenericOp : D2M_Op<"generic",
       SmallVector<int64_t> getLoopBounds();
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<int64_t> getBlockFactorsValue();
+      SmallVector<int64_t> getVirtualComputeGrid();
+
       ttcore::DeviceAttr getDevice();
       SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
       SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);

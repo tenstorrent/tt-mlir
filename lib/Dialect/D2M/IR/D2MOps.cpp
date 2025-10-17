@@ -1363,6 +1363,45 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
   return shardShapes;
 }
 
+mlir::SmallVector<int64_t> d2m::GenericOp::getVirtualComputeGrid() {
+  auto [underlyingMemref, _] =
+      mlir::tt::d2m::applyViews(getOutputOperand().getDefiningOp());
+
+  SmallVector<int64_t> virtualComputeGrid(getGrid().getShape().begin(),
+                                          getGrid().getShape().end());
+
+  if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
+          underlyingMemref.getLayout())) {
+    if (shardLayout.getCoreVirtualizationMap()) {
+      auto outputType = mlir::cast<ShapedType>(getOutputOperand().getType());
+      auto outputGridShape = shardLayout.getGridShape(outputType);
+
+      auto coreVirtualizationMap = shardLayout.getCoreVirtualizationMap();
+      coreVirtualizationMap = ttmlir::utils::affineMapDropRange(
+          coreVirtualizationMap, outputGridShape.size(),
+          coreVirtualizationMap.getNumResults() - 1);
+
+      virtualComputeGrid =
+          SmallVector<int64_t>(outputGridShape.begin(), outputGridShape.end());
+      ttmlir::utils::sample(
+          getGrid().getShape(), [&](SmallVector<int64_t, 8> point) {
+            SmallVector<int64_t> virtualPoint =
+                coreVirtualizationMap.compose(point);
+            for (size_t i = 0; i < virtualPoint.size(); ++i) {
+              virtualComputeGrid[i] =
+                  std::max(virtualComputeGrid[i], virtualPoint[i] + 1);
+            }
+          });
+
+      llvm::dbgs() << "GenericOp::getLoopBounds | virtualComputeGrid: "
+                   << ttmlir::utils::formatIterable(virtualComputeGrid, "x")
+                   << "\n";
+    }
+  }
+
+  return virtualComputeGrid;
+}
+
 mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
   assert(!getIndexingMaps().empty() && "GenericOp must be pre-loop generated "
                                        "with indexing maps to use this method");
@@ -1389,16 +1428,15 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
   SmallVector<int64_t> flattenedGridShapes(
       ttmlir::utils::flatten(llvm::reverse(operandGridShapes)));
 
-  // Divide out the compute grid dims and re-eval
-  ArrayRef<int64_t> computeGrid = getGrid().getShape();
-  auto computeGridVolume = ttmlir::utils::volume(computeGrid);
-  for (size_t i = 0; i < computeGrid.size(); ++i) {
-    // assert((flattenedGridShapes[i] == 1 ||
-    //         flattenedGridShapes[i] % computeGridVolume == 0) &&
-    //        "Output grid shape must be divisible by compute grid shape");
-    if (flattenedGridShapes[i] != 1) {
-      flattenedGridShapes[i] /= computeGridVolume;
-    }
+  // Divide out the flattened grid shapes by the virtual compute grid shape to
+  // get block factors for output grid dims
+  SmallVector<int64_t> virtualComputeGrid = getVirtualComputeGrid();
+
+  for (size_t i = 0; i < virtualComputeGrid.size(); ++i) {
+    TT_assertv(
+        flattenedGridShapes[i] % virtualComputeGrid[i] == 0,
+        "Output grid shape must be divisible by virtual compute grid shape");
+    flattenedGridShapes[i] /= virtualComputeGrid[i];
   }
 
   return inverse.compose(flattenedGridShapes);
