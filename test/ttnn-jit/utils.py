@@ -70,3 +70,22 @@ def _create_dram_tensor(device, h, w, dtype):
         device=device,
         memory_config=memory_config,
     )
+
+
+def _all_close_check(interop_result, golden_result, atol=1e-1, rtol=1e-1):
+    print("--------------------------------")
+    print("Interop result:")
+    print(interop_result)
+    print("--------------------------------")
+    print("Golden result:")
+    print(golden_result)
+    print("--------------------------------")
+
+    all_close = torch.allclose(
+        interop_result.cpu().to_torch(),
+        golden_result.cpu().to_torch(),
+        atol=atol,
+        rtol=rtol,
+    )
+    print("all_close", all_close)
+    assert all_close
