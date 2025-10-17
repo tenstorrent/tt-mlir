@@ -7,6 +7,7 @@ from . import runner, utils, mlir
 import dataclasses
 import logging
 import os
+import glob
 from ttmlir import optimizer_overrides
 
 OVERRIDE_PARAMETER_DISABLED_STR = "None"
@@ -19,7 +20,6 @@ OPTIMIZATION_POLICIES = {
     # "Greedy L1 Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.GreedyL1Interleaved,
     # "BF Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved,
 }
-
 
 # TODO(ctr-mcampos): update path to be configurable
 IR_DUMPS_DIR = 'ir_dumps'
@@ -159,12 +159,13 @@ class TTAdapter(model_explorer.Adapter):
         if not os.path.exists(IR_DUMPS_DIR) or not os.path.isdir(IR_DUMPS_DIR):
             return utils.to_adapter_format({"graphPaths": []})
 
+        ir_paths = glob.glob(os.path.join(IR_DUMPS_DIR, "**/*.mlir")) + glob.glob(os.path.join(IR_DUMPS_DIR, "**/*.ttir")) + glob.glob(os.path.join(IR_DUMPS_DIR, "**/*.ttnn"))
         graph_paths = []
-        for file in os.listdir(IR_DUMPS_DIR):
-            file_path = os.path.join(IR_DUMPS_DIR, file)
+        for path in ir_paths:
+            full_path = os.path.abspath(path)
 
-            if file.endswith('.mlir') and os.path.isfile(file_path) and os.access(file_path, os.R_OK):
-                graph_paths.append(os.path.abspath(file_path))
+            if os.path.isdir(full_path) and os.access(full_path, os.R_OK) and full_path not in graph_paths:
+                graph_paths.append(full_path)
 
         return utils.to_adapter_format({"graphPaths": graph_paths})
 
