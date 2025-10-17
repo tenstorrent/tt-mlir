@@ -248,6 +248,8 @@ void createTTNNBackendToEmitPyPipeline(
 
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
+  // TODO: Add pass that moves system desc to opendevice and closedevice ops
+
   // Apply EmitPy-specific workarounds before conversion
   pm.addPass(createTTNNEmitPyWorkarounds());
 
