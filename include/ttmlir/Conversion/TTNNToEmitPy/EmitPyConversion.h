@@ -1295,6 +1295,28 @@ struct EmitPyTypeConverter<::ttnn::operations::unary::UnaryWithParam> {
 };
 
 template <>
+struct EmitPyTypeConverter<mlir::tt::ttnn::MeshShapeAttr> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto meshShapeAttr =
+            mlir::dyn_cast_if_present<mlir::tt::ttnn::MeshShapeAttr>(attr)) {
+      return convert(meshShapeAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::tt::ttnn::MeshShapeAttr meshShapeAttr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << "(";
+    rso << EmitPyTypeConverter<int64_t>::convert(meshShapeAttr.getY());
+    rso << ", ";
+    rso << EmitPyTypeConverter<int64_t>::convert(meshShapeAttr.getX());
+    rso << ")";
+    return buf;
+  }
+};
+
+template <>
 struct EmitPyTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
     if (auto conv2dConfigAttr =
