@@ -125,7 +125,7 @@ jobs:
           else
             comp=(${{ steps.components.outputs.modified_keys }})
             if [ ${#comp[@]} -gt 0 ]; then
-              echo "Including only modified components '${{ steps.components.outputs.modified_keys }}' in build matrix"
+              echo "Including modified components '${{ steps.components.outputs.modified_keys }}' in build matrix"
               # Create a temporary file with the components as a JSON array
               printf '%s\n' "${comp[@]}" | jq -R . | jq -s . > _components_array.json
 
