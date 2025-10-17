@@ -5,6 +5,7 @@
 #include "jit_cache.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
+#include "ttmlir/Bindings/Python/Utils.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttnn/tensor/tensor.hpp"
 
@@ -21,17 +22,6 @@ namespace nb = nanobind;
 namespace py = pybind11;
 
 namespace mlir::tt::ttnn::jit {
-static nb::capsule wrapInCapsule(std::shared_ptr<void> underlying) {
-  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
-  std::shared_ptr<void> *binary = static_cast<std::shared_ptr<void> *>(
-      std::malloc(sizeof(std::shared_ptr<void>)));
-  assert(binary);
-  *binary = underlying;
-  return nb::capsule(
-      static_cast<void *>(
-          binary), // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
-      +[](void *data) noexcept { std::free(data); });
-}
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 NB_MODULE(_ttnn_jit, m) {
@@ -76,7 +66,8 @@ NB_MODULE(_ttnn_jit, m) {
              }
 
              mlir::Operation *op = unwrap(mlirModuleGetOperation(module));
-             auto result = wrapInCapsule(self->get(op, tensor_args, options));
+             auto result = ttmlir::python::wrapInCapsule(
+                 self->get(op, tensor_args, options));
 
              mlirModuleDestroy(module);
              mlirContextDestroy(ctx);
