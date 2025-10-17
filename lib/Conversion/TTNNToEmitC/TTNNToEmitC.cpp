@@ -2276,8 +2276,9 @@ public:
         emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getIndexTensor()),
         emitter.emit(srcOp.getSourceTensor()),
-        emitter.emit(std::nullopt), // mem config
-        emitter.emit(std::nullopt)  // opt_reduction
+        emitter.emit(std::nullopt) |
+            emitter.getMemoryConfig(srcOp.getResult()), // mem config
+        emitter.emit(std::nullopt)                      // opt_reduction
     };
 
     emitter.replaceOp(*this, args);

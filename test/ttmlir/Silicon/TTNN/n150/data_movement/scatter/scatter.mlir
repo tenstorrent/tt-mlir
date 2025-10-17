@@ -53,3 +53,16 @@ func.func @scatter_simple_3(%arg0: tensor<71x32xbf16>, %arg1: tensor<71x4x2xi64>
   // CHECK: "ttnn.reshape"({{.*}}) <{shape = [71 : i32, 32 : i32]}>
   return %1 : tensor<71x32xbf16>
 }
+
+// Scatter with f32. For f32, there is a layout conversion before and after scatter due to tt-metal f32 scatter limitations.
+func.func @scatter_simple_4(%arg0: tensor<1000x32xf32>, %arg1: tensor<10x1xi64>, %arg2: tensor<10x32xf32>) -> tensor<1000x32xf32> {
+  %0 = ttir.empty() : tensor<1000x32xf32>
+  // CHECK-LABEL: func.func @scatter_simple_4
+  // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x32>}>
+  // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<row_major>}>
+  // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<row_major>}>
+  // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}> : (tensor<1000x32xf32, {{.*}}>, tensor<10x32xsi32, {{.*}}>, tensor<10x32xf32, {{.*}}>) -> tensor<1000x32xf32, {{.*}}>
+  // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<tile>}>
+  %1 = "ttir.scatter"(%arg0, %arg1, %arg2, %0) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0>, scatter_dims_to_operand_dims = array<i32: 0>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 1>}> : (tensor<1000x32xf32>, tensor<10x1xi64>, tensor<10x32xf32>, tensor<1000x32xf32>) -> tensor<1000x32xf32>
+  return %1 : tensor<1000x32xf32>
+}
