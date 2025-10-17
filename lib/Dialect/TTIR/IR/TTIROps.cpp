@@ -258,7 +258,7 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
   patterns.add(+[](mlir::tt::ttir::ClampScalarOp op,
                    mlir::PatternRewriter &rewriter) {
     auto producerOp = op.getInput().getDefiningOp<ClampScalarOp>();
-    if (!producerOp) {
+    if (!producerOp || !producerOp.getResult().hasOneUse()) {
       return mlir::failure();
     }
 
