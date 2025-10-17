@@ -35,6 +35,16 @@ public:
     auto convOp = components->first;
     auto bias = components->second;
 
+    //  If conv already has bias we need to add it to the new bias.
+    //  We can do it like this because we already checked that bias has valid
+    //  shape.
+    if (convOp.getBias()) {
+      bias = utils::createDPSOp<AddOp>(
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(bias.getLoc(), "_bias_add"),
+          mlir::cast<RankedTensorType>(bias.getType()), convOp.getBias(), bias);
+    }
+
     if (bias.getDefiningOp() &&
         !bias.getDefiningOp()->isBeforeInBlock(convOp)) {
 
@@ -66,7 +76,7 @@ private:
   std::optional<mlir::TypedValue<mlir::RankedTensorType>>
   isFusable(ConvOpType convOp,
             mlir::TypedValue<mlir::RankedTensorType> bias) const {
-    if (!convOp || convOp.getBias() || !convOp->hasOneUse()) {
+    if (!convOp || !convOp->hasOneUse()) {
       return std::nullopt;
     }
 
