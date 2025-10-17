@@ -55,6 +55,7 @@ table PrepareConv2dWeightsOp {
   input_dtype: tt.target.DataType;
   output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
   conv2d_slice_config: tt.target.ttnn.Conv2dSliceConfig;
 }
 
@@ -77,6 +78,7 @@ table PrepareConv2dBiasOp {
   input_dtype: tt.target.DataType;
   output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
   conv2d_slice_config: tt.target.ttnn.Conv2dSliceConfig;
 }
 
@@ -121,5 +123,6 @@ table ConvTranspose2dOp {
   groups: uint32;
   output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
   memory_config: tt.target.ttnn.MemoryConfig;
 }
