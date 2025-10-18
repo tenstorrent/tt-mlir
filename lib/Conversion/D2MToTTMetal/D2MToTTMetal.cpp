@@ -63,8 +63,10 @@ public:
       case d2m::ThreadType::Compute: {
         bool fp32DestAccum = false;
         for (size_t i = 0; i < operands.size(); ++i) {
-          auto elemType = ttcore::getOperandInnerElementType(operands[i]);
-          if (elemType.getIntOrFloatBitWidth() == 32) {
+          ttcore::DataType dataType = ttcore::elementTypeToDataType(
+              ttcore::getOperandInnerElementType(operands[i]));
+
+          if (getNumberOfBits(dataType) == 32) {
             fp32DestAccum = true;
           }
         }
