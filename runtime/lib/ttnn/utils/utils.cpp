@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/debug_apis.h"
+#include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -470,7 +471,14 @@ createRuntimeDeviceFromTTNN(::ttnn::MeshDevice *meshDevice) {
   auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
       std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
 
-  return Device(unsafeMeshDeviceSharedPtr, traceCache, DeviceRuntime::TTNN);
+  auto ttnnProgramDescCache =
+      std::make_shared<::tt::runtime::ttnn::ProgramDescCache>();
+  auto programDescCache = std::make_shared<::tt::runtime::ProgramDescCache>(
+      std::static_pointer_cast<void>(ttnnProgramDescCache),
+      DeviceRuntime::TTNN);
+
+  return Device(unsafeMeshDeviceSharedPtr, traceCache, programDescCache,
+                DeviceRuntime::TTNN);
 }
 
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor) {
