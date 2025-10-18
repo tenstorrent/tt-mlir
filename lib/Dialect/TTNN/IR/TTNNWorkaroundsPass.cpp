@@ -397,15 +397,6 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
     return mlir::tt::ttcore::DataType::Int32;
   }
 
-  // Left shift and right shift ops have same requirements but they are not
-  // implemented for TTNN dialect currently.
-  if (isa<ttnn::BitwiseAndOp, ttnn::BitwiseOrOp, ttnn::BitwiseXorOp>(op)) {
-    if (dType == mlir::tt::ttcore::DataType::Int32) {
-      return {};
-    }
-    return mlir::tt::ttcore::DataType::Int32;
-  }
-
   // All remaining binary ops.
   // Tracked in :
   // https://github.com/issues/created?issue=tenstorrent%7Ctt-metal%7C25112

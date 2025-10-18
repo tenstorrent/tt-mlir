@@ -202,6 +202,10 @@ class Builder:
                 return DataType.BFloat16
             case torch.uint8:
                 return DataType.UInt8
+            case torch.uint16:
+                return DataType.UInt16
+            case torch.uint32:
+                return DataType.UInt32
             case torch.int32 | torch.qint32:
                 return DataType.Int32
             case torch.float32 | None:
