@@ -238,22 +238,29 @@ public:
 } // namespace
 
 namespace {
-class D2MMeshShardRewriter : public OpConversionPattern<ttir::MeshShardOp> {
+class D2MMeshShardRewriter : public OpConversionPattern<d2m::MeshShardOp> {
 public:
-  using OpConversionPattern<ttir::MeshShardOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::MeshShardOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::MeshShardOp op, ttir::MeshShardOpAdaptor adaptor,
+  matchAndRewrite(d2m::MeshShardOp op, d2m::MeshShardOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Value input = adaptor.getInput();
-    Value result = op.getResult();
+
+    // Use the op's result type directly because bufferization has already
+    // determined the correct output shape. For shard_to_full operations, the
+    // result shape differs from the input (e.g., concatenating shards), while
+    // for full_to_shard it's the opposite. The bufferization pass correctly
+    // handles these transformations.
+    Type resultType = op.getResult().getType();
 
     rewriter.replaceOpWithNewOp<ttmetal::MeshShardOp>(
-        op, result.getType(), input, op.getShardType(), op.getShardDirection(),
+        op, resultType, input, op.getShardType(), op.getShardDirection(),
         op.getShardShape(), op.getShardDims());
     return success();
   };
 };
+
 } // namespace
 
 } // namespace mlir::tt::ttmetal
