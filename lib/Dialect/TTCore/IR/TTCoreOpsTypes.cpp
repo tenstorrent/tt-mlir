@@ -6,6 +6,7 @@
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
 #include "ttmlir/Utils.h"
@@ -803,7 +804,6 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
     assert(physicalShape.size() >= 2);
     assert(tileShape.size() == 2);
     assert(physicalShape[physicalShape.size() - 2] % tileShape[0] == 0);
-    physicalShape[physicalShape.size() - 2] /= tileShape[0];
     assert(physicalShape[physicalShape.size() - 1] % tileShape[1] == 0);
     physicalShape[physicalShape.size() - 1] /= tileShape[1];
   }
@@ -1381,6 +1381,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
   if (view) {
     affineMap = affineMap.compose(*view);
   }
+  affineMap = ttcore::collapseGridWithShardOffsetTo2D(affineMap);
 
   if (mlir::isa<ShardLayoutAttr>(memrefType.getLayout())) {
 
@@ -1421,7 +1422,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
                    : interleavedLayout.getStride().front();
 
     // interleaved layout for DRAM is constrained to have unit grid dims,
-    // similar to TTNNLayoutAttr convention
+    // similar to TTNNLayoutAttr convention.
     assert(ttmlir::utils::volume(interleavedLayout.getGridShape(memrefType)) ==
                1 &&
            "All dims in grid shape for DRAM interleaved memref must be 1 (i.e. "

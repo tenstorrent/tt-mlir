@@ -1840,7 +1840,7 @@ def test_permute(shapes: List[Shape], permutation: List[int], request, device):
     ):
         return permute(in0, builder, permutation, unit_attrs)
 
-    # Set the name for better test identification
+    # Set the name for better test identification.
     permute_wrapper.__name__ = "permute"
 
     compile_and_execute_ttir(
