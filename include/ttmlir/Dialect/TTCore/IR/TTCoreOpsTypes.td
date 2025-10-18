@@ -412,41 +412,39 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
   let extraClassDeclaration = [{
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout);
 
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals);
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals,
                                      ArrayRef<int64_t> dimAlignments
                                      );
 
-    // Convenience getter: same as the 5-arg variant but attaches an explicit
-    // index_map to the resulting attribute.
     static MetalLayoutAttr get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,
-                                     ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
+                                     DenseIntElementsAttr collapseIntervals,
+                                     ArrayRef<int64_t> dimAlignments,
                                      mlir::AffineMap indexAffineMap
                                      );
 
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
 
-    static llvm::SmallVector<int64_t> computeAlignments(ArrayRef<int64_t> logicalShape,
-                                   ArrayRef<int64_t> deviceGridShape,
+    static llvm::SmallVector<int64_t> computeTileAlignments(ArrayRef<int64_t> logicalShape,
                                    ArrayRef<int64_t> normIntervals);
+
+    static llvm::SmallVector<int64_t> normalizeAndFlattenIntervals(DenseIntElementsAttr inputIntervals,
+                                   size_t inputRank);
 
     llvm::SmallVector<int64_t> getDeviceShape(ArrayRef<int64_t> gridShape, ArrayRef<int64_t> tileShape) const;
 

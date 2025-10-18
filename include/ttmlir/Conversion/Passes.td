@@ -117,8 +117,6 @@ def TTIRToD2M: Pass<"ttir-to-d2m", "::mlir::ModuleOp"> {
             clEnumValN(ttcore::MemorySpace::DeviceL1, "l1", "L1"),
             clEnumValN(ttcore::MemorySpace::DeviceDRAM, "dram", "DRAM")
           )}]>,
-      ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
-          "Override the device shape.">,
       Option<"collapseTensorsTo2D", "collapse-tensors-2d", "bool", /*default=*/"true", "Default collapse all tensors to 2D">,
       Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable translation of TTNN Tensors">,
   ];

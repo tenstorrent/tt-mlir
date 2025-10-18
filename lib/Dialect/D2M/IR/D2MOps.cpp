@@ -89,52 +89,6 @@ mlir::tt::ttcore::DeviceAttr d2m::GenericOp::getDevice() {
   return ttcore::lookupDevice(*this);
 }
 
-namespace {
-static mlir::tt::ttcore::MetalLayoutAttr
-createDefaultLayout(mlir::MLIRContext *ctx,
-                    mlir::ArrayRef<int64_t> workerGridShape,
-                    mlir::RankedTensorType tensorType) {
-  llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
-
-  // TODO (#4820): Remove this during cleanup.
-  SmallVector<int64_t> squareGridShape =
-      d2m::utils::getSquareTargetGrid(workerGridShape);
-
-  return mlir::tt::ttcore::MetalLayoutAttr::get(
-      ctx, logicalShape, squareGridShape, mlir::tt::ttcore::OOBVal::Undef,
-      mlir::tt::ttcore::MemorySpace::System,
-      mlir::tt::ttcore::TensorMemoryLayout::Sharded);
-}
-} // namespace
-
-mlir::tt::ttcore::MetalLayoutAttr d2m::ToLayoutOp::getOrCreateInputLayout() {
-  auto tensorType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
-  auto inputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-      tensorType.getEncoding());
-  if (inputLayout) {
-    return inputLayout;
-  }
-
-  ArrayRef<int64_t> workerGridShape =
-      ttcore::lookupDevice(*this).getWorkerGrid().getShape();
-
-  return createDefaultLayout(getContext(), workerGridShape, tensorType);
-}
-
-mlir::tt::ttcore::MetalLayoutAttr d2m::ToLayoutOp::getOrCreateOutputLayout() {
-  auto tensorType = mlir::cast<mlir::RankedTensorType>(getOutput().getType());
-  auto outputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-      tensorType.getEncoding());
-  if (outputLayout) {
-    return outputLayout;
-  }
-
-  ArrayRef<int64_t> workerGridShape =
-      ttcore::lookupDevice(*this).getWorkerGrid().getShape();
-
-  return createDefaultLayout(getContext(), workerGridShape, tensorType);
-}
-
 //===----------------------------------------------------------------------===//
 // EmptyOp Bufferization Interface Implementation
 //===----------------------------------------------------------------------===//

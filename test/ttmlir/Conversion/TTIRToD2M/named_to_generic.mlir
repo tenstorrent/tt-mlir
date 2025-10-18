@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 !ttype = tensor<128x96xf32>
