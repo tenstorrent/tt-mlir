@@ -8,7 +8,7 @@ import ttrt
 import ttrt.runtime
 import json
 from ttrt.common.util import *
-from ..utils import (
+from ...utils import (
     TT_MLIR_HOME,
     DeviceContext,
     ProgramTestConfig,
