@@ -167,6 +167,380 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def div(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``stablehlo.divide``.
+
+        *Elementwise division operation.*
+
+        Performs elementwise division between two tensors.
+        For each pair of corresponding elements, divides the element in the first
+        tensor by the element in the second tensor.
+
+        Mathematical definition: div(x, y) = x / y
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (dividend)
+        in1 : Operand
+            Second input tensor (divisor)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise division of the inputs
+        """
+        return self._eltwise_proxy(
+            stablehlo.DivOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def max(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``stablehlo.maximum``.
+
+        *Elementwise maximum operation.*
+
+        Performs elementwise maximum between two tensors.
+        For each pair of corresponding elements, returns the maximum of the two elements.
+
+        Mathematical definition: max(x, y) = max(x, y)
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise maximum of the inputs
+        """
+        return self._eltwise_proxy(
+            stablehlo.MaxOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def min(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``stablehlo.minimum``.
+
+        *Elementwise minimum operation.*
+
+        Performs elementwise minimum between two tensors.
+        For each pair of corresponding elements, returns the minimum of the two elements.
+
+        Mathematical definition: min(x, y) = min(x, y)
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise minimum of the inputs
+        """
+        return self._eltwise_proxy(
+            stablehlo.MinOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def multiply(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``stablehlo.multiply``.
+
+        *Elementwise multiplication operation.*
+
+        Performs elementwise multiplication between two tensors.
+        For each pair of corresponding elements, multiplies the element in the first
+        tensor by the element in the second tensor.
+
+        Mathematical definition: multiply(x, y) = x * y
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise product of the inputs
+        """
+        return self._eltwise_proxy(
+            stablehlo.MulOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def subtract(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``stablehlo.subtract``.
+
+        *Elementwise subtraction operation.*
+
+        Performs elementwise subtraction between two tensors.
+        For each pair of corresponding elements, subtracts the element in the second
+        tensor from the element in the first tensor.
+
+        Mathematical definition: subtract(x, y) = x - y
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise difference of the inputs
+        """
+        return self._eltwise_proxy(
+            stablehlo.SubtractOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def remainder(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``stablehlo.remainder``.
+
+        *Elementwise remainder operation.*
+
+        Performs elementwise remainder between two tensors.
+        For each pair of corresponding elements, computes the remainder of the division
+        of the first element by the second element.
+
+        Mathematical definition: remainder(x, y) = x % y
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (dividend)
+        in1 : Operand
+            Second input tensor (divisor)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise remainder of the inputs
+        """
+        return self._eltwise_proxy(
+            stablehlo.RemOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def pow(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``stablehlo.power``.
+
+        *Elementwise power operation.*
+
+        Performs elementwise power between two tensors.
+        For each pair of corresponding elements, raises the element in the first
+        tensor to the power of the element in the second tensor.
+
+        Mathematical definition: pow(x, y) = x^y
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (base)
+        in1 : Operand
+            Second input tensor (exponent)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise power of the inputs
+        """
+        return self._eltwise_proxy(
+            stablehlo.PowOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def atan2(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``stablehlo.atan2``.
+
+        *Elementwise arctangent2 operation.*
+
+        Performs elementwise arctangent2 between two tensors.
+        For each pair of corresponding elements, computes the arctangent of y/x
+        in radians, where y is the first tensor and x is the second tensor.
+
+        Mathematical definition: atan2(y, x) = arctan(y/x)
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (y coordinates)
+        in1 : Operand
+            Second input tensor (x coordinates)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise atan2 of the inputs
+        """
+        return self._eltwise_proxy(
+            stablehlo.Atan2Op,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def shift_right_logical(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``stablehlo.shift_right_logical``.
+
+        *Elementwise logical right shift operation.*
+
+        Performs elementwise logical right shift between two tensors.
+        For each pair of corresponding elements, shifts the bits of the first
+        element to the right by the number of positions specified by the second element.
+
+        Mathematical definition: shift_right_logical(x, y) = x >> y
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (value to shift)
+        in1 : Operand
+            Second input tensor (shift amount)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise logical right shift of the inputs
+        """
+        return self._eltwise_proxy(
+            stablehlo.ShiftRightLogicalOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def shift_left(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``stablehlo.shift_left``.
+
+        *Elementwise left shift operation.*
+
+        Performs elementwise left shift between two tensors.
+        For each pair of corresponding elements, shifts the bits of the first
+        element to the left by the number of positions specified by the second element.
+
+        Mathematical definition: shift_left(x, y) = x << y
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (value to shift)
+        in1 : Operand
+            Second input tensor (shift amount)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise left shift of the inputs
+        """
+        return self._eltwise_proxy(
+            stablehlo.ShiftLeftOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def select(
+        self, condition: Operand, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``stablehlo.select``.
+
+        *Elementwise select operation.*
+
+        Performs elementwise selection between two tensors based on a condition.
+        For each element, selects the corresponding element from the first tensor
+        if the condition is true, otherwise selects from the second tensor.
+
+        Mathematical definition: select(cond, x, y) = cond ? x : y
+
+        Parameters
+        ----------
+        condition : Operand
+            Boolean condition tensor
+        in0 : Operand
+            First input tensor (selected when condition is true)
+        in1 : Operand
+            Second input tensor (selected when condition is false)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise selection based on the condition
+        """
+        return self._eltwise_proxy(
+            stablehlo.SelectOp,
+            [condition, in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
     # ----- Elementwise Unary Operations -----
 
     def abs(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
