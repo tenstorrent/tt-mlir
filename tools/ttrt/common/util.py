@@ -83,7 +83,7 @@ def mask_torch_inf_nan(tensor):
     return tensor
 
 
-def get_atol_rtol_pcc(golden, calculated, logging):
+def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging):
     import numpy as np
     import torch
 
@@ -124,7 +124,7 @@ def get_atol_rtol_pcc(golden, calculated, logging):
 
             # Single element case
             if golden.numel() == 1:
-                return float(torch.equal(golden, calculated))
+                return float(torch.isclose(golden, calculated, atol=atol, rtol=rtol))
 
             # If both tensors are contant
             if torch.max(golden) == torch.min(golden) and torch.max(
