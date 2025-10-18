@@ -139,13 +139,36 @@ private:
 } // namespace
 
 namespace {
-class TosaToTTIRClampOpConversionPattern
-    : public OpConversionPattern<tosa::ClampOp> {
-  using OpConversionPattern<tosa::ClampOp>::OpConversionPattern;
+class TosaToTTIRReshapeOpConversionPattern
+    : public OpConversionPattern<tosa::ReshapeOp> {
+  using OpConversionPattern<tosa::ReshapeOp>::OpConversionPattern;
+  using Adaptor = tosa::ReshapeOp::Adaptor;
 
 public:
   LogicalResult
-  matchAndRewrite(tosa::ClampOp srcOp, tosa::ClampOp::Adaptor adaptor,
+  matchAndRewrite(tosa::ReshapeOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    llvm::SmallVector<int32_t> newShape(outputType.getShape());
+    ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(newShape);
+    ttir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
+        rewriter, srcOp, outputType, adaptor.getInput1(), newShapeAttr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TosaToTTIRClampOpConversionPattern
+    : public OpConversionPattern<tosa::ClampOp> {
+  using OpConversionPattern<tosa::ClampOp>::OpConversionPattern;
+  using Adaptor = tosa::ClampOp::Adaptor;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ClampOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
@@ -307,6 +330,24 @@ public:
 };
 } // namespace
 
+namespace {
+class TosaToTTIRConstShapeOpConversionPattern
+    : public OpConversionPattern<tosa::ConstShapeOp> {
+  using OpConversionPattern<tosa::ConstShapeOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ConstShapeOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.use_empty()) {
+      rewriter.eraseOp(srcOp);
+      return success();
+    }
+    return failure();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -338,6 +379,7 @@ addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::SinOp,
                                                        mlir::tt::ttir::SinOp>>(
       typeConverter, ctx);
+  patterns.add<TosaToTTIRClampOpConversionPattern>(typeConverter, ctx);
 }
 
 static void
@@ -402,6 +444,12 @@ static void addCompareOpsConversionPatterns(MLIRContext *ctx,
       tosa::GreaterOp, mlir::tt::ttir::GreaterThanOp>>(typeConverter, ctx);
 }
 
+void addShapeOpsConversionPatterns(MLIRContext *ctx,
+                                   RewritePatternSet &patterns,
+                                   TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRReshapeOpConversionPattern>(typeConverter, ctx);
+}
+
 static void addMatmulOpsConversionPatterns(MLIRContext *ctx,
                                            RewritePatternSet &patterns,
                                            TypeConverter &typeConverter) {
@@ -438,10 +486,11 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
   addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
   addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
+  addShapeOpsConversionPatterns(ctx, patterns, typeConverter);
 
-  patterns.add<TosaToTTIRClampOpConversionPattern,
-               TosaToTTIRConcatOpConversionPattern,
-               TosaToTTIRConstantOpConversionPattern>(typeConverter, ctx);
+  patterns.add<TosaToTTIRConcatOpConversionPattern,
+               TosaToTTIRConstantOpConversionPattern,
+               TosaToTTIRConstShapeOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
