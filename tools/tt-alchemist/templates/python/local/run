@@ -24,7 +24,11 @@ if [[ -z "${VIRTUAL_ENV}" ]]; then
     exit 1
 fi
 
-export PYTHONPATH="${PYTHONPATH}:${TT_METAL_HOME}/ttnn"
+# If ttnn module is not in PYTHONPATH, add it
+if [[ ":$PYTHONPATH:" != *":${TT_METAL_HOME}/ttnn:"* ]]; then
+    # This covers the corner case where PYTHONPATH is not set, avoids leading colon
+    export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}${TT_METAL_HOME}/ttnn"
+fi
 
 # Run main.py
 echo "Running main.py..."
