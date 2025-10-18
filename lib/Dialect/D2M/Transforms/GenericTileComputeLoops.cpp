@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
+#include "ttmlir/Dialect/D2M/Analysis/DestRegisterAnalysis.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -112,43 +112,63 @@ static SmallVector<int64_t> calculateOptimalSubblockSizes(
 namespace {
 struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
   D2MGenericComputeRewriter(MLIRContext *context,
-                            unsigned maxDstPhysicalSizeTiles)
+                            unsigned maxDstPhysicalSizeTiles,
+                            const DestRegisterAnalysis *analysis)
       : OpRewritePattern<linalg::GenericOp>(context),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {}
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles), analysis(analysis) {}
 
   LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    // Current limitation: we only check the output's shape during DST
-    // subblocking optimization, ignoring other operands that might reside in
-    // the DST and so could lead to overflows.
-    //
-    // Be conservative: disable loop subblocking if any of the compute op loads
-    // more than one DST operand, or isn't in-place w.r.t. DST operands.
-    bool optimizeSubblocking = true;
-    op.getRegion().walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
-      optimizeSubblocking = optimizeSubblocking && computeOp.getDstRegInPlace();
-      optimizeSubblocking =
-          optimizeSubblocking &&
-          (computeOp.getOperandsLoadFromDstRegister().size() == 1);
-      return optimizeSubblocking ? WalkResult::advance()
-                                 : WalkResult::interrupt();
-    });
-
     assert(op.getRegion().hasOneBlock());
     assert(op.getOutputs().size() == 1 &&
            "Only one output tensor is supported");
     auto outputTensor =
         mlir::cast<MemRefType>(op.getOutputs().front().getType());
 
+    // Calculate DST capacity to determine if we can optimize subblocking.
+    Type largestDstType = utils::getRegionLargestDstElemType(op.getRegion());
+    const unsigned dstCapacity =
+        ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
+            largestDstType, false, maxDstPhysicalSizeTiles);
+
+    // Get max DST usage for this GenericOp from the analysis.
+    int maxDstUsage = analysis->getDstMaxUsage(op);
+
+    // Enable subblocking optimization if DST can hold multiple copies of the
+    // usage pattern. For example, if dstCapacity = 8 and maxDstUsage = 3, we
+    // can subblock by factor 2 (fitting 2 copies of 3 tiles = 6 tiles < 8).
+    bool optimizeSubblocking = false;
+    int subblockFactor = 1;
+    if (maxDstUsage > 0 && dstCapacity / maxDstUsage > 1) {
+      optimizeSubblocking = true;
+      subblockFactor = dstCapacity / maxDstUsage;
+    }
+
     SmallVector<int64_t> subblockSizes(outputTensor.getShape().size(), 1);
-    if (optimizeSubblocking) {
-      Type largestDstType = utils::getRegionLargestDstElemType(op.getRegion());
-      const unsigned dstCapacity =
-          ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
-              largestDstType, false, maxDstPhysicalSizeTiles);
+    // Check if the first dimension is divisible by the subblock factor. If not,
+    // disable subblocking because we cannot create dynamic dimensions in affine
+    // loops (e.g., affine.min). Example output shape: [677, 1, 1] and subblock
+    // factor: 4 and shard shape is 85x1 tiles. 85 is not divisible by 4, so we
+    // would have dynamic dimension in the first loop which is not supported in
+    // affine loops. So we disable subblocking.
+    // Todo @dloke figure out how to get by this, do we set dst shape in
+    // analysis pass or does it have to be done in runtime, or do we pad.
+    if (optimizeSubblocking &&
+        outputTensor.getShape()[0] % subblockFactor == 0) {
+      // Calculate output subblock shape based on subblockFactor.
+      // First dimension is capped at the actual output shape.
+      int64_t dim0 = std::min(static_cast<int64_t>(subblockFactor),
+                              outputTensor.getShape()[0]);
+      // Remainder is distributed to the second dimension.
+      int64_t remainder = subblockFactor / dim0;
+      int64_t dim1 = std::min(remainder, outputTensor.getShape()[1]);
+
+      SmallVector<int64_t> outputBlockShape;
+      outputBlockShape.push_back(dim0);
+      outputBlockShape.push_back(dim1);
 
       subblockSizes = calculateOptimalSubblockSizes(
-          op.getIndexingMapsArray(), op.getInputs(), outputTensor.getShape(),
+          op.getIndexingMapsArray(), op.getInputs(), outputBlockShape,
           dstCapacity);
     }
 
@@ -170,6 +190,7 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
   }
 
   unsigned maxDstPhysicalSizeTiles = 0;
+  const DestRegisterAnalysis *analysis;
 };
 } // namespace
 
@@ -181,10 +202,14 @@ public:
       D2MGenericTileComputeLoops>::D2MGenericTileComputeLoopsBase;
 
   void runOnOperation() final {
+
+    // Run the analysis once before any pattern rewriting
+    DestRegisterAnalysis analysis(getOperation());
+
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<D2MGenericComputeRewriter>(ctx,
-                                            maxDstPhysicalSizeTiles.getValue());
+    patterns.add<D2MGenericComputeRewriter>(
+        ctx, maxDstPhysicalSizeTiles.getValue(), &analysis);
     walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };
