@@ -165,8 +165,8 @@ enum EltwiseUnaryOpType: uint32 {
   LeakyRelu,
   BitwiseNot,
   Relu6,
-  Silu
-}
+  Silu,
+  Hardsigmoid}
 
 union EltwiseUnaryOpParams {
   EltwiseOpWithFloatParams
@@ -249,6 +249,7 @@ enum UnaryOpType: uint32 {
   Acos,
   Rsqrt,
   Relu6,
+  Hardsigmoid,
   Atan,
   Erf,
   Erfc,

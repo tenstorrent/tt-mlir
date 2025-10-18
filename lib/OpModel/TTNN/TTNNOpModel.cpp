@@ -335,6 +335,8 @@ auto getOpSymbol() {
     return ::ttnn::relu;
   } else if constexpr (std::is_same_v<OpTy, Relu6Op>) {
     return ::ttnn::relu6;
+  } else if constexpr (std::is_same_v<OpTy, HardsigmoidOp>) {
+    return ::ttnn::hardsigmoid;
   } else if constexpr (std::is_same_v<OpTy, SqrtOp>) {
     return ::ttnn::sqrt;
   } else if constexpr (std::is_same_v<OpTy, SinOp>) {
@@ -912,6 +914,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
 // Explicit template instantiation for UnaryEltwiseOpModel.
 template struct UnaryEltwiseOpModel<ReluOp>;
 template struct UnaryEltwiseOpModel<Relu6Op>;
+template struct UnaryEltwiseOpModel<HardsigmoidOp>;
 template struct UnaryEltwiseOpModel<SqrtOp>;
 template struct UnaryEltwiseOpModel<SinOp>;
 template struct UnaryEltwiseOpModel<AbsOp>;

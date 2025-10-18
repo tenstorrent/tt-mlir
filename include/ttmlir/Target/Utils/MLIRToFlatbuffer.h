@@ -591,6 +591,7 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
       {MlirUnaryOpType::Acos, FbUnaryOpType::Acos},
       {MlirUnaryOpType::Rsqrt, FbUnaryOpType::Rsqrt},
       {MlirUnaryOpType::Relu6, FbUnaryOpType::Relu6},
+      {MlirUnaryOpType::Hardsigmoid, FbUnaryOpType::Hardsigmoid},
       {MlirUnaryOpType::Atan, FbUnaryOpType::Atan},
       {MlirUnaryOpType::Erf, FbUnaryOpType::Erf},
       {MlirUnaryOpType::Erfc, FbUnaryOpType::Erfc},
