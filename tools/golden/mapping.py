@@ -2975,6 +2975,17 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- STABLEHLO OPS -----
     # StableHLO elementwise operations
     stablehlo.AddOp: torch.add,
+    stablehlo.DivOp: torch.div,
+    stablehlo.MaxOp: torch.maximum,
+    stablehlo.MinOp: torch.minimum,
+    stablehlo.MulOp: torch.multiply,
+    stablehlo.SubtractOp: torch.subtract,
+    stablehlo.RemOp: torch.remainder,
+    stablehlo.PowOp: torch.pow,
+    stablehlo.Atan2Op: torch.atan2,
+    stablehlo.ShiftRightLogicalOp: lambda x, y: x >> y,
+    stablehlo.ShiftLeftOp: lambda x, y: x << y,
+    stablehlo.SelectOp: torch.where,
     stablehlo.AbsOp: torch.abs,
     stablehlo.CeilOp: torch.ceil,
     stablehlo.CosineOp: torch.cos,
