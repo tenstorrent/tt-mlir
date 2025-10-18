@@ -1115,6 +1115,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ConcatOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::ScatterOp: {
+    tensorRef = opContext.type_as_ScatterOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::PermuteOp: {
     tensorRef = opContext.type_as_PermuteOp()->out();
     break;
@@ -1414,6 +1418,12 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::ConcatOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_ConcatOp()->inputs());
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ScatterOp: {
+    tensorRefs = {opContext.type_as_ScatterOp()->input(),
+                  opContext.type_as_ScatterOp()->index(),
+                  opContext.type_as_ScatterOp()->source()};
     break;
   }
   case ::tt::target::ttnn::OpType::PermuteOp: {
