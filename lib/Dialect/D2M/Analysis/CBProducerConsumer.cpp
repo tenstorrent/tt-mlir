@@ -9,8 +9,8 @@ namespace mlir::tt::d2m {
 
 CBProducerConsumer::CBProducerConsumer(Operation *op) {
   op->walk([&](Operation *op) {
-    bool isProducer = mlir::isa<d2m::YieldOp>(op);
-    bool isConsumer = mlir::isa<d2m::AwaitOp>(op);
+    bool isProducer = mlir::isa<d2m::ReserveOp>(op);
+    bool isConsumer = mlir::isa<d2m::PopOp>(op);
     if (!isConsumer && !isProducer) {
       return;
     }

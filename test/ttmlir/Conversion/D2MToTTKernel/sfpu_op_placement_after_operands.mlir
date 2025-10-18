@@ -5,7 +5,6 @@ func.func private @compute_kernel8(%arg0: memref<6x1x1x!ttcore.tile<32x32, f32>,
   %c0 = arith.constant 0 : index
   %c6 = arith.constant 6 : index
   %c2 = arith.constant 2 : index
-  d2m.await %arg0, %arg1 : (memref<6x1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>, memref<6x1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>)
   %collapse_shape = memref.collapse_shape %arg0 [[0, 1, 2]] : memref<6x1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>> into memref<6x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
   %collapse_shape_0 = memref.collapse_shape %arg1 [[0, 1, 2]] : memref<6x1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>> into memref<6x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
   %collapse_shape_1 = memref.collapse_shape %arg2 [[0, 1, 2]] : memref<6x1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>> into memref<6x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
@@ -25,7 +24,5 @@ func.func private @compute_kernel8(%arg0: memref<6x1x1x!ttcore.tile<32x32, f32>,
     %5 = memref.load %collapse_shape_2[%c2] : memref<8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<dst>>
     memref.store %5, %collapse_shape_1[%arg3] : memref<6x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
   }
-  d2m.yield %arg2 : (memref<6x1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>)
-  d2m.await %arg2 : (memref<6x1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>)
   return
 }
