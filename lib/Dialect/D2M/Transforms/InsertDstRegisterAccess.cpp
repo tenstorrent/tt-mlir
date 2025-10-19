@@ -53,60 +53,109 @@ public:
     }
   };
 
-  // Build an OpTreeNode binary tree from the outermostInnerComputeLoop
-  // operation.
+  // Build an OpTreeNode binary tree from affine loops by tracing back from
+  // the final affine.store in the innermost loop.
   static std::pair<std::unique_ptr<OpTreeNode>, SmallVector<OpTreeNode *>>
-  buildOpTree(linalg::GenericOp &linalgGenericOp) {
+  buildOpTree(Operation *outermostLoop) {
+    int dbgCnt = 0;
+
     SmallVector<OpTreeNode *> leafNodes;
 
-    // Get the linalg.yield operation.
-    linalg::YieldOp yieldOp = nullptr;
-    linalgGenericOp.walk([&](linalg::YieldOp op) {
-      if (!yieldOp) {
-        yieldOp = op;
-      }
-    });
-    
-    if (!yieldOp || yieldOp.getValues().empty()) {
+    llvm::errs() << "BOT " << dbgCnt++ << "\n";
+
+    if (!outermostLoop) {
       return {nullptr, leafNodes};
     }
 
-    // Get the operation that generates the yielded SSA value.
-    Value yieldedValue = yieldOp.getValues()[0];
-    Operation *rootOp = yieldedValue.getDefiningOp();
+    llvm::errs() << "BOT " << dbgCnt++ << "\n";
+
+    // Find the innermost affine.for loop using post-order traversal.
+    // Post-order visits children before parents, so the last loop is innermost.
+    affine::AffineForOp innermostLoop = nullptr;
+    outermostLoop->walk([&](affine::AffineForOp loop) {
+      llvm::errs() << "Found loop: " << loop << "\n";
+      innermostLoop = loop;
+      return WalkResult::interrupt();
+    });
+
+    llvm::errs() << "BOT " << dbgCnt++ << "\n";
+
+    if (!innermostLoop) {
+      return {nullptr, leafNodes};
+    }
+
+    llvm::errs() << "BOT " << dbgCnt++ << "\n";
+    llvm::errs() << *innermostLoop << "\n";
+
+    // Find the last affine.store in the innermost loop.
+    affine::AffineStoreOp finalStore = nullptr;
+    innermostLoop.getBody()->walk([&](affine::AffineStoreOp storeOp) {
+      finalStore = storeOp;
+      return WalkResult::interrupt();
+    });
+
+    llvm::errs() << "BOT " << dbgCnt++ << "\n";
+
+    if (!finalStore) {
+      return {nullptr, leafNodes};
+    }
+
+    llvm::errs() << "BOT " << dbgCnt++ << "\n";
+
+    // Get the operation that generates the stored SSA value.
+    Value storedValue = finalStore.getValue();
+    Operation *rootOp = storedValue.getDefiningOp();
     if (!rootOp) {
       return {nullptr, leafNodes};
     }
 
+    llvm::errs() << "BOT " << dbgCnt++ << "\n";
+
+    // Get the block containing the affine loop operations.
+    Block *affineBlock = innermostLoop.getBody();
+
+    llvm::errs() << "BOT " << dbgCnt++ << "\n";
+
     // Build the tree recursively starting from the root operation.
-    auto rootNode = buildOpTreeRecursive(rootOp, *linalgGenericOp.getBody(), leafNodes);
+    auto rootNode = buildOpTreeRecursive(rootOp, affineBlock, leafNodes);
     return {std::move(rootNode), leafNodes};
   }
 
   // Recursive helper to build the OpTreeNode from an operation.
+  // Works with affine loop blocks, treating affine.load operations as leaf nodes.
   static std::unique_ptr<OpTreeNode>
-  buildOpTreeRecursive(Operation *op, Block &linalgBlock,
+  buildOpTreeRecursive(Operation *op, Block *affineBlock,
                        SmallVector<OpTreeNode *> &leafNodes) {
+
+    int dbgCnt = 0;
     // Create the node for this operation.
     auto node = std::make_unique<OpTreeNode>(op);
 
+    llvm::errs() << "BOT RRR " << dbgCnt++ << "\n";
+
     // Process operands to build child nodes.
     SmallVector<std::unique_ptr<OpTreeNode>> children;
+
     for (Value operand : op->getOperands()) {
+      llvm::errs() << "BOT RRR " << dbgCnt++ << "\n";
       if (Operation *definingOp = operand.getDefiningOp()) {
-        // If operand is defined by an operation in the linalg block, recurse.
-        if (definingOp->getBlock() == &linalgBlock) {
-          children.push_back(
-              buildOpTreeRecursive(definingOp, linalgBlock, leafNodes));
+        llvm::errs() << "BOT RRR " << dbgCnt++ << "\n";
+        // If operand is an affine.load, treat it as a leaf node.
+        if (mlir::isa<affine::AffineLoadOp>(definingOp)) {
+          llvm::errs() << "BOT RRR " << dbgCnt++ << "\n";
+          auto leafNode = std::make_unique<OpTreeNode>(definingOp);
+          leafNodes.push_back(leafNode.get());
+          children.push_back(std::move(leafNode));
         }
-      } else {
-        // Operand is a block argument - create a leaf node for it.
-        auto blockArg = mlir::cast<BlockArgument>(operand);
-        auto leafNode = std::make_unique<OpTreeNode>(blockArg);
-        leafNodes.push_back(leafNode.get());
-        children.push_back(std::move(leafNode));
+        // If operand is defined by a compute operation in the affine block, recurse.
+        else if (definingOp->getBlock() == affineBlock) {
+          llvm::errs() << "BOT RRR " << dbgCnt++ << "\n";
+          children.push_back(
+              buildOpTreeRecursive(definingOp, affineBlock, leafNodes));
+        }
       }
     }
+    llvm::errs() << "BOT RRR " << dbgCnt++ << "\n";
 
     // Assign children based on operand count.
     if (children.size() == 1) {
@@ -171,6 +220,10 @@ public:
     if (node->isBlockArg) {
       // This is a block argument leaf node.
       llvm::errs() << indent << "├─ BlockArg #" << node->blockArg.getArgNumber();
+      llvm::errs() << " | Weight: " << node->weight << " [LEAF]";
+    } else if (node->op && mlir::isa<affine::AffineLoadOp>(node->op)) {
+      // This is an affine.load leaf node.
+      llvm::errs() << indent << "├─ Op: " << node->op->getName();
       llvm::errs() << " | Weight: " << node->weight << " [LEAF]";
     } else {
       // This is an operation node.
@@ -430,51 +483,68 @@ public:
           return;
         }
 
+        rewriter.setInsertionPoint(linalgGenericOp);
+        // Apply linalg to affine loops pass.
+        auto linalgLoops =
+            linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
+        if (failed(linalgLoops)) {
+          linalgToAffineFailed = true;
+          return;
+        }
+        rewriter.eraseOp(linalgGenericOp);
+
+
         // if all parallel --> no reductions --> eltwise only
         bool isEltwiseOnly = op.isAllParallel();
         // doesn't contain skippable eltwise ops (i.e. went through eltwise fusion)
         bool noSkip = !op.hasSkipOpEltwiseFusionTrait();
 
+        int dbgCnt = 0;
+
+        llvm::errs() << dbgCnt++ << "\n";
+
         if (isEltwiseOnly && noSkip) {
           // NEW: Try tree-based approach with Sethi-Ullman register allocation.
-          auto [opTreeRoot, leafNodes] = buildOpTree(linalgGenericOp);
+          // Now working with affine loops instead of linalg.generic.
+          Operation *outermostLoop = !linalgLoops.value().empty() 
+                                      ? linalgLoops.value().front() 
+                                      : nullptr;
 
-          assert(opTreeRoot && "buildOpTree() returned empty opTreeRoot");
-
-          // Mark node weights using Sethi-Ullman algorithm.
-          markNodeWeights(opTreeRoot.get());
-
-          llvm::errs() << "\n=== Operation Tree (Sethi-Ullman) ===\n";
-          printOpTree(opTreeRoot.get());
-          llvm::errs() << "=====================================\n\n";
-
-          // Generate code for the expression tree.
-          // generateCodeForTree(rewriter, loc, opTreeRoot.get(),
-          //                    outermostInnerComputeLoop);
-
-          // TODO(mbagherbeik): This is currently a placeholder implementation.
-          // The code generation needs to be completed with proper DST management,
-          // operand loading, and operation cloning. For now, we fall back to the
-          // original approach. Issue: #TBD
-          // return true;
           
-        }
-        // original allocator
-        else {
-          rewriter.setInsertionPoint(linalgGenericOp);
-          // Apply linalg to affine loops pass.
-          auto linalgLoops =
-              linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
-          if (failed(linalgLoops)) {
-            linalgToAffineFailed = true;
-            return;
+          llvm::errs() << dbgCnt++ << "\n";
+
+          
+          if (outermostLoop) {
+            llvm::errs() << dbgCnt++ << "\n";
+            auto [opTreeRoot, leafNodes] = buildOpTree(outermostLoop);
+            llvm::errs() << dbgCnt++ << "\n";
+            if (opTreeRoot) {
+              llvm::errs() << dbgCnt++ << "\n";
+              // Mark node weights using Sethi-Ullman algorithm.
+              markNodeWeights(opTreeRoot.get());
+
+              llvm::errs() << "\n=== Operation Tree (Sethi-Ullman) ===\n";
+              printOpTree(opTreeRoot.get());
+              llvm::errs() << "=====================================\n\n";
+
+              // Generate code for the expression tree.
+              // generateCodeForTree(rewriter, loc, opTreeRoot.get(),
+              //                    outermostInnerComputeLoop);
+
+              // TODO(mbagherbeik): This is currently a placeholder implementation.
+              // The code generation needs to be completed with proper DST management,
+              // operand loading, and operation cloning. For now, we fall back to the
+              // original approach. Issue: #TBD
+              // return true;
+            }
           }
-          rewriter.eraseOp(linalgGenericOp);
-          modified |= insertDstRegisterAccess(rewriter, op, region, dstCapacity,
-                                              !linalgLoops.value().empty()
-                                                  ? linalgLoops.value().front()
-                                                  : nullptr);
         }
+
+        // original allocator
+        // modified |= insertDstRegisterAccess(rewriter, op, region, dstCapacity,
+        //                                     !linalgLoops.value().empty()
+        //                                         ? linalgLoops.value().front()
+        //                                         : nullptr);
       });
       if (linalgToAffineFailed) {
         return failure();
@@ -786,13 +856,27 @@ public:
       dataCopyGenerate<affine::AffineLoadOp>(
           rewriter, loopNestOrOp, copyInfo.loads,
           // Load/store dst access generation.
-          [&](PatternRewriter &rewriter, Location loc, Value cb,
-              AffineMap l1AccessMap, ValueRange l1AccessIndices,
-              AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-            auto l1Load = rewriter.create<affine::AffineLoadOp>(
-                loc, cb, l1AccessMap, l1AccessIndices);
-            rewriter.create<affine::AffineStoreOp>(
-                loc, l1Load.getResult(), dst, dstAccessMap, dstAccessIndices);
+          [&](
+            PatternRewriter &rewriter,
+            Location loc,
+            Value cb,
+            AffineMap l1AccessMap,
+            ValueRange l1AccessIndices,
+            AffineMap dstAccessMap, 
+            ValueRange dstAccessIndices) {
+              auto l1Load = rewriter.create<affine::AffineLoadOp>(
+                loc, 
+                cb, 
+                l1AccessMap, 
+                l1AccessIndices
+              );
+              rewriter.create<affine::AffineStoreOp>(
+                loc, 
+                l1Load.getResult(), 
+                dst, 
+                dstAccessMap, 
+                dstAccessIndices
+              );
           },
           // Replacement of the original load with one from dst.
           [&](PatternRewriter &rewriter, affine::AffineLoadOp op,
