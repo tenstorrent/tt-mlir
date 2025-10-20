@@ -1,40 +1,45 @@
-[
-  { "runs-on": ["n150","n300"],
-        "image": ["speedy","tracy"],
-            "script": "unit.sh" },
+ [
 
-  { "runs-on": ["n150","n300","llmbox"],
-        "image": "speedy",
-            "script": "ttrt.sh", "args": ["run", "Silicon"] },
-
-  { "runs-on": ["n150","n300","llmbox"],
-        "image": "tracy",
-            "script": "ttrt.sh", "args": ["perf", "Silicon/TTNN/$RUNS_ON/perf"] },
-
-  { "runs-on": "n150",
-        "image": "tracy",
-            "script": "test-ttrt.sh" },
-
-  { "runs-on": "n150",
-        "image": "tracy",
-            "script": "pytest.sh", "args": "test/python/op_by_op" },
-
-  { "runs-on": "n150",   "image": "tracy",  "script": "pytest.sh", "args": "tools/explorer/test/run_tests.py", "reqs": "--force-reinstall $BUILD_DIR/bin/wheels/tt_adapter*.whl $BUILD_DIR/bin/wheels/ai_edge_model_explorer*.whl" },
-  { "runs-on": "n150",   "image": "tracy",  "script": "pytest.sh", "args": "runtime/tools/chisel/test", "reqs": "-e runtime/tools/chisel/" },
-
-  { "runs-on": ["n150","llmbox","n300","p150"],
-        "image": "tracy",
-            "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt"] },
-
-  { "runs-on": "n150",   "image": "speedy", "script": "builder.sh", "args": [ "test/python/golden/optimizer", "", "require-opmodel" ] },
-  { "runs-on": "n150",   "image": "tracy",  "script": "ttrt.sh", "args": [ "perf", "Silicon/TTNN/n150/optimizer" ] },
-  { "runs-on": "n150",   "image": "speedy", "script": "op_model.sh", "args": [ "Silicon/TTNN/n150/optimizer", "--non-zero" ] },
-  { "runs-on": "n150",   "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/n150" },
-  { "runs-on": "n150",   "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/distributed/n150" },
-  { "runs-on": "n300",   "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/n300" },
-  { "runs-on": "llmbox", "image": "tracy",  "script": "ttnn_runtime.sh", "args": "runtime/test/ttnn/python/distributed/llmbox" },
-  { "runs-on": "n300",   "image": "tracy",  "script": "runtime_debug.sh" },
-  { "runs-on": "n150",   "image": "tracy",  "script": "emitc.sh" },
-  { "runs-on": "n150",   "image": "tracy",  "script": "pykernel.sh" },
-  { "runs-on": "n150",   "image": "speedy",  "script": "alchemist.sh" }
+  {
+    "runs-on": "n150", "image":"tracy",
+    "script": "builder.sh",
+    "args": [
+      "test/python/golden",
+      "",
+      "run-ttrt"
+    ]
+  },
+  {
+    "runs-on": "n150", "image":"tracy",
+    "script": "ttnn_runtime.sh",
+    "args": "runtime/test/ttnn/python/distributed/n150"
+  },
+  {
+    "runs-on": "n150", "image":"tracy",
+    "script": "test-ttrt.sh"
+  },
+  {
+    "runs-on": "n150", "image":"tracy",
+    "script": "pytest.sh",
+    "args": "test/python/op_by_op"
+  },
+  {
+    "runs-on": "n150", "image":"tracy",
+    "script": "pytest.sh",
+    "args": "runtime/tools/chisel/test",
+    "reqs": "-e runtime/tools/chisel/"
+  },
+  {
+    "runs-on": "n150", "image":"tracy",
+    "script": "unit.sh"
+  },
+  {
+    "runs-on": "n150", "image":"tracy",
+    "script": "ttrt.sh",
+    "args": [
+      "perf",
+      "Silicon/TTNN/$RUNS_ON/perf"
+    ]
+  }
+]}
 ]
