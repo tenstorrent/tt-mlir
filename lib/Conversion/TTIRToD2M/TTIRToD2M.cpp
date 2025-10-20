@@ -16,16 +16,13 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -324,7 +321,26 @@ private:
       std::is_same_v<TileOp, d2m::TileLtzOp> ||
       std::is_same_v<TileOp, d2m::TileLezOp>;
 
-private:
+  void createComputeRegion(mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                           mlir::ValueRange bbArgs,
+                           mlir::ConversionPatternRewriter &rewriter,
+                           mlir::Location loc, const size_t numInputs,
+                           const size_t numOutputs) const {
+    mlir::ValueRange operands = bbArgs.take_front(numInputs);
+    mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
+
+    mlir::Value yield;
+    if constexpr (isComparisonOp) {
+      // For comparison ops, first subtract then compare with zero.
+      yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
+      yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
+    } else {
+      yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
+    }
+
+    bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+  }
+
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -382,25 +398,8 @@ private:
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
-              mlir::Value yield;
-
-              if constexpr (isComparisonOp) {
-                // For comparison ops, first subtract then compare with zero.
-                mlir::Value subResult = bbBuilder.create<d2m::TileSubOp>(
-                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
-                    /*operands=*/bbArgs.take_front(numInputs));
-                yield = bbBuilder.create<TileOp>(
-                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
-                    /*operands=*/subResult);
-              } else {
-                // For regular elementwise ops, create TileOp directly.
-                yield = bbBuilder.create<TileOp>(
-                    loc,
-                    /* resultTypes */ bbArgs.take_back(numOutputs).getTypes(),
-                    /* operands */ bbArgs.take_front(numInputs));
-              }
-
-              bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+              createComputeRegion(bbBuilder, bbLoc, bbArgs, rewriter, loc,
+                                  numInputs, numOutputs);
             });
 
         rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
