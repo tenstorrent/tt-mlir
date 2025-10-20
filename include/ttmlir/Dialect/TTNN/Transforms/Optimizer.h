@@ -40,7 +40,8 @@ struct TTNNOptimizerOptions {
 
   TTNNOptimizerOptions() = default;
 
-  explicit TTNNOptimizerOptions(const TTIRToTTNNBackendPipelineOptions &pipelineOptions);
+  explicit TTNNOptimizerOptions(
+      const TTIRToTTNNBackendPipelineOptions &pipelineOptions);
 };
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();

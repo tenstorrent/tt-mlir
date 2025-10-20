@@ -24,7 +24,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/OpModel/TTNN/OpModelDeviceGuard.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -221,7 +221,11 @@ class TTNNOptimizer : public impl::TTNNOptimizerBase<TTNNOptimizer> {
 public:
   using impl::TTNNOptimizerBase<TTNNOptimizer>::TTNNOptimizerBase;
   void runOnOperation() final {
-    op_model::OpModelDeviceGuard deviceGuard;
+#ifndef TTMLIR_ENABLE_OPMODEL
+    llvm::llvm_unreachable_internal(
+        "TTNNOptimizer pass requires OpModel support to be enabled.");
+#else
+    op_model::ScopedSingletonDeviceGuard deviceGuard;
 
     // Generate legal OP configuration candidates.
     // Perform memory layout analysis.
@@ -580,6 +584,7 @@ public:
           func.getContext(), funcType.getInputs(), funcResultTypes);
       func.setType(newFuncType);
     });
+#endif // TTMLIR_ENABLE_OPMODEL
   }
 
 private:

@@ -8,7 +8,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
-#include "ttmlir/OpModel/TTNN/OpModelDeviceGuard.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 
@@ -129,15 +128,15 @@ public:
   TTNNOperationValidationAndFallback() = default;
 
   void runOnOperation() override {
-    // Device lifecycle is managed by OpModelDeviceWrapperPass in the pipeline,
-    // but for standalone pass usage (e.g., in tests), the guard opens/closes it.
-    op_model::OpModelDeviceGuard deviceGuard;
-
 #ifndef TTMLIR_ENABLE_OPMODEL
-    // When OPMODEL is disabled, this pass should not run.
-    // It's a no-op but allows compilation to succeed.
-    return;
+    llvm::llvm_unreachable_internal(
+        "TTNNOperationValidationAndFallback pass requires OpModel support to be"
+        "enabled.");
 #else
+    // Device lifecycle is managed by OpModelDeviceWrapperPass in the pipeline,
+    // but for standalone pass usage (e.g., in tests), the guard opens/closes
+    // it.
+    op_model::ScopedSingletonDeviceGuard deviceGuard;
 
     ModuleOp moduleOp = getOperation();
 

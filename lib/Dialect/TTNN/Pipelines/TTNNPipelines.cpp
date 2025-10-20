@@ -84,8 +84,8 @@ void createTTNNPipelineAnalysisPasses(
     pm.addPass(mlir::tt::ttnn::createTTNNUniqueLocations());
   }
   if (options.optimizerPassEnabled) {
-    ttnn::TTNNOptimizerOptions optimizerOptions(options);
 #ifdef TTMLIR_ENABLE_OPMODEL
+    ttnn::TTNNOptimizerOptions optimizerOptions(options);
     // Wrap all Optimizer passes with device lifecycle management.
     OptimizerPassesWrapperOptions wrapperOptions;
     wrapperOptions.devicePtr = options.devicePtr;
@@ -107,9 +107,8 @@ void createTTNNPipelineAnalysisPasses(
         },
         wrapperOptions));
 #else
-    // Non-OpModel path
-    pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
-    pm.addPass(mlir::createCanonicalizerPass());
+    llvm::llvm_unreachable_internal(
+        "TTNNOptimizer passes require OpModel support to be enabled.");
 #endif
   }
 }
