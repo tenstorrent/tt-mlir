@@ -1654,6 +1654,33 @@ public:
 };
 } // namespace
 
+// ViewOp conversion pattern
+//
+namespace {
+class ViewOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::ViewOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::ViewOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ViewOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ViewOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit<std::vector<int32_t>>(srcOp.getShape()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // RepeatOp conversion pattern
 //
 namespace {
@@ -3106,6 +3133,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                PermuteOpConversionPattern,
                PadOpConversionPattern,
                ReshapeOpConversionPattern,
+               ViewOpConversionPattern,
                RepeatInterleaveOpConversionPattern,
                RepeatOpConversionPattern,
                SliceDynamicOpConversionPattern,

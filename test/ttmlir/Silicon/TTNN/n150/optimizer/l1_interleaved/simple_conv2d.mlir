@@ -38,5 +38,5 @@ module @L1InterleavedTestConv2D attributes {} {
 // CHECK: %{{.*}} = "ttnn.conv2d"{{.*}} -> tensor<{{.*}}, #[[DRAM_6]]>
 
 // As output is the return value, not beneficial to move to L1, will always stay in DRAM.
-// CHECK: %{{.*}} = "ttnn.reshape"{{.*}} -> tensor<{{.*}}, #[[DRAM_2]]>
+// CHECK: %{{.*}} = "ttnn.view"{{.*}} -> tensor<{{.*}}, #[[DRAM_2]]>
 // CHECK: return{{.*}} : tensor<{{.*}}, #[[DRAM_2]]>

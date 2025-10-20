@@ -1306,24 +1306,27 @@ static mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttnn::ReshapeOp op) {
 
 // Back to back reshapes can be replaced with the final reshape.
 static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
-  if (auto reshapeOperand =
-          op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>()) {
+  auto reshapeOperand =
+      op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>();
 
-    // We do not want to fold the consecutive reshapes if the first reshape's
-    // result is consumed by an op which has memory effects on it BEFORE the
-    // second reshape.
-    auto reshapeOperandUsers = reshapeOperand.getResult().getUsers();
-    for (Operation *user : reshapeOperandUsers) {
-      if (utils::operationHasNonReadMemoryEffectsOnValue(
-              reshapeOperand.getResult(), user) &&
-          user->getBlock() == op->getBlock() && user->isBeforeInBlock(op)) {
-        return nullptr;
-      }
-    }
-
-    op.getOperation()->setOperand(0, reshapeOperand.getInput());
-    return op.getResult();
+  if (!reshapeOperand) {
+    return nullptr;
   }
+
+  // We do not want to fold the consecutive reshapes if the first reshape's
+  // result is consumed by an op which has memory effects on it BEFORE the
+  // second reshape.
+  auto reshapeOperandUsers = reshapeOperand.getResult().getUsers();
+  for (Operation *user : reshapeOperandUsers) {
+    if (utils::operationHasNonReadMemoryEffectsOnValue(
+            reshapeOperand.getResult(), user) &&
+        user->getBlock() == op->getBlock() && user->isBeforeInBlock(op)) {
+      return nullptr;
+    }
+  }
+
+  op.getOperation()->setOperand(0, reshapeOperand.getInput());
+  return op.getResult();
 
   // Check if any user (except this reshape) writes to the intermediate value
   mlir::Value intermediate = reshapeOperand.getResult();
@@ -1412,8 +1415,8 @@ void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
   patterns.add(
       +[](mlir::tt::ttnn::ReshapeOp op, mlir::PatternRewriter &rewriter) {
         if (llvm::any_of(op.getInput().getUsers(), [&](Operation *user) {
-          return user != op && !user->isBeforeInBlock(op);
-        })) {
+              return user != op && !user->isBeforeInBlock(op);
+            })) {
           return failure();
         }
 
@@ -1513,11 +1516,11 @@ void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
     }
   }
 
-for (BlockArgument arg : getOperation()->getBlock()->getArguments()) {
+  for (BlockArgument arg : getOperation()->getBlock()->getArguments()) {
     if (arg == getInput()) {
       return emitOpError(
-        "View op must not be used as an operand of a function argument as it "
-        "will modify the input tensors shape in-place.");
+          "View op must not be used as an operand of a function argument as it "
+          "will modify the input tensors shape in-place.");
     }
   }
 

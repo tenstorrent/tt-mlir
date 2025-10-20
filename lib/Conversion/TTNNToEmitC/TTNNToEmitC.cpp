@@ -1342,6 +1342,33 @@ public:
 };
 } // namespace
 
+// ViewOp conversion pattern
+//
+namespace {
+class ViewOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::ViewOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ViewOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ViewOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ViewOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit<std::vector<int32_t>>(srcOp.getShape()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // TransposeOp conversion pattern
 //
 namespace {
@@ -3691,7 +3718,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
                ReshapeOpConversionPattern, RepeatOpConversionPattern,
-               RepeatInterleaveOpConversionPattern,
+               RepeatInterleaveOpConversionPattern, ViewOpConversionPattern,
                SliceStaticOpConversionPattern, SliceDynamicOpConversionPattern,
                SortOpConversionPattern, PermuteOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::PadOp>>(typeConverter,

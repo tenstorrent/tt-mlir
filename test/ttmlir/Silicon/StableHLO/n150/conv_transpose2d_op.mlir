@@ -29,7 +29,7 @@ module @test_conv_transpose {
     // CHECK-SAME: tensor<256x128x2x2xf32,
     // CHECK-SAME: -> tensor<1x1x4096x128xf32,
     %2 = stablehlo.convolution(%arg0, %1) dim_numbers = [b, f, 0, 1]x[0, 1, o, i]->[b, f, 0, 1], window = {stride = [1, 1], pad = [[1, 1], [1, 1]], lhs_dilate = [2, 2], rhs_dilate = [1, 1]} {batch_group_count = 1 : i64, feature_group_count = 1 : i64} : (tensor<1x256x32x32xf32>, tensor<2x2x128x256xf32>) -> tensor<1x128x64x64xf32>
-    // CHECK: %[[RESHAPE:[0-9]+]] = "ttnn.reshape"(%[[CONV_T]])
+    // CHECK: %[[RESHAPE:[0-9]+]] = "ttnn.view"(%[[CONV_T]])
     // CHECK-SAME: shape = [1 : i32, 64 : i32, 64 : i32, 128 : i32]
     // CHECK-SAME: tensor<1x1x4096x128xf32,
     // CHECK-SAME: -> tensor<1x64x64x128xf32,
