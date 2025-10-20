@@ -117,6 +117,7 @@ public:
     auto device = ttcore::lookupDevice(op->getParentOp());
     TT_assert(device);
 
+    // TTNN grids are (Width, Height), while D2M grids are (Height, Width).
     ttcore::GridAttr grid = op.getGrid();
     ttnn::CoreRangeSetAttr coreRangeSet = ttnn::CoreRangeSetAttr::get(
         ctx, ttnn::CoreRangeAttr::get(
