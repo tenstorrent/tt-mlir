@@ -17,7 +17,7 @@ from ttmlir.ir import (
     DenseI64ArrayAttr,
 )
 
-from .utils import GoldenFunction
+from .utils import *
 
 
 def cbrt_golden(x: GoldenFunction) -> GoldenFunction:

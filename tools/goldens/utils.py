@@ -344,6 +344,7 @@ def get_golden_function(op_class: type, **kwargs) -> Optional[Callable]:
         The corresponding golden function, or None if not found
     """
     from .mappings import GOLDEN_MAPPINGS
+    from .custom_goldens import tilize_golden, untilize_golden
 
     # Handle special cases with parameters
     if (
