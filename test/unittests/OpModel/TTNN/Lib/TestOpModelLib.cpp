@@ -730,6 +730,27 @@ TEST_F(OpModelTest, Reshape) {
   SingletonDeviceContext::resetInstance();
 }
 
+TEST_F(OpModelTest, View) {
+  const llvm::SmallVector<int64_t> tensorShape = {128, 64};
+  const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto runtimeExp = OpModel<ViewOp>::getOpRuntime(tensorShape, layoutDRAM,
+                                                  {4, 32, 64}, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+  SingletonDeviceContext::resetInstance();
+
+  auto constraintsExp = OpModel<ViewOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, layoutDRAM, {4, 32, 64}, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_EQ(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+  SingletonDeviceContext::resetInstance();
+}
+
 TEST_F(OpModelTest, Slice) {
   const llvm::SmallVector<int64_t> inputTensorShape = {1, 56, 56, 96};
   const llvm::SmallVector<int64_t> outputTensorShape = {1, 28, 56, 95};
