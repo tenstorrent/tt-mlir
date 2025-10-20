@@ -241,7 +241,12 @@ def test_muladd_broadcast_jit_l1(device, h, w, max_grid, dtype):
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_muladd_bcast_jit_dram(device, h, w, dtype):
-    pytest.xfail("Fails all_close.")
+    if (h, w) in [(32, 32)]:
+        pytest.xfail("Fails all_close.")
+    else:
+        pytest.xfail(
+            f"Broadcasted shape is incorrectly chosen to be (32, {w}) for all shapes, not ({h}, {w})."
+        )
     max_grid = (0, 0)
     A = create_dram_tensor(device, h, w, dtype)
     B = create_dram_tensor(device, h, w, dtype)
