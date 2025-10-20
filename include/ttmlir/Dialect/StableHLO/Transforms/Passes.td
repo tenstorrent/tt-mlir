@@ -201,20 +201,6 @@ def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mli
   ];
 }
 
-def ApplyShardingConstraintsPass : Pass<"apply-sharding-constraints", "::mlir::ModuleOp">
-{
-  let summary = "Apply sharding constraints only on non-solved graphs.";
-  let description = [{
-    This pass checks if the graph is already solved before running sdy.apply_sharding_constraints.
-    A graph is considered solved if it contains sdy.manual_computation operations with non-empty
-    manual_axes, indicating that the sharding propagation has already been completed.
-  }];
-
-  let dependentDialects = [
-    "::mlir::sdy::SdyDialect"
-  ];
-}
-
 def AggressivePropagationPass : Pass<"aggressive-propagation", "::mlir::ModuleOp">
 {
   let summary = "Run aggressive sharding propagation only on non-solved graphs.";
@@ -248,6 +234,20 @@ def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::Modul
   let summary = "Insert explicit reshards only on non-solved graphs.";
   let description = [{
     This pass checks if the graph is already solved before running sdy.insert_explicit_reshards.
+    A graph is considered solved if it contains sdy.manual_computation operations with non-empty
+    manual_axes, indicating that the sharding propagation has already been completed.
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
+def ReshardToCollectivesPass : Pass<"reshard-to-collectives", "::mlir::ModuleOp">
+{
+  let summary = "Convert reshards to collectives only on non-solved graphs.";
+  let description = [{
+    This pass checks if the graph is already solved before running sdy.reshard_to_collectives.
     A graph is considered solved if it contains sdy.manual_computation operations with non-empty
     manual_axes, indicating that the sharding propagation has already been completed.
   }];

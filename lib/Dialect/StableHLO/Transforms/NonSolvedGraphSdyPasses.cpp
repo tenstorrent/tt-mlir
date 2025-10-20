@@ -13,10 +13,10 @@
 
 namespace mlir::tt::stablehlo {
 
-#define GEN_PASS_DEF_APPLYSHARDINGCONSTRAINTSPASS
 #define GEN_PASS_DEF_AGGRESSIVEPROPAGATIONPASS
 #define GEN_PASS_DEF_SHARDINGCONSTRAINTTORESHARDPASS
 #define GEN_PASS_DEF_INSERTEXPLICITRESHARDSPASS
+#define GEN_PASS_DEF_RESHARDTOCOLLECTIVESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
@@ -56,23 +56,22 @@ protected:
 // Specialized pass implementations using the template
 //===----------------------------------------------------------------------===//
 
-// Module-level wrapper for sdy::createApplyShardingConstraintsPass
-class ApplyShardingConstraintsPass
-    : public ConditionalSdyPassWrapper<impl::ApplyShardingConstraintsPassBase<
-          ApplyShardingConstraintsPass>> {
-protected:
-  mlir::LogicalResult addSdyPass(mlir::PassManager &pm) override {
-    pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
-    return mlir::success();
-  }
-};
-
 // Module-level wrapper for sdy::createAggressivePropagationPass
 class AggressivePropagationPass
     : public ConditionalSdyPassWrapper<
           impl::AggressivePropagationPassBase<AggressivePropagationPass>> {
 protected:
   mlir::LogicalResult addSdyPass(mlir::PassManager &pm) override {
+    // This propagation is taken from
+    // https://github.com/openxla/shardy/blob/0b8873d121008abc3edf7db2281f2b48cc647978/docs/sdy_propagation_passes.md?plain=1#L27.
+    // Aggressive propagation is a wrapper ontop of basic propagation with
+    // additional options user can set. With basic propagation, only shardings
+    // that have no conflicts are propagated. With aggressive propagation, we
+    // can set options to resolve conflicts and propagate more shardings.
+    // However, sometimes, the propagation algorithm can be too aggressive and
+    // propagate shardings that are not valid. To mitigate this, we set
+    // conservativePropagation to true, which ensures that only shardings that
+    // are valid are propagated.
     mlir::sdy::PropagationOptions propagationOptions;
     mlir::sdy::PropagationStrategy propagationStrategy =
         mlir::sdy::PropagationStrategy::Aggressive;
@@ -107,6 +106,18 @@ protected:
     options.enableFullVersion = true;
     pm.nest<mlir::func::FuncOp>().addPass(
         mlir::sdy::createInsertExplicitReshardsPass(options));
+    return mlir::success();
+  }
+};
+
+// Module-level wrapper for sdy::createReshardToCollectivesPass
+class ReshardToCollectivesPass
+    : public ConditionalSdyPassWrapper<
+          impl::ReshardToCollectivesPassBase<ReshardToCollectivesPass>> {
+protected:
+  mlir::LogicalResult addSdyPass(mlir::PassManager &pm) override {
+    pm.nest<mlir::func::FuncOp>().addPass(
+        mlir::sdy::createReshardToCollectivesPass());
     return mlir::success();
   }
 };
