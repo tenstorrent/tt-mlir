@@ -5,8 +5,8 @@
 #include "jit_cache.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
-#include "ttmlir/Bindings/Python/Utils.h"
 #include "ttmlir/RegisterAll.h"
+#include "ttmlir/Target/Python/Utils.h"
 #include "ttnn/tensor/tensor.hpp"
 
 #include "tt/runtime/detail/python/nanobind_headers.h"

@@ -7,11 +7,11 @@
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
-#include "ttmlir/Bindings/Python/Utils.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
+#include "ttmlir/Target/Python/Utils.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
