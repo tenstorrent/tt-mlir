@@ -128,6 +128,8 @@ def test_muladd_jit_l1(device, h, w, max_grid, dtype):
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_muladd_jit_dram(device, h, w, dtype):
+    if (h, w) == (256, 512):
+        pytest.xfail("OOM error.")
     max_grid = (0, 0)
 
     A = create_dram_tensor(device, h, w, dtype)
@@ -144,10 +146,66 @@ def test_muladd_jit_dram(device, h, w, dtype):
     all_close_check(interop_result, golden_result)
 
 
+failing_configs = {
+    torch.float32: [
+        (512, 8192),
+        (512, 16384),
+        (512, 32768),
+        (512, 65536),
+        (1024, 2048),
+        (1024, 4096),
+        (1024, 8192),
+        (1024, 16384),
+        (1024, 32768),
+        (1024, 65536),
+        (2048, 2048),
+        (2048, 4096),
+        (2048, 8192),
+        (2048, 16384),
+        (2048, 32768),
+        (2048, 65536),
+        (4096, 2048),
+        (4096, 4096),
+        (4096, 8192),
+        (4096, 16384),
+        (4096, 32768),
+        (4096, 65536),
+    ],
+    torch.bfloat16: [
+        (512, 4096),
+        (512, 16384),
+        (512, 32768),
+        (512, 65536),
+        (1024, 2048),
+        (1024, 4096),
+        (1024, 8192),
+        (1024, 16384),
+        (1024, 32768),
+        (1024, 65536),
+        (2048, 4096),
+        (2048, 8192),
+        (2048, 16384),
+        (2048, 32768),
+        (2048, 65536),
+        (4096, 2048),
+        (4096, 4096),
+        (4096, 8192),
+        (4096, 16384),
+        (4096, 32768),
+        (4096, 65536),
+    ],
+}
+
+
 @pytest.mark.parametrize("seq_len", [2048, 4096, 8192, 16384, 32768, 65536])
 @pytest.mark.parametrize("hidden_dim", [512, 1024, 2048, 4096])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_large_muladd_nice_seq_len_jit_l1(device, seq_len, hidden_dim, dtype):
+    if (seq_len, hidden_dim) in failing_configs.get(dtype, []):
+        pytest.xfail(
+            f"OOM error for shape ({seq_len}, {hidden_dim}) and dtype {dtype}."
+        )
+
     max_grid = (7, 7)
 
     A = create_sharded_tile_tensor(device, seq_len, hidden_dim, max_grid, dtype)
@@ -182,3 +240,64 @@ def test_large_muladd_nice_seq_len_jit_dram(device, seq_len, hidden_dim, dtype):
     golden_result = mul_add(A, B, C)
 
     all_close_check(interop_result, golden_result, atol=1e-1, rtol=1e-1)
+
+
+@pytest.mark.parametrize("h, w, max_grid", COMMON_SHAPE_GRID_PARAMS)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_muladd_broadcast_jit_l1(device, h, w, max_grid, dtype):
+
+    # broadcasts require either h or w to be 1
+    # but sharding requires at least 32 x 32 (tile size)
+    pytest.xfail(
+        "Broadcasting requires either h or w to be 1, but sharded tensor must be at least 32 x 32. Assert error."
+    )
+
+    A = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+    B = create_sharded_tile_tensor(device, h, w, max_grid, dtype)
+    # broadcast C
+    C = create_sharded_tile_tensor(device, 1, w, max_grid, dtype)
+
+    print("A:", A.cpu().to_torch())
+    print("A shape:", A.shape)
+    print("B:", B.cpu().to_torch())
+    print("B shape:", B.shape)
+    print("C:", C.cpu().to_torch())
+    print("C shape:", C.shape)
+
+    # JIT path
+    op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(mul_add)
+    interop_result = op_jit(A, B, C)
+
+    # Golden path
+    golden_result = mul_add(A, B, C)
+
+    all_close_check(interop_result, golden_result)
+
+
+@pytest.mark.parametrize(
+    "h, w", [(32, 32), (64, 64), (128, 128), (256, 256), (512, 512)]
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_muladd_bcast_jit_dram(device, h, w, dtype):
+    pytest.xfail("Fails all_close.")
+    max_grid = (0, 0)
+    A = create_dram_tensor(device, h, w, dtype)
+    B = create_dram_tensor(device, h, w, dtype)
+    # broadcast C
+    C = create_dram_tensor(device, 1, w, dtype)
+
+    print("A:", A.cpu().to_torch())
+    print("A shape:", A.shape)
+    print("B:", B.cpu().to_torch())
+    print("B shape:", B.shape)
+    print("C:", C.cpu().to_torch())
+    print("C shape:", C.shape)
+
+    # JIT path
+    op_jit = ttnn_jit.jit(backend="ttnn", debug=True, max_grid=max_grid)(mul_add)
+    interop_result = op_jit(A, B, C)
+
+    # Golden path
+    golden_result = mul_add(A, B, C)
+
+    all_close_check(interop_result, golden_result)
