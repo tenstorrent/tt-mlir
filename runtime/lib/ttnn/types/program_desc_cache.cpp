@@ -9,9 +9,7 @@ namespace tt::runtime::ttnn {
 
 const ::tt::tt_metal::ProgramDescriptor *ProgramDescCache::get(
     const ::tt::target::ttnn::ProgramDescriptor *programDesc) const {
-  auto it = std::find_if(
-      cache_.begin(), cache_.end(),
-      [programDesc](const auto &pair) { return pair.first == programDesc; });
+  auto it = cache_.find(programDesc);
   if (it != cache_.end()) {
     return &it->second;
   }
@@ -21,11 +19,7 @@ const ::tt::tt_metal::ProgramDescriptor *ProgramDescCache::get(
 void ProgramDescCache::insert(
     const ::tt::target::ttnn::ProgramDescriptor *programDesc,
     const ::tt::tt_metal::ProgramDescriptor &programDescriptor) {
-  if (cache_.size() >= MAX_SIZE) {
-    LOG_WARNING("ProgramDescCache is full.");
-    cache_.erase(cache_.begin());
-  }
-  cache_.emplace_back(programDesc, programDescriptor);
+  cache_.try_emplace(programDesc, programDescriptor);
 }
 
 } // namespace tt::runtime::ttnn
