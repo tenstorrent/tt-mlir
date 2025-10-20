@@ -52,7 +52,11 @@ jobs:
           cat << 'EOF' > _test_durations
             ${{ vars.TEST_DURATIONS }}
           EOF
-          python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json ${{ vars.TARGET_DURATION }}
+          TARGET_DURATION="${{ vars.TARGET_DURATION }}"
+          if [ -z "$TARGET_DURATION" ]; then
+            TARGET_DURATION="30"
+          fi
+          python .github/scripts/python/generate_test_matrix.py .github/test_matrix/pr-push-matrix.json "$TARGET_DURATION"
           echo "test-matrix=$(cat _test_matrix.json | jq -c)" >> $GITHUB_OUTPUT
 
   build-image:
