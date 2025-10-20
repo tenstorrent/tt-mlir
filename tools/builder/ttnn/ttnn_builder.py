@@ -33,9 +33,7 @@ class TTNNBuilder(Builder):
         op_ttnn_function: Callable,
         inputs: List[Operand],
         unit_attrs: Optional[List[str]] = None,
-        organize_ttnn_args: Optional[Callable] = None,
         organize_golden_args: Optional[Callable] = None,
-        output_create_fn: Optional[Callable] = None,
         golden_kwargs: dict = {},
         ttnn_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
@@ -43,9 +41,6 @@ class TTNNBuilder(Builder):
     ) -> Any:
         if not golden_kwargs:
             golden_kwargs = ttnn_kwargs
-
-        if organize_ttnn_args is None:
-            organize_ttnn_args = self._organize_eltwise_ttnn
 
         if organize_golden_args is None:
             organize_golden_args = self._organize_eltwise_golden
