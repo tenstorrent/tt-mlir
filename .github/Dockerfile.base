@@ -44,6 +44,7 @@ add-apt-repository ppa:deadsnakes/ppa && \
 
 # Setup / install metal dependencies
 wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_DEPENDENCIES_COMMIT}/{install_dependencies.sh,tt_metal/sfpi-info.sh,tt_metal/sfpi-version}
+chmod u+x sfpi-info.sh
 bash install_dependencies.sh --docker
 # ANCHOR_END: developer_dependencies
 EOT
