@@ -161,7 +161,7 @@ passing_configs_l1 = {
 @pytest.mark.parametrize("hidden_dim", [512, 1024, 2048, 4096])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_large_muladd_nice_seq_len_jit_l1(device, seq_len, hidden_dim, dtype):
-    # XFAIL all configs except the ones that are known to pass
+    # most test cases fail
     if (hidden_dim, seq_len) not in passing_configs_l1.get(dtype, []):
         pytest.xfail(
             f"Most large L1 configs fail. Skipping ({hidden_dim}, {seq_len}) with dtype {dtype}."
