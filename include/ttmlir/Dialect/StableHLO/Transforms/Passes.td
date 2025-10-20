@@ -201,7 +201,7 @@ def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mli
   ];
 }
 
-def ApplyShardingConstraintsPass : Pass<"apply-sharding-constraints", "::mlir::func::FuncOp">
+def ApplyShardingConstraintsPass : Pass<"apply-sharding-constraints", "::mlir::ModuleOp">
 {
   let summary = "Apply sharding constraints only on non-solved graphs.";
   let description = [{
@@ -229,7 +229,7 @@ def AggressivePropagationPass : Pass<"aggressive-propagation", "::mlir::ModuleOp
   ];
 }
 
-def ShardingConstraintToReshardPass : Pass<"sharding-constraint-to-reshard", "::mlir::func::FuncOp">
+def ShardingConstraintToReshardPass : Pass<"sharding-constraint-to-reshard", "::mlir::ModuleOp">
 {
   let summary = "Convert sharding constraints to reshards only on non-solved graphs.";
   let description = [{
@@ -243,7 +243,7 @@ def ShardingConstraintToReshardPass : Pass<"sharding-constraint-to-reshard", "::
   ];
 }
 
-def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::func::FuncOp">
+def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::ModuleOp">
 {
   let summary = "Insert explicit reshards only on non-solved graphs.";
   let description = [{

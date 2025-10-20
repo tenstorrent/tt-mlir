@@ -35,7 +35,7 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(createAnalyzeMeshPass(analyzeMeshOptions));
 
   // Apply sharding constraints conditionally.
-  pm.nest<mlir::func::FuncOp>().addPass(createApplyShardingConstraintsPass());
+  pm.addPass(createApplyShardingConstraintsPass());
 
   // Propagate tensor shardings through the entire graph conditionally.
   // This propagation is taken from
@@ -51,24 +51,24 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(createAggressivePropagationPass());
 
   // Convert sharding constraints to reshards conditionally.
-  pm.nest<mlir::func::FuncOp>().addPass(
-      createShardingConstraintToReshardPass());
+  pm.addPass(createShardingConstraintToReshardPass());
 
   // Insert explicit reshards conditionally.
-  pm.nest<mlir::func::FuncOp>().addPass(createInsertExplicitReshardsPass());
+  pm.addPass(createInsertExplicitReshardsPass());
 
   // Wrap all operations under a sdy manual computation op to allow conversion
   // from stablehlo into ttir.
   pm.addPass(createWrapUnderManualComputationPass());
 
   // Convert reshards to collectives conditionally.
-  pm.nest<mlir::func::FuncOp>().addPass(sdy::createReshardToCollectivesPass());
+  pm.nest<mlir::func::FuncOp>().addPass(
+      mlir::sdy::createReshardToCollectivesPass());
 
   // Split tensor dimensions according to tensor sharding annotations.
   pm.addPass(createUpdateGlobalToLocalShapesPass());
 
   // Close tensor shardings as analysis is complete conditionally.
-  pm.addPass(sdy::createCloseShardingsPass());
+  pm.addPass(mlir::sdy::createCloseShardingsPass());
 
   // Run canonicalizer pass.
   pm.addPass(mlir::createCanonicalizerPass());
