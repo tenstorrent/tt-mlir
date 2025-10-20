@@ -1424,11 +1424,8 @@ ViewOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
   const auto inputShape = getInput().getType().getShape();
-  SmallVector<int64_t> outputShape;
-
-  for (const Attribute dimAttr : getShape().getValue()) {
-    outputShape.push_back(mlir::cast<mlir::IntegerAttr>(dimAttr).getInt());
-  }
+  SmallVector<int64_t> outputShape =
+      detail::convertArrayAttrToSmallVec(getShape());
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ViewOp>::getOpConstraints, *this, deviceGrid,
@@ -1439,11 +1436,9 @@ llvm::Expected<size_t>
 ViewOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                      const OpConfig &opConfig) {
   const auto inputShape = getInput().getType().getShape();
-  SmallVector<int64_t> outputShape;
+  SmallVector<int64_t> outputShape =
+      detail::convertArrayAttrToSmallVec(getShape());
 
-  for (const Attribute dimAttr : getShape().getValue()) {
-    outputShape.push_back(mlir::cast<mlir::IntegerAttr>(dimAttr).getInt());
-  }
   return opRuntimeCache().getOrCompute(op_model::OpModel<ViewOp>::getOpRuntime,
                                        *this, inputShape, inputs[0],
                                        outputShape, opConfig.outputLayout);
