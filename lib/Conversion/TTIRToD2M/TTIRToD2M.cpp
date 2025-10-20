@@ -340,13 +340,13 @@ private:
     const std::size_t numOperands = (numInputs + numOutputs);
     assert(numOperands == op->getNumOperands());
 
-    const std::size_t rank =
-        mlir::cast<RankedTensorType>(outputs[0].getType()).getRank() / 2;
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
 
     SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, numOperands, rank);
+        getAffineMapsArray(rewriter, numOperands, physicalRank);
     SmallVector<mlir::Attribute> iteratorTypes =
-        getIteratorTypesArray(rewriter, rank);
+        getIteratorTypesArray(rewriter, physicalRank);
 
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
@@ -368,7 +368,7 @@ private:
         // Create 'linalg.generic' accepting 'blockArgs'.
 
         SmallVector<mlir::AffineMap> linalgIndexingMaps =
-            getAffineMapsArray(rewriter, numOperands, rank);
+            getAffineMapsArray(rewriter, numOperands, physicalRank);
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
@@ -478,13 +478,13 @@ private:
     // Minus 1 for the scaler operand.
     assert((numOperands - 1) == op->getNumOperands());
 
-    const std::size_t rank =
-        mlir::cast<RankedTensorType>(outputs[0].getType()).getRank() / 2;
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
 
     SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, op, numOperands, rank);
+        getAffineMapsArray(rewriter, op, numOperands, physicalRank);
     SmallVector<mlir::Attribute> iteratorTypes =
-        getIteratorTypesArray(rewriter, op, rank);
+        getIteratorTypesArray(rewriter, op, physicalRank);
 
     // Create 'd2m.generic' accepting extended operands.
     auto generic = rewriter.create<d2m::GenericOp>(
@@ -507,7 +507,7 @@ private:
         // Create 'linalg.generic' accepting 'blockArgs'.
 
         SmallVector<mlir::AffineMap> linalgIndexingMaps =
-            getAffineMapsArray(rewriter, op, numOperands, rank);
+            getAffineMapsArray(rewriter, op, numOperands, physicalRank);
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
@@ -518,7 +518,8 @@ private:
           // Propagate 'dim_arg' as 'ReduceDim'.
           attributes.emplace_back(
               d2m::ReduceDimAttr::getMnemonic(),
-              d2m::ReduceDimAttr::get(ctx, dimArgAsReduceDim(op, rank)));
+              d2m::ReduceDimAttr::get(ctx,
+                                      dimArgAsReduceDim(op, physicalRank)));
         }
 
         auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
@@ -709,15 +710,15 @@ private:
 
     assert(numOperands == op->getNumOperands());
 
-    const std::size_t rank =
-        mlir::cast<RankedTensorType>(outputs[0].getType()).getRank() / 2;
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
 
     // TODO(#2591) handle 'transpose_{a,b}' attributes.
 
     SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, numOperands, rank);
+        getAffineMapsArray(rewriter, numOperands, physicalRank);
     SmallVector<mlir::Attribute> iteratorTypes =
-        getIteratorTypesArray(rewriter, rank);
+        getIteratorTypesArray(rewriter, physicalRank);
 
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
@@ -751,7 +752,7 @@ private:
           static constexpr std::size_t tileOpNumOutputs = 1;
 
           SmallVector<mlir::AffineMap> linalgIndexingMaps =
-              getAffineMapsArray(rewriter, numOperands, rank);
+              getAffineMapsArray(rewriter, numOperands, physicalRank);
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
               iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
@@ -1124,45 +1125,6 @@ public:
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type t) { return t; });
-
-    // Add source materialization: TTIR tensor -> D2M tensor with layout.
-    // This automatically inserts ToLayout ops when operands need conversion.
-    typeConverter.addSourceMaterialization(
-        [](OpBuilder &builder, RankedTensorType type, ValueRange inputs,
-           Location loc) -> Value {
-          // We expect exactly one input value (the TTIR tensor to convert).
-          // Return null to signal failure if called with 0 or multiple inputs.
-          if (inputs.size() != 1) {
-            return Value();
-          }
-          // Create empty op with target type and insert ToLayout.
-          auto empty = builder.create<d2m::EmptyOp>(
-              loc, type.getShape(), type.getElementType(), type.getEncoding());
-          return builder.create<d2m::ToLayoutOp>(loc, inputs[0], empty)
-              .getResult(0);
-        });
-
-    // Add target materialization: D2M tensor with layout -> TTIR tensor.
-    // This handles result conversions back to expected types.
-    typeConverter.addTargetMaterialization([](OpBuilder &builder, Type type,
-                                              ValueRange inputs,
-                                              Location loc) -> Value {
-      // We expect exactly one input value (the D2M tensor to convert).
-      // Return null to signal failure if called with 0 or multiple inputs.
-      if (inputs.size() != 1) {
-        return Value();
-      }
-      auto tensorType = mlir::dyn_cast<RankedTensorType>(type);
-      if (!tensorType) {
-        return Value();
-      }
-      // Create empty op with target type and insert ToLayout.
-      auto empty = builder.create<d2m::EmptyOp>(loc, tensorType.getShape(),
-                                                tensorType.getElementType(),
-                                                tensorType.getEncoding());
-      return builder.create<d2m::ToLayoutOp>(loc, inputs[0], empty)
-          .getResult(0);
-    });
 
     RewritePatternSet patterns(ctx);
     populateTTIRToD2MPatterns(ctx, patterns, typeConverter,

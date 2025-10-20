@@ -231,6 +231,10 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
       toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
 
+  // We expect the ToLayout to be used only by the GenericOp we're optimizing.
+  // Assert this assumption to catch unexpected sharing.
+  assert(toLayoutOp.getResult(0).hasOneUse() &&
+         "ToLayout should only be used by the GenericOp being optimized");
   toLayoutOp.getResult(0).replaceAllUsesWith(newToLayoutOp.getResult(0));
 
   toLayoutOp.erase();
@@ -239,25 +243,28 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   }
 }
 
-// Assign optimized grids to all ToLayoutOps feeding into a GenericOp by
-// computing the optimal grid per tensor independently, mirroring the old
-// TTIRToD2M behavior.
-static void assignGrids(d2m::GenericOp genericOp,
-                        ArrayRef<int64_t> targetGridShape,
-                        ArrayRef<int64_t> targetSquareGridShape) {
+struct ToLayoutUpdateInfo {
+  d2m::ToLayoutOp op;
+  llvm::SmallVector<int64_t> grid;
+};
+
+struct StreamLayoutUpdateInfo {
+  d2m::StreamLayoutOp op;
+  llvm::SmallVector<int64_t> grid;
+};
+
+// Phase 1: Analyze each operand of a GenericOp and compute optimal grids.
+// We compute grids independently per operand to mirror the old TTIRToD2M
+// behavior, ensuring compatibility with existing grid assignment logic.
+static std::pair<llvm::SmallVector<ToLayoutUpdateInfo>,
+                 llvm::SmallVector<StreamLayoutUpdateInfo>>
+analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
+                               ArrayRef<int64_t> targetGridShape,
+                               ArrayRef<int64_t> targetSquareGridShape) {
   OpBuilder builder(genericOp->getContext());
-
-  struct ToLayoutUpdateInfo {
-    d2m::ToLayoutOp op;
-    llvm::SmallVector<int64_t> grid;
-  };
   llvm::SmallVector<ToLayoutUpdateInfo> toLayoutsToUpdate;
-  llvm::SmallVector<std::pair<d2m::StreamLayoutOp, llvm::SmallVector<int64_t>>>
-      streamLayoutsToUpdate;
+  llvm::SmallVector<StreamLayoutUpdateInfo> streamLayoutsToUpdate;
 
-  // Phase 1: Analyze each operand and compute its optimal grid.
-  // We compute grids independently per operand to mirror the old TTIRToD2M
-  // behavior, ensuring compatibility with existing grid assignment logic.
   for (Value operand : genericOp.getOperands()) {
     auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
     auto operandLayout =
@@ -344,20 +351,34 @@ static void assignGrids(d2m::GenericOp genericOp,
     }
   }
 
-  if (toLayoutsToUpdate.empty() && streamLayoutsToUpdate.empty()) {
-    return;
-  }
+  return {toLayoutsToUpdate, streamLayoutsToUpdate};
+}
 
-  // Phase 2: Update ToLayoutOps with their optimal grids.
+// Phase 2: Update ToLayoutOps with their optimal grids.
+static void updateToLayoutOps(ArrayRef<ToLayoutUpdateInfo> toLayoutsToUpdate,
+                              ArrayRef<int64_t> targetGridShape,
+                              ArrayRef<int64_t> targetSquareGridShape) {
+  OpBuilder builder(toLayoutsToUpdate.front().op->getContext());
   for (auto &info : toLayoutsToUpdate) {
     optimizeToLayoutGrid(info.op, targetGridShape, targetSquareGridShape,
                          info.grid, builder);
   }
+}
 
-  // Phase 3: Update StreamLayoutOps by recreating their storage with the new
-  // grid. StreamLayoutOps perform reblocking and may have index_maps that
-  // transpose dimensions, requiring special handling.
-  for (auto [streamLayout, optimalGrid] : streamLayoutsToUpdate) {
+// Phase 3: Update StreamLayoutOps by recreating their storage with the new
+// grid. StreamLayoutOps perform reblocking and may have index_maps that
+// transpose dimensions, requiring special handling.
+static void
+updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
+                      ArrayRef<int64_t> targetGridShape) {
+  if (streamLayoutsToUpdate.empty()) {
+    return;
+  }
+
+  OpBuilder builder(streamLayoutsToUpdate.front().op->getContext());
+  for (const auto &info : streamLayoutsToUpdate) {
+    auto streamLayout = info.op;
+    auto optimalGrid = info.grid;
     auto storageEmpty = streamLayout.getStorage().getDefiningOp<d2m::EmptyOp>();
     if (!storageEmpty) {
       continue;
@@ -413,6 +434,10 @@ static void assignGrids(d2m::GenericOp genericOp,
         streamLayout.getLoc(), newStorageEmpty.getType(),
         streamLayout.getInput(), newStorageEmpty);
 
+    // We expect the StreamLayout to be used only by the GenericOp we're
+    // optimizing. Assert this assumption to catch unexpected sharing.
+    assert(streamLayout.getResult().hasOneUse() &&
+           "StreamLayout should only be used by the GenericOp being optimized");
     streamLayout.getResult().replaceAllUsesWith(newStreamLayout.getResult());
     streamLayout.erase();
 
@@ -420,12 +445,15 @@ static void assignGrids(d2m::GenericOp genericOp,
       storageEmpty.erase();
     }
   }
+}
 
-  // Phase 4: Recreate the d2m.generic with updated operands.
-  // After updating all ToLayout and StreamLayout ops, the generic's operands
-  // now have new types with optimized grids. We must recreate the generic to
-  // reflect these type changes, including updating the region body and any
-  // nested linalg.generic result types.
+// Phase 4: Recreate the d2m.generic with updated operands.
+// After updating all ToLayout and StreamLayout ops, the generic's operands
+// now have new types with optimized grids. We must recreate the generic to
+// reflect these type changes, including updating the region body and any
+// nested linalg.generic result types.
+static void recreateGenericOp(d2m::GenericOp genericOp) {
+  OpBuilder builder(genericOp->getContext());
   llvm::SmallVector<Value> newOperands;
   for (Value operand : genericOp.getOperands()) {
     newOperands.push_back(operand);
@@ -480,6 +508,36 @@ static void assignGrids(d2m::GenericOp genericOp,
     genericOp.replaceAllUsesWith(newGenericOp);
     genericOp.erase();
   }
+}
+
+// Assign optimized grids to all ToLayoutOps feeding into a GenericOp by
+// computing the optimal grid per tensor independently, mirroring the old
+// TTIRToD2M behavior.
+static void assignGrids(d2m::GenericOp genericOp,
+                        ArrayRef<int64_t> targetGridShape,
+                        ArrayRef<int64_t> targetSquareGridShape) {
+  // Phase 1: Analyze operands and compute optimal grids.
+  auto [toLayoutsToUpdate, streamLayoutsToUpdate] =
+      analyzeOperandsAndComputeGrids(genericOp, targetGridShape,
+                                     targetSquareGridShape);
+
+  if (toLayoutsToUpdate.empty() && streamLayoutsToUpdate.empty()) {
+    return;
+  }
+
+  // Phase 2: Update ToLayoutOps with their optimal grids.
+  if (!toLayoutsToUpdate.empty()) {
+    updateToLayoutOps(toLayoutsToUpdate, targetGridShape,
+                      targetSquareGridShape);
+  }
+
+  // Phase 3: Update StreamLayoutOps with their optimal grids.
+  if (!streamLayoutsToUpdate.empty()) {
+    updateStreamLayoutOps(streamLayoutsToUpdate, targetGridShape);
+  }
+
+  // Phase 4: Recreate the generic op with updated operands.
+  recreateGenericOp(genericOp);
 }
 
 // ----------------------------------------------------------------------------

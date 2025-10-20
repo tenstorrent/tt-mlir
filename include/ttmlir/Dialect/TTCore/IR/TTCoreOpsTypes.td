@@ -253,6 +253,8 @@ def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayo
       ViewLayoutAttr compose(ViewLayoutAttr g) const;
 
       bool isView() { return true; }
+
+      unsigned getRank() const { return getAffineMap().getNumResults(); }
   }];
 }
 
@@ -280,6 +282,8 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     bool isView() { return false; }
 
     AffineMap getAffineMap() const;
+
+    unsigned getRank() const { return getStride().size(); }
   }];
 }
 
@@ -301,6 +305,8 @@ def TTCore_InterleavedLayoutAttr : TTCore_Attr<"InterleavedLayout", "interleaved
     bool isView() { return false; }
 
     AffineMap getAffineMap() const;
+
+    unsigned getRank() const { return getStride().size(); }
   }];
 }
 
@@ -464,6 +470,10 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     // Returns the explicit index_map if present; otherwise returns an
     // identity map of the provided rank.
     mlir::AffineMap getIndexAffineMapOrIdentity(unsigned rank) const;
+
+    // Returns the full rank (including grid dimensions).
+    // For the collapsed/physical rank (excluding grid), divide by 2.
+    unsigned getRank() const { return getNormalizedIntervals().size(); }
 
     bool isView() { return false; }
   }];
