@@ -24,8 +24,14 @@ COMMON_SHAPE_GRID_PARAMS = [
     (1024, 2048, (7, 7)),
 ]
 
+
 def memory_configs_equal(memory_config1, memory_config2):
-    return memory_config1.memory_layout == memory_config2.memory_layout and memory_config1.buffer_type == memory_config2.buffer_type and memory_config1.shard_spec == memory_config2.shard_spec
+    return (
+        memory_config1.memory_layout == memory_config2.memory_layout
+        and memory_config1.buffer_type == memory_config2.buffer_type
+        and memory_config1.shard_spec == memory_config2.shard_spec
+    )
+
 
 def create_dram_tensor(device, h, w, dtype):
     torch.manual_seed(0)
