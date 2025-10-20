@@ -16,7 +16,7 @@ from ttmlir.dialects import d2m, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
-from builder.base import builder_golden
+from goldens import *
 
 
 class D2MBuilder(Builder):
@@ -97,7 +97,7 @@ class D2MBuilder(Builder):
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
             if not skip_golden and not self._disable_golden_check:
-                op_golden_function = builder_golden.get_golden_function(
+                op_golden_function = get_golden_function(
                     op_d2m_function, **golden_kwargs
                 )
                 if op_golden_function is not None:

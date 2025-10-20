@@ -16,7 +16,7 @@ from ttmlir.ir import *
 from ttmlir.dialects import stablehlo, sdy, mpmd
 
 from builder.base.builder import *
-from builder.base import builder_golden
+from goldens import *
 
 
 class StableHLOBuilder(Builder):
@@ -163,7 +163,7 @@ class StableHLOBuilder(Builder):
                 op.operation.attributes["sdy.sharding"] = sharding_attr
 
             if not skip_golden and not self._disable_golden_check:
-                op_golden_function = builder_golden.get_golden_function(
+                op_golden_function = get_golden_function(
                     op_stablehlo_function, **golden_kwargs
                 )
                 if op_golden_function is not None:
