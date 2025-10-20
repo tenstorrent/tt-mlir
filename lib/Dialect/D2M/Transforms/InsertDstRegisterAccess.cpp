@@ -650,22 +650,12 @@ public:
       // If we cast for storage, we need to cast back to the original type
       // after loading, since downstream ops expect the original type.
       Value replacementValue = loadedResult.getResult();
-<<<<<<< HEAD
       Operation *castBackOp = nullptr;
       if (needsTypeCast) {
         auto castBack = rewriter.create<d2m::DstReinterpretCastOp>(
             loc, originalType, replacementValue);
         replacementValue = castBack.getResult();
         castBackOp = castBack.getOperation();
-=======
-      // Cast back to original type if we had to cast for storage
-      if (replacementValue.getType() != op->getResult(0).getType()) {
-        replacementValue =
-            rewriter
-                .create<UnrealizedConversionCastOp>(
-                    loc, op->getResult(0).getType(), replacementValue)
-                .getResult(0);
->>>>>>> 8e9a98510 (Run pre-commit)
       }
 
       // Replace all uses of the original result with the (possibly cast back)
