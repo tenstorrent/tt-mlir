@@ -1,4 +1,12 @@
  [
+  {
+    "runs-on": "n150", "image":"tracy",
+    "script": "ttrt.sh",
+    "args": [
+      "perf",
+      "Silicon/TTNN/$RUNS_ON/perf"
+    ]
+  },
 
   {
     "runs-on": "n150", "image":"tracy",
@@ -28,14 +36,6 @@
   {
     "runs-on": "n150", "image":"tracy",
     "script": "unit.sh"
-  },
-  {
-    "runs-on": "n150", "image":"tracy",
-    "script": "ttrt.sh",
-    "args": [
-      "perf",
-      "Silicon/TTNN/$RUNS_ON/perf"
-    ]
   },
   {
     "runs-on": "n150", "image":"tracy",
