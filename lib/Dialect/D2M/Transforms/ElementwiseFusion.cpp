@@ -14,8 +14,6 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#include <tuple>
-
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MELEMENTWISEFUSION
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -213,7 +211,9 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   /////////////////////////////////////////////////////////////////////////////
   // Create fused op
   /////////////////////////////////////////////////////////////////////////////
-  auto fusedResultTypes = TypeRange(fusedOutputs);
+  // The fused op must produce the same result types as the original consumer
+  // so that RAUW of the consumer succeeds without leaving dangling uses.
+  auto fusedResultTypes = consumer.getResultTypes();
 
   auto fusedOp = rewriter.create<GenericOp>(
       consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
@@ -343,13 +343,20 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 namespace {
 struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
   FuseD2MElementwiseOpsPattern(MLIRContext *context,
-                               unsigned maxDstPhysicalSizeTiles)
+                               unsigned maxDstPhysicalSizeTiles,
+                               DenseSet<Operation *> *fusedOps = nullptr)
       : OpRewritePattern<GenericOp>(context),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {}
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
+        alreadyFusedOps(fusedOps) {}
 
   LogicalResult matchAndRewrite(GenericOp consumer,
                                 PatternRewriter &rewriter) const final {
     if (!isValidElementwiseFusionTarget(consumer)) {
+      return failure();
+    }
+
+    // Check if this op was already fused into another chain
+    if (alreadyFusedOps && alreadyFusedOps->contains(consumer)) {
       return failure();
     }
 
@@ -360,50 +367,60 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
         ttcore::getOpChipDescAttr(consumer).getDstLogicalSizeTiles(
             largestDstType, false, maxDstPhysicalSizeTiles);
 
-    auto findFusableOperand = [&]() -> OpOperand * {
-      for (OpOperand *use : consumer.getDpsInputOperands()) {
-        if (isElementwiseFusable(use, dstCapacity,
-                                 // already checked consumer outside
-                                 false, true)) {
-          return use;
+    // Try to fuse with one producer (simple pairwise fusion)
+    for (OpOperand *use : consumer.getDpsInputOperands()) {
+      auto producer = use->get().getDefiningOp<GenericOp>();
+      if (!producer) {
+        continue;
+      }
+
+      // Skip if producer was already fused into another chain
+      if (alreadyFusedOps && alreadyFusedOps->contains(producer)) {
+        continue;
+      }
+
+      if (!isElementwiseFusable(use, dstCapacity)) {
+        continue;
+      }
+
+      // Found a fusable producer, fuse it
+      auto [fusedInputs, fusedOutputs, fusedMaps] =
+          getFusedOperands(use, producer, consumer);
+
+      GenericOp fused = createFusedGeneric(use, producer, consumer, fusedInputs,
+                                           fusedOutputs, fusedMaps, rewriter);
+
+      // Replace consumer with fused operation
+      rewriter.replaceOp(consumer, fused->getResults());
+
+      // Mark both producer and consumer as fused (they're now part of a chain)
+      // Also mark all OTHER compute inputs of the consumer as fused, since we
+      // can only follow one linear chain through a binary op
+      // The new fused op is NOT marked, so it can continue to be fused
+      if (alreadyFusedOps) {
+        alreadyFusedOps->insert(producer);
+        alreadyFusedOps->insert(consumer);
+
+        // Mark all other compute op inputs of consumer as fused
+        // (they're not part of this chain, so they can't be fused elsewhere)
+        for (OpOperand *otherUse : consumer.getDpsInputOperands()) {
+          if (otherUse == use) {
+            continue; // Skip the one we just fused
+          }
+          if (auto otherProducer = otherUse->get().getDefiningOp<GenericOp>()) {
+            alreadyFusedOps->insert(otherProducer);
+          }
         }
       }
-      return nullptr;
-    };
 
-    OpOperand *fusedOperand = findFusableOperand();
-
-    if (!fusedOperand) {
-      return failure();
+      return success();
     }
 
-    auto producer = fusedOperand->get().getDefiningOp<GenericOp>();
-    // we already check that producer is a valid GenericOp,
-    // use assert instead of if()
-    assert(producer);
-
-    // Build fused op operands, maps, results
-    auto [fusedInputs, fusedOutputs, fusedMaps] =
-        getFusedOperands(fusedOperand, producer, consumer);
-
-    auto fusedOp =
-        createFusedGeneric(fusedOperand, producer, consumer, fusedInputs,
-                           fusedOutputs, fusedMaps, rewriter);
-
-    // Replace uses: from producer and consumer results to fused results.
-    int resIdx = 0;
-    // Consumer results
-    for (auto r : consumer->getResults()) {
-      r.replaceAllUsesWith(fusedOp->getResult(resIdx++));
-    }
-
-    rewriter.eraseOp(consumer);
-    rewriter.eraseOp(producer);
-
-    return success();
+    return failure();
   }
 
   unsigned maxDstPhysicalSizeTiles = 0;
+  DenseSet<Operation *> *alreadyFusedOps = nullptr;
 };
 } // namespace
 
@@ -415,8 +432,11 @@ class D2MElementwiseFusion
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
+
+    // Track which operations have been fused to prevent cross-chain fusion
+    DenseSet<Operation *> fusedOps;
     patterns.add<FuseD2MElementwiseOpsPattern>(
-        ctx, maxDstPhysicalSizeTiles.getValue());
+        ctx, maxDstPhysicalSizeTiles.getValue(), &fusedOps);
     GreedyRewriteConfig cfg;
 
     if (failed(
