@@ -3936,4 +3936,56 @@ GlobalAvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputs[0], getDtype(), opConfig.outputLayout);
 }
 
+//===----------------------------------------------------------------------===//
+// AssignOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AssignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &config) {
+  assert(inputs.size() == 1);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+  const mlir::tt::ttnn::ShapeAttr shapeAttr =
+      mlir::tt::ttnn::ShapeAttr::get(getContext(), inputShape);
+  const mlir::tt::ttnn::MemoryConfigAttr outputMemConfig = getOutputMemConfig();
+  const std::optional<mlir::tt::ttcore::DataType> outputDtype =
+      getOutputDtype();
+  const std::optional<::mlir::TypedValue<::mlir::RankedTensorType>>
+      optionalOutputTensor = getOptionalOutputTensor()
+                                 ? std::make_optional(getOptionalOutputTensor())
+                                 : std::nullopt;
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints, *this,
+      deviceGrid, shapeAttr, inputs[0], outputMemConfig, outputDtype,
+      optionalOutputTensor);
+}
+
+llvm::Expected<size_t>
+AssignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+  const std::optional<mlir::tt::ttcore::DataType> outputDtype =
+      getOutputDtype();
+  const mlir::tt::ttnn::MemoryConfigAttr outputMemConfig = getOutputMemConfig();
+  const std::optional<::mlir::TypedValue<::mlir::RankedTensorType>>
+      optionalOutputTensor = getOptionalOutputTensor()
+                                 ? std::make_optional(getOptionalOutputTensor())
+                                 : std::nullopt;
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime, *this,
+      inputShape, inputs[0], outputMemConfig, outputDtype,
+      optionalOutputTensor);
+}
+
 } // namespace mlir::tt::ttnn

@@ -2764,4 +2764,24 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
 
   let hasVerifier = 1;
 }
+
+def TTNN_AssignOp : TTNN_Op<"assign"> {
+    let summary = "Assign Tensor";
+    let description = [{
+      Returns a new tensor which is a new copy of input tensor.
+      Alternatively, copies input tensor ``input`` to ``optional_output_tensor``
+      if their shapes and memory layouts match, and returns input_b tensor.
+      Input tensors can be of any data type.
+      Output tensor will be of same data type as Input tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTNN_MemoryConfigAttr:$output_mem_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
+                         Optional<AnyRankedTensor>:$optional_output_tensor);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
 #endif

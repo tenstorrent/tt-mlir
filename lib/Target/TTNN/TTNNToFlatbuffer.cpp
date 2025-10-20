@@ -1911,6 +1911,27 @@ createOp(FlatbufferObjectCache &cache, ttcore::LoadCachedOp op,
       *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AssignOp>
+createOp(FlatbufferObjectCache &cache, AssignOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto outputMemConfig = toFlatbuffer(cache, op.getOutputMemConfig());
+
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype =
+      toFlatbuffer(cache, op.getOutputDtype());
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> optionalOutputTensor = 0;
+  if (op.getOptionalOutputTensor()) {
+    optionalOutputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getOptionalOutputTensor()));
+  }
+
+  return ::tt::target::ttnn::CreateAssignOp(*cache.fbb, input, output,
+                                            outputMemConfig, outputDtype,
+                                            optionalOutputTensor);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::WriteTensorOp>
 createOp(FlatbufferObjectCache &cache, WriteTensorOp op) {
   auto hostTensor = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2948,6 +2969,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       scaledDotProductAttentionOp) {
     return createOperation(cache, createOp(cache, scaledDotProductAttentionOp),
                            debugString, locInfo);
+  }
+
+  if (auto assignOp = dyn_cast<AssignOp>(op); assignOp) {
+    return createOperation(cache, createOp(cache, assignOp), debugString,
+                           locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

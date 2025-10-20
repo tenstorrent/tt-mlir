@@ -1432,5 +1432,28 @@ struct OpModel<mlir::tt::ttnn::RandOp> {
       uint32_t seed, mlir::tt::ttnn::TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// AssignOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<mlir::tt::ttnn::AssignOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(mlir::tt::ttcore::GridAttr deviceGrid,
+                   mlir::tt::ttnn::ShapeAttr inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
+                   std::optional<mlir::tt::ttcore::DataType> outputDtype,
+                   std::optional<::mlir::TypedValue<::mlir::RankedTensorType>>
+                       optionalOutputTensor);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               mlir::tt::ttnn::MemoryConfigAttr outputMemConfig,
+               std::optional<mlir::tt::ttcore::DataType> outputDtype,
+               std::optional<::mlir::TypedValue<::mlir::RankedTensorType>>
+                   optionalOutputTensor);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
