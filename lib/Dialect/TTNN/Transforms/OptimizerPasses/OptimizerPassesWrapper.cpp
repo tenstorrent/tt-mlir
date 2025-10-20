@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Support/Logger.h"
-#include <llvm/Support/raw_ostream.h>
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 #include "ttmlir/Dialect/TTNN/Transforms/OptimizerPassesWrapper.h"
@@ -53,10 +52,8 @@ public:
     populatePipeline(nestedPm);
 
     // Ensure closeInstance() gets called always.
-    auto guard = llvm::make_scope_exit([]() noexcept {
-      llvm::errs() << "Exiting nested pipeline and closing device instance\n";
-      op_model::SingletonDeviceContext::closeInstance();
-    });
+    auto guard = llvm::make_scope_exit(
+        []() noexcept { op_model::SingletonDeviceContext::closeInstance(); });
 
     // Run the nested pipeline
     if (failed(runPipeline(nestedPm, getOperation()))) {

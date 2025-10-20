@@ -5,7 +5,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/OpModel/TTNN/OpModelDeviceGuard.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
 
@@ -26,15 +26,14 @@ public:
   // const evaluation, which will improve performance by eliminating the need
   // for preprocessing the weights and bias on the host/device.
   void runOnOperation() final {
+#ifndef TTMLIR_ENABLE_OPMODEL
+    llvm::llvm_unreachable_internal(
+        "TTNNPrepareConv2dWeightsAndBias pass requires OpModel support to be "
+        "enabled.");
+#else
     // Device lifecycle is managed by OpModelDeviceWrapperPass in the pipeline,
     // but for standalone pass usage, the guard opens/closes it.
-    op_model::OpModelDeviceGuard deviceGuard;
-
-#ifndef TTMLIR_ENABLE_OPMODEL
-    // When OPMODEL is disabled, this pass should not run.
-    // It's a no-op but allows compilation to succeed.
-    return;
-#endif
+    op_model::ScopedSingletonDeviceGuard deviceGuard;
 
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
@@ -137,6 +136,7 @@ public:
         conv2dOp.setConv2dConfigAttr(conv2dConfig);
       });
     });
+#endif // TTMLIR_ENABLE_OPMODEL
   }
 
 private:
