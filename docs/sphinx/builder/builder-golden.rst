@@ -1,7 +1,7 @@
 builder\_golden
 ===========================
 
-.. automodule:: builder.base.builder_golden
+.. automodule:: goldens
    :members:
    :undoc-members:
    :show-inheritance:

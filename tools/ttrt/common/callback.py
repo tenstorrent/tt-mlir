@@ -120,8 +120,10 @@ def golden(callback_runtime_config, binary, program_context, op_context):
     logging.debug("executing golden comparison")
 
     loc = ttrt.runtime.get_op_loc_info(op_context)
+    print(loc)
 
     op_golden_tensor_map = binary.get_debug_info_golden(loc)
+    print(op_golden_tensor_map)
     if len(op_golden_tensor_map) == 0:
         logging.debug("Golden tensor is None - skipping golden comparison")
         return
