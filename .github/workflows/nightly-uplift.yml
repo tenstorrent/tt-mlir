@@ -49,8 +49,7 @@ jobs:
           LATEST_SFPI_INFO_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-info.sh?ref=${{ env.LATEST_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
           LATEST_SFPI_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-version?ref=${{ env.LATEST_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
 
-          if [ "$CURRENT_SFPI_INFO_SHA" == "not_found" ] || \
-             [ "$CURRENT_INSTALL_DEPS_SHA" != "$LATEST_INSTALL_DEPS_SHA" ] || \
+          if [ "$CURRENT_INSTALL_DEPS_SHA" != "$LATEST_INSTALL_DEPS_SHA" ] || \
              [ "$CURRENT_SFPI_INFO_SHA" != "$LATEST_SFPI_INFO_SHA" ] || \
              [ "$CURRENT_SFPI_VERSION_SHA" != "$LATEST_SFPI_VERSION_SHA" ]; then
             # Update the commit hash in Dockerfile.base
