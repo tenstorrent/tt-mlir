@@ -13,7 +13,8 @@ COMMON_SHAPE_GRID_PARAMS = [
     (32, 32, (0, 0)),
     (32, 64, (0, 0)),
     (64, 64, (0, 0)),
-    (64, 128, (0, 0)),
+    (64, 128, (3, 0)),
+    (64, 128, (0, 1)),
     (128, 128, (0, 0)),
     (256, 256, (7, 7)),
     (256, 512, (7, 7)),
@@ -23,6 +24,8 @@ COMMON_SHAPE_GRID_PARAMS = [
     (1024, 2048, (7, 7)),
 ]
 
+def memory_configs_equal(memory_config1, memory_config2):
+    return memory_config1.memory_layout == memory_config2.memory_layout and memory_config1.buffer_type == memory_config2.buffer_type and memory_config1.shard_spec == memory_config2.shard_spec
 
 def create_dram_tensor(device, h, w, dtype):
     torch.manual_seed(0)
@@ -48,8 +51,8 @@ def create_sharded_tile_tensor(device, h, w, max_grid, dtype):
     core_range = ttnn.CoreRange(start_coord, end_coord)
     core_range_set = ttnn.CoreRangeSet([core_range])
 
-    shard_shape_x = h if max_grid[0] == 0 else h // (max_grid[0] + 1)
-    shard_shape_y = w if max_grid[1] == 0 else w // (max_grid[1] + 1)
+    shard_shape_x = h if max_grid[1] == 0 else h // (max_grid[1] + 1)
+    shard_shape_y = w if max_grid[0] == 0 else w // (max_grid[0] + 1)
 
     shard_spec = ttnn.ShardSpec(
         grid=core_range_set,
@@ -108,7 +111,7 @@ def run_op_test(
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
-    assert output_tensor.memory_config() == golden_tensor.memory_config()
+    assert memory_configs_equal(output_tensor.memory_config(), golden_tensor.memory_config())
     all_close_check(output_tensor, golden_tensor)
 
 

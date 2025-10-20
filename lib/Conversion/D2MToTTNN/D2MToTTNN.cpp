@@ -121,8 +121,8 @@ public:
     ttnn::CoreRangeSetAttr coreRangeSet = ttnn::CoreRangeSetAttr::get(
         ctx, ttnn::CoreRangeAttr::get(
                  ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
-                 ttnn::CoreCoordAttr::get(ctx, grid.getShape()[0] - 1,
-                                          grid.getShape()[1] - 1)));
+                 ttnn::CoreCoordAttr::get(ctx, grid.getShape()[1] - 1,
+                                          grid.getShape()[0] - 1)));
 
     llvm::SmallVector<Value> ios(size);
     llvm::SmallVector<Value> cbs(size);
