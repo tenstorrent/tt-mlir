@@ -2787,7 +2787,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.MatmulOp: torch.matmul,
     ttir.EmbeddingOp: embedding_golden,
     ttir.Upsample2dOp: upsample2d_golden,
-    ttir.BatchNormOp: batch_norm_golden,
+    ttir.BatchNormInferenceOp: batch_norm_golden,
     ttir.RMSNormOp: rms_norm_golden,
     # Type operations
     ttir.TypecastOp: typecast_golden,

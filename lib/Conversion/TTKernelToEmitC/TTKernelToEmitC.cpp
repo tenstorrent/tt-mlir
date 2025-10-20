@@ -418,7 +418,11 @@ public:
       }
       if (operandsIter != operandsEnd) {
         if (mlir::isa<ttkernel::CBType>(
-                op.getOperands()[operandsIter.getIndex()].getType())) {
+                op.getOperands()[operandsIter.getIndex()].getType()) &&
+            op->getParentOfType<func::FuncOp>()
+                    ->getAttrOfType<ttkernel::ThreadTypeAttr>(
+                        ttkernel::ThreadTypeAttr::name)
+                    .getValue() == ttkernel::ThreadType::Compute) {
           auto cbPrinter =
               rewriter
                   .create<emitc::CallOpaqueOp>(

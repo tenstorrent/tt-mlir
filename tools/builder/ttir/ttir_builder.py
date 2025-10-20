@@ -3050,7 +3050,6 @@ class TTIRBuilder(Builder):
         variance: Operand,
         epsilon: float = 1e-5,
         dimension: int = 1,
-        training: bool = False,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
@@ -3079,8 +3078,6 @@ class TTIRBuilder(Builder):
             Small value added to variance for numerical stability (default: 1e-5)
         dimension : int, optional
             Dimension along which to normalize (default: 1)
-        training : bool, optional
-            Whether the operation is in training mode (default: False)
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -3090,17 +3087,15 @@ class TTIRBuilder(Builder):
             Output tensor after batch normalization
         """
         return self._op_proxy(
-            ttir.BatchNormOp,
+            ttir.BatchNormInferenceOp,
             [in0, scale, offset, mean, variance],
             golden_kwargs={
                 "epsilon": epsilon,
-                "training": training,
                 "dim": dimension,
             },
             ttir_kwargs={
                 "epsilon": FloatAttr.get_f32(epsilon),
                 "dimension": IntegerAttr.get(IntegerType.get_signless(32), dimension),
-                "training": BoolAttr.get(training),
             },
             # organize_ttir_args=lambda i, o, _: (self._get_type(o), *i, o),
             unit_attrs=unit_attrs,
