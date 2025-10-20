@@ -33,11 +33,6 @@ jobs:
           LATEST_TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-metal/commits/main --jq '.sha')
           echo "LATEST_TT_METAL_VERSION=$LATEST_TT_METAL_VERSION" >> $GITHUB_ENV
 
-      - name: Update tt-metal reference in third_party/CMakeLists.txt
-        run: |
-          echo "Updating tt-metal to SHA: ${{ env.LATEST_TT_METAL_VERSION }}"
-          sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ env.LATEST_TT_METAL_VERSION }}\")/" third_party/CMakeLists.txt
-
       - name: Check for dependency file changes and update Dockerfile
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,18 +41,28 @@ jobs:
 
           # Fetch file hashes from current version
           CURRENT_INSTALL_DEPS_SHA=$(gh api repos/tenstorrent/tt-metal/contents/install_dependencies.sh?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
-          CURRENT_SFPI_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-version.sh?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
+          CURRENT_SFPI_INFO_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-info.sh?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
+          CURRENT_SFPI_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-version?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
 
           # Fetch file hashes from latest version
           LATEST_INSTALL_DEPS_SHA=$(gh api repos/tenstorrent/tt-metal/contents/install_dependencies.sh?ref=${{ env.LATEST_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
-          LATEST_SFPI_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-version.sh?ref=${{ env.LATEST_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
+          LATEST_SFPI_INFO_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-info.sh?ref=${{ env.LATEST_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
+          LATEST_SFPI_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-version?ref=${{ env.LATEST_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
 
-          if [ "$CURRENT_INSTALL_DEPS_SHA" != "$LATEST_INSTALL_DEPS_SHA" ] || [ "$CURRENT_SFPI_VERSION_SHA" != "$LATEST_SFPI_VERSION_SHA" ]; then
+          if [ "$CURRENT_SFPI_INFO_SHA" == "not_found" ] || \
+             [ "$CURRENT_INSTALL_DEPS_SHA" != "$LATEST_INSTALL_DEPS_SHA" ] || \
+             [ "$CURRENT_SFPI_INFO_SHA" != "$LATEST_SFPI_INFO_SHA" ] || \
+             [ "$CURRENT_SFPI_VERSION_SHA" != "$LATEST_SFPI_VERSION_SHA" ]; then
             # Update the commit hash in Dockerfile.base
             sed -i "s|ARG TT_METAL_COMMIT=.*|ARG TT_METAL_COMMIT=${{ env.LATEST_TT_METAL_VERSION }}|" .github/Dockerfile.base
             DOCKERFILE_UPDATED="**Note** Dockerfile.base is modified due to dependency updates"
             echo "DOCKERFILE_UPDATED=$DOCKERFILE_UPDATED" >> $GITHUB_ENV
           fi
+
+      - name: Update tt-metal reference in third_party/CMakeLists.txt
+        run: |
+          echo "Updating tt-metal to SHA: ${{ env.LATEST_TT_METAL_VERSION }}"
+          sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ env.LATEST_TT_METAL_VERSION }}\")/" third_party/CMakeLists.txt
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
