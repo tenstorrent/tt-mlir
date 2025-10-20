@@ -798,8 +798,6 @@ public:
         Block &entryBlock = funcOp.getBody().front();
 
         // Insert hw_startup if not already present in this function.
-        // Note: This assumes all ops in the kernel use the same format
-        // conversion.
         if (entryBlock.getOps<ttkernel::ComputeKernelHWStartupOp>().empty()) {
           auto insertPt = rewriter.saveInsertionPoint();
 
