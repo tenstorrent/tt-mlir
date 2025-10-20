@@ -16,10 +16,6 @@
   },
   {
     "runs-on": "n150", "image":"tracy",
-    "script": "test-ttrt.sh"
-  },
-  {
-    "runs-on": "n150", "image":"tracy",
     "script": "pytest.sh",
     "args": "test/python/op_by_op"
   },
@@ -40,5 +36,9 @@
       "perf",
       "Silicon/TTNN/$RUNS_ON/perf"
     ]
+  },
+  {
+    "runs-on": "n150", "image":"tracy",
+    "script": "test-ttrt.sh"
   }
 ]
