@@ -36,9 +36,9 @@ enablePrintIR = True
 
 gridParams = [
     "override-device-shape=1,1",
-    # "override-device-shape=2,2",
-    # "override-device-shape=4,4",
-    # "override-device-shape=8,8",
+    "override-device-shape=2,2",
+    "override-device-shape=4,4",
+    "override-device-shape=8,8",
 ]
 
 ### ----------------------------------------------------------------------- ###
@@ -430,51 +430,6 @@ def test_eltwise_fuse_converging_unary_branches(
 
 
 ##--##-------------------------------------------------------------------##--##
-@pytest.mark.parametrize("grid", gridParams)
-@pytest.mark.parametrize("shape", [(128, 128)])
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_eltwise_fuse_binary_reduction_tree_2_to_1(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
-):
-    options = [grid]
-
-    def add_tree_2_to_1(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-    ):
-        input_0 = torch.full(shape, 1).to(dtype)
-        input_1 = torch.full(shape, 2).to(dtype)
-        add_0_0 = builder.add(in0, in1)
-
-        output_0 = torch.full(shape, 3).to(dtype)
-
-        builder.set_goldens(
-            {
-                in0: input_0,
-                in1: input_1,
-            },
-            {add_0_0: output_0},
-        )
-
-        return add_0_0
-
-    compile_and_execute_ttir(
-        add_tree_2_to_1,
-        [shape] * 2,
-        [dtype] * 2,
-        target=target,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        test_base=request.node.name,
-        module_dump=True,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=enablePrintIR,
-        device=device,
-    )
-
-
 @pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access="use-tile-matmul=true max-dst-physical-size-tiles=32" --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-generic-tile-compute-loops --d2m-insert-dst-register-access="use-tile-matmul=true max-dst-physical-size-tiles=32" --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>
@@ -56,7 +56,7 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<3x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<3x2x!ttcore.tile<32x32, f32>, #l1_>
       // Check that constants and destination buffer are created
       // CHECK: %[[C0:.*]] = arith.constant 0 : index
-      // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>
+      // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<4x1x2x!ttcore.tile<32x32, f32>, #dst>
 
       // Check for iteration index and conditional initialization
       // CHECK: %[[ITER2:.*]] = d2m.iter_index(2) : index
@@ -64,28 +64,28 @@ module {
       // CHECK: scf.if %[[CMP]] {
 
       // Check conditional initialization loop structure (2D loop for initialization)
-      // CHECK: affine.for %[[INIT_I:.*]] = 0 to 3 {
+      // CHECK: affine.for %[[INIT_I:.*]] = 0 to 1 {
       // CHECK-NEXT: affine.for %[[INIT_J:.*]] = 0 to 2 {
 
       // Check initialization: load from l1, store to dst
-      // CHECK: %[[INIT_VAL:.*]] = affine.load {{%.*}}[%[[INIT_I]], %[[INIT_J]]] : memref<3x2x!ttcore.tile<32x32, f32>, #l1>
-      // CHECK: affine.store %[[INIT_VAL]], %[[DST]][0, %[[INIT_I]], %[[INIT_J]]] : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>
+      // CHECK: %[[INIT_VAL:.*]] = affine.load {{%.*}}[%[[INIT_I]], %[[INIT_J]]] : memref<1x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>
+      // CHECK: affine.store %[[INIT_VAL]], %[[DST]][0, %[[INIT_I]], %[[INIT_J]]] : memref<4x1x2x!ttcore.tile<32x32, f32>, #dst>
 
       // Check main computation loop structure (3D loop nest)
-      // CHECK: affine.for %[[I:.*]] = 0 to 3 {
+      // CHECK: affine.for %[[I:.*]] = 0 to 1 {
       // CHECK-NEXT: affine.for %[[J:.*]] = 0 to 2 {
       // CHECK-NEXT: affine.for %[[K:.*]] = 0 to 3 {
 
       // Check loads in computation loop: first two from l1, accumulator from dst
-      // CHECK: %[[A_VAL:.*]] = affine.load {{%.*}}[%[[I]], %[[K]]] : memref<3x3x!ttcore.tile<32x32, f32>, #l1>
+      // CHECK: %[[A_VAL:.*]] = affine.load {{%.*}}[%[[I]], %[[K]]] : memref<1x3x!ttcore.tile<32x32, f32>, strided<[3, 1], offset: ?>, #l1>
       // CHECK: %[[B_VAL:.*]] = affine.load {{%.*}}[%[[K]], %[[J]]] : memref<3x2x!ttcore.tile<32x32, f32>, #l1>
-      // CHECK: %[[C_VAL:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]] : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>
+      // CHECK: %[[C_VAL:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]] : memref<4x1x2x!ttcore.tile<32x32, f32>, #dst>
 
       // Check matmul operation uses values from correct memory spaces
       // CHECK: %[[MATMUL_RESULT:.*]] = "d2m.tile_matmul"(%[[A_VAL]], %[[B_VAL]], %[[C_VAL]]) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
 
       // Check result is stored back to dst
-      // CHECK: affine.store %[[MATMUL_RESULT]], %[[DST]][0, %[[I]], %[[J]]] : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>
+      // CHECK: affine.store %[[MATMUL_RESULT]], %[[DST]][0, %[[I]], %[[J]]] : memref<4x1x2x!ttcore.tile<32x32, f32>, #dst>
       %c0 = arith.constant 0 : index
       %c3_10 = arith.constant 3 : index
       %c3_11 = arith.constant 3 : index
@@ -111,12 +111,12 @@ module {
       }
 
       // Check final writeback loop structure (2D loop)
-      // CHECK: affine.for %[[WB_I:.*]] = 0 to 3 {
+      // CHECK: affine.for %[[WB_I:.*]] = 0 to 1 {
       // CHECK-NEXT: affine.for %[[WB_J:.*]] = 0 to 2 {
 
       // Check writeback: load from dst, store to l1
-      // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[WB_I]], %[[WB_J]]] : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>
-      // CHECK: affine.store %[[FINAL_VAL]], {{%.*}}[%[[WB_I]], %[[WB_J]]] : memref<3x2x!ttcore.tile<32x32, f32>, #l1>
+      // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[WB_I]], %[[WB_J]]] : memref<4x1x2x!ttcore.tile<32x32, f32>, #dst>
+      // CHECK: affine.store %[[FINAL_VAL]], {{%.*}}[%[[WB_I]], %[[WB_J]]] : memref<1x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>
     }
     return
   }

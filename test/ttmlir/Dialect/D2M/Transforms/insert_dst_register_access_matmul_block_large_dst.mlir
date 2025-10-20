@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access="use-tile-matmul=false max-dst-physical-size-tiles=32" --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-generic-tile-compute-loops --d2m-insert-dst-register-access="use-tile-matmul=false max-dst-physical-size-tiles=32" --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>
@@ -51,59 +51,46 @@ module {
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<3x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<3x2x!ttcore.tile<32x32, f32>, #l1_>
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<3x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<3x2x!ttcore.tile<32x32, f32>, #l1_>
       // Check that constants and destination buffer are created and blocks are created as casts from the CBs
-      // CHECK: %[[C0:.*]] = arith.constant 0 : index
-      // CHECK: %[[blockA:.*]] = memref.cast {{%.*}} : memref<3x3x!ttcore.tile<32x32, f32>, #l1> to memref<3x3x!ttcore.tile<32x32, f32>, strided<[3, 1], offset: ?>, #l1>
+      // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
+      // CHECK-DAG: %[[C3:.*]] = arith.constant 3 : index
+      // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
+      // CHECK: scf.for %[[ARG3:.*]] = %[[C0]] to %[[C3]] step %[[C1]] {
+      // CHECK: %[[blockA:.*]] = memref.subview {{%.*}}[%[[ARG3]], 0] [1, 3] [1, 1] : memref<3x3x!ttcore.tile<32x32, f32>, #l1> to memref<1x3x!ttcore.tile<32x32, f32>, strided<[3, 1], offset: ?>, #l1>
       // CHECK: %[[blockB:.*]] = memref.cast {{%.*}} : memref<3x2x!ttcore.tile<32x32, f32>, #l1> to memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>
-      // CHECK: %[[blockOut:.*]] = memref.cast {{%.*}} : memref<3x2x!ttcore.tile<32x32, f32>, #l1> to memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>
-      // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>
+      // CHECK: %[[blockOut:.*]] = memref.subview {{%.*}}[%[[ARG3]], 0] [1, 2] [1, 1] : memref<3x2x!ttcore.tile<32x32, f32>, #l1> to memref<1x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>
+      // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<4x1x2x!ttcore.tile<32x32, f32>, #dst>
 
       // Check for iteration index and conditional initialization
       // CHECK: %[[ITER2:.*]] = d2m.iter_index(2) : index
       // CHECK: %[[CMP:.*]] = arith.cmpi ne, %[[ITER2]], %[[C0]] : index
       // CHECK: scf.if %[[CMP]] {
 
-      // Check conditional initialization loop structure (2D loop for initialization)
-      // CHECK: affine.for %[[INIT_I:.*]] = 0 to 3 {
+      // Check conditional initialization loop structure (3D loop for initialization)
+      // CHECK: affine.for %[[INIT_I:.*]] = 0 to 1 {
       // CHECK-NEXT: affine.for %[[INIT_J:.*]] = 0 to 2 {
+      // CHECK-NEXT: affine.for %[[INIT_K:.*]] = 0 to 3 {
 
       // Check initialization: load from l1, store to dst
-      // CHECK: %[[INIT_VAL:.*]] = affine.load {{%.*}}[%[[INIT_I]], %[[INIT_J]]] : memref<3x2x!ttcore.tile<32x32, f32>, #l1>
-      // CHECK: affine.store %[[INIT_VAL]], %[[DST]][0, %[[INIT_I]], %[[INIT_J]]] : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>
+      // CHECK: %[[INIT_VAL:.*]] = affine.load {{%.*}}[%[[INIT_I]], %[[INIT_J]]] : memref<1x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>
+      // CHECK: affine.store %[[INIT_VAL]], %[[DST]][0, %[[INIT_I]], %[[INIT_J]]] : memref<4x1x2x!ttcore.tile<32x32, f32>, #dst>
 
       // Check matmul operation uses values from correct memory spaces
-      // CHECK: "d2m.tile_matmul_block"(%[[blockA]], %[[blockB]], %[[blockOut]]) : (memref<3x3x!ttcore.tile<32x32, f32>, strided<[3, 1], offset: ?>, #l1>, memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>, memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>) -> ()
+      // CHECK: "d2m.tile_matmul_block"(%[[blockA]], %[[blockB]], %[[blockOut]]) : (memref<1x3x!ttcore.tile<32x32, f32>, strided<[3, 1], offset: ?>, #l1>, memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>, memref<1x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>) -> ()
 
-      %c0 = arith.constant 0 : index
-      %c3_10 = arith.constant 3 : index
-      %c3_11 = arith.constant 3 : index
-      %c0_12 = arith.constant 0 : index
-      %c2_13 = arith.constant 2 : index
-      %c2_14 = arith.constant 2 : index
-      %c0_15 = arith.constant 0 : index
-      %c3_16 = arith.constant 3 : index
-      %c3_17 = arith.constant 3 : index
-      scf.for %arg2 = %c0 to %c3_10 step %c3_11 {
-        scf.for %arg3 = %c0_12 to %c2_13 step %c2_14 {
-          scf.for %arg4 = %c0_15 to %c3_16 step %c3_17 {
-            %subview = memref.subview %cb0[%arg2, %arg4] [3, 3] [1, 1] : memref<3x3x!ttcore.tile<32x32, f32>, #l1_> to memref<3x3x!ttcore.tile<32x32, f32>, strided<[3, 1], offset: ?>, #l1_>
-            %subview_18 = memref.subview %cb1[%arg4, %arg3] [3, 2] [1, 1] : memref<3x2x!ttcore.tile<32x32, f32>, #l1_> to memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1_>
-            %subview_19 = memref.subview %cb2[%arg2, %arg3] [3, 2] [1, 1] : memref<3x2x!ttcore.tile<32x32, f32>, #l1_> to memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1_>
-            linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%subview, %subview_18 : memref<3x3x!ttcore.tile<32x32, f32>, strided<[3, 1], offset: ?>, #l1_>, memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1_>) outs(%subview_19 : memref<3x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1_>) {
-            ^bb0(%in: !ttcore.tile<32x32, f32>, %in_20: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
-              %0 = "d2m.tile_matmul"(%in, %in_20, %out) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-              linalg.yield %0 : !ttcore.tile<32x32, f32>
-            }
-          }
-        }
+      linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%cb0, %cb1 : memref<3x3x!ttcore.tile<32x32, f32>, #l1_>, memref<3x2x!ttcore.tile<32x32, f32>, #l1_>) outs(%cb2 : memref<3x2x!ttcore.tile<32x32, f32>, #l1_>) {
+      ^bb0(%in: !ttcore.tile<32x32, f32>, %in_20: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
+        %0 = "d2m.tile_matmul"(%in, %in_20, %out) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %0 : !ttcore.tile<32x32, f32>
       }
 
-      // Check final writeback loop structure (2D loop)
-      // CHECK: affine.for %[[WB_I:.*]] = 0 to 3 {
+      // Check final writeback loop structure (3D loop)
+      // CHECK: affine.for %[[WB_I:.*]] = 0 to 1 {
       // CHECK-NEXT: affine.for %[[WB_J:.*]] = 0 to 2 {
+      // CHECK-NEXT: affine.for %[[WB_K:.*]] = 0 to 3 {
 
       // Check writeback: load from dst, store to l1
-      // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[WB_I]], %[[WB_J]]] : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>
-      // CHECK: affine.store %[[FINAL_VAL]], {{%.*}}[%[[WB_I]], %[[WB_J]]] : memref<3x2x!ttcore.tile<32x32, f32>, #l1>
+      // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[WB_I]], %[[WB_J]]] : memref<4x1x2x!ttcore.tile<32x32, f32>, #dst>
+      // CHECK: affine.store %[[FINAL_VAL]], {{%.*}}[%[[WB_I]], %[[WB_J]]] : memref<1x2x!ttcore.tile<32x32, f32>, strided<[2, 1], offset: ?>, #l1>
     }
     return
   }

@@ -39,18 +39,34 @@ DestRegisterAnalysis::DestRegisterAnalysis(Operation *op) {
       }
     });
 
-    // Phase 2: Load all inputs at the beginning.
-    for (Value input : inputValues) {
-      int inputIndex = nextAvailableIndex++;
-      valueToDstIndex[input] = inputIndex;
-      // Record input indices for DST allocation
-      info.dstSliceIndices.push_back(inputIndex);
-    }
-
-    // Phase 3: Process compute ops.
+    // Phase 2: Process compute ops.
     genericOp->walk([&](Operation *innerOp) {
       if (innerOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-        int numOperands = innerOp->getNumOperands();
+        // Get the operands that must be loaded from DST for this op
+        llvm::SmallVector<int64_t> dstOperandIndices;
+        if (auto loadStoreInterface =
+                llvm::dyn_cast<OperandLoadStoreRegisterOpInterface>(innerOp)) {
+          dstOperandIndices =
+              loadStoreInterface.getOperandsLoadFromDstRegister();
+        }
+
+        // Allocate DST indices for operands that need to be loaded from DST
+        for (int64_t operandIdx : dstOperandIndices) {
+          if (operandIdx < static_cast<int64_t>(innerOp->getNumOperands())) {
+            Value operand = innerOp->getOperand(operandIdx);
+            if (valueToDstIndex.find(operand) == valueToDstIndex.end()) {
+              Operation *definingOp = operand.getDefiningOp();
+              if (!definingOp ||
+                  !definingOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+                // This is an external input, allocate a DST index.
+                valueToDstIndex[operand] = nextAvailableIndex++;
+                info.dstSliceIndices.push_back(valueToDstIndex[operand]);
+                llvm::errs() << "    Allocated external input DST index: "
+                             << valueToDstIndex[operand] << "\n";
+              }
+            }
+          }
+        }
 
         // Check if this is an in-place operation.
         bool isInPlace = false;
@@ -59,25 +75,19 @@ DestRegisterAnalysis::DestRegisterAnalysis(Operation *op) {
           isInPlace = loadStoreInterface.getDstRegInPlace();
         }
 
-        // Get the input destination index (for in-place ops).
-        int inputIndex = -1;
-        if (isInPlace && numOperands > 0) {
+        // Allocate or reuse destination index for the output.
+        int outputIndex;
+        if (isInPlace && innerOp->getNumOperands() > 0) {
           Value operand = innerOp->getOperand(0);
           if (Operation *definingOp = operand.getDefiningOp()) {
             if (definingOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-              inputIndex = opToDstIndex[definingOp];
+              outputIndex = opToDstIndex[definingOp];
             } else {
-              inputIndex = valueToDstIndex[operand];
+              outputIndex = valueToDstIndex[operand];
             }
           } else {
-            inputIndex = valueToDstIndex[operand];
+            outputIndex = valueToDstIndex[operand];
           }
-        }
-
-        // Allocate or reuse destination index.
-        int outputIndex;
-        if (isInPlace) {
-          outputIndex = inputIndex;
         } else {
           outputIndex = nextAvailableIndex++;
         }
@@ -88,7 +98,7 @@ DestRegisterAnalysis::DestRegisterAnalysis(Operation *op) {
     });
 
     info.dstMaxUsage = std::max(info.dstMaxUsage, nextAvailableIndex);
-    genericOpMap[genericOp] = info;
+    dstRegisterInfoList.push_back(info);
   });
 }
 
