@@ -67,16 +67,15 @@ MemRefType getBufferType(Type type, bool isView,
            "expected tensor encoding to provide a concrete index_map for view");
     layoutAttr = ttcore::ViewLayoutAttr::get(ctx, map);
   } else {
-    const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
 
     auto indexMap = layout.getIndexAffineMap();
-    if (!indexMap || indexMap.getNumResults() == 0) {
-      auto defaultMap = mlir::AffineMap::getMultiDimIdentityMap(rank, ctx);
-      // TODO: map should be omitted here to avoid IR bloat
+    indexMap.isMinorIdentity();
+    if (!indexMap || indexMap.isIdentity() || indexMap.getNumResults() == 0) {
       layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
-                                                /*buffered=*/1, defaultMap);
+                                                /*buffered=*/1);
     } else {
+      llvm::dbgs() << "GenericOp::getBufferType | indexMap: " << indexMap << "\n";
       layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
                                                 /*buffered=*/1, indexMap);
     }
@@ -1363,6 +1362,18 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
   return shardShapes;
 }
 
+AffineMap d2m::GenericOp::getCoreVirtualizationMap() {
+
+  auto [underlyingMemref, _] = applyViews(getOutputOperand().getDefiningOp());
+
+  if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
+          underlyingMemref.getLayout())) {
+    return shardLayout.getCoreVirtualizationMap();
+  } else {
+    return {};
+  }
+}
+
 mlir::SmallVector<int64_t> d2m::GenericOp::getVirtualComputeGrid() {
   auto [underlyingMemref, _] =
       mlir::tt::d2m::applyViews(getOutputOperand().getDefiningOp());
@@ -1370,33 +1381,27 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getVirtualComputeGrid() {
   SmallVector<int64_t> virtualComputeGrid(getGrid().getShape().begin(),
                                           getGrid().getShape().end());
 
-  if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
-          underlyingMemref.getLayout())) {
-    if (!shardLayout.getCoreVirtualizationMap().isEmpty()) {
-      auto outputType = mlir::cast<ShapedType>(getOutputOperand().getType());
-      auto outputGridShape = shardLayout.getGridShape(outputType);
+  if (auto coreVirtualizationMap = getCoreVirtualizationMap()) {
+    auto outputType = mlir::cast<ShapedType>(getOutputOperand().getType());
+    auto shardLayout =
+        mlir::dyn_cast<ttcore::ShardLayoutAttr>(underlyingMemref.getLayout());
+    auto outputGridShape = shardLayout.getGridShape(outputType);
 
-      auto coreVirtualizationMap = shardLayout.getCoreVirtualizationMap();
-      coreVirtualizationMap = ttmlir::utils::affineMapDropRange(
-          coreVirtualizationMap, outputGridShape.size(),
-          coreVirtualizationMap.getNumResults() - 1);
+    coreVirtualizationMap = ttmlir::utils::affineMapDropRange(
+        coreVirtualizationMap, outputGridShape.size(),
+        coreVirtualizationMap.getNumResults() - 1);
 
-      virtualComputeGrid =
-          SmallVector<int64_t>(outputGridShape.begin(), outputGridShape.end());
-      ttmlir::utils::sample(
-          getGrid().getShape(), [&](SmallVector<int64_t, 8> point) {
-            SmallVector<int64_t> virtualPoint =
-                coreVirtualizationMap.compose(point);
-            for (size_t i = 0; i < virtualPoint.size(); ++i) {
-              virtualComputeGrid[i] =
-                  std::max(virtualComputeGrid[i], virtualPoint[i] + 1);
-            }
-          });
-
-      llvm::dbgs() << "GenericOp::getLoopBounds | virtualComputeGrid: "
-                   << ttmlir::utils::formatIterable(virtualComputeGrid, "x")
-                   << "\n";
-    }
+    virtualComputeGrid =
+        SmallVector<int64_t>(outputGridShape.begin(), outputGridShape.end());
+    ttmlir::utils::sample(
+        getGrid().getShape(), [&](SmallVector<int64_t, 8> point) {
+          SmallVector<int64_t> virtualPoint =
+              coreVirtualizationMap.compose(point);
+          for (size_t i = 0; i < virtualPoint.size(); ++i) {
+            virtualComputeGrid[i] =
+                std::max(virtualComputeGrid[i], virtualPoint[i] + 1);
+          }
+        });
   }
 
   return virtualComputeGrid;

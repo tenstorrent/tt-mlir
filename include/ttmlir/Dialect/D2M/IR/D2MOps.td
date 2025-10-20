@@ -282,6 +282,8 @@ def D2M_GenericOp : D2M_Op<"generic",
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<int64_t> getBlockFactorsValue();
       SmallVector<int64_t> getVirtualComputeGrid();
+      // get core virtualization map from the output operand of the generic
+      AffineMap getCoreVirtualizationMap();
 
       ttcore::DeviceAttr getDevice();
       SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);

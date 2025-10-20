@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
+#include "ttmlir/Asserts.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -47,25 +48,25 @@ public:
     streamIndex.reserve(dmaIndexingMap.getNumResults());
     indexBounds.reserve(dmaIndexingMap.getNumResults());
 
-    // create all physical core indices in advance
+    // Compute virtualized core indices from raw physical core indices using the
+    // core virtualization map. This ensures both grid and shard indices are
+    // in the virtual (viewed) coord space of the generic op's output operand.
     SmallVector<Value> physicalCoreIndices(gridIndexingMap.getNumResults());
     for (unsigned gridIndex = 0; gridIndex < gridIndexingMap.getNumResults();
          gridIndex++) {
       physicalCoreIndices[gridIndex] = builder.create<CoreIndexOp>(
           loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex));
     }
-
-    // build inputs to affine map, zeroing shard dims
-    Value zero = builder.create<arith::ConstantOp>(
-        loc, builder.getIndexType(), builder.getI64IntegerAttr(0));
-    SmallVector<Value> virt2PhysIndex = physicalCoreIndices;
-    for (unsigned dim = gridIndexingMap.getNumDims();
-         dim < coreVirtualizationMap.getNumDims(); dim++) {
-      virt2PhysIndex.push_back(zero);
+    SmallVector<Value> virtualGridIndices;
+    if (coreVirtualizationMap) {
+      virtualGridIndices = ttmlir::utils::fullyApplyAffineMap(
+          builder, loc, coreVirtualizationMap, physicalCoreIndices);
+    } else {
+      virtualGridIndices = physicalCoreIndices;
     }
-
-    SmallVector<Value> virtualGridValues = ttmlir::utils::fullyApplyAffineMap(
-        builder, loc, coreVirtualizationMap, virt2PhysIndex);
+    TT_assertv(virtualGridIndices.size() == gridIndexingMap.getNumResults(),
+               "Core virtualization map must have the same number of results "
+               "as the grid indexing map");
 
     for (unsigned result = 0; result < dmaIndexingMap.getNumResults();
          result++) {
@@ -106,10 +107,8 @@ public:
             loc, builder.getIndexType(),
             builder.getIndexAttr(blockFactors[dim]));
 
-        // XXX use virtual grid values instead of core indices
-        // index = builder.create<CoreIndexOp>(loc, builder.getIndexType(),
-        // builder.getI64IntegerAttr(gridDim));
-        index = virtualGridValues[gridDim];
+        // use virtual grid indices
+        index = virtualGridIndices[gridDim];
 
         index = builder.create<arith::MulIOp>(loc, builder.getIndexType(),
                                               index, blockFactor);
@@ -287,28 +286,6 @@ public:
     ArrayRef<int64_t> memrefGridShape = layout.getGridShape(memref);
     ArrayRef<int64_t> memrefShardShape = layout.getShardShape(memref);
 
-    std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
-        viewInterface.applyViews();
-
-    // TODO: cleanup
-    AffineMap coreVirtualizationMap = AffineMap::getMultiDimIdentityMap(
-        memrefGridShape.size(), rewriter.getContext());
-
-    // get core virtualization map from the output operand of the generic
-    auto outputOperand = genericParent.getOutputOperand();
-    auto [underlyingMemref, _] =
-        mlir::tt::d2m::applyViews(outputOperand.getDefiningOp());
-
-    if (auto shardLayout = mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(
-            underlyingMemref.getLayout())) {
-      if (!shardLayout.getCoreVirtualizationMap().isEmpty()) {
-        coreVirtualizationMap = shardLayout.getCoreVirtualizationMap();
-        coreVirtualizationMap = ttmlir::utils::affineMapDropRange(
-            coreVirtualizationMap, memrefGridShape.size(),
-            coreVirtualizationMap.getNumResults() - 1);
-      }
-    }
-
     unsigned outputOperandsIndex =
         genericParent.getOutputs().getBeginOperandIndex();
 
@@ -321,7 +298,10 @@ public:
     auto [streamIndices, indexBounds] = buildStreamIndex(
         rewriter, loc, memrefGridShape, genericParent.getBlockFactorsValue(),
         memrefShardShape, dmaIndexingMap, gridIndexingMap,
-        coreVirtualizationMap);
+        genericParent.getCoreVirtualizationMap());
+
+    std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
+        viewInterface.applyViews();
 
     ttcore::DeviceAttr device = genericParent.getDevice();
     AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,

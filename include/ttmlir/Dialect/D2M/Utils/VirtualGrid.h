@@ -7,6 +7,8 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt {
   static std::pair<AffineMap, AffineMap>
@@ -14,9 +16,9 @@ namespace mlir::tt {
                      const SmallVector<int64_t> &virtualGrid,
                      const SmallVector<int64_t> &targetGrid) {
 
-    assert(targetGrid.size() == 2);
+    TT_assertv(targetGrid.size() == 2ul, "Target grid must have 2 dimensions {1}", targetGrid.size());
+    TT_assertv(virtualGrid.size() == 2ul, "Virtual grid only supported for 2D shapes.");
     int64_t rank = virtualGrid.size();
-    int64_t totalDims = 2 * rank; // grid + shard dims
 
     bool is2DWidthSharded = (rank == 2) && virtualGrid[0] == 1;
     bool is2DHeightSharded = (rank == 2) && virtualGrid[1] == 1;
@@ -37,19 +39,23 @@ namespace mlir::tt {
       if (is2DWidthSharded) {
         forwardMapExprs = {d1.floorDiv(gridColStride), d1 % gridColStride, d2,
                            d3};
-        inverseMapExprs = {zero, d0 * gridRowStride + d1, d2, d3};
+        inverseMapExprs = {zero, d0 * gridRowStride + d1};
       } else if (is2DHeightSharded) {
         forwardMapExprs = {d0 % gridRowStride, d0.floorDiv(gridRowStride), d2,
                            d3};
-        inverseMapExprs = {d1 * gridColStride + d0, zero, d2, d3};
+        inverseMapExprs = {d1 * gridColStride + d0, zero};
       }
       auto forward =
-          mlir::AffineMap::get(totalDims, 0, forwardMapExprs, context);
+          mlir::AffineMap::get(2*rank, 0, forwardMapExprs, context);
       auto inverse =
-          mlir::AffineMap::get(totalDims, 0, inverseMapExprs, context);
+          mlir::AffineMap::get(rank, 0, inverseMapExprs, context);
       return {forward, inverse};
     } else {
-      llvm_unreachable("Expected 2D width or height sharded");
+      TT_assertv((is2DWidthSharded || is2DHeightSharded),
+                 "Only supporting 2D width or height sharding (actual grid "
+                 "shape = {1})",
+                 ttmlir::utils::formatIterable(virtualGrid, "x"));
+      llvm_unreachable("Only supporting 2D width or height sharding");
     }
   }
 
