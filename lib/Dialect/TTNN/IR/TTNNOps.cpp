@@ -1519,19 +1519,12 @@ void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
     }
   }
 
-  bool operandIsFuncArgument = false;
-  Block *block = getOperation()->getBlock();
-  for (BlockArgument arg : block->getArguments()) {
+for (BlockArgument arg : getOperation()->getBlock()->getArguments()) {
     if (arg == getInput()) {
-      operandIsFuncArgument = true;
-      break;
-    }
-  }
-
-  if (operandIsFuncArgument) {
-    return emitOpError(
+      return emitOpError(
         "View op must not be used as an operand of a function argument as it "
         "will modify the input tensors shape in-place.");
+    }
   }
 
   auto shape = getShape();
