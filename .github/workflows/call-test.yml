@@ -45,10 +45,6 @@ jobs:
         - /lib/modules:/lib/modules
         - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
 
-    env:
-      # TODO: Revisit the addition of these env vars https://github.com/tenstorrent/tt-metal/issues/20161
-      TRACY_NO_INVARIANT_CHECK: 1
-
     steps:
     - uses: actions/checkout@v4
       with:
