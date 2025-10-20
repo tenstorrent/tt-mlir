@@ -201,4 +201,18 @@ def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mli
   ];
 }
 
+def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::ModuleOp">
+{
+  let summary = "Insert explicit reshards only on non-solved graphs.";
+  let description = [{
+    This pass checks if the graph is already solved before running sdy.insert_explicit_reshards.
+    A graph is considered solved if it contains sdy.manual_computation operations with non-empty
+    manual_axes, indicating that the sharding propagation has already been completed.
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 #endif
