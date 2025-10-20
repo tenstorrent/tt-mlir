@@ -804,6 +804,7 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
     assert(physicalShape.size() >= 2);
     assert(tileShape.size() == 2);
     assert(physicalShape[physicalShape.size() - 2] % tileShape[0] == 0);
+    physicalShape[physicalShape.size() - 2] /= tileShape[0];
     assert(physicalShape[physicalShape.size() - 1] % tileShape[1] == 0);
     physicalShape[physicalShape.size() - 1] /= tileShape[1];
   }
