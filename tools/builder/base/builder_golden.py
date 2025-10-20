@@ -17,7 +17,7 @@ import itertools
 import operator
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo, d2m
+from ttmlir.dialects import ttir, stablehlo, d2m, ttnn
 from ttmlir.ir import (
     Attribute,
     ArrayAttr,
@@ -2840,4 +2840,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SineOp: torch.sin,
     stablehlo.SqrtOp: torch.sqrt,
     stablehlo.TanOp: torch.tan,
+    # TTNN elementwise operations
+    ttnn.MultiplyOp: torch.multiply,
 }
