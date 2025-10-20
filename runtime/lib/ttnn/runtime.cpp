@@ -504,7 +504,7 @@ Device openMeshDevice(const MeshDeviceOptions &options) {
   auto ttnnTraceCache =
       std::make_shared<::tt::runtime::ttnn::TraceCache>(meshDevice);
 
-  auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
+  auto traceCache = std::make_shared<::tt::runtime::detail::TraceCache>(
       std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
 
   return Device(std::static_pointer_cast<void>(meshDevice), traceCache,
@@ -563,7 +563,7 @@ Device createSubMeshDevice(
 
   auto ttnnTraceCache =
       std::make_shared<::tt::runtime::ttnn::TraceCache>(subMeshDevice);
-  auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
+  auto traceCache = std::make_shared<::tt::runtime::detail::TraceCache>(
       std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
   return Device(std::static_pointer_cast<void>(subMeshDevice), traceCache,
                 DeviceRuntime::TTNN);
