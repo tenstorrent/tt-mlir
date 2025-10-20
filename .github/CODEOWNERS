@@ -107,11 +107,9 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /lib/Dialect/TTIR/Transforms/EraseInverseOps/ @LPanosTT @azecevicTT @odjuricicTT
 /test/ttmlir/Dialect/TTIR/erase_inverse_ops/ @LPanosTT @azecevicTT @odjuricicTT
 
-# TTIR and TTNN Fusing Passes
+# TTIR Fusing Passes
 /lib/Dialect/TTIR/Transforms/TTIRFusing.cpp @tenstorrent/forge-developers-mlir-core @odjuricicTT
 /test/ttmlir/Dialect/TTIR/fusing/ @tenstorrent/forge-developers-mlir-core @odjuricicTT
-/lib/Dialect/TTNN/Transforms/TTNNFusing.cpp @tenstorrent/forge-developers-mlir-core @odjuricicTT
-/test/ttmlir/Dialect/TTNN/fusing/ @tenstorrent/forge-developers-mlir-core @odjuricicTT
 
 # TTNN Dialects
 /include/ttmlir/Dialect/TTNN/ @tenstorrent/forge-developers-mlir-core
@@ -137,6 +135,10 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/unittests/Optimizer @tenstorrent/forge-developers-mlir-optimizer
 /test/unittests/OpModel @tenstorrent/forge-developers-mlir-optimizer @arminaleTT @sgholamiTT
 /test/unittests/TestScheduler/ @tenstorrent/forge-developers-mlir-optimizer
+
+# TTNN Fusing Passes
+/lib/Dialect/TTNN/Transforms/TTNNFusing.cpp @tenstorrent/forge-developers-mlir-core @odjuricicTT
+/test/ttmlir/Dialect/TTNN/fusing/ @tenstorrent/forge-developers-mlir-core @odjuricicTT
 
 # LLVM Target
 /include/ttmlir/Target/LLVM/ @vwellsTT @mtopalovicTT
