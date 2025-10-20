@@ -152,6 +152,14 @@ struct RuntimeCheckedConstObjectImpl {
   }
 };
 
+struct TraceCache : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+};
+
+struct ProgramDescCache : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+};
+
 } // namespace detail
 
 struct TensorDesc {
@@ -334,35 +342,28 @@ private:
   std::shared_ptr<TensorCache> tensorCache;
 };
 
-struct TraceCache : public detail::RuntimeCheckedObjectImpl {
-  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
-};
-
-struct ProgramDescCache : public detail::RuntimeCheckedObjectImpl {
-  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
-};
-
 struct Device : public detail::RuntimeCheckedObjectImpl {
   Device(DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(nullptr, runtime),
         globalId(nextDeviceGlobalId()), traceCache(nullptr),
         programDescCache(nullptr) {}
 
-  Device(std::shared_ptr<void> handle, std::shared_ptr<TraceCache> traceCache,
-         DeviceRuntime runtime)
+  Device(std::shared_ptr<void> handle,
+         std::shared_ptr<detail::TraceCache> traceCache, DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime),
         globalId(nextDeviceGlobalId()), traceCache(traceCache),
         programDescCache(nullptr) {}
 
-  Device(std::shared_ptr<void> handle, std::shared_ptr<TraceCache> traceCache,
-         std::shared_ptr<ProgramDescCache> programDescCache,
+  Device(std::shared_ptr<void> handle,
+         std::shared_ptr<detail::TraceCache> traceCache,
+         std::shared_ptr<detail::ProgramDescCache> programDescCache,
          DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime),
         globalId(nextDeviceGlobalId()), traceCache(traceCache),
         programDescCache(programDescCache) {}
 
-  std::shared_ptr<TraceCache> getTraceCache() { return traceCache; }
-  std::shared_ptr<ProgramDescCache> getProgramDescCache() {
+  std::shared_ptr<detail::TraceCache> getTraceCache() { return traceCache; }
+  std::shared_ptr<detail::ProgramDescCache> getProgramDescCache() {
     return programDescCache;
   }
 
@@ -375,11 +376,11 @@ private:
   std::uint32_t globalId;
 
   // The trace cache associated with this device.
-  std::shared_ptr<TraceCache> traceCache;
+  std::shared_ptr<detail::TraceCache> traceCache;
 
   // The program desc cache associated with this device. Only used in JIT
   // runtime path.
-  std::shared_ptr<ProgramDescCache> programDescCache;
+  std::shared_ptr<detail::ProgramDescCache> programDescCache;
 };
 
 struct Event : public detail::RuntimeCheckedObjectImpl {
