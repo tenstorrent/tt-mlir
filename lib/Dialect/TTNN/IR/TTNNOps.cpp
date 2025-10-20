@@ -1540,7 +1540,16 @@ void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
   }
 
   if (!isValidTTNNView(getInput(), getResult())) {
-    return emitOpError("Desired input -> output view is not valid.");
+    return emitOpError(
+        "Desired input -> output view is not valid. This may be the case for "
+        "one of the following reasons:\n"
+        " - The last dimension of the input and output shapes are different.\n"
+        " - The memory layout of the input and output are different.\n"
+        " - The input layout is tiled AND:\n"
+        "     - The second last dimension of the input and output shapes are "
+        "different OR\n"
+        "     - The second last dimension of either the input/output shape is "
+        "not divisible by the tile height (32).\n");
   }
 
   return success();
