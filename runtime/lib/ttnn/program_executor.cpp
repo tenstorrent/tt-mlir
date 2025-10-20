@@ -21,6 +21,7 @@
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/creation/full_with.h"
+#include "operations/data_movement/assign.h"
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
@@ -323,6 +324,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
     return operations::data_movement::run(op->type_as_RepeatInterleaveOp(),
                                           getContext());
+  }
+  case ::tt::target::ttnn::OpType::AssignOp: {
+    return operations::data_movement::run(op->type_as_AssignOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dWeightsOp: {
     return operations::conv::run(op->type_as_PrepareConv2dWeightsOp(),

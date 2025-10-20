@@ -1117,6 +1117,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_PadOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::AssignOp: {
+    tensorRef = opContext.type_as_AssignOp()->output();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConcatOp: {
     tensorRef = opContext.type_as_ConcatOp()->out();
     break;
@@ -1419,6 +1423,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::PadOp: {
     tensorRefs = {opContext.type_as_PadOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AssignOp: {
+    tensorRefs = {opContext.type_as_AssignOp()->input()};
     break;
   }
   case ::tt::target::ttnn::OpType::ConcatOp: {
