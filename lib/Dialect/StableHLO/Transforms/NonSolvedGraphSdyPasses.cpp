@@ -19,103 +19,95 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_INSERTEXPLICITRESHARDSPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
-// Module-level wrapper for sdy::createApplyShardingConstraintsPass
-class ApplyShardingConstraintsPass
-    : public impl::ApplyShardingConstraintsPassBase<
-          ApplyShardingConstraintsPass> {
+//===----------------------------------------------------------------------===//
+// Template for conditional SDY pass wrappers
+//===----------------------------------------------------------------------===//
+
+template <typename PassBase>
+class ConditionalSdyPassWrapper : public PassBase {
 public:
+  using PassBase::PassBase;
+
   void runOnOperation() override {
-    mlir::ModuleOp module = getOperation();
+    mlir::ModuleOp module = this->getOperation();
 
     // Check if the graph is already solved
     if (shardy_utils::isGraphSolved(module)) {
-      // Graph is already solved, skip this pass
+      // If the graph is solved, skip running the SDY pass
       return;
     }
 
-    mlir::PassManager pm(&getContext());
-    pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
-
-    if (failed(pm.run(module))) {
-      return signalPassFailure();
+    // If the graph is not solved, run the SDY pass
+    mlir::PassManager pm(&this->getContext());
+    if (mlir::failed(addSdyPass(pm))) {
+      return this->signalPassFailure();
     }
+
+    if (mlir::failed(pm.run(module))) {
+      return this->signalPassFailure();
+    }
+  }
+
+protected:
+  virtual mlir::LogicalResult addSdyPass(mlir::PassManager &pm) = 0;
+};
+
+//===----------------------------------------------------------------------===//
+// Specialized pass implementations using the template
+//===----------------------------------------------------------------------===//
+
+// Module-level wrapper for sdy::createApplyShardingConstraintsPass
+class ApplyShardingConstraintsPass
+    : public ConditionalSdyPassWrapper<impl::ApplyShardingConstraintsPassBase<
+          ApplyShardingConstraintsPass>> {
+protected:
+  mlir::LogicalResult addSdyPass(mlir::PassManager &pm) override {
+    pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
+    return mlir::success();
   }
 };
 
-// Wrapper for sdy::createAggressivePropagationPass
+// Module-level wrapper for sdy::createAggressivePropagationPass
 class AggressivePropagationPass
-    : public impl::AggressivePropagationPassBase<AggressivePropagationPass> {
-
-public:
-  using impl::AggressivePropagationPassBase<
-      AggressivePropagationPass>::AggressivePropagationPassBase;
-
-  void runOnOperation() override {
-    mlir::ModuleOp module = getOperation();
-
-    // Check if the graph is already solved
-    if (shardy_utils::isGraphSolved(module)) {
-      // Graph is already solved, skip this pass
-      return;
-    }
-
-    // Run the actual SDY pass using a nested PassManager
-    mlir::PassManager pm(&getContext());
+    : public ConditionalSdyPassWrapper<
+          impl::AggressivePropagationPassBase<AggressivePropagationPass>> {
+protected:
+  mlir::LogicalResult addSdyPass(mlir::PassManager &pm) override {
     mlir::sdy::PropagationOptions propagationOptions;
     mlir::sdy::PropagationStrategy propagationStrategy =
         mlir::sdy::PropagationStrategy::Aggressive;
-    propagationOptions.conservativePropagation =
-        true; // Use default conservative setting
+    propagationOptions.conservativePropagation = true;
+
     pm.addPass(mlir::sdy::createAggressivePropagationPass(propagationOptions,
                                                           propagationStrategy));
-    if (failed(pm.run(module))) {
-      return signalPassFailure();
-    }
+    return mlir::success();
   }
 };
 
 // Module-level wrapper for sdy::createShardingConstraintToReshardPass
 class ShardingConstraintToReshardPass
-    : public impl::ShardingConstraintToReshardPassBase<
-          ShardingConstraintToReshardPass> {
-public:
-  void runOnOperation() override {
-    mlir::ModuleOp module = getOperation();
-
-    if (shardy_utils::isGraphSolved(module)) {
-      return;
-    }
-
-    mlir::PassManager pm(&getContext());
+    : public ConditionalSdyPassWrapper<
+          impl::ShardingConstraintToReshardPassBase<
+              ShardingConstraintToReshardPass>> {
+protected:
+  mlir::LogicalResult addSdyPass(mlir::PassManager &pm) override {
     pm.nest<mlir::func::FuncOp>().addPass(
         mlir::sdy::createShardingConstraintToReshardPass());
-
-    if (failed(pm.run(module))) {
-      return signalPassFailure();
-    }
+    return mlir::success();
   }
 };
 
 // Module-level wrapper for sdy::createInsertExplicitReshardsPass
 class InsertExplicitReshardsPass
-    : public impl::InsertExplicitReshardsPassBase<InsertExplicitReshardsPass> {
-public:
-  void runOnOperation() override {
-    mlir::ModuleOp module = getOperation();
-
-    if (shardy_utils::isGraphSolved(module)) {
-      return;
-    }
-
-    mlir::PassManager pm(&getContext());
+    : public ConditionalSdyPassWrapper<
+          impl::InsertExplicitReshardsPassBase<InsertExplicitReshardsPass>> {
+protected:
+  mlir::LogicalResult addSdyPass(mlir::PassManager &pm) override {
     mlir::sdy::InsertExplicitReshardsPassOptions options;
     options.enableFullVersion = true;
     pm.nest<mlir::func::FuncOp>().addPass(
         mlir::sdy::createInsertExplicitReshardsPass(options));
-
-    if (failed(pm.run(module))) {
-      return signalPassFailure();
-    }
+    return mlir::success();
   }
 };
 
