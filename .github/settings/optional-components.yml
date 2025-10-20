@@ -5,3 +5,5 @@ emitc:
   - tools/ttnn-standalone/ci_compile_dylib.py
   - include/ttmlir/Conversion/TTNNToEmitC/**
   - lib/Conversion/TTNNToEmitC/**
+ttnn-jit-wheel:
+  - tools/ttnn-jit/**

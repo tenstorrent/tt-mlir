@@ -10,6 +10,9 @@ export PYTHONPATH="$BUILD_DIR/python_packages:$INSTALL_DIR/tt-metal/ttnn:$INSTAL
 mkdir -p $WORK_DIR/third_party/tt-metal
 mkdir -p $WORK_DIR/third_party/tt-metal/src
 ln -sf $INSTALL_DIR/tt-metal third_party/tt-metal/src/tt-metal
+if [ ! -d "$INSTALL_DIR/python_packages/ttnn-jit" ]; then
+    ln -sf tools/ttnn-jit $INSTALL_DIR/python_packages/ttnn-jit
+fi
 
 echo "Running PyKernel tests..."
 pytest -v $WORK_DIR/test/pykernel/demo/test.py $WORK_DIR/test/ttnn-jit/test_eltwise.py --junit-xml=$TEST_REPORT_PATH

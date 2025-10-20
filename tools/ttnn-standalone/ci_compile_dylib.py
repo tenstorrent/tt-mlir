@@ -36,7 +36,6 @@ def get_standalone_dir():
 # Runs only once per script
 #
 def run_cmake_setup(args):
-
     if run_cmake_setup.already_created:
         return
 
