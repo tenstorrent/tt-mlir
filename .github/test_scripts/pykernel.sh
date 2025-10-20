@@ -12,6 +12,7 @@ mkdir -p $WORK_DIR/third_party/tt-metal/src
 ln -sf $INSTALL_DIR/tt-metal third_party/tt-metal/src/tt-metal
 if [ ! -d "$BUILD_DIR/python_packages/ttnn-jit" ]; then
     ln -sf tools/ttnn-jit $BUILD_DIR/python_packages/ttnn-jit
+    ln -sf $BUILD_DIR/python_packages/ttrt/runtime $BUILD_DIR/python_packages/ttnn-jit/runtime
 fi
 
 echo "Running PyKernel tests..."
