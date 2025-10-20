@@ -23,6 +23,7 @@ from ttrt.common.check import Check
 from ttrt.common.run import Run
 from ttrt.common.perf import Perf
 from ttrt.common.emitpy import EmitPy
+from ttrt.common.emitc import EmitC
 
 
 class API:
@@ -49,6 +50,7 @@ class API:
         API.register_api(Perf)
         API.register_api(Check)
         API.register_api(EmitPy)
+        API.register_api(EmitC)
 
         API.Query = Query
         API.Read = Read
@@ -56,6 +58,7 @@ class API:
         API.Perf = Perf
         API.Check = Check
         API.EmitPy = EmitPy
+        API.EmitC = EmitC
 
     @staticmethod
     def register_api(api_class):
