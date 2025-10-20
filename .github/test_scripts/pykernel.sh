@@ -10,8 +10,8 @@ export PYTHONPATH="$BUILD_DIR/python_packages:$INSTALL_DIR/tt-metal/ttnn:$INSTAL
 mkdir -p $WORK_DIR/third_party/tt-metal
 mkdir -p $WORK_DIR/third_party/tt-metal/src
 ln -sf $INSTALL_DIR/tt-metal third_party/tt-metal/src/tt-metal
-if [ ! -d "$INSTALL_DIR/python_packages/ttnn-jit" ]; then
-    ln -sf tools/ttnn-jit $INSTALL_DIR/python_packages/ttnn-jit
+if [ ! -d "$BUILD_DIR/python_packages/ttnn-jit" ]; then
+    ln -sf tools/ttnn-jit $BUILD_DIR/python_packages/ttnn-jit
 fi
 
 echo "Running PyKernel tests..."
