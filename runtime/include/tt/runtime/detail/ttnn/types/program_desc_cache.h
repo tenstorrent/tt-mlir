@@ -11,7 +11,7 @@ namespace tt::runtime::ttnn {
 
 class ProgramDescCache {
 public:
-  ProgramDescCache() { cache_.reserve(MAX_SIZE); }
+  ProgramDescCache() {};
 
   ProgramDescCache(const ProgramDescCache &) = delete;
   ProgramDescCache &operator=(const ProgramDescCache &) = delete;
@@ -26,10 +26,8 @@ public:
               const ::tt::tt_metal::ProgramDescriptor &programDescriptor);
 
 private:
-  // vector lookup faster for smaller sizes
-  static constexpr size_t MAX_SIZE = 128;
-  std::vector<std::pair<const ::tt::target::ttnn::ProgramDescriptor *,
-                        ::tt::tt_metal::ProgramDescriptor>>
+  std::unordered_map<const ::tt::target::ttnn::ProgramDescriptor *,
+                     ::tt::tt_metal::ProgramDescriptor>
       cache_;
 };
 } // namespace tt::runtime::ttnn
