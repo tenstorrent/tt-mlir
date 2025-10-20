@@ -1411,23 +1411,17 @@ void mlir::tt::ttnn::ReshapeOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
   patterns.add(
       +[](mlir::tt::ttnn::ReshapeOp op, mlir::PatternRewriter &rewriter) {
-        bool isLastUser = true;
-        auto input = op.getInput();
-        for (Operation *user : input.getUsers()) {
-          if (user != op) {
-            isLastUser = isLastUser && user->isBeforeInBlock(op);
-          }
+        if (llvm::any_of(op.getInput().getUsers(), [&](Operation *user) {
+          return user != op && !user->isBeforeInBlock(op);
+        })) {
+          return failure();
         }
-        bool operandIsFuncArgument = false;
-        Block *block = op->getBlock();
-        for (BlockArgument arg : block->getArguments()) {
-          if (arg == op.getInput()) {
-            operandIsFuncArgument = true;
-            break;
-          }
+
+        if (mlir::isa<BlockArgument>(op.getInput())) {
+          return failure();
         }
-        if (!isLastUser || !isValidTTNNView(op.getInput(), op.getResult()) ||
-            operandIsFuncArgument) {
+
+        if (!isValidTTNNView(op.getInput(), op.getResult())) {
           return failure();
         }
 
