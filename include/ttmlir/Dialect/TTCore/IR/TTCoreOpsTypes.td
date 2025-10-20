@@ -472,7 +472,6 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     mlir::AffineMap getIndexAffineMapOrIdentity(unsigned rank) const;
 
     // Returns the full rank (including grid dimensions).
-    // For the collapsed/physical rank (excluding grid), divide by 2.
     unsigned getRank() const { return getNormalizedIntervals().size(); }
 
     bool isView() { return false; }

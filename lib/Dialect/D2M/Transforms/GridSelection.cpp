@@ -516,7 +516,6 @@ static void recreateGenericOp(d2m::GenericOp genericOp) {
 static void assignGrids(d2m::GenericOp genericOp,
                         ArrayRef<int64_t> targetGridShape,
                         ArrayRef<int64_t> targetSquareGridShape) {
-  // Phase 1: Analyze operands and compute optimal grids.
   auto [toLayoutsToUpdate, streamLayoutsToUpdate] =
       analyzeOperandsAndComputeGrids(genericOp, targetGridShape,
                                      targetSquareGridShape);
@@ -525,18 +524,15 @@ static void assignGrids(d2m::GenericOp genericOp,
     return;
   }
 
-  // Phase 2: Update ToLayoutOps with their optimal grids.
   if (!toLayoutsToUpdate.empty()) {
     updateToLayoutOps(toLayoutsToUpdate, targetGridShape,
                       targetSquareGridShape);
   }
 
-  // Phase 3: Update StreamLayoutOps with their optimal grids.
   if (!streamLayoutsToUpdate.empty()) {
     updateStreamLayoutOps(streamLayoutsToUpdate, targetGridShape);
   }
 
-  // Phase 4: Recreate the generic op with updated operands.
   recreateGenericOp(genericOp);
 }
 
