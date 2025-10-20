@@ -789,6 +789,29 @@ public:
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const final {
     if (auto typecastOp = mlir::dyn_cast<d2m::TileTypecastOp>(op)) {
+
+      Value inCB = getInCB(rewriter, op);
+      Value outCB = getOutCB(rewriter, op);
+
+      auto funcOp = op->getParentOfType<func::FuncOp>();
+      if (funcOp) {
+        Block &entryBlock = funcOp.getBody().front();
+
+        // Insert hw_startup if not already present in this function.
+        // Note: This assumes all ops in the kernel use the same format
+        // conversion.
+        if (entryBlock.getOps<ttkernel::ComputeKernelHWStartupOp>().empty()) {
+          auto insertPt = rewriter.saveInsertionPoint();
+
+          setInsertionPointAfterOperands(rewriter, {inCB, outCB},
+                                         /*allowHoisting*/ true);
+          rewriter.create<ttkernel::ComputeKernelHWStartupOp>(
+              op->getLoc(), inCB, nullptr, outCB);
+
+          rewriter.restoreInsertionPoint(insertPt);
+        }
+      }
+
       rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc());
 
       auto inDtype =
