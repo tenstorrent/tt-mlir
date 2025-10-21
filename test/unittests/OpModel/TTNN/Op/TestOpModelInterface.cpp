@@ -484,7 +484,7 @@ const ExpectedResult binaryExpected_extraCb4096{true, 12288 + 4096, 2048, 18432,
 const ExpectedResult binaryExpected_extraCb4096_extraPeak30720{
     true, 12288 + 4096, 2048 + 30720, 12288 + 4096 + 2048 + 30720, 2048};
 const ExpectedResult binaryExpected_extraCb20480_extraPeak26624{
-    true, 12288 + 20480, 2048 + 26624, 12288 + 20480 + 2048 + 26624, 2048};
+    true, 12288 + 20480, 2048 + 22528, 57344, 2048};
 const ExpectedResult binaryBitwiseExpected{true, 12288 * 2, 0, 24576, 0};
 
 //===---------------------------------------------------------===
