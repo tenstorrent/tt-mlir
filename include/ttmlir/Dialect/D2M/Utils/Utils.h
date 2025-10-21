@@ -56,6 +56,14 @@ llvm::SmallVector<int64_t> getGridShape(mlir::Value tensorOrMemref);
 // Get device layout interface if it exists
 ttcore::DeviceLayoutInterface getDeviceLayoutInterfaceIfExists(mlir::Value tensorOrMemref);
 
+// Derive a grid shape by sampling an affine map over a reference grid shape
+llvm::SmallVector<int64_t> applyMapToGrid(mlir::ArrayRef<int64_t> gridShape,
+                                          mlir::AffineMap map);
+
+// Get core virtualization map associated with a tensor/memref's underlying
+// physical implementation. The input is traced
+AffineMap getCoreVirtualizationMap(mlir::Value tensorOrMemref);
+
 } // namespace mlir::tt::d2m::utils
 
 #endif

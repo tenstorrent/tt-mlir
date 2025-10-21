@@ -838,7 +838,8 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
     TT_assertv(
         layout,
         "This generic constructor expects operands to be in device layout");
-    grid = builder.getAttr<ttcore::GridAttr>(layout.getGridShape(shapedType));
+    grid = builder.getAttr<ttcore::GridAttr>(
+        d2m::utils::getPhysicalGridShape(outputs[0]));
   }
 
   ArrayAttr blockFactorsAttr;
@@ -863,12 +864,16 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       flattenedOperandGridShapes.append(gridShape.begin(), gridShape.end());
     }
 
-    // Divide out the grid shape, this is safe to do because we reversed the
-    // affine map above, so output dims are guaranteed to appear first in the
-    // affine map.
+    // Divide flattened operand grid shapes by the implied virtual compute
+    // grid. This is safe to do because we reversed the affine map above, so
+    // output dims are guaranteed to appear first in the affine map.
+    auto coreVirtualizationMap =
+        d2m::utils::getCoreVirtualizationMap(outputs[0]);
+    SmallVector<int64_t> vGridShape =
+        d2m::utils::applyMapToGrid(grid.getShape(), coreVirtualizationMap);
 
-    for (std::size_t i = 0; i < grid.getShape().size(); ++i) {
-      flattenedOperandGridShapes[i] /= grid.getShape()[i];
+    for (std::size_t i = 0; i < vGridShape.size(); ++i) {
+      flattenedOperandGridShapes[i] /= vGridShape[i];
     }
 
     blockFactorsAttr = builder.getI64ArrayAttr(
@@ -1456,47 +1461,20 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
 }
 
 AffineMap d2m::GenericOp::getCoreVirtualizationMap() {
-
   // Assume that verification guarantees that all core virtualization maps are
   // aligned between all output operands.
-  auto firstOutput = getOutputs()[0];
-  auto layout = utils::getDeviceLayoutInterfaceIfExists(
-      utils::getPhysicalTensorOrMemref(firstOutput));
-
-  if (auto shardLayout =
-          mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(layout)) {
-    return shardLayout.getCoreVirtualizationMap();
-  } else if (auto metalLayout =
-                 mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(layout)) {
-    // Core virtualization is stored in the IndexAffineMap field of MetalLayoutAttr
-    auto map = metalLayout.getIndexAffineMap();
-    // XXX revert this once we return to having all dims as results for core virt map.
-    return map.isIdentity() ? AffineMap{} : map;
-  } else {
-    return {};
-  }
+  return d2m::utils::getCoreVirtualizationMap(getOutputs()[0]);
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getVirtualComputeGridShape() {
-
   if (auto coreVirtualizationMap = getCoreVirtualizationMap()) {
-    // compute the virtual compute grid by sampling the physical grid through
-    // the core virtualization map. 
-    SmallVector<int64_t> virtualComputeGrid =
-        SmallVector<int64_t>(coreVirtualizationMap.getNumResults(), 0);
-    ttmlir::utils::sample(
-        getGrid().getShape(), [&](SmallVector<int64_t, 8> point) {
-          SmallVector<int64_t> virtualPoint =
-              coreVirtualizationMap.compose(point);
-          for (size_t i = 0; i < virtualPoint.size(); ++i) {
-            virtualComputeGrid[i] =
-                std::max(virtualComputeGrid[i], virtualPoint[i] + 1);
-          }
-        });
-    return virtualComputeGrid;
+    // Compute the virtual compute grid by sampling the core virt map
+    // over the domain of the physical grid shape
+    return d2m::utils::applyMapToGrid(getGrid().getShape(),
+                                      coreVirtualizationMap);
   } else {
-    // if no core virt map is defined, the physical grid shape and virtual
-    // compute grid are the same
+    // If no core virt map is defined, the physical grid shape and virtual
+    // compute grid are the same.
     return llvm::to_vector(getGrid().getShape());
   }
 }

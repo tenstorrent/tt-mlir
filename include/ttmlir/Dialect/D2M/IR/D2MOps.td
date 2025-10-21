@@ -192,19 +192,7 @@ def D2M_GenericOp : D2M_Op<"generic",
                      "ArrayAttr": $iteratorTypes,
                      CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
-      [{
-        assert(!indexingMaps.empty() && "expected non-empty indexing maps");
-        assert(outputs.size() == 1 && "expected single output");
-        if (!grid) {
-            grid = $_builder.getAttr<ttcore::GridAttr>(utils::getPhysicalGridShape(outputs[0]));
-        }
-        auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(singleThreadType));
-        auto blockFactorsAttr = $_builder.getI64ArrayAttr(blockFactors.empty() ?
-                                                          SmallVector<int64_t>(iteratorTypes.size(), 1) :
-                                                          blockFactors);
-        build($_builder, $_state, TypeRange(outputs), inputs, outputs, grid, blockFactorsAttr, indexingMaps, iteratorTypes, threads, 1);
-      }]>,
+                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,

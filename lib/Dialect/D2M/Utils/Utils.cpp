@@ -141,18 +141,26 @@ Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref) {
   return physTensor;
 }
 
-ttcore::DeviceLayoutInterface
-getDeviceLayoutInterfaceIfExists(mlir::Value tensorOrMemref) {
-  if (auto tensorType =
-          mlir::dyn_cast<mlir::RankedTensorType>(tensorOrMemref.getType())) {
-    return mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
-        tensorType.getEncoding());
-  } else if (auto memrefType =
-                 mlir::dyn_cast<mlir::MemRefType>(tensorOrMemref.getType())) {
-    return mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
-        memrefType.getLayout());
+AffineMap getCoreVirtualizationMap(mlir::Value tensorOrMemref) {
+  auto physicalTensorOrMemref = getPhysicalTensorOrMemref(tensorOrMemref);
+  auto shapedType = mlir::dyn_cast<ShapedType>(physicalTensorOrMemref.getType());
+  TT_assertv(shapedType, "Expected a shaped type");
+
+  auto layout = ttcore::getDeviceLayout(shapedType);
+
+  if (auto shardLayout =
+          mlir::dyn_cast_or_null<ttcore::ShardLayoutAttr>(layout)) {
+    return shardLayout.getCoreVirtualizationMap();
+  } else if (auto metalLayout =
+                 mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(layout)) {
+    // Core virtualization is stored in the IndexAffineMap field of MetalLayoutAttr
+    auto map = metalLayout.getIndexAffineMap();
+
+    // This is a hack to get around MetalLayoutAttr defaulting to an identity
+    // map for indexAffineMap.
+    return map.isIdentity() ? AffineMap{} : map;
   } else {
-    return nullptr;
+    return {};
   }
 }
 
@@ -161,9 +169,29 @@ SmallVector<int64_t> getGridShape(mlir::Value tensorOrMemref) {
   TT_assertv(shapedType, "Expected a shaped type");
 
   // Assume a default grid shape of {1, 1} if the layout is not found.
-  auto layout = getDeviceLayoutInterfaceIfExists(tensorOrMemref);
+  auto layout = ttcore::getDeviceLayout(shapedType);
   return (layout) ? llvm::SmallVector<int64_t>(layout.getGridShape(shapedType))
                   : llvm::SmallVector<int64_t>({1, 1});
+}
+
+mlir::SmallVector<int64_t> applyMapToGrid(mlir::ArrayRef<int64_t> gridShape,
+                                          mlir::AffineMap map) {
+  if (!map || map.isIdentity()) {
+    return SmallVector<int64_t>(gridShape.begin(), gridShape.end());
+  }
+
+  SmallVector<int64_t> resultGridShape =
+      SmallVector<int64_t>(map.getNumResults(), 0);
+  TT_assertv(gridShape.size() == map.getNumDims(),
+             "Grid shape must have the same number of dimensions as the map");
+  ttmlir::utils::sample(gridShape, [&](SmallVector<int64_t, 8> point) {
+    SmallVector<int64_t> virtualPoint = map.compose(point);
+    for (size_t i = 0; i < virtualPoint.size(); ++i) {
+      resultGridShape[i] =
+          std::max(resultGridShape[i], virtualPoint[i] + 1);
+    }
+  });
+  return resultGridShape;
 }
 
 SmallVector<int64_t> getPhysicalGridShape(mlir::Value tensorOrMemref) {
