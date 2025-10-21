@@ -355,6 +355,7 @@ class StableHLOBuilder(Builder):
         batch_dims_rhs: List[int],
         contract_dims_rhs: List[int],
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.dot_general``.
@@ -431,9 +432,9 @@ class StableHLOBuilder(Builder):
                 "contract_dims_rhs": contract_dims_rhs,
             },
             unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
         )
 
-    def exp(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
     def exp(
         self,
         in0: Operand,
