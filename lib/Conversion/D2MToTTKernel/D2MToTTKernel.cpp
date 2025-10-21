@@ -356,6 +356,7 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileGezOp,         std::pair<ttkernel::GezTileInitOp,             ttkernel::GezTileOp>>,
   std::pair<d2m::TileLtzOp,         std::pair<ttkernel::LtzTileInitOp,             ttkernel::LtzTileOp>>,
   std::pair<d2m::TileLezOp,         std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>,
+  std::pair<d2m::TileTypecastOp,    std::pair<ttkernel::TypecastTileInitOp,        ttkernel::TypecastTileOp>>,
 
   // Elementwise SFPU Binary.
   std::pair<d2m::TileAddOp,         std::pair<ttkernel::AddBinaryTilesInitOp,      ttkernel::AddBinaryTilesOp>>,
@@ -654,6 +655,13 @@ public:
       } else {
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
       }
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::TypecastTileOp>) {
+      const auto inDtype =
+          mlir::cast<ttcore::TileType>(op.getInput().getType()).getDataType();
+      const auto outDtype =
+          mlir::cast<ttcore::TileType>(op.getResult().getType()).getDataType();
+      rewriter.create<ttkernel::TypecastTileOp>(
+          op->getLoc(), adaptor.getInput(), inDtype, outDtype);
     } else if constexpr (arity == 1) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
     } else if constexpr (std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
@@ -778,47 +786,6 @@ public:
 } // namespace
 
 namespace {
-
-class D2MTypecastRewriter : public OpConversionPattern<d2m::TileTypecastOp> {
-public:
-  using OpConversionPattern<d2m::TileTypecastOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(d2m::TileTypecastOp op, d2m::TileTypecastOpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    Value inCB = getInCB(rewriter, op);
-    Value outCB = getOutCB(rewriter, op);
-
-    auto funcOp = op->template getParentOfType<func::FuncOp>();
-    if (funcOp) {
-      Block &entryBlock = funcOp.getBody().front();
-
-      // Insert hw_startup if not already present in this function.
-      if (entryBlock.getOps<ttkernel::ComputeKernelHWStartupOp>().empty()) {
-        auto insertPt = rewriter.saveInsertionPoint();
-
-        setInsertionPointAfterOperands(rewriter, {inCB, outCB},
-                                       /*allowHoisting*/ true);
-        rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), inCB,
-                                                            nullptr, outCB);
-
-        rewriter.restoreInsertionPoint(insertPt);
-      }
-    }
-
-    rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc());
-
-    auto inDtype =
-        mlir::cast<ttcore::TileType>(op.getInput().getType()).getDataType();
-    auto outDtype =
-        mlir::cast<ttcore::TileType>(op.getResult().getType()).getDataType();
-    rewriter.create<ttkernel::TypecastTileOp>(
-        op->getLoc(), i32(rewriter, op->getLoc(), 0), inDtype, outDtype);
-
-    rewriter.eraseOp(op);
-    return success();
-  };
-};
 
 class D2MDstReinterpretCastRewriter
     : public OpConversionPattern<d2m::DstReinterpretCastOp> {
@@ -1490,6 +1457,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileGezOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLtzOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLezOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileTypecastOp>,
 
                // Elementwise SFPU Binary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAddOp>,
@@ -1501,7 +1469,6 @@ void populateD2MToTTKernelPatterns(
 
                ttkernel::D2MTilizeUntilizeRewriter,
                ttkernel::D2MTileTransposeRewriter,
-               ttkernel::D2MTypecastRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::MemrefLoadRewriter,
