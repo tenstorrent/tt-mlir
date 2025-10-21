@@ -13,7 +13,7 @@ func.func @scatter_simple_1(%arg0: tensor<1x3x320x320xf32>, %arg1: tensor<1x1xi3
   // CHECK: "ttnn.reshape"({{.*}}) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}>
   // CHECK-SAME: (tensor<1x1xsi32, {{.*}}>) -> tensor<1x1x1x1xsi32, {{.*}}>
   // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x3x32x32>}>
-  // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
+  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
   // CHECK-SAME: (tensor<1x3x320x320xf32, {{.*}}>, tensor<1x3x32x32xsi32, {{.*}}>, tensor<1x3x32x32xf32, {{.*}}>) -> tensor<1x3x320x320xf32, {{.*}}>
   return %1 : tensor<1x3x320x320xf32>
 }
@@ -23,7 +23,7 @@ func.func @scatter_simple_2(%arg0: tensor<32x32xi32>, %arg1: tensor<16x1xi32>, %
   %1 = "ttir.scatter"(%arg0, %arg1, %arg2, %0) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0>, scatter_dims_to_operand_dims = array<i32: 0>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 1>}> : (tensor<32x32xi32>, tensor<16x1xi32>, tensor<16x32xi32>, tensor<32x32xi32>) -> tensor<32x32xi32>
   // CHECK-LABEL: func.func @scatter_simple_2
   // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x32>}>
-  // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}>
+  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
   // CHECK-SAME: (tensor<32x32xsi32, {{.*}}>, tensor<16x32xsi32, {{.*}}>, tensor<16x32xsi32, {{.*}}>) -> tensor<32x32xsi32, {{.*}}>
   return %1 : tensor<32x32xi32>
 }
@@ -47,8 +47,8 @@ func.func @scatter_simple_3(%arg0: tensor<71x32xbf16>, %arg1: tensor<71x4x2xi64>
   // flatten updates:
   // CHECK: "ttnn.reshape"({{.*}}) <{shape = [284 : i32]}>
   // Scatter is broken into chunks where index_shape[dim] < 256.
-  // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}> : (tensor<2272xbf16, {{.*}}>, tensor<256xsi32, {{.*}}>, tensor<256xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
-  // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}> : (tensor<2272xbf16, {{.*}}>, tensor<28xsi32, {{.*}}>, tensor<28xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
+  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}> : (tensor<2272xbf16, {{.*}}>, tensor<256xsi32, {{.*}}>, tensor<256xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
+  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}> : (tensor<2272xbf16, {{.*}}>, tensor<28xsi32, {{.*}}>, tensor<28xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
   // reshape flattened output to expected output shape
   // CHECK: "ttnn.reshape"({{.*}}) <{shape = [71 : i32, 32 : i32]}>
   return %1 : tensor<71x32xbf16>
@@ -61,7 +61,7 @@ func.func @scatter_simple_4(%arg0: tensor<1000x32xf32>, %arg1: tensor<10x1xi64>,
   // CHECK: "ttnn.repeat"({{.*}}) <{repeat_dims = #ttnn.shape<1x32>}>
   // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<row_major>}>
   // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<row_major>}>
-  // CHECK: "ttnn.scatter"({{.*}}) <{cq_id = 0 : ui32, dim = 0 : i32}> : (tensor<1000x32xf32, {{.*}}>, tensor<10x32xsi32, {{.*}}>, tensor<10x32xf32, {{.*}}>) -> tensor<1000x32xf32, {{.*}}>
+  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}> : (tensor<1000x32xf32, {{.*}}>, tensor<10x32xsi32, {{.*}}>, tensor<10x32xf32, {{.*}}>) -> tensor<1000x32xf32, {{.*}}>
   // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<tile>}>
   %1 = "ttir.scatter"(%arg0, %arg1, %arg2, %0) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0>, scatter_dims_to_operand_dims = array<i32: 0>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 1>}> : (tensor<1000x32xf32>, tensor<10x1xi64>, tensor<10x32xf32>, tensor<1000x32xf32>) -> tensor<1000x32xf32>
   return %1 : tensor<1000x32xf32>
