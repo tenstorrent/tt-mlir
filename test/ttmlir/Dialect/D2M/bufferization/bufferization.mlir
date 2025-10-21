@@ -54,9 +54,9 @@ func.func @view_layout() -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout4> {
   return %view : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout4>
 }
 
-func.func @constant() -> tensor<32x32xf32> {
+func.func @full() -> tensor<32x32xf32> {
   // CHECK: = memref.get_global @__constant_32x32xf32 : memref<32x32xf32>
-  %c = d2m.constant {value = dense<1.000000e+00> : tensor<32x32xf32>} : tensor<32x32xf32>
+  %c = d2m.full {shape = array<i32: 32, 32>, fill_value = 1.000000e+00 : f32} : tensor<32x32xf32>
   return %c : tensor<32x32xf32>
 }
 

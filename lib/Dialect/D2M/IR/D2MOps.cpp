@@ -246,62 +246,15 @@ d2m::FullOp::getBufferType(mlir::Value value,
   return d2m::getBufferType(value.getType(), /*isView=*/false);
 }
 
-::mlir::LogicalResult d2m::FullOp::verify() { return mlir::success(); }
-
-//===----------------------------------------------------------------------===//
-// ConstantOp
-//===----------------------------------------------------------------------===//
-
-bool d2m::ConstantOp::bufferizesToMemoryRead(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  return false;
-}
-
-bool d2m::ConstantOp::bufferizesToMemoryWrite(
-    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
-  return false;
-}
-
-mlir::LogicalResult d2m::ConstantOp::bufferize(
-    mlir::RewriterBase &rewriter,
-    const mlir::bufferization::BufferizationOptions &options,
-    mlir::bufferization::BufferizationState &state) {
-  ::llvm::SmallVector<mlir::Value> invocationStack;
-  auto memrefType = mlir::cast<mlir::MemRefType>(
-      getBufferType(getResult(), options, state, invocationStack).value());
-
-  mlir::memref::GlobalOp global = ttcore::createGlobal(
-      getOperation()->getParentOfType<ModuleOp>(), memrefType, getValue());
-  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
-      rewriter, *this, global.getType(), global.getName());
+::mlir::LogicalResult d2m::FullOp::verify() {
+  // Verify that the shape attribute matches the result type's shape.
+  if (!llvm::equal(getShape(), getType().getShape())) {
+    return emitOpError() << "expected shape (" << getType().getShape()
+                         << "), got (" << getShape() << ")";
+  }
 
   return mlir::success();
 }
-
-mlir::bufferization::AliasingValueList
-d2m::ConstantOp::getAliasingValues(mlir::OpOperand &,
-                                   const mlir::bufferization::AnalysisState &) {
-  bufferization::AliasingValueList result;
-  return result;
-}
-
-mlir::FailureOr<mlir::BaseMemRefType> d2m::ConstantOp::getBufferType(
-    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
-    const mlir::bufferization::BufferizationState &,
-    ::llvm::SmallVector<mlir::Value> &) {
-  return d2m::getBufferType(value.getType(), /*isView=*/false);
-}
-
-::mlir::OpFoldResult d2m::ConstantOp::fold(FoldAdaptor adaptor) {
-  return getValue();
-}
-
-void d2m::ConstantOp::getCanonicalizationPatterns(RewritePatternSet &results,
-                                                  MLIRContext *context) {
-  // No canonicalization patterns for now
-}
-
-::mlir::LogicalResult d2m::ConstantOp::verify() { return mlir::success(); }
 
 //===----------------------------------------------------------------------===//
 // MeshShardOp
@@ -353,7 +306,16 @@ mlir::FailureOr<mlir::BaseMemRefType> d2m::MeshShardOp::getBufferType(
   return {};
 }
 
-::mlir::LogicalResult d2m::MeshShardOp::verify() { return mlir::success(); }
+::mlir::LogicalResult d2m::MeshShardOp::verify() {
+  auto shardType = getShardType();
+
+  // Currently, we are not supporting maximal from StableHLO.
+  if (shardType == mlir::tt::ttcore::MeshShardType::Maximal) {
+    return emitOpError("Invalid shard_type (maximal) for mesh_shard op.");
+  }
+
+  return success();
+}
 
 //===----------------------------------------------------------------------===//
 // ToLayoutOp

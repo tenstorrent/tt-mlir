@@ -323,32 +323,6 @@ def D2M_FullOp : D2M_Op<"full", [
   let hasVerifier = 1;
 }
 
-def D2M_ConstantOp : D2M_Op<"constant", [
-    ConstantLike,
-    AllShapesMatch<["value", "result"]>,
-    DeclareOpInterfaceMethods<BufferizableOpInterface, [
-      "bufferizesToMemoryRead",
-      "bufferizesToMemoryWrite",
-      "bufferize",
-      "getAliasingValues",
-      "getBufferType"
-    ]>
-  ]> {
-  let summary = "Tensor constant creation operation (D2M).";
-  let description = [{
-    The `constant` operation creates a tensor with values specified by a constant attribute.
-  }];
-
-  let arguments = (ins ElementsAttr:$value);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let assemblyFormat = "attr-dict `:` type($result)";
-  let hasFolder = 1;
-  let hasCanonicalizer = 1;
-  let hasVerifier = 1;
-}
-
 def D2M_MeshShardOp: D2M_Op<"mesh_shard", [
     Pure,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
