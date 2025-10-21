@@ -8,6 +8,7 @@ third_party/ttnn-python
 .claude/*
 *pycache*
 *.egg-info
+.pykernel_gen
 cluster_descriptor.yaml
 
 # ttnn-dylib and ttnn-standalone artifacts
