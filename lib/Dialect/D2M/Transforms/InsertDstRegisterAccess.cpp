@@ -407,51 +407,75 @@ public:
 
   class DstStackAllocator {
     public:
-    int64_t allocate() {
+    int64_t allocate(bool isStore = false) {
       assert(!sliceStack.empty() && "Out of dst slices");
 
-      int64_t id = sliceStack.pop_back_val();
-      allocQueue.push(id);
-      return id;
+      currSliceIndex = sliceStack.pop_back_val();
+
+      if (isStore) {
+        outputQueue.push_back(currSliceIndex);
+      }
+      else {
+        inputStack.push_back(currSliceIndex);
+      }
+
+      llvm::errs() << "ALLOCATE\n";
+      llvm::errs() << "SliceStack = ";
+      for (auto it : sliceStack) {
+        llvm::errs() << it << ",";
+      }
+      llvm::errs() << " --> " << currSliceIndex;
+      llvm::errs() << "\n";
+
+      llvm::errs() << "InputStack = ";
+      for (auto it : inputStack) {
+        llvm::errs() << it << ",";
+      }
+      llvm::errs() << "\n";
+      llvm::errs() << "OutputStack = ";
+      for (auto it : outputQueue) {
+        llvm::errs() << it << ",";
+      }
+      
+      llvm::errs() << "\n\n";
+
+      return currSliceIndex;
     }
+
     int64_t deallocate() { 
-      assert(!allocQueue.empty() && "Deallocating non-existent dst slice");
+      assert(!(inputStack.empty() && outputQueue.empty())  && "Deallocating non-existent dst slice");
 
-      int64_t id = allocQueue.front();
+      int64_t id;
+
+      if (!inputStack.empty()) {
+        id = inputStack.pop_back_val();
+      }
+      else {
+        id = outputQueue.front();
+        outputQueue.pop_front();
+      }
+
       sliceStack.push_back(id);
-      allocQueue.pop();
+
+      llvm::errs() << "DEallocate\n";
+      llvm::errs() << "SliceStack = ";
+      for (auto it : sliceStack) {
+        llvm::errs() << it << ",";
+      }
+      llvm::errs() << "\n";
       
-      return id;
-    }
-      
-    int64_t allocateInput() {
-      assert(!sliceStack.empty() && "Out of dst slices");
-
-      int64_t id = sliceStack.pop_back_val();
-      inputSliceAllocatedStack.push_back(id);
-      return id;
-    }
-    int64_t deallocateInput() { 
-      assert(!inputSliceAllocatedStack.empty() && "Deallocating non-existent dst slice");
-
-      int64_t id = inputSliceAllocatedStack.pop_back_val();
-      sliceStack.push_back(id);
-      
-      return id;
-    }
-
-    int64_t allocateOutput() {
-      assert(!sliceStack.empty() && "Out of slices");
-
-      int64_t id = sliceStack.pop_back_val();
-      outputSliceAllocatedStack.push_back(id); 
-      return id;
-    }
-    int64_t deallocateOutput() { 
-      assert(!outputSliceAllocatedStack.empty() && "Deallocating non-existent dst slice");
-
-      int64_t id = outputSliceAllocatedStack.pop_back_val();
-      sliceStack.push_back(id);
+      llvm::errs() << "InputStack = ";
+      for (auto it : inputStack) {
+        llvm::errs() << it << ",";
+      }
+      llvm::errs() << "\n";
+      llvm::errs() << "OutputStack = ";
+      for (auto it : outputQueue) {
+        llvm::errs() << it << ",";
+      }
+      llvm::errs() << "\n";
+      llvm::errs() << " --> " << id;
+      llvm::errs() << "\n\n";
       
       return id;
     }
@@ -459,34 +483,16 @@ public:
     void setStoreToDst() { storedToDst = true; }
     bool didStoreToDst() { return storedToDst; }
     
-    int64_t getCurrSliceIndex() {
-      assert(!allocQueue.empty() && "Attempting to grab un-allocated dst slice");
-    
-      return allocQueue.back();
-    }
-
-    int64_t getCurrInputSliceIndex() {
-      assert(!inputSliceAllocatedStack.empty() && "Attempting to grab un-allocated dst slice");
-
-      int64_t id = inputSliceAllocatedStack.pop_back_val();
-      inputSliceAllocatedStack.push_back(id); 
-    
-      return id;
-    }
-    int64_t getCurrOutputSliceIndex() {
-      assert(!outputSliceAllocatedStack.empty() && "Attempting to grab un-allocated dst slice");
-
-      int64_t id = outputSliceAllocatedStack.pop_back_val();
-      outputSliceAllocatedStack.push_back(id); 
-    
-      return id;
+    int64_t getCurrSliceIndex() {    
+      return currSliceIndex;
     }
   
     private:
-      std::queue<int64_t> allocQueue;
-      SmallVector<int64_t, 4> sliceStack = {3, 2, 1, 0};
-      SmallVector<int64_t, 4> inputSliceAllocatedStack;
-      SmallVector<int64_t, 4> outputSliceAllocatedStack;
+      int64_t currSliceIndex = 0;
+
+      SmallVector<int64_t, 8> inputStack;
+      std::deque<int64_t> outputQueue;
+      SmallVector<int64_t, 8> sliceStack = {7, 6, 5, 4, 3, 2, 1, 0};
 
       bool storedToDst = false;
     };
@@ -544,7 +550,10 @@ public:
       // }
       // halve capacity again if fused op is ternary or more
       if (op->getNumOperands() > 3) {
-        dstCapacity /= 2;
+        dstCapacity = 4;
+      }
+      if (op->getNumOperands() > 4) {
+        dstCapacity = 8;
       }
       // halve capacity again if data type is more than 16 bits
       // if (largestDstType.getIntOrFloatBitWidth() > 16) {
@@ -616,7 +625,7 @@ public:
               reorderOperationsSethi(rewriter, outermostLoop, opTreeRoot.get());
 
               llvm::errs() << "POST SU " << "\n\n";
-              llvm::errs() << outermostLoop << "\n";
+              llvm::errs() << *outermostLoop << "\n";
 
 
               // Insert DST register loads/stores and perform allocation (inline version).
@@ -920,7 +929,7 @@ public:
                   "those ops should be setting output tile.");
             dstSliceIndex = dstStackAllocator.getCurrSliceIndex();
           } else {
-            dstSliceIndex = dstStackAllocator.allocate();
+            dstSliceIndex = dstStackAllocator.allocate(true);
             dstStackAllocator.setStoreToDst();
           }
           collectDstAccess<affine::AffineStoreOp>(op, potentialStore, copyInfos,
@@ -938,25 +947,12 @@ public:
           assert(computeOp->getNumResults() == 1);
           assert(!dstRegisterAllocation.contains(computeOp));
 
-          // if (computeOp.getDstRegInPlace() && user->getNumOperands() == 2) {
-          //   for ( auto operand : user->getOperands()) {
-          //     auto defOp = operand.getDefiningOp();
-
-          //     if (defOp!= computeOp) {
-          //       // already allocated
-          //       if (dstRegisterAllocation.contains(defOp)) {
-
-          //       }
-          //     }
-          //   }
-          // }
-
           // If op stores to dst in place, we don't need to allocate a new dst
           // register, just use the current dst index.
           int32_t allocatedIndex =
               computeOp.getDstRegInPlace()
                   ? dstStackAllocator.getCurrSliceIndex()
-                  : dstStackAllocator.allocate();
+                  : dstStackAllocator.allocate(true);
 
           dstRegisterAllocation[computeOp] = {allocatedIndex,
                                               outermostInnerComputeLoop};
