@@ -302,6 +302,23 @@ namespace {
 template <typename TTNNOpTy, typename OpAdaptor = typename TTNNOpTy::Adaptor>
 class EltwiseBinaryCompositeWithDTypeOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<TTNNOpTy> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    if constexpr (std::is_same_v<TTNNOpTy, ::mlir::tt::ttnn::PowTensorOp>) {
+      return "ttnn.pow_tensor";
+    }
+
+    return "ttnn.";
+  }
+
+  std::string getPrefixSwapPattern() const override {
+    if constexpr (std::is_same_v<TTNNOpTy, ::mlir::tt::ttnn::PowTensorOp>) {
+      return "ttnn.pow";
+    }
+
+    return "ttnn.";
+  }
+
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       TTNNOpTy>::TTNNToEmitPyBaseOpConversionPattern;
