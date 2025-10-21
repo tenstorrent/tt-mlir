@@ -824,6 +824,53 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
   // Without tiling, distribute dimensions across grid.
   for (size_t i = 0; i < physicalShape.size(); ++i) {
     const int64_t dim = physicalShape[i];
+    if (dim % gridShape[i] != 0) {
+      llvm::errs() << "MetalLayoutAttr::getDeviceShape assertion failed:\n";
+      llvm::errs() << "  Dimension " << i << ": physicalShape[" << i
+                   << "] = " << dim << " is not evenly divisible by gridShape["
+                   << i << "] = " << gridShape[i] << "\n";
+      llvm::errs() << "  physicalShape = [";
+      for (size_t j = 0; j < physicalShape.size(); ++j) {
+        if (j > 0) {
+          llvm::errs() << ", ";
+        }
+        llvm::errs() << physicalShape[j];
+      }
+      llvm::errs() << "]\n";
+      llvm::errs() << "  gridShape = [";
+      for (size_t j = 0; j < gridShape.size(); ++j) {
+        if (j > 0) {
+          llvm::errs() << ", ";
+        }
+        llvm::errs() << gridShape[j];
+      }
+      llvm::errs() << "]\n";
+      llvm::errs() << "  logicalShape = [";
+      for (size_t j = 0; j < getLogicalShape().size(); ++j) {
+        if (j > 0) {
+          llvm::errs() << ", ";
+        }
+        llvm::errs() << getLogicalShape()[j];
+      }
+      llvm::errs() << "]\n";
+      llvm::errs() << "  dimAlignments = [";
+      for (size_t j = 0; j < getDimAlignments().size(); ++j) {
+        if (j > 0) {
+          llvm::errs() << ", ";
+        }
+        llvm::errs() << getDimAlignments()[j];
+      }
+      llvm::errs() << "]\n";
+      llvm::errs() << "  collapsedIntervals = [";
+      for (int64_t j = 0;
+           j < static_cast<int64_t>(getCollapsedIntervals().size()); ++j) {
+        if (j > 0) {
+          llvm::errs() << ", ";
+        }
+        llvm::errs() << getCollapsedIntervals().getValues<int64_t>()[j];
+      }
+      llvm::errs() << "]\n";
+    }
     assert(dim % gridShape[i] == 0 &&
            "Collapsed dimension must be evenly divisible by grid dimension");
     deviceShape.push_back(dim / gridShape[i]);

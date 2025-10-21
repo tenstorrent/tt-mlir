@@ -66,11 +66,21 @@ class D2MGenericCompiler(TTCompilerBase):
                     self.ctx, shape, self.grid, self.tiled, self.memory_space
                 )
                 tile_shape = [32, 32] if self.tiled else [1, 1]
+
+                # Create grid shape that matches logical rank (like builder_utils.py)
+                logical_rank = len(shape)
+                if len(self.grid) == 2 and logical_rank == 2:
+                    # For 2D tensors with 2D grid, use the grid as-is
+                    grid_shape = list(self.grid)
+                else:
+                    # For other cases, pad grid with 1s to match logical rank
+                    grid_shape = list(self.grid) + [1] * (logical_rank - len(self.grid))
+
                 # Downcast to properly typed MetalLayoutAttr for getDeviceShape
                 typed_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
                 if typed_layout is None:
                     raise RuntimeError("Failed to downcast MetalLayoutAttr")
-                device_shape = typed_layout.getDeviceShape(self.grid, tile_shape)
+                device_shape = typed_layout.getDeviceShape(grid_shape, tile_shape)
 
                 # For 1x1 grid, use logical shape with proper tile counting (like builder_utils.py)
                 if self.grid == [1, 1] or self.grid == (1, 1):
@@ -91,34 +101,23 @@ class D2MGenericCompiler(TTCompilerBase):
             elif arg.annotation.id == "CircularBuffer":
                 shape = self.args[i].shape
                 dtype = F32Type.get(self.ctx)
-                from ..d2m_api import create_metal_layout
 
-                layout = create_metal_layout(
-                    self.ctx, shape, self.grid, self.tiled, self.memory_space
-                )
-                tile_shape = [32, 32] if self.tiled else [1, 1]
-                # Downcast to properly typed MetalLayoutAttr for getDeviceShape
-                # TODO: Eliminate this downcast once we have a proper way to get the device shape from the layout
-                typed_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
-                if typed_layout is None:
-                    raise RuntimeError("Failed to downcast MetalLayoutAttr")
-                device_shape = typed_layout.getDeviceShape(self.grid, tile_shape)
+                # CircularBuffer should create local memrefs (without MetalLayoutAttr)
+                # for use in DMA operations. The underlying memref should be local L1.
+                if self.tiled:
+                    # For tiled layouts, calculate tile count for last 2 dimensions
+                    tile_count_h = (shape[-2] + 31) // 32
+                    tile_count_w = (shape[-1] + 31) // 32
+                    device_shape = list(shape[:-2]) + [tile_count_h, tile_count_w]
+                    element_type = ttcore.ir.TileType.get(
+                        self.ctx, 32, 32, ttcore.DataType.Float32
+                    )
+                else:
+                    device_shape = list(shape)
+                    element_type = dtype
 
-                # For 1x1 grid, use logical shape with proper tile counting (like builder_utils.py)
-                if self.grid == [1, 1] or self.grid == (1, 1):
-                    if self.tiled:
-                        # For tiled layouts, calculate tile count for last 2 dimensions
-                        tile_count_h = (shape[-2] + 31) // 32
-                        tile_count_w = (shape[-1] + 31) // 32
-                        device_shape = list(shape[:-2]) + [tile_count_h, tile_count_w]
-                    else:
-                        device_shape = list(shape)
-                element_type = (
-                    ttcore.ir.TileType.get(self.ctx, 32, 32, ttcore.DataType.Float32)
-                    if self.tiled
-                    else dtype
-                )
-                tensor = RankedTensorType.get(device_shape, element_type, layout)
+                # Create local memref type (no MetalLayoutAttr) for CircularBuffer
+                tensor = RankedTensorType.get(device_shape, element_type, None)
                 func_operand_types.append(d2m.ir.CBType.get(self.ctx, tensor))
             elif arg.annotation.id == "Semaphore":
                 func_operand_types.append(d2m.ir.SemaphoreType.get(self.ctx))
@@ -139,6 +138,9 @@ class D2MGenericCompiler(TTCompilerBase):
         func_bb = self.func_entry.add_entry_block()
         for i, bb_arg in enumerate(func_bb.arguments):
             self.symbol_tables[-1][node.args.args[i].arg] = bb_arg
+
+        # Add d2m module to symbol table
+        self.symbol_tables[-1]["d2m"] = d2m
 
         self.module_symbol_table = SymbolTable(self.module.operation)
 
@@ -163,12 +165,24 @@ class D2MGenericCompiler(TTCompilerBase):
                             self.memory_space,
                         )
                         tile_shape = [32, 32] if self.tiled else [1, 1]
+
+                        # Create grid shape that matches logical rank (like builder_utils.py)
+                        logical_rank = len(val.shape)
+                        if len(self.grid) == 2 and logical_rank == 2:
+                            # For 2D tensors with 2D grid, use the grid as-is
+                            grid_shape = list(self.grid)
+                        else:
+                            # For other cases, pad grid with 1s to match logical rank
+                            grid_shape = list(self.grid) + [1] * (
+                                logical_rank - len(self.grid)
+                            )
+
                         # Downcast to properly typed MetalLayoutAttr for getDeviceShape
                         typed_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
                         if typed_layout is None:
                             raise RuntimeError("Failed to downcast MetalLayoutAttr")
                         device_shape = typed_layout.getDeviceShape(
-                            self.grid, tile_shape
+                            grid_shape, tile_shape
                         )
 
                         # For 1x1 grid, use logical shape with proper tile counting (like builder_utils.py)
