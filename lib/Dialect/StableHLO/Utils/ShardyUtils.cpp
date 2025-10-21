@@ -684,10 +684,11 @@ parseDimensionShardings(const std::string &dimsContent,
 
     if (dimContent.empty()) {
       dimShardings.push_back(
-          mlir::sdy::DimensionShardingAttr::get(context, {}, false));
+        mlir::sdy::DimensionShardingAttr::get(context, {}, /*is_closed=*/true));
     } else {
       llvm::SmallVector<mlir::sdy::AxisRefAttr> axisRefs;
       size_t axisPos = 0;
+      bool is_closed = dimContent.find("?") == std::string::npos;
       while (axisPos < dimContent.length()) {
         size_t quoteStart = dimContent.find('"', axisPos);
         if (quoteStart == std::string::npos) {
@@ -706,7 +707,7 @@ parseDimensionShardings(const std::string &dimsContent,
       }
 
       dimShardings.push_back(
-          mlir::sdy::DimensionShardingAttr::get(context, axisRefs, false));
+          mlir::sdy::DimensionShardingAttr::get(context, axisRefs, is_closed));
     }
 
     pos = braceEnd + 1;
