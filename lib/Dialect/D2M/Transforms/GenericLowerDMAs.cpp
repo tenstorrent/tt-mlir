@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"

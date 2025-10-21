@@ -8,6 +8,7 @@
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
 #include "ttmlir/Utils.h"
+#include "ttmlir/AffineMapUtils.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"

@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
+#include "ttmlir/AffineMapUtils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
