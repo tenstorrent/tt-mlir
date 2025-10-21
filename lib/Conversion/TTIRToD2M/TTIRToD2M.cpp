@@ -74,16 +74,18 @@ protected:
   // This function takes a TTNN DRAM tensor and returns a tuple of three
   // tensors:
   // 1. The cannonical translation of the TTNN tensor to a Metal tensor, having
-  // a D2M layout, DRAM memory space, and a 1x1 grid.
-  // 2. The "reblocked" version of tensor 1, having a D2M layout, DRAM memory
+  // a metal layout, DRAM memory space, and a 1x1 grid.
+  //
+  // 2. The "reblocked" version of tensor 1, having a metal layout, DRAM memory
   // space, an inferred grid, and an index map to index into the original
   // tensor.
+  //
   // 3. A storage tensor required by the stream_layout op to represent the
   // mapping of tensor 1 to tensor 2. This tensor has the inferred grid and L1
   // memory space.
   //
   // The end effect of this function is that ops with DRAM tensors aim to
-  // maximize their worker gridc
+  // maximize their worker grid.
   std::tuple<RankedTensorType, RankedTensorType, RankedTensorType>
   translateTTNNDRAMTensor(mlir::ConversionPatternRewriter &rewriter,
                           RankedTensorType tensorType) const {
@@ -214,7 +216,7 @@ protected:
           translateTTNNDRAMTensor(rewriter, tensorType);
 
       // input type: tensor with TTNN layout in DRAM
-      // output type: tensor with D2M layout in DRAM and 1x1 grid
+      // output type: tensor with metal layout in DRAM and 1x1 grid
       auto castOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
           value.getLoc(), metalTensor, value);
 
