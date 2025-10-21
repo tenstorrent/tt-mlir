@@ -4,6 +4,8 @@ SHELL ["/bin/bash", "-c"]
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 
+ARG TT_METAL_DEPENDENCIES_COMMIT=7aee9a53eac0023e3660668448e1fbb105038d63
+
 # Install dependencies
 RUN <<EOT
 # ANCHOR: developer_dependencies
@@ -42,7 +44,7 @@ add-apt-repository ppa:deadsnakes/ppa && \
     apt-get install -y python3.11 python3.11-dev python3.11-venv python3.11-distutils
 
 # Setup / install metal dependencies
-wget https://raw.githubusercontent.com/tenstorrent/tt-metal/7aee9a53eac0023e3660668448e1fbb105038d63/{install_dependencies.sh,tt_metal/sfpi-version.sh}
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_DEPENDENCIES_COMMIT}/{install_dependencies.sh,tt_metal/sfpi-version.sh}
 bash install_dependencies.sh --docker
 # ANCHOR_END: developer_dependencies
 EOT
