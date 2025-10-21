@@ -1,7 +1,7 @@
 # This workflow automates creation of uplift pull requests.
 # Uplift PR is created daily to uplift the submodule to the latest version.
 
-name: Nighty Uplift
+name: Nightly Uplift
 
 on:
   schedule:
@@ -38,6 +38,27 @@ jobs:
           echo "Updating tt-metal to SHA: ${{ env.LATEST_TT_METAL_VERSION }}"
           sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ env.LATEST_TT_METAL_VERSION }}\")/" third_party/CMakeLists.txt
 
+      - name: Check for dependency file changes and update Dockerfile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CURRENT_TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+
+          # Fetch file hashes from current version
+          CURRENT_INSTALL_DEPS_SHA=$(gh api repos/tenstorrent/tt-metal/contents/install_dependencies.sh?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
+          CURRENT_SFPI_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-version.sh?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
+
+          # Fetch file hashes from latest version
+          LATEST_INSTALL_DEPS_SHA=$(gh api repos/tenstorrent/tt-metal/contents/install_dependencies.sh?ref=${{ env.LATEST_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
+          LATEST_SFPI_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-version.sh?ref=${{ env.LATEST_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
+
+          if [ "$CURRENT_INSTALL_DEPS_SHA" != "$LATEST_INSTALL_DEPS_SHA" ] || [ "$CURRENT_SFPI_VERSION_SHA" != "$LATEST_SFPI_VERSION_SHA" ]; then
+            # Update the commit hash in Dockerfile.base
+            sed -i "s|ARG TT_METAL_COMMIT=.*|ARG TT_METAL_COMMIT=${{ env.LATEST_TT_METAL_VERSION }}|" .github/Dockerfile.base
+            DOCKERFILE_UPDATED="**Note** Dockerfile.base is modified due to dependency updates"
+            echo "DOCKERFILE_UPDATED=$DOCKERFILE_UPDATED" >> $GITHUB_ENV
+          fi
+
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
         id: create-pr
@@ -50,6 +71,8 @@ jobs:
           title: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.LATEST_TT_METAL_VERSION }} ${{ env.TODAY }}"
           body: |
             This PR uplifts the ${{ env.TT_METAL_SUBMODULE_PATH }} to the ${{ env.LATEST_TT_METAL_VERSION }}
+
+            ${{ env.DOCKERFILE_UPDATED }}
 
             ### Checklist
             - **Frontend CI passing links**
@@ -71,7 +94,7 @@ jobs:
           echo "Pull Request URL - ${{ steps.create-pr.outputs.pull-request-url }}"
           gh pr review ${{ steps.create-pr.outputs.pull-request-number }} --approve
 
-      # Note: Dissable auto-merge for now until we are more confident
+      # Note: Disable auto-merge for now until we are more confident
       # that uplift won't break the downstream projects
       #
       # - name: Enable Pull Request Automerge
