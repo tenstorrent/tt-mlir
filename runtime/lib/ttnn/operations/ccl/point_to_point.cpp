@@ -21,8 +21,8 @@ void run(const ::tt::target::ttnn::PointToPointOp *op,
   const ::ttnn::Tensor &inputTensor =
       tensorPool.getTTNNTensorAndValidate(op->in());
 
-  const auto *sendCoordFb = op->send_coord();
-  const auto *receiveCoordFb = op->receive_coord();
+  const auto *sendCoordFb = op->sender_coord();
+  const auto *receiveCoordFb = op->receiver_coord();
 
   std::vector<uint32_t> sendCoordVec(sendCoordFb->begin(), sendCoordFb->end());
   std::vector<uint32_t> receiveCoordVec(receiveCoordFb->begin(),
@@ -31,15 +31,14 @@ void run(const ::tt::target::ttnn::PointToPointOp *op,
   ::ttnn::MeshCoordinate sendCoord(ttsl::make_span(sendCoordVec));
   ::ttnn::MeshCoordinate receiveCoord(ttsl::make_span(receiveCoordVec));
 
-  const auto *accumTensor = op->accum_tensor();
-  std::optional<::ttnn::Tensor> providedOutputTensor = std::nullopt;
-  if (accumTensor) {
-    providedOutputTensor =
-        tensorPool.getTTNNTensorAndValidate(op->accum_tensor());
+  std::optional<::ttnn::Tensor> optionalOutputTensor = std::nullopt;
+  if (op->optional_output_tensor()) {
+    optionalOutputTensor =
+        tensorPool.getTTNNTensorAndValidate(op->optional_output_tensor());
   }
   auto outputTensor = ::ttnn::point_to_point(
       inputTensor, receiveCoord, sendCoord, ::ttnn::ccl::Topology::Linear,
-      providedOutputTensor);
+      optionalOutputTensor);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), outputTensor);
 }

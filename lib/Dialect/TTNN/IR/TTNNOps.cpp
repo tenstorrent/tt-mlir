@@ -3484,17 +3484,17 @@ void CaptureOrExecuteTraceOp::getEffects(
 
 // PointToPointOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::PointToPointOp::verify() {
-  if (getAccumTensor()) { // accum_tensor is optional
+  if (getOptionalOutputTensor()) { // optional_output_tensor is optional
     auto inputType = llvm::dyn_cast<RankedTensorType>(getInput().getType());
     auto outputType =
-        llvm::dyn_cast<RankedTensorType>(getAccumTensor().getType());
+        llvm::dyn_cast<RankedTensorType>(getOptionalOutputTensor().getType());
 
     if (inputType.getElementType() != outputType.getElementType() ||
         inputType.getShape() != outputType.getShape()) {
-      return emitOpError(
-          "Accum tensor must match input tensor in shape and element type.");
+      return emitOpError("Optional output tensor must match input tensor in "
+                         "shape and element type.");
     }
-    if (getReceiveCoord() == getSendCoord()) {
+    if (getReceiverCoord() == getSenderCoord()) {
       return emitOpError() << "Can't send/receive to the same device";
     }
   }
