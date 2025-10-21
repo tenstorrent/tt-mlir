@@ -3711,9 +3711,6 @@ def test_mesh_shard_devices(
 @pytest.mark.parametrize("all_gather_dim", range(4))
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 def test_all_gather(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
@@ -3747,7 +3744,6 @@ def test_all_gather(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        skip_exec=True,
     )
 
 
@@ -3776,9 +3772,6 @@ def test_all_gather(
 )
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 def test_all_reduce(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
@@ -3810,14 +3803,12 @@ def test_all_reduce(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        skip_exec=True,
     )
 
 
 @pytest.mark.parametrize(
     "test_shape",
     [
-        pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.xfail(reason="run error")),
         (1, 1, 256, 256),
         (1, 1, 256, 257),
         (1, 1, 256, 255),
@@ -3838,9 +3829,6 @@ def test_all_reduce(
 @pytest.mark.parametrize("scatter_dim", [0, 1, 2, 3])
 @pytest.mark.parametrize("cluster_axis", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-@pytest.mark.xfail(
-    reason="Runtime hang, see https://github.com/tenstorrent/tt-mlir/issues/5262"
-)
 def test_reduce_scatter(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
@@ -3878,7 +3866,6 @@ def test_reduce_scatter(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        skip_exec=True,
     )
 
 
