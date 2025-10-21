@@ -3,30 +3,43 @@
 
 #l1_ = #ttcore.memory_space<l1>
 module {
-  func.func private @no_loops(%arg0: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, %arg1: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, %arg2: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>) attributes {d2m.thread = #d2m.thread<compute>} {
-    %c0 = arith.constant 0 : index
-    // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst>
-    %0 = affine.load %arg0[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
-    %1 = affine.load %arg1[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
-    // CHECK: %[[ARG2_VAL:.*]] = affine.load %arg2
-    %2 = affine.load %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
-    // Check that the third operand (accumulator) is stored to dst memory space
-    // CHECK: affine.store %[[ARG2_VAL]], %[[DST]]
-    // Check that the accumulator is loaded back from dst memory space for the matmul
-    // CHECK: %[[DST_VAL:.*]] = affine.load %[[DST]]
-    // CHECK: %[[MATMUL_RESULT:.*]] = "d2m.tile_matmul"
-    %3 = "d2m.tile_matmul"(%0, %1, %2) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-    // Check that matmul result is stored back to dst memory space
-    // CHECK: affine.store %[[MATMUL_RESULT]], %[[DST]]
-    // Check that result is loaded from dst memory space
-    // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
-    // Check that final result is stored back to original #l1 memory space
-    // CHECK: affine.store %[[FINAL_VAL]], %arg2
-    affine.store %3, %arg2[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+  func.func @no_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
+                      %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>,
+                      %out0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>) {
+    d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>], threads = [#d2m.thread<compute>]}
+        ins(%in0, %in1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>)
+        outs(%out0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #l1_>) {
+    ^compute0(%cb0: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<1x1x!ttcore.tile<32x32, f32>, #l1_>):
+      %c0 = arith.constant 0 : index
+      %subview = memref.subview %cb0[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
+      %subview_1 = memref.subview %cb1[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
+      %subview_2 = memref.subview %cb2[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
+      linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%subview, %subview_1 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) outs(%subview_2 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) {
+      ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>, %arg2: !ttcore.tile<32x32, f32>):
+        // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<4x1x1x!ttcore.tile<32x32, f32>, #dst>
+        // CHECK: %[[GUARD_IDX:.*]] = d2m.iter_index
+        // CHECK: %[[NOT_FIRST:.*]] = arith.cmpi ne, %[[GUARD_IDX]]
+        // CHECK: scf.if %[[NOT_FIRST]]
+        // CHECK: %[[ARG2_VAL:.*]] = affine.load %[[ARG2:.*]]
+        // Check that the third operand (accumulator) is stored to dst memory space
+        // CHECK: affine.store %[[ARG2_VAL]], %[[DST]]
+        // Check that the accumulator is loaded back from dst memory space for the matmul
+        // CHECK: %[[ARG0_VAL:.*]] = affine.load %[[ARG0:.*]]
+        // CHECK: %[[ARG1_VAL:.*]] = affine.load %[[ARG1:.*]]
+        // CHECK: %[[DST_VAL:.*]] = affine.load %[[DST]]
+        // CHECK: %[[MATMUL_RESULT:.*]] = "d2m.tile_matmul"(%[[ARG0_VAL]], %[[ARG1_VAL]], %[[DST_VAL]])
+        %0 = "d2m.tile_matmul"(%arg0, %arg1, %arg2) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        // Check that result is loaded from dst memory space
+        // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
+        // Check that final result is stored back to original #l1 memory space
+        // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2]]
+        linalg.yield %0 : !ttcore.tile<32x32, f32>
+      }
+    }
     return
   }
 
-  func.func private @generic_matmul(
+  func.func @generic_matmul(
     %in0: memref<1x1x3x3x!ttcore.tile<32x32, f16>, #ttcore.shard<6144x2048>, #l1_>,
     %in1: memref<1x1x3x2x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x2048>, #l1_>,
     %out0: memref<1x1x3x2x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x2048>, #l1_>

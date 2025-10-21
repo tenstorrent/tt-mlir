@@ -16,17 +16,14 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -420,7 +417,26 @@ private:
       std::is_same_v<TileOp, d2m::TileLtzOp> ||
       std::is_same_v<TileOp, d2m::TileLezOp>;
 
-private:
+  void createComputeRegion(mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                           mlir::ValueRange bbArgs,
+                           mlir::ConversionPatternRewriter &rewriter,
+                           mlir::Location loc, const size_t numInputs,
+                           const size_t numOutputs) const {
+    mlir::ValueRange operands = bbArgs.take_front(numInputs);
+    mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
+
+    mlir::Value yield;
+    if constexpr (isComparisonOp) {
+      // For comparison ops, first subtract then compare with zero.
+      yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
+      yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
+    } else {
+      yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
+    }
+
+    bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+  }
+
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -484,25 +500,8 @@ private:
             linalgIteratorTypes,
             [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                 mlir::ValueRange bbArgs) {
-              mlir::Value yield;
-
-              if constexpr (isComparisonOp) {
-                // For comparison ops, first subtract then compare with zero.
-                mlir::Value subResult = bbBuilder.create<d2m::TileSubOp>(
-                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
-                    /*operands=*/bbArgs.take_front(numInputs));
-                yield = bbBuilder.create<TileOp>(
-                    loc, /*resultTypes=*/bbArgs.take_back(numOutputs),
-                    /*operands=*/subResult);
-              } else {
-                // For regular elementwise ops, create TileOp directly.
-                yield = bbBuilder.create<TileOp>(
-                    loc,
-                    /* resultTypes */ bbArgs.take_back(numOutputs).getTypes(),
-                    /* operands */ bbArgs.take_front(numInputs));
-              }
-
-              bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+              createComputeRegion(bbBuilder, bbLoc, bbArgs, rewriter, loc,
+                                  numInputs, numOutputs);
             });
 
         rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
@@ -1133,7 +1132,8 @@ public:
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       ttcore::MemorySpace defaultInputMemSpace,
       ttcore::MemorySpace defaultOutputMemSpace,
-      const llvm::SmallVector<int64_t> &targetGridShape, bool ttnnMode, bool collapseTensors)
+      const llvm::SmallVector<int64_t> &targetGridShape, bool ttnnMode,
+      bool collapseTensors)
       : OpConversionPattern<d2m::TileMatmulBlockOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
                                targetGridShape, ttnnMode, collapseTensors) {}
@@ -1292,10 +1292,12 @@ private:
                 mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
             auto shardShape = layout.getShardShape(tensorType);
             t = mlir::RankedTensorType::get(shardShape,
-                                               tensorType.getElementType());
+                                            tensorType.getElementType());
           }
 
-          return isCB ? d2m::CBType::get(t.getContext(), mlir::cast<ShapedType>(t)) : t;
+          return isCB ? d2m::CBType::get(t.getContext(),
+                                         mlir::cast<ShapedType>(t))
+                      : t;
         });
 
     for (mlir::Region &region : generic.getRegions()) {
@@ -1324,9 +1326,9 @@ private:
       rewriter.setInsertionPointToStart(block);
       for (auto &op : origRegion.getOps()) {
         Operation *newOp = rewriter.clone(op, irMapper);
-        SmallVector<Operation*> needsVisit = {newOp};
+        SmallVector<Operation *> needsVisit = {newOp};
         while (!needsVisit.empty()) {
-          Operation* visitOp = needsVisit.pop_back_val();
+          Operation *visitOp = needsVisit.pop_back_val();
           for (auto result : visitOp->getResults()) {
             RankedTensorType tensorType =
                 mlir::dyn_cast<RankedTensorType>(result.getType());
@@ -1338,7 +1340,8 @@ private:
           }
 
           for (mlir::Region &visitRegion : visitOp->getRegions()) {
-            auto opPointers = llvm::map_range(visitRegion.getOps(), [](Operation &op) { return &op; });
+            auto opPointers = llvm::map_range(
+                visitRegion.getOps(), [](Operation &op) { return &op; });
             needsVisit.append(opPointers.begin(), opPointers.end());
           }
         }
@@ -1351,7 +1354,9 @@ private:
     return llvm::success();
   }
 
-  static RankedTensorType reblockTensor(RankedTensorType tensorType, ArrayRef<int64_t> gridShape, bool tilize) {
+  static RankedTensorType reblockTensor(RankedTensorType tensorType,
+                                        ArrayRef<int64_t> gridShape,
+                                        bool tilize) {
     assert(tensorType);
     assert(gridShape.size() == 2);
     constexpr std::array<int64_t, 2> defaultShape =
@@ -1362,10 +1367,12 @@ private:
         ttcore::TileType::get(tensorType.getElementType(), tileShape);
     llvm::SmallVector<int64_t> tiledTensorShape(tensorType.getShape());
     assert(tiledTensorShape.size() >= 2);
-    tiledTensorShape[tiledTensorShape.size() - 2] = ttmlir::utils::alignUpDiv(
-        tiledTensorShape[tiledTensorShape.size() - 2], tileShape[0] * gridShape[0]);
-    tiledTensorShape[tiledTensorShape.size() - 1] = ttmlir::utils::alignUpDiv(
-        tiledTensorShape[tiledTensorShape.size() - 1], tileShape[1] * gridShape[1]);
+    tiledTensorShape[tiledTensorShape.size() - 2] =
+        ttmlir::utils::alignUpDiv(tiledTensorShape[tiledTensorShape.size() - 2],
+                                  tileShape[0] * gridShape[0]);
+    tiledTensorShape[tiledTensorShape.size() - 1] =
+        ttmlir::utils::alignUpDiv(tiledTensorShape[tiledTensorShape.size() - 1],
+                                  tileShape[1] * gridShape[1]);
     return mlir::RankedTensorType::get(tiledTensorShape, tileType);
   }
 };

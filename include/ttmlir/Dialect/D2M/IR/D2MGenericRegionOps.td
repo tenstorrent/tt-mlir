@@ -519,6 +519,31 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast"> {
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_DstReinterpretCastOp : D2M_GenericRegionOp<"dst_reinterpret_cast"> {
+    let summary = "D2M Destination Register Reinterpret Cast Op";
+    let description = [{
+        The `dst_reinterpret_cast` operation reinterprets a tile value as a different
+        tile type for the purpose of storing/loading from the destination register.
+
+        This models the hardware behavior that destination register memory is untyped
+        and can be accessed with different type interpretations. It is inserted during
+        the InsertDstRegisterAccess pass to reconcile type mismatches between compute
+        operations and destination register allocations, and is removed during lowering
+        to TTKernel as a no-op.
+
+        Example:
+        ```mlir
+        %0 = affine.load %dst : memref<1x1x4x!ttcore.tile<32x32, f32>, #dst>
+        %1 = d2m.tile_typecast %0 : !ttcore.tile<32x32, f32> -> !ttcore.tile<32x32, bf16>
+        %2 = d2m.dst_reinterpret_cast %1 : !ttcore.tile<32x32, bf16> -> !ttcore.tile<32x32, f32>
+        affine.store %2, %dst : memref<1x1x4x!ttcore.tile<32x32, f32>, #dst>
+        ```
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 //===----------------------------------------------------------------------===//
 // D2M Destination Control Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//

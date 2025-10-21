@@ -170,7 +170,6 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 
 # Special handling for log PCC checks. Due to the vertical asymptote on the log graph, small changes in input values result in large changes in output values at negative values, so both graph and golden tensors must be constrained accordingly.
-@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -694,7 +693,6 @@ def pow(
     return pow0
 
 
-@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -712,7 +710,6 @@ def test_pow(shape: Shape, dtype: torch.dtype, target: str, request, device):
 
 
 @x86_only
-@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -1388,13 +1385,11 @@ def test_avg_pool2d(
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 5])
 @pytest.mark.parametrize("dimension", [1])  # channel dimension
 @pytest.mark.parametrize("epsilon", [1e-5])
-@pytest.mark.parametrize("training", [False])
 def test_batch_norm(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
     dimension: int,
     epsilon: float,
-    training: bool,
     request,
     device,
 ):
@@ -1416,7 +1411,6 @@ def test_batch_norm(
             variance,
             epsilon=epsilon,
             dimension=dimension,
-            training=training,
             unit_attrs=unit_attrs,
         )
 
@@ -1431,7 +1425,6 @@ def test_batch_norm(
     )
 
 
-@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
 @pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
 @pytest.mark.parametrize("value", [0])
@@ -1903,12 +1896,20 @@ def test_arange(
     )
 
 
-@pytest.mark.xfail(reason="Fails Golden")
-@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
-    "from_type,to_type", [(torch.int32, torch.float32)], ids=["i32-f32"]
+    "from_type,to_type",
+    [
+        (torch.int32, torch.float32),
+        (torch.float32, torch.int32),
+        (torch.bfloat16, torch.float32),
+        (torch.float32, torch.bfloat16),
+    ],
+    ids=["i32-f32", "f32-i32", "bf16-f32", "f32-bf16"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "target", ["ttnn", "ttmetal" | Marks(pytest.mark.xfail(reason="Golden failure"))]
+)
 def test_typecast(
     shape: Shape,
     from_type: torch.dtype,
@@ -1925,9 +1926,6 @@ def test_typecast(
         return builder.typecast(in0, output_type=to_type, unit_attrs=unit_attrs)
 
     pipeline_options = []
-    # Workaround for ttmetal, only support 1x1 grid atm
-    if target == "ttmetal":
-        pipeline_options.append("override-device-shape=1,1")
     compile_and_execute_ttir(
         typecast,
         [shape],
@@ -2682,7 +2680,7 @@ def test_hoisted_squeeze(shape: Shape, dim: int, target: str, request, device):
 unary_ops = [
     exp,
     expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
-    floor | Marks(pytest.mark.xfail(reason="Fails Golden")),
+    floor,
     abs,
     neg,
     sign | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -2691,22 +2689,22 @@ unary_ops = [
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
     relu | Marks(pytest.mark.skip_config(["ttmetal"])),
-    gelu | Marks(pytest.mark.xfail(reason="Fails Golden")),
+    gelu,
     leaky_relu | Marks(pytest.mark.skip_config(["ttmetal"])),
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
-    sigmoid | Marks(pytest.mark.xfail(reason="Fails Golden")),
+    sigmoid,
     is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
     ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
     sum | Marks(pytest.mark.skip_config(["ttmetal"])),
     mean | Marks(pytest.mark.skip_config(["ttmetal"])),
     max
     | Marks(
-        pytest.mark.xfail(reason="Shape mismatch on golden"),
+        pytest.mark.skip_config(["ttnn"]),
         pytest.mark.skip_config(["ttmetal"]),
     ),
     min
     | Marks(
-        pytest.mark.xfail(reason="Shape mismatch on golden"),
+        pytest.mark.skip_config(["ttnn"]),
         pytest.mark.skip_config(["ttmetal"]),
     ),
     get_dimension_size
@@ -2994,7 +2992,7 @@ def test_comparison_ops(
         lt,
         ge,
         gt,
-        div | Marks(pytest.mark.xfail(reason="run error")),
+        div,
         remainder,
         maximum,
         minimum,
@@ -3087,11 +3085,11 @@ unaligned_shapes = [
     (3, 17, 37),
     (9, 43, 7),
     (5, 61, 49),
-    (51, 19, 23) | Marks(pytest.mark.xfail(reason="Golden failure")),
-    (677, 1, 1) | Marks(pytest.mark.xfail(reason="Golden failure")),
+    (51, 19, 23),
+    (677, 1, 1),
     (2, 3, 5, 7),
-    (3, 37, 5, 53) | Marks(pytest.mark.xfail(reason="Golden failure")),
-    (37, 3, 5, 53) | Marks(pytest.mark.xfail(reason="Golden failure")),
+    (3, 37, 5, 53),
+    (37, 3, 5, 53),
     (41, 7, 43, 11),
     (7, 41, 43, 11),
     (1, 23, 1, 1),
@@ -3421,11 +3419,10 @@ def test_gather(
     ],
     ids=["simple_1d", "complex_indices"],
 )
-# Note: doesn't work on ttmetal because test generated (nonhoisted) ttir.zeros, which we need to support on device.
-@pytest.mark.xfail(
-    reason="Fails at runtime on simple_1d case, ticket: https://github.com/tenstorrent/tt-mlir/issues/3849."
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn", "ttmetal" | Marks(pytest.mark.xfail(reason="Unhoisted ttir.zeros"))],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
 def test_hoisted_gather(
     input_shape: Shape,
     input_dtype: torch.dtype,

@@ -54,6 +54,12 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
   }
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
@@ -64,8 +70,7 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
       input, weight, &targetDevice, op->in_channels(), op->out_channels(),
       op->batch_size(), op->input_height(), op->input_width(), kernelSize,
       stride, padding, outputPadding, dilation, op->groups(), outputDtype, bias,
-      conv2dConfig,
-      /*compute_config*/ std::nullopt, memoryConfig);
+      conv2dConfig, computeConfig, memoryConfig);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
 
