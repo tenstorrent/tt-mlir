@@ -110,6 +110,11 @@ ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
 
 llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape);
 
+mlir::AffineMap dropLeadingGridDimensions2D(mlir::AffineMap gridIndexingMap);
+
+mlir::AffineMap
+collapseGridWithShardOffsetTo2D(mlir::AffineMap gridIndexingMap);
+
 // Retrieve the layout from the shaped type (ie. getEncoding for tensors and
 // getLayout for memrefs).
 inline DeviceLayoutInterface getDeviceLayout(ShapedType shapedType) {
