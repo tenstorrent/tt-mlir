@@ -779,50 +779,41 @@ public:
 
 namespace {
 
-class D2MTypecastRewriter : public OpTraitConversionPattern<
-                                mlir::tt::d2m::D2MGenericRegionComputeOpTrait> {
+class D2MTypecastRewriter : public OpConversionPattern<d2m::TileTypecastOp> {
 public:
-  using OpTraitConversionPattern<
-      mlir::tt::d2m::D2MGenericRegionComputeOpTrait>::OpTraitConversionPattern;
+  using OpConversionPattern<d2m::TileTypecastOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+  matchAndRewrite(d2m::TileTypecastOp op, d2m::TileTypecastOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (auto typecastOp = mlir::dyn_cast<d2m::TileTypecastOp>(op)) {
+    Value inCB = getInCB(rewriter, op);
+    Value outCB = getOutCB(rewriter, op);
 
-      Value inCB = getInCB(rewriter, op);
-      Value outCB = getOutCB(rewriter, op);
+    auto funcOp = op->template getParentOfType<func::FuncOp>();
+    if (funcOp) {
+      Block &entryBlock = funcOp.getBody().front();
 
-      auto funcOp = op->getParentOfType<func::FuncOp>();
-      if (funcOp) {
-        Block &entryBlock = funcOp.getBody().front();
+      // Insert hw_startup if not already present in this function.
+      if (entryBlock.getOps<ttkernel::ComputeKernelHWStartupOp>().empty()) {
+        auto insertPt = rewriter.saveInsertionPoint();
 
-        // Insert hw_startup if not already present in this function.
-        if (entryBlock.getOps<ttkernel::ComputeKernelHWStartupOp>().empty()) {
-          auto insertPt = rewriter.saveInsertionPoint();
+        setInsertionPointAfterOperands(rewriter, {inCB, outCB},
+                                       /*allowHoisting*/ true);
+        rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), inCB,
+                                                            nullptr, outCB);
 
-          setInsertionPointAfterOperands(rewriter, {inCB, outCB},
-                                         /*allowHoisting*/ true);
-          rewriter.create<ttkernel::ComputeKernelHWStartupOp>(
-              op->getLoc(), inCB, nullptr, outCB);
-
-          rewriter.restoreInsertionPoint(insertPt);
-        }
+        rewriter.restoreInsertionPoint(insertPt);
       }
-
-      rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc());
-
-      auto inDtype =
-          mlir::cast<ttcore::TileType>(typecastOp.getInput().getType())
-              .getDataType();
-      auto outDtype =
-          mlir::cast<ttcore::TileType>(typecastOp.getResult().getType())
-              .getDataType();
-      rewriter.create<ttkernel::TypecastTileOp>(
-          op->getLoc(), i32(rewriter, op->getLoc(), 0), inDtype, outDtype);
-    } else {
-      return failure();
     }
+
+    rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc());
+
+    auto inDtype =
+        mlir::cast<ttcore::TileType>(op.getInput().getType()).getDataType();
+    auto outDtype =
+        mlir::cast<ttcore::TileType>(op.getResult().getType()).getDataType();
+    rewriter.create<ttkernel::TypecastTileOp>(
+        op->getLoc(), i32(rewriter, op->getLoc(), 0), inDtype, outDtype);
 
     rewriter.eraseOp(op);
     return success();
