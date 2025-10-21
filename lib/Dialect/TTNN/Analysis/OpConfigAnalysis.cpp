@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Support/Logger.h"
 
@@ -31,7 +32,7 @@ void OpConfigAnalysis::analysisImplementation() {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "  Candidate config {}",
                    config.outputLayout);
     }
-    TTNNLayoutAttr chosenLayout = opConfigs.second[0].outputLayout;
+    OpConfig chosenConfig = opConfigs.second[0];
 
     RankedTensorType outputTensor =
         mlir::cast<RankedTensorType>(opConfigs.first->getResultTypes()[0]);
@@ -46,12 +47,12 @@ void OpConfigAnalysis::analysisImplementation() {
         TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "  Picking {} layout {}",
                      existingLayout.isTiled() ? "tiled" : "RM",
                      config.outputLayout);
-        chosenLayout = config.outputLayout;
+        chosenConfig = config;
         break;
       }
     }
 
-    analysisResult[opConfigs.first] = chosenLayout;
+    analysisResult[opConfigs.first] = chosenConfig;
   }
 }
 } // namespace mlir::tt::ttnn
