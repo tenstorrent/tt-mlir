@@ -27,7 +27,7 @@ void OpConfigAnalysis::analysisImplementation() {
   for (auto opConfigs : analysisInput.legalConfigs) {
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Picking op config for op {}",
                  opConfigs.first->getName());
-    for (auto config : opConfigs.second) {
+    for ([[maybe_unused]] auto config : opConfigs.second) {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "  Candidate config {}",
                    config.outputLayout);
     }
