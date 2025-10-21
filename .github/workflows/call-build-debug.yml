@@ -45,7 +45,6 @@ jobs:
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build_debug" >> "$GITHUB_OUTPUT"
-        echo "test_report_path=report_${{ steps.fetch-job-id.outputs.job_id }}.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -128,6 +127,6 @@ jobs:
       if: success() || failure()
       uses: codecov/test-results-action@v1
       with:
-        files: ${{ steps.strings.outputs.test_report_path }}
+        files: ${{ steps.strings.outputs.build-output-dir }}/test/report_${{ steps.fetch-job-id.outputs.job_id }}.xml
         disable_search: true
         token: ${{ secrets.CODECOV_TOKEN }}
