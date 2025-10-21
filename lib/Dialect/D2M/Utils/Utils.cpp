@@ -170,7 +170,6 @@ SmallVector<int64_t> getPhysicalGridShape(mlir::Value tensorOrMemref) {
   auto physTensorOrMemref = getPhysicalTensorOrMemref(tensorOrMemref);
   auto gridShape = getGridShape(physTensorOrMemref);
   return gridShape;
->>>>>>> 52cc58c73 (virtual grid support)
 }
 
 } // namespace mlir::tt::d2m::utils
