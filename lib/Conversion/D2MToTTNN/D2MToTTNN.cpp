@@ -86,7 +86,7 @@ public:
             ArrayRef<ttnn::ComputeKernelUnpackToDestMode>{
                 ttnn::ComputeKernelUnpackToDestMode::Default},
             /*bfp8_pack_precise*/ false,
-            /*math_approx_mode*/ false, kernelRTArgs, kernelCTArgs);
+            /*math_approx_mode*/ true, kernelRTArgs, kernelCTArgs);
         break;
       }
       // TODO (vtangTT) #5033: fix this assumption that order is
