@@ -41,7 +41,7 @@ def check_op(mlir_file: str, op_name: str) -> bool:
 )
 @pytest.mark.parametrize("dimension", [1])  # channel dimension for NCHW format
 @pytest.mark.parametrize("epsilon", [0.0])
-def test_batch_norm_decomposition(
+def test_conv_batch_norm_fusing(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
     stride: List[int],
@@ -53,7 +53,7 @@ def test_batch_norm_decomposition(
     request,
     device,
 ):
-    def conv2d_batch_norm(
+    def model(
         input_tensor: Operand,
         conv_weight: Operand,
         conv_bias: Operand,
@@ -62,45 +62,8 @@ def test_batch_norm_decomposition(
         bn_mean: Operand,
         bn_variance: Operand,
         builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
     ):
-        # Create input tensor with random data
-        input_tensor_data = torch.randn(shapes[0], dtype=dtypes[0])
-
-        # Create conv2d weights and bias
-        conv_weight_data = torch.randn(shapes[1], dtype=dtypes[1])
-        conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
-
-        # Create batch norm parameters
-        bn_scale_data = torch.randn(shapes[3], dtype=dtypes[3])
-        bn_offset_data = torch.randn(shapes[4], dtype=dtypes[4])
-        bn_mean_data = torch.randn(shapes[5], dtype=dtypes[5])
-        bn_variance_data = (
-            torch.abs(torch.randn(shapes[6], dtype=dtypes[6])) + 1e-5
-        )  # Ensure positive variance
-
-        input_tensor_data_rs = input_tensor_data.transpose(-2, -1).transpose(-3, -2)
-        conv_result = torch.nn.functional.conv2d(
-            input_tensor_data_rs,
-            conv_weight_data,
-            conv_bias_data.squeeze(),
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-        )
-        conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
-
-        golden_output = torch.nn.functional.batch_norm(
-            conv_result,
-            bn_mean_data,
-            bn_variance_data,
-            bn_scale_data,
-            bn_offset_data,
-            eps=epsilon,
-        )
-
-        conv2d_0 = builder.conv2d(
+        conv = builder.conv2d(
             input_tensor,
             conv_weight,
             conv_bias,
@@ -108,37 +71,19 @@ def test_batch_norm_decomposition(
             padding=padding,
             dilation=dilation,
             groups=groups,
-            unit_attrs=unit_attrs,
         )
-
-        batch_norm_0 = builder.batch_norm(
-            conv2d_0,
+        return builder.batch_norm(
+            conv,
             bn_scale,
             bn_offset,
             bn_mean,
             bn_variance,
             epsilon=epsilon,
             dimension=dimension,
-            unit_attrs=unit_attrs,
         )
-
-        builder.set_goldens(
-            {
-                input_tensor: input_tensor_data,
-                conv_weight: conv_weight_data,
-                conv_bias: conv_bias_data,
-                bn_scale: bn_scale_data,
-                bn_offset: bn_offset_data,
-                bn_mean: bn_mean_data,
-                bn_variance: bn_variance_data,
-            },
-            {batch_norm_0: golden_output},
-        )
-        builder.set_operand_goldens({conv2d_0: conv_result})
-        return batch_norm_0
 
     output = compile_and_execute_ttir(
-        conv2d_batch_norm,
+        model,
         shapes,
         dtypes,
         test_base=request.node.name,
