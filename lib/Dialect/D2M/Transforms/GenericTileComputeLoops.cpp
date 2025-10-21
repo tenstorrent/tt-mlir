@@ -152,7 +152,10 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
       
       // halve capacity if fused op is ternary or more
       if (op->getNumOperands() > 3) {
-        dstCapacity /= 2;
+        dstCapacity = 4;
+      }
+      if (op->getNumOperands() > 4) {
+        dstCapacity = 1;
       }
       // halve capacity again if data type is more than 16 bits
       // if (largestDstType.getIntOrFloatBitWidth() > 16) {
