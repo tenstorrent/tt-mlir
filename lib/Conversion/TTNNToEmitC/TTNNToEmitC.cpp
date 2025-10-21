@@ -2272,10 +2272,10 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ScatterOp> emitter(
         srcOp, adaptor, rewriter);
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim()),
-        emitter.emit(srcOp.getIndexTensor()),
-        emitter.emit(srcOp.getSourceTensor()),
+        emitter.emit(srcOp.getIndex()),
+        emitter.emit(srcOp.getSource()),
         emitter.emit(std::nullopt) |
             emitter.getMemoryConfig(srcOp.getResult()), // mem config
         emitter.emit(std::nullopt)                      // opt_reduction

@@ -2379,15 +2379,15 @@ class ScatterToScatterInDimPattern
 
     // Check update_window_dims.
     for (auto dim : updateWindowDims) {
-      assert(dim >= 0 && dim < updateRank &&
-             "update_window_dims contains invalid dimension index");
+      TT_assertv((dim >= 0 && dim < updateRank),
+                 "update_window_dims contains invalid dimension index");
       dimsCovered[dim] = true;
     }
 
     // Check inserted_window_dims.
     for (auto dim : insertedWindowDims) {
-      assert(dim >= 0 && dim < updateRank &&
-             "inserted_window_dims contains invalid dimension index");
+      TT_assertv((dim >= 0 && dim < updateRank),
+                 "inserted_window_dims contains invalid dimension index");
       if (dimsCovered[dim]) {
         return rewriter.notifyMatchFailure(
             op, "update_window_dims and inserted_window_dims have overlapping "
@@ -2407,8 +2407,7 @@ class ScatterToScatterInDimPattern
     // Check that scatter_dims_to_operand_dims is in order.
     ArrayRef<int32_t> scatterDimsToOperandDims =
         op.getScatterDimsToOperandDims();
-    if (!std::is_sorted(scatterDimsToOperandDims.begin(),
-                        scatterDimsToOperandDims.end(), std::less<>())) {
+    if (!llvm::is_sorted(scatterDimsToOperandDims)) {
       return rewriter.notifyMatchFailure(
           op,
           "scatter_dims_to_operand_dims must be in strictly increasing order.");
@@ -2464,8 +2463,8 @@ class ScatterToScatterInDimPattern
     }
 
     if (indexShape.size() > updateShape.size()) {
-      assert(false && "TTIR scatter requires indices.rank <= updates.rank. "
-                      "Please add support for rank promotion if needed.");
+      TT_assertv(false, "TTIR scatter requires indices.rank <= updates.rank. "
+                        "Please add support for rank promotion if needed.");
     }
 
     // Repeat along update_window_dims to match update tensor shape.
@@ -2505,8 +2504,9 @@ class ScatterToScatterInDimPattern
     RankedTensorType indexType = indexTensor.getType();
     ArrayRef<int64_t> indexShape = indexType.getShape();
     int64_t indexVectorDim = op.getIndexVectorDim();
-    assert(indexVectorDim == static_cast<int64_t>(indexShape.size() - 1) &&
-           "Currently only supports index_vector_dim being the last dimension");
+    TT_assertv(
+        indexVectorDim == static_cast<int64_t>(indexShape.size() - 1),
+        "Currently only supports index_vector_dim being the last dimension");
 
     // Get the input tensor to determine its shape for stride calculation.
     TypedValue<RankedTensorType> inputTensor = op.getInput();
@@ -2525,11 +2525,6 @@ class ScatterToScatterInDimPattern
       }
       strides[i] = stride;
     }
-
-    // Create shape for sliced dimension indices (remove the index_vector_dim).
-    llvm::SmallVector<int64_t> dimIndexShape(indexShape.begin(),
-                                             indexShape.end());
-    dimIndexShape.pop_back(); // Remove index_vector_dim.
 
     Value flatIndices = nullptr;
 
@@ -2552,19 +2547,12 @@ class ScatterToScatterInDimPattern
       auto endsAttr = rewriter.getI32ArrayAttr(ends);
       auto stepsAttr = rewriter.getI32ArrayAttr(steps);
 
-      auto dimensionSlice = ttir::utils::createDPSOp<ttir::SliceStaticOp>(
+      Value dimensionIndices = ttir::utils::createDPSOp<ttir::SliceStaticOp>(
           rewriter,
           ttmlir::utils::appendLocationSuffix(
               op.getLoc(), "_dim_" + std::to_string(dim) + "_slice"),
           sliceShape, indexType.getElementType(), indexType.getEncoding(),
           indexTensor, beginsAttr, endsAttr, stepsAttr);
-
-      // Reshape to remove the singleton dimension.
-      Value dimensionIndices = createReshapeOp(
-          rewriter,
-          ttmlir::utils::appendLocationSuffix(
-              op.getLoc(), "_dim_" + std::to_string(dim) + "_reshape"),
-          dimensionSlice, dimIndexShape);
 
       // Multiply by stride if stride > 1.
       if (strides[dim] > 1) {
@@ -2572,7 +2560,7 @@ class ScatterToScatterInDimPattern
             rewriter.getI32IntegerAttr(static_cast<int32_t>(strides[dim]));
 
         RankedTensorType dimIndexType = RankedTensorType::get(
-            dimIndexShape, indexType.getElementType(), indexType.getEncoding());
+            sliceShape, indexType.getElementType(), indexType.getEncoding());
 
         Value strideTensor = rewriter.create<ttir::FullOp>(
             ttmlir::utils::appendLocationSuffix(
@@ -2583,7 +2571,7 @@ class ScatterToScatterInDimPattern
             rewriter,
             ttmlir::utils::appendLocationSuffix(
                 op.getLoc(), "_dim_" + std::to_string(dim) + "_stride_mul"),
-            dimIndexShape, indexType.getElementType(), indexType.getEncoding(),
+            sliceShape, indexType.getElementType(), indexType.getEncoding(),
             dimensionIndices, strideTensor);
       }
 
@@ -2595,7 +2583,7 @@ class ScatterToScatterInDimPattern
             rewriter,
             ttmlir::utils::appendLocationSuffix(
                 op.getLoc(), "_add_dim_" + std::to_string(dim)),
-            dimIndexShape, indexType.getElementType(), indexType.getEncoding(),
+            sliceShape, indexType.getElementType(), indexType.getEncoding(),
             flatIndices, dimensionIndices);
       }
     }
@@ -2604,7 +2592,7 @@ class ScatterToScatterInDimPattern
     Value flattenedIndices =
         flattenTensor(rewriter, op.getLoc(), flatIndices, "_indices_flatten");
 
-    assert(flattenedIndices && "Expected valid flat indices tensor");
+    TT_assertv(flattenedIndices, "Expected valid flat indices tensor");
     return flattenedIndices;
   }
 
@@ -2667,6 +2655,10 @@ public:
     }
 
     if (scatterDimsToOperandDims.size() > 1) {
+      // Assert that update_window_dims is empty.
+      TT_assertv(op.getUpdateWindowDims().empty(),
+                 "TTIR multi-dimensional scatter requires update_window_dims "
+                 "to be empty");
       // Multi-dimensional scatter.
       int32_t dim =
           0; // Always scatter along dimension 0 for flattened tensors.

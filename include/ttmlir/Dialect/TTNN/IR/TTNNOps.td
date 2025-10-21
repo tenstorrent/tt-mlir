@@ -2064,16 +2064,16 @@ def TTNN_ScatterOp : TTNN_Op<"scatter", [DeclareOpInterfaceMethods<TTNN_OpModelI
       Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
 
       Parameters:
-        - `input_tensor` (ttnn.Tensor): The tensor being updated.
-        - `index_tensor` (ttnn.Tensor): Indices where values will be written to.
-        - `source_tensor` (ttnn.Tensor): The values to scatter into the input tensor.
+        - `input` (ttnn.Tensor): The tensor being updated.
+        - `index` (ttnn.Tensor): Indices where values will be written to.
+        - `source` (ttnn.Tensor): The values to scatter into the input tensor.
         - `dim` (int32_t): The dimension along which to scatter.
         - `cq_id` i32: The command queue to copy the tensor with. Must be 0 or 1.
     }];
 
-    let arguments = (ins AnyRankedTensor:$input_tensor,
-                         AnyRankedTensor:$index_tensor,
-                         AnyRankedTensor:$source_tensor,
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$index,
+                         AnyRankedTensor:$source,
                          I32Attr:$dim,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          DefaultValuedAttr<UI32Attr, "0">:$cq_id);

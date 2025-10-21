@@ -178,9 +178,9 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
     mlir::Operation *op) {
   auto scatterOp = mlir::cast<ttnn::ScatterOp>(op);
   auto inputType =
-      mlir::cast<mlir::RankedTensorType>(scatterOp.getInputTensor().getType());
+      mlir::cast<mlir::RankedTensorType>(scatterOp.getInput().getType());
   auto sourceType =
-      mlir::cast<mlir::RankedTensorType>(scatterOp.getSourceTensor().getType());
+      mlir::cast<mlir::RankedTensorType>(scatterOp.getSource().getType());
 
   ttnn::TTNNLayoutAttr inputLayoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
@@ -198,9 +198,9 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(operandWorkaround)   // input_tensor
-      .addInputOperandWorkaround(operandWorkaround)   // index_tensor
-      .addInputOperandWorkaround(operandWorkaround)   // source_tensor
+      .addInputOperandWorkaround(operandWorkaround)   // input
+      .addInputOperandWorkaround(operandWorkaround)   // index
+      .addInputOperandWorkaround(operandWorkaround)   // source
       .addOutputOperandWorkaround(operandWorkaround); // result
 }
 

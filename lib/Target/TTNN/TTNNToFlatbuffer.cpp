@@ -738,17 +738,16 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::ScatterOp>
 createOp(FlatbufferObjectCache &cache, ScatterOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInputTensor()));
-  auto indexTensor = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getIndexTensor()));
+      getOperandThroughDPSOps(op.getInput()));
+  auto index = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getIndex()));
   auto sourceTensor = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getSourceTensor()));
+      getOperandThroughDPSOps(op.getSource()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
-  uint32_t cqId = op.getCqId();
-  return ::tt::target::ttnn::CreateScatterOp(*cache.fbb, input, output,
-                                             indexTensor, sourceTensor,
-                                             op.getDim(), memoryConfig, cqId);
+  return ::tt::target::ttnn::CreateScatterOp(*cache.fbb, input, output, index,
+                                             sourceTensor, op.getDim(),
+                                             memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::CollectivePermuteOp>

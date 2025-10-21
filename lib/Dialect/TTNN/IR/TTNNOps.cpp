@@ -2588,9 +2588,9 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult ScatterOp::verify() {
-  const ::mlir::RankedTensorType inputType = getInputTensor().getType();
-  const ::mlir::RankedTensorType indexType = getIndexTensor().getType();
-  const ::mlir::RankedTensorType sourceType = getSourceTensor().getType();
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+  const ::mlir::RankedTensorType indexType = getIndex().getType();
+  const ::mlir::RankedTensorType sourceType = getSource().getType();
 
   llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
   llvm::ArrayRef<int64_t> indexShape = indexType.getShape();

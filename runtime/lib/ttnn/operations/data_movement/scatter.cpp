@@ -24,9 +24,6 @@ void run(const ::tt::target::ttnn::ScatterOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
 
-  //   LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-  //                  outputMemoryConfig.has_value(),
-  //              "Memory config must exist for device tensors");
   ::ttnn::Tensor out = ::ttnn::scatter(input, dim, index, source,
                                        outputMemoryConfig, std::nullopt);
 
