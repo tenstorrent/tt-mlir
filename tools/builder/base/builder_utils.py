@@ -1787,6 +1787,8 @@ def execute_fb(
             _, _, cal_pcc, _ = get_atol_rtol_pcc(
                 golden_tensor_torch,
                 output_tensor_torch,
+                atol,
+                rtol,
                 logging,
             )
             pcc_fail = cal_pcc < pcc
