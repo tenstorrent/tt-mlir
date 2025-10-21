@@ -223,7 +223,8 @@ public:
       rewriter.replaceOp(op, inner.getOperand());
     } else if (auto inner =
                    op.getOperand().getDefiningOp<d2m::StreamLayoutOp>()) {
-      // cast(stream(cast(output_tensor))) -> output_tensor
+      // Match the pattern cast(stream(cast(output_tensor))) and rewrite as just
+      // output_tensor.
       if (auto inner2 =
               inner.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
         rewriter.replaceOp(op, inner2.getOperand());

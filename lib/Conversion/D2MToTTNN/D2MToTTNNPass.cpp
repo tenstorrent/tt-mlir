@@ -52,15 +52,6 @@ struct ConvertD2MToTTNNPass final
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<d2m::D2MDialect>();
 
-    // target.addDynamicallyLegalOp<d2m::StreamLayoutOp>(
-    //     [](d2m::StreamLayoutOp op) {
-    //       // Keep legal while any user is d2m.generic; illegal otherwise.
-    //       return llvm::any_of(op->getResult(0).getUsers(), [](Operation *op)
-    //       {
-    //         return mlir::isa<d2m::GenericOp>(op);
-    //       });
-    //     });
-
     target.addLegalOp<memref::AllocOp>();
     target.addLegalOp<memref::DeallocOp>();
 

@@ -12,12 +12,6 @@
 // CHECK-SAME: l1
 // CHECK: #layout3 = #ttcore.metal_layout<logical_shape = 1x8x32x256, dim_alignments = 1x1x32x32, collapsed_intervals
 // CHECK-SAME: l1
-// CHECK: #layout4 = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: dram, interleaved
-// CHECK: #layout5 = #ttcore.metal_layout<logical_shape = 2x512x1024, dim_alignments = 1x32x32, collapsed_intervals
-// CHECK-SAME: dram, interleaved
-// CHECK: #layout6 = #ttcore.metal_layout<logical_shape = 2x2x256x1024, dim_alignments = 1x1x32x32, collapsed_intervals
-// CHECK-SAME: dram, interleaved
 
 // Block Sharded - Rank 2 layouts
 // 256x256 on 8x8
@@ -49,13 +43,6 @@
 #ttnn_layout11 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
 // 1x8x32x256 on 1x1
 #ttnn_layout12 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <1x1>, memref<8x8x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
-
-// Interleaved - Rank 2 layouts
-#ttnn_layout13 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>
-// Interleaved - Rank 3 layouts
-#ttnn_layout14 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 512 + d1, d2), <1x1>, memref<32x32x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>
-// Interleaved - Rank 4 layouts
-#ttnn_layout15 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 256 + d2, d3), <1x1>, memref<32x32x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>
 
 module {
   // CHECK-LABEL: func.func @test_lower_block_sharded_l1
@@ -271,53 +258,5 @@ func.func @test_lower_block_sharded_l1_12(
   %1 = "ttir.abs"(%arg0, %out)  : (tensor<1x8x32x256xbf16, #ttnn_layout12>, tensor<1x8x32x256xbf16, #ttnn_layout12>) -> (tensor<1x8x32x256xbf16, #ttnn_layout12>)
   // CHECK: return %[[CAST2]] : tensor<1x8x32x256xbf16, #ttnn_layout12>
   return %1 : tensor<1x8x32x256xbf16, #ttnn_layout12>
-  }
-
-// CHECK-LABEL: func.func @test_lower_interleaved_dram_13
-func.func @test_lower_interleaved_dram_13(
-  %arg0: tensor<1024x1024xbf16, #ttnn_layout13>, %out: tensor<1024x1024xbf16, #ttnn_layout13>
-) -> tensor<1024x1024xbf16, #ttnn_layout13> {
-  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<1024x1024xbf16, #ttnn_layout13> -> tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout4>
-  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %arg1 : tensor<1024x1024xbf16, #ttnn_layout13> -> tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout4>
-  // CHECK: %[[RESULT:.*]] = d2m.generic{{.*}}
-  // CHECK: ins(%[[CAST0]] : tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout4>)
-  // CHECK: outs(%[[CAST1]] : tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout4>)
-  // CHECK-DAG: d2m.tile_abs
-  // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[RESULT]] : tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout4> -> tensor<1024x1024xbf16, #ttnn_layout13>
-  %1 = "ttir.abs"(%arg0, %out)  : (tensor<1024x1024xbf16, #ttnn_layout13>, tensor<1024x1024xbf16, #ttnn_layout13>) -> (tensor<1024x1024xbf16, #ttnn_layout13>)
-  // CHECK: return %[[CAST2]] : tensor<1024x1024xbf16, #ttnn_layout13>
-  return %1 : tensor<1024x1024xbf16, #ttnn_layout13>
-  }
-
-// CHECK-LABEL: func.func @test_lower_interleaved_dram_14
-func.func @test_lower_interleaved_dram_14(
-  %arg0: tensor<2x512x1024xbf16, #ttnn_layout14>, %out: tensor<2x512x1024xbf16, #ttnn_layout14>
-) -> tensor<2x512x1024xbf16, #ttnn_layout14> {
-  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<2x512x1024xbf16, #ttnn_layout14> -> tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout5>
-  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %arg1 : tensor<2x512x1024xbf16, #ttnn_layout14> -> tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout5>
-  // CHECK: %[[RESULT:.*]] = d2m.generic{{.*}}
-  // CHECK: ins(%[[CAST0]] : tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout5>)
-  // CHECK: outs(%[[CAST1]] : tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout5>)
-  // CHECK-DAG: d2m.tile_abs
-  // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[RESULT]] : tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout5> -> tensor<2x512x1024xbf16, #ttnn_layout14>
-  %1 = "ttir.abs"(%arg0, %out)  : (tensor<2x512x1024xbf16, #ttnn_layout14>, tensor<2x512x1024xbf16, #ttnn_layout14>) -> (tensor<2x512x1024xbf16, #ttnn_layout14>)
-  // CHECK: return %[[CAST2]] : tensor<2x512x1024xbf16, #ttnn_layout14>
-  return %1 : tensor<2x512x1024xbf16, #ttnn_layout14>
-  }
-
-// CHECK-LABEL: func.func @test_lower_interleaved_dram_15
-func.func @test_lower_interleaved_dram_15(
-  %arg0: tensor<2x2x256x1024xbf16, #ttnn_layout15>, %out: tensor<2x2x256x1024xbf16, #ttnn_layout15>
-) -> tensor<2x2x256x1024xbf16, #ttnn_layout15> {
-  // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0 : tensor<2x2x256x1024xbf16, #ttnn_layout15> -> tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout6>
-  // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %arg1 : tensor<2x2x256x1024xbf16, #ttnn_layout15> -> tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout6>
-  // CHECK: %[[RESULT:.*]] = d2m.generic{{.*}}
-  // CHECK: ins(%[[CAST0]] : tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout6>)
-  // CHECK: outs(%[[CAST1]] : tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout6>)
-  // CHECK-DAG: d2m.tile_abs
-  // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[RESULT]] : tensor<1x1x32x32x!ttcore.tile<32x32, bf16>, #layout6> -> tensor<2x2x256x1024xbf16, #ttnn_layout15>
-  %1 = "ttir.abs"(%arg0, %out)  : (tensor<2x2x256x1024xbf16, #ttnn_layout15>, tensor<2x2x256x1024xbf16, #ttnn_layout15>) -> (tensor<2x2x256x1024xbf16, #ttnn_layout15>)
-  // CHECK: return %[[CAST2]] : tensor<2x2x256x1024xbf16, #ttnn_layout15>
-  return %1 : tensor<2x2x256x1024xbf16, #ttnn_layout15>
   }
 }

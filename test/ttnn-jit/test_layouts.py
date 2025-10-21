@@ -25,7 +25,7 @@ BLOCK_SHARDED_SHAPE_GRIDS = [
     for grid_w in range(8)
 ]
 
-# TODO (arminale): Fix systematic failures for these grid configurations. Issue: #<ISSUE_NUMBER>
+# TODO (5415): These grids fail for all shapes.
 GRIDS_FAILING_ALL_SHAPES = [(1, 1), (1, 2), (1, 3), (3, 2), (3, 3), (5, 3)]
 
 DRAM_INTERLEAVED_SHAPE_GRIDS = (
@@ -76,7 +76,7 @@ def abs(input_tensor):
 @pytest.mark.parametrize("op", [abs])
 def test_l1_block_sharded_shapes(device, h, w, max_grid, op):
     if max_grid in GRIDS_FAILING_ALL_SHAPES:
-        pytest.xfail("Grid fails for all shapes. Issue: #<ISSUE_NUMBER>")
+        pytest.xfail("Grid fails for all shapes. Issue: #5415")
 
     run_op_test(
         device,
