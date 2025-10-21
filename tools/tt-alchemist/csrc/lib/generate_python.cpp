@@ -46,15 +46,40 @@ bool TTAlchemist::generatePython(const std::string &input_file,
     return false;
   }
 
+  // Detect whether the input is TTIR or TTNN by checking for operations
+  // from each dialect
+  bool hasTTIR = false;
+  bool hasTTNN = false;
+
+  module->walk([&](mlir::Operation *op) {
+    llvm::StringRef dialectName = op->getDialect()->getNamespace();
+    if (dialectName == "ttir") {
+      hasTTIR = true;
+    } else if (dialectName == "ttnn") {
+      hasTTNN = true;
+    }
+  });
+
+  bool isTTNNBackendToEmitPyPipeline = hasTTNN && !hasTTIR;
+
   mlir::PassManager pm(&context);
+
+  // Determine which pipeline to use based on detected dialect
+  std::string pipelineName;
+  if (isTTNNBackendToEmitPyPipeline) {
+    // Input is TTNN, use direct TTNN to EmitPy pipeline
+    pipelineName = "ttnn-backend-to-emitpy-pipeline";
+  } else {
+    // Input is TTIR (or mixed), use full TTIR to EmitPy pipeline
+    pipelineName = "ttir-to-emitpy-pipeline";
+  }
 
   // Parse pipeline options if provided
   if (!pipeline_options.empty()) {
     // Use the registered pipeline with options
-    const auto *pipeline =
-        mlir::PassPipelineInfo::lookup("ttir-to-emitpy-pipeline");
+    const auto *pipeline = mlir::PassPipelineInfo::lookup(pipelineName);
     if (!pipeline) {
-      std::cout << "Failed to find ttir-to-emitpy-pipeline" << std::endl;
+      std::cout << "Failed to find " << pipelineName << std::endl;
       return false;
     }
 
@@ -71,13 +96,18 @@ bool TTAlchemist::generatePython(const std::string &input_file,
       return false;
     }
   } else {
-    // Use default options
-    mlir::tt::ttnn::createTTIRToEmitPyPipeline(
-        pm, mlir::tt::ttnn::TTIRToEmitPyPipelineOptions());
+    // Use default options based on detected dialect
+    if (isTTNNBackendToEmitPyPipeline) {
+      mlir::tt::ttnn::createTTNNBackendToEmitPyPipeline(
+          pm, mlir::tt::ttnn::TTNNBackendToEmitPyPipelineOptions());
+    } else {
+      mlir::tt::ttnn::createTTIRToEmitPyPipeline(
+          pm, mlir::tt::ttnn::TTIRToEmitPyPipelineOptions());
+    }
   }
 
   if (mlir::failed(pm.run(module.get()))) {
-    std::cout << "Failed to run TTIR to EmitPy pipeline" << std::endl;
+    std::cout << "Failed to run pipeline: " << pipelineName << std::endl;
     return false;
   }
 
