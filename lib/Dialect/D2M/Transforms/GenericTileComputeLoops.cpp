@@ -150,19 +150,14 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
       // Temporary START
       // TODO(mbagherbeik) remove when fixing fusions/dstAllocs
       
-      // NumOperands includes the output/init operand ( > vs >= )
-      // halve the capacity if we have a binary fused op
-      if (op->getNumOperands() > 2) {
-        dstCapacity /= 2;
-      }
-      // halve capacity again if fused op is ternary or more
+      // halve capacity if fused op is ternary or more
       if (op->getNumOperands() > 3) {
         dstCapacity /= 2;
       }
       // halve capacity again if data type is more than 16 bits
-      if (largestDstType.getIntOrFloatBitWidth() > 16) {
-        dstCapacity /= 2;
-      }
+      // if (largestDstType.getIntOrFloatBitWidth() > 16) {
+      //   dstCapacity /= 2;
+      // }
       // Temporary END
 
       subblockSizes = calculateOptimalSubblockSizes(
