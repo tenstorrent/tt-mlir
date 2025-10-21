@@ -66,9 +66,13 @@ class D2MGenericCompiler(TTCompilerBase):
                     self.ctx, shape, self.grid, self.tiled, self.memory_space
                 )
                 tile_shape = [32, 32] if self.tiled else [1, 1]
-                device_shape = layout.getDeviceShape(self.grid, tile_shape)
+                # Downcast to properly typed MetalLayoutAttr for getDeviceShape
+                typed_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
+                if typed_layout is None:
+                    raise RuntimeError("Failed to downcast MetalLayoutAttr")
+                device_shape = typed_layout.getDeviceShape(self.grid, tile_shape)
                 element_type = (
-                    ttcore.TileType.get(self.ctx, 32, 32, ttcore.DataType.Float32)
+                    ttcore.ir.TileType.get(self.ctx, 32, 32, ttcore.DataType.Float32)
                     if self.tiled
                     else dtype
                 )
@@ -83,9 +87,14 @@ class D2MGenericCompiler(TTCompilerBase):
                     self.ctx, shape, self.grid, self.tiled, self.memory_space
                 )
                 tile_shape = [32, 32] if self.tiled else [1, 1]
-                device_shape = layout.getDeviceShape(self.grid, tile_shape)
+                # Downcast to properly typed MetalLayoutAttr for getDeviceShape
+                # TODO: Eliminate this downcast once we have a proper way to get the device shape from the layout
+                typed_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
+                if typed_layout is None:
+                    raise RuntimeError("Failed to downcast MetalLayoutAttr")
+                device_shape = typed_layout.getDeviceShape(self.grid, tile_shape)
                 element_type = (
-                    ttcore.TileType.get(self.ctx, 32, 32, ttcore.DataType.Float32)
+                    ttcore.ir.TileType.get(self.ctx, 32, 32, ttcore.DataType.Float32)
                     if self.tiled
                     else dtype
                 )

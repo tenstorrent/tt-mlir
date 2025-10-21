@@ -43,11 +43,12 @@ def create_metal_layout(
     grid: List[int],
     tiled: bool = True,
     memory_space: str = "L1",
+    sharded: bool = True,
     collapse_intervals: Optional[List[List[int]]] = None,
     dim_alignments: Optional[List[int]] = None,
 ) -> "ttcore.MetalLayoutAttr":
     """
-    Create a MetalLayoutAttr with proper device shape calculation.
+    Create a MetalLayoutAttr with user-friendly parameters.
 
     Args:
         ctx: MLIR context
@@ -55,6 +56,7 @@ def create_metal_layout(
         grid: Grid shape (e.g., [2, 2])
         tiled: Whether to use tiled layout (default True)
         memory_space: "L1" or "DRAM" (default "L1")
+        sharded: Whether to use sharded memory layout (default True)
         collapse_intervals: Optional collapse intervals for higher-rank tensors
         dim_alignments: Optional dimension alignments (defaults to 32x32 for tiled)
 
@@ -63,15 +65,30 @@ def create_metal_layout(
     """
     from ttmlir.dialects import ttcore
 
+    # Convert memory_space string to enum
     if memory_space == "L1":
         mem_space = ttcore.MemorySpace.DeviceL1
     elif memory_space == "DRAM":
         mem_space = ttcore.MemorySpace.DeviceDRAM
     else:
-        raise ValueError(f"Invalid memory_space: {memory_space}")
+        raise ValueError(
+            f"Invalid memory_space: {memory_space}. Must be 'L1' or 'DRAM'"
+        )
 
+    # Convert sharded bool to enum
+    if sharded:
+        memory_layout = ttcore.TensorMemoryLayout.Sharded
+    else:
+        memory_layout = ttcore.TensorMemoryLayout.Interleaved
+
+    # Handle collapse intervals
     if collapse_intervals is None:
-        collapse_intervals = ttcore.ir.MetalLayoutAttr.getDefaultCollapseIntervals(ctx)
+        # Create default collapse intervals - collapse all dims except last 2
+        rank = len(logical_shape)
+        if rank <= 2:
+            collapse_intervals = []
+        else:
+            collapse_intervals = [[0, rank - 2]]
     else:
         # Convert to DenseIntElementsAttr
         interval_type = RankedTensorType.get(
@@ -79,6 +96,7 @@ def create_metal_layout(
         )
         collapse_intervals = DenseIntElementsAttr.get(interval_type, collapse_intervals)
 
+    # Handle dimension alignments
     if dim_alignments is None:
         if tiled:
             # For tiled layouts, align last two dims to 32
@@ -86,7 +104,7 @@ def create_metal_layout(
         else:
             dim_alignments = [1] * len(logical_shape)
 
-    # Create the layout attribute
+    # Create the layout attribute using the same approach as builder_utils.py
     # Use a fixed 8x8 worker grid for MetalLayoutAttr creation (like existing builder utility)
     # The user-provided grid will be used later for getDeviceShape calculation
     worker_grid = [8, 8]  # Fixed device grid shape for layout creation
@@ -94,11 +112,9 @@ def create_metal_layout(
         ctx,
         logical_shape,
         worker_grid,
-        ttcore.OOBVal.Undef,
-        mem_space,
-        ttcore.TensorMemoryLayout.Sharded,
-        collapse_intervals,
-        dim_alignments,
+        int(ttcore.OOBVal.Undef),
+        int(mem_space),
+        int(ttcore.TensorMemoryLayout.Sharded),
     )
 
     return layout
