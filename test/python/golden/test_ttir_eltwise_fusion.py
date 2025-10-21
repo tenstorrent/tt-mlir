@@ -32,7 +32,7 @@ pytestmark = pytest.mark.frontend("ttir")
 # Main Parameter Sets to Reduce Verbiage
 ### ----------------------------------------------------------------------- ###
 
-enablePrintIR = True
+enablePrintIR = False
 
 gridParams = [
     "override-device-shape=1,1",
