@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -13,6 +14,7 @@ namespace mlir::tt::ttnn {
 
 namespace {
 
+template <typename ActivationOp>
 class TTNNConv2dWithActivation : public mlir::OpRewritePattern<Conv2dOp> {
   using TTNNConv2dWithActivation::OpRewritePattern<Conv2dOp>::OpRewritePattern;
 
@@ -23,45 +25,60 @@ public:
       return failure();
     }
 
-    ReluOp reluOp = getReluOp(srcOp);
-    Value reluInput = reluOp.getInput();
+    ActivationOp activationOp = getActivationOp(srcOp);
+    Value activationInput = activationOp.getInput();
 
-    mlir::StringAttr activation = rewriter.getStringAttr("relu");
+    auto activation = getActivationOpType(rewriter);
+
     ttcore::DataType weightDtype = ttcore::elementTypeToDataType(
         srcOp.getWeight().getType().getElementType());
     Conv2dConfigAttr conv2dConfigAttr =
         srcOp.getConv2dConfigAttr()
             ? srcOp.getConv2dConfigAttr()
-            : Conv2dConfigAttr::getEmpty(rewriter.getContext());
+            : Conv2dConfigAttr::get(rewriter.getContext());
     conv2dConfigAttr = conv2dConfigAttr.withActivation(activation)
                            .withWeightsDtype(weightDtype);
 
     rewriter.modifyOpInPlace(
         srcOp, [&]() { srcOp.setConv2dConfigAttr(conv2dConfigAttr); });
 
-    // Replace the relu op uses with either conv2d or reshape
+    // Replace the activation op uses with either conv2d or reshape
     // depending on if reshape was present.
-    rewriter.replaceAllUsesWith(reluOp, reluInput);
+    rewriter.replaceAllUsesWith(activationOp, activationInput);
 
     return mlir::success();
   }
 
 private:
-  ReluOp getReluOp(Conv2dOp srcOp) const {
-    assert((ttmlir::utils::allUsersOfType<ReshapeOp, ReluOp>(srcOp)) &&
-           "Conv2d should have either Relu or Reshape as user.");
+  ActivationOp getActivationOp(Conv2dOp srcOp) const {
+    assert((ttmlir::utils::allUsersOfType<ReshapeOp, ActivationOp>(srcOp)) &&
+           "Conv2d should have either activation or Reshape as user.");
 
-    if (ttmlir::utils::allUsersOfType<ReluOp>(srcOp)) {
-      return mlir::cast<ReluOp>(*srcOp.getResult().getUsers().begin());
+    if (ttmlir::utils::allUsersOfType<ActivationOp>(srcOp)) {
+      return mlir::cast<ActivationOp>(*srcOp.getResult().getUsers().begin());
     }
 
     ReshapeOp reshapeOp =
         mlir::cast<ReshapeOp>(*srcOp.getResult().getUsers().begin());
 
     assert(reshapeOp.getResult().hasOneUse() &&
-           ttmlir::utils::allUsersOfType<ReluOp>(reshapeOp) &&
-           "Reshape should have only one user and that user should be relu.");
-    return mlir::cast<ReluOp>(*reshapeOp.getResult().getUsers().begin());
+           ttmlir::utils::allUsersOfType<ActivationOp>(reshapeOp) &&
+           "Reshape should have only one user and that user should be "
+           "activation.");
+    return mlir::cast<ActivationOp>(*reshapeOp.getResult().getUsers().begin());
+  }
+
+  ttnn::UnaryOpType getActivationOpType(mlir::PatternRewriter &rewriter) const {
+    if constexpr (std::is_same_v<ActivationOp, ReluOp>) {
+      return ttnn::UnaryOpType::Relu;
+    } else if constexpr (std::is_same_v<ActivationOp, Relu6Op>) {
+      return ttnn::UnaryOpType::Relu6;
+    } else if constexpr (std::is_same_v<ActivationOp, SiluOp>) {
+      return ttnn::UnaryOpType::Silu;
+    } else {
+      static_assert(ttmlir::utils::always_false<ActivationOp>(),
+                    "Unsupported activation op");
+    }
   }
 
   bool isFusable(Conv2dOp srcOp) const {
@@ -74,8 +91,8 @@ private:
       return false;
     }
 
-    // Conv2d only user is ReLU so we can fuse.
-    if (ttmlir::utils::allUsersOfType<ReluOp>(srcOp)) {
+    // Conv2d only user is activation so we can fuse.
+    if (ttmlir::utils::allUsersOfType<ActivationOp>(srcOp)) {
       return true;
     }
 
@@ -88,10 +105,10 @@ private:
     ReshapeOp reshapeOp =
         mlir::cast<ReshapeOp>(*srcOp.getResult().getUsers().begin());
 
-    // If we want to fuse relu to conv we need to make sure that reshape
-    // has only one user and that user is relu.
+    // If we want to fuse activation to conv we need to make sure that reshape
+    // has only one user and that user is activation.
     return reshapeOp.getResult().hasOneUse() &&
-           ttmlir::utils::allUsersOfType<ReluOp>(reshapeOp);
+           ttmlir::utils::allUsersOfType<ActivationOp>(reshapeOp);
   }
 };
 
@@ -101,7 +118,9 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTNNConv2dWithActivation>(&getContext());
+    patterns.add<TTNNConv2dWithActivation<ReluOp>,
+                 TTNNConv2dWithActivation<Relu6Op>,
+                 TTNNConv2dWithActivation<SiluOp>>(&getContext());
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));

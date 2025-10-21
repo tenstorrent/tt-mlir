@@ -18,12 +18,14 @@
 // circular dependency issue. https://github.com/tenstorrent/tt-mlir/issues/4405
 namespace mlir::tt::ttnn {
 class SortOp;
+class SliceDynamicOp;
+class SliceStaticOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
 using TensorLayoutWorkaround = std::optional<Layout>;
 using TensorBufferTypeWorkaround = std::optional<BufferType>;
-using TensorMemoryLayoutWorkaround = std::optional<TensorMemoryLayout>;
+using TensorMemoryLayoutWorkaround = std::optional<TensorMemoryLayoutAttr>;
 using TensorDataTypeWorkaround = std::optional<ttcore::DataType>;
 
 // Struct that encapsulates operand workarounds.
@@ -59,27 +61,33 @@ struct TTNNOperandWorkarounds {
   // Constructor that takes tensor layout workaround and sets the other
   // workarounds to nullopt.
   TTNNOperandWorkarounds(TensorLayoutWorkaround tensorLayoutWorkaround)
-      : TTNNOperandWorkarounds(tensorLayoutWorkaround, std::nullopt,
-                               std::nullopt, std::nullopt) {}
+      : TTNNOperandWorkarounds(tensorLayoutWorkaround,
+                               /*tensorBufferType=*/std::nullopt,
+                               /*tensorMemoryLayout=*/std::nullopt,
+                               /*tensorDataType=*/std::nullopt) {}
 
   // Constructor that takes tensor buffer type workaround and sets the other
   // workarounds to nullopt.
   TTNNOperandWorkarounds(TensorBufferTypeWorkaround tensorBufferTypeWorkaround)
-      : TTNNOperandWorkarounds(std::nullopt, tensorBufferTypeWorkaround,
-                               std::nullopt, std::nullopt) {}
+      : TTNNOperandWorkarounds(/*tensorLayout=*/std::nullopt,
+                               tensorBufferTypeWorkaround,
+                               /*tensorMemoryLayout=*/std::nullopt,
+                               /*tensorDataType=*/std::nullopt) {}
 
   // Constructor that takes tensor memory layout workaround and sets the other
   // workarounds to nullopt.
   TTNNOperandWorkarounds(
       TensorMemoryLayoutWorkaround tensorMemoryLayoutWorkaround)
-      : TTNNOperandWorkarounds(std::nullopt, std::nullopt,
-                               tensorMemoryLayoutWorkaround, std::nullopt) {}
+      : TTNNOperandWorkarounds(
+            /*tensorLayout=*/std::nullopt, /*tensorBufferType=*/std::nullopt,
+            tensorMemoryLayoutWorkaround, /*tensorDataType=*/std::nullopt) {}
 
   // Constructor that takes tensor data type workaround and sets the other
   // workarounds to nullopt.
   TTNNOperandWorkarounds(TensorDataTypeWorkaround tensorDataTypeWorkaround)
-      : TTNNOperandWorkarounds(std::nullopt, std::nullopt, std::nullopt,
-                               tensorDataTypeWorkaround) {}
+      : TTNNOperandWorkarounds(
+            /*tensorLayout=*/std::nullopt, /*tensorBufferType=*/std::nullopt,
+            /*tensorMemoryLayout=*/std::nullopt, tensorDataTypeWorkaround) {}
 
   // Operand workarounds factory methods.
   static TTNNOperandWorkarounds createEmptyTTNNOperandWorkarounds();
@@ -122,7 +130,7 @@ struct BufferTypeWorkaroundResult : public WorkaroundResult<BufferType> {};
 
 // Memory layout workaround result struct.
 struct MemoryLayoutWorkaroundResult
-    : public WorkaroundResult<std::optional<TensorMemoryLayout>> {};
+    : public WorkaroundResult<TensorMemoryLayoutAttr> {};
 
 // Data type workaround result struct.
 struct DataTypeWorkaroundResult : public WorkaroundResult<ttcore::DataType> {};
@@ -241,13 +249,13 @@ public:
   createConcatOpOperandsWorkarounds(mlir::Operation::operand_range inputs,
                                     int64_t numOperands, int32_t dim);
 
-  // Create workarounds for slice op operands.
+  // Create workarounds for static slice op operands.
   static TTNNOperandsWorkarounds
-  createSliceStaticOpOperandsWorkarounds(mlir::ArrayAttr step);
+  createSliceStaticOpOperandsWorkarounds(ttnn::SliceStaticOp op);
 
   // Create workarounds for dynamic slice op operands.
   static TTNNOperandsWorkarounds
-  createSliceDynamicOpOperandsWorkarounds(mlir::ArrayAttr step);
+  createSliceDynamicOpOperandsWorkarounds(ttnn::SliceDynamicOp op);
 
   // Workaround for tensor creation that is modeled as ConstantOp in TTNN
   // dialect.
@@ -256,6 +264,9 @@ public:
   // Create workarounds for WhereOp operands.
   static TTNNOperandsWorkarounds
   createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
+
+  static TTNNOperandsWorkarounds
+  createReshapeOpOperandsWorkarounds(RankedTensorType inputType);
 
   static TTNNOperandsWorkarounds
   createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
@@ -282,9 +293,6 @@ public:
   // Create workarounds for conv2d/convtranspose2d op.
   template <typename T>
   static TTNNOperandsWorkarounds createConvOpOperandsWorkarounds(T op);
-
-  // Create workarounds for arange op.
-  static TTNNOperandsWorkarounds createArangeOpOperandsWorkarounds();
 
   // Create workarounds for reduction op operands.
   static TTNNOperandsWorkarounds

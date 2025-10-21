@@ -8,12 +8,12 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
-#include "llvm/Support/Casting.h"
 
 #include <algorithm>
 #include <cassert>
@@ -37,12 +37,39 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
     if (isa<ttnn::SliceStaticOp, ttnn::TypecastOp>(op)) {
       return;
     }
+    // Skip Matmul and Linear output, inefficient for L1 interleaved.
+    if (isa<ttnn::MatmulOp, ttnn::LinearOp>(op)) {
+      return;
+    }
+    // Skip output of Conv2D that uses matmul under the hood, inefficient for L1
+    // interleaved.
+    if (L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(op)) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "L1InterleavedFallbackAnalysis: Skipping {} - Conv2D "
+                   "uses matmul, inefficient for L1 interleaved.",
+                   op->getName());
+      return;
+    }
 
     for (auto *user : op->getUsers()) {
       // Skip operations that have DRAM input in runtime even when configured as
       // L1 via this analysis.
       // TODO(bmalesevic,#4505): remove this after they are supported in runtime
       if (isa<ttnn::SliceStaticOp, ttnn::TypecastOp>(user)) {
+        return;
+      }
+      // Skip Matmul and Linear input, inefficient for L1 interleaved.
+      if (isa<ttnn::MatmulOp, ttnn::LinearOp>(user)) {
+        return;
+      }
+      // Skip input of Conv2D that uses matmul under the hood, inefficient for
+      // L1 interleaved.
+      if (L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(user)) {
+        TTMLIR_TRACE(
+            ttmlir::LogComponent::Optimizer,
+            "L1InterleavedFallbackAnalysis: Skipping {} - Consumer Conv2D "
+            "uses matmul, inefficient for L1 interleaved.",
+            op->getName());
         return;
       }
     }
@@ -77,8 +104,15 @@ void L1InterleavedFallbackAnalysis::analysisImplementation() {
                    op->getName());
       return;
     }
+    // Skip reshapes which can be optimized to views by tt-metal.
+    // TODO(bmalesevic,#5086): replace with dynamic runtime check when tt-metal
+    // provides API to query view optimization eligibility at compile time
+    if (handleReshapeOps(op)) {
+      return;
+    }
     tryUpgradeToL1Interleaved(op);
   });
+
   TTMLIR_TRACE(
       ttmlir::LogComponent::Optimizer,
       "L1InterleavedFallbackAnalysis: Completed - upgraded {} operations.",
@@ -96,6 +130,7 @@ L1InterleavedFallbackAnalysis::getL1InterleavedLayoutConfigs(
     Operation *op) const {
   const auto it = analysisInput.legalL1InterleavedConfigs.find(op);
   assert(it != analysisInput.legalL1InterleavedConfigs.end());
+  assert(!it->second.empty());
   return it->second;
 }
 
@@ -118,6 +153,119 @@ bool L1InterleavedFallbackAnalysis::hasReturnOpUser(Operation *op) const {
       return true;
     }
   }
+  return false;
+}
+
+bool L1InterleavedFallbackAnalysis::isConv2DConvertibleToMatMul(Operation *op) {
+  auto conv2dOp = dyn_cast<ttnn::Conv2dOp>(op);
+  if (!conv2dOp) {
+    return false;
+  }
+
+  // Get weight tensor to check kernel size
+  RankedTensorType weightType = conv2dOp.getWeight().getType();
+  llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
+
+  // Check kernel size is 1x1
+  if (weightShape[2] != 1 || weightShape[3] != 1) {
+    return false;
+  }
+
+  // Check all stride values are 1
+  auto stride = conv2dOp.getStride();
+  if (llvm::any_of(stride, [](int32_t v) { return v != 1; })) {
+    return false;
+  }
+
+  // Check all padding values are 0
+  auto padding = conv2dOp.getPadding();
+  if (llvm::any_of(padding, [](int32_t v) { return v != 0; })) {
+    return false;
+  }
+
+  // Check dilation = 1
+  auto dilation = conv2dOp.getDilation();
+  if (llvm::any_of(dilation, [](int32_t v) { return v != 1; })) {
+    return false;
+  }
+
+  return true;
+}
+
+bool L1InterleavedFallbackAnalysis::handleReshapeOps(Operation *op) const {
+  // Output of reshape op is considered for keeping in DRAM, only if its
+  // input is still in DRAM.
+  if (auto reshapeOp = dyn_cast<ReshapeOp>(op);
+      reshapeOp && utils::hasFirstOperandInDRAM(reshapeOp) &&
+      checkReshapeSkip(reshapeOp)) {
+    return true;
+  }
+  for (auto *user : op->getUsers()) {
+    // Input of reshape user is considered for keeping in DRAM, only if its
+    // output is still in DRAM.
+    if (auto userReshapeOp = dyn_cast<ReshapeOp>(user);
+        userReshapeOp && utils::producesDRAMLayout(userReshapeOp) &&
+        checkReshapeSkip(userReshapeOp)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool L1InterleavedFallbackAnalysis::checkReshapeSkip(
+    ReshapeOp reshapeOp) const {
+  auto inputType = reshapeOp.getInput().getType();
+  auto outputType = reshapeOp.getResult().getType();
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+
+  assert(inputShape != outputShape &&
+         "Identity reshapes should have been removed by TTNN canonicalization");
+
+  // Early return for rank=0 reshapes - special case, don't need view
+  // optimization checks
+  if (inputShape.size() < 1 || outputShape.size() < 1) {
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "L1InterleavedFallbackAnalysis: Skipping {0} or its input "
+                 "producer {1} - reshape rank=0 - "
+                 "tt-metal handles scalar reshapes independently of layout.",
+                 reshapeOp->getName(),
+                 reshapeOp->getOperand(0).getDefiningOp()->getName());
+    return false;
+  }
+  // Get last dimensions
+  int64_t inputLastDim = inputShape.back();
+  int64_t outputLastDim = outputShape.back();
+
+  // Get second-to-last dimensions (or 1 if rank == 1)
+  int64_t inputSecondLastDim =
+      inputShape.size() >= 2 ? inputShape[inputShape.size() - 2] : 1;
+  int64_t outputSecondLastDim =
+      outputShape.size() >= 2 ? outputShape[outputShape.size() - 2] : 1;
+
+  auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
+  assert(ttnnLayout && "Expected input tensor to have TTNN layout attribute");
+  bool inputTensorTiled = ttnnLayout.isTiled();
+
+  // Check tt-metal view optimization: same last dim + tile alignment
+  // (conditions 1&2) Buffer type matching (conditions 3&4) already guaranteed
+  // by DRAM context
+  bool canBeView =
+      (inputLastDim == outputLastDim) &&
+      (!inputTensorTiled || (inputSecondLastDim == outputSecondLastDim) ||
+       (outputSecondLastDim % TILE_HEIGHT == 0 &&
+        inputSecondLastDim % TILE_WIDTH == 0));
+
+  if (canBeView) {
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "L1InterleavedFallbackAnalysis: Skipping {0} or its input "
+                 "producer {1} - reshape "
+                 "can be optimized to view.",
+                 reshapeOp->getName(),
+                 reshapeOp->getOperand(0).getDefiningOp()->getName());
+    return true;
+  }
+
   return false;
 }
 
@@ -194,8 +342,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
 
     if (operand.getDefiningOp()) {
       if (operand.getDefiningOp() == upgradedProducerOp) {
-        // If it's a nested check of update candidate's (producer in this scope)
-        // consumer's storage.
+        // If it's a nested check of update candidate's (producer in this
+        // scope) consumer's storage.
         inputLayouts.push_back(upgradedProducerLayout);
         continue;
       }
@@ -236,8 +384,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
                                    consumerOp->getName().getStringRef().data());
   }
 
-  auto [cBUsagePeak, tensorUsage, outputTensorUsage, outputLayout] =
-      l1UsageExp.get();
+  auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
+        outputLayout] = l1UsageExp.get();
 
   if (outputLayout != consumerConfig.outputLayout) {
     TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
@@ -274,15 +422,15 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   // - Recursive call: upgradedProducerOp=consumerOp, checks if consumer can
   // handle the upgrade.
   if (upgradedProducerOp) {
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::Optimizer,
-        "OpModel constraints valid for input of consumer {0}:\n"
-        "OutputLayout: {1}\n"
-        "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, outputTensorUsage: {4}, "
-        "producerL1OutputUsage: {5}, totalL1Usage: {6}",
-        consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
-        outputTensorUsage, producersL1OutputUsage,
-        cBUsagePeak + tensorUsage + producersL1OutputUsage);
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "OpModel constraints valid for input of consumer {0}:\n"
+                 "OutputLayout: {1}\n"
+                 "L1 usage: cBUsagePeak: {2}, tensorUsage: {3}, "
+                 "outputTensorUsage: {4}, "
+                 "producerL1OutputUsage: {5}, totalL1Usage: {6}",
+                 consumerOp->getName(), outputLayout, cBUsagePeak, tensorUsage,
+                 outputTensorUsage, producersL1OutputUsage,
+                 cBUsagePeak + tensorUsage + producersL1OutputUsage);
 
     return outputLayout;
   }
@@ -292,7 +440,8 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   assert(nextConsumerOp && "Operation must have a consumer");
   // If next consumer has TTNN layout output encoding, verify both operations
   // can coexist in L1.
-  if (utils::producesTTNNLayoutEncoding(nextConsumerOp)) {
+  if (utils::producesTTNNLayoutEncoding(nextConsumerOp) &&
+      !isa<ttnn::ToLayoutOp>(nextConsumerOp)) {
     const OpConfig &nextConsumerOpConfig =
         analysisInput.currentConfigs.at(nextConsumerOp);
 
@@ -304,7 +453,7 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       llvm::Error error = nextConsumerOpL1Layout.takeError();
       std::string errorStr = llvm::toString(std::move(error));
       TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                   "L1 upgrade blocked for {} - for consumer {}: {}",
+                   "L1 upgrade blocked for {0} - for consumer {1}: {2}",
                    consumerOp->getName().getStringRef().data(),
                    nextConsumerOp->getName().getStringRef().data(), errorStr);
       return llvm::createStringError(

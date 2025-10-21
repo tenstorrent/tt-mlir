@@ -155,6 +155,45 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   return success();
 }
 
+::mlir::LogicalResult TransposeInitOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "TransposeInitOp must be inside of a EnqueueProgramOp region");
+  }
+
+  // Both input and output should have tile element types for transpose.
+  auto inputCBType = getCbIn().getType();
+  auto outputCBType = getCbOut().getType();
+
+  if (!mlir::isa<ttcore::TileType>(inputCBType.getMemref().getElementType())) {
+    return emitOpError("Input to TransposeInitOp must have tile element type");
+  }
+
+  if (!mlir::isa<ttcore::TileType>(outputCBType.getMemref().getElementType())) {
+    return emitOpError("Output to TransposeInitOp must have tile element type");
+  }
+
+  return success();
+}
+
+::mlir::LogicalResult TransposeTileOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError("TransposeWHTileOp must be inside of a "
+                       "EnqueueProgramOp region");
+  }
+
+  // Only need to check the input CB since this is a single-tile operation
+  // The output is implicit (DST register)
+  auto inputCBType = getIcb().getType();
+
+  if (!mlir::isa<ttcore::TileType>(inputCBType.getMemref().getElementType())) {
+    return emitOpError(
+        "Input to TransposeWHTileOp must have tile element type");
+  }
+
+  return success();
+}
+
 ::mlir::LogicalResult CBReinterpretShapeOp::verify() {
   auto inCBType = getInput().getType();
   auto outCBType = getOutput().getType();
@@ -171,6 +210,7 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
 ::mlir::LogicalResult DPrintOp::verify() {
   StringRef fmt = getFmt();
   size_t numFormatSpecifiers = fmt.count("{}");
+
   if (numFormatSpecifiers != getOperands().size()) {
     return emitOpError("number of format specifiers must match number of "
                        "operands");

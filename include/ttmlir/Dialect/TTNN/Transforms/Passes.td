@@ -91,6 +91,45 @@ def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"
   }];
 }
 
+def TTNNLoadInputTensors: Pass<"ttnn-load-input-tensors", "::mlir::ModuleOp"> {
+  let summary = "Load input tensors from disk for the forward functions.";
+  let description = [{
+    This pass loads input tensors from disk using ttnn.load_tensor operations
+    for the "forward" functions. It additionally creates a main function to run
+    the forward function with the loaded inputs.
+
+    This is an alternative to TTNNCreateInputGenerators that loads real tensor
+    data from disk instead of generating synthetic inputs with ttnn.ones.
+
+    Given a forward function like this:
+
+    ```mlir
+    func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
+      %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      return %0 : tensor<32x32xbf16>
+    }
+    ```
+
+    The pass will prepend `_` to the existing function name to avoid name collision
+    and create functions that load inputs from arg0.tensorbin, arg1.tensorbin, etc:
+
+    ```mlir
+    func.func @load_inputs_for_add() -> (tensor<32x32xbf16>, tensor<32x32xbf16>) {
+      %0 = "ttnn.load_tensor"() <{file_path = "arg0.tensorbin"}> : () -> tensor<32x32xbf16>
+      %1 = "ttnn.load_tensor"() <{file_path = "arg1.tensorbin"}> : () -> tensor<32x32xbf16>
+      return %0, %1 : tensor<32x32xbf16>, tensor<32x32xbf16>
+    }
+
+    func.func @main() -> i32 {
+      %0:2 = call @load_inputs_for_add() : () -> (tensor<32x32xbf16>, tensor<32x32xbf16>)
+      %1 = call @_add(%0#0, %0#1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %c0_i32 = arith.constant 0 : i32
+      return %c0_i32 : i32
+    }
+    ```
+  }];
+}
+
 def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
   let summary = "Tuplify tensors in all funcs within a module.";
   let description = [{
@@ -214,6 +253,37 @@ def TTNNUniqueLocations: Pass<"ttnn-unique-locations", "::mlir::ModuleOp">
 {
   let summary = "Check if operations have unique locations.";
   let description = "This pass checks if all operations relevant to the optimizer have unique locations. If not, it will emit an error. This is necessary for the overrides to be applied correctly.";
+}
+
+def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fallback", "::mlir::ModuleOp"> {
+  let summary = "Validate operations and apply fallback strategies when needed.";
+  let description = [{
+    This pass validates TTNN operations by checking if their configurations
+    will work at runtime. For operations that fail validation, it applies
+    fallback strategies by transforming input operand layouts and data types
+    to find working configurations.
+  }];
+  let options = [
+    Option<"tensorL1UsageCap",
+           "tensor-l1-usage-cap",
+           "float", /*default=*/"1.0",
+           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">
+  ];
+}
+
+def TTNNEmitPyWorkarounds: Pass<"ttnn-emitpy-workarounds", "::mlir::ModuleOp"> {
+  let summary = "Apply TTNN workarounds specific to EmitPy pipeline.";
+  let description = [{
+    This pass applies TTNN workarounds that are specific to the EmitPy pipeline.
+  }];
+}
+
+def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
+  let summary = "Adjust previously inserted tensor deallocation ops.";
+  let description = [{
+    This pass will adjust previously inserted tensor deallocation ops. It will
+    remove deallocations of parameter and constant tensors.
+  }];
 }
 
 #endif

@@ -26,32 +26,6 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
       tensorRef->desc()->layout()->memory_desc()->data_type());
 }
 
-::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
-    const ::tt::target::ttnn::DistributionStrategy *strategy) {
-  switch (strategy->strategy_type()) {
-  case ::tt::target::ttnn::DistributedTensorConfig::ReplicateTensor: {
-    return ::tt::tt_metal::ReplicateTensor(
-        strategy->strategy_as_ReplicateTensor()->replication_factor());
-  }
-  case ::tt::target::ttnn::DistributedTensorConfig::ShardTensor: {
-    return ::tt::tt_metal::ShardTensor(
-        strategy->strategy_as_ShardTensor()->shard_dim());
-  }
-  case ::tt::target::ttnn::DistributedTensorConfig::ShardTensor2D: {
-    uint32_t y = strategy->strategy_as_ShardTensor2D()->shard_mesh()->y();
-    uint32_t x = strategy->strategy_as_ShardTensor2D()->shard_mesh()->x();
-    ::tt::tt_metal::ShardMesh mesh(y, x);
-    return ::tt::tt_metal::ShardTensor2D(mesh);
-  }
-  case ::tt::target::ttnn::DistributedTensorConfig::AllGatherTensor: {
-    return ::tt::tt_metal::AllGatherTensor();
-  }
-  case ::tt::target::ttnn::DistributedTensorConfig::NONE: {
-    LOG_FATAL("Unsupported distributed tensor config");
-  }
-  }
-}
-
 ::ttnn::operations::unary::UnaryOpType
 toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
   using FbUnaryOpType = ::tt::target::ttnn::UnaryOpType;
@@ -261,7 +235,9 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   }
 
   if (config->activation()) {
-    conv2dConfig.activation = config->activation()->str();
+    conv2dConfig.activation =
+        std::optional<::ttnn::operations::unary::UnaryWithParam>(
+            toTTNNUnaryWithParam(*config->activation()));
   }
 
   if (config->deallocate_activation()) {
@@ -317,15 +293,36 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
         *config->enable_weights_double_buffer();
   }
 
-  if (config->enable_split_reader()) {
-    conv2dConfig.enable_split_reader = *config->enable_split_reader();
-  }
-
   if (config->in_place()) {
     conv2dConfig.in_place = *config->in_place();
   }
 
   return conv2dConfig;
+}
+
+::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType
+createConv2dSliceType(::tt::target::ttnn::Conv2dSliceType sliceType) {
+  switch (sliceType) {
+  case ::tt::target::ttnn::Conv2dSliceType::DramHeight:
+    return ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::
+        DRAM_HEIGHT;
+  case ::tt::target::ttnn::Conv2dSliceType::DramWidth:
+    return ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::
+        DRAM_WIDTH;
+  case ::tt::target::ttnn::Conv2dSliceType::L1Full:
+    return ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::
+        L1_FULL;
+  }
+}
+
+::ttnn::operations::conv::conv2d::Conv2dSliceConfig
+createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
+  ::ttnn::operations::conv::conv2d::Conv2dSliceConfig sliceConfig;
+
+  sliceConfig.slice_type = createConv2dSliceType(config->slice_type());
+  sliceConfig.num_slices = config->num_slices();
+
+  return sliceConfig;
 }
 
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
@@ -352,7 +349,9 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
 template <typename T>
 static ::ttnn::Tensor
 toTTNNTensorImpl(const ::flatbuffers::Vector<uint8_t> *data,
-                 const ::ttnn::Shape &shape, const ::ttnn::DataType &dataType) {
+                 const ::ttnn::Shape &shape, const ::ttnn::DataType &dataType,
+                 ::ttnn::MeshDevice *device, const ::ttnn::Layout &layout,
+                 const ::ttnn::MemoryConfig &memoryConfig) {
   std::uint64_t numElements = shape.volume();
   size_t elementSize = sizeof(T);
   LOG_ASSERT(numElements * elementSize == data->size(), "Invalid data size");
@@ -365,31 +364,39 @@ toTTNNTensorImpl(const ::flatbuffers::Vector<uint8_t> *data,
       dataVec[i] = ::flatbuffers::IndirectHelper<T>::Read(data->data(), i);
     }
   }
-  return ::tt::runtime::ttnn::utils::createTTNNTensor<T>(dataVec.data(), shape,
-                                                         dataType);
+  return ::tt::runtime::ttnn::utils::createTTNNTensor<T>(
+      dataVec.data(), shape, dataType, device, layout, memoryConfig);
 }
 
-::ttnn::Tensor toTTNNTensor(const ::flatbuffers::Vector<uint8_t> *data,
-                            const ::ttnn::Shape &shape,
-                            const ::ttnn::DataType &dataType) {
+::ttnn::Tensor toTTNNTensor(
+    const ::flatbuffers::Vector<uint8_t> *data, const ::ttnn::Shape &shape,
+    const ::ttnn::DataType &dataType, ::ttnn::MeshDevice *device = nullptr,
+    const ::ttnn::Layout &layout = ::ttnn::Layout::ROW_MAJOR,
+    const ::ttnn::MemoryConfig &memoryConfig = ::ttnn::DRAM_MEMORY_CONFIG) {
   switch (dataType) {
   case ::ttnn::DataType::FLOAT32: {
-    return toTTNNTensorImpl<float>(data, shape, dataType);
+    return toTTNNTensorImpl<float>(data, shape, dataType, device, layout,
+                                   memoryConfig);
   }
   case ::ttnn::DataType::BFLOAT16: {
-    return toTTNNTensorImpl<bfloat16>(data, shape, dataType);
+    return toTTNNTensorImpl<bfloat16>(data, shape, dataType, device, layout,
+                                      memoryConfig);
   }
   case ::ttnn::DataType::UINT32: {
-    return toTTNNTensorImpl<uint32_t>(data, shape, dataType);
+    return toTTNNTensorImpl<uint32_t>(data, shape, dataType, device, layout,
+                                      memoryConfig);
   }
   case ::ttnn::DataType::UINT16: {
-    return toTTNNTensorImpl<uint16_t>(data, shape, dataType);
+    return toTTNNTensorImpl<uint16_t>(data, shape, dataType, device, layout,
+                                      memoryConfig);
   }
   case ::ttnn::DataType::UINT8: {
-    return toTTNNTensorImpl<uint8_t>(data, shape, dataType);
+    return toTTNNTensorImpl<uint8_t>(data, shape, dataType, device, layout,
+                                     memoryConfig);
   }
   case ::ttnn::DataType::INT32: {
-    return toTTNNTensorImpl<int32_t>(data, shape, dataType);
+    return toTTNNTensorImpl<int32_t>(data, shape, dataType, device, layout,
+                                     memoryConfig);
   }
   default:
     LOG_FATAL("Unsupported data type");

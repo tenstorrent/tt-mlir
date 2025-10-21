@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Builders.h"
@@ -34,12 +35,22 @@ public:
   mlir::OpBuilder builder = mlir::OpBuilder(&context);
 
   void SetUp() override {
+    // Lifetime of the device in `SingletonDeviceContext` is managed by the
+    // user. Hence we need to open and close the device explicitly in the test.
+    mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance()
+        .openDevice();
+
     // Initialize context and module
     context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
     context.loadDialect<mlir::tt::ttnn::TTNNDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToStart(&module->getBodyRegion().front());
     mlir::tt::ttcore::registerDevice(module.get());
+  }
+
+  void TearDown() override {
+    mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance()
+        .closeInstance();
   }
 
   static llvm::SmallVector<int64_t> GetPhysicalGridSize() {

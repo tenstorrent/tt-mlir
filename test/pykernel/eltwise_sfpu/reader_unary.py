@@ -5,8 +5,7 @@
 # RUN: %python %s | FileCheck %s
 # REQUIRES: pykernel
 
-from pykernel.kernel_ast import *
-from pykernel.kernel_types import *
+from pykernel import ttkernel_noc_compile, CircularBuffer, Kernel
 
 
 @ttkernel_noc_compile(verbose=True)

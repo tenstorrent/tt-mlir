@@ -4,12 +4,12 @@
 import ttmlir
 from dataclasses import make_dataclass, is_dataclass, asdict
 from collections import defaultdict
+from ttmlir.compile_and_run_utils import ModuleDialect
 
-import importlib
 import logging
 import torch
 
-TTRT_INSTALLED = importlib.util.find_spec("ttrt") is not None
+from . import ttrt_loader
 
 
 def parse_mlir_str(module_str):
@@ -19,7 +19,7 @@ def parse_mlir_str(module_str):
 
 
 def parse_flatbuffer_file(fb_path, at_pass=None, program=0):
-    if not TTRT_INSTALLED:
+    if not ttrt_loader.get_is_ttrt_available():
         logging.error(
             "TTRT is not installed in Python Environment, unable to parse Flatbuffer"
         )
@@ -60,7 +60,7 @@ def parse_flatbuffer_file(fb_path, at_pass=None, program=0):
 
 def golden_map_from_flatbuffer(fb_path, program=0):
     # Get the golden_map from flatbuffer corresponding to the Program # provided
-    if not TTRT_INSTALLED:
+    if not ttrt_loader.get_is_ttrt_available():
         logging.error(
             "TTRT is not installed in Python Environment, unable to parse Flatbuffer."
         )
@@ -112,3 +112,20 @@ def make_editable_kv(kv, editable):
     obj = asdict(kv)
     obj["editable"] = editable
     return to_dataclass(obj, "KeyValue")
+
+
+def is_nested_module(op):
+    # Check for ttcore.device_module or builtin.module operations
+    return (
+        op.operation.name == "ttcore.device_module"
+        or op.operation.name == "builtin.module"
+    )
+
+
+def needs_stablehlo_pass(module_path: str) -> bool:
+    with open(module_path, "r") as model_file:
+        module_str = model_file.read()
+
+    module_dialect = ModuleDialect.detect(module_str)
+
+    return module_dialect == ModuleDialect.STABLE_HLO

@@ -17,12 +17,17 @@ void run(const ::tt::target::ttnn::ArangeOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   ::ttnn::DataType dtype =
       ::ttnn::DataType::BFLOAT16; // Default in arange implementation
+  ::ttnn::Layout layout = ::ttnn::Layout::ROW_MAJOR;
   OptionalMeshDeviceRef targetDevice = std::nullopt;
   ::ttnn::MemoryConfig memoryConfig =
       ::ttnn::DRAM_MEMORY_CONFIG; // Default in arange implementation
 
   if (op->dtype()) {
     dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
+  }
+
+  if (op->layout()) {
+    layout = ::tt::runtime::ttnn::utils::toTTNNLayout(*(op->layout()));
   }
 
   if (op->memcfg()) {
@@ -36,7 +41,7 @@ void run(const ::tt::target::ttnn::ArangeOp *op, ProgramContext &context) {
   }
 
   ::ttnn::Tensor out = ::ttnn::arange(op->start(), op->end(), op->step(), dtype,
-                                      targetDevice, memoryConfig);
+                                      targetDevice, memoryConfig, layout);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

@@ -2,9 +2,7 @@ add_mlir_dialect_library(MLIRTTNNDialect
         TTNNOpsAttrs.cpp
         TTNNDialect.cpp
         TTNNOps.cpp
-        TTNNOpModelInterface.cpp
         TTNNOpsTypes.cpp
-        TTNNWorkaroundInterface.cpp
         TTNNWorkaroundsPass.cpp
 
         ADDITIONAL_HEADER_DIRS
@@ -13,13 +11,17 @@ add_mlir_dialect_library(MLIRTTNNDialect
         DEPENDS
         MLIRTTNNOpsIncGen
         MLIRTTCoreOpsIncGen
+        MLIRTTNNOpModelInterfaceIncGen
+        MLIRTTNNTensorSpecInterfaceIncGen
         MLIRTTNNWorkaroundInterfaceIncGen
+        MLIRTTNNKernelInterfaceIncGen
 
         LINK_LIBS PUBLIC
+        MLIRBufferizationDialect
+        MLIRLinalgDialect
+        MLIRMLProgramDialect
+        MLIRSCFToEmitC
+        MLIRTTNNInterfaces
         TTMLIRTTNNUtils
         TTNNOpModelLib
-        MLIRSCFToEmitC
-        MLIRLinalgDialect
-        MLIRBufferizationDialect
-        MLIRMLProgramDialect
         )

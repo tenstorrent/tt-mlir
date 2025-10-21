@@ -15,41 +15,36 @@
 namespace tt::runtime {
 
 namespace system_desc {
+
 SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
 } // namespace system_desc
 
 namespace detail {
-void deallocateBuffers(Device device);
-void dumpMemoryReport(Device device);
-void readDeviceProfilerResults(Device device);
 
-/*
-This function get the memory view per device
-  {
-    "DRAM": MemoryView,
-    "L1": MemoryView,
-    "L1Small": MemoryView,
-    "Trace": MemoryView
-  }
-*/
-std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-getMemoryView(Device device);
+uint32_t getNumShards(Tensor tensor);
 
 } // namespace detail
 
-std::vector<DeviceRuntime> getAvailableRuntimes();
+void setMlirHome(std::string_view mlirHome);
+void setMetalHome(std::string_view metalHome);
 
-DeviceRuntime getCurrentRuntime();
+std::vector<DeviceRuntime> getAvailableDeviceRuntimes();
+DeviceRuntime getCurrentDeviceRuntime();
+void setCurrentDeviceRuntime(const DeviceRuntime &runtime);
+void setCompatibleDeviceRuntime(const Binary &binary);
 
-void setCurrentRuntime(const DeviceRuntime &runtime);
-
-void setCompatibleRuntime(const Binary &binary);
+std::vector<HostRuntime> getAvailableHostRuntimes();
+HostRuntime getCurrentHostRuntime();
+void setCurrentHostRuntime(const HostRuntime &runtime);
 
 SystemDesc getCurrentSystemDesc(
     std::optional<DispatchCoreType> dispatchCoreType = std::nullopt,
     std::optional<Device> meshDevice = std::nullopt);
+
+void launchDistributedRuntime(const DistributedOptions &options = {});
+void shutdownDistributedRuntime();
 
 // Creates host tensor with a view of the input data (the buffer of the tensor
 // is on the host and it was borrowed from an external buffer which is
@@ -163,6 +158,22 @@ size_t getL1SizePerCore(Device meshDevice);
 void releaseTrace(Device meshDevice, std::uint64_t binaryId,
                   size_t mainProgramId);
 
+void deallocateBuffers(Device device);
+void dumpMemoryReport(Device device);
+void readDeviceProfilerResults(Device device);
+
+/*
+This function gets the memory view per device
+  {
+    "DRAM": MemoryView,
+    "L1": MemoryView,
+    "L1Small": MemoryView,
+    "Trace": MemoryView
+  }
+*/
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device device);
+
 void setFabricConfig(FabricConfig config);
 
 void wait(Event event);
@@ -180,6 +191,8 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize = false,
 Tensor toLayout(Tensor tensor, Device device, Layout layout,
                 std::optional<bool> retain = std::nullopt);
 
+bool hasLayout(Tensor tensor, Layout layout);
+
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
 
@@ -196,8 +209,9 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle);
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
 
 // Returns the reference to the output tensor of the current operation.
 // In case that operation does not have an output tensor, returns nullopt
@@ -226,6 +240,13 @@ void updateTensorInPool(CallbackContext programContextHandle,
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,
                            std::vector<Tensor> &inputs);
+
+// Dumps tensor data to a file in binary format
+void dumpTensor(Tensor tensor, const std::string &filePath);
+
+// Loads tensor data from a binary file
+Tensor loadTensor(const std::string &filePath,
+                  std::optional<Device> device = std::nullopt);
 
 } // namespace tt::runtime
 

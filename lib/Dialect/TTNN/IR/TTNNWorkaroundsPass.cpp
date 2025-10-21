@@ -54,16 +54,10 @@ WorkaroundResults applyWorkarounds(const TTNNOperandWorkarounds &workaround,
   // nullopt if tensor is on host.
   results.tensorMemoryLayoutResult.targetValue =
       workaround.tensorMemoryLayoutWorkaround.has_value()
-          ? workaround.tensorMemoryLayoutWorkaround
-          : inputLayoutAttr.getMemLayoutOpt();
+          ? workaround.tensorMemoryLayoutWorkaround.value()
+          : inputLayoutAttr.getMemLayout();
   results.tensorMemoryLayoutResult.previousValue =
-      inputLayoutAttr.getMemLayoutOpt();
-  // TODO(#2103): This is a temporary fix to handle host tensors
-  // If the target buffer type is SystemMemory, set tensor memory layout to
-  // nullopt.
-  if (results.tensorBufferTypeResult.targetValue == BufferType::SystemMemory) {
-    results.tensorMemoryLayoutResult.targetValue = std::nullopt;
-  }
+      inputLayoutAttr.getMemLayout();
 
   results.tensorDataTypeResult.targetValue =
       workaround.tensorDataTypeWorkaround.value_or(
@@ -185,6 +179,7 @@ TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(
   wa::TTNNOperandWorkarounds sysMemWorkaround;
   if (shardType != mlir::tt::ttcore::MeshShardType::Identity) {
     sysMemWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+    sysMemWorkaround.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr();
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(sysMemWorkaround)
@@ -239,56 +234,49 @@ TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
 }
 
 // Factory method to create a set of workarounds for slice op input operands.
-// ttnn::SliceStaticOp requires bfloat16 data type for strided slice.
-// Tracking issue: https://github.com/tenstorrent/tt-metal/issues/26691.
+// ttnn::SliceStaticOp requires uint32 on input if the slice is strided
+// and input is < uint32.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
-    mlir::ArrayAttr step) {
+    ttnn::SliceStaticOp op) {
   // Check if any element in 'step' is greater than 1, indicating a strided
   // slice operation.
-  bool isStridedSliceOp = llvm::any_of(step, [](mlir::Attribute value) {
+  bool isStridedSliceOp = llvm::any_of(op.getStep(), [](mlir::Attribute value) {
     mlir::IntegerAttr intAttr = mlir::dyn_cast<mlir::IntegerAttr>(value);
     return intAttr.getInt() > 1;
   });
 
-  TTNNOperandWorkarounds bF16Workaround;
-  if (isStridedSliceOp) {
-    bF16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds workaround;
+  Type inputType = op.getInput().getType().getElementType();
+  uint32_t bitWidth = inputType.getIntOrFloatBitWidth();
+  if (inputType.isUnsignedInteger() && bitWidth < 32 && isStridedSliceOp) {
+    workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
   }
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(bF16Workaround)
-      .addOutputOperandWorkaround(bF16Workaround);
+      .addInputOperandWorkaround(workaround)
+      .addOutputOperandWorkaround(workaround);
 }
 
 // Factory method to create a set of workarounds for dynamic slice op input
-// operands. ttnn::SliceDynamicOp requires bfloat16 data type for strided slice.
-// ttnn::SliceDynamicOp requires uint32 for begins and ends operands.
-// Tracking issue: https://github.com/tenstorrent/tt-metal/issues/26691.
+// operands. ttnn::SliceDynamicOp requires uint32 for inputs if
+// the input is < uint32.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
-    mlir::ArrayAttr step) {
-  // Check if any element in 'step' is greater than 1, indicating a strided
-  // slice operation. If step is null, assume non-strided operation.
-  bool isStridedSliceOp = false;
-  if (step) {
-    isStridedSliceOp = llvm::any_of(step, [](mlir::Attribute value) {
-      mlir::IntegerAttr intAttr = mlir::dyn_cast<mlir::IntegerAttr>(value);
-      return intAttr.getInt() > 1;
-    });
-  }
-
-  TTNNOperandWorkarounds bF16Workaround;
-  if (isStridedSliceOp) {
-    bF16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+    ttnn::SliceDynamicOp op) {
+  TTNNOperandWorkarounds inputWorkaround;
+  Type inputType = op.getInput().getType().getElementType();
+  uint32_t bitWidth = inputType.getIntOrFloatBitWidth();
+  if (inputType.isUnsignedInteger() && bitWidth < 32) {
+    inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
   }
   TTNNOperandWorkarounds uInt32Workaround;
   uInt32Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
 
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(bF16Workaround)
+      .addInputOperandWorkaround(inputWorkaround)
       .addInputOperandWorkaround(uInt32Workaround)
       .addInputOperandWorkaround(uInt32Workaround)
-      .addOutputOperandWorkaround(bF16Workaround);
+      .addOutputOperandWorkaround(inputWorkaround);
 }
 
 // ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN
@@ -298,6 +286,8 @@ TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
   TTNNOperandWorkarounds hostRowMajorWorkaround = TTNNOperandWorkarounds();
   hostRowMajorWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+  hostRowMajorWorkaround.tensorMemoryLayoutWorkaround =
+      TensorMemoryLayoutAttr();
   hostRowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addOutputOperandWorkaround(hostRowMajorWorkaround);
@@ -352,6 +342,26 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
       .addOutputOperandWorkaround(outputTypeWorkaround);
 }
 
+// Factory method to create a set of workarounds for reshape operation operands.
+// Reshape op only does not work with ui8 - force to int32 then typecast
+// separately.
+// TT-metal issue: https://github.com/tenstorrent/tt-metal/issues/27843
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
+    RankedTensorType inputType) {
+  mlir::Type inputElementType = inputType.getElementType();
+  TTNNOperandWorkarounds typeWorkarounds;
+  mlir::tt::ttcore::DataType dataType =
+      mlir::tt::ttcore::elementTypeToDataType(inputElementType);
+  if (dataType == mlir::tt::ttcore::DataType::UInt8) {
+    typeWorkarounds.tensorDataTypeWorkaround =
+        mlir::tt::ttcore::DataType::Int32;
+  }
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(typeWorkarounds)
+      .addOutputOperandWorkaround(typeWorkarounds);
+}
+
 // Factory method to create a set of workarounds for UpdateCache operation
 // operands. Update index of UpdateCacheOp must be unsigned
 TTNNOperandsWorkarounds
@@ -387,20 +397,10 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
     return mlir::tt::ttcore::DataType::Int32;
   }
 
-  // Left shift and right shift ops have same requirements but they are not
-  // implemented for TTNN dialect currently.
-  if (isa<ttnn::BitwiseAndOp, ttnn::BitwiseOrOp, ttnn::BitwiseXorOp>(op)) {
-    if (dType == mlir::tt::ttcore::DataType::Int32) {
-      return {};
-    }
-    return mlir::tt::ttcore::DataType::Int32;
-  }
-
   // All remaining binary ops.
   // Tracked in :
   // https://github.com/issues/created?issue=tenstorrent%7Ctt-metal%7C25112
-  if (isa<ttnn::DivideOp, ttnn::PowOp, ttnn::GreaterEqualOp,
-          ttnn::GreaterThanOp, ttnn::LessEqualOp, ttnn::LessThanOp>(op)) {
+  if (isa<ttnn::DivideOp, ttnn::PowTensorOp>(op)) {
     if (dType == mlir::tt::ttcore::DataType::Float32 ||
         dType == mlir::tt::ttcore::DataType::BFloat16 ||
         dType == mlir::tt::ttcore::DataType::BFP_BFloat8 ||
@@ -575,17 +575,6 @@ TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(T op) {
   }
 
   return workaround;
-}
-
-// TTNN Arange op only supports row-major output. Adding workaround to enforce
-// row-major layout on its output.
-// tt-metal issue to support tile layout for arange op:
-// https://github.com/tenstorrent/tt-metal/issues/20251
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createArangeOpOperandsWorkarounds() {
-  wa::TTNNOperandWorkarounds arangeOpOperandWorkaround(Layout::RowMajor);
-  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addOutputOperandWorkaround(arangeOpOperandWorkaround);
 }
 
 // Factory method to create a set of workaround for reduction ops operands.

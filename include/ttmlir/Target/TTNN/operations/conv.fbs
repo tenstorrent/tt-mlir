@@ -1,12 +1,13 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
 include "ttmlir/Target/TTNN/operations/configs.fbs";
+include "ttmlir/Target/TTNN/operations/eltwise.fbs";
 
 namespace tt.target.ttnn;
 
 table Conv2dConfig {
   weights_dtype: DataType = null;
-  activation: string;
+  activation: tt.target.ttnn.UnaryWithParam;
   deallocate_activation: bool = null;
   reallocate_halo_output: bool = null;
   act_block_h_override: uint32 = null;
@@ -19,8 +20,18 @@ table Conv2dConfig {
   output_layout: TensorLayout = null;
   enable_act_double_buffer: bool = null;
   enable_weights_double_buffer: bool = null;
-  enable_split_reader: bool = null;
   in_place: bool = null;
+}
+
+enum Conv2dSliceType: ushort {
+  DramHeight,
+  DramWidth,
+  L1Full,
+}
+
+table Conv2dSliceConfig {
+  slice_type: Conv2dSliceType;
+  num_slices: uint32 = 0;
 }
 
 table PrepareConv2dWeightsOp {
@@ -44,6 +55,8 @@ table PrepareConv2dWeightsOp {
   input_dtype: tt.target.DataType;
   output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  conv2d_slice_config: tt.target.ttnn.Conv2dSliceConfig;
 }
 
 table PrepareConv2dBiasOp {
@@ -65,6 +78,8 @@ table PrepareConv2dBiasOp {
   input_dtype: tt.target.DataType;
   output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  conv2d_slice_config: tt.target.ttnn.Conv2dSliceConfig;
 }
 
 table Conv2dOp {
@@ -86,6 +101,7 @@ table Conv2dOp {
   output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  conv2d_slice_config: tt.target.ttnn.Conv2dSliceConfig;
 }
 
 table ConvTranspose2dOp {
@@ -107,5 +123,6 @@ table ConvTranspose2dOp {
   groups: uint32;
   output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
   memory_config: tt.target.ttnn.MemoryConfig;
 }

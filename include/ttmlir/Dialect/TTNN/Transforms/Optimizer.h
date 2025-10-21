@@ -9,6 +9,10 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 
+namespace tt::tt_metal::distributed {
+class MeshDevice;
+} // namespace tt::tt_metal::distributed
+
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 // TTNNOptimizer
@@ -27,7 +31,9 @@ struct TTNNOptimizerOptions {
   bool memReconfigEnabled = false;
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
-  float tensorL1UsageCap = 0.8f; // Default to 80% of maximum free space in L1.
+  float tensorL1UsageCap =
+      0.95f; // Default to 100% of maximum free space in L1.
+  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 };
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();

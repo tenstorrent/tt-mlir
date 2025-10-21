@@ -22,20 +22,18 @@ target_include_directories(TTMLIRRuntime
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 
-set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY TT_STL_LIBRARY)
-if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  list(APPEND TTNN_LIBS TRACY_LIBRARY)
-endif()
-
 target_link_directories(TTMLIRRuntime PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
 target_link_directories(TTMLIRRuntime PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib64)
 
 target_link_libraries(TTMLIRRuntime
   PRIVATE
     TTBinary
+    TTRuntimeTypes
+    TTRuntimeUtils
     TTRuntimeSysDesc
     TTRuntimeTTNN
     TTRuntimeTTMetal
+    TTRuntimeDistributed
     TTRuntimeContext
     TTRuntimeDebug
     TTRuntimePerf
@@ -46,16 +44,16 @@ target_link_libraries(TTMLIRRuntime
     # we tell linker to link all the symbols anyway. We need this as symbols from libA might be used by whoever
     # imports libB.
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,TTRuntimeTTNNTestLib>"
-    ${TTNN_LIBS}
+    ${METAL_LIBS}
     flatbuffers
 )
 
 target_link_libraries(TTMLIRRuntime PUBLIC coverage_config)
 
-set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN")
+set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN;${TTMETAL_LIBRARY_DIR}")
 set_target_properties(TTMLIRRuntime PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
 
-add_dependencies(TTMLIRRuntime TTBinary TTRuntimeSysDesc TTRuntimeContext TTRuntimeDebug TTRuntimePerf TTRuntimeWorkarounds TTRuntimeDylibs TTRuntimeTTNNTestLib TTRuntimeTTNN TTRuntimeTTMetal FBS_GENERATION)
+add_dependencies(TTMLIRRuntime FBS_GENERATION)
 
 if (TTMLIR_ENABLE_RUNTIME)
   set(TTMLIR_RUNTIME_PUBLIC_HEADERS
@@ -77,3 +75,5 @@ if (TTMLIR_ENABLE_RUNTIME)
       COMPONENT SharedLib
   )
 endif()
+
+add_subdirectory(distributed)

@@ -30,8 +30,8 @@ func.func @test_add_binary_tile_init() -> () {
 // CHECK-LABEL: func.func @test_add_binary_tile
 func.func @test_add_binary_tile() -> () {
   %c0 = arith.constant 0 : index
-  ttkernel.add_binary_tile(%c0, %c0) : (index, index) -> ()
-  // CHECK: ttkernel.add_binary_tile(%{{.*}}, %{{.*}}) : (index, index) -> ()
+  ttkernel.add_binary_tile(%c0, %c0, %c0) : (index, index, index) -> ()
+  // CHECK: ttkernel.add_binary_tile(%{{.*}}, %{{.*}}, %{{.*}}) : (index, index, index) -> ()
   return
 }
 
@@ -45,8 +45,8 @@ func.func @test_mul_binary_tile_init() -> () {
 // CHECK-LABEL: func.func @test_mul_binary_tile
 func.func @test_mul_binary_tile() -> () {
   %c0 = arith.constant 0 : index
-  ttkernel.mul_binary_tile(%c0, %c0) : (index, index) -> ()
-  // CHECK: ttkernel.mul_binary_tile(%{{.*}}, %{{.*}}) : (index, index) -> ()
+  ttkernel.mul_binary_tile(%c0, %c0, %c0) : (index, index, index) -> ()
+  // CHECK: ttkernel.mul_binary_tile(%{{.*}}, %{{.*}}, %{{.*}}) : (index, index, index) -> ()
   return
 }
 
@@ -60,8 +60,8 @@ func.func @test_sub_binary_tile_init() -> () {
 // CHECK-LABEL: func.func @test_sub_binary_tile
 func.func @test_sub_binary_tile() -> () {
   %c0 = arith.constant 0 : index
-  ttkernel.sub_binary_tile(%c0, %c0) : (index, index) -> ()
-  // CHECK: ttkernel.sub_binary_tile(%{{.*}}, %{{.*}}) : (index, index) -> ()
+  ttkernel.sub_binary_tile(%c0, %c0, %c0) : (index, index, index) -> ()
+  // CHECK: ttkernel.sub_binary_tile(%{{.*}}, %{{.*}}, %{{.*}}) : (index, index, index) -> ()
   return
 }
 

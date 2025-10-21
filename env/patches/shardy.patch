@@ -1,9 +1,9 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 new file mode 100755
-index 0000000..b73a2bd
+index 0000000..ec8d310
 --- /dev/null
 +++ b/CMakeLists.txt
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,57 @@
 +# Custom embedded build for Shardy, targgeting minimal build as a part of
 +# tt-mlir MLIR project. This CMakeLists.txt file is mainly from StableHLO.
 +
@@ -61,7 +61,6 @@ index 0000000..b73a2bd
 +add_subdirectory(shardy/dialect/sdy/transforms)
 +add_subdirectory(shardy/integrations/python/ir)
 +add_subdirectory(shardy/integrations/c)
-+add_subdirectory(shardy/round_trip_import)
 \ No newline at end of file
 diff --git a/shardy/common/CMakeLists.txt b/shardy/common/CMakeLists.txt
 new file mode 100644
@@ -790,135 +789,45 @@ index 0000000..30a5cf9
 +include "shardy/dialect/sdy/ir/ops.td"
 +
 +#endif
-diff --git a/shardy/round_trip_import/CMakeLists.txt b/shardy/round_trip_import/CMakeLists.txt
-new file mode 100644
-index 0000000..877c8e6
---- /dev/null
-+++ b/shardy/round_trip_import/CMakeLists.txt
-@@ -0,0 +1,125 @@
-+# Shardy MLIR Roundtrip Import Passes
+diff --git a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
+index 47ce53e..63b2424 100644
+--- a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
++++ b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
+@@ -303,6 +303,37 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+         }
+         return builder.build();
+       })
++      .Case<stablehlo::BatchNormInferenceOp>(
++        [conservativePropagation](stablehlo::BatchNormInferenceOp bn) {
++          auto inTy  = llvm::cast<mlir::RankedTensorType>(bn.getOperand().getType());
++          auto outTy = llvm::cast<mlir::RankedTensorType>(bn.getResult().getType());
 +
-+add_mlir_translation_library(SdyRoundtripUtils
-+  utils.cc
++          OpShardingRuleBuilder builder(bn);
 +
-+  DEPENDS
-+  SdyDialect
-+  SdyRegister
++          const int64_t numOperands = static_cast<int64_t>(bn->getNumOperands());
++          llvm::SmallVector<int64_t> opDims(numOperands, kNullDim);
 +
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRAsmParser
-+  MLIRFuncDialect
-+  MLIRFuncAllExtensions
-+  MLIRIR
-+  MLIRSupport
-+  StablehloOps
-+  SdyDialect
-+  SdyRegister
-+)
++          for (auto [dU, dimSize] : llvm::enumerate(inTy.getShape())) {
++            const int64_t d = static_cast<int64_t>(dU);
++            std::fill(opDims.begin(), opDims.end(), kNullDim);
++            opDims[0] = d;
++            builder.addFactor(opDims, d, dimSize);
++          }
 +
-+add_mlir_translation_library(SdyRoundtripImportSdyCustomCalls
-+  import_sdy_custom_calls.cc
++          const int64_t featAxis = static_cast<int64_t>(bn.getFeatureIndex());
++          const int64_t C = outTy.getDimSize(featAxis);
 +
-+  DEPENDS
-+  SdyRoundtripUtils
-+  SdyDialect
++          for (int64_t paramIdx : {1LL, 2LL, 3LL, 4LL}) {
++            std::fill(opDims.begin(), opDims.end(), kNullDim);
++            opDims[paramIdx] = 0;
++            auto factorType = conservativePropagation ? FactorType::kNeedReplication
++                                                        : FactorType::kPassThrough;
++            builder.addFactor(opDims, kNullDim, C,
++                  factorType, true);
++          }
 +
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRIR
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  StablehloOps
-+  SdyRoundtripUtils
-+  SdyDialect
-+)
-+
-+add_mlir_translation_library(SdyRoundtripImportUninlineableFuncCalls
-+  import_uninlineable_func_calls.cc
-+
-+  DEPENDS
-+  SdyRoundtripUtils
-+  SdyDialect
-+
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRFuncDialect
-+  MLIRIR
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  MLIRTransforms
-+  StablehloOps
-+  SdyRoundtripUtils
-+  SdyDialect
-+)
-+
-+add_mlir_translation_library(SdyRoundtripImportShardyAttrs
-+  import_shardy_attrs.cc
-+
-+  DEPENDS
-+  SdyRoundtripUtils
-+  SdyDialect
-+
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRAsmParser
-+  MLIRFuncDialect
-+  MLIRIR
-+  MLIRParser
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  StablehloOps
-+  SdyRoundtripUtils
-+  SdyDialect
-+)
-+
-+add_mlir_translation_library(SdyRoundtripShardMapImport
-+  shard_map_import.cc
-+
-+  DEPENDS
-+  SdyRoundtripUtils
-+  SdyDialect
-+
-+  LINK_LIBS PUBLIC
-+  LLVMSupport
-+  MLIRFuncDialect
-+  MLIRIR
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  StablehloOps
-+  SdyRoundtripUtils
-+  SdyDialect
-+)
-+
-+add_mlir_translation_library(SdyRoundtripPipelines
-+  pipelines.cc
-+
-+  DEPENDS
-+  SdyRoundtripImportUninlineableFuncCalls
-+  SdyRoundtripImportSdyCustomCalls
-+  SdyRoundtripImportShardyAttrs
-+  SdyRoundtripShardMapImport
-+
-+  LINK_LIBS PUBLIC
-+  MLIRFuncDialect
-+  MLIRPass
-+  MLIRSupport
-+  MLIRTransformUtils
-+  MLIRTransforms
-+  StablehloPasses
-+  SdyRoundtripImportUninlineableFuncCalls
-+  SdyRoundtripImportSdyCustomCalls
-+  SdyRoundtripImportShardyAttrs
-+  SdyRoundtripShardMapImport
-+)
-+
-+target_include_directories(SdyRoundtripPipelines INTERFACE
-+  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
-+  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
-+)
-\ No newline at end of file
++          return builder.build();
++        })
+       .Case<stablehlo::BitcastConvertOp>(
+           [](stablehlo::BitcastConvertOp bitcastConvert) {
+             ArrayRef<int64_t> inShape =

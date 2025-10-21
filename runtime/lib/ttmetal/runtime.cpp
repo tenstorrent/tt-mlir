@@ -40,54 +40,23 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
   return Layout(nullptr, DeviceRuntime::TTMetal);
 }
 
-static Tensor alignUpTensor(Tensor tensor, const TensorDesc &desc) {
-  std::int64_t alignment = utils::tileAlignment(desc.dataType);
-  if (desc.alignment % alignment == 0) {
-    return tensor;
-  }
-
-  TensorDesc alignedDesc(desc.shape, desc.stride, desc.itemsize, desc.dataType,
-                         alignment);
-
-  size_t alignedSize = alignedDesc.sizeBytes();
-  auto alignedData = std::shared_ptr<void>(std::malloc(alignedSize), std::free);
-  if (!alignedData) {
-    LOG_FATAL("toLayout: Failed to allocate host memory.");
-  }
-  assert(tensor.data.get() != nullptr);
-  std::memcpy(alignedData.get(), tensor.data.get(), desc.sizeBytes());
-  // Zero fill the rest
-  std::memset(static_cast<char *>(alignedData.get()) + desc.sizeBytes(), 0,
-              alignedSize - desc.sizeBytes());
-  return Tensor(
-      static_pointer_cast<void>(std::make_shared<MetalTensor>(alignedDesc)),
-      alignedData, DeviceRuntime::TTMetal);
-}
-
 Tensor toLayout(Tensor tensor, Device, Layout layout, std::optional<bool>) {
-  return std::visit(
+  std::visit(
       utils::overloaded{
-          [&](const TensorDesc &desc) { return alignUpTensor(tensor, desc); },
-          [&](const HostBuffer &buffer) {
+          // TODO(#3126): Implement device copy toLayout for metal runtime.
+          [&](const TensorDesc &) {},
+          [&](const HostBuffer &) {
             LOG_FATAL("toLayout not yet implemented for HostBuffer");
-            return tensor;
           },
-          [&](const DistributedHostBuffer &buffer) {
+          [&](const DistributedHostBuffer &) {
             LOG_FATAL("toLayout not yet implemented for DistributedHostBuffer");
-            return tensor;
           },
-          [&](const MeshBuffer &buffer) {
-            // TODO(#3126): Implement device copy toLayout for
-            // metal runtime
+          [&](const MeshBuffer &) {
             LOG_FATAL("getTensorDesc from MeshBuffer not supported.");
-            return tensor;
           },
       },
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
-}
-
-static Tensor createNullTensor() {
-  return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
+  return tensor;
 }
 
 static MemoryView
@@ -105,22 +74,27 @@ createMemoryView(const tt_metal::detail::MemoryView &memoryView) {
 
 Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc) {
-  std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
-  return Tensor(static_pointer_cast<void>(tensor), data,
+  LOG_ASSERT(utils::isSupportedDataType(desc.dataType),
+             "Creating owned tensor with unsupported data type: " +
+                 std::string(target::EnumNameDataType(desc.dataType)) +
+                 "is not implemented for the TTMetal runtime");
+  std::shared_ptr<MetalTensor> handle = std::make_shared<MetalTensor>(desc);
+  return Tensor(static_pointer_cast<void>(handle), data,
                 DeviceRuntime::TTMetal);
 }
 
 std::shared_ptr<tt_metal::HostBuffer>
 createMetalHostBuffer(const void *data, const std::vector<std::uint32_t> &shape,
+                      const size_t sizeBytes,
                       const ::tt::target::DataType dataType) {
-
-  const std::int64_t volume =
-      std::accumulate(shape.begin(), shape.end(), static_cast<int64_t>(1),
-                      std::multiplies<int64_t>());
+  const std::uint64_t shapeVolume = utils::product(shape.begin(), shape.end());
 
   auto createTypedHostBuffer = [&]<typename T>() {
-    auto owned = std::make_shared<std::vector<T>>(volume);
-    std::memcpy(owned->data(), data, volume * sizeof(T));
+    auto paddedShapeVolume = sizeBytes / sizeof(T);
+    LOG_ASSERT(paddedShapeVolume >= shapeVolume,
+               "Padded volume must be greater than or equal to volume");
+    auto owned = std::make_shared<std::vector<T>>(paddedShapeVolume);
+    std::memcpy(owned->data(), data, sizeBytes);
     return std::make_shared<tt_metal::HostBuffer>(owned);
   };
 
@@ -161,7 +135,11 @@ Tensor createOwnedHostTensor(const void *data,
                  std::string(target::EnumNameDataType(dataType)) +
                  "is not implemented for the TTMetal runtime");
 
-  auto hostBuffer = createMetalHostBuffer(data, shape, dataType);
+  const std::int64_t sizeBytes = std::accumulate(shape.begin(), shape.end(),
+                                                 static_cast<int64_t>(itemsize),
+                                                 std::multiplies<int64_t>());
+
+  auto hostBuffer = createMetalHostBuffer(data, shape, sizeBytes, dataType);
   return Tensor(std::static_pointer_cast<void>(hostBuffer), nullptr,
                 DeviceRuntime::TTMetal);
 }
@@ -305,9 +283,19 @@ void closeMeshDevice(Device parentMesh) {
   LOG_ASSERT(metalMeshDevice.is_parent_mesh(),
              "Mesh device must be a parent mesh");
 
-  if (uint32_t numSubMeshes = metalMeshDevice.get_submeshes().size()) {
+  uint32_t numUnreleasedSubMeshes = 0;
+  for (const auto &subMesh : metalMeshDevice.get_submeshes()) {
+    if (subMesh->is_initialized()) {
+      numUnreleasedSubMeshes++;
+    }
+  }
+  if (numUnreleasedSubMeshes > 0) {
     LOG_WARNING("Calling close on parent mesh device ", metalMeshDevice,
-                " that has ", numSubMeshes, " unreleased submeshes.");
+                " that has ", numUnreleasedSubMeshes,
+                " unreleased submeshes."
+                "These submeshes will keep the parent mesh device alive. "
+                "To fully close the parent mesh device, please release all of "
+                "its submeshes.");
   }
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
@@ -397,14 +385,18 @@ size_t getL1SmallSize(Device meshDevice) {
   ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
       meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
-  return metalMeshDevice.allocator()->get_config().l1_small_size;
+  return metalMeshDevice.allocator()
+      ->get_statistics(::tt::tt_metal::BufferType::L1_SMALL)
+      .total_allocatable_size_bytes;
 }
 
 size_t getTraceRegionSize(Device meshDevice) {
   ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
       meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
-  return metalMeshDevice.allocator()->get_config().trace_region_size;
+  return metalMeshDevice.allocator()
+      ->get_statistics(::tt::tt_metal::BufferType::TRACE)
+      .total_allocatable_size_bytes;
 }
 
 size_t getNumDramChannels(Device meshDevice) {
@@ -526,6 +518,55 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   return {tensor};
 }
 
+template <typename T>
+static std::vector<T> getStridedRowStartIndices(const std::vector<T> &shape,
+                                                const std::vector<T> &strides,
+                                                const size_t dim = 0) {
+  const T dimSize = shape[dim];
+
+  // Base case.
+  if (dim == shape.size() - 1) {
+    // A single row always start at index 0.
+    return std::vector<T>{0};
+  }
+
+  // Recursive case.
+  // 1. Get the indicies of all the rows of a single slice of the current dim.
+  const auto sliceIndicies = getStridedRowStartIndices(shape, strides, dim + 1);
+  const size_t sliceRows = sliceIndicies.size();
+  // 2. Generate indices for all the slices of the current dim.
+  std::vector<T> indices(sliceRows * dimSize);
+  // 3. The distance between the start of the first row of two neighboring
+  // slices is the size of the slice, i.e. the stride of the current dim.
+  for (T i = 0; i < dimSize; i++) {
+    const T offset = i * strides[dim];
+    for (size_t j = 0; j < sliceRows; j++) {
+      indices[i * sliceRows + j] = sliceIndicies[j] + offset;
+    }
+  }
+  return indices;
+}
+
+static void stridedMemcpy(const TensorDesc &dst, const TensorDesc &src,
+                          void *dstData, const void *srcData) {
+  LOG_ASSERT(dst.shape == src.shape, "Tensor shape mismatch");
+  LOG_ASSERT(dst.itemsize == src.itemsize, "Tensor item size mismatch");
+
+  const auto srcIndices = getStridedRowStartIndices(src.shape, src.stride);
+  const auto dstIndices = getStridedRowStartIndices(dst.shape, dst.stride);
+  assert(srcIndices.size() == dstIndices.size());
+  assert(srcIndices.size() ==
+         utils::product(src.shape.cbegin(), src.shape.cend() - 1));
+
+  const size_t rowSize = src.shape[src.shape.size() - 1] * src.itemsize;
+  const std::byte *srcPtr = static_cast<const std::byte *>(srcData);
+  std::byte *dstPtr = static_cast<std::byte *>(dstData);
+  for (size_t i = 0; i < srcIndices.size(); i++) {
+    std::memcpy(dstPtr + dstIndices[i] * dst.itemsize,
+                srcPtr + srcIndices[i] * src.itemsize, rowSize);
+  }
+}
+
 void memcpy(void *dst, Tensor src,
             std::optional<tt::target::DataType> dstDataType) {
   if (dstDataType.has_value()) {
@@ -554,36 +595,81 @@ void memcpy(void *dst, Tensor src,
 
 void memcpy(Tensor dst, Tensor src) {
   auto &metalDst = dst.as<MetalTensor>(DeviceRuntime::TTMetal);
-  auto &hostDst = std::get<TensorDesc>(metalDst);
+  auto &dstDesc = std::get<TensorDesc>(metalDst);
+  std::visit(utils::overloaded{
+                 [&](const TensorDesc &srcDesc) {
+                   memcpy(dst, dstDesc, src, srcDesc);
+                 },
+                 [&](const HostBuffer &hostBuffer) {
+                   auto span = hostBuffer->view_bytes();
+                   size_t copyByteSize =
+                       std::min(dstDesc.sizeBytes(), span.size_bytes());
+                   std::memcpy(dst.data.get(), span.data(), copyByteSize);
+                 },
+                 [&](const DistributedHostBuffer &) {
+                   LOG_FATAL(
+                       "memcpy not yet implemented for DistributedHostBuffer");
+                 },
+                 [&](const MeshBuffer &) {
+                   LOG_FATAL("memcpy not yet implemented for MeshBuffer");
+                 },
+             },
+             src.as<MetalTensor>(DeviceRuntime::TTMetal));
+}
+
+void memcpy(Tensor dst, TensorDesc dstDesc, Tensor src, TensorDesc srcDesc) {
+  LOG_ASSERT(dstDesc.dataType == srcDesc.dataType, "Tensor data type mismatch");
+  LOG_ASSERT(dstDesc.shape.size() == srcDesc.shape.size(),
+             "Tensor rank mismatch");
+  void *singleDeviceTensorPtr = nullptr;
+  std::visit(utils::overloaded{
+                 [&](const TensorDesc &srcDesc) {
+                   singleDeviceTensorPtr = src.data.get();
+                 },
+                 [&](const HostBuffer &hostBuffer) {
+                   singleDeviceTensorPtr = hostBuffer->view_bytes().data();
+                 },
+                 [&](const auto &) {},
+             },
+             src.as<MetalTensor>(DeviceRuntime::TTMetal));
+
+  auto memcpy_fn = [&](void *dst, void *src) {
+    if (dstDesc.isPadded() || srcDesc.isPadded()) {
+      ttmetal::stridedMemcpy(dstDesc, srcDesc, dst, src);
+    } else {
+      size_t copySize = std::min(dstDesc.sizeBytes(), srcDesc.sizeBytes());
+      std::memcpy(dst, src, copySize);
+    }
+  };
+
   std::visit(
       utils::overloaded{
           [&](const TensorDesc &tensorDesc) {
-            std::int64_t maxAlignment =
-                std::max(hostDst.alignment, tensorDesc.alignment);
-            LOG_ASSERT(utils::alignUp(hostDst.sizeBytes(), maxAlignment) ==
-                           utils::alignUp(tensorDesc.sizeBytes(), maxAlignment),
-                       "Tensor size mismatch");
-            LOG_ASSERT(hostDst.dataType == tensorDesc.dataType,
-                       "Tensor data type mismatch");
-            std::int64_t copySize =
-                std::min(hostDst.sizeBytes(), tensorDesc.sizeBytes());
-            std::memcpy(dst.data.get(), src.data.get(), copySize);
+            memcpy_fn(dst.data.get(), singleDeviceTensorPtr);
           },
           [&](const HostBuffer &hostBuffer) {
-            auto span = hostBuffer->view_bytes();
-            std::int64_t copyByteSize =
-                std::min(hostDst.sizeBytes(),
-                         static_cast<std::int64_t>(span.size_bytes()));
-            std::memcpy(dst.data.get(), span.data(), copyByteSize);
+            memcpy_fn(hostBuffer->view_bytes().data(), singleDeviceTensorPtr);
           },
-          [&](const DistributedHostBuffer &) {
-            LOG_FATAL("memcpy not yet implemented for DistributedHostBuffer");
+          [&](const DistributedHostBuffer &dstDistributedHostBuffer) {
+            LOG_ASSERT(singleDeviceTensorPtr == nullptr);
+            auto srcDistributedHostBuffer = std::get<DistributedHostBuffer>(
+                src.as<MetalTensor>(DeviceRuntime::TTMetal));
+            for (const auto &coord : srcDistributedHostBuffer->shard_coords()) {
+              auto srcBuf = srcDistributedHostBuffer->get_shard(coord);
+              auto dstBuf = dstDistributedHostBuffer->get_shard(coord);
+              if (srcBuf.has_value() && dstBuf.has_value()) {
+                memcpy_fn(dstBuf->view_bytes().data(),
+                          srcBuf->view_bytes().data());
+              } else {
+                LOG_FATAL("srcBuf or dstBuf is null");
+              }
+            }
           },
           [&](const MeshBuffer &) {
             LOG_FATAL("memcpy not yet implemented for MeshBuffer");
           },
       },
-      src.as<MetalTensor>(DeviceRuntime::TTMetal));
+      dst.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
 void deallocateTensor(Tensor &tensor, bool) {
@@ -611,11 +697,12 @@ std::string getOpLocInfo(OpContext opContextHandle) {
   return "";
 }
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle) {
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle) {
   // Not implemented
   LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
-  return createNullTensor();
+  return {};
 }
 
 std::optional<tt::runtime::TensorRef>
@@ -844,20 +931,53 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
   tt_metal::distributed::MeshDevice &meshDevice =
       deviceHandle.as<tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
-  std::vector<tt_metal::IDevice *> allDevices = meshDevice.get_devices();
-  LOG_ASSERT(meshDevice.num_rows() == 1 && meshDevice.num_cols() == 1,
-             "Currently we only support 1x1 mesh.");
+  if (meshDevice.num_rows() != 1 || meshDevice.num_cols() != 1) {
+    LOG_WARNING("D2M runtime multi-device support is experimental. mesh = [",
+                meshDevice.num_rows(), ", ", meshDevice.num_cols(), "]");
+  }
 
+  auto openDeviceProgramMeshDevice =
+      [](std::shared_ptr<tt_metal::distributed::MeshDevice> parentMeshDevice,
+         const target::metal::MeshDesc *meshDesc)
+      -> std::shared_ptr<tt_metal::distributed::MeshDevice> {
+    if (meshDesc == nullptr) {
+      return parentMeshDevice;
+    }
+    const auto *fbMeshShape = meshDesc->mesh_shape();
+    std::vector<int64_t> subMeshShape(fbMeshShape->begin(), fbMeshShape->end());
+    LOG_ASSERT(subMeshShape.size() == 2, "MeshDesc shape must be 2D for now");
+    auto parentMeshShape = parentMeshDevice->shape();
+    if (parentMeshShape[0] == subMeshShape[0] &&
+        parentMeshShape[1] == subMeshShape[1]) {
+      return parentMeshDevice;
+    }
+
+    LOG_INFO("Create submesh for a deviceProgram with shape [", subMeshShape[0],
+             ", ", subMeshShape[1], "]");
+    return parentMeshDevice->create_submesh(
+        tt_metal::distributed::MeshShape(subMeshShape[0], subMeshShape[1]));
+  };
+
+  std::vector<std::shared_ptr<tt_metal::distributed::MeshDevice>>
+      deviceProgramMeshDevice(program->device_programs()->size());
   std::vector<Tensor> outputs;
   for (std::size_t i = 0; i < program->device_programs()->size(); ++i) {
+    const target::metal::DeviceProgram *deviceProgram =
+        program->device_programs()->Get(i);
+    deviceProgramMeshDevice[i] = openDeviceProgramMeshDevice(
+        deviceHandle.asSharedPtr<tt_metal::distributed::MeshDevice>(
+            DeviceRuntime::TTMetal),
+        deviceProgram->mesh());
+
     ZoneScoped;
     std::string zoneName = "submit_" + std::string(program->name()->c_str()) +
-                           "_device_" + std::to_string(meshDevice.id());
+                           "_device_" +
+                           std::to_string(deviceProgramMeshDevice[i]->id());
     ZoneName(zoneName.c_str(), zoneName.size());
 
-    outputs = executeMeshDeviceProgram(
-        &meshDevice, program->device_programs()->Get(i), inputs,
-        common::DylibManager(fbb.dylibs()));
+    outputs = executeMeshDeviceProgram(deviceProgramMeshDevice[i].get(),
+                                       deviceProgram, inputs,
+                                       common::DylibManager(fbb.dylibs()));
 
     LOG_ASSERT(outputs.size() == program->outputs()->size(),
                "Outputs size mismatch");

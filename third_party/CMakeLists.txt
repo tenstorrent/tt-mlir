@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "0a04f84fe37cbc584cd679500999d0fb99d1be61")
+set(TT_METAL_VERSION "bd81650cd21f2307f16e18e220952cfb0740e9cc")
 
 set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
 
@@ -43,7 +43,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
   ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
   ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-  ${CPM_SOURCE_CACHE}/tt-logger/48ec77b63c35cf84c47678990aa3603b492d0c7c/include
+  ${CPM_SOURCE_CACHE}/tt-logger/5d45c661affa374c5656335a77010ab503f96a99/include
   ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
@@ -59,11 +59,7 @@ set(TTNN_PY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
 set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
 set(DEVICE_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libdevice.so)
 set(TT_STL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_stl.so)
-if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  set(TRACY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtracy.so)
-else()
-  set(TRACY_LIBRARY_PATH "")
-endif()
+set(TRACY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtracy.so)
 
 set(TTMETAL_BUILD_DIR ${TTMETAL_BUILD_DIR} PARENT_SCOPE)
 set(TTMETAL_LIBRARY_DIR ${TTMETAL_LIBRARY_DIR} PARENT_SCOPE)
@@ -140,10 +136,11 @@ install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn
   DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
+  USE_SOURCE_PERMISSIONS
   COMPONENT SharedLib
   EXCLUDE_FROM_ALL
-  REGEX "ttnn/ttnn" EXCLUDE
 )
+
 install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/runtime
@@ -180,16 +177,47 @@ install(
 # TTNN Standalone install commands
 #
 # Copy .cpmcache libs
+# Each is listed separately to maintain proper relative path
+#
 install(
   DIRECTORY
-    ${CPM_SOURCE_CACHE}/boost
-    ${CPM_SOURCE_CACHE}/fmt
-    ${CPM_SOURCE_CACHE}/enchantum
-    ${CPM_SOURCE_CACHE}/nlohmann_json
+    ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
+  DESTINATION tt-metal/.cpmcache/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+install(
+  DIRECTORY
+    ${CPM_SOURCE_CACHE}/enchantum/2fb7ab238e36c101b9848892ddb6382276b65837/enchantum/include
+  DESTINATION tt-metal/.cpmcache/enchantum/2fb7ab238e36c101b9848892ddb6382276b65837/enchantum
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+install(
+  DIRECTORY
+    ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
+  DESTINATION tt-metal/.cpmcache/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+install(
+  DIRECTORY
     ${CPM_SOURCE_CACHE}/reflect
-    ${CPM_SOURCE_CACHE}/spdlog
-    ${CPM_SOURCE_CACHE}/tt-logger
   DESTINATION tt-metal/.cpmcache
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+install(
+  DIRECTORY
+    ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
+  DESTINATION tt-metal/.cpmcache/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873
+  COMPONENT TTNNStandalone
+  EXCLUDE_FROM_ALL
+)
+install(
+  DIRECTORY
+    ${CPM_SOURCE_CACHE}/tt-logger/5d45c661affa374c5656335a77010ab503f96a99/include
+  DESTINATION tt-metal/.cpmcache/tt-logger/5d45c661affa374c5656335a77010ab503f96a99
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
 )
@@ -210,13 +238,27 @@ install(
   EXCLUDE_FROM_ALL
 )
 
-list(APPEND library_names TTNN_LIBRARY TTNN_PY_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY TT_STL_LIBRARY)
-list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTNN_PY_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH} ${TT_STL_LIBRARY_PATH})
+# DistributedRuntime install commands
+#
 
-if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  list(APPEND library_names TRACY_LIBRARY)
-  list(APPEND library_paths ${TRACY_LIBRARY_PATH})
-endif()
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tests/tt_metal/distributed/config
+  DESTINATION tt-metal/tests/tt_metal/distributed
+  COMPONENT DistributedRuntime
+  EXCLUDE_FROM_ALL
+)
+
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tests/tt_metal/tt_fabric/custom_mesh_descriptors
+  DESTINATION tt-metal/tests/tt_metal/tt_fabric
+  COMPONENT DistributedRuntime
+  EXCLUDE_FROM_ALL
+)
+
+list(APPEND library_names TTNN_LIBRARY TTNN_PY_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY TT_STL_LIBRARY TRACY_LIBRARY)
+list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTNN_PY_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH} ${TT_STL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH})
 
 foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
   add_library(${lib_name} SHARED IMPORTED GLOBAL)
@@ -241,6 +283,7 @@ else() # TTMLIR_ENABLE_RUNTIME OR TTMLIR_ENABLE_OPMODEL
   add_library(TTNN_LIBRARY INTERFACE)
   add_library(TTNN_PY_LIBRARY INTERFACE)
   add_library(TTMETAL_LIBRARY INTERFACE)
+  add_library(TRACY_LIBRARY INTERFACE)
   add_library(DEVICE_LIBRARY INTERFACE)
   add_library(TT_STL_LIBRARY INTERFACE)
   add_library(tt-metal-download INTERFACE EXCLUDE_FROM_ALL)

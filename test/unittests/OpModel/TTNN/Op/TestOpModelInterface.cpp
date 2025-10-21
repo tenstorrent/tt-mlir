@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpsModelCache.h"
 
@@ -106,15 +105,16 @@ public:
     }
     RankedTensorType rankedTensorType =
         createRankedTensorType(tensorShape, elementType, layout);
-    return builder.create<OnesOp>(builder.getUnknownLoc(), rankedTensorType,
-                                  ShapeAttr::get(&context, tensorShape),
-                                  nullptr, nullptr, nullptr, nullptr);
+    return builder.create<OnesOp>(
+        builder.getUnknownLoc(), rankedTensorType, nullptr,
+        ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
   }
 };
 struct ExpectedResult {
   bool expectedLegal = false;
   size_t expectedCbSize = 0;
-  size_t expectedPeakSize = 0;
+  size_t expectedL1PeakSize = 0;
+  size_t expectedTotalPeakSize = 0;
   size_t expectedOutputSize = 0;
 };
 struct UnaryOpTestParams {
@@ -147,9 +147,11 @@ TEST_P(UnaryOpModelTest, TestOpInterface) {
   auto constraintsExp = getOpConstraints(op);
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(l1PeakSize, params.expectedResult.expectedL1PeakSize);
+    EXPECT_EQ(totalPeakSize, params.expectedResult.expectedTotalPeakSize);
     EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints for " << params.testName
@@ -181,10 +183,11 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
   ASSERT_EQ(static_cast<bool>(constraintsExp),
             params.expectedResult.expectedLegal);
 
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-  EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+  EXPECT_EQ(l1PeakSize, params.expectedResult.expectedL1PeakSize);
+  EXPECT_EQ(totalPeakSize, params.expectedResult.expectedTotalPeakSize);
   EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
 
   ASSERT_TRUE(outputLayout);
@@ -192,13 +195,22 @@ TEST_P(UnaryOpModelTest, TestOpInterfaceNullOutput) {
   EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
 }
 
-const ExpectedResult expected{true, 8192, 2048, 2048};
-const ExpectedResult cbrtExpected{true, 12288, 6144, 2048};
+const ExpectedResult expected{true, 8192, 2048, 10240, 2048};
+const ExpectedResult cbrtExpected{true, 12288, 2048, 14336, 2048};
+const ExpectedResult tanhExpected{true, 28672, 2048, 28672 + 2048, 2048};
 
 //===---------------------------------------------------------===
 const auto createRelu = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
   return b.create<ReluOp>(loc, type, ops).getOperation();
+};
+const auto createRelu6 = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<Relu6Op>(loc, type, ops).getOperation();
+};
+const auto createSilu = [](OpBuilder &b, Location loc, Type type,
+                           ValueRange ops) {
+  return b.create<SiluOp>(loc, type, ops).getOperation();
 };
 const auto createSin = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
@@ -293,10 +305,12 @@ const auto createCbrt = [](OpBuilder &b, Location loc, Type type,
 // Define the test parameters
 const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Relu", createRelu, expected},
+    {"Relu6", createRelu6, expected},
+    {"Silu", createSilu, expected},
     {"Sin", createSin, expected},
     {"Cos", createCos, expected},
     {"Exp", createExp, expected},
-    {"Tanh", createTanh, expected},
+    {"Tanh", createTanh, tanhExpected},
     {"Log", createLog, expected},
     {"Abs", createAbs, expected},
     {"Ceil", createCeil, expected},
@@ -354,9 +368,11 @@ TEST_P(BinaryOpModelTest, TestOpInterface) {
   auto constraintsExp = getOpConstraints(op);
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(l1PeakSize, params.expectedResult.expectedL1PeakSize);
+    EXPECT_EQ(totalPeakSize, params.expectedResult.expectedTotalPeakSize);
     EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints for " << params.testName
@@ -389,10 +405,11 @@ TEST_P(BinaryOpModelTest, TestOpInterfaceNullOutput) {
   ASSERT_EQ(static_cast<bool>(constraintsExp),
             params.expectedResult.expectedLegal);
 
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-  EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+  EXPECT_EQ(l1PeakSize, params.expectedResult.expectedL1PeakSize);
+  EXPECT_EQ(totalPeakSize, params.expectedResult.expectedTotalPeakSize);
   EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
 
   ASSERT_TRUE(outputLayout);
@@ -439,12 +456,12 @@ TEST_P(BinaryBitwiseOpModelTest, TestOpInterface) {
       backend.getOpConstraints(getInputLayouts(op), OpConfig(outputLayout));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  auto constraints = constraintsExp.get();
-  EXPECT_EQ(constraints.cbL1PeakSize, params.expectedResult.expectedCbSize);
-  EXPECT_EQ(constraints.tensorL1PeakSize,
-            params.expectedResult.expectedPeakSize);
-  EXPECT_EQ(constraints.outputL1BufferSize,
-            params.expectedResult.expectedOutputSize);
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize,
+               outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
+  EXPECT_EQ(l1PeakSize, params.expectedResult.expectedL1PeakSize);
+  EXPECT_EQ(totalPeakSize, params.expectedResult.expectedTotalPeakSize);
+  EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
 
   // Test runtime
   auto runtimeExp = getOpRuntime(op);
@@ -457,12 +474,18 @@ TEST_P(BinaryBitwiseOpModelTest, TestOpInterface) {
 }
 
 // The default expected result for binary operations:
-const ExpectedResult binaryExpected{true, 12288, 2048, 2048};
+const ExpectedResult binaryExpected{true, 12288, 2048, 14336, 2048};
 // Some binary ops (such as divide, logicalOr, etc.) require extra circular
 // buffer memory which is captured via the following expected values:
-const ExpectedResult binaryExpected_extraCb2048{true, 12288 + 2048, 2048, 2048};
-const ExpectedResult binaryExpected_extraCb4096{true, 12288 + 4096, 2048, 2048};
-const ExpectedResult binaryBitwiseExpected{true, 12288 * 2, 0, 0};
+const ExpectedResult binaryExpected_extraCb2048{true, 12288 + 2048, 2048, 16384,
+                                                2048};
+const ExpectedResult binaryExpected_extraCb4096{true, 12288 + 4096, 2048, 18432,
+                                                2048};
+const ExpectedResult binaryExpected_extraCb4096_extraPeak30720{
+    true, 12288 + 4096, 2048 + 30720, 12288 + 4096 + 2048 + 30720, 2048};
+const ExpectedResult binaryExpected_extraCb20480_extraPeak26624{
+    true, 12288 + 20480, 2048 + 26624, 12288 + 20480 + 2048 + 26624, 2048};
+const ExpectedResult binaryBitwiseExpected{true, 12288 * 2, 0, 24576, 0};
 
 //===---------------------------------------------------------===
 // Lambda functions for creating binary operations
@@ -512,7 +535,7 @@ const auto createMin = [](OpBuilder &b, Location l, Type t, ValueRange r) {
   return b.create<MinimumOp>(l, t, r).getOperation();
 };
 const auto createPow = [](OpBuilder &b, Location l, Type t, ValueRange r) {
-  return b.create<PowOp>(l, t, r).getOperation();
+  return b.create<PowTensorOp>(l, t, r).getOperation();
 };
 const auto createBitwiseAnd = [](OpBuilder &b, Location l, Type t,
                                  ValueRange r) {
@@ -525,6 +548,13 @@ const auto createBitwiseOr = [](OpBuilder &b, Location l, Type t,
 const auto createBitwiseXor = [](OpBuilder &b, Location l, Type t,
                                  ValueRange r) {
   return b.create<BitwiseXorOp>(l, t, r).getOperation();
+};
+const auto createRemainder = [](OpBuilder &b, Location l, Type t,
+                                ValueRange r) {
+  return b.create<RemainderOp>(l, t, r).getOperation();
+};
+const auto createAtan2 = [](OpBuilder &b, Location l, Type t, ValueRange r) {
+  return b.create<Atan2Op>(l, t, r).getOperation();
 };
 
 //===---------------------------------------------------------===
@@ -546,7 +576,9 @@ const std::vector<BinaryOpTestParams> binaryOpTestParams = {
     {"LogicalXor", createXor, binaryExpected_extraCb4096},
     {"Maximum", createMax, binaryExpected},
     {"Minimum", createMin, binaryExpected},
-    {"Pow", createPow, binaryExpected}};
+    {"Pow", createPow, binaryExpected},
+    {"Remainder", createRemainder, binaryExpected_extraCb20480_extraPeak26624},
+    {"Atan2", createAtan2, binaryExpected_extraCb4096_extraPeak30720}};
 
 // Define the test parameters for binary bitwise operations
 const std::vector<BinaryOpTestParams> binaryBitwiseOpTestParams = {
@@ -570,6 +602,43 @@ INSTANTIATE_TEST_SUITE_P(
       return info.param.testName;
     });
 
+// Separate test for PowScalarOp
+// since it has a different signature (tensor, scalar) than other binary ops.
+TEST_F(OpModelBase, PowScalarOp) {
+  // Create PowScalarOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+
+  auto input = createEmptyTensor(tensorShape);
+  auto outputType = createRankedTensorType(tensorShape);
+
+  // Input params
+  const auto exponent = builder.getF32FloatAttr(2.0f);
+
+  PowScalarOp powScalarOp = builder.create<PowScalarOp>(
+      builder.getUnknownLoc(), outputType, input, exponent);
+  powScalarOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(powScalarOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_EQ(cbSize, 8192);
+  EXPECT_EQ(l1PeakSize, 2048);
+  EXPECT_EQ(totalPeakSize, 10240);
+  EXPECT_EQ(outputSize, 2048);
+
+  auto runtimeExp = getOpRuntime(powScalarOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 // Separate test for BitwiseNot with integer data types
 TEST_F(OpModelBase, BitwiseNotOpInterface) {
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
@@ -592,9 +661,9 @@ TEST_F(OpModelBase, BitwiseNotOpInterface) {
   auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
 
   // Create input tensor using OnesOp with Int32 layout
-  auto input = builder.create<OnesOp>(builder.getUnknownLoc(), inputType,
-                                      ShapeAttr::get(&context, tensorShape),
-                                      nullptr, nullptr, nullptr, nullptr);
+  auto input = builder.create<OnesOp>(
+      builder.getUnknownLoc(), inputType, nullptr,
+      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
 
   auto bitwiseNot = builder.create<BitwiseNotOp>(
       builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input});
@@ -603,9 +672,10 @@ TEST_F(OpModelBase, BitwiseNotOpInterface) {
   auto constraintsExp = getOpConstraints(bitwiseNot.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 16384);
-    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(l1PeakSize, 4096);
     EXPECT_EQ(outputSize, 4096);
   } else {
     FAIL() << "Missing L1 constraints for BitwiseNot; Error="
@@ -644,12 +714,12 @@ TEST_F(OpModelBase, LogicalRightShiftOpInterface) {
   auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
 
   // Create input tensors using OnesOp with Int32 layout
-  auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), input1Type,
-                                       ShapeAttr::get(&context, tensorShape),
-                                       nullptr, nullptr, nullptr, nullptr);
-  auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), input2Type,
-                                       ShapeAttr::get(&context, tensorShape),
-                                       nullptr, nullptr, nullptr, nullptr);
+  auto input1 = builder.create<OnesOp>(
+      builder.getUnknownLoc(), input1Type, nullptr,
+      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+  auto input2 = builder.create<OnesOp>(
+      builder.getUnknownLoc(), input2Type, nullptr,
+      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
 
   auto logicalRightShift = builder.create<LogicalRightShiftOp>(
       builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input1, input2});
@@ -658,9 +728,10 @@ TEST_F(OpModelBase, LogicalRightShiftOpInterface) {
   auto constraintsExp = getOpConstraints(logicalRightShift.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 20480);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints for LogicalRightShift; Error="
@@ -698,12 +769,12 @@ TEST_F(OpModelBase, LogicalLeftShiftOpInterface) {
   auto outputType = createRankedTensorType(tensorShape, intType, int32Layout);
 
   // Create input tensors using OnesOp with Int32 layout
-  auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), input1Type,
-                                       ShapeAttr::get(&context, tensorShape),
-                                       nullptr, nullptr, nullptr, nullptr);
-  auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), input2Type,
-                                       ShapeAttr::get(&context, tensorShape),
-                                       nullptr, nullptr, nullptr, nullptr);
+  auto input1 = builder.create<OnesOp>(
+      builder.getUnknownLoc(), input1Type, nullptr,
+      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+  auto input2 = builder.create<OnesOp>(
+      builder.getUnknownLoc(), input2Type, nullptr,
+      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
 
   auto logicalLeftShift = builder.create<LogicalLeftShiftOp>(
       builder.getUnknownLoc(), outputType, ::mlir::ValueRange{input1, input2});
@@ -712,9 +783,10 @@ TEST_F(OpModelBase, LogicalLeftShiftOpInterface) {
   auto constraintsExp = getOpConstraints(logicalLeftShift.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 24576);
-    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(l1PeakSize, 4096);
     EXPECT_EQ(outputSize, 4096);
   } else {
     FAIL() << "Missing L1 constraints for LogicalLeftShift; Error="
@@ -744,9 +816,10 @@ TEST_F(OpModelBase, SqrtOpInterface) {
   auto constraintsExp = getOpConstraints(sqrt.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 8192);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -775,9 +848,10 @@ TEST_F(OpModelBase, SigmoidOpInterface) {
   auto constraintsExp = getOpConstraints(sigmoid.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 8192);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -806,9 +880,10 @@ TEST_F(OpModelBase, SoftmaxOpInterface) {
   auto constraintsExp = getOpConstraints(softmax.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 137216);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -843,9 +918,10 @@ TEST_F(OpModelBase, LinearOpInterface) {
   auto constraintsExp = getOpConstraints(linear.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 262144);
-    EXPECT_EQ(peakSize, 262144);
+    EXPECT_EQ(l1PeakSize, 262144);
     EXPECT_EQ(outputSize, 131072);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -882,16 +958,15 @@ TEST_F(OpModelBase, LinearOpInterfaceNullOutput) {
       getInputLayouts(linear), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 262144);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 
   ASSERT_TRUE(outputLayout);
   EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
   EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
-  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, LinearOpInterfacePartialOutput) {
@@ -928,7 +1003,6 @@ TEST_F(OpModelBase, LinearOpInterfacePartialOutput) {
   EXPECT_EQ(constraints.outputLayout.getLayout(), Layout::Tile);
   EXPECT_TRUE(constraints.outputLayout.hasShardedL1TensorMemoryLayout());
   EXPECT_TRUE(constraints.outputLayout.getGrid());
-  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, MatmulOpInterface) {
@@ -948,9 +1022,10 @@ TEST_F(OpModelBase, MatmulOpInterface) {
   auto constraintsExp = getOpConstraints(matmul.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 786432);
-    EXPECT_EQ(peakSize, 131072);
+    EXPECT_EQ(l1PeakSize, 131072);
     EXPECT_EQ(outputSize, 131072);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -984,10 +1059,10 @@ TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
       getInputLayouts(matmul), OpConfig(/*outputLayout=*/nullptr));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 786432);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 
   ASSERT_TRUE(outputLayout);
@@ -1037,7 +1112,7 @@ using OpRuntimeFn = llvm::Expected<size_t> (OpModelBase::*)(mlir::Operation *);
 template <typename OpType>
 void testReductionOp(OpModelBase *testFixture, mlir::OpBuilder &builder,
                      mlir::Value input, mlir::Type outputType,
-                     int64_t expectedCbSize, int64_t expectedPeakSize,
+                     int64_t expectedCbSize, int64_t expectedL1PeakSize,
                      int64_t expectedOutputSize,
                      OpConstraintsFn getOpConstraintsFn,
                      OpRuntimeFn getOpRuntimeFn) {
@@ -1052,9 +1127,10 @@ void testReductionOp(OpModelBase *testFixture, mlir::OpBuilder &builder,
   auto constraintsExp = (testFixture->*getOpConstraintsFn)(op.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, expectedCbSize);
-    EXPECT_EQ(peakSize, expectedPeakSize);
+    EXPECT_EQ(l1PeakSize, expectedL1PeakSize);
     EXPECT_EQ(outputSize, expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1078,7 +1154,7 @@ TEST_F(OpModelBase, MeanOpInterface) {
 
   testReductionOp<MeanOp>(
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
-      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      /*expectedL1PeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
@@ -1090,7 +1166,7 @@ TEST_F(OpModelBase, MaxOpInterface) {
 
   testReductionOp<MaxOp>(
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
-      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      /*expectedL1PeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
@@ -1102,7 +1178,7 @@ TEST_F(OpModelBase, MinOpInterface) {
 
   testReductionOp<MinOp>(
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
-      /*expectedPeakSize=*/69632, /*expectedOutputSize=*/2048,
+      /*expectedL1PeakSize=*/69632, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
 }
 
@@ -1114,11 +1190,79 @@ TEST_F(OpModelBase, SumOpInterface) {
 
   testReductionOp<SumOp>(
       this, builder, input, output.getType(), /*expectedCbSize=*/12288,
-      /*expectedPeakSize=*/2048, /*expectedOutputSize=*/2048,
+      /*expectedL1PeakSize=*/2048, /*expectedOutputSize=*/2048,
       &OpModelBase::getOpConstraints, &OpModelBase::getOpRuntime);
+}
 
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
+TEST_F(OpModelBase, ArgMaxOpInterface) {
+  // create ArgMaxOp
+  llvm::SmallVector<int64_t> tensorShapeA = {64, 64};
+
+  // ArgMaxOp requires ROW_MAJOR layout for inputs and outputs
+  auto inputLayout = CreateRowMajorLayout(tensorShapeA, BufferType::DRAM,
+                                          TensorMemoryLayout::Interleaved);
+  auto outputLayout = CreateRowMajorLayout(tensorShapeA, BufferType::DRAM,
+                                           TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(), inputLayout);
+  auto outputType =
+      createRankedTensorType(tensorShapeA, builder.getBF16Type(), outputLayout);
+
+  auto argMax = builder.create<ArgMaxOp>(builder.getUnknownLoc(), outputType,
+                                         input, builder.getI32IntegerAttr(1),
+                                         false, false, nullptr);
+
+  // getOutputLayout() hardcodes tiled L1 layout, so we cannot use it
+  OpModel backend = dyn_cast<OpModel>(argMax.getOperation());
+  auto constraintsExp =
+      backend.getOpConstraints(getInputLayouts(argMax), OpConfig(outputLayout));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize,
+                 outputLayoutReadBack] = l1;
+    EXPECT_EQ(cbSize, 384);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(totalPeakSize, 384);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(argMax.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, ProdOpInterface) {
+  // create ProdOp
+  llvm::SmallVector<int64_t> tensorShapeA = {64, 64};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeA);
+
+  auto prod = builder.create<ProdOp>(builder.getUnknownLoc(), output.getType(),
+                                     input, builder.getI64IntegerAttr(0),
+                                     builder.getBoolAttr(false), nullptr);
+
+  // test prod Op interface
+  auto constraintsExp = getOpConstraints(prod.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 12288);
+    EXPECT_EQ(l1PeakSize, 8192);
+    EXPECT_EQ(totalPeakSize, 12288 + 8192);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
 }
 
 TEST_F(OpModelBase, ReshapeOpInterface) {
@@ -1129,8 +1273,6 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   auto input = createEmptyTensor(tensorShapeA);
   auto output = createEmptyTensor(tensorShapeO);
 
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
   auto reshape = builder.create<ReshapeOp>(
       builder.getUnknownLoc(), output.getType(), mlir::ValueRange{input});
   reshape.setShapeAttr(builder.getArrayAttr(llvm::SmallVector<mlir::Attribute>{
@@ -1141,15 +1283,14 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   opConstraintsCache().clear();
   opRuntimeCache().clear();
 
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
   // test reshape Op interface
   auto constraintsExp = getOpConstraints(reshape.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 5120);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1162,22 +1303,19 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto cachedConstraintsExp = getOpConstraints(reshape.getOperation());
   if (cachedConstraintsExp) {
     auto l1 = cachedConstraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 5120);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto cachedRuntimeExp = getOpRuntime(reshape.getOperation());
   if (cachedRuntimeExp) {
@@ -1191,8 +1329,6 @@ TEST_F(OpModelBase, ReshapeOpInterface) {
 
   EXPECT_EQ(opRuntimeCache().getStats().hits, 1);
   EXPECT_EQ(opRuntimeCache().getStats().misses, 1);
-  // Need to reset device other wise hangs. See tt-metal issue #25772
-  op_model::SingletonDeviceContext::resetInstance();
 }
 
 TEST_F(OpModelBase, SliceStaticOpInterface) {
@@ -1218,9 +1354,10 @@ TEST_F(OpModelBase, SliceStaticOpInterface) {
   auto constraintsExp = getOpConstraints(sliceStaticOp.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1235,13 +1372,60 @@ TEST_F(OpModelBase, SliceStaticOpInterface) {
   }
 }
 
+TEST_F(OpModelBase, SliceDynamicOpInterface) {
+  llvm::SmallVector<int64_t> tensorShapeA = {4, 32, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {2, 16, 16};
+  llvm::SmallVector<int64_t> beginsShape = {3};
+  llvm::SmallVector<int64_t> endsShape = {3};
+  auto inputLayout = CreateTiledLayout(tensorShapeA, BufferType::DRAM,
+                                       TensorMemoryLayout::Interleaved);
+  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::DRAM,
+                                        TensorMemoryLayout::Interleaved);
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(), inputLayout);
+  auto output =
+      createEmptyTensor(tensorShapeO, builder.getBF16Type(), outputLayout);
+  auto begins = createEmptyTensor(beginsShape);
+  auto ends = createEmptyTensor(endsShape);
+  llvm::SmallVector<mlir::Attribute> stepAttrs = {builder.getI32IntegerAttr(1),
+                                                  builder.getI32IntegerAttr(1),
+                                                  builder.getI32IntegerAttr(1)};
+
+  auto sliceDynamicOp =
+      builder.create<SliceDynamicOp>(builder.getUnknownLoc(), output.getType(),
+                                     mlir::ValueRange{input, begins, ends});
+  sliceDynamicOp.setStepAttr(builder.getArrayAttr(stepAttrs));
+
+  // test SliceDynamicOp interface
+  auto constraintsExp = getOpConstraints(sliceDynamicOp.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 4096);
+    EXPECT_EQ(l1PeakSize, 2048);
+    EXPECT_EQ(totalPeakSize, 6144);
+    EXPECT_EQ(outputSize, 2048);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(sliceDynamicOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, toLayoutOp) {
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};
   RankedTensorType rankedTensorType = createRankedTensorType(tensorShape);
   auto tensor = builder.create<OnesOp>(
-      builder.getUnknownLoc(), rankedTensorType,
+      builder.getUnknownLoc(), rankedTensorType, nullptr,
       ShapeAttr::get(&context, tensorShape), nullptr,
-      LayoutAttr::get(&context, Layout::RowMajor), nullptr, nullptr);
+      LayoutAttr::get(&context, Layout::RowMajor), nullptr);
 
   ToLayoutOp toLayout =
       builder.create<ToLayoutOp>(builder.getUnknownLoc(), tensor.getType(),
@@ -1263,9 +1447,10 @@ TEST_F(OpModelBase, toLayoutOp) {
       std::vector{layoutDRAMRowMajor}, layoutDRAMTiled);
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 131072);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1307,9 +1492,10 @@ TEST_F(OpModelBase, toMemoryConfigOp) {
       backend.getOpConstraints(std::vector{inputLayout_L1Tiled}, OpConfig());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_GT(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1345,9 +1531,10 @@ TEST_F(OpModelBase, concatOp) {
   auto constraintsExp = getOpConstraints(concatOp.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1377,9 +1564,10 @@ TEST_F(OpModelBase, transposeOp) {
   auto constraintsExp = getOpConstraints(transpose.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 8192);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1410,9 +1598,10 @@ TEST_F(OpModelBase, morehCumSumOp) {
   auto constraintsExp = getOpConstraints(morehCumSum.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 32768);
-    EXPECT_EQ(peakSize, 32768);
+    EXPECT_EQ(l1PeakSize, 32768);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1424,6 +1613,408 @@ TEST_F(OpModelBase, morehCumSumOp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
     FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, ConcatenateHeadsOpInterface) {
+  // create ConcatenateHeadsOp
+  // Input shape: [batch_size, num_heads, sequence_size, head_size]
+  // Output shape: [batch_size, sequence_size, num_heads * head_size]
+
+  // Define test tensor shapes based on typical transformer architecture
+  int64_t batchSize = 1;
+  int64_t numHeads = 8;
+  int64_t sequenceSize = 512;
+  int64_t headSize = 64;
+
+  llvm::SmallVector<int64_t> inputShape = {batchSize, numHeads, sequenceSize,
+                                           headSize};
+  llvm::SmallVector<int64_t> outputShape = {batchSize, sequenceSize,
+                                            numHeads * headSize};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  auto concatenateHeads = builder.create<ConcatenateHeadsOp>(
+      builder.getUnknownLoc(), outputType, input);
+
+  // test ConcatenateHeadsOp interface
+  auto constraintsExp = getOpConstraints(concatenateHeads.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 65536);
+    EXPECT_EQ(l1PeakSize, 8192);
+    EXPECT_EQ(outputSize, 8192);
+    EXPECT_TRUE(outputLayout != nullptr);
+  } else {
+    FAIL() << "Missing L1 constraints for ConcatenateHeadsOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(concatenateHeads.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for ConcatenateHeadsOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, RotaryEmbeddingLlamaOpInterface) {
+  int64_t batchSize = 1;
+  int64_t numHeads = 1;
+  int64_t sequenceSize = 1;
+  int64_t headSize = 32;
+
+  llvm::SmallVector<int64_t> shape{batchSize, numHeads, sequenceSize, headSize};
+
+  llvm::SmallVector<int64_t> transMatShape{batchSize, numHeads, TILE_HEIGHT,
+                                           TILE_WIDTH};
+
+  auto input = createEmptyTensor(shape);
+  auto cos = createEmptyTensor(shape);
+  auto sin = createEmptyTensor(shape);
+  auto transMat = createEmptyTensor(transMatShape);
+  auto outputType = createRankedTensorType(shape);
+  bool isDecodeMode = false;
+
+  auto rotaryEmbeddingLlama = builder.create<RotaryEmbeddingLlamaOp>(
+      builder.getUnknownLoc(), outputType, input, cos, sin, transMat,
+      isDecodeMode, /*memory_config=*/nullptr, /*compute_config=*/nullptr);
+
+  auto constraintsExp = getOpConstraints(rotaryEmbeddingLlama.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 24576);
+    EXPECT_EQ(l1PeakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+    EXPECT_TRUE(outputLayout != nullptr);
+  } else {
+    FAIL() << "Missing L1 constraints for RotaryEmbeddingLlamaOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(rotaryEmbeddingLlama.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for RotaryEmbeddingLlamaOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, NLPCreateQKVHeadsDecodeOpInterface) {
+  int32_t sequenceSize = 1;
+  int32_t batchSize = 32;
+  int32_t numHeads = 32;
+  int32_t numKVHeads = 32;
+  int32_t headDim = 32;
+  int32_t hiddenDim = headDim * (numHeads + 2 * numKVHeads);
+  bool overlapQKCoregrid = true;
+
+  llvm::SmallVector<int64_t> inputShape{1, sequenceSize, batchSize, hiddenDim};
+
+  llvm::SmallVector<int64_t> outputQueryShape{sequenceSize, batchSize, numHeads,
+                                              headDim};
+  llvm::SmallVector<int64_t> outputKeyValueShape{sequenceSize, batchSize,
+                                                 numKVHeads, headDim};
+
+  auto input = createEmptyTensor(inputShape);
+
+  auto outputQueryType = createRankedTensorType(outputQueryShape);
+  auto outputKeyType = createRankedTensorType(outputKeyValueShape);
+  auto outputValueType = createRankedTensorType(outputKeyValueShape);
+  auto returnTypes = llvm::SmallVector<mlir::Type>{
+      outputQueryType, outputKeyType, outputValueType};
+
+  IntegerAttr numKVHeadsAttr = builder.getUI32IntegerAttr(numHeads);
+  BoolAttr overlapQKCoregridAttr = builder.getBoolAttr(overlapQKCoregrid);
+
+  auto nlpCreateQKVHeadsDecode = builder.create<NLPCreateQKVHeadsDecodeOp>(
+      builder.getUnknownLoc(), TypeRange(returnTypes), input,
+      /*batchOffset=*/nullptr, numHeads, numKVHeadsAttr, overlapQKCoregridAttr,
+      /*sliceSize=*/nullptr, /*memory_config=*/nullptr);
+
+  auto constraintsExp =
+      getOpConstraints(nlpCreateQKVHeadsDecode.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(l1PeakSize, 6144);
+    EXPECT_EQ(outputSize, 2048);
+    EXPECT_EQ(totalPeakSize, 6144);
+  } else {
+    FAIL() << "Missing L1 constraints for NLPCreateQKVHeadsDecodeOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(nlpCreateQKVHeadsDecode.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for NLPCreateQKVHeadsDecodeOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, SplitQueryKeyValueAndSplitHeadsOpInterface) {
+  uint32_t sequenceSize = 16;
+  uint32_t batchSize = 8;
+  uint32_t numHeads = 32;
+  uint32_t headDim = 32;
+  uint32_t hiddenDim = numHeads * headDim;
+
+  llvm::SmallVector<int64_t> inputShape{batchSize, sequenceSize, 3 * hiddenDim};
+  llvm::SmallVector<int64_t> outputShape{batchSize, numHeads, sequenceSize,
+                                         headDim};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputValue = createRankedTensorType(outputShape);
+  auto outputKey = createRankedTensorType(outputShape);
+  auto outputQuery = createRankedTensorType(outputShape);
+
+  IntegerAttr numHeadsAttr = builder.getUI32IntegerAttr(numHeads);
+  BoolAttr transposeKeyAttr = builder.getBoolAttr(false);
+
+  auto splitQueryKeyValueAndSplitHeads =
+      builder.create<SplitQueryKeyValueAndSplitHeadsOp>(
+          builder.getUnknownLoc(),
+          TypeRange({outputQuery, outputKey, outputValue}), input,
+          /*kv_input_tensor=*/nullptr, numHeadsAttr, /*num_kv_heads*/ nullptr,
+          transposeKeyAttr, /*memory_config=*/nullptr);
+
+  auto constraintsExp =
+      getOpConstraints(splitQueryKeyValueAndSplitHeads.getOperation());
+
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 8192);
+    EXPECT_EQ(l1PeakSize, 24576);
+    EXPECT_EQ(outputSize, 8192);
+    EXPECT_EQ(totalPeakSize, 32768);
+  } else {
+    FAIL() << "Missing L1 constraints for SplitQueryKeyValueAndSplitHeadsOp; "
+              "Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp =
+      getOpRuntime(splitQueryKeyValueAndSplitHeads.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL()
+        << "Runtime test failed for SplitQueryKeyValueAndSplitHeadsOp; Error="
+        << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
+  int64_t batchSize = 1;
+  int64_t numHeads = 1;
+  int64_t kvLen = 128;
+  int64_t headSize = 32;
+
+  llvm::SmallVector<int64_t> queryShape{1, batchSize, numHeads, headSize};
+  llvm::SmallVector<int64_t> keyValueShape{batchSize, numHeads, kvLen,
+                                           headSize};
+
+  llvm::SmallVector<int64_t> curPosShape{batchSize};
+  // Provide an attention mask to satisfy optional-arg handling in the
+  // interface. Use broadcastable mask shape [B, 1, nH, T].
+  llvm::SmallVector<int64_t> maskShape{batchSize, 1, numHeads, kvLen};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+  auto tiledCurPosType = ttcore::TileType::get(builder.getI32Type());
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto queryLayout =
+      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto keyValueLayout =
+      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto curPosLayout =
+      TTNNLayoutAttr::get(&context, curPosShape, tiledCurPosType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto maskLayout =
+      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto value = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto curPos = createEmptyTensor(curPosShape, tiledCurPosType, curPosLayout);
+  auto attentionMask = createEmptyTensor(maskShape, tiledElemType, maskLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto sdpAttentionDecode = builder.create<ScaledDotProductAttentionDecodeOp>(
+      builder.getUnknownLoc(), outputType, query, key, value,
+      /*is_causal=*/false,
+      /*attention_mask=*/attentionMask,
+      /*cur_pos_tensor=*/curPos,
+      /*attention_sink=*/nullptr,
+      /*scale=*/nullptr,
+      /*memory_config=*/nullptr);
+
+  OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(sdpAttentionDecode), OpConfig(queryLayout));
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        constraintsExp.get();
+
+    EXPECT_LE(cbSize, 483328);
+    EXPECT_LE(totalPeakSize, 483328);
+    EXPECT_LE(l1PeakSize, 2048);
+    EXPECT_EQ(outputSize, 0);
+
+    ASSERT_TRUE(outputLayout);
+    EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+    EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
+  } else {
+    FAIL() << "Missing L1 constraints for ScaledDotProductAttentionDecodeOp; "
+              "Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(sdpAttentionDecode.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL()
+        << "Runtime test failed for ScaledDotProductAttentionDecodeOp; Error="
+        << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
+  int64_t batchSize = 1;
+  int64_t numHeads = 1;
+  int64_t seqLen = 32;
+  int64_t kvLen = 128;
+  int64_t headSize = 32;
+
+  llvm::SmallVector<int64_t> queryShape{batchSize, numHeads, seqLen, headSize};
+  llvm::SmallVector<int64_t> keyValueShape{batchSize, numHeads, kvLen,
+                                           headSize};
+
+  llvm::SmallVector<int64_t> curPosShape{batchSize};
+  // Provide an attention mask to satisfy optional-arg handling in the
+  // interface. Use broadcastable mask shape [B, 1, nH, T].
+  llvm::SmallVector<int64_t> maskShape{batchSize, 1, seqLen, kvLen};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto queryLayout =
+      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto keyValueLayout =
+      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto maskLayout =
+      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto value = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto attentionMask = createEmptyTensor(maskShape, tiledElemType, maskLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto sdpAttention = builder.create<ScaledDotProductAttentionOp>(
+      builder.getUnknownLoc(), outputType, query, key, value,
+      /*attention_mask=*/attentionMask,
+      /*is_causal=*/false,
+      /*scale=*/nullptr,
+      /*memory_config=*/nullptr);
+
+  OpModel backend = dyn_cast<OpModel>(sdpAttention.getOperation());
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(sdpAttention),
+                                                 OpConfig(queryLayout));
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        constraintsExp.get();
+
+    EXPECT_LE(cbSize, 483328);
+    EXPECT_LE(totalPeakSize, 483328);
+    EXPECT_LE(l1PeakSize, 2048);
+    EXPECT_EQ(outputSize, 0);
+
+    ASSERT_TRUE(outputLayout);
+    EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+    EXPECT_TRUE(outputLayout.hasInterleavedDRAMTensorMemoryLayout());
+  } else {
+    FAIL() << "Missing L1 constraints for ScaledDotProductAttentionOp; "
+              "Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(sdpAttention.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for ScaledDotProductAttentionOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, NLPConcatHeadsOpInterface) {
+  int64_t batchSize = 1;
+  int64_t numHeads = 8;
+  int64_t sequenceSize = 512;
+  int64_t headSize = 64;
+
+  llvm::SmallVector<int64_t> inputShape = {batchSize, numHeads, sequenceSize,
+                                           headSize};
+  llvm::SmallVector<int64_t> outputShape = {batchSize, 1, sequenceSize,
+                                            numHeads * headSize};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  auto nlpConcatHeads = builder.create<NLPConcatHeadsOp>(
+      builder.getUnknownLoc(), outputType, input);
+
+  auto constraintsExp = getOpConstraints(nlpConcatHeads.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 65536);
+    EXPECT_EQ(l1PeakSize, 8192);
+    EXPECT_EQ(outputSize, 8192);
+    EXPECT_TRUE(outputLayout != nullptr);
+  } else {
+    FAIL() << "Missing L1 constraints for NLPConcatHeadsOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(nlpConcatHeads.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for NLPConcatHeadsOp; Error="
+           << llvm::toString(runtimeExp.takeError());
   }
 }
 
@@ -1442,9 +2033,10 @@ TEST_F(OpModelBase, repeatInterleaveOp) {
   auto constraintsExp = getOpConstraints(repeatInterleave.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 16384);
-    EXPECT_EQ(peakSize, 512);
+    EXPECT_EQ(l1PeakSize, 512);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1478,9 +2070,10 @@ TEST_F(OpModelBase, repeatOp) {
   auto constraintsExp = getOpConstraints(repeat.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 16384);
-    EXPECT_EQ(peakSize, 3072);
+    EXPECT_EQ(l1PeakSize, 3072);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1514,9 +2107,10 @@ TEST_F(OpModelBase, padOp) {
   auto constraintsExp = getOpConstraints(pad.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 6144);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1550,9 +2144,10 @@ TEST_F(OpModelBase, sortOp) {
   auto constraintsExp = getOpConstraints(sort.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 33792);
-    EXPECT_EQ(peakSize, 8192);
+    EXPECT_EQ(l1PeakSize, 8192);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1575,10 +2170,10 @@ TEST_F(OpModelBase, typecastOp) {
       RankedTensorType::get(tensorShape, builder.getBF16Type());
 
   auto input = builder.create<OnesOp>(
-      builder.getUnknownLoc(), rankedTensorTypeBF16,
+      builder.getUnknownLoc(), rankedTensorTypeBF16, nullptr,
       ShapeAttr::get(&context, tensorShape),
       ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16), nullptr,
-      nullptr, nullptr);
+      nullptr);
   RankedTensorType rankedTensorTypeF32 =
       RankedTensorType::get(tensorShape, builder.getF32Type());
 
@@ -1589,9 +2184,10 @@ TEST_F(OpModelBase, typecastOp) {
   auto constraintsExp = getOpConstraints(typecast.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(l1PeakSize, 4096);
     EXPECT_EQ(outputSize, 4096);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -1646,23 +2242,18 @@ TEST_F(OpModelBase, Conv2dInterface) {
       1,                               // Groups
       outputDtype,                     // OutputDtype
       nullptr,                         // Conv2dConfig (optional)
-      nullptr                          // ComputeKernelConfig (optional)
+      nullptr,                         // ComputeKernelConfig (optional)
+      nullptr                          // Conv2dSliceConfig (optional)
   );
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
 
   // test Conv2dOp interface
   auto constraintsExp = getOpConstraints(conv2d.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 229440);
-  EXPECT_EQ(peakSize, 190572);
+  EXPECT_EQ(l1PeakSize, 190572);
   EXPECT_EQ(outputSize, 26624);
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(conv2d.getOperation());
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
@@ -1713,21 +2304,19 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
       1,                               // Groups
       outputDtype,                     // OutputDtype
       nullptr,                         // Conv2dConfig (optional)
-      nullptr                          // ComputeKernelConfig (optional)
+      nullptr,                         // ComputeKernelConfig (optional)
+      nullptr                          // Conv2dSliceConfig (optional)
   );
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
 
   // test Conv2dOp interface
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d), OpConfig(/*outputLayout=*/nullptr));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 229440);
-  EXPECT_EQ(peakSize, 190572);
+  EXPECT_EQ(l1PeakSize, 190572);
   EXPECT_EQ(outputSize, 28672);
 
   ASSERT_TRUE(outputLayout);
@@ -1769,12 +2358,14 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr,
+      nullptr);
 
   Conv2dConfigAttr conv2dConfig = conv2d.getConv2dConfig()
                                       ? *conv2d.getConv2dConfig()
                                       : Conv2dConfigAttr::get(&context);
-  conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(elementType));
+  conv2dConfig =
+      conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(elementType));
 
   auto preparedWeightOutput =
       op_model::getPreparedConv2dWeightsOutputTensor(&conv2d, conv2dConfig);
@@ -1821,10 +2412,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr,
+      nullptr);
 
   // Will fail due to assertion at
   // tt-metal/ttnn/cpp/ttnn/operations/conv/conv2d/conv2d_utils.cpp:156 "Conv2d
@@ -1833,7 +2422,7 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   auto badConvConfig = Conv2dConfigAttr::get(
       &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
-      /*activation=*/StringAttr::get(&context, ""),
+      /*activation=*/nullptr,
       /*deallocate_activation=*/BoolAttr::get(&context, false),
       /*reallocate_halo_output=*/BoolAttr::get(&context, true),
       /*act_block_h_override=*/0, /*act_block_w_div=*/1,
@@ -1845,7 +2434,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*output_layout=*/Layout::Tile,
       /*enable_act_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, false),
-      /*enable_split_reader=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
@@ -1856,9 +2444,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   ASSERT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto runtimeExp =
       backend.getOpRuntime(getInputLayouts(conv2d),
                            OpConfig(getOutputLayout(conv2d),
@@ -1866,13 +2451,10 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   ASSERT_FALSE(static_cast<bool>(runtimeExp));
   llvm::consumeError(runtimeExp.takeError());
 
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto goodConvConfig = Conv2dConfigAttr::get(
       &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
-      /*activation=*/StringAttr::get(&context, ""),
+      /*activation=*/nullptr,
       /*deallocate_activation=*/BoolAttr::get(&context, false),
       /*reallocate_halo_output=*/BoolAttr::get(&context, true),
       /*act_block_h_override=*/0, /*act_block_w_div=*/1,
@@ -1884,7 +2466,6 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*output_layout=*/Layout::Tile,
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
-      /*enable_split_reader=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   constraintsExp = backend.getOpConstraints(
@@ -1892,14 +2473,11 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       OpConfig(getOutputLayout(conv2d),
                Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cb_size, peak_size, output_size, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
-  EXPECT_EQ(cb_size, 69696);
-  EXPECT_EQ(peak_size, 88400);
-  EXPECT_EQ(output_size, 26624);
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
+  EXPECT_EQ(cbSize, 69696);
+  EXPECT_EQ(l1PeakSize, 88400);
+  EXPECT_EQ(outputSize, 26624);
 
   runtimeExp =
       backend.getOpRuntime(getInputLayouts(conv2d),
@@ -1941,10 +2519,8 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr,
+      nullptr);
 
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
 
@@ -1962,14 +2538,11 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
       OpConfig(getOutputLayout(conv2d), opConfigAttrs));
 
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cb_size, peak_size, output_size, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
-  EXPECT_EQ(cb_size, 65600);
-  EXPECT_EQ(peak_size, 88400);
-  EXPECT_EQ(output_size, 26624);
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
+  EXPECT_EQ(cbSize, 65600);
+  EXPECT_EQ(l1PeakSize, 88400);
+  EXPECT_EQ(outputSize, 26624);
 
   auto runtimeExp =
       backend.getOpRuntime(getInputLayouts(conv2d),
@@ -2011,15 +2584,12 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
       llvm::ArrayRef<int32_t>({0, 0}), llvm::ArrayRef<int32_t>({1, 1}), 1,
-      outputDtype, nullptr, nullptr);
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
+      outputDtype, nullptr, nullptr, nullptr);
 
   auto goodConvConfig = Conv2dConfigAttr::get(
       &context,
       /*weights_dtype=*/ttcore::DataType::BFloat16,
-      /*activation=*/StringAttr::get(&context, ""),
+      /*activation=*/nullptr,
       /*deallocate_activation=*/BoolAttr::get(&context, false),
       /*reallocate_halo_output=*/BoolAttr::get(&context, true),
       /*act_block_h_override=*/0, /*act_block_w_div=*/1,
@@ -2031,7 +2601,6 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*output_layout=*/Layout::Tile,
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
-      /*enable_split_reader=*/BoolAttr::get(&context, false),
       /*in_place=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());
@@ -2040,14 +2609,11 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       OpConfig(getOutputLayout(convTranspose2d),
                Conv2dAttrs{goodConvConfig, std::nullopt}));
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cb_size, peak_size, output_size, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
-  EXPECT_GT(cb_size, 0);
-  EXPECT_GT(peak_size, 0);
-  EXPECT_GT(output_size, 0);
-
-  // Device hangs otherwise.
-  op_model::SingletonDeviceContext::resetInstance();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
 
   auto runtimeExp =
       backend.getOpRuntime(getInputLayouts(convTranspose2d),
@@ -2060,8 +2626,8 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
 template <typename OpT>
 std::string getOpRuntimeExpectedErrorMessage(OpT op) {
   auto opName = op->getName().getStringRef();
-  return "opRuntime is not supported for " + opName.str() +
-         " since it requires memory IO.";
+  return "op_runtime is not supported for " + opName.str() +
+         ". Reason: [needs memory IO]";
 }
 
 TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
@@ -2095,12 +2661,14 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
       builder.getUnknownLoc(), outputType, input, weight, nullptr, deviceOp, 3,
       64, 1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr);
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, nullptr, nullptr,
+      nullptr);
 
   Conv2dConfigAttr conv2dConfig = conv2d.getConv2dConfig()
                                       ? *conv2d.getConv2dConfig()
                                       : Conv2dConfigAttr::get(&context);
-  conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(elementType));
+  conv2dConfig =
+      conv2dConfig.withWeightsDtype(ttcore::elementTypeToDataType(elementType));
 
   // Now create PrepareConv2dWeightsOp using Conv2d op parameters
   auto inputMemConfigAttr = MemoryConfigAttr::get(
@@ -2134,19 +2702,21 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
           conv2d.getPaddingAttr(),       // Padding from conv2d
           conv2d.getDilationAttr(),      // Dilation from conv2d
           builder.getBoolAttr(conv2d.getBias() != nullptr), // has_bias
-          conv2d.getGroupsAttr(),      // Groups from conv2d
-          conv2d.getDevice(),          // Device from conv2d
-          inputDtypeAttr,              // Input dtype
-          outputDtype,                 // Output dtype
-          conv2d.getConv2dConfigAttr() // Conv2dConfig from conv2d
+          conv2d.getGroupsAttr(),           // Groups from conv2d
+          conv2d.getDevice(),               // Device from conv2d
+          inputDtypeAttr,                   // Input dtype
+          outputDtype,                      // Output dtype
+          conv2d.getConv2dConfigAttr(),     // Conv2dConfig from conv2d
+          conv2d.getComputeConfigAttr(),    // ComputeKernelConfig from conv2d
+          conv2d.getConv2dSliceConfigAttr() // Conv2dSliceConfig from conv2d
       );
 
   auto constraintsExp = getOpConstraints(prepareConv2dWeights.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 0);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 
   // Test that the op constraints are valid when the output layout is null.
@@ -2197,7 +2767,7 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
       MeshShapeAttr::get(builder.getContext(), 1, 1),
       MeshOffsetAttr::get(builder.getContext(), 0, 0));
   Conv2dConfigAttr configAttr = Conv2dConfigAttr::get(&context);
-  configAttr.withWeightsDtype(ttcore::DataType::Float32);
+  configAttr = configAttr.withWeightsDtype(ttcore::DataType::Float32);
 
   //  get_cb_info expects conv_config.weights_dtype to be set otherwise it
   //  issues an error.  See conv2d_op_program_factory_common.cpp in tt-metal.
@@ -2205,7 +2775,8 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
       builder.getUnknownLoc(), outputType, input, weight, bias, deviceOp, 3, 64,
       1, 224, 224, llvm::ArrayRef<int32_t>({7, 7}),
       llvm::ArrayRef<int32_t>({2, 2}), llvm::ArrayRef<int32_t>({3, 3}),
-      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, configAttr, nullptr);
+      llvm::ArrayRef<int32_t>({1, 1}), 1, outputDtype, configAttr, nullptr,
+      nullptr);
 
   // Now create PrepareConv2dBiasOp using Conv2d op parameters
   auto inputMemConfigAttr = MemoryConfigAttr::get(
@@ -2232,33 +2803,35 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
       oldBiasType.getShape(), oldBiasType.getElementType(), newBiasLayout);
 
   PrepareConv2dBiasOp prepareConv2dBias = builder.create<PrepareConv2dBiasOp>(
-      builder.getUnknownLoc(),     // Location
-      preparedBiasOutputType,      // Output type (derived from bias)
-      conv2d.getBias(),            // Bias tensor from conv2d
-      inputMemConfigAttr,          // Input memory config
-      inputLayoutAttr,             // Input tensor layout
-      conv2d.getInChannelsAttr(),  // Input channels from conv2d
-      conv2d.getOutChannelsAttr(), // Output channels from conv2d
-      conv2d.getBatchSizeAttr(),   // Batch size from conv2d
-      conv2d.getInputHeightAttr(), // Input height from conv2d
-      conv2d.getInputWidthAttr(),  // Input width from conv2d
-      conv2d.getKernelSizeAttr(),  // Kernel size from conv2d
-      conv2d.getStrideAttr(),      // Stride from conv2d
-      conv2d.getPaddingAttr(),     // Padding from conv2d
-      conv2d.getDilationAttr(),    // Dilation from conv2d
-      conv2d.getGroupsAttr(),      // Groups from conv2d
-      conv2d.getDevice(),          // Device from conv2d
-      inputDtypeAttr,              // Input dtype
-      outputDtype,                 // Output dtype
-      conv2d.getConv2dConfigAttr() // Conv2dConfig from conv2d
+      builder.getUnknownLoc(),          // Location
+      preparedBiasOutputType,           // Output type (derived from bias)
+      conv2d.getBias(),                 // Bias tensor from conv2d
+      inputMemConfigAttr,               // Input memory config
+      inputLayoutAttr,                  // Input tensor layout
+      conv2d.getInChannelsAttr(),       // Input channels from conv2d
+      conv2d.getOutChannelsAttr(),      // Output channels from conv2d
+      conv2d.getBatchSizeAttr(),        // Batch size from conv2d
+      conv2d.getInputHeightAttr(),      // Input height from conv2d
+      conv2d.getInputWidthAttr(),       // Input width from conv2d
+      conv2d.getKernelSizeAttr(),       // Kernel size from conv2d
+      conv2d.getStrideAttr(),           // Stride from conv2d
+      conv2d.getPaddingAttr(),          // Padding from conv2d
+      conv2d.getDilationAttr(),         // Dilation from conv2d
+      conv2d.getGroupsAttr(),           // Groups from conv2d
+      conv2d.getDevice(),               // Device from conv2d
+      inputDtypeAttr,                   // Input dtype
+      outputDtype,                      // Output dtype
+      conv2d.getConv2dConfigAttr(),     // Conv2dConfig from conv2d
+      conv2d.getComputeConfigAttr(),    // ComputeKernelConfig from conv2d
+      conv2d.getConv2dSliceConfigAttr() // Conv2dSliceConfig from conv2d
   );
 
   auto constraintsExp = getOpConstraints(prepareConv2dBias.getOperation());
   ASSERT_TRUE(static_cast<bool>(constraintsExp));
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 0);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
 
   // Test that the op constraints are valid when the output layout is null.
@@ -2321,7 +2894,6 @@ TEST_F(OpModelBase, maxPool2DOp) {
 
   constexpr int32_t numRuns = 10;
   for (int i = 0; i < numRuns; i++) {
-    op_model::SingletonDeviceContext::resetInstance();
     auto backend = dyn_cast<OpModel>(maxPool2DOp.getOperation());
     auto constraintsExp = backend.getOpConstraints(
         getInputLayouts(maxPool2DOp.getOperation()), OpConfig());
@@ -2330,12 +2902,12 @@ TEST_F(OpModelBase, maxPool2DOp) {
              << llvm::toString(constraintsExp.takeError()) << std::endl;
     }
     auto l1 = constraintsExp.get();
-    const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_GT(cbSize, 0);
-    EXPECT_GT(peakSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
   }
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(maxPool2DOp.getOperation());
   if (runtimeExp) {
@@ -2398,12 +2970,11 @@ TEST_F(OpModelBase, avgPool2DOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
   auto l1 = constraintsExp.get();
-  const auto &[cbSize, peakSize, outputSize, outputLayout] = l1;
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      l1;
   EXPECT_GT(cbSize, 0);
-  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(avgPool2DOp.getOperation());
   if (runtimeExp) {
@@ -2412,6 +2983,50 @@ TEST_F(OpModelBase, avgPool2DOp) {
     FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
+
+// https://github.com/tenstorrent/tt-mlir/issues/5313
+#if 0
+TEST_F(OpModelBase, globalAvgPool2dOp) {
+  // Create globalAvgPool2dOp with flattened input tensor
+  llvm::SmallVector<int64_t> tensorShapeA = {1, 1, 128 * 128, 32};
+  llvm::SmallVector<int64_t> tensorShapeO = {1, 1, 1, 32};
+
+  auto input =
+      createEmptyTensor(tensorShapeA, builder.getBF16Type(),
+                        CreateRowMajorLayout(tensorShapeA, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+  auto output =
+      createEmptyTensor(tensorShapeO, builder.getBF16Type(),
+                        CreateRowMajorLayout(tensorShapeO, BufferType::DRAM,
+                                             TensorMemoryLayout::Interleaved));
+
+  auto globalAvgPool2dOp = builder.create<GlobalAvgPool2dOp>(
+      builder.getUnknownLoc(), output.getType(), input);
+  globalAvgPool2dOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto backend = dyn_cast<OpModel>(globalAvgPool2dOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(globalAvgPool2dOp.getOperation()), OpConfig());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+  auto l1 = constraintsExp.get();
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      l1;
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+  EXPECT_GT(totalPeakSize, 0);
+
+  auto runtimeExp = getOpRuntime(globalAvgPool2dOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+#endif
 
 TEST_F(OpModelBase, LeakyReluOp) {
   // Create LeakyReluOp with flattened input tensor
@@ -2430,20 +3045,16 @@ TEST_F(OpModelBase, LeakyReluOp) {
       builder.getUnknownLoc(), outputType, input, slopeAPF);
   leakyReluOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(leakyReluOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_EQ(cbSize, 8192);
-  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(l1PeakSize, 2048);
   EXPECT_EQ(outputSize, 2048);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(leakyReluOp.getOperation());
   if (runtimeExp) {
@@ -2472,20 +3083,16 @@ TEST_F(OpModelBase, clampScalarOp) {
       builder.getUnknownLoc(), outputType, input, minValAPF, maxValAPF);
   clampScalarOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(clampScalarOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
-  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(clampScalarOp.getOperation());
   if (runtimeExp) {
@@ -2508,20 +3115,16 @@ TEST_F(OpModelBase, clampTensorOp) {
       builder.getUnknownLoc(), outputType, input, min, max);
   clampTensorOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(clampTensorOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
-  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(clampTensorOp.getOperation());
   if (runtimeExp) {
@@ -2543,20 +3146,16 @@ TEST_F(OpModelBase, permuteOp) {
       llvm::ArrayRef<int64_t>({0, 3, 1, 2}), nullptr, llvm::APFloat(0.0f));
   permuteOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto constraintsExp = getOpConstraints(permuteOp.getOperation());
   if (!constraintsExp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
-  EXPECT_GT(peakSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
   EXPECT_GT(outputSize, 0);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(permuteOp.getOperation());
   if (runtimeExp) {
@@ -2594,8 +3193,6 @@ TEST_F(OpModelBase, upsampleOp) {
                                  scaleFactorAttr, modeAttr, nullptr);
   upsampleOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   // getOutputLayout() hardcodes L1, so we cannot use it
   OpModel backend = dyn_cast<OpModel>(upsampleOp.getOperation());
   auto constraintsExp =
@@ -2604,13 +3201,11 @@ TEST_F(OpModelBase, upsampleOp) {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
-  const auto &[cbSize, peakSize, outputSize, outputLayout] =
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
-  EXPECT_EQ(peakSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
   EXPECT_EQ(outputSize, 0);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(upsampleOp.getOperation());
   if (runtimeExp) {
@@ -2641,9 +3236,10 @@ TEST_F(OpModelBase, EmbeddingOpInterface) {
   auto constraintsExp = getOpConstraints(embedding.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 16384);
-    EXPECT_EQ(peakSize, 525312);
+    EXPECT_EQ(l1PeakSize, 525312);
     EXPECT_EQ(outputSize, 262144);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -2681,9 +3277,10 @@ TEST_F(OpModelBase, EmbeddingOpNullOutputLayout) {
       getInputLayouts(embedding), OpConfig(/*outputLayout=*/nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 16384);
-    EXPECT_EQ(peakSize, 525312);
+    EXPECT_EQ(l1PeakSize, 525312);
     EXPECT_EQ(outputSize, 262144);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -2726,9 +3323,10 @@ TEST_F(OpModelBase, EmbeddingBackwardOp) {
   auto constraintsExp = getOpConstraints(embeddingBackward.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 12400);
-    EXPECT_EQ(peakSize, 409600);
+    EXPECT_EQ(l1PeakSize, 409600);
     EXPECT_EQ(outputSize, 409600);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -2852,9 +3450,10 @@ TEST_F(OpModelBase, WhereOpInterface) {
   auto constraintsExp = getOpConstraints(where.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 16384);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -2870,7 +3469,7 @@ TEST_F(OpModelBase, WhereOpInterface) {
 }
 
 TEST_F(OpModelBase, batchNormOp) {
-  // Test case 1: Basic BatchNorm with all optional tensors (inference mode)
+  // Test case 1: Basic BatchNormInference with all optional tensors
   llvm::SmallVector<int64_t> inputShape = {1, 32, 128, 128};
   llvm::SmallVector<int64_t> runningMeanShape = {1, 32, 1, 1};
   llvm::SmallVector<int64_t> runningVarShape = {1, 32, 1, 1};
@@ -2884,17 +3483,13 @@ TEST_F(OpModelBase, batchNormOp) {
   auto bias = createEmptyTensor(biasShape);
   auto outputType = createRankedTensorType(inputShape);
 
-  // BatchNorm parameters
-  bool training = false;
+  // BatchNormInference parameters
   llvm::APFloat epsilon(1e-05f);
-  llvm::APFloat momentum(0.1f);
 
-  BatchNormOp batchNormOp = builder.create<BatchNormOp>(
+  BatchNormInferenceOp batchNormOp = builder.create<BatchNormInferenceOp>(
       builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
-      training, epsilon, momentum, weight, bias, nullptr);
+      epsilon, weight, bias, nullptr);
   batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
   if (!constraintsExp) {
@@ -2902,54 +3497,11 @@ TEST_F(OpModelBase, batchNormOp) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-      constraintsExp.get();
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
   EXPECT_EQ(cbSize, 36864);
-  EXPECT_EQ(peakSize, 16384);
+  EXPECT_EQ(l1PeakSize, 16384);
   EXPECT_EQ(outputSize, 16384);
-
-  op_model::SingletonDeviceContext::resetInstance();
-
-  auto runtimeExp = getOpRuntime(batchNormOp.getOperation());
-  if (runtimeExp) {
-    EXPECT_TRUE(runtimeExp.get() > 0);
-  } else {
-    FAIL() << llvm::toString(runtimeExp.takeError());
-  }
-}
-
-TEST_F(OpModelBase, batchNormOpTraining) {
-  // Test case 2: BatchNorm in training mode without optional tensors
-  llvm::SmallVector<int64_t> inputShape = {1, 64, 64, 64};
-
-  auto input = createEmptyTensor(inputShape);
-  auto outputType = createRankedTensorType(inputShape);
-
-  // BatchNorm parameters for training mode
-  bool training = true;
-  llvm::APFloat epsilon(1e-05f);
-  llvm::APFloat momentum(0.1f);
-
-  BatchNormOp batchNormOp = builder.create<BatchNormOp>(
-      builder.getUnknownLoc(), outputType, input, nullptr, nullptr, training,
-      epsilon, momentum, nullptr, nullptr, nullptr);
-  batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
-
-  op_model::SingletonDeviceContext::resetInstance();
-
-  auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
-  if (!constraintsExp) {
-    FAIL() << "Missing constraints; Error="
-           << llvm::toString(constraintsExp.takeError()) << std::endl;
-  }
-
-  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-      constraintsExp.get();
-  EXPECT_EQ(cbSize, 49152);
-  EXPECT_EQ(peakSize, 16384);
-  EXPECT_EQ(outputSize, 8192);
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto runtimeExp = getOpRuntime(batchNormOp.getOperation());
   if (runtimeExp) {
@@ -2960,7 +3512,7 @@ TEST_F(OpModelBase, batchNormOpTraining) {
 }
 
 TEST_F(OpModelBase, batchNormOpL1Memory) {
-  // Test case 3: BatchNorm with L1 memory buffers
+  // Test case 2: BatchNorm with L1 memory buffers
   llvm::SmallVector<int64_t> inputShape = {1, 32, 32, 32};
   llvm::SmallVector<int64_t> runningMeanShape = {1, 32, 1, 1};
   llvm::SmallVector<int64_t> runningVarShape = {1, 32, 1, 1};
@@ -2986,16 +3538,12 @@ TEST_F(OpModelBase, batchNormOpL1Memory) {
   auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
 
   // BatchNorm parameters
-  bool training = false;
   llvm::APFloat epsilon(1e-05f);
-  llvm::APFloat momentum(0.1f);
 
-  BatchNormOp batchNormOp = builder.create<BatchNormOp>(
+  BatchNormInferenceOp batchNormOp = builder.create<BatchNormInferenceOp>(
       builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
-      training, epsilon, momentum, weight, bias, nullptr);
+      epsilon, weight, bias, nullptr);
   batchNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
-
-  op_model::SingletonDeviceContext::resetInstance();
 
   auto constraintsExp = getOpConstraints(batchNormOp.getOperation());
   if (!constraintsExp) {
@@ -3003,15 +3551,273 @@ TEST_F(OpModelBase, batchNormOpL1Memory) {
            << llvm::toString(constraintsExp.takeError()) << std::endl;
   }
 
-  const auto [cbSize, peakSize, outputSize, outputLayoutReadBack] =
-      constraintsExp.get();
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
   EXPECT_EQ(cbSize, 36864);
-  EXPECT_EQ(peakSize, 2048);
+  EXPECT_EQ(l1PeakSize, 2048);
   EXPECT_EQ(outputSize, 2048);
 
-  op_model::SingletonDeviceContext::resetInstance();
-
   auto runtimeExp = getOpRuntime(batchNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, batchNormOpTraining) {
+  // Test case 3: BatchNorm in training mode with all optional tensors
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 128, 128};
+  llvm::SmallVector<int64_t> runningMeanShape = {1, 32, 1, 1};
+  llvm::SmallVector<int64_t> runningVarShape = {1, 32, 1, 1};
+  llvm::SmallVector<int64_t> weightShape = {1, 32, 1, 1};
+  llvm::SmallVector<int64_t> biasShape = {1, 32, 1, 1};
+
+  auto input = createEmptyTensor(inputShape);
+  auto runningMean = createEmptyTensor(runningMeanShape);
+  auto runningVar = createEmptyTensor(runningVarShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto bias = createEmptyTensor(biasShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  // BatchNorm parameters
+  llvm::APFloat epsilon(1e-05f);
+  llvm::APFloat momentum(0.1f);
+
+  BatchNormTrainingOp batchNormTrainingOp = builder.create<BatchNormTrainingOp>(
+      builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
+      epsilon, momentum, weight, bias, nullptr);
+  batchNormTrainingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(batchNormTrainingOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
+    EXPECT_EQ(cbSize, 36864);
+    EXPECT_EQ(l1PeakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
+  }
+  auto runtimeExp = getOpRuntime(batchNormTrainingOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, batchNormOpTrainingMinimal) {
+  // Test case 4: BatchNorm in training mode without optional tensors
+  llvm::SmallVector<int64_t> inputShape = {1, 64, 64, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  // BatchNorm parameters
+  llvm::APFloat epsilon(1e-05f);
+  llvm::APFloat momentum(0.1f);
+
+  BatchNormTrainingOp batchNormTrainingOp = builder.create<BatchNormTrainingOp>(
+      builder.getUnknownLoc(), outputType, input, nullptr, nullptr, epsilon,
+      momentum, nullptr, nullptr, nullptr);
+  batchNormTrainingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(batchNormTrainingOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
+    EXPECT_EQ(cbSize, 49152);
+    EXPECT_EQ(l1PeakSize, 16384);
+    EXPECT_EQ(outputSize, 8192);
+  }
+
+  auto runtimeExp = getOpRuntime(batchNormTrainingOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, batchNormOpTrainingL1Memory) {
+  // Test case 5: BatchNorm in training mode with L1 memory buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 32, 32};
+  llvm::SmallVector<int64_t> runningMeanShape = {1, 32, 1, 1};
+  llvm::SmallVector<int64_t> runningVarShape = {1, 32, 1, 1};
+  llvm::SmallVector<int64_t> weightShape = {1, 32, 1, 1};
+  llvm::SmallVector<int64_t> biasShape = {1, 32, 1, 1};
+
+  // Create tensors with L1 memory layout
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr tensorLayout_L1 = CreateTiledLayout(
+      runningMeanShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto runningMean = createEmptyTensor(runningMeanShape, builder.getBF16Type(),
+                                       tensorLayout_L1);
+  auto runningVar = createEmptyTensor(runningVarShape, builder.getBF16Type(),
+                                      tensorLayout_L1);
+  auto weight =
+      createEmptyTensor(weightShape, builder.getBF16Type(), tensorLayout_L1);
+  auto bias =
+      createEmptyTensor(biasShape, builder.getBF16Type(), tensorLayout_L1);
+  auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
+
+  // BatchNorm parameters
+  llvm::APFloat epsilon(1e-05f);
+  llvm::APFloat momentum(0.1f);
+
+  BatchNormTrainingOp batchNormTrainingOp = builder.create<BatchNormTrainingOp>(
+      builder.getUnknownLoc(), outputType, input, runningMean, runningVar,
+      epsilon, momentum, weight, bias, nullptr);
+  batchNormTrainingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(batchNormTrainingOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
+    EXPECT_EQ(cbSize, 94208);
+    EXPECT_EQ(l1PeakSize, 16384);
+    EXPECT_EQ(outputSize, 16384);
+  }
+
+  auto runtimeExp = getOpRuntime(batchNormTrainingOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormOp) {
+  // Test case 1: Basic RMSNorm with all optional tensors (weight and bias)
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 128, 128};
+  llvm::SmallVector<int64_t> weightShape = {
+      128}; // Weight is typically for the last dimension
+  llvm::SmallVector<int64_t> biasShape = {
+      128}; // Bias is typically for the last dimension
+
+  auto input = createEmptyTensor(inputShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto bias = createEmptyTensor(biasShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  // RMSNorm parameters
+  llvm::APFloat epsilon(1e-12f);
+
+  RMSNormOp rmsNormOp =
+      builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
+                                weight, bias, epsilon, nullptr);
+  rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_EQ(cbSize, 94208);
+  EXPECT_EQ(l1PeakSize, 16384);
+  EXPECT_EQ(outputSize, 16384);
+
+  auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormOpMinimal) {
+  // Test case 2: RMSNorm without optional tensors (only input)
+  llvm::SmallVector<int64_t> inputShape = {1, 64, 64, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  // RMSNorm parameters
+  llvm::APFloat epsilon(1e-12f);
+
+  RMSNormOp rmsNormOp =
+      builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
+                                nullptr, nullptr, epsilon, nullptr);
+  rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_EQ(cbSize, 45056);
+  EXPECT_EQ(l1PeakSize, 8192);
+  EXPECT_EQ(outputSize, 8192);
+
+  auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormOpL1Memory) {
+  // Test case 3: RMSNorm with L1 memory buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 32, 32};
+  llvm::SmallVector<int64_t> weightShape = {
+      32}; // Weight is typically for the last dimension
+  llvm::SmallVector<int64_t> biasShape = {
+      32}; // Bias is typically for the last dimension
+
+  // Create tensors with L1 memory layout
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr tensorLayout_L1 = CreateTiledLayout(
+      weightShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto weight =
+      createEmptyTensor(weightShape, builder.getBF16Type(), tensorLayout_L1);
+  auto bias =
+      createEmptyTensor(biasShape, builder.getBF16Type(), tensorLayout_L1);
+  auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
+
+  // RMSNorm parameters
+  llvm::APFloat epsilon(1e-12f);
+
+  RMSNormOp rmsNormOp =
+      builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
+                                weight, bias, epsilon, nullptr);
+  rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_EQ(cbSize, 45056);
+  EXPECT_EQ(l1PeakSize, 2048);
+  EXPECT_EQ(outputSize, 2048);
+
+  auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {
@@ -3048,19 +3854,20 @@ TEST_F(OpModelBase, EmptyOpInterface) {
 
   // Create the EmptyOp with all required parameters
   auto empty = builder.create<ttnn::EmptyOp>(
-      builder.getUnknownLoc(), inputType,
+      builder.getUnknownLoc(), inputType, device,
       ttnn::ShapeAttr::get(&context, inputTensorType.getShape()),
       ttcore::DataTypeAttr::get(&context, ttnnLayoutAttr.getDataType()),
-      ttnn::LayoutAttr::get(&context, ttnnLayoutAttr.getLayout()), device,
+      ttnn::LayoutAttr::get(&context, ttnnLayoutAttr.getLayout()),
       memoryConfigAttr);
 
   // test EmptyOp interface
   auto constraintsExp = getOpConstraints(empty.getOperation());
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 2048);
+    EXPECT_EQ(l1PeakSize, 2048);
     EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3080,10 +3887,10 @@ TEST_F(OpModelBase, ArangeOpInterface) {
   auto endAttr = builder.getI64IntegerAttr(10);
   auto stepAttr = builder.getI64IntegerAttr(2);
 
-  auto arange =
-      builder.create<ArangeOp>(builder.getUnknownLoc(), resultType, startAttr,
-                               endAttr, stepAttr, /*dtype=*/nullptr,
-                               /*device=*/nullptr, /*memoryConfig=*/nullptr);
+  auto arange = builder.create<ArangeOp>(
+      builder.getUnknownLoc(), resultType, /*device=*/nullptr, startAttr,
+      endAttr, stepAttr, /*dtype=*/nullptr, /*layout=*/nullptr,
+      /*memoryConfig=*/nullptr);
 
   // test ArangeOp interface
   auto backend = dyn_cast<OpModel>(arange.getOperation());
@@ -3091,9 +3898,10 @@ TEST_F(OpModelBase, ArangeOpInterface) {
       backend.getOpConstraints(getInputLayouts(arange), OpConfig(nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3134,9 +3942,10 @@ TEST_P(NamedFullOpModelTest, TestOpInterface) {
       backend.getOpConstraints(getInputLayouts(op), OpConfig(nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, params.expectedResult.expectedCbSize);
-    EXPECT_EQ(peakSize, params.expectedResult.expectedPeakSize);
+    EXPECT_EQ(l1PeakSize, params.expectedResult.expectedL1PeakSize);
     EXPECT_EQ(outputSize, params.expectedResult.expectedOutputSize);
   } else {
     FAIL() << "Missing L1 constraints for " << params.testName
@@ -3147,19 +3956,19 @@ TEST_P(NamedFullOpModelTest, TestOpInterface) {
 const auto createZeros = [](OpBuilder &b, Location loc, Type type,
                             ttnn::ShapeAttr shape) {
   return b
-      .create<ZerosOp>(loc, type, shape, /*dtype=*/nullptr, /*layout=*/nullptr,
-                       /*device=*/nullptr, /*memoryConfig=*/nullptr)
+      .create<ZerosOp>(loc, type, /*device=*/nullptr, shape, /*dtype=*/nullptr,
+                       /*layout=*/nullptr, /*memoryConfig=*/nullptr)
       .getOperation();
 };
 const auto createOnes = [](OpBuilder &b, Location loc, Type type,
                            ttnn::ShapeAttr shape) {
   return b
-      .create<OnesOp>(loc, type, shape, /*dtype=*/nullptr, /*layout=*/nullptr,
-                      /*device=*/nullptr, /*memoryConfig=*/nullptr)
+      .create<OnesOp>(loc, type, /*device=*/nullptr, shape, /*dtype=*/nullptr,
+                      /*layout=*/nullptr, /*memoryConfig=*/nullptr)
       .getOperation();
 };
 
-const ExpectedResult namedFullExpected{true, 0, 0, 0};
+const ExpectedResult namedFullExpected{true, 0, 0, 0, 0};
 
 const std::vector<NamedFullOpTestParams> namedFullOpTestParams = {
     {"Zeros", createZeros, namedFullExpected},
@@ -3178,12 +3987,11 @@ TEST_F(OpModelBase, FullOpInterface) {
                                   TensorMemoryLayout::Interleaved);
   auto outputType =
       createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
-  auto fullInt =
-      builder.create<FullOp>(builder.getUnknownLoc(), outputType,
-                             ttnn::ShapeAttr::get(&context, tensorShape),
-                             builder.getI32IntegerAttr(42),
-                             /*dtype=*/nullptr, /*layout=*/nullptr,
-                             /*device=*/nullptr, /*memoryConfig=*/nullptr);
+  auto fullInt = builder.create<FullOp>(
+      builder.getUnknownLoc(), outputType, /*device=*/nullptr,
+      ttnn::ShapeAttr::get(&context, tensorShape),
+      builder.getI32IntegerAttr(42),
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
 
   // test FullOp interface with int fill value:
   auto backendI = dyn_cast<OpModel>(fullInt.getOperation());
@@ -3191,9 +3999,10 @@ TEST_F(OpModelBase, FullOpInterface) {
       backendI.getOpConstraints(getInputLayouts(fullInt), OpConfig(nullptr));
   if (constraintsExpI) {
     auto l1 = constraintsExpI.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3202,18 +4011,18 @@ TEST_F(OpModelBase, FullOpInterface) {
 
   // test FullOp interface with float fill value:
   auto fullF = builder.create<FullOp>(
-      builder.getUnknownLoc(), outputType,
+      builder.getUnknownLoc(), outputType, /*device=*/nullptr,
       ttnn::ShapeAttr::get(&context, tensorShape), builder.getF32FloatAttr(0.5),
-      /*dtype=*/nullptr, /*layout=*/nullptr,
-      /*device=*/nullptr, /*memoryConfig=*/nullptr);
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
   auto backendF = dyn_cast<OpModel>(fullF.getOperation());
   auto constraintsExpF =
       backendF.getOpConstraints(getInputLayouts(fullF), OpConfig(nullptr));
   if (constraintsExpF) {
     auto l1 = constraintsExpF.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3236,18 +4045,59 @@ TEST_F(OpModelBase, ConstantOpInterface) {
   mlir::DenseElementsAttr attr =
       mlir::DenseElementsAttr::get(tensorType, dataRef);
 
-  auto constant =
-      builder.create<ConstantOp>(builder.getUnknownLoc(), outputType, attr);
+  auto constant = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
 
   auto backend = dyn_cast<OpModel>(constant.getOperation());
   auto constraintsExp = backend.getOpConstraints(getInputLayouts(constant),
                                                  OpConfig(outputLayout));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 4096);
+    EXPECT_EQ(l1PeakSize, 4096);
     EXPECT_EQ(outputSize, 4096);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+}
+
+TEST_F(OpModelBase, ConstantOpInterfaceBF16) {
+  llvm::SmallVector<int64_t> tensorShape = {2, 2};
+  mlir::Type elementType = builder.getBF16Type();
+  auto outputType = createRankedTensorType(tensorShape, elementType);
+  auto outputLayout = CreateTiledLayout(tensorShape, BufferType::L1,
+                                        TensorMemoryLayout::Interleaved);
+  mlir::RankedTensorType tensorType =
+      mlir::RankedTensorType::get(tensorShape, elementType);
+
+  std::vector<llvm::APFloat> bfloats;
+  const llvm::fltSemantics &bfloatSemantics = llvm::APFloatBase::BFloat();
+  bfloats.emplace_back(bfloatSemantics, "1.0");
+  bfloats.emplace_back(bfloatSemantics, "2.0");
+  bfloats.emplace_back(bfloatSemantics, "3.0");
+  bfloats.emplace_back(bfloatSemantics, "4.0");
+
+  mlir::DenseElementsAttr attr = mlir::DenseElementsAttr::get(
+      tensorType, llvm::ArrayRef<llvm::APFloat>(bfloats));
+
+  auto constant = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
+
+  auto backend = dyn_cast<OpModel>(constant.getOperation());
+  auto constraintsExp = backend.getOpConstraints(getInputLayouts(constant),
+                                                 OpConfig(outputLayout));
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(l1PeakSize, 2048);
+    EXPECT_EQ(outputSize, 2048);
   } else {
     FAIL() << "Missing L1 constraints; Error="
            << llvm::toString(constraintsExp.takeError()) << std::endl;
@@ -3270,17 +4120,19 @@ TEST_F(OpModelBase, ConstantOpInterfaceNullOutputLayout) {
   mlir::DenseElementsAttr attr =
       mlir::DenseElementsAttr::get(tensorType, dataRef);
 
-  auto constant =
-      builder.create<ConstantOp>(builder.getUnknownLoc(), outputType, attr);
+  auto constant = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), outputType, /*device=*/nullptr, attr,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memoryConfig=*/nullptr);
 
   auto backend = dyn_cast<OpModel>(constant.getOperation());
   auto constraintsExp =
       backend.getOpConstraints(getInputLayouts(constant), OpConfig(nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 0);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints; Error="
@@ -3304,10 +4156,10 @@ TEST_F(OpModelBase, RandOpInterface) {
 
   // Create RandOp with default parameters (low=0.0, high=1.0, seed=0)
   auto randOp = builder.create<RandOp>(
-      builder.getUnknownLoc(), outputType,
-      ttnn::ShapeAttr::get(&context, tensorShape), device,
-      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr,
-      /*low=*/nullptr, /*high=*/nullptr, /*seed=*/nullptr);
+      builder.getUnknownLoc(), outputType, device,
+      ttnn::ShapeAttr::get(&context, tensorShape),
+      /*low=*/nullptr, /*high=*/nullptr, /*seed=*/nullptr,
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
   // Test RandOp interface
   auto backend = dyn_cast<OpModel>(randOp.getOperation());
@@ -3315,9 +4167,10 @@ TEST_F(OpModelBase, RandOpInterface) {
       backend.getOpConstraints(getInputLayouts(randOp), OpConfig(nullptr));
   if (constraintsExp) {
     auto l1 = constraintsExp.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints for RandOp (default params); Error="
@@ -3326,12 +4179,12 @@ TEST_F(OpModelBase, RandOpInterface) {
 
   // Test RandOp with custom parameters
   auto randOpCustom = builder.create<RandOp>(
-      builder.getUnknownLoc(), outputType,
-      ttnn::ShapeAttr::get(&context, tensorShape), device,
-      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr,
-      builder.getF32FloatAttr(-1.0),   // low
-      builder.getF32FloatAttr(2.0),    // high
-      builder.getUI32IntegerAttr(42)); // seed
+      builder.getUnknownLoc(), outputType, device,
+      ttnn::ShapeAttr::get(&context, tensorShape),
+      builder.getF32FloatAttr(-1.0),  // low
+      builder.getF32FloatAttr(2.0),   // high
+      builder.getUI32IntegerAttr(42), // seed
+      /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
   // Test RandOp interface with custom parameters
   auto backendCustom = dyn_cast<OpModel>(randOpCustom.getOperation());
@@ -3339,13 +4192,510 @@ TEST_F(OpModelBase, RandOpInterface) {
       getInputLayouts(randOpCustom), OpConfig(nullptr));
   if (constraintsExpCustom) {
     auto l1 = constraintsExpCustom.get();
-    const auto [cbSize, peakSize, outputSize, outputLayout] = l1;
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
     EXPECT_EQ(cbSize, 12288);
-    EXPECT_EQ(peakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints for RandOp (custom params); Error="
            << llvm::toString(constraintsExpCustom.takeError()) << std::endl;
+  }
+}
+
+TEST_F(OpModelBase, DeallocateOpInterface) {
+  // Test basic DeallocateOp with L1 memory
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  auto inputTensor = createEmptyTensor(tensorShape);
+  auto deallocate =
+      builder.create<DeallocateOp>(builder.getUnknownLoc(), inputTensor,
+                                   /*force=*/false);
+
+  auto backend = dyn_cast<OpModel>(deallocate.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(deallocate.getOperation()), OpConfig());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        l1;
+    // Hardcoded to return zero; deallocate op has no memory footprint.
+    EXPECT_EQ(cbSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for DeallocateOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(deallocate.getOperation()), OpConfig());
+  if (runtimeExp) {
+    EXPECT_GE(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for DeallocateOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, FillCacheOpInterface) {
+  // Test FillCacheOp with cache and input tensors
+  llvm::SmallVector<int64_t> cacheShape = {1, 32, 64, 512};
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 3, 512};
+
+  auto cacheTensor = createEmptyTensor(cacheShape);
+  auto inputTensor = createEmptyTensor(inputShape);
+
+  // Create FillCacheOp with batch_offset = 0 (no result type - it's in-place)
+  auto fillCache =
+      builder.create<FillCacheOp>(builder.getUnknownLoc(), cacheTensor,
+                                  inputTensor, builder.getI32IntegerAttr(0));
+
+  // Test OpModel interface
+  auto backend = dyn_cast<OpModel>(fillCache.getOperation());
+  ASSERT_TRUE(backend);
+
+  // Test getOpConstraints
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(fillCache.getOperation()), OpConfig());
+  if (constraintsExp) {
+    auto constraints = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        constraints;
+    // Basic validation that constraints are reasonable
+    EXPECT_EQ(cbSize, 4096);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 32768);
+  } else {
+    FAIL() << "Missing constraints for FillCacheOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test getOpRuntime
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(fillCache.getOperation()), OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for FillCacheOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, UpdateCacheOpInterface) {
+  // Test UpdateCacheOp with cache, input, and update_index tensors
+  llvm::SmallVector<int64_t> cacheShape = {1, 32, 64, 512};
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 3, 512};
+  llvm::SmallVector<int64_t> updateIndexShape = {1};
+
+  auto cacheTensor = createEmptyTensor(cacheShape);
+  auto inputTensor = createEmptyTensor(inputShape);
+  auto updateIndexTensor = createEmptyTensor(updateIndexShape);
+
+  // Create UpdateCacheOp with batch_offset = 0 (no result type - it's in-place)
+  auto updateCache = builder.create<UpdateCacheOp>(
+      builder.getUnknownLoc(), cacheTensor, inputTensor, updateIndexTensor,
+      builder.getI32IntegerAttr(0));
+
+  // Test OpModel interface
+  auto backend = dyn_cast<OpModel>(updateCache.getOperation());
+  ASSERT_TRUE(backend);
+
+  // Test getOpConstraints
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(updateCache.getOperation()), OpConfig());
+  if (constraintsExp) {
+    auto constraints = constraintsExp.get();
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+        constraints;
+    // Basic validation that constraints are reasonable
+    EXPECT_EQ(cbSize, 1310720);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 32768);
+  } else {
+    FAIL() << "Missing constraints for UpdateCacheOp; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  // Test getOpRuntime
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(updateCache.getOperation()), OpConfig());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << "Error getting runtime for UpdateCacheOp: "
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, QuantizeOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {32, 64};
+  llvm::SmallVector<int64_t> scaleShape = {64};
+  llvm::SmallVector<int64_t> zeroPointShape = {64};
+  llvm::SmallVector<int64_t> outputShape = {32, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto scale = createEmptyTensor(scaleShape);
+
+  // Create zero_point tensor with explicit Int32 layout (required by quantize
+  // operation)
+  auto zeroPointLayout = CreateTiledLayoutInt32(
+      zeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto zeroPoint =
+      createEmptyTensor(zeroPointShape, builder.getI32Type(), zeroPointLayout);
+
+  // Create output type with int32 data type (required by quantize operation)
+  auto int32Layout = CreateTiledLayoutInt32(outputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto intType = builder.getIntegerType(32);
+  auto outputType =
+      mlir::RankedTensorType::get(outputShape, intType, int32Layout);
+
+  auto quantizeOp = builder.create<QuantizeOp>(
+      builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
+      builder.getI32IntegerAttr(1), // axis = 1
+      ttcore::DataTypeAttr::get(
+          &context,
+          ttcore::DataType::Int32), // output_dtype explicitly set to Int32
+      nullptr);
+
+  // Test QuantizeOp interface
+  OpModel backend = dyn_cast<OpModel>(quantizeOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(quantizeOp), OpConfig(getOutputLayout(quantizeOp)));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_GE(cbSize, 18432);
+  EXPECT_GE(l1PeakSize, 12288);
+  EXPECT_GE(totalPeakSize, 28672); // smaller than 18432+12288
+  EXPECT_GE(outputSize, 4096);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+
+  auto runtimeExp = backend.getOpRuntime(getInputLayouts(quantizeOp),
+                                         OpConfig(getOutputLayout(quantizeOp)));
+  EXPECT_EQ(static_cast<bool>(runtimeExp), true);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, QuantizeOpInterfaceNullOutput) {
+  // Test with null output layout
+  llvm::SmallVector<int64_t> inputShape = {16, 32};
+  llvm::SmallVector<int64_t> scaleShape = {32};
+  llvm::SmallVector<int64_t> zeroPointShape = {32};
+  llvm::SmallVector<int64_t> outputShape = {16, 32};
+
+  auto input = createEmptyTensor(inputShape);
+  auto scale = createEmptyTensor(scaleShape);
+
+  auto zeroPointLayout = CreateTiledLayoutInt32(
+      zeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto zeroPoint =
+      createEmptyTensor(zeroPointShape, builder.getI32Type(), zeroPointLayout);
+
+  auto int32Layout = CreateTiledLayoutInt32(outputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto intType = builder.getIntegerType(32);
+  auto outputType =
+      mlir::RankedTensorType::get(outputShape, intType, int32Layout);
+
+  auto quantizeOp = builder.create<QuantizeOp>(
+      builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
+      builder.getI32IntegerAttr(1), // axis = 1
+      ttcore::DataTypeAttr::get(
+          &context,
+          ttcore::DataType::Int32), // output_dtype explicitly set to Int32
+      nullptr);
+
+  // Test with null output layout
+  OpModel backend = dyn_cast<OpModel>(quantizeOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(quantizeOp), OpConfig(/*outputLayout=*/nullptr));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_GE(cbSize, 18432);
+  EXPECT_GE(l1PeakSize, 12288);
+  EXPECT_GE(totalPeakSize, 28672); // smaller than 18432+12288
+  EXPECT_GE(outputSize, 4096);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+
+  // Test runtime
+  auto runtimeExp = backend.getOpRuntime(getInputLayouts(quantizeOp),
+                                         OpConfig(/*outputLayout=*/nullptr));
+  EXPECT_EQ(static_cast<bool>(runtimeExp), true);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, RequantizeOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {32, 64};
+  llvm::SmallVector<int64_t> inScaleShape = {64};
+  llvm::SmallVector<int64_t> inZeroPointShape = {64};
+  llvm::SmallVector<int64_t> outScaleShape = {64};
+  llvm::SmallVector<int64_t> outZeroPointShape = {64};
+  llvm::SmallVector<int64_t> outputShape = {32, 64};
+
+  // Create input tensor with explicit Int32 layout (RequantizeOp input must be
+  // int32)
+  auto inputLayout = CreateTiledLayoutInt32(inputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto input = createEmptyTensor(inputShape, builder.getI32Type(), inputLayout);
+
+  auto inScale = createEmptyTensor(inScaleShape);
+  auto outScale = createEmptyTensor(outScaleShape);
+
+  auto inZeroPointLayout = CreateTiledLayoutInt32(
+      inZeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto inZeroPoint = createEmptyTensor(inZeroPointShape, builder.getI32Type(),
+                                       inZeroPointLayout);
+
+  auto outZeroPointLayout = CreateTiledLayoutInt32(
+      outZeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto outZeroPoint = createEmptyTensor(outZeroPointShape, builder.getI32Type(),
+                                        outZeroPointLayout);
+
+  auto int32Layout = CreateTiledLayoutInt32(outputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto intType = builder.getIntegerType(32);
+  auto outputType =
+      mlir::RankedTensorType::get(outputShape, intType, int32Layout);
+
+  auto requantizeOp = builder.create<RequantizeOp>(
+      builder.getUnknownLoc(), outputType, input, inScale, inZeroPoint,
+      outScale, outZeroPoint,
+      builder.getI32IntegerAttr(1), // axis = 1
+      ttcore::DataTypeAttr::get(
+          &context,
+          ttcore::DataType::Int32), // output_dtype explicitly set to Int32
+      nullptr);
+
+  // Test RequantizeOp interface
+  OpModel backend = dyn_cast<OpModel>(requantizeOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(requantizeOp), OpConfig(getOutputLayout(requantizeOp)));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_GE(cbSize, 32768);
+  EXPECT_GE(l1PeakSize, 40960);
+  EXPECT_GE(totalPeakSize, 32768 + 40960);
+  EXPECT_GE(outputSize, 4096);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(requantizeOp), OpConfig(getOutputLayout(requantizeOp)));
+  EXPECT_EQ(static_cast<bool>(runtimeExp), true);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, RequantizeOpInterfaceNullOutput) {
+  // Test with null output layout
+  llvm::SmallVector<int64_t> inputShape = {16, 32};
+  llvm::SmallVector<int64_t> inScaleShape = {32};
+  llvm::SmallVector<int64_t> inZeroPointShape = {32};
+  llvm::SmallVector<int64_t> outScaleShape = {32};
+  llvm::SmallVector<int64_t> outZeroPointShape = {32};
+  llvm::SmallVector<int64_t> outputShape = {16, 32};
+
+  // Create input tensor with explicit Int32 layout (RequantizeOp input must be
+  // int32)
+  auto inputLayout = CreateTiledLayoutInt32(inputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto input = createEmptyTensor(inputShape, builder.getI32Type(), inputLayout);
+
+  auto inScale = createEmptyTensor(inScaleShape);
+  auto outScale = createEmptyTensor(outScaleShape);
+
+  auto inZeroPointLayout = CreateTiledLayoutInt32(
+      inZeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto inZeroPoint = createEmptyTensor(inZeroPointShape, builder.getI32Type(),
+                                       inZeroPointLayout);
+
+  auto outZeroPointLayout = CreateTiledLayoutInt32(
+      outZeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto outZeroPoint = createEmptyTensor(outZeroPointShape, builder.getI32Type(),
+                                        outZeroPointLayout);
+
+  auto int32Layout = CreateTiledLayoutInt32(outputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto intType = builder.getIntegerType(32);
+  auto outputType =
+      mlir::RankedTensorType::get(outputShape, intType, int32Layout);
+
+  auto requantizeOp = builder.create<RequantizeOp>(
+      builder.getUnknownLoc(), outputType, input, inScale, inZeroPoint,
+      outScale, outZeroPoint,
+      builder.getI32IntegerAttr(1), // axis = 1
+      ttcore::DataTypeAttr::get(
+          &context,
+          ttcore::DataType::Int32), // output_dtype explicitly set to Int32
+      nullptr);
+
+  // Test with null output layout
+  OpModel backend = dyn_cast<OpModel>(requantizeOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(requantizeOp), OpConfig(/*outputLayout=*/nullptr));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_GE(cbSize, 32768);
+  EXPECT_GE(l1PeakSize, 40960);
+  EXPECT_GE(totalPeakSize, 32768 + 40960);
+  EXPECT_GE(outputSize, 4096);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+
+  // Test runtime
+  auto runtimeExp = backend.getOpRuntime(getInputLayouts(requantizeOp),
+                                         OpConfig(/*outputLayout=*/nullptr));
+  EXPECT_EQ(static_cast<bool>(runtimeExp), true);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, DequantizeOpInterface) {
+  llvm::SmallVector<int64_t> inputShape = {32, 64};
+  llvm::SmallVector<int64_t> scaleShape = {64};
+  llvm::SmallVector<int64_t> zeroPointShape = {64};
+  llvm::SmallVector<int64_t> outputShape = {32, 64};
+
+  // Create input tensor with explicit Int32 layout
+  auto inputLayout = CreateTiledLayoutInt32(inputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto input = createEmptyTensor(inputShape, builder.getI32Type(), inputLayout);
+
+  auto scale = createEmptyTensor(scaleShape);
+
+  auto zeroPointLayout = CreateTiledLayoutInt32(
+      zeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto zeroPoint =
+      createEmptyTensor(zeroPointShape, builder.getI32Type(), zeroPointLayout);
+
+  // Create output type with BF16 data type
+  auto outputType = createRankedTensorType(outputShape, builder.getBF16Type());
+
+  auto dequantizeOp = builder.create<DequantizeOp>(
+      builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
+      builder.getI32IntegerAttr(1), // axis = 1
+      ttcore::DataTypeAttr::get(
+          &context,
+          ttcore::DataType::BFloat16), // output_dtype explicitly set to BF16
+      nullptr);
+
+  // Test DequantizeOp interface
+  OpModel backend = dyn_cast<OpModel>(dequantizeOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(dequantizeOp), OpConfig(getOutputLayout(dequantizeOp)));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_GE(cbSize, 32768);
+  EXPECT_GE(l1PeakSize, 18432);
+  EXPECT_GE(totalPeakSize, 32768 + 18432);
+  EXPECT_GE(outputSize, 2048);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_EQ(outputLayout.getLayout(), Layout::Tile);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+
+  auto runtimeExp = backend.getOpRuntime(
+      getInputLayouts(dequantizeOp), OpConfig(getOutputLayout(dequantizeOp)));
+  EXPECT_EQ(static_cast<bool>(runtimeExp), true);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, DequantizeOpInterfaceNullOutput) {
+  // Test with null output layout
+  llvm::SmallVector<int64_t> inputShape = {16, 32};
+  llvm::SmallVector<int64_t> scaleShape = {32};
+  llvm::SmallVector<int64_t> zeroPointShape = {32};
+  llvm::SmallVector<int64_t> outputShape = {16, 32};
+
+  // Create input tensor with explicit Int32 layout (DequantizeOp input must be
+  // int32)
+  auto inputLayout = CreateTiledLayoutInt32(inputShape, BufferType::L1,
+                                            TensorMemoryLayout::Interleaved);
+  auto input = createEmptyTensor(inputShape, builder.getI32Type(), inputLayout);
+
+  auto scale = createEmptyTensor(scaleShape);
+
+  auto zeroPointLayout = CreateTiledLayoutInt32(
+      zeroPointShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  auto zeroPoint =
+      createEmptyTensor(zeroPointShape, builder.getI32Type(), zeroPointLayout);
+
+  auto outputType = createRankedTensorType(outputShape, builder.getBF16Type());
+
+  auto dequantizeOp = builder.create<DequantizeOp>(
+      builder.getUnknownLoc(), outputType, input, scale, zeroPoint,
+      builder.getI32IntegerAttr(1), // axis = 1
+      ttcore::DataTypeAttr::get(
+          &context,
+          ttcore::DataType::BFloat16), // output_dtype explicitly set to BF16
+      nullptr);
+
+  // Test with null output layout
+  OpModel backend = dyn_cast<OpModel>(dequantizeOp.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(dequantizeOp), OpConfig(/*outputLayout=*/nullptr));
+
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+
+  EXPECT_GE(cbSize, 32768);
+  EXPECT_GE(l1PeakSize, 18432);
+  EXPECT_GE(totalPeakSize, 32768 + 18432);
+  EXPECT_GE(outputSize, 2048);
+
+  ASSERT_TRUE(outputLayout);
+  EXPECT_TRUE(outputLayout.hasInterleavedL1TensorMemoryLayout());
+
+  // Test runtime
+  auto runtimeExp = backend.getOpRuntime(getInputLayouts(dequantizeOp),
+                                         OpConfig(/*outputLayout=*/nullptr));
+  EXPECT_EQ(static_cast<bool>(runtimeExp), true);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
   }
 }
 

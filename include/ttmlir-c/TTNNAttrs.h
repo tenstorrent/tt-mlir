@@ -69,8 +69,7 @@ ttmlirTTNNBufferTypeAttrGet(MlirContext ctx, uint32_t bufferType);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNShardSpecAttrGet(
     MlirContext ctx, MlirAttribute coreRangeSetAttr, MlirAttribute shapeAttr,
-    MlirAttribute shardOrientationAttr, MlirAttribute shardModeAttr,
-    MlirAttribute physicalShardShapeAttr);
+    MlirAttribute shardOrientationAttr);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNMemoryConfigAttrGet(
     MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,

@@ -201,6 +201,23 @@ public:
   }
 };
 
+/// Converts a string representation of tensor dimension shardings into MLIR SDY
+/// DimensionShardingAttr objects. Each dimension's sharding is represented by
+/// curly braces containing zero or more axis references.
+///
+/// Input format: sequence of {axis_refs} where:
+///   - {} represents an unsharded (replicated) dimension
+///   - {"axis_name"} represents sharding along one axis
+///   - {"axis1", "axis2"} represents sharding along multiple axes
+///
+/// Example input strings:
+///   - "{}{}{}{}" - 4D tensor, all dimensions replicated
+///   - "{\"batch\"}{}{}{}" - 4D tensor, first dim sharded on "batch", rest
+///   replicated
+///   - "{\"x\"}{\"y\"}" - 2D tensor, first dim on "x", second dim on "y"
+///   - "{\"batch\", \"model\"}{}" - 2D tensor, first dim sharded on both
+///   "batch" and "model"
+
 // Check if tt argument annotations exist in the module.
 static bool ttAnnotationsExist(mlir::ModuleOp &rootModule) {
   mlir::WalkResult result = rootModule.walk([&](func::FuncOp funcOp) {
@@ -254,12 +271,23 @@ public:
         return;
       }
 
-      // If mesh is 1D, we will bump it up to 2D mesh with dim0 as 1.
       llvm::SmallVector<int64_t> originalMeshShape =
           shardy_utils::getMeshShapeFromMeshAttr(
               parsedMeshOps[0].getMeshAttr());
+
+      if (originalMeshShape.size() > 2) {
+        rootModule.emitError("Currently, only 1D and 2D meshes are supported");
+        signalPassFailure();
+        return;
+      }
+
+      // If the mesh is not 2D (or if the mesh is empty), we need to update the
+      // mesh to either insert a 1x1 mesh (if the mesh is empty), or bump up a
+      // 1D mesh to 1xn.
       llvm::SmallVector<int64_t> newMeshShape = originalMeshShape;
-      if (newMeshShape.size() == 1) {
+      if (newMeshShape.size() == 0) {
+        newMeshShape = {1, 1};
+      } else if (newMeshShape.size() == 1) {
         newMeshShape = {1, newMeshShape[0]};
       }
 
@@ -272,21 +300,21 @@ public:
 
       // If mesh shape was changed, insert the new mesh shape.
       if (originalMeshShape != newMeshShape) {
-        shardy_utils::removeMeshOps(rootModule);
-
         // Get the old mesh axis name. We will make the new dim0 "1" axis name
         // from the old mesh axis name. This is to ensure that we don't have
         // duplicate axis names in the mesh.
-        std::string existingAxisName;
+        std::string existingAxisName = "default";
         for (auto meshAxisAttr : parsedMeshOps[0].getMeshAttr().getAxes()) {
           existingAxisName = meshAxisAttr.getName().str();
         }
         std::string newAxisName = existingAxisName + "_updated";
 
         // Create the new mesh.
-        shardy_utils::addMeshToModule(
-            rootModule, parsedMeshOps[0].getSymName().str(), newAxisName,
-            existingAxisName, newMeshShape[0], newMeshShape[1]);
+        std::string meshOpName = parsedMeshOps[0].getSymName().str();
+        shardy_utils::removeMeshOps(rootModule);
+        shardy_utils::addMeshToModule(rootModule, meshOpName, newAxisName,
+                                      existingAxisName, newMeshShape[0],
+                                      newMeshShape[1]);
       }
 
       // Check if the graph is already solved by shardy. If so, we will remove
@@ -303,6 +331,7 @@ public:
     // If gspmd annotations exist, analyze the graph and determine the mesh
     // shape. Then we can add it to the module as a sdy.meshOp.
     if (gspmdAnnotationsExist) {
+
       llvm::Expected<llvm::SmallVector<llvm::SmallVector<int64_t>>>
           parsedMeshes = gspmd_utils::parseMeshesFromGspmdModule(rootModule);
 

@@ -12,11 +12,19 @@ namespace mlir::tt::sharding_utils {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 
+// SDY sharding related string definitions.
+inline constexpr llvm::StringRef kXlaSdyShardingAttr = "xla.sdy.sharding";
+inline constexpr llvm::StringRef kXlaSdyMeshesAttr = "xla.sdy.meshes";
+inline constexpr llvm::StringRef kDefaultMeshName = "mesh";
+
 inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
     SupportedMeshes = {
         {{1, 1}, {1, 2}, {1, 4}, {1, 8}, {2, 4}, {1, 32}, {8, 4}}};
 
 // Check if the meshMap is valid.
+// todo: https://github.com/tenstorrent/tt-mlir/issues/4668
+// Currently we only support a few mesh shapes. We need to extend this to
+// support more mesh shapes (like 1x3, 2x5 etc).
 inline mlir::LogicalResult
 checkValidMesh(llvm::SmallVector<int64_t> meshShape) {
   return mlir::success(

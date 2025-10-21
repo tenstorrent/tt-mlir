@@ -34,6 +34,9 @@
 #include "ttnn/operations/eltwise/ternary/where/where.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
+#include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
+#include "ttnn/operations/generic/generic_op.hpp"
 #include "ttnn/operations/kv_cache/kv_cache.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
 #include "ttnn/operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
@@ -48,7 +51,11 @@
 #include "ttnn/operations/reduction/prod/prod.hpp"
 #include "ttnn/operations/trace.hpp"
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
+#include "ttnn/operations/transformer/sdpa/sdpa.hpp"
+#include "ttnn/operations/transformer/sdpa_decode/sdpa_decode.hpp"
+#include "ttnn/operations/transformer/split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.hpp"
 #include "ttnn/tensor/host_buffer/functions.hpp"
+#include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
@@ -191,6 +198,7 @@ void wait(::tt::runtime::Tensor tensor,
 void wait(const std::vector<::tt::runtime::Tensor> &tensors,
           std::optional<uint8_t> cqId = std::nullopt);
 
+uint32_t getNumShards(::tt::runtime::Tensor tensor);
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize = false,
                                           bool blocking = true);
@@ -198,6 +206,8 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
                                Layout layout,
                                std::optional<bool> retain = std::nullopt);
+
+bool hasLayout(Tensor tensor, Layout layout);
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
@@ -213,8 +223,9 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-::tt::runtime::Tensor getOpOutputTensor(OpContext opContextHandle,
-                                        CallbackContext programContextHandle);
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
 
 // Returns reference to the output tensor of the operation
 // if the operation does not have an output tensor, returns std::nullopt
@@ -242,6 +253,13 @@ void updateTensorInPool(CallbackContext programContextHandle,
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs);
+
+// Dumps tensor data to a file in binary format
+void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath);
+
+// Loads tensor data from a binary file
+::tt::runtime::Tensor loadTensor(const std::string &filePath,
+                                 std::optional<Device> device = std::nullopt);
 
 } // namespace tt::runtime::ttnn
 

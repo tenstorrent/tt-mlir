@@ -19,11 +19,6 @@ enum ShardOrientation: uint32 {
   ColMajor,
 }
 
-enum ShardMode: uint32 {
-  Physical,
-  Logical,
-}
-
 struct CoreCoord {
   x: uint64;
   y: uint64;
@@ -54,23 +49,10 @@ table AllGatherTensor {
 
 }
 
-union DistributedTensorConfig {
-  ReplicateTensor,
-  ShardTensor,
-  ShardTensor2D,
-  AllGatherTensor
-}
-
-table DistributionStrategy {
-  strategy: DistributedTensorConfig;
-}
-
 table ShardSpec {
   core_range_set: CoreRangeSet;
   shape: [int32];
   orientation: ShardOrientation;
-  mode: ShardMode;
-  physical_shard_shape: [int32];
 }
 
 table MemoryConfig {
@@ -84,13 +66,11 @@ table MemoryDesc {
   tile_shape: Dim2d;
   data_type: DataType;
   memory_config: MemoryConfig;
-  size: uint64;
 }
 
 table LayoutDesc {
   oob_val: OOBVal;
   memory_desc: MemoryDesc;
-  strategy: DistributionStrategy;
 }
 
 table TensorDesc {
@@ -101,6 +81,13 @@ table TensorDesc {
 
 table TensorRef {
   global_id: uint32;
-  size: uint64;
   desc: TensorDesc;
+}
+
+table FloatingPointType {
+  value: float;
+}
+
+table UIntegralType {
+  value: uint32;
 }

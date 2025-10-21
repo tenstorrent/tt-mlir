@@ -253,18 +253,6 @@ def TTNN_ShardOrientation : I32EnumAttr<"ShardOrientation", "TTNN ShardOrientati
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
-def TTNN_ShardMode_Physical : I32EnumAttrCase<"Physical", 0, "physical">;
-def TTNN_ShardMode_Logical : I32EnumAttrCase<"Logical", 1, "logical">;
-
-def TTNN_ShardMode : I32EnumAttr<"ShardMode", "TTNN ShardMode",
-                           [
-                            TTNN_ShardMode_Physical,
-                            TTNN_ShardMode_Logical
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt::ttnn";
-}
-
 def TTNN_MathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
 def TTNN_MathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
 def TTNN_MathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;
@@ -278,6 +266,54 @@ def TTNN_MathFidelity : I32EnumAttr<"MathFidelity", "TT MathFidelity",
                             TTNN_MathFidelityHiFi4,
                            ]> {
   let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_ComputeKernelMathFidelityLoFi : I32EnumAttrCase<"LoFi", 0, "lofi">;
+def TTNN_ComputeKernelMathFidelityHiFi2 : I32EnumAttrCase<"HiFi2", 2, "hifi2">;
+def TTNN_ComputeKernelMathFidelityHiFi3 : I32EnumAttrCase<"HiFi3", 3, "hifi3">;
+def TTNN_ComputeKernelMathFidelityHiFi4 : I32EnumAttrCase<"HiFi4", 4, "hifi4">;
+
+def TTNN_ComputeKernelMathFidelity : I32EnumAttr<"ComputeKernelMathFidelity", "TT ComputeKernelMathFidelity",
+                           [
+                            TTNN_ComputeKernelMathFidelityLoFi,
+                            TTNN_ComputeKernelMathFidelityHiFi2,
+                            TTNN_ComputeKernelMathFidelityHiFi3,
+                            TTNN_ComputeKernelMathFidelityHiFi4,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_ComputeKernelUnpackToDestFp32 : I32EnumAttrCase<"Fp32", 0, "fp32">;
+def TTNN_ComputeKernelUnpackToDestDefault : I32EnumAttrCase<"Default", 1, "default">;
+
+def TTNN_ComputeKernelUnpackToDestMode : I32EnumAttr<"ComputeKernelUnpackToDestMode", "TT ComputeKernelUnpackToDestMode",
+                           [
+                            TTNN_ComputeKernelUnpackToDestFp32,
+                            TTNN_ComputeKernelUnpackToDestDefault,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_KernelCoreTypeWorker : I32EnumAttrCase<"Worker", 0, "worker">;
+def TTNN_KernelCoreTypeEth : I32EnumAttrCase<"Eth", 1, "eth">;
+
+def TTNN_KernelCoreType : I32EnumAttr<"KernelCoreType", "TT KernelCoreType",
+                           [
+                            TTNN_KernelCoreTypeWorker,
+                            TTNN_KernelCoreTypeEth,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_Conv2dSliceType : I32EnumAttr<"Conv2dSliceType", "Conv2d slice type", [
+  I32EnumAttrCase<"DramHeight", 0, "dram_height">,
+  I32EnumAttrCase<"DramWidth", 1, "dram_width">,
+  I32EnumAttrCase<"L1Full", 2, "l1_full">,
+]> {
   let cppNamespace = "::mlir::tt::ttnn";
 }
 

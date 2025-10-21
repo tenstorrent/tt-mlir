@@ -18,15 +18,15 @@ You can use tt-mlir with Ubuntu or Mac OS, however the runtime does not work on 
 - Clang >= 14 & <= 18
 - Ninja
 - CMake 3.24 or higher
-- Python 3.10
-- python3.10-venv
+- Python 3.11
+- python3.11-venv
 
 #### Ubuntu
 
-Install Clang, Ninja, CMake, and python3.10-venv:
+Install Clang, Ninja, CMake, and python3.11-venv:
 
 ```bash
-sudo apt install git clang cmake ninja-build pip python3.10-venv
+sudo apt install git clang cmake ninja-build pip python3.11-venv
 ```
 
 You should now have the required dependencies installed.
@@ -79,8 +79,8 @@ This section explains how to manually build the environment so you can use tt-ml
 
 ```bash
 export TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain/
-sudo mkdir -p /opt/ttmlir-toolchain
-sudo chown -R $USER /opt/ttmlir-toolchain
+sudo mkdir -p "${TTMLIR_TOOLCHAIN_DIR}"
+sudo chown -R "${USER}" "${TTMLIR_TOOLCHAIN_DIR}"
 ```
 
 3. Please ensure that you do not already have an environment (venv) activated before running the following commands:

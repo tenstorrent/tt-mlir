@@ -34,10 +34,15 @@ table KernelCBFormat {
   page_size: uint32;
 }
 
+table KernelGlobalCBIndexOfTensor {
+  tensor_operand_index: uint32;
+}
+
 table KernelCBDescriptor {
   total_size: uint32;
   core_range: tt.target.ttnn.CoreRangeSet;
   formats: [KernelCBFormat];
+  buffer: KernelGlobalCBIndexOfTensor;
 }
 
 table ComputeKernelConfig {

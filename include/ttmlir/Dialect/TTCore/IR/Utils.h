@@ -33,6 +33,8 @@ DeviceAttr lookupDevice(Operation *op, SymbolRefAttr deviceName);
 DeviceAttr lookupDevice(Operation *op,
                         llvm::StringRef deviceName = getDefaultDeviceName());
 
+ChipDescAttr getOpChipDescAttr(Operation *op);
+
 // Create a global memref in the top-level module's symbol table.
 mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, StringRef name,
                                     MemRefType type, ElementsAttr value,
@@ -99,11 +101,31 @@ inline bool valueTracesToConstantArgs(const mlir::Value &value) {
 
   return true;
 }
+
 bool isTiled(RankedTensorType tensorType);
 
 ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType);
 
 ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType);
+
+llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape);
+
+// Retrieve the layout from the shaped type (ie. getEncoding for tensors and
+// getLayout for memrefs).
+inline DeviceLayoutInterface getDeviceLayout(ShapedType shapedType) {
+  if (auto tensor = mlir::dyn_cast_if_present<RankedTensorType>(shapedType)) {
+    return mlir::dyn_cast_if_present<DeviceLayoutInterface>(
+        tensor.getEncoding());
+  }
+
+  if (auto memref = mlir::dyn_cast_if_present<MemRefType>(shapedType)) {
+    return mlir::dyn_cast_if_present<DeviceLayoutInterface>(memref.getLayout());
+  }
+
+  return nullptr;
+}
+
+Type getOperandInnerElementType(const mlir::Value operand);
 
 } // namespace mlir::tt::ttcore
 

@@ -8,10 +8,10 @@
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/Mesh.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIRGenericRegionOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -35,6 +35,7 @@
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include "llvm/ADT/StringExtras.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -668,7 +669,39 @@ public:
 
 namespace {
 
-class StableHLOToBatchNormOpConversionPattern
+// Used by both BatchNormInferenceOp and BatchNormTrainingOp.
+template <typename OpType, typename OpAdaptor>
+static LogicalResult
+checkBatchNormConversionLegality(OpType &srcOp, OpAdaptor adaptor,
+                                 ConversionPatternRewriter &rewriter) {
+  auto inputType = mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+  int64_t rank = inputType.getRank();
+  uint64_t featureIndex = srcOp.getFeatureIndex();
+
+  // BatchNorm requires at least 2 dimensions (batch and feature)
+  if (rank < 2) {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        srcOp.getOperationName() + " input must have at least 2 dimensions.");
+  }
+
+  // BatchNorm supports up to 5 dimensions
+  if (rank > 5) {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        srcOp.getOperationName() + " input must have at most 5 dimensions.");
+  }
+
+  // Feature index must be valid
+  if (featureIndex >= static_cast<uint64_t>(rank)) {
+    return rewriter.notifyMatchFailure(
+        srcOp, srcOp.getOperationName() + " feature_index is out of bounds.");
+  }
+
+  return success();
+}
+
+class StableHLOToBatchNormInferenceOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BatchNormInferenceOp> {
 
   using OpConversionPattern<
@@ -679,16 +712,84 @@ public:
   matchAndRewrite(mlir::stablehlo::BatchNormInferenceOp srcOp,
                   mlir::stablehlo::BatchNormInferenceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the conversion.
+    LogicalResult legalityResult =
+        checkBatchNormConversionLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Convert feature_index to dimension attribute
     mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
     IntegerAttr dimensionAttr =
         mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
-    BoolAttr trainingAttr = mlir::BoolAttr::get(rewriter.getContext(), false);
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormOp>(
+
+    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BatchNormInferenceOp>(
         rewriter, srcOp, outputType, adaptor.getOperand(), adaptor.getScale(),
         adaptor.getOffset(), adaptor.getMean(), adaptor.getVariance(),
-        adaptor.getEpsilonAttr(), dimensionAttr, trainingAttr);
+        adaptor.getEpsilonAttr(), dimensionAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToBatchNormTrainingOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::BatchNormTrainingOp> {
+
+  using OpConversionPattern<
+      mlir::stablehlo::BatchNormTrainingOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::BatchNormTrainingOp srcOp,
+                  mlir::stablehlo::BatchNormTrainingOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check legality of the conversion.
+    LogicalResult legalityResult =
+        checkBatchNormConversionLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    auto loc = srcOp.getLoc();
+
+    // Get output types
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+    auto meanType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(1).getType()));
+    auto varianceType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(2).getType()));
+
+    // Convert feature_index to dimension attribute
+    mlir::Type integerType = mlir::IntegerType::get(getContext(), 32);
+    IntegerAttr dimensionAttr =
+        mlir::IntegerAttr::get(integerType, srcOp.getFeatureIndex());
+
+    // Default momentum for batch norm training
+    FloatAttr momentumAttr = rewriter.getF32FloatAttr(0.1f);
+
+    // Create empty tensors for running mean and variance
+    auto runningMean = rewriter.create<ttir::EmptyOp>(loc, meanType);
+    auto runningVariance = rewriter.create<ttir::EmptyOp>(loc, varianceType);
+
+    // Create empty output tensors
+    auto outputEmpty = rewriter.create<ttir::EmptyOp>(loc, outputType);
+    auto batchMeanEmpty = rewriter.create<ttir::EmptyOp>(loc, meanType);
+    auto batchVarianceEmpty = rewriter.create<ttir::EmptyOp>(loc, varianceType);
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormTrainingOp>(
+        srcOp, TypeRange{outputType, meanType, varianceType},
+        adaptor.getOperand(), adaptor.getScale(), adaptor.getOffset(),
+        runningMean, runningVariance,
+        ValueRange{outputEmpty, batchMeanEmpty, batchVarianceEmpty},
+        adaptor.getEpsilonAttr(), dimensionAttr, momentumAttr);
+
     return success();
   }
 };
@@ -2116,8 +2217,8 @@ public:
     // Insert the new MeshShardOp with the generated GSPMDMeshSharding.
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp->getResult(0).getType()));
-    ttir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::MeshShardOp>(
-        rewriter, srcOp, outputType, definingOp.getInputs().front(),
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MeshShardOp>(
+        srcOp, outputType, definingOp.getInputs().front(),
         gspmdMeshSharding->getShardType(),
         gspmdMeshSharding->getShardDirection(),
         gspmdMeshSharding->getShardShape(), gspmdMeshSharding->getShardDims());
@@ -2867,6 +2968,195 @@ private:
 } // namespace
 
 namespace {
+class StableHLOToTTIRRngBitGeneratorOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::RngBitGeneratorOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::RngBitGeneratorOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::RngBitGeneratorOp srcOp,
+                  mlir::stablehlo::RngBitGeneratorOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getOutput().getType()));
+
+    llvm::SmallVector<int32_t> size(outputType.getShape());
+
+    auto floatElementType = rewriter.getF32Type();
+    auto floatOutputType = mlir::RankedTensorType::get(
+        outputType.getShape(), floatElementType, outputType.getEncoding());
+
+    // Use min and max unsigned int value to cover most of the range of uint32.
+    auto fromFloat = rewriter.getF32FloatAttr(
+        static_cast<float>(std::numeric_limits<unsigned int>::min()));
+    auto toFloat = rewriter.getF32FloatAttr(
+        static_cast<float>(std::numeric_limits<unsigned int>::max()));
+
+    // Seed set to 0 is a special case that is equivalent to no seed.
+    // Using any other value would make every flatbuffer run deterministic.
+    auto seed = rewriter.getUI32IntegerAttr(0);
+
+    auto randOp = rewriter.create<mlir::tt::ttir::RandOp>(
+        srcOp.getLoc(), floatOutputType, rewriter.getI32ArrayAttr(size),
+        mlir::TypeAttr::get(floatElementType), fromFloat, toFloat, seed);
+
+    // TODO (pglusac): Change to bit cast once we support it or remove if
+    // rand starts supporting uint32.
+    // See https://github.com/tenstorrent/tt-mlir/issues/5078
+    auto typecastOp =
+        mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::TypecastOp>(
+            rewriter, srcOp.getLoc(), outputType, randOp.getResult());
+
+    // HACK (pglusac): Output state is discarded, initial state is returned as
+    // a result. https://github.com/tenstorrent/tt-mlir/issues/5101
+    rewriter.replaceOp(srcOp,
+                       {adaptor.getInitialState(), typecastOp.getResult()});
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// This pattern recognizes and converts stablehlo.custom_call @tt.fill_cache
+// to ttir.fill_cache.
+class StableHLOFillCacheConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.fill_cache") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 2 || srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "FillCache op must have exactly two operands and one result. Got " +
+              std::to_string(adaptor.getOperands().size()) +
+              " operands "
+              "and " +
+              std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "FillCache op must have mhlo.frontend_attributes attribute.");
+    }
+
+    // Frontend attributes can only be populated via torch-xla as
+    // string-to-string dicts. Thus, our batch_offset will be presented to
+    // tt-mlir as a string.
+    auto batchOffset =
+        frontendAttributes.getAs<mlir::StringAttr>("batch_offset");
+    if (!batchOffset) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "FillCache op must have batch_offset attribute.");
+    }
+
+    int32_t batchOffsetInt = 0;
+    if (!llvm::to_integer(batchOffset.getValue(), batchOffsetInt)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Failed to convert batch_offset string to integer.");
+    }
+
+    if (batchOffsetInt < 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Batch offset must be non-negative. Received " +
+                     std::to_string(batchOffsetInt) + ".");
+    }
+
+    auto cache = adaptor.getOperands()[0];
+    auto input = adaptor.getOperands()[1];
+
+    rewriter.replaceOpWithNewOp<ttir::FillCacheOp>(
+        srcOp, cache.getType(), cache, input, batchOffsetInt);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// This pattern recognizes and converts stablehlo.custom_call @tt.update_cache
+// to ttir.update_cache.
+class StableHLOUpdateCacheConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.update_cache") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 3 || srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "UpdateCache op must have exactly three operands and one "
+                 "result. Got " +
+                     std::to_string(adaptor.getOperands().size()) +
+                     " operands "
+                     "and " +
+                     std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "UpdateCache op must have mhlo.frontend_attributes attribute.");
+    }
+
+    // Frontend attributes can only be populated via torch-xla as
+    // string-to-string dicts. Thus, our batch_offset will be presented to
+    // tt-mlir as a string.
+    auto batchOffset =
+        frontendAttributes.getAs<mlir::StringAttr>("batch_offset");
+    if (!batchOffset) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "UpdateCache op must have batch_offset attribute.");
+    }
+
+    int32_t batchOffsetInt = 0;
+    if (!llvm::to_integer(batchOffset.getValue(), batchOffsetInt)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Failed to convert batch_offset string to integer.");
+    }
+
+    if (batchOffsetInt < 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Batch offset must be non-negative. Received " +
+                     std::to_string(batchOffsetInt) + ".");
+    }
+
+    auto cache = adaptor.getOperands()[0];
+    auto input = adaptor.getOperands()[1];
+    auto updateIndex = adaptor.getOperands()[2];
+
+    rewriter.replaceOpWithNewOp<ttir::UpdateCacheOp>(
+        srcOp, cache.getType(), cache, input, updateIndex, batchOffsetInt);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOErfOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
@@ -2895,6 +3185,262 @@ public:
         cast<RankedTensorType>(
             getTypeConverter()->convertType(srcOp.getResult(0).getType())),
         adaptor.getOperands()[0]);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.scaled_dot_product_attention_decode") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ScaledDotProductAttentionDecode op must have "
+                 "mhlo.frontend_attributes attribute.");
+    }
+
+    auto isCausalStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_causal");
+    bool isCausal = true;
+    if (isCausalStringAttr) {
+
+      if (isCausalStringAttr.getValue().lower() == "true") {
+        isCausal = true;
+      } else if (isCausalStringAttr.getValue().lower() == "false") {
+        isCausal = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "is_causal attribute must be true or false. Received \"" +
+                       isCausalStringAttr.getValue() + "\".");
+      }
+    }
+
+    BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
+
+    auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
+    std::optional<float> scale = std::nullopt;
+    if (scaleStringAttr) {
+      float _scale;
+      if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "scale attribute string must be convertible to float. Received \"" +
+                scaleStringAttr.getValue() + "\".");
+      }
+      scale = _scale;
+    }
+
+    FloatAttr scaleAttr =
+        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
+
+    auto hasAttentionMaskStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
+    bool hasAttentionMask = false;
+    if (!hasAttentionMaskStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_attention_mask attribute must be present.");
+    }
+
+    if (hasAttentionMaskStringAttr.getValue().lower() == "true") {
+      hasAttentionMask = true;
+    } else if (hasAttentionMaskStringAttr.getValue().lower() == "false") {
+      hasAttentionMask = false;
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "has_attention_mask attribute must be true or false. Received \"" +
+              hasAttentionMaskStringAttr.getValue() + "\".");
+    }
+
+    auto hasAttentionSinkStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_sink");
+    bool hasAttentionSink = false;
+    if (!hasAttentionSinkStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "has_attention_sink attribute must be present.");
+    }
+
+    if (hasAttentionSinkStringAttr.getValue().lower() == "true") {
+      hasAttentionSink = true;
+    } else if (hasAttentionSinkStringAttr.getValue().lower() == "false") {
+      hasAttentionSink = false;
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "has_attention_sink attribute must be true or false. Received \"" +
+              hasAttentionSinkStringAttr.getValue() + "\".");
+    }
+
+    Value query = adaptor.getOperands()[0];
+    Value key = adaptor.getOperands()[1];
+    Value value = adaptor.getOperands()[2];
+    Value curPosTensor = adaptor.getOperands()[3];
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    if (hasAttentionMask && hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, adaptor.getOperands()[4],
+          curPosTensor, adaptor.getOperands()[5], outputTensor, scaleAttr);
+    } else if (hasAttentionMask) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, adaptor.getOperands()[4],
+          curPosTensor, nullptr, outputTensor, scaleAttr);
+    } else if (hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, nullptr, curPosTensor,
+          adaptor.getOperands()[4], outputTensor, scaleAttr);
+    } else if (!hasAttentionMask && !hasAttentionSink) {
+      rewriter.replaceOpWithNewOp<
+          mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
+          srcOp,
+          cast<RankedTensorType>(
+              getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+          query, key, value, isCausalAttr, nullptr, curPosTensor, nullptr,
+          outputTensor, scaleAttr);
+    } else {
+      if (hasAttentionMask || hasAttentionSink) {
+        llvm_unreachable("All combinations of attention mask "
+                         "and attention sink should have been handled");
+      }
+    }
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIROpOptimizationBarrierOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::OptimizationBarrierOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::OptimizationBarrierOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::OptimizationBarrierOp srcOp,
+                  mlir::stablehlo::OptimizationBarrierOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> convertedResultTypes;
+    for (auto resultType : srcOp->getResultTypes()) {
+      convertedResultTypes.push_back(
+          this->getTypeConverter()->convertType(resultType));
+    }
+
+    rewriter.replaceOpWithNewOp<ttcore::OptimizationBarrierOp>(
+        srcOp, convertedResultTypes, adaptor.getOperands());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIRScaledDotProductAttentionOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.scaled_dot_product_attention") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ScaledDotProductAttention op must have "
+                 "mhlo.frontend_attributes attribute.");
+    }
+
+    auto isCausalSringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_causal");
+    bool isCausal = true;
+    if (isCausalSringAttr) {
+      if (isCausalSringAttr.getValue().lower() == "true") {
+        isCausal = true;
+      } else if (isCausalSringAttr.getValue().lower() == "false") {
+        isCausal = false;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "is_causal attribute must be true or false. Recived \"" +
+                       isCausalSringAttr.getValue() + "\".");
+      }
+    }
+
+    BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
+
+    auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
+    std::optional<float> scale = std::nullopt;
+    if (scaleStringAttr) {
+      float _scale;
+      if (!llvm::to_float(scaleStringAttr.getValue(), _scale)) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "scale attribute string must be convertible to float. Recived \"" +
+                scaleStringAttr.getValue() + "\".");
+      }
+      scale = _scale;
+    }
+
+    FloatAttr scaleAttr =
+        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
+
+    Value query = adaptor.getOperands()[0];
+    Value key = adaptor.getOperands()[1];
+    Value value = adaptor.getOperands()[2];
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    Value attentionMask = nullptr;
+    if (adaptor.getOperands().size() == 4) {
+      attentionMask = adaptor.getOperands()[3];
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+        srcOp, outputType, query, key, value, attentionMask, outputTensor,
+        isCausalAttr, scaleAttr);
 
     return success();
   }
@@ -3158,13 +3704,24 @@ static void addPadOpConversionPattern(MLIRContext *ctx,
 static void addBatchNormOpConversionPattern(MLIRContext *ctx,
                                             RewritePatternSet &patterns,
                                             TypeConverter &typeConverter) {
-  patterns.add<StableHLOToBatchNormOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToBatchNormInferenceOpConversionPattern>(typeConverter,
+                                                                 ctx);
+  patterns.add<StableHLOToBatchNormTrainingOpConversionPattern>(typeConverter,
+                                                                ctx);
 }
 
 static void addRngOpConversionPattern(MLIRContext *ctx,
                                       RewritePatternSet &patterns,
                                       TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRRngOpConversionPattern>(typeConverter, ctx);
+}
+
+static void
+addRngBitGeneratorOpConversionPattern(MLIRContext *ctx,
+                                      RewritePatternSet &patterns,
+                                      TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRRngBitGeneratorOpConversionPattern>(typeConverter,
+                                                                  ctx);
 }
 
 static void addErfOpConversionPattern(MLIRContext *ctx,
@@ -3178,6 +3735,31 @@ static void addSortOpConversionPattern(MLIRContext *ctx,
                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRSortOpConversionPattern>(typeConverter, ctx);
 }
+
+static void addCacheOpsConversionPattern(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
+  patterns.add<StableHLOFillCacheConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOUpdateCacheConversionPattern>(typeConverter, ctx);
+}
+
+static void
+addOptimizationBarrierOpConversionPattern(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpOptimizationBarrierOpConversionPattern>(
+      typeConverter, ctx);
+}
+
+static void addScaledDotProductAttentionDecodeOpConversionPattern(
+    MLIRContext *ctx, RewritePatternSet &patterns,
+    TypeConverter &typeConverter) {
+  patterns
+      .add<StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern,
+           StableHLOToTTIRScaledDotProductAttentionOpConversionPattern>(
+          typeConverter, ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -3209,8 +3791,13 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addPadOpConversionPattern(ctx, patterns, typeConverter);
   addBatchNormOpConversionPattern(ctx, patterns, typeConverter);
   addRngOpConversionPattern(ctx, patterns, typeConverter);
+  addRngBitGeneratorOpConversionPattern(ctx, patterns, typeConverter);
   addErfOpConversionPattern(ctx, patterns, typeConverter);
   addSortOpConversionPattern(ctx, patterns, typeConverter);
+  addCacheOpsConversionPattern(ctx, patterns, typeConverter);
+  addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);
+  addScaledDotProductAttentionDecodeOpConversionPattern(ctx, patterns,
+                                                        typeConverter);
 }
 
 } // namespace mlir::tt

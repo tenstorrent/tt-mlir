@@ -10,6 +10,7 @@ from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 import torch
 from enum import Enum, auto
 import re
+from collections import OrderedDict
 
 from ttmlir.ir import *
 from ttmlir.dialects import stablehlo, sdy, mpmd
@@ -21,10 +22,77 @@ from builder.base import builder_golden
 class StableHLOBuilder(Builder):
     # ----- Methods -----
 
-    def __init__(self, ctx: Context, location: Location):
-        super().__init__(ctx, location)
+    def __init__(
+        self,
+        ctx: Context,
+        location: Location,
+        mesh_name: Union[List[str], str] = "mesh",
+        mesh_dict: Union[
+            List[OrderedDict[str, int]], OrderedDict[str, int]
+        ] = OrderedDict([("x", 1), ("y", 1)]),
+        disable_golden_check: bool = False,
+    ):
+        super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
+
+        self._arg_attrs: Dict[Operand, Dict[str, Attribute]] = {}
+
+    # ----- Public methods -----
+
+    @property
+    def arg_attrs(self) -> Dict[Operand, Dict[str, Attribute]]:
+        return self._arg_attrs
+
+    def get_arg_attrs(self, func_op: FuncOp) -> ArrayAttr:
+        attrs = []
+        for i, operand in enumerate(self._ordered_inputs):
+            if operand in self._arg_attrs:
+                attrs.append(DictAttr.get(self._arg_attrs[operand]))
+            else:
+                attrs.append(func_op.arg_attrs[i])
+
+        return ArrayAttr.get(attrs)
+
+    def create_sharding_attr_from_tuples(
+        self,
+        mesh_name: str,
+        shardings: List[Tuple[str, bool]],
+        replicated_axes: List[sdy.AxisRefAttr] = [],
+        unreduced_axes: List[sdy.AxisRefAttr] = [],
+    ) -> sdy.TensorShardingPerValueAttr:
+        """
+        Creates a tensor sharding per value attribute from a list of tuples.
+        Each tuple contains a mesh name and a boolean indicating whether the sharding is closed.
+
+        Parameters
+        ----------
+        mesh_name : str
+            The name of the mesh to which the tensor sharding applies
+        shardings : List[Tuple[str, bool]]
+            A list of tuples, each containing a mesh name and a boolean indicating whether the sharding is closed
+
+        Returns
+        -------
+        (*sdy.TensorShardingPerValueAttr*)
+            A tensor sharding per value attribute that describes how tensors are distributed across the mesh
+        """
+        dimension_shardings = []
+        for sharding in shardings:
+            axis_ref_name, is_closed = sharding
+            axes = []
+            if axis_ref_name != "":
+                axes = [self.axis_ref_attr(name=axis_ref_name)]
+            dimension_sharding = self.dimension_sharding_attr(
+                axes=axes, is_closed=is_closed
+            )
+            dimension_shardings.append(dimension_sharding)
+
+        tensor_sharding = self.tensor_sharding_attr(
+            mesh_name, dimension_shardings, replicated_axes, unreduced_axes
+        )
+        return self.tensor_sharding_per_value_attr([tensor_sharding])
 
     # ----- Private Methods ----
+
     def _create_mesh_attr_from_ordered_dict(
         self,
         mesh_dict: OrderedDict[str, int],
@@ -35,11 +103,28 @@ class StableHLOBuilder(Builder):
         ]
         return self.mesh_attr(axes)
 
+    def _get_mesh_attr(self, mesh_name: str) -> sdy.MeshAttr:
+        if mesh_name not in self._meshes:
+            raise ValueError(
+                f"Mesh '{mesh_name}' not found. Available meshes: {list(self._meshes.keys())}"
+            )
+
+        mesh_dict = self._meshes[mesh_name]
+        axes = [
+            self.mesh_axis_attr(name=axis_name, size=size)
+            for axis_name, size in mesh_dict.items()
+        ]
+        return self.mesh_attr(axes)
+
+    def _get_mesh(self, mesh_name: str = "mesh") -> sdy.Mesh:
+        return self.mesh(mesh_name, self._get_mesh_attr(mesh_name))
+
     def _op_proxy(
         self,
         op_stablehlo_function: Callable,
         inputs: List[Operand],
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
         organize_stablehlo_args: Optional[Callable] = None,
         organize_golden_args: Optional[Callable] = None,
         output_shape: Optional[Shape] = None,
@@ -48,51 +133,15 @@ class StableHLOBuilder(Builder):
         golden_kwargs: dict = {},
         stablehlo_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
+        skip_golden: bool = False,
     ) -> Any:
-        stack = inspect.stack()
-        cur_filename = stack[0].filename
-
-        while len(stack) > 0 and stack[0].filename == cur_filename:
-            stack = stack[1:]
-
-        if len(stack) == 0:
-            raise RuntimeError(
-                "Top of callstack to builder funcs must be outside this file"
-            )
+        if not golden_kwargs:
+            golden_kwargs = stablehlo_kwargs
 
         if organize_golden_args is None:
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            op_golden_function = builder_golden.get_golden_function(
-                op_stablehlo_function, **golden_kwargs
-            )
-
-            if (
-                not isinstance(organize_golden_args(inputs), torch.Tensor)
-                and organize_golden_args(inputs) == 0
-            ):
-                golden_output = op_golden_function(**golden_kwargs)
-            else:
-                golden_output = op_golden_function(
-                    *(organize_golden_args(inputs)),
-                    **golden_kwargs,
-                )
-
-            golden = (
-                Golden(golden_output[0])
-                if not isinstance(golden_output, torch.Tensor)
-                else Golden(golden_output)
-            )
-
-            output_shape = golden.tensor.shape if not output_shape else output_shape
-            if not output_type and inputs:
-                output_type = self._get_type_from_torch_dtype(
-                    self._get_golden_tensor(inputs[0]).dtype
-                )
-            elif not output_type:
-                output_type = self._default_type
-
             id = self._get_next_global_id()
             loc = (
                 self._get_loc_from_str(loc)
@@ -107,12 +156,22 @@ class StableHLOBuilder(Builder):
             )
 
             if unit_attrs is not None:
-                from ttmlir.ir import UnitAttr
-
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-            self._id_golden_map[str(loc)] = golden
-            self._store_golden(op, golden)
+
+            if sharding_attr is not None:
+                op.operation.attributes["sdy.sharding"] = sharding_attr
+
+            if not skip_golden and not self._disable_golden_check:
+                op_golden_function = builder_golden.get_golden_function(
+                    op_stablehlo_function, **golden_kwargs
+                )
+                if op_golden_function is not None:
+                    golden_output = op_golden_function(
+                        *(organize_golden_args(inputs)), **golden_kwargs
+                    )
+                    self._set_golden_tensor(op, golden_output)
+
             return op
 
     def _eltwise_proxy(
@@ -120,13 +179,18 @@ class StableHLOBuilder(Builder):
         op_stablehlo_function: Callable,
         inputs: List[Operand],
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
-        return self._op_proxy(op_stablehlo_function, inputs, unit_attrs)
+        return self._op_proxy(op_stablehlo_function, inputs, unit_attrs, sharding_attr)
 
     # ----- Public StableHLO Op Generators ----
 
     def add(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        in1: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         """
         Creates ``stablehlo.add``.
@@ -167,6 +231,416 @@ class StableHLOBuilder(Builder):
         return self._eltwise_proxy(
             stablehlo.AddOp,
             [in0, in1],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    # ----- Elementwise Unary Operations -----
+
+    def abs(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.abs``.
+
+        *Elementwise absolute value operation.*
+
+        Computes the element-wise absolute value of the input tensor.
+
+        Mathematical definition: abs(x) = |x|
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise absolute values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.AbsOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def ceil(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.ceil``.
+
+        *Elementwise ceiling operation.*
+
+        Computes the element-wise ceiling of the input tensor.
+
+        Mathematical definition: ceil(x) = ⌈x⌉
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise ceiling values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.CeilOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def cosine(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.cosine``.
+
+        *Elementwise cosine operation.*
+
+        Computes the element-wise cosine of the input tensor.
+
+        Mathematical definition: cosine(x) = cos(x)
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise cosine values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.CosineOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def exp(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.exponential``.
+
+        *Elementwise exponential operation.*
+
+        Computes the element-wise exponential of the input tensor.
+
+        Mathematical definition: exp(x) = e^x
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise exponential values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.ExpOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def floor(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.floor``.
+
+        *Elementwise floor operation.*
+
+        Computes the element-wise floor of the input tensor.
+
+        Mathematical definition: floor(x) = ⌊x⌋
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise floor values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.FloorOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def neg(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.negate``.
+
+        *Elementwise negation operation.*
+
+        Computes the element-wise negation of the input tensor.
+
+        Mathematical definition: neg(x) = -x
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise negated values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.NegOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def rsqrt(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.rsqrt``.
+
+        *Elementwise reciprocal square root operation.*
+
+        Computes the element-wise reciprocal square root of the input tensor.
+
+        Mathematical definition: rsqrt(x) = 1/√x
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise reciprocal square root values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.RsqrtOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def sine(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.sine``.
+
+        *Elementwise sine operation.*
+
+        Computes the element-wise sine of the input tensor.
+
+        Mathematical definition: sine(x) = sin(x)
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise sine values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.SineOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def sqrt(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.sqrt``.
+
+        *Elementwise square root operation.*
+
+        Computes the element-wise square root of the input tensor.
+
+        Mathematical definition: sqrt(x) = √x
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise square root values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.SqrtOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def logistic(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.logistic``.
+
+        *Elementwise logistic (sigmoid) operation.*
+
+        Computes the element-wise logistic function of the input tensor.
+
+        Mathematical definition: logistic(x) = 1 / (1 + exp(-x))
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise logistic values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.LogisticOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def tan(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.tan``.
+
+        *Elementwise tangent operation.*
+
+        Computes the element-wise tangent of the input tensor.
+
+        Mathematical definition: tan(x) = sin(x) / cos(x)
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise tangent values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.TanOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+    def log(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.log``.
+
+        *Elementwise natural logarithm operation.*
+
+        Computes the element-wise natural logarithm of the input tensor.
+
+        Mathematical definition: log(x) = ln(x)
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise natural logarithm values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.LogOp,
+            [in0],
             unit_attrs=unit_attrs,
         )
 
@@ -300,6 +774,28 @@ class StableHLOBuilder(Builder):
             dimension_shardings,
             replicated_axes,
             unreduced_axes,
+        )
+
+    def tensor_sharding_per_value_attr(
+        self,
+        shardings: List[sdy.TensorShardingAttr],
+    ) -> sdy.TensorShardingPerValueAttr:
+        """
+        Creates a tensor sharding per value attribute from a list of tensor sharding attributes.
+        This attribute allows for specifying different sharding strategies for different tensors.
+
+        Parameters
+        ----------
+        shardings : List[sdy.TensorShardingAttr]
+            A list of tensor sharding attributes, each defining a sharding strategy for a tensor
+
+        Returns
+        -------
+        (*sdy.TensorShardingPerValueAttr*)
+            A tensor sharding per value attribute that describes how multiple tensors are distributed across the mesh
+        """
+        return sdy.TensorShardingPerValueAttr.get(
+            shardings,
         )
 
     # ----- Public Shardy Op Generators ----

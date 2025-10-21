@@ -4,6 +4,8 @@ SHELL ["/bin/bash", "-c"]
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 
+ARG TT_METAL_DEPENDENCIES_COMMIT=4e557ea4385f0c74692fc9fdce7eda039585f129
+
 # Install dependencies
 RUN <<EOT
 # ANCHOR: developer_dependencies
@@ -11,8 +13,6 @@ apt-get update
 apt-get install -y \
     software-properties-common \
     build-essential \
-    python3-dev \
-    python3-venv \
     python3-pip \
     git \
     libhwloc-dev \
@@ -37,8 +37,14 @@ apt-get install -y \
     lcov \
     unzip
 
+# Install Python 3.11
+add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y python3.11 python3.11-dev python3.11-venv python3.11-distutils
+
 # Setup / install metal dependencies
-wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/{install_dependencies.sh,tt_metal/sfpi-version.sh}
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_DEPENDENCIES_COMMIT}/{install_dependencies.sh,tt_metal/sfpi-info.sh,tt_metal/sfpi-version}
+chmod u+x sfpi-info.sh
 bash install_dependencies.sh --docker
 # ANCHOR_END: developer_dependencies
 EOT

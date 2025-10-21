@@ -1,19 +1,25 @@
-// RUN: not ttmlir-opt --split-input-file --ttir-to-ttnn-backend-pipeline %s 2>&1 | FileCheck %s
+// RUN: not ttmlir-opt --split-input-file %s 2>&1 | FileCheck %s
 
+// Verify that device must exist for non-system memory buffer types
+#dram = #ttnn.buffer_type<dram>
+#ttnn_layout_dram_rm = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x2xbf16, #ttnn.buffer_type<dram>>, <interleaved>>
 module {
-  func.func @test_dense_attr() -> tensor<1x2xbf16> {
-    // CHECK: error: 'ttir.constant' op value attribute must be one of DenseResourceElementsAttr or DenseElementsAttr.
-    %0 = "ttir.constant"() <{value = sparse<[[0, 0], [0, 1]], [2.0, 2.0]> : tensor<1x2xbf16>}> : () -> tensor<1x2xbf16>
-    return %0 : tensor<1x2xbf16>
+  func.func @test_dram_no_device() -> tensor<1x2xbf16, #ttnn_layout_dram_rm> {
+    // CHECK: error: 'ttnn.constant' op device operand must be specified for non-system memory buffer type
+    %0 = "ttnn.constant"() <{ value = dense<[[0.0, 0.0]]> : tensor<1x2xbf16>, dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : () -> tensor<1x2xbf16, #ttnn_layout_dram_rm>
+    return %0 : tensor<1x2xbf16, #ttnn_layout_dram_rm>
   }
 }
 
 // -----
-
+// Verify that device must not be specified for system memory buffer types
+#system_memory = #ttnn.buffer_type<system_memory>
+#ttnn_layout_host_rm = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x2xbf16, #ttnn.buffer_type<system_memory>>>
 module {
-  func.func @test_dense_attr_complex() -> tensor<1x2xcomplex<f32>> {
-    // CHECK: error: 'ttir.constant' op value attribute must be of int or float type.
-    %0 = "ttir.constant"() <{value = dense<[ [(2.0, 0.0), (3.0, 0.0)]]> : tensor<1x2xcomplex<f32>>}> : () -> tensor<1x2xcomplex<f32>>
-    return %0 : tensor<1x2xcomplex<f32>>
+  func.func @test_host_device() -> tensor<1x2xbf16, #ttnn_layout_host_rm> {
+    // CHECK: error: 'ttnn.constant' op device operand must not be specified for system memory buffer type
+    %0 = "ttnn.get_device"() : () -> !ttnn.device
+    %1 = "ttnn.constant"(%0) <{ value = dense<[[0.0, 0.0]]> : tensor<1x2xbf16>, dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (!ttnn.device) -> tensor<1x2xbf16, #ttnn_layout_host_rm>
+    return %1 : tensor<1x2xbf16, #ttnn_layout_host_rm>
   }
 }

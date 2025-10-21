@@ -6,10 +6,10 @@
 #define TT_RUNTIME_TYPES_H
 
 #include <cassert>
+#include <filesystem>
+#include <map>
 #include <memory>
-#include <numeric>
 #include <optional>
-#include <string_view>
 #include <vector>
 
 #include "tt/runtime/utils.h"
@@ -54,6 +54,30 @@ inline std::string toString(DeviceRuntime runtime) {
   }
 }
 
+enum class HostRuntime {
+  Local,
+  Distributed,
+};
+
+inline std::string toString(HostRuntime runtime) {
+  switch (runtime) {
+  case HostRuntime::Local:
+    return "Local";
+  case HostRuntime::Distributed:
+    return "Distributed";
+  }
+}
+
+enum class DistributedMode {
+  // Single process on the local host,
+  // mainly for testing and debugging
+  LocalSubprocess,
+
+  // Multiple processes via MPI, may be same host or distributed
+  // across multiple hosts
+  MultiProcess,
+};
+
 enum class DispatchCoreType {
   WORKER,
   ETH,
@@ -77,6 +101,7 @@ enum class FabricConfig {
 enum class Arch { GRAYSKULL = 1, WORMHOLE_B0 = 2, BLACKHOLE = 3, QUASAR = 4 };
 
 namespace detail {
+
 struct ObjectImpl {
 
   std::shared_ptr<void> handle;
@@ -98,6 +123,8 @@ struct RuntimeCheckedObjectImpl {
   std::shared_ptr<void> handle;
   ::tt::runtime::DeviceRuntime associatedRuntime;
 
+  RuntimeCheckedObjectImpl()
+      : handle(nullptr), associatedRuntime(DeviceRuntime::Disabled) {}
   RuntimeCheckedObjectImpl(std::shared_ptr<void> handle,
                            ::tt::runtime::DeviceRuntime runtime)
       : handle(handle), associatedRuntime(runtime) {}
@@ -165,34 +192,30 @@ struct RuntimeCheckedConstObjectImpl {
 } // namespace detail
 
 struct TensorDesc {
-  std::vector<std::uint32_t> shape;
-  std::vector<std::uint32_t> stride;
-  std::uint32_t itemsize;
-  ::tt::target::DataType dataType;
-  std::int64_t alignment = 1;
+  std::vector<uint32_t> shape = {}; // Logical.
+  ::tt::target::DataType dataType = ::tt::target::DataType::MAX;
+  uint32_t itemsize = 0;
+  std::vector<uint32_t> stride = {}; // Potentially padded.
+  uint64_t physicalVolume = 0;       // Potentially padded.
 
   TensorDesc() = default;
-  TensorDesc(const std::vector<std::uint32_t> &shape,
-             const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
-             ::tt::target::DataType dataType, std::int64_t alignment = 1)
-      : shape(shape), stride(stride), itemsize(itemsize), dataType(dataType),
-        alignment(alignment) {}
-  TensorDesc(const std::vector<std::uint32_t> &shape,
-             const std::vector<std::uint32_t> &stride,
-             ::tt::target::DataType dataType, std::int64_t alignment = 1)
-      : TensorDesc(shape, stride, utils::dataTypeElementSize(dataType),
-                   dataType, alignment) {}
-  TensorDesc(const std::vector<std::uint32_t> &shape,
-             ::tt::target::DataType dataType, std::int64_t alignment = 1)
-      : TensorDesc(shape, utils::calculateStride(shape), dataType, alignment) {}
 
-  std::int64_t volume() const {
-    return std::accumulate(shape.begin(), shape.end(), static_cast<int64_t>(1),
-                           std::multiplies<int64_t>());
+  TensorDesc(const std::vector<uint32_t> &shape,
+             const ::tt::target::DataType dataType,
+             const std::optional<uint32_t> itemsize = {},
+             const std::optional<std::vector<uint32_t>> &stride = {},
+             const std::optional<uint64_t> physicalVolume = {})
+      : shape(shape), dataType(dataType) {
+    this->itemsize = itemsize.value_or(utils::dataTypeElementSize(dataType));
+    this->stride = stride.value_or(utils::calculateStride(shape));
+    this->physicalVolume = physicalVolume.value_or(volume());
   }
-  std::int64_t sizeBytes() const {
-    return utils::alignUp(volume() * itemsize, alignment);
-  }
+
+  size_t volume() const { return utils::product(shape.cbegin(), shape.cend()); }
+
+  size_t sizeBytes() const { return physicalVolume * itemsize; }
+
+  bool isPadded() const { return physicalVolume > volume(); }
 };
 
 struct MemoryView {
@@ -215,8 +238,54 @@ struct MeshDeviceOptions {
   std::optional<DispatchCoreType> dispatchCoreType = std::nullopt;
 };
 
-struct TraceCache : public detail::RuntimeCheckedObjectImpl {
-  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+class MultiProcessArgs {
+public:
+  static MultiProcessArgs create(std::string_view rankBindingPath) {
+    return MultiProcessArgs(rankBindingPath);
+  }
+
+  MultiProcessArgs &withHosts(const std::vector<std::string> &hosts);
+  MultiProcessArgs &withHostsFilePath(std::string_view path);
+
+  std::string getRankBindingPath() const;
+  MultiProcessArgs &withRankFilePath(std::string_view path);
+
+  MultiProcessArgs &
+  withMcaOptions(const std::map<std::string, std::string> &mcaOptions);
+
+  MultiProcessArgs &withTagOutput(bool tagOutput);
+
+  MultiProcessArgs &withAllowRunAsRoot(bool allowRunAsRoot);
+
+  MultiProcessArgs &
+  withExtraMpiArgs(const std::vector<std::string> &extraMpiArgs);
+
+  std::string toArgString() const;
+
+private:
+  MultiProcessArgs(std::string_view rankBindingPath);
+
+  std::filesystem::path rankBindingPath_;
+
+  std::vector<std::string> hosts_;
+  std::filesystem::path hostsFilePath_;
+
+  std::filesystem::path rankFilePath_;
+
+  std::map<std::string, std::string> mcaOptions_;
+
+  bool tagOutput_ = true;
+
+  bool allowRunAsRoot_ = false;
+
+  std::vector<std::string> extraMpiArgs_;
+};
+
+struct DistributedOptions {
+  uint16_t controllerPort = 0;
+  DistributedMode mode = DistributedMode::LocalSubprocess;
+  // Required for MultiProcess mode
+  std::optional<MultiProcessArgs> multiProcessArgs = std::nullopt;
 };
 
 struct Flatbuffer : public detail::ObjectImpl {
@@ -226,7 +295,10 @@ struct Flatbuffer : public detail::ObjectImpl {
   static Flatbuffer loadFromMemory(const void *memory, size_t size);
 
   void store(const char *path) const;
-  void storeToMemory(std::vector<std::byte> &serializedFlatbuffer) const;
+
+  template <typename T>
+  void storeToMemory(std::vector<T> &serializedFlatbuffer) const;
+
   std::string getFileIdentifier() const;
   std::string getVersion() const;
   std::string getSchemaHash() const;
@@ -274,12 +346,16 @@ struct Binary : public Flatbuffer {
   std::string getProgramInputsAsJson(std::uint32_t programIndex) const;
   std::string getProgramOutputsAsJson(std::uint32_t programIndex) const;
   std::string getMlirAsJson() const;
+  std::uint32_t getNumProgramInputs(std::uint32_t programIndex) const;
+  std::uint32_t getNumProgramOutputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
-  const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
+  std::unordered_map<std::uint32_t, const ::tt::target::GoldenTensor *>
+  getDebugInfoGolden(std::string &loc) const;
   const std::pair<std::uint32_t, std::uint32_t>
   getProgramMeshShape(std::uint32_t programIndex) const;
 
+  void setId(std::uint64_t id) { binaryId = id; }
   std::uint64_t id() const;
 
   // Get the tensor cache associated with this binary
@@ -294,16 +370,30 @@ private:
   std::shared_ptr<TensorCache> tensorCache;
 };
 
+struct TraceCache : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+};
+
 struct Device : public detail::RuntimeCheckedObjectImpl {
+  Device(DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(nullptr, runtime),
+        globalId(nextDeviceGlobalId()), traceCache(nullptr) {}
 
   Device(std::shared_ptr<void> handle, std::shared_ptr<TraceCache> traceCache,
          DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime),
-        traceCache(traceCache) {}
+        globalId(nextDeviceGlobalId()), traceCache(traceCache) {}
 
   std::shared_ptr<TraceCache> getTraceCache() { return traceCache; }
 
+  void setGlobalId(std::uint32_t id) { globalId = id; }
+  std::uint32_t getGlobalId() const { return globalId; }
+
 private:
+  std::uint32_t nextDeviceGlobalId();
+
+  std::uint32_t globalId;
+
   // The trace cache associated with this device.
   std::shared_ptr<TraceCache> traceCache;
 };
@@ -315,16 +405,21 @@ struct Event : public detail::RuntimeCheckedObjectImpl {
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
   Event event;
-
+  Tensor() : globalId(nextTensorGlobalId()) {}
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
-         DeviceRuntime runtime)
+         DeviceRuntime runtime,
+         std::optional<std::shared_ptr<void>> eventHandle = std::nullopt)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
-        event(nullptr, runtime) {}
+        event(eventHandle.value_or(nullptr), runtime),
+        globalId(nextTensorGlobalId()) {}
 
-  Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
-         std::shared_ptr<void> eventHandle, DeviceRuntime runtime)
-      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
-        event(eventHandle, runtime) {}
+  void setGlobalId(std::uint64_t id) { globalId = id; }
+  std::uint64_t getGlobalId() const { return globalId; }
+
+private:
+  std::uint64_t nextTensorGlobalId();
+
+  std::uint64_t globalId;
 };
 
 struct TensorRef : public detail::RuntimeCheckedConstObjectImpl {
@@ -332,7 +427,20 @@ struct TensorRef : public detail::RuntimeCheckedConstObjectImpl {
 };
 
 struct Layout : public detail::RuntimeCheckedObjectImpl {
-  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+  Layout(DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(nullptr, runtime),
+        globalId(nextLayoutGlobalId()) {}
+  Layout(std::shared_ptr<void> handle, DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime),
+        globalId(nextLayoutGlobalId()) {}
+
+  void setGlobalId(std::uint64_t id) { globalId = id; }
+  std::uint64_t getGlobalId() const { return globalId; }
+
+private:
+  std::uint64_t nextLayoutGlobalId();
+
+  std::uint64_t globalId;
 };
 
 struct CallbackContext : public detail::RuntimeCheckedObjectImpl {

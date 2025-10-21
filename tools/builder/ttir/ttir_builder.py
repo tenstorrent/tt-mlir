@@ -21,80 +21,48 @@ from builder.base import builder_golden
 class TTIRBuilder(Builder):
     # ----- Methods -----
 
-    def __init__(self, ctx: Context, location: Location, mesh_shape=(1, 1)):
-        super().__init__(ctx, location)
-        self._mesh_shape = mesh_shape
+    def __init__(
+        self,
+        ctx: Context,
+        location: Location,
+        mesh_name: Union[List[str], str] = "mesh",
+        mesh_dict: Union[
+            List[OrderedDict[str, int]], OrderedDict[str, int]
+        ] = OrderedDict([("x", 1), ("y", 1)]),
+        disable_golden_check: bool = False,
+    ):
+        super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
     # ----- Public methods -----
 
-    @property
-    def mesh_shape(self) -> Tuple:
-        return self._mesh_shape
-
-    def get_metal_tensor_layout(
-        self,
-        logical_shape: Shape,
-        tiled=False,
-        oobVal=ttcore.OOBVal.Undef,
-        memorySpace=ttcore.MemorySpace.DeviceL1,
-        grid: Optional[Tuple[int, int]] = None,
-        index_map: Optional[AffineMap] = None,
-    ):
-        ctx = self._ctx
-
-        # Create grid shape by 1s filling logical rank.
-        if grid is None:
-            original_rank = len(logical_shape)
-            grid_shape = [1] * original_rank
-        else:
-            grid_shape = list(grid)
-
-        worker_grid = [8, 8]
-
-        # Create layout with original logical shape.
-        if index_map is None:
-            layout = ttcore.ir.MetalLayoutAttr.get(
-                ctx, logical_shape, worker_grid, oobVal, memorySpace
-            )
-        else:
-            layout = ttcore.ir.MetalLayoutAttr.get(
-                ctx, logical_shape, worker_grid, oobVal, memorySpace, index_map
-            )
-
-        shard_shape = []
-        for l, g in zip(logical_shape, grid_shape):
-            assert l % g == 0, f"Logical shape {l} must be divisible by grid shape {g}"
-            shard_shape.append(l // g)
-
-        # Sharded shape = grid + logical shape.
-        device_shape = grid_shape + shard_shape
-
-        elemType = F32Type.get(ctx)
-
-        if tiled:
-            elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
-            device_shape[-2] //= 32
-            device_shape[-1] //= 32
-
-        return RankedTensorType.get(
-            device_shape, elemType, layout, Location.unknown(ctx)
-        )
-
     # ----- Private methods ----
 
-    def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
-        dtype = data_type if data_type is not None else self._default_type
-        return self._create_empty_from_tensor_type(
-            shape, self._create_ranked_tensor_type(shape, dtype)
+    def _get_output_shape_and_type(
+        self,
+        organize_golden_args: Callable,
+        inputs: List[Operand],
+        op_ttir_function: Callable,
+        golden_kwargs: dict = {},
+    ):
+        op_golden_function = builder_golden.get_golden_function(
+            op_ttir_function, **golden_kwargs
         )
+        if op_golden_function is None:
+            return
 
-    def _create_empty_from_tensor_type(
-        self, shape: Shape, tensor_type: RankedTensorType
-    ) -> OpView:
-        with self._ctx, self._loc:
-            op = ttir.EmptyOp(tensor_type)
-            self._generate_and_store_random_golden(op)
-            return op
+        # If the op has no input, just call golden function with kwargs (eg ttir.zeros).
+        if len(inputs) == 0:
+            golden_output = op_golden_function(**golden_kwargs)
+        else:
+            golden_output = op_golden_function(
+                *(organize_golden_args(inputs)), **golden_kwargs
+            )
+
+        return golden_output.shape, golden_output.dtype
+
+    def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
+        """Get TTIR-specific empty operation."""
+        return ttir.EmptyOp(tensor_type)
 
     def _organize_eltwise_ttir(
         self, inputs: List[Operand], output: OpView, _: Optional[Shape]
@@ -114,18 +82,8 @@ class TTIRBuilder(Builder):
         golden_kwargs: dict = {},
         ttir_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
+        skip_golden: bool = False,
     ) -> Any:
-        stack = inspect.stack()
-        cur_filename = stack[0].filename
-
-        while len(stack) > 0 and stack[0].filename == cur_filename:
-            stack = stack[1:]
-
-        if len(stack) == 0:
-            raise RuntimeError(
-                "Top of callstack to builder funcs must be outside this file"
-            )
-
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
 
@@ -136,38 +94,39 @@ class TTIRBuilder(Builder):
             organize_golden_args = self._organize_eltwise_golden
 
         with self._ctx, self._loc:
-            op_golden_function = builder_golden.get_golden_function(
-                op_ttir_function, **golden_kwargs
+            # If output shape or type is not provided, calculate it using golden function.
+            # This is needed because TTIR ops do not have shape or type MLIR inference trait.
+            output_shape_and_type = self._get_output_shape_and_type(
+                organize_golden_args, inputs, op_ttir_function, golden_kwargs
             )
-            if (
-                not isinstance(organize_golden_args(inputs), torch.Tensor)
-                and organize_golden_args(inputs) == 0
-            ):
-                golden_output = op_golden_function(**golden_kwargs)
+            if not output_shape_and_type:
+                assert (
+                    output_shape is not None
+                ), "Output shape must be provided if there is no golden function for this op"
+                assert (
+                    output_type is not None
+                ), "Output type must be provided if there is no golden function for this op"
             else:
-                golden_output = op_golden_function(
-                    *(organize_golden_args(inputs)),
-                    **golden_kwargs,
-                )
+                (
+                    calculated_output_shape,
+                    calculated_output_type,
+                ) = output_shape_and_type
 
-            golden = (
-                Golden(golden_output[0])
-                if isinstance(golden_output, Sequence)
-                else Golden(golden_output)
+            # Use provided output shape/type if available, otherwise use calculated ones.
+            output_shape = calculated_output_shape if not output_shape else output_shape
+            output_type = (
+                self._get_type_from_torch_dtype(calculated_output_type)
+                if not output_type
+                else output_type
             )
 
-            output_shape = golden.tensor.shape if not output_shape else output_shape
-            if not output_type and inputs:
-                output_type = self._get_type_from_torch_dtype(
-                    self._get_golden_tensor(inputs[0]).dtype
-                )
-            elif not output_type:
-                output_type = self._default_type
-
+            # Create output tensor using provided function or create empty tensor.
             if output_create_fn:
                 output = output_create_fn(output_shape, output_type)
             else:
                 output = self._empty(output_shape, output_type)
+
+            # Prepare location for the op.
             id = self._get_next_global_id()
             loc = (
                 self._get_loc_from_str(loc)
@@ -175,13 +134,12 @@ class TTIRBuilder(Builder):
                 else self._get_loc_of_extra_file_callee(id=id)
             )
 
-            if (
-                not isinstance(
-                    organize_ttir_args(inputs, output, output_shape), torch.Tensor
+            # Organize arguments and create the TTIR op.
+            if organize_ttir_args(inputs, output, output_shape) == 0:
+                op = op_ttir_function(
+                    loc=loc,
+                    **ttir_kwargs,
                 )
-                and organize_ttir_args(inputs, output, output_shape) == 0
-            ):
-                op = op_ttir_function(loc=loc, **ttir_kwargs)
             else:
                 op = op_ttir_function(
                     *organize_ttir_args(inputs, output, output_shape),
@@ -189,23 +147,25 @@ class TTIRBuilder(Builder):
                     **ttir_kwargs,
                 )
 
+            # Set unit attributes if provided.
             if unit_attrs is not None:
-                from ttmlir.ir import UnitAttr
-
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-            self._id_golden_map[str(loc)] = golden
-            self._store_golden(op, golden)
-            self._override_golden(output, golden)
-            return op
 
-    def _eltwise_proxy(
-        self,
-        op_ttir_function: Callable,
-        inputs: List[Operand],
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        return self._op_proxy(op_ttir_function, inputs, unit_attrs)
+            if not skip_golden and not self._disable_golden_check:
+                op_golden_function = builder_golden.get_golden_function(
+                    op_ttir_function, **golden_kwargs
+                )
+                if op_golden_function is not None:
+                    if len(inputs) == 0:
+                        golden_output = op_golden_function(**golden_kwargs)
+                    else:
+                        golden_output = op_golden_function(
+                            *(organize_golden_args(inputs)), **golden_kwargs
+                        )
+                    self._set_golden_tensor(op, golden_output)
+
+            return op
 
     # ----- Public Op Generators ----
 
@@ -250,7 +210,6 @@ class TTIRBuilder(Builder):
         self,
         in0: Operand,
         in1: Operand,
-        out0: Operand,
         batch_dims_lhs: List[int],
         contract_dims_lhs: List[int],
         batch_dims_rhs: List[int],
@@ -273,8 +232,6 @@ class TTIRBuilder(Builder):
             Left-hand side input tensor
         in1 : Operand
             Right-hand side input tensor
-        out0 : Operand
-            Output tensor
         batch_dims_lhs : *List[int]*
             Batch dimensions for the left-hand side tensor
         contract_dims_lhs : *List[int]*
@@ -292,7 +249,7 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.DotGeneralOp,
-            [in0, in1, out0],
+            [in0, in1],
             ttir_kwargs={
                 "batch_dims_lhs": batch_dims_lhs,
                 "contract_dims_lhs": contract_dims_lhs,
@@ -357,8 +314,13 @@ class TTIRBuilder(Builder):
         """
         # Handle golden condition tensor
         in0_tensor = self._get_golden_tensor(in0)
-        condition = torch.full(in0_tensor.shape, False)
-        condition[in0_tensor > 0] = True
+        condition = in0_tensor.apply_shardwise(
+            lambda shard: torch.where(
+                shard > 0,
+                torch.tensor(True, device=shard.device),
+                torch.tensor(False, device=shard.device),
+            )
+        )
         return self._op_proxy(
             ttir.WhereOp,
             [in0, in1, in2],
@@ -408,7 +370,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
         """
 
-        return self._eltwise_proxy(ttir.AbsOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.AbsOp, [in0], unit_attrs)
 
     def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -441,7 +403,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the cubic root of each element in the input tensor
         """
-        return self._eltwise_proxy(ttir.CbrtOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.CbrtOp, [in0], unit_attrs)
 
     def ceil(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -464,7 +426,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with ceiling values
         """
-        return self._eltwise_proxy(ttir.CeilOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.CeilOp, [in0], unit_attrs)
 
     def cos(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -496,7 +458,53 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the cosine of each element in the input tensor
         """
-        return self._eltwise_proxy(ttir.CosOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.CosOp, [in0], unit_attrs)
+
+    def erf(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.erf``.
+
+        *Elementwise error function operation.*
+
+        Computes the error function (erf) of each element in the input tensor.
+        The error function is a mathematical function used in probability, statistics,
+        and partial differential equations related to the normal distribution.
+
+        Mathematical definition: erf(x) = (2/sqrt(π)) * ∫[0 to x] e^(-t^2) dt
+
+        .. code-block:: mlir
+
+            // Compute error function of all elements
+            %result = ttir.erf(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [0.0, 0.5, 1.0, -1.0]
+            // Output tensor:
+            // [0.0, 0.5205, 0.8427, -0.8427]
+        """
+        return self._op_proxy(ttir.ErfOp, [in0], unit_attrs)
+
+    def erfc(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.erfc``.
+
+        *Elementwise complementary error function operation.*
+
+        Computes the complementary error function (erfc) of each element in the input tensor.
+        The complementary error function is defined as erfc(x) = 1 - erf(x),
+        where erf(x) is the error function. It is commonly used in statistics and probability.
+
+        Mathematical definition: erfc(x) = 1 - (2/sqrt(π)) * ∫[0 to x] e^(-t^2) dt
+
+        .. code-block:: mlir
+
+            // Compute complementary error function of all elements
+            %result = ttir.erfc(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [0.0, 0.5, 1.0, -1.0]
+            // Output tensor:
+            // [1.0, 0.4795, 0.1573, 1.8427]
+        """
+        return self._op_proxy(ttir.ErfcOp, [in0], unit_attrs)
 
     def floor(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -519,7 +527,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with floor values
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.FloorOp,
             [in0],
             unit_attrs,
@@ -558,7 +566,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the GELU values of each element in the input tensor
         """
-        return self._eltwise_proxy(ttir.GeluOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.GeluOp, [in0], unit_attrs)
 
     def is_finite(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -591,10 +599,11 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.IsFiniteOp,
             [in0],
             unit_attrs,
+            output_type=F32Type.get(self._ctx),
         )
 
     def logical_not(
@@ -676,7 +685,7 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.BitwiseNotOp,
             [in0],
             unit_attrs,
@@ -714,7 +723,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the negation of each input element
         """
-        return self._eltwise_proxy(ttir.NegOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.NegOp, [in0], unit_attrs)
 
     def tan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -736,7 +745,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with tangent values
         """
-        return self._eltwise_proxy(ttir.TanOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.TanOp, [in0], unit_attrs)
 
     def atan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -758,7 +767,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with arctangent values
         """
-        return self._eltwise_proxy(ttir.AtanOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.AtanOp, [in0], unit_attrs)
 
     def tanh(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -780,7 +789,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with hyperbolic tangent values
         """
-        return self._eltwise_proxy(ttir.TanhOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.TanhOp, [in0], unit_attrs)
 
     def reciprocal(
         self, in0: Operand, unit_attrs: Optional[List[str]] = None
@@ -805,7 +814,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with reciprocal values
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.ReciprocalOp,
             [in0],
             unit_attrs,
@@ -832,7 +841,110 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with ReLU activation values
         """
-        return self._eltwise_proxy(ttir.ReluOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.ReluOp, [in0], unit_attrs)
+
+    def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.relu6``.
+
+        *Elementwise ReLU6 activation operation.*
+
+        Computes the ReLU6 function for each element in the input tensor.
+        ReLU6 is defined as: min(max(0, x), 6)
+        This activation function clips values between 0 and 6, making it useful
+        for quantized neural networks and mobile applications.
+
+        .. code-block:: mlir
+
+            // Compute ReLU6 of all elements
+            %result = ttir.relu6(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [-2.0, 3.0, 8.0, 1.5]
+            // Output tensor:
+            // [0.0, 3.0, 6.0, 1.5]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with ReLU6 activation values
+        """
+        return self._op_proxy(ttir.Relu6Op, [in0], unit_attrs)
+
+    def silu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.silu``.
+
+        *Elementwise SiLU (Swish) activation operation.*
+
+        Computes the SiLU (Sigmoid Linear Unit) activation function for each element in the input tensor.
+        SiLU is also known as Swish activation and is defined as: silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+
+        This activation function is smooth, non-monotonic, and has been shown to work well
+        in deep neural networks, particularly in transformer architectures.
+
+        .. code-block:: mlir
+
+            // Compute SiLU activation of all elements
+            %result = ttir.silu(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [1.0, -0.5, 2.0, -2.0]
+            // Output tensor:
+            // [0.731, -0.193, 1.762, -0.238]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the SiLU activation values of each element in the input tensor
+        """
+        return self._op_proxy(ttir.SiluOp, [in0], unit_attrs)
+
+    def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.relu6``.
+
+        *Elementwise ReLU6 activation operation.*
+
+        Computes the ReLU6 function for each element in the input tensor.
+        ReLU6 is defined as: min(max(0, x), 6)
+        This activation function clips values between 0 and 6, making it useful
+        for quantized neural networks and mobile applications.
+
+        .. code-block:: mlir
+
+            // Compute ReLU6 of all elements
+            %result = ttir.relu6(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [-2.0, 3.0, 8.0, 1.5]
+            // Output tensor:
+            // [0.0, 3.0, 6.0, 1.5]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with ReLU6 activation values
+        """
+        return self._op_proxy(ttir.Relu6Op, [in0], unit_attrs)
 
     def rsqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -854,7 +966,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with reciprocal square root values
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.RsqrtOp,
             [in0],
             unit_attrs,
@@ -880,7 +992,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with sigmoid activation values
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.SigmoidOp,
             [in0],
             unit_attrs,
@@ -907,7 +1019,42 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with sign values
         """
-        return self._eltwise_proxy(ttir.SignOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.SignOp, [in0], unit_attrs)
+
+    def silu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttir.silu``.
+
+        *Elementwise SiLU (Swish) activation operation.*
+
+        Computes the SiLU (Sigmoid Linear Unit) activation function for each element in the input tensor.
+        SiLU is also known as Swish activation and is defined as: silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+
+        This activation function is smooth, non-monotonic, and has been shown to work well
+        in deep neural networks, particularly in transformer architectures.
+
+        .. code-block:: mlir
+
+            // Compute SiLU activation of all elements
+            %result = ttir.silu(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [1.0, -0.5, 2.0, -2.0]
+            // Output tensor:
+            // [0.731, -0.193, 1.762, -0.238]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the SiLU activation values of each element in the input tensor
+        """
+        return self._op_proxy(ttir.SiluOp, [in0], unit_attrs)
 
     def sin(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -929,7 +1076,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with sine values
         """
-        return self._eltwise_proxy(ttir.SinOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.SinOp, [in0], unit_attrs)
 
     def sqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -951,10 +1098,13 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with square root values
         """
-        return self._eltwise_proxy(ttir.SqrtOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.SqrtOp, [in0], unit_attrs)
 
     def typecast(
-        self, in0: Operand, out: Operand, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        output_type: torch.dtype,
+        unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
         Creates ``ttir.typecast``.
@@ -979,8 +1129,6 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor to cast
-        out : Operand
-            Output tensor with desired type
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -989,15 +1137,11 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the input values cast to the output type
         """
-        output_type = self._get_type_from_torch_dtype(
-            self._get_golden_tensor(out).dtype
-        )
-        # kwargs passed thru output type
         return self._op_proxy(
             ttir.TypecastOp,
             [in0],
-            golden_kwargs={"dtype": self._get_golden_tensor(out).type()},
-            output_type=output_type,
+            golden_kwargs={"dtype": output_type},
+            output_type=self._get_type_from_torch_dtype(output_type),
             unit_attrs=unit_attrs,
         )
 
@@ -1031,7 +1175,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the natural logarithm of each element in the input tensor
         """
-        return self._eltwise_proxy(ttir.LogOp, [in0], unit_attrs)
+        return self._op_proxy(ttir.LogOp, [in0], unit_attrs)
 
     def log1p(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """Elementwise natural logarithm of one plus input operation.
@@ -1063,7 +1207,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the log1p values of the input tensor
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.Log1pOp,
             [in0],
             unit_attrs,
@@ -1100,7 +1244,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing exp(x) - 1 for each element x in the input tensor
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.Expm1Op,
             [in0],
             unit_attrs,
@@ -1474,6 +1618,47 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def logical_left_shift(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``ttir.logical_shift_left``.
+
+        *Elementwise logical shift left operation.*
+
+        Performs elementwise logical shift left operation between two tensors.
+        For each pair of corresponding elements, shifts the bits of the first element to the left
+        by the number of positions specified by the second element.
+
+        .. code-block:: mlir
+
+            // Logical shift left operation
+            %result = ttir.logical_shift_left(%lhs, %rhs, %output) : tensor<3xi8>, tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
+            // Input tensors:
+            // lhs: [2, 4, 8]  (binary: [00000010, 00000100, 00001000])
+            // rhs: [1, 2, 3]  (shift amounts)
+            // Output tensor:
+            // [4, 16, 64]    (binary: [00000100, 00010000, 01000000])
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor (shift amounts)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        return self._op_proxy(
+            ttir.LogicalLeftShiftOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
     def logical_or(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
@@ -1516,6 +1701,46 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.LogicalOrOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def logical_right_shift(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``ttir.logical_right_shift``.
+
+        *Elementwise logical right shift operation.*
+
+        Performs elementwise logical right shift operation between two tensors.
+        For each pair of corresponding elements, shifts the bits of the first element to the right
+        by the number of positions specified by the second element.
+
+        .. code-block:: mlir
+
+            // Logical right shift operation
+            %result = ttir.logical_right_shift(%lhs, %rhs, %output) : tensor<3xi8>, tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
+            // Input tensors:
+            // lhs: [8, 16, 32]  (binary: [00001000, 00010000, 00100000])
+            // rhs: [1, 2, 3]    (shift amounts)
+            // Output tensor:
+            // [4, 4, 4]        (binary: [00000100, 00000100, 00000100])
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor (shift amounts)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        return self._op_proxy(
+            ttir.LogicalRightShiftOp,
             [in0, in1],
             unit_attrs=unit_attrs,
         )
@@ -1604,7 +1829,7 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.BitwiseAndOp,
             [in0, in1],
             unit_attrs=unit_attrs,
@@ -1650,7 +1875,7 @@ class TTIRBuilder(Builder):
         -------
         (*OpView*)
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.BitwiseOrOp,
             [in0, in1],
             unit_attrs=unit_attrs,
@@ -1695,7 +1920,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the bitwise XOR of corresponding elements
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.BitwiseXorOp,
             [in0, in1],
             unit_attrs=unit_attrs,
@@ -1726,7 +1951,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with minimum values
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.MinimumOp,
             [in0, in1],
             unit_attrs=unit_attrs,
@@ -1770,7 +1995,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the elementwise difference of the inputs
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.SubtractOp,
             [in0, in1],
             unit_attrs=unit_attrs,
@@ -1800,7 +2025,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with remainder values
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.RemainderOp,
             [in0, in1],
             unit_attrs=unit_attrs,
@@ -1830,7 +2055,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with power values
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.PowOp,
             [in0, in1],
             unit_attrs=unit_attrs,
@@ -1995,16 +2220,16 @@ class TTIRBuilder(Builder):
             Tensor with maximum values
         """
         # Handle ttir and golden function arguments for edge cases
-        ttir_kwargs = {"keep_dim": True}
+        ttir_kwargs = {"keep_dim": keep_dim}
         input_shape = list(self.get_shape(in0))
         ndim = len(input_shape)
         if dim_arg is not None:
-            golden_kwargs = {"dim_arg": dim_arg, "keep_dim": True}
+            golden_kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
             ttir_kwargs["dim_arg"] = [dim_arg]
             output_shape = input_shape.copy()
             output_shape[dim_arg] = 1
         else:
-            golden_kwargs = {"dim_arg": None, "keep_dim": True}
+            golden_kwargs = {"dim_arg": None, "keep_dim": keep_dim}
             output_shape = [1] * ndim
 
         return self._op_proxy(
@@ -2136,6 +2361,7 @@ class TTIRBuilder(Builder):
             [in0],
             ttir_kwargs={"dim_arg": dim_args, "keep_dim": keep_dim},
             unit_attrs=unit_attrs,
+            output_type=F32Type.get(self._ctx),
         )
 
     def prod(
@@ -2228,7 +2454,6 @@ class TTIRBuilder(Builder):
     def cumsum(
         self,
         in0: Operand,
-        in1: Operand,
         dim: int,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2256,8 +2481,6 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor
-        in1 : Operand
-            Output tensor
         dim : int
             Dimension along which to compute cumulative sum
         unit_attrs : *Optional[List[str]]*, optional
@@ -2270,15 +2493,17 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.CumSumOp,
-            [in0, in1],
-            ttir_kwargs={"dim": dim, "output": in1},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
+            [in0],
+            ttir_kwargs={"dim": dim},
             unit_attrs=unit_attrs,
         )
 
     def softmax(
-        self, in0: Operand, dimension: int = 1, unit_attrs: Optional[List[str]] = None
+        self,
+        in0: Operand,
+        dimension: int = 1,
+        numeric_stable: bool = False,
+        unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
         Creates ``ttir.softmax``.
@@ -2292,8 +2517,10 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor
-        dim : int, optional
-            Dimension along which Softmax will be computed (default: -1)
+        dimension : int, optional
+            Dimension along which Softmax will be computed (default: 1)
+        numeric_stable : bool, optional
+            Whether to use numerically stable softmax computation (default: False)
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -2306,7 +2533,11 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.SoftmaxOp,
             [in0],
-            ttir_kwargs={"dimension": dimension},
+            golden_kwargs={"dim": dimension},
+            ttir_kwargs={
+                "dimension": dimension,
+                "numericStable": numeric_stable,
+            },
             organize_ttir_args=lambda i, o, _: (
                 self._get_type(o),
                 i[0],
@@ -2599,7 +2830,6 @@ class TTIRBuilder(Builder):
     def broadcast(
         self,
         in0: Operand,
-        in1: Operand,
         broadcast_dimensions: List[int],
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -2626,8 +2856,6 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor to broadcast
-        in1 : Operand
-            Output tensor with target shape
         broadcast_dimensions : *List[int]*
             List of dimension mappings from input to output
         unit_attrs : *Optional[List[str]]*, optional
@@ -2638,11 +2866,18 @@ class TTIRBuilder(Builder):
         (*OpView*)
             The broadcasted tensor
         """
+        output_shape = []
+        for i in range(len(broadcast_dimensions)):
+            if broadcast_dimensions[i] != 1:
+                output_shape.append(broadcast_dimensions[i])
+            else:
+                output_shape.append(self.get_shape(in0)[i])
         return self._op_proxy(
             ttir.BroadcastOp,
             [in0],
-            golden_kwargs={"size": self.get_shape(in1)},
+            golden_kwargs={"size": output_shape},
             ttir_kwargs={"broadcast_dimensions": broadcast_dimensions},
+            output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
 
@@ -2651,7 +2886,6 @@ class TTIRBuilder(Builder):
         in0: Operand,
         weight: Operand,
         bias: Optional[Operand],
-        in1: Operand,
         stride: Union[int, List[int]],
         padding: Union[int, List[int]],
         dilation: Union[int, List[int]],
@@ -2689,8 +2923,6 @@ class TTIRBuilder(Builder):
             Weight tensor in (O, C/G, K_H, K_W) format
         bias : *Optional[Operand]*
             Optional bias tensor in (1, 1, 1, O) format
-        output : Operand
-            Output tensor specification
         stride : *Union[int, List[int]]*, optional
             Stride for height and width dimensions (default: 1)
         padding : *Union[int, List[int]]*, optional
@@ -2739,7 +2971,6 @@ class TTIRBuilder(Builder):
         in0: Operand,
         weight: Operand,
         bias: Optional[Operand],
-        in1: Operand,
         stride: Union[int, List[int]],
         padding: Union[int, List[int]],
         output_padding: Union[int, List[int]],
@@ -2776,8 +3007,6 @@ class TTIRBuilder(Builder):
             Weight tensor of shape (in_channels, out_channels/groups, kernel_height, kernel_width)
         bias : Optional[Operand]
             Optional bias tensor of shape (out_channels)
-        in1 : Operand
-            Output tensor shape reference
         stride : *Union[int, List[int]]*
             Stride of the convolution
         padding : *Union[int, List[int]]*
@@ -2835,7 +3064,6 @@ class TTIRBuilder(Builder):
     def max_pool2d(
         self,
         in0: Operand,
-        in1: Operand,
         kernel: Union[int, List[int]],
         stride: Union[int, List[int]],
         dilation: Union[int, List[int]],
@@ -2905,7 +3133,6 @@ class TTIRBuilder(Builder):
     def avg_pool2d(
         self,
         in0: Operand,
-        in1: Operand,
         kernel: Union[int, List[int]],
         stride: Union[int, List[int]],
         dilation: Union[int, List[int]],
@@ -2985,7 +3212,6 @@ class TTIRBuilder(Builder):
         variance: Operand,
         epsilon: float = 1e-5,
         dimension: int = 1,
-        training: bool = False,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
@@ -3014,8 +3240,6 @@ class TTIRBuilder(Builder):
             Small value added to variance for numerical stability (default: 1e-5)
         dimension : int, optional
             Dimension along which to normalize (default: 1)
-        training : bool, optional
-            Whether the operation is in training mode (default: False)
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
@@ -3025,17 +3249,15 @@ class TTIRBuilder(Builder):
             Output tensor after batch normalization
         """
         return self._op_proxy(
-            ttir.BatchNormOp,
+            ttir.BatchNormInferenceOp,
             [in0, scale, offset, mean, variance],
             golden_kwargs={
                 "epsilon": epsilon,
-                "training": training,
                 "dim": dimension,
             },
             ttir_kwargs={
                 "epsilon": FloatAttr.get_f32(epsilon),
                 "dimension": IntegerAttr.get(IntegerType.get_signless(32), dimension),
-                "training": BoolAttr.get(training),
             },
             # organize_ttir_args=lambda i, o, _: (self._get_type(o), *i, o),
             unit_attrs=unit_attrs,
@@ -3086,7 +3308,6 @@ class TTIRBuilder(Builder):
     def pad(
         self,
         in0: Operand,
-        in1: Operand,
         padding: List[int],
         value: int,
         unit_attrs: Optional[List[str]] = None,
@@ -3117,12 +3338,16 @@ class TTIRBuilder(Builder):
         (*OpView*)
             The padded tensor
         """
+        output_shape = []
+        for i in range(len(padding) // 2):
+            output_shape.append(
+                self.get_shape(in0)[i] + padding[2 * i] + padding[2 * i + 1]
+            )
         return self._op_proxy(
             ttir.PadOp,
-            [in0, in1],
+            [in0],
             ttir_kwargs={"padding": padding, "value": value},
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            output_shape=output_shape,
             unit_attrs=unit_attrs,
         )
 
@@ -3308,26 +3533,16 @@ class TTIRBuilder(Builder):
         in0: Operand,
         in1: Operand,
         in2: Operand,
-        in3: Operand,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         return self._op_proxy(
             ttir.ClampTensorOp,
-            [in0, in1, in2, in3],
-            golden_kwargs={
-                "input": self._get_golden_tensor(in0),
-                "min": self._get_golden_tensor(in1),
-                "max": self._get_golden_tensor(in2),
-                "out": self._get_golden_tensor(in3),
-            },
-            organize_ttir_args=lambda i, o, _: (
-                self._get_type(o),
-                i[0],
-                i[1],
-                i[2],
-                i[3],
-            ),
-            organize_golden_args=lambda i: 0,
+            [in0, in1, in2],
+            organize_golden_args=lambda i: [
+                self._get_golden_tensor(in0),
+                self._get_golden_tensor(in1),
+                self._get_golden_tensor(in2),
+            ],
             unit_attrs=unit_attrs,
         )
 
@@ -3504,7 +3719,6 @@ class TTIRBuilder(Builder):
     def permute(
         self,
         in0: Operand,
-        in1: Operand,
         permutation: List[int],
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
@@ -3531,10 +3745,9 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.PermuteOp,
-            [in0, in1],
+            [in0],
             ttir_kwargs={"permutation": DenseI64ArrayAttr.get(permutation)},
             organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
-            organize_ttir_args=lambda i, o, _: (self._get_type(i[1]), i[0], i[1]),
             unit_attrs=unit_attrs,
         )
 
@@ -3596,9 +3809,14 @@ class TTIRBuilder(Builder):
         (*OpView*)
             1-D tensor with sequential values
         """
+        result_tensor = self._get_golden_tensor(result)
+
+        # Build single-dim tensor
         single_dim_tensor = torch.arange(
-            start=start, end=end, step=step, dtype=self._get_golden_tensor(result).dtype
+            start=start, end=end, step=step, dtype=result_tensor.dtype
         )
+
+        # Compute repeat dimensions
         shape = self.get_shape(result)
         repeat_dims = []
         for i in range(len(shape)):
@@ -3607,10 +3825,24 @@ class TTIRBuilder(Builder):
             else:
                 repeat_dims.append(shape[i])
 
+        # Apply repeat shard-wise
+        single_dim_tensor_bt = BuilderGoldenTensor(
+            {
+                k: shard.repeat(*repeat_dims)
+                for k, shard in result_tensor.shard_map.items()
+            },
+            result_tensor.mesh_shape,
+        )
+
         return self._op_proxy(
             ttir.ArangeOp,
-            [result, single_dim_tensor],
-            golden_kwargs={"repeats": tuple(repeat_dims)},
+            [result, single_dim_tensor_bt],
+            golden_kwargs={
+                "start": start,
+                "end": end,
+                "step": step,
+                "arange_dimension": arange_dimension,
+            },
             ttir_kwargs={
                 "start": start,
                 "end": end,
@@ -3625,70 +3857,6 @@ class TTIRBuilder(Builder):
             ),
             unit_attrs=unit_attrs,
         )
-
-    # def arange(
-    #     self,
-    #     result: Operand,
-    #     start: int,
-    #     end: int,
-    #     step: int,
-    #     arange_dimension: int,
-    #     unit_attrs: Optional[List[str]] = None,
-    # ) -> OpView:
-    #     """
-    #     Creates ``ttir.arange``.
-
-    #     *Creates a 1-D tensor of sequential values.*
-
-    #     Returns a 1-D tensor of size (end - start) / step with values from start to end taken with common difference step.
-
-    #     Parameters
-    #     ----------
-    #     start : int
-    #         Starting value
-    #     end : int
-    #         Ending value (exclusive)
-    #     step : int, optional
-    #         Step size between values (default: 1)
-    #     unit_attrs : *Optional[List[str]]*
-    #         Optional list of unit attributes
-
-    #     Returns
-    #     -------
-    #     (*OpView*)
-    #         1-D tensor with sequential values
-    #     """
-    #     single_dim_tensor = torch.arange(
-    #         start=start, end=end, step=step, dtype=self._get_golden_tensor(result).dtype
-    #     )
-    #     shape = self.get_shape(result)
-    #     repeat_dims = []
-    #     for i in range(len(shape)):
-    #         if i == arange_dimension:
-    #             repeat_dims.append(int(shape[i] / ((end - start) / step)))
-    #         else:
-    #             repeat_dims.append(shape[i])
-
-    #     return self._op_proxy(
-    #         ttir.ArangeOp,
-    #         [result, single_dim_tensor],
-    #         ttir_kwargs={
-    #             "start": start,
-    #             "end": end,
-    #             "step": step,
-    #             "arange_dimension": arange_dimension,
-    #         },
-    #         organize_ttir_args=lambda i, o, _: (self._get_type(o),),
-    #         organize_golden_args=lambda i: [],
-    #         output_shape=shape,
-    #         output_type=self._get_type_from_torch_dtype(
-    #             self._get_golden_tensor(result).dtype
-    #         ),
-    #         unit_attrs=unit_attrs,
-    #     )
-
-    # TTIR top level generic ops
-    # class TTIR_GenericElementwiseUnaryOp
 
     def exp(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -3720,7 +3888,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the exponential of each element in the input tensor
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.ExpOp,
             [in0],
             unit_attrs=unit_attrs,
@@ -3766,8 +3934,49 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the elementwise sum of the inputs
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.AddOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    def atan2(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``ttir.atan2``.
+
+        *Elementwise arctangent operation.*
+
+        Computes the elementwise arctangent of the quotient of its arguments.
+        For each pair of corresponding elements (y, x), returns atan2(y, x).
+
+        Mathematical definition: atan2(y, x) = arctan(y / x)
+
+        .. code-block:: mlir
+
+            // Compute arctangent of corresponding elements
+            %result = ttir.atan2(%y, %x, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+            // Input tensors:
+            // y: [1.0, 0.0, -1.0]
+            // x: [1.0, -1.0, -1.0]
+            // Output tensor:
+            // [0.7854, 3.1416, -2.3562]
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor (y)
+        in1 : Operand
+            Second input tensor (x)
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise arctangent of the inputs
+        """
+        return self._op_proxy(
+            ttir.Atan2Op,
             [in0, in1],
             unit_attrs=unit_attrs,
         )
@@ -3810,52 +4019,8 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the elementwise product of the inputs
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.MultiplyOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
-
-    def subtract(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.subtract``.
-
-        *Elementwise subtraction operation.*
-
-        Performs elementwise subtraction between two tensors.
-        For each pair of corresponding elements, subtracts the element in the second
-        tensor from the element in the first tensor.
-
-        Mathematical definition: subtract(x, y) = x - y
-
-        .. code-block:: mlir
-
-            // Subtract corresponding elements
-            %result = ttir.subtract(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensors:
-            // lhs: [3.5, 0.0, -1.2]
-            // rhs: [1.5, 2.0, -3.2]
-            // Output tensor:
-            // [2.0, -2.0, 2.0]
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor (minuend)
-        in1 : Operand
-            Second input tensor (subtrahend)
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the elementwise difference of the inputs
-        """
-        return self._eltwise_proxy(
-            ttir.SubtractOp,
             [in0, in1],
             unit_attrs=unit_attrs,
         )
@@ -3900,7 +4065,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             A tensor containing the elementwise quotient of the inputs
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.DivOp,
             [in0, in1],
             unit_attrs=unit_attrs,
@@ -3930,7 +4095,7 @@ class TTIRBuilder(Builder):
         (*OpView*)
             Tensor with maximum values
         """
-        return self._eltwise_proxy(
+        return self._op_proxy(
             ttir.MaximumOp,
             [in0, in1],
             unit_attrs=unit_attrs,
@@ -4159,57 +4324,6 @@ class TTIRBuilder(Builder):
             **kwargs,
         )
 
-    def view_layout(
-        self,
-        in0: Operand,
-        output_type: RankedTensorType,
-        reinterpret_layout: bool = False,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.view_layout``.
-
-        *Create a new view of tensor with different layout.*
-
-        Creates a new view of the input tensor with a different layout without copying
-        or moving data. This is useful for reinterpreting the same data with different
-        layout metadata.
-
-        - If reinterpretLayout is true, the layout view change can include a data type cast, but note this does not actually change the format of the data in memory.
-        - All ViewLayout ops can trivially be converted to ToLayout ops.
-
-        .. code-block:: mlir
-
-            #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-            #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
-            %1 = "ttir.view_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to create new view from
-        output_type : RankedTensorType
-            Type of output tensor with desired layout
-        reinterpret_layout : bool, optional
-            If true, allows data type cast in layout view change (default: False)
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A new view of the tensor with the specified layout
-        """
-        return self._op_proxy(
-            ttir.ViewLayoutOp,
-            [in0],
-            ttir_kwargs={"reinterpretLayout": reinterpret_layout},
-            output_type=output_type,
-            output_create_fn=self._create_empty_from_tensor_type,
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
-            unit_attrs=unit_attrs,
-        )
-
     def tilize(
         self,
         in0: Operand,
@@ -4416,18 +4530,26 @@ class TTIRBuilder(Builder):
         indices_shape = self.get_shape(start_indices)
 
         # Batch dimensions: all dims from start_indices except index_vector_dim
-        batch_dims = []
-        for i in range(len(indices_shape)):
-            if i != index_vector_dim:
-                batch_dims.append(indices_shape[i])
-
-        # Offset dimensions: dimensions from slice_sizes that aren't collapsed
-        offset_sizes = []
-        for i in range(len(slice_sizes)):
-            if i not in collapsed_slice_dims:
-                offset_sizes.append(slice_sizes[i])
-
-        output_shape = batch_dims + offset_sizes
+        batch_dims = [
+            indices_shape[i] for i in range(len(indices_shape)) if i != index_vector_dim
+        ]
+        offset_sizes = [
+            slice_sizes[i]
+            for i in range(len(slice_sizes))
+            if i not in collapsed_slice_dims
+        ]
+        result_rank = len(batch_dims) + len(offset_sizes)
+        assert len(offset_dims) == len(
+            offset_sizes
+        ), "offset_dims length must match offset_sizes length"
+        output_shape = [-1] * result_rank
+        for j, pos in enumerate(offset_dims):
+            output_shape[pos] = offset_sizes[j]
+        b = 0
+        for p in range(result_rank):
+            if output_shape[p] == -1:
+                output_shape[p] = batch_dims[b]
+                b += 1
 
         # Define kwargs for the TTIR operation
         ttir_kwargs = {
@@ -4600,6 +4722,7 @@ class TTIRBuilder(Builder):
         return self._op_proxy(
             ttir.MeshShardOp,
             [input],
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0]),
             ttir_kwargs=ttir_kwargs,
             golden_kwargs=golden_kwargs,
         )

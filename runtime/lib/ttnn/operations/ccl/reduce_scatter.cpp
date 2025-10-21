@@ -44,26 +44,13 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
 
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
 
-  ::ttnn::Shape outputShape =
-      operations::utils::toTTNNShape(*op->out()->desc()->shape());
-  ::ttnn::Shape inputShape =
-      operations::utils::toTTNNShape(*op->in()->desc()->shape());
-  ::ttnn::DataType ttnnDtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
-      op->out()->desc()->layout()->memory_desc()->data_type());
-  ::ttnn::Layout ttnnLayout =
-      ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
-
-  ::ttnn::Tensor intermediateBuffer =
-      ::ttnn::empty(inputShape, ttnnDtype, ttnnLayout, &meshDevice,
-                    outputMemoryConfig.value());
-  ::ttnn::Tensor outputBuffer =
-      ::ttnn::empty(outputShape, ttnnDtype, ttnnLayout, &meshDevice,
-                    outputMemoryConfig.value());
-  std::vector<::ttnn::Tensor> persistent_buffers = {intermediateBuffer,
-                                                    outputBuffer};
-
+  // NOTE: The caller is currently responsible for creating/passing semaphores.
+  // TODO(hkwon): Remove semaphore creation here once
+  // reduce_scatter_minimal_async manages semaphores internally. Tracking:
+  // https://github.com/tenstorrent/tt-metal/issues/26952
   std::vector<::ttnn::GlobalSemaphore> semaphores;
-  // reduce_scatter_minimal_async requires 3 semaphores.
+  // reduce_scatter_minimal_async currently requires 3 semaphores.
+  // See: https://github.com/tenstorrent/tt-metal/issues/25212 for details.
   for (int i = 0; i < 3; i++) {
     semaphores.push_back(::ttnn::global_semaphore::create_global_semaphore(
         &meshDevice,
@@ -72,9 +59,10 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
         0, tt::tt_metal::BufferType::L1));
   }
   ::ttnn::Tensor out = ::ttnn::experimental::reduce_scatter_minimal_async(
-      input, std::make_optional(persistent_buffers), scatterDimension,
-      semaphores, std::nullopt, numLinks, outputMemoryConfig.value(),
-      outputMemoryConfig.value(), ::ttnn::ccl::Topology::Linear, std::nullopt,
+      input, /*persistent_output_buffers=*/std::nullopt, scatterDimension,
+      semaphores, /*barrier_semaphore=*/std::nullopt, numLinks,
+      outputMemoryConfig.value(), /*intermediate_memory_config=*/std::nullopt,
+      ::ttnn::ccl::Topology::Linear, /*subdevice_id=*/std::nullopt,
       clusterAxis);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

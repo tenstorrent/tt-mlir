@@ -59,7 +59,7 @@ public:
   mlir::Value createEmptyTensor() {
     ShapeAttr shapeAttr = ShapeAttr::get(&context, getTensorShape());
     return builder.create<OnesOp>(builder.getUnknownLoc(),
-                                  getTensorRankedType(), shapeAttr, nullptr,
+                                  getTensorRankedType(), nullptr, shapeAttr,
                                   nullptr, nullptr, nullptr);
   }
 

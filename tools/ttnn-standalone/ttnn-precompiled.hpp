@@ -25,22 +25,34 @@
 #include "operations/eltwise/unary/unary_composite.hpp"
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
+#include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
+#include "operations/kv_cache/kv_cache.hpp"
 #include "operations/matmul/matmul.hpp"
 #include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "operations/normalization/batch_norm/batch_norm.hpp"
 #include "operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
+#include "operations/pool/global_avg_pool/global_avg_pool.hpp"
 #include "operations/pool/upsample/upsample.hpp"
 #include "operations/rand/rand.hpp"
 #include "operations/reduction/argmax/argmax.hpp"
 #include "operations/reduction/generic/generic_reductions.hpp"
 #include "operations/reduction/prod/prod.hpp"
+#include "operations/trace.hpp"
 #include "operations/transformer/concatenate_heads/concatenate_heads.hpp"
+#include "operations/transformer/sdpa/sdpa.hpp"
+#include "operations/transformer/sdpa_decode/sdpa_decode.hpp"
+#include "operations/transformer/split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.hpp"
 #include "tt-metalium/bfloat16.hpp"
+#include "ttnn/common/queue_id.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
+#include "ttnn/operations/experimental/transformer/nlp_create_qkv_heads_decode/nlp_create_qkv_heads_decode.hpp"
+#include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
+#include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
@@ -51,6 +63,7 @@
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <tuple>
 #include <vector>
 
 template <typename... T>
@@ -66,7 +79,8 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static constexpr std::size_t l1SmallSize = 1 << 15;
+  static constexpr std::size_t l1SmallSize = 1 << 15;     // 32kB
+  static constexpr std::size_t traceRegionSize = 1 << 20; // 1MB
 
   static ttnn::MeshDevice *getInstance() {
     // If we have an external device, use it.
@@ -76,7 +90,7 @@ public:
     }
 
     static std::shared_ptr<ttnn::MeshDevice> ownedInstance =
-        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize);
+        ::ttnn::MeshDevice::create_unit_mesh(0, l1SmallSize, traceRegionSize);
     hasOwnedDevice = true;
     return ownedInstance.get();
   }
@@ -121,6 +135,17 @@ void constEvalFuncWrapper(
   if (outputs->empty()) {
     *outputs = constEvalFunc(inputs);
   }
+}
+
+uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
+  assert(tensor.logical_volume() == 1 && "expected scalar tensor");
+  assert(tensor.dtype() == ttnn::DataType::UINT32 && "expected uint32 tensor");
+
+  const ::ttnn::Tensor tensorOnHost = ::ttnn::from_device(tensor);
+  const ::tt::tt_metal::HostBuffer buffer =
+      ::tt::tt_metal::host_buffer::get_host_buffer(tensorOnHost);
+  const auto &buf = buffer.view_as<uint32_t>();
+  return *buf.begin();
 }
 
 } // namespace ttnn

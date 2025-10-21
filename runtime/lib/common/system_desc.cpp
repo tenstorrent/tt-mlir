@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/runtime.h"
@@ -8,9 +9,9 @@
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_hash_generated.h"
-#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 #include "types_generated.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -198,7 +199,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
     auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
 
-    constexpr std::uint32_t kDstRegisterSizeTiles = 8;
+    constexpr std::uint32_t kDstPhysicalSizeTiles = 16;
     constexpr std::uint32_t kNumComputeThreads = 1;
     constexpr std::uint32_t kNumDatamovementThreads = 2;
     chipDescs.emplace_back(::tt::target::CreateChipDesc(
@@ -208,7 +209,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         l1Alignment, pcieAlignment, dramAlignment, l1UnreservedBase,
         ::tt::tt_metal::hal::get_erisc_l1_unreserved_base(), dramUnreservedBase,
         dramUnreservedEnd, supportedDataTypes, supportedTileSizes,
-        kDstRegisterSizeTiles, NUM_CIRCULAR_BUFFERS, kNumComputeThreads,
+        kDstPhysicalSizeTiles, NUM_CIRCULAR_BUFFERS, kNumComputeThreads,
         kNumDatamovementThreads));
     chipDescIndices.push_back(chipDescIndices.size());
     // Derive chip capability
@@ -245,7 +246,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   }
   uint8_t *buf = fbb.GetBufferPointer();
   auto size = fbb.GetSize();
-  auto handle = ::tt::runtime::utils::malloc_shared(size);
+  auto handle = ::tt::runtime::utils::mallocShared(size);
   std::memcpy(handle.get(), buf, size);
   return std::make_unique<::tt::runtime::SystemDesc>(handle);
 }
@@ -270,7 +271,7 @@ getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
   if (meshDevice.has_value()) {
     meshDevicePtr =
         meshDevice.value().asSharedPtr<::tt::tt_metal::distributed::MeshDevice>(
-            getCurrentRuntime());
+            getCurrentDeviceRuntime());
   } else {
     meshDevicePtr = createNewMeshDevice(dispatchCoreType);
   }

@@ -39,11 +39,11 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("get_dram_size_per_channel", &tt::runtime::getDramSizePerChannel)
       .def("get_l1_size_per_core", &tt::runtime::getL1SizePerCore)
       .def("release_trace", &tt::runtime::releaseTrace)
-      .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
-      .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
+      .def("deallocate_buffers", &tt::runtime::deallocateBuffers)
+      .def("dump_memory_report", &tt::runtime::dumpMemoryReport)
       .def("read_device_profiler_results",
-           &tt::runtime::detail::readDeviceProfilerResults)
-      .def("get_memory_view", &tt::runtime::detail::getMemoryView);
+           &tt::runtime::readDeviceProfilerResults)
+      .def("get_memory_view", &tt::runtime::getMemoryView);
 
   nb::class_<tt::runtime::Event>(m, "Event");
 
@@ -51,7 +51,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def_ro("shape", &tt::runtime::TensorDesc::shape)
       .def_ro("stride", &tt::runtime::TensorDesc::stride)
       .def_ro("item_size", &tt::runtime::TensorDesc::itemsize)
-      .def_ro("dtype", &tt::runtime::TensorDesc::dataType);
+      .def_ro("dtype", &tt::runtime::TensorDesc::dataType)
+      .def_ro("physical_volume", &tt::runtime::TensorDesc::physicalVolume);
 
   nb::class_<tt::runtime::MeshDeviceOptions>(m, "MeshDeviceOptions")
       .def(nb::init<>())
@@ -114,6 +115,51 @@ void registerRuntimeBindings(nb::module_ &m) {
                     ? std::nullopt
                     : std::make_optional(
                           nb::cast<tt::runtime::DispatchCoreType>(value));
+          });
+
+  nb::class_<tt::runtime::MultiProcessArgs>(m, "MultiProcessArgs")
+      .def_static("create", &tt::runtime::MultiProcessArgs::create,
+                  nb::arg("rank_binding_path"))
+      .def("get_rank_binding_path",
+           &tt::runtime::MultiProcessArgs::getRankBindingPath)
+      .def("with_hosts", &tt::runtime::MultiProcessArgs::withHosts,
+           nb::rv_policy::reference_internal)
+      .def("with_hosts_file_path",
+           &tt::runtime::MultiProcessArgs::withHostsFilePath,
+           nb::rv_policy::reference_internal)
+      .def("with_rank_file_path",
+           &tt::runtime::MultiProcessArgs::withRankFilePath,
+           nb::rv_policy::reference_internal)
+      .def("with_mca_options", &tt::runtime::MultiProcessArgs::withMcaOptions,
+           nb::rv_policy::reference_internal)
+      .def("with_tag_output", &tt::runtime::MultiProcessArgs::withTagOutput,
+           nb::rv_policy::reference_internal)
+      .def("with_allow_run_as_root",
+           &tt::runtime::MultiProcessArgs::withAllowRunAsRoot,
+           nb::rv_policy::reference_internal)
+      .def("with_extra_mpi_args",
+           &tt::runtime::MultiProcessArgs::withExtraMpiArgs,
+           nb::rv_policy::reference_internal)
+      .def("to_arg_string", &tt::runtime::MultiProcessArgs::toArgString);
+
+  nb::class_<tt::runtime::DistributedOptions>(m, "DistributedOptions")
+      .def(nb::init<>())
+      .def_rw("controller_port",
+              &tt::runtime::DistributedOptions::controllerPort)
+      .def_rw("mode", &tt::runtime::DistributedOptions::mode)
+      .def_prop_rw(
+          "multi_process_args",
+          [](const tt::runtime::DistributedOptions &o) {
+            return o.multiProcessArgs.has_value()
+                       ? nb::cast(o.multiProcessArgs.value())
+                       : nb::none();
+          },
+          [](tt::runtime::DistributedOptions &o, nb::handle value) {
+            o.multiProcessArgs =
+                value.is_none()
+                    ? std::nullopt
+                    : std::make_optional(
+                          nb::cast<tt::runtime::MultiProcessArgs>(value));
           });
 
   nb::class_<tt::runtime::Tensor>(m, "Tensor")
@@ -200,6 +246,14 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("TTNN", ::tt::runtime::DeviceRuntime::TTNN)
       .value("TTMetal", ::tt::runtime::DeviceRuntime::TTMetal);
 
+  nb::enum_<::tt::runtime::HostRuntime>(m, "HostRuntime")
+      .value("Local", ::tt::runtime::HostRuntime::Local)
+      .value("Distributed", ::tt::runtime::HostRuntime::Distributed);
+
+  nb::enum_<::tt::runtime::DistributedMode>(m, "DistributedMode")
+      .value("LocalSubprocess", ::tt::runtime::DistributedMode::LocalSubprocess)
+      .value("MultiProcess", ::tt::runtime::DistributedMode::MultiProcess);
+
   nb::enum_<::tt::runtime::DispatchCoreType>(m, "DispatchCoreType")
       .value("WORKER", ::tt::runtime::DispatchCoreType::WORKER)
       .value("ETH", ::tt::runtime::DispatchCoreType::ETH);
@@ -231,19 +285,36 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("BLACKHOLE", ::tt::runtime::Arch::BLACKHOLE)
       .value("QUASAR", ::tt::runtime::Arch::QUASAR);
 
-  m.def("get_current_runtime", &tt::runtime::getCurrentRuntime,
+  m.def("set_mlir_home", &tt::runtime::setMlirHome, nb::arg("mlir_home"),
+        "Set the MLIR home directory");
+  m.def("set_metal_home", &tt::runtime::setMetalHome, nb::arg("metal_home"),
+        "Set the Metal home directory");
+  m.def("get_current_device_runtime", &tt::runtime::getCurrentDeviceRuntime,
         "Get the backend device runtime type");
-  m.def("get_available_runtimes", &tt::runtime::getAvailableRuntimes,
+  m.def("get_available_device_runtimes",
+        &tt::runtime::getAvailableDeviceRuntimes,
         "Get the available backend device runtime types");
-  m.def("set_compatible_runtime", &tt::runtime::setCompatibleRuntime,
-        nb::arg("binary"),
+  m.def("set_compatible_device_runtime",
+        &tt::runtime::setCompatibleDeviceRuntime, nb::arg("binary"),
         "Set the backend device runtime type to match the binary");
-  m.def("set_current_runtime", &tt::runtime::setCurrentRuntime,
+  m.def("set_current_device_runtime", &tt::runtime::setCurrentDeviceRuntime,
         nb::arg("runtime"), "Set the backend device runtime type");
+  m.def("get_current_host_runtime", &tt::runtime::getCurrentHostRuntime,
+        "Get the host runtime type");
+  m.def("get_available_host_runtimes", &tt::runtime::getAvailableHostRuntimes,
+        "Get the available host runtime types");
+  m.def("set_current_host_runtime", &tt::runtime::setCurrentHostRuntime,
+        nb::arg("runtime"), "Set the host runtime type");
   m.def("get_current_system_desc", &tt::runtime::getCurrentSystemDesc,
         nb::arg("dispatch_core_type") = nb::none(),
         nb::arg("mesh_device") = nb::none(),
         "Get the current system descriptor");
+  m.def("launch_distributed_runtime", &tt::runtime::launchDistributedRuntime,
+        nb::arg("options") = tt::runtime::DistributedOptions(),
+        "Launch the distributed runtime");
+  m.def("shutdown_distributed_runtime",
+        &tt::runtime::shutdownDistributedRuntime,
+        "Shutdown the distributed runtime");
   m.def(
       "create_borrowed_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
@@ -355,11 +426,8 @@ void registerRuntimeBindings(nb::module_ &m) {
       "get_op_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
-        tt::runtime::Tensor tensor = tt::runtime::getOpOutputTensor(
-            opContextHandle, programContextHandle);
-        return tensor.handle.get() == nullptr
-                   ? std::nullopt
-                   : std::optional<tt::runtime::Tensor>(tensor);
+        return tt::runtime::getOpOutputTensor(opContextHandle,
+                                              programContextHandle);
       },
       "Get the output tensor of the op");
   m.def(
@@ -484,6 +552,20 @@ void registerRuntimeBindings(nb::module_ &m) {
       "Copy the data from src tensor to dst tensor");
   m.def("deallocate_tensor", &tt::runtime::deallocateTensor, nb::arg("tensor"),
         nb::arg("force") = false, "Deallocate the tensor memory");
+  m.def(
+      "dump_tensor",
+      [](::tt::runtime::Tensor tensor, const std::string &filePath) {
+        ::tt::runtime::dumpTensor(tensor, filePath);
+      },
+      nb::arg("tensor"), nb::arg("file_path"), "Dump tensor to file");
+  m.def(
+      "load_tensor",
+      [](const std::string &filePath,
+         std::optional<::tt::runtime::Device> device) {
+        return ::tt::runtime::loadTensor(filePath, device);
+      },
+      nb::arg("file_path"), nb::arg("device") = nb::none(),
+      "Load tensor from file");
 
   nb::class_<tt::runtime::debug::Env>(m, "DebugEnv")
       .def_static("get", &tt::runtime::debug::Env::get)

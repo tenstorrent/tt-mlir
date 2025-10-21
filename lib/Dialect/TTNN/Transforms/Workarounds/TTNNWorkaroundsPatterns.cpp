@@ -15,10 +15,12 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dSliceConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CumSumOpRankRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.h"
@@ -158,21 +160,14 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   RankedTensorType opResultType =
       mlir::cast<RankedTensorType>(opResult.getType());
 
-  // Create tensor memory layout attribute.
-  TensorMemoryLayoutAttr outputMemLayoutAttr =
-      outputWorkaroundResults.tensorMemoryLayoutResult.targetValue
-          ? ttnn::TensorMemoryLayoutAttr::get(
-                rewriter.getContext(),
-                *outputWorkaroundResults.tensorMemoryLayoutResult.targetValue)
-          : nullptr;
-
   // Create the new output layout attribute with the updated tensor layout,
   // buffer type, memory layout and data type.
   TTNNLayoutAttr newOutputLayoutAttr =
       opResultLayoutAttr.withElementType(elementType, opResultType.getShape())
           .withBufferType(
               outputWorkaroundResults.tensorBufferTypeResult.targetValue)
-          .withMemoryLayout(outputMemLayoutAttr);
+          .withMemoryLayout(
+              outputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
 
   // Create the new output result type with the updated data type and layout.
   RankedTensorType newOutputResultType = utils::RankedTensorTypeFactory::create(
@@ -190,52 +185,66 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
     // Some ops defines attributes with tensor layout, buffer type and memory
     // layout, hence we need to update the attributes as well. For example,
     // the empty op defines layout and memory_config attributes.
-    if (outputWorkaroundResults.tensorLayoutResult.isModified() &&
-        op->getAttrDictionary().get("layout")) {
+    TTNNLayoutOpInterface layoutOp =
+        mlir::dyn_cast<TTNNLayoutOpInterface>(op.getOperation());
+    if (outputWorkaroundResults.tensorLayoutResult.isModified() && layoutOp) {
       LayoutAttr updatedLayoutAttr = rewriter.getAttr<LayoutAttr>(
           outputWorkaroundResults.tensorLayoutResult.targetValue);
-      op->setAttr("layout", updatedLayoutAttr);
+      layoutOp.setLayoutAttr(updatedLayoutAttr);
     }
 
-    if (outputWorkaroundResults.tensorDataTypeResult.isModified() &&
-        op->getAttrDictionary().get("dtype")) {
+    TTNNDtypeOpInterface dtypeOp =
+        mlir::dyn_cast<TTNNDtypeOpInterface>(op.getOperation());
+    if (outputWorkaroundResults.tensorDataTypeResult.isModified() && dtypeOp) {
       ttcore::DataTypeAttr updatedDataTypeAttr =
           rewriter.getAttr<ttcore::DataTypeAttr>(
               outputWorkaroundResults.tensorDataTypeResult.targetValue);
-      op->setAttr("dtype", updatedDataTypeAttr);
+      dtypeOp.setDtypeAttr(updatedDataTypeAttr);
     }
 
-    if (outputWorkaroundResults.tensorDataTypeResult.isModified() &&
-        op->hasTrait<ttnn::HasOutputDTypeTrait>()) {
-      ttcore::DataTypeAttr updatedDataTypeAttr =
-          rewriter.getAttr<ttcore::DataTypeAttr>(
-              outputWorkaroundResults.tensorDataTypeResult.targetValue);
-      op->setAttr(ttmlir::utils::g_outputDtypeAttrName, updatedDataTypeAttr);
-    }
-
+    TTNNMemoryConfigOpInterface memoryConfigOp =
+        mlir::dyn_cast<TTNNMemoryConfigOpInterface>(op.getOperation());
     if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
          outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) &&
-        op->getAttrDictionary().get("memory_config")) {
+        memoryConfigOp) {
 
       MemoryConfigAttr currentMemoryConfig =
-          mlir::cast<MemoryConfigAttr>(op->getAttr("memory_config"));
+          memoryConfigOp.getMemoryConfigAttr();
 
-      // Create the output memory config attribute.
-      // Check if the buffer type got updated.
-      if (outputWorkaroundResults.tensorBufferTypeResult.isModified()) {
-        currentMemoryConfig = currentMemoryConfig.withBufferType(
-            outputWorkaroundResults.tensorBufferTypeResult.targetValue);
-      }
-
-      // Check if the memory layout got updated.
-      if (outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) {
-        currentMemoryConfig = currentMemoryConfig.withMemoryLayout(
-            outputWorkaroundResults.tensorMemoryLayoutResult.targetValue
-                .value());
-      }
+      MemoryConfigAttr updatedMemoryConfig =
+          MemoryConfigAttr::Builder(currentMemoryConfig)
+              .setBufferType(
+                  outputWorkaroundResults.tensorBufferTypeResult.targetValue)
+              .setTensorMemoryLayout(
+                  outputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
 
       // Update the changed memory config attribute.
-      op->setAttr("memory_config", currentMemoryConfig);
+      memoryConfigOp.setMemoryConfigAttr(updatedMemoryConfig);
+
+      TTNNDeviceOperandInterface deviceOperandOp =
+          mlir::dyn_cast<TTNNDeviceOperandInterface>(op.getOperation());
+
+      // If the target value for buffer type is SystemMemory, we need to remove
+      // the device operand from the operation.
+      if (outputWorkaroundResults.tensorBufferTypeResult.isModified() &&
+          outputWorkaroundResults.tensorBufferTypeResult.targetValue ==
+              BufferType::SystemMemory &&
+          deviceOperandOp) {
+        // Remove the device operand from the operation.
+        deviceOperandOp.setDevice(nullptr);
+      }
+
+      // If the target value for buffer type is not SystemMemory and the
+      // operation has a required device operand, we need to set the device
+      // operand to a default device if it is not already set.
+      if (outputWorkaroundResults.tensorBufferTypeResult.isModified() &&
+          outputWorkaroundResults.tensorBufferTypeResult.targetValue !=
+              BufferType::SystemMemory &&
+          deviceOperandOp && !deviceOperandOp.getDevice()) {
+        // Set the device operand to a default device.
+        Value device = utils::getOrInsertDevice(rewriter, op);
+        deviceOperandOp.setDevice(device);
+      }
     }
   });
 
@@ -348,9 +357,6 @@ private:
 // 2. It doesn't really matter which tensor dimension we do the
 // reduce scatter and the all gather on but they must be equal to each other
 // and within the constraints of the rank of the tensor.
-// 2-1. It turned out that using any dimension other than 3 generates
-// incorrect output under the current ttnn implementation. Temporarily use
-// dimension == 3.
 // 3. We also need to make sure the tensor dimension we select is divisible by
 // the number of devices along the cluster axis dimension we want to perform the
 // all reduce on.
@@ -369,15 +375,18 @@ public:
     auto deviceDesc = ttcore::lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
 
-    // TODO(hongseok): Restore dynamic dimension selection once the issue
-    // (https://github.com/tenstorrent/tt-metal/issues/19433) is resolved.
-    // Currently, dimension 3 must be used to produce correct outputs.
-    int32_t dimension =
-        std::min(3, static_cast<int32_t>(inputTypeShape.size() - 1));
-    // If the target dimension is not evenly divisible by the number of
-    // devices in the cluster, use the all-gather + local reduce breakdown
-    // approach.
-    if (inputTypeShape[dimension] % meshShape[clusterAxis] != 0) {
+    // Algorithm: iterate through all tensor dimension values and select first
+    // tensor dimension which is divisible by number of devices along the
+    // cluster axis on which we are performing the all reduce.
+    auto sizeOfDevices = meshShape[clusterAxis];
+    auto inputShape = inputType.getShape();
+    const auto *tensorDimDevice = llvm::find_if(
+        inputShape, [&](int64_t dim) { return dim % sizeOfDevices == 0; });
+
+    if (tensorDimDevice == inputShape.end()) {
+      // If all the dimensions are not evenly divisible by the number of
+      // devices in the cluster, use the all-gather + local reduce breakdown
+      // approach.
       // Estimate memory usage of AllGather + LocalReduce breakdown and check
       // if it exceeds the allowed memory limit. This breakdown requires
       // significantly more memory than ReduceScatter + AllGather due to
@@ -389,6 +398,8 @@ public:
         return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
       }
     }
+
+    int32_t dimension = std::distance(inputShape.begin(), tensorDimDevice);
 
     // TODO(wooseoklee): Once ttnn supports all_reduce op
     // (https://github.com/tenstorrent/tt-metal/issues/13835), we can
@@ -408,15 +419,11 @@ public:
             ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
             scatteredInputType, op.getInput(), deviceValue, op.getReduceType(),
             dimension, clusterAxis);
-    reduceScatterOp->setAttr(ttmlir::utils::g_decomposedFromAllReduceAttrName,
-                             rewriter.getUnitAttr());
 
     // Replace all_reduce op with all_gather op.
-    auto allGatherOp = rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
+    rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, op.getType(), reduceScatterOp.getResult(), deviceValue, dimension,
         clusterAxis);
-    allGatherOp->setAttr(ttmlir::utils::g_decomposedFromAllReduceAttrName,
-                         rewriter.getUnitAttr());
     return success();
   }
 
@@ -552,11 +559,13 @@ public:
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
           workarounds::decomposition::ArgMaxOpRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
+          workarounds::decomposition::LinearOpRewritePattern,
           workarounds::decomposition::MultiplyOpDecompositionRewritePattern,
           workarounds::decomposition::SubtractOpImplicitBroadcastRewritePattern,
           workarounds::decomposition::ExplicateOperandBroadcastsRewritePattern,
           workarounds::decomposition::Conv2dRewritePattern<Conv2dOp>,
           workarounds::decomposition::Conv2dRewritePattern<ConvTranspose2dOp>,
+          workarounds::decomposition::Conv2dSliceConfigRewritePattern,
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern>(
           &getContext());
 

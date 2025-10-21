@@ -36,12 +36,13 @@ Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc);
 
 inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
-  return ttmetal::createBorrowedHostTensor(utils::unsafe_borrow_shared(data),
+  return ttmetal::createBorrowedHostTensor(utils::unsafeBorrowShared(data),
                                            desc);
 }
 
 std::shared_ptr<::tt::tt_metal::HostBuffer>
 createMetalHostBuffer(const void *data, const std::vector<std::uint32_t> &shape,
+                      const size_t sizeBytes,
                       const ::tt::target::DataType dataType);
 
 Tensor createOwnedHostTensor(const void *data,
@@ -136,6 +137,8 @@ void memcpy(void *dst, Tensor src,
 
 void memcpy(Tensor dst, Tensor src);
 
+void memcpy(Tensor dst, TensorDesc dstDesc, Tensor src, TensorDesc srcDesc);
+
 void deallocateTensor(Tensor &tensor, bool force);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
@@ -146,8 +149,9 @@ std::string getOpDebugString(OpContext opContextHandle);
 
 std::string getOpLocInfo(OpContext opContextHandle);
 
-Tensor getOpOutputTensor(OpContext opContextHandle,
-                         CallbackContext programContextHandle);
+std::unordered_map<std::uint32_t, Tensor>
+getOpOutputTensor(OpContext opContextHandle,
+                  CallbackContext programContextHandle);
 
 std::optional<tt::runtime::TensorRef>
 getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);

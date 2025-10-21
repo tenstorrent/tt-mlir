@@ -43,6 +43,13 @@ DeviceAttr lookupDevice(Operation *op, llvm::StringRef deviceName) {
   return deviceOp.getDeviceAttr();
 }
 
+ChipDescAttr getOpChipDescAttr(Operation *op) {
+  auto device = ttcore::lookupDevice(op);
+  auto chipIds = device.getChipIds();
+  auto systemDesc = ttcore::getCurrentScopeSystemDesc(op);
+  return systemDesc.getChipDesc(chipIds[0]);
+}
+
 mlir::memref::GlobalOp createGlobal(ModuleOp moduleOp, StringRef name,
                                     mlir::MemRefType type, ElementsAttr value,
                                     bool constant, bool privateVisibility,
@@ -130,6 +137,37 @@ ArrayRef<int64_t> getTensorTileShape(RankedTensorType tensorType) {
 ArrayRef<int64_t> getTensorTileShapeOrEmpty(RankedTensorType tensorType) {
   return isTiled(tensorType) ? getTensorTileShape(tensorType)
                              : ArrayRef<int64_t>{};
+}
+
+Type getOperandInnerElementType(const mlir::Value operand) {
+  auto elemType = operand.getType();
+  if (auto memRefType = mlir::dyn_cast<MemRefType>(elemType);
+      memRefType != nullptr) {
+    elemType = memRefType.getElementType();
+  }
+  // We could have a memref of tiles, so this needs to be the second query.
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elemType);
+      tileType != nullptr) {
+    elemType = tileType.getElementType();
+  }
+  assert(elemType.isIntOrFloat());
+  return elemType;
+}
+
+llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape) {
+  if (gridShape.size() <= 2) {
+    return llvm::to_vector(gridShape);
+  }
+
+  // Collapse all leading dimensions into the first dimension.
+  // e.g., [3, 2, 4] -> [6, 4].
+  int64_t collapsedHeight = 1;
+  for (size_t i = 0; i < gridShape.size() - 1; ++i) {
+    collapsedHeight *= gridShape[i];
+  }
+  int64_t width = gridShape.back();
+
+  return {collapsedHeight, width};
 }
 
 } // namespace mlir::tt::ttcore

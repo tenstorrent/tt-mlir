@@ -15,8 +15,27 @@ namespace mlir::tt::ttmetal {
 // stream.
 LogicalResult translateTTMetalToFlatbuffer(
     Operation *op, llvm::raw_ostream &os,
-    const std::unordered_map<std::string, GoldenTensor> &goldenMap = {},
+    /* goldenMap has following structure
+    {
+      loc: {
+        device_id: GoldenTensor
+      }
+    }
+    */
+    const std::unordered_map<std::string,
+                             std::unordered_map<std::uint32_t, GoldenTensor>>
+        &goldenMap = {},
     const std::vector<std::pair<std::string, std::string>> &moduleCache = {});
+
+// Translates a TTMetal operation to a flatbuffer and returns a pointer to
+// in-memory blob.
+std::shared_ptr<void> translateTTMetalToFlatbuffer(
+    Operation *op,
+    const std::unordered_map<std::string,
+                             std::unordered_map<std::uint32_t, GoldenTensor>>
+        &goldenMap = {},
+    const std::vector<std::pair<std::string, std::string>> &moduleCache = {});
+
 } // namespace mlir::tt::ttmetal
 
 #endif

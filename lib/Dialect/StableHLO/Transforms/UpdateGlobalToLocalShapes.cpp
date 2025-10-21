@@ -16,6 +16,89 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_UPDATEGLOBALTOLOCALSHAPESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
+// Helper function to determine if a ScatterOp represents a safe sharded scatter
+//  that doesn't require attr rewriting when running
+//  UpdateGlobalToLocalShapesPass. This requires the scatter to have inputs that
+//  are either unsharded, or jointly sharded along the same axis, which must
+//  differ from the scatter axis:
+// i.e. both insertedWindowDims and scatterDimsToOperandDims must be orthogonal
+//  to the update/input sharding dims.
+static bool isSafeShardedScatter(mlir::stablehlo::ScatterOp scatterOp,
+                                 mlir::sdy::MeshOp &globalMeshOp) {
+  mlir::stablehlo::ScatterDimensionNumbersAttr scatterDimensionNumbers =
+      scatterOp.getScatterDimensionNumbers();
+  llvm::ArrayRef<int64_t> insertedWindowDims =
+      scatterDimensionNumbers.getInsertedWindowDims();
+  llvm::ArrayRef<int64_t> scatterDimsToOperandDims =
+      scatterDimensionNumbers.getScatterDimsToOperandDims();
+
+  // Get sharding info for inputs.
+  llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> inputDimShardings =
+      shardy_utils::getOperandShardingAttr(
+          scatterOp.getOperation()->getOpOperand(0), globalMeshOp)
+          .getDimShardings();
+
+  // Get sharding info for updates.
+  llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> updateDimShardings =
+      shardy_utils::getOperandShardingAttr(
+          scatterOp.getOperation()->getOpOperand(2), globalMeshOp)
+          .getDimShardings();
+
+  // Early exit conditions - return false if we can't analyze safely.
+  if (inputDimShardings.empty() || updateDimShardings.empty()) {
+    return false;
+  }
+
+  mlir::OperandRange scatterInputs = scatterOp.getInputs();
+  mlir::OperandRange scatterUpdates = scatterOp.getUpdates();
+
+  // SHLO scatter accepts a variadic number of inputs / updates tensors, we
+  // expect only 1.
+  if (scatterInputs.size() != 1 || scatterUpdates.size() != 1) {
+    return false;
+  }
+
+  // Expect the inputs and updates to have the same size.
+  mlir::RankedTensorType scatterInputType =
+      mlir::dyn_cast<mlir::RankedTensorType>(scatterInputs.front().getType());
+  mlir::RankedTensorType scatterUpdateType =
+      mlir::dyn_cast<mlir::RankedTensorType>(scatterUpdates.front().getType());
+  if (scatterInputType.getShape().size() !=
+      scatterUpdateType.getShape().size()) {
+    return false;
+  }
+
+  // insertedWindowDims / scatterDimsToOperandDims must be a single dim and
+  // equal for a cache update.
+  if (insertedWindowDims.size() != 1 || scatterDimsToOperandDims.size() != 1 ||
+      (insertedWindowDims.front() != scatterDimsToOperandDims.front())) {
+    return false;
+  }
+
+  int64_t scatterAxis = insertedWindowDims.front();
+
+  // Determine the "sharding axis"
+  // input and updates must be sharded equivalently.
+  if (!inputDimShardings.equals(updateDimShardings)) {
+    return false;
+  }
+
+  llvm::SmallVector<uint8_t> shardingAxes = {};
+
+  for (auto [dimIndex, sharding] : llvm::enumerate(inputDimShardings)) {
+    if (!sharding.getAxes().empty()) {
+      shardingAxes.push_back(dimIndex);
+    }
+  }
+
+  // We expect the sharding axes and scatter axes to be disjoint.
+  if (llvm::is_contained(shardingAxes, scatterAxis)) {
+    return false;
+  }
+
+  return true;
+}
+
 // This function creates a new operation state with updated shapes and
 // attributes based on the provided operation, global mesh, new types, and
 // tensor shardings. It handles special cases for certain operations like
@@ -65,39 +148,46 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             return mlir::success();
           })
           .Case<mlir::stablehlo::SliceOp>([&](auto sliceOp) {
+            // 1. Get the sharding for each operand dimension.
+            llvm::ArrayRef<mlir::sdy::DimensionShardingAttr>
+                operandDimShardings =
+                    shardy_utils::getOperandShardingAttr(
+                        sliceOp.getOperation()->getOpOperand(0), globalMeshOp)
+                        .getDimShardings();
+
+            // 2. Copy the current start_indices and limit_indices attributes.
             llvm::SmallVector<int64_t> startIndices(sliceOp.getStartIndices());
             llvm::SmallVector<int64_t> limitIndices(sliceOp.getLimitIndices());
 
-            // Iterate through start and limit indices and update them based on
-            // the sharding annotation for that dimension.
-            for (uint32_t i = 0; i < tensorShardings.size(); i++) {
-              llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
-                  tensorShardings[i].getDimShardings();
+            // 3. Iterate through start and limit indices and update them based
+            // on the sharding annotation for that dimension.
+            for (auto [i, dimShardings] :
+                 llvm::enumerate(operandDimShardings)) {
+              llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> shardings =
+                  dimShardings;
 
-              for (const auto [index, dimShardingAttr] :
-                   llvm::enumerate(dimShardings)) {
-                FailureOr<int64_t> updatedStartDim =
-                    shardy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
-                                                      dimShardingAttr,
-                                                      startIndices[index]);
-                FailureOr<int64_t> updatedLimitDim =
-                    shardy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
-                                                      dimShardingAttr,
-                                                      limitIndices[index]);
-
-                if (failed(updatedStartDim) || failed(updatedLimitDim)) {
-                  sliceOp->emitError(
-                      "Could not apply propagated tensor shardings "
-                      "to attribute dictionary for slice op");
-                  return mlir::failure();
-                }
-
-                startIndices[index] = *updatedStartDim;
-                limitIndices[index] = *updatedLimitDim;
+              if (shardings.size() > 1) {
+                sliceOp->emitError(
+                    "Slice operation has multiple shardings on a single tensor "
+                    "dimension. This is not supported.");
+                return mlir::failure();
               }
+
+              FailureOr<int64_t> updatedLimitDim =
+                  shardy_utils::calculateUpdatedDim(
+                      globalMeshOp.getMesh(), shardings[0], limitIndices[i]);
+
+              if (failed(updatedLimitDim)) {
+                sliceOp->emitError(
+                    "Could not apply propagated tensor shardings "
+                    "to attribute dictionary for slice op");
+                return mlir::failure();
+              }
+
+              limitIndices[i] = *updatedLimitDim;
             }
 
-            // Update start and limit indices in op named attributes.
+            // 4. Update start and limit indices in op named attributes.
             llvm::StringRef startIndicesAttrName = "start_indices";
             llvm::StringRef limitIndicesAttrName = "limit_indices";
 
@@ -124,30 +214,54 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             return mlir::success();
           })
           .Case<mlir::stablehlo::GatherOp>([&](auto gatherOp) {
+            // 1. Get the sharding for each operand dimension.
+            llvm::ArrayRef<mlir::sdy::DimensionShardingAttr>
+                operandDimShardings =
+                    shardy_utils::getOperandShardingAttr(
+                        gatherOp.getOperation()->getOpOperand(0), globalMeshOp)
+                        .getDimShardings();
+
+            // 2. Copy the current slice_sizes attribute.
             llvm::SmallVector<int64_t> newSliceSizes(gatherOp.getSliceSizes());
 
-            for (uint32_t i = 0; i < tensorShardings.size(); i++) {
-              llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
-                  tensorShardings[i].getDimShardings();
+            // 3. Get collapsed_slice_dims and start_index_map from the op.
+            auto collapsedSliceDims =
+                gatherOp.getDimensionNumbers().getCollapsedSliceDims();
+            auto startIndexMap =
+                gatherOp.getDimensionNumbers().getStartIndexMap();
 
-              for (const auto [index, dimShardingAttr] :
-                   llvm::enumerate(dimShardings)) {
+            // 4. For each dimension, update slice size if not in
+            // start_index_map.
+            for (auto [index, sliceSize] : llvm::enumerate(newSliceSizes)) {
+              // If this dimension is collapsed, it must be 1.
+              if (llvm::is_contained(collapsedSliceDims, index)) {
+                if (sliceSize != 1) {
+                  gatherOp->emitError("collapsed slice dims should be 1");
+                  return mlir::failure();
+                }
+                continue;
+              }
+
+              // If this dim is not indexed, its slice size should match the
+              // local (sharded) size of the operand. We use operandDimShardings
+              // to get the local shape for this dim.
+              if (!llvm::is_contained(startIndexMap, index)) {
                 FailureOr<int64_t> updatedSliceDim =
-                    shardy_utils::calculateUpdatedDim(globalMeshOp.getMesh(),
-                                                      dimShardingAttr,
-                                                      newSliceSizes[index]);
-
+                    shardy_utils::calculateUpdatedDim(
+                        globalMeshOp.getMesh(), operandDimShardings[index],
+                        newSliceSizes[index]);
                 if (failed(updatedSliceDim)) {
                   gatherOp->emitError(
                       "Could not apply propagated tensor shardings to "
                       "attribute dictionary for gather op");
                   return mlir::failure();
                 }
-
                 newSliceSizes[index] = *updatedSliceDim;
               }
             }
 
+            // 5. Update the slice_sizes attribute in the op's attribute
+            // dictionary.
             llvm::StringRef sliceSizesAttrName = "slice_sizes";
             assert(attrDict.contains(sliceSizesAttrName) &&
                    "Gather operation does not have slice sizes attribute. "
@@ -160,6 +274,19 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                 mlir::DenseI64ArrayAttr::get(context, newSliceSizes));
 
             return mlir::success();
+          })
+          .Case<mlir::stablehlo::ScatterOp>([&](auto scatterOp) {
+            // Check if this is a safe cache update that can be handled
+            if (isSafeShardedScatter(scatterOp, globalMeshOp)) {
+              return mlir::success();
+            }
+
+            // If not a safe cache update, emit the error as before
+            scatterOp->emitError(
+                "Scatter operation is not supported in stablehlo-pipeline for "
+                "meshes not 1x1: "
+                "https://github.com/tenstorrent/tt-mlir/issues/3496.");
+            return mlir::failure();
           })
           .Default([](mlir::Operation *op) { return mlir::success(); });
 

@@ -6,13 +6,13 @@ import pytest
 import torch
 from typing import Callable, List
 
-from ttmlir.dialects import ttir, ttcore
+from ttmlir.dialects import ttcore
 from ttmlir.ir import *
 
 from builder.base.builder import Operand, Shape
 from builder.base import builder_golden
-from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.d2m.d2m_builder import D2MBuilder
+from builder.base.builder_utils import compile_and_execute_d2m
 
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -20,10 +20,10 @@ pytestmark = pytest.mark.frontend("ttir")
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_tilize(shape: Shape, target: str, request):
+def test_tilize(shape: Shape, target: str, request, device):
     def tilize(
         in0: Operand,
-        builder: TTIRBuilder,
+        builder: D2MBuilder,
         unit_attrs: List[str] = None,
     ):
 
@@ -52,11 +52,12 @@ def test_tilize(shape: Shape, target: str, request):
 
         return from_device
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_d2m(
         tilize,
         [shape],
         target=target,
-        custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -68,10 +69,10 @@ def test_tilize(shape: Shape, target: str, request):
 )
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_untilize(shape: Shape, target: str, request):
+def test_untilize(shape: Shape, target: str, request, device):
     def untilize(
         in0: Operand,
-        builder: TTIRBuilder,
+        builder: D2MBuilder,
         unit_attrs: List[str] = None,
     ):
 
@@ -83,7 +84,9 @@ def test_untilize(shape: Shape, target: str, request):
 
         to_device = builder.to_layout(
             in0,
-            output_type=builder.get_metal_tensor_layout(shape, (1, 1), False),
+            output_type=builder.get_metal_tensor_layout(
+                shape, tiled=False, grid=(1, 1)
+            ),
             unit_attrs=unit_attrs,
         )
 
@@ -106,11 +109,12 @@ def test_untilize(shape: Shape, target: str, request):
 
         return from_device
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_d2m(
         untilize,
         [shape],
         target=target,
-        custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -119,15 +123,15 @@ def test_untilize(shape: Shape, target: str, request):
 
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_tilize_untilize(shape: Shape, target: str, request):
+def test_tilize_untilize(shape: Shape, target: str, request, device):
     def tilize_untilize(
         in0: Operand,
-        builder: TTIRBuilder,
+        builder: D2MBuilder,
         unit_attrs: List[str] = None,
     ):
         to_device = builder.tilize(
             in0,
-            output_type=builder.get_metal_tensor_layout(shape, (1, 1), True),
+            output_type=builder.get_metal_tensor_layout(shape, tiled=True, grid=(1, 1)),
             unit_attrs=unit_attrs,
         )
         from_device = builder.untilize(
@@ -137,11 +141,12 @@ def test_tilize_untilize(shape: Shape, target: str, request):
         )
         return from_device
 
-    compile_ttir_to_flatbuffer(
+    compile_and_execute_d2m(
         tilize_untilize,
         [shape],
         target=target,
-        custom_pipeline="ttir-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

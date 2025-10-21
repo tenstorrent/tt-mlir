@@ -21,6 +21,7 @@ TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Silicon/TTNN/n150/perf/**/*.mlir",
 ]
 MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/n150/optimizer/mnist_sharding.mlir"
+MNIST_STABLEHLO_PATH = "test/ttmlir/Silicon/StableHLO/n150/mnist_inference.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
     MNIST_SHARDING_PATH,
 ]
@@ -183,10 +184,23 @@ def test_execute_mnist_df_sharding():
     convert_command_and_assert(MNIST_SHARDING_PATH)
 
 
+def test_load_stablehlo_model():
+    convert_command_and_assert(MNIST_STABLEHLO_PATH)
+
+
+def test_execute_mnist_stablehlo():
+    execute_command_and_wait(
+        MNIST_STABLEHLO_PATH,
+        {"optimizationPolicy": "Optimizer Disabled"},
+        timeout=300,
+    )
+    convert_command_and_assert(MNIST_STABLEHLO_PATH)
+
+
 def test_execute_mnist_with_overrides():
     overrides = {
-        'loc("matmul_1"("MNISTLinear":4294967295:10))__17': {
-            "named_location": "matmul_1",
+        'loc("relu_3"("MNISTLinear":4294967295:6))': {
+            "named_location": "relu_3",
             "attributes": [
                 {"key": "data_type", "value": "f32"},
                 {"key": "memory_layout", "value": "tile"},

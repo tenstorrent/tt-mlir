@@ -23,7 +23,6 @@ target_link_libraries(TestOpModelLib
     gtest_main
     TTNNOpModelLib
     MLIRTTCoreDialect
-    MLIRTTIRDialect
     MLIRTTNNDialect
     MLIRTTTransforms
 )

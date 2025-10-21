@@ -4,8 +4,7 @@ add_mlir_unittest(SchedulerTests
 
 target_link_libraries(SchedulerTests
     PRIVATE
-    MLIRTTCoreDialect
-    MLIRTTIRDialect
-    MLIRTTNNPipelines
+    $<LINK_LIBRARY:WHOLE_ARCHIVE,MLIRTTNNDialect>
+    MLIRTTTransforms
     MLIRScheduler
 )

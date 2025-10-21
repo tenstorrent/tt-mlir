@@ -121,10 +121,6 @@ def settings_to_overrides(settings, artifacts_dir):
                         conv2d_config_override.set_enable_weights_double_buffer_from_str(
                             attr["value"]
                         )
-                    case "enable_split_reader":
-                        conv2d_config_override.set_enable_split_reader_from_str(
-                            attr["value"]
-                        )
                     case _:
                         raise ValueError(f"Invalid override attribute: {attr['key']}")
             if not output_layout_override.empty():
@@ -172,7 +168,8 @@ class TTAdapter(model_explorer.Adapter):
                 module = utils.parse_mlir_str(model_file.read())
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
-            graph, overlays = mlir.build_graph(
+            graph_handler = mlir.GraphHandler()
+            graph, overlays = graph_handler.build_graph(
                 model_path,
                 module,
                 self.model_runner,
@@ -205,7 +202,8 @@ class TTAdapter(model_explorer.Adapter):
                     module = utils.parse_mlir_str(model_file.read())
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
-            graph, _ = mlir.build_graph(model_path, module, self.model_runner)
+            graph_handler = mlir.GraphHandler()
+            graph, _ = graph_handler.build_graph(model_path, module, self.model_runner)
 
         return {"graphs": [graph]}
 

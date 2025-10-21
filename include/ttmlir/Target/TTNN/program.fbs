@@ -23,6 +23,7 @@ include "ttmlir/Target/TTNN/operations/normalization.fbs";
 include "ttmlir/Target/TTNN/operations/pool.fbs";
 include "ttmlir/Target/TTNN/operations/rand.fbs";
 include "ttmlir/Target/TTNN/operations/reduction.fbs";
+include "ttmlir/Target/TTNN/operations/tensor_serialization.fbs";
 include "ttmlir/Target/TTNN/operations/trace.fbs";
 include "ttmlir/Target/TTNN/operations/transformer.fbs";
 
@@ -31,18 +32,23 @@ namespace tt.target.ttnn;
 union OpType {
   AllGatherOp,
   ArangeOp,
-  BatchNormOp,
+  BatchNormInferenceOp,
+  BatchNormTrainingOp,
   BeginTraceCaptureOp,
   CaptureOrExecuteTraceOp,
   CollectivePermuteOp,
   ConcatOp,
   ConcatenateHeadsOp,
+  RotaryEmbeddingLlamaOp,
+  NLPCreateQKVHeadsDecodeOp,
+  NLPConcatHeadsOp,
   ConstantOp,
   Conv2dOp,
   ConvTranspose2dOp,
   CpuOp,
   DeallocateOp,
   EltwiseBinaryCompositeOp,
+  EltwiseBinaryCompositeScalarOp,
   EltwiseBinaryOp,
   EltwiseQuantizationOp,
   EltwiseTernaryWhereOp,
@@ -59,6 +65,7 @@ union OpType {
   FuncCallOp,
   GenericOp,
   GetDeviceOp,
+  GlobalAvgPool2dOp,
   LinearOp,
   LoadCachedOp,
   // ANCHOR: adding_an_op_matmul_fbs_op_type
@@ -67,6 +74,7 @@ union OpType {
   MeshShardOp,
   MorehCumSumOp,
   NamedFullOp,
+  NLPConcatHeadsDecodeOp,
   PadOp,
   PermuteOp,
   PointToPointOp,
@@ -82,9 +90,12 @@ union OpType {
   RepeatOp,
   RMSNormOp,
   ReshapeOp,
+  ScaledDotProductAttentionOp,
+  ScaledDotProductAttentionDecodeOp,
   SliceOp,
   SoftmaxOp,
   SortOp,
+  SplitQueryKeyValueAndSplitHeadsOp,
   ToDeviceOp,
   ToDTypeOp,
   ToLayoutOp,
@@ -93,7 +104,9 @@ union OpType {
   TypecastOp,
   UpdateCacheOp,
   UpsampleOp,
-  WriteTensorOp
+  WriteTensorOp,
+  DumpTensorOp,
+  LoadTensorOp,
 }
 
 table Operation {

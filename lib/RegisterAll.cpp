@@ -5,6 +5,8 @@
 #include "ttmlir/RegisterAll.h"
 
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/D2M/IR/D2M.h"
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/SFPI/IR/SFPI.h"
@@ -30,9 +32,11 @@
 #include "mlir/Dialect/Bufferization/IR/DstBufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Linalg/Transforms/SubsetInsertionOpInterfaceImpl.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Tensor/Transforms/SubsetInsertionOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/InitAllDialects.h"
@@ -65,9 +69,10 @@
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   registry.insert<
       mlir::tt::ttcore::TTCoreDialect, mlir::tt::ttir::TTIRDialect,
-      mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
-      mlir::tt::ttkernel::TTKernelDialect, mlir::tt::sfpi::SFPIDialect,
-      mlir::func::FuncDialect, mlir::arith::ArithDialect,
+      mlir::tt::d2m::D2MDialect, mlir::tt::ttnn::TTNNDialect,
+      mlir::tt::ttmetal::TTMetalDialect, mlir::tt::ttkernel::TTKernelDialect,
+      mlir::tt::sfpi::SFPIDialect, mlir::func::FuncDialect,
+      mlir::arith::ArithDialect, mlir::math::MathDialect,
       mlir::ml_program::MLProgramDialect, mlir::tensor::TensorDialect,
       mlir::linalg::LinalgDialect, mlir::affine::AffineDialect,
       mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
@@ -94,6 +99,7 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
   arith::registerBufferizableOpInterfaceExternalModels(registry);
   arith::registerBufferDeallocationOpInterfaceExternalModels(registry);
   linalg::registerBufferizableOpInterfaceExternalModels(registry);
+  linalg::registerSubsetOpInterfaceExternalModels(registry);
   scf::registerBufferizableOpInterfaceExternalModels(registry);
   bufferization::func_ext::registerBufferizableOpInterfaceExternalModels(
       registry);
@@ -111,6 +117,8 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
   cf::registerConvertControlFlowToLLVMInterface(registry);
   registerConvertFuncToLLVMInterface(registry);
   registerAllToLLVMIRTranslations(registry);
+  tensor::registerSubsetOpInterfaceExternalModels(registry);
+  linalg::registerSubsetOpInterfaceExternalModels(registry);
 }
 
 void mlir::tt::registerAllPasses() {
@@ -124,6 +132,7 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttcore::registerPasses();
   mlir::tt::ttcore::registerTTPopulateArgumentTypes();
   mlir::tt::ttir::registerPasses();
+  mlir::tt::d2m::registerPasses();
   mlir::tt::ttnn::registerTTNNOptimizer();
   mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();

@@ -12,9 +12,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
-#include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
-#include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
@@ -112,6 +110,7 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
   return OpConstraints(
       response.resource_usage.cb_peak_size_per_core,
       response.resource_usage.l1_buffers_peak_per_core,
+      response.resource_usage.peak_memory_usage_per_core,
       response.resource_usage.l1_output_buffer_per_core,
       conversion::getLayoutAttrFromTensorSpec(
           context, response.output_tensor_spec.value(), deviceGrid.getShape()));
@@ -295,10 +294,47 @@ getRawDataFromElementsAttr(mlir::ElementsAttr attr) {
   return result;
 }
 
+// Template specialization for bfloat16 - MLIR doesn't have built-in support
+// for bfloat16 in DenseElementsAttr::getValues<T>(), so we extract as uint16_t
+// and convert to bfloat16
+template <>
+llvm::Expected<std::vector<bfloat16>>
+getRawDataFromElementsAttr<bfloat16>(mlir::ElementsAttr attr) {
+  std::vector<bfloat16> result;
+  if (auto denseAttr = dyn_cast<mlir::DenseElementsAttr>(attr)) {
+    if (!denseAttr.getType().getElementType().isBF16()) {
+      return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                     "Element type mismatch - expected BF16");
+    }
+    // Extract raw bytes as uint16_t and convert to bfloat16
+    for (auto value : denseAttr.getValues<llvm::APFloat>()) {
+      uint16_t rawBits =
+          static_cast<uint16_t>(value.bitcastToAPInt().getZExtValue());
+      result.emplace_back(rawBits);
+    }
+  } else if (auto splatAttr = llvm::dyn_cast<mlir::SplatElementsAttr>(attr)) {
+    if (!splatAttr.getType().getElementType().isBF16()) {
+      return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                     "Element type mismatch - expected BF16");
+    }
+    auto splatValue = splatAttr.getSplatValue<llvm::APFloat>();
+    uint16_t rawBits =
+        static_cast<uint16_t>(splatValue.bitcastToAPInt().getZExtValue());
+    auto numElements = splatAttr.getType().getNumElements();
+    result.resize(numElements, bfloat16(rawBits));
+  } else {
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "Unsupported ElementsAttr type");
+  }
+  return result;
+}
+
 template <typename OpTy>
 auto getOpSymbol() {
   if constexpr (std::is_same_v<OpTy, ReluOp>) {
     return ::ttnn::relu;
+  } else if constexpr (std::is_same_v<OpTy, Relu6Op>) {
+    return ::ttnn::relu6;
   } else if constexpr (std::is_same_v<OpTy, SqrtOp>) {
     return ::ttnn::sqrt;
   } else if constexpr (std::is_same_v<OpTy, SinOp>) {
@@ -387,7 +423,11 @@ auto getOpSymbol() {
     return ::ttnn::bitwise_or;
   } else if constexpr (std::is_same_v<OpTy, BitwiseXorOp>) {
     return ::ttnn::bitwise_xor;
-  } else if constexpr (std::is_same_v<OpTy, PowOp>) {
+  } else if constexpr (std::is_same_v<OpTy, RemainderOp>) {
+    return ::ttnn::remainder;
+  } else if constexpr (std::is_same_v<OpTy, Atan2Op>) {
+    return ::ttnn::atan2;
+  } else if constexpr (std::is_same_v<OpTy, PowTensorOp>) {
     return ::ttnn::pow;
   } else if constexpr (std::is_same_v<OpTy, WhereOp>) {
     return ::ttnn::where;
@@ -403,6 +443,14 @@ auto getOpSymbol() {
     return ::ttnn::zeros;
   } else if constexpr (std::is_same_v<OpTy, mlir::tt::ttnn::OnesOp>) {
     return ::ttnn::ones;
+  } else if constexpr (std::is_same_v<OpTy, QuantizeOp>) {
+    return ::ttnn::quantize;
+  } else if constexpr (std::is_same_v<OpTy, DequantizeOp>) {
+    return ::ttnn::dequantize;
+  } else if constexpr (std::is_same_v<OpTy, GlobalAvgPool2dOp>) {
+    return ::ttnn::global_avg_pool2d;
+  } else if constexpr (std::is_same_v<OpTy, SiluOp>) {
+    return ::ttnn::silu;
   } else {
     static_assert(ttmlir::utils::always_false(),
                   "add mapping from TTNN dialect to TTNN lib op");
@@ -487,7 +535,15 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
     uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig, bool hasBias,
     bool transpose) {
   if (weightLayout.getBufferType() != BufferType::SystemMemory) {
-    llvm::report_fatal_error("Conv2d weight tensor assumed to be on host.");
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Conv2d weight tensor assumed to be on host.");
+  }
+  if (weightLayout.getDataType() != ttcore::DataType::Float32 &&
+      weightLayout.getDataType() != ttcore::DataType::BFloat16) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Conv2d weight tensor assumed to be float32 or bfloat16.");
   }
 
   // TODO(rpavlovicTT):: Move this to tt-metal side #4043
@@ -513,6 +569,11 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfig = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig{
+          .slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
+              SliceType::L1_FULL};
+
   // Create query closure
   auto prepareConv2dWeightsOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -526,8 +587,7 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
-        /* compute_config_ */ std::nullopt,
-        /* dram_slice_config_ */ std::nullopt);
+        /* compute_config_ */ std::nullopt, sliceConfig);
   };
 
   auto prepareConvTranspose2dWeightsOpQuery = [=]() {
@@ -539,7 +599,8 @@ getPrepareConv2dWeightsOpOutputTensorSpec(
         input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
+            padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
@@ -571,12 +632,19 @@ getPrepareConv2dBiasOpOutputTensorSpec(
     uint32_t input_width, llvm::ArrayRef<int32_t> kernel_size,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, uint32_t groups,
-    std::optional<Conv2dConfigAttr> conv2dConfig) {
+    std::optional<Conv2dConfigAttr> conv2dConfig, bool transpose) {
   if (biasLayout.getBufferType() != BufferType::SystemMemory) {
-    llvm::report_fatal_error("Conv2d bias tensor assumed to be on host.");
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "Conv2d bias tensor assumed to be on host.");
   }
 
   // TODO(rpavlovicTT):: Move this to tt-metal side #4043
+  if (biasLayout.getDataType() != ttcore::DataType::Float32 &&
+      biasLayout.getDataType() != ttcore::DataType::BFloat16) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Conv2d bias tensor assumed to be float32 or bfloat16.");
+  }
   ::tt::tt_metal::Tensor biasTensor =
       createMetalHostTensor(biasShape, biasLayout.getDataType());
 
@@ -599,8 +667,6 @@ getPrepareConv2dBiasOpOutputTensorSpec(
   std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
       conv2dConfigConverted = conversion::getConv2dConfig(conv2dConfig);
 
-  auto prepare_fn = &::ttnn::operations::conv::conv2d::prepare_conv_bias;
-  // Create query closure
   auto prepareConv2dBiasOpQuery = [=]() {
     ::ttnn::operations::conv::conv2d::Conv2dConfig localConfig;
     if (!conv2dConfigConverted.has_value()) {
@@ -611,20 +677,41 @@ getPrepareConv2dBiasOpOutputTensorSpec(
       localConfig = *conv2dConfigConverted;
     }
 
+    std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+        sliceConfig = std::nullopt;
+
     return ::ttnn::graph::query_op_constraints(
-        prepare_fn, device, biasTensor, inputSpec.memory_config(),
-        inputSpec.layout(), in_channels, out_channels, batch_size, input_height,
-        input_width,
+        &::ttnn::operations::conv::conv2d::prepare_conv_bias, device,
+        biasTensor, inputSpec.memory_config(), inputSpec.layout(), in_channels,
+        out_channels, batch_size, input_height, input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
         conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, *inputDtype, outputDtype, localConfig,
+        /*compute_config_=*/std::nullopt, sliceConfig);
+  };
+
+  auto prepareConvTranspose2dBiasOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        &::ttnn::operations::conv::conv_transpose2d::
+            prepare_conv_transpose2d_bias,
+        device, biasTensor, inputSpec.memory_config(), inputSpec.layout(),
+        in_channels, out_channels, batch_size, input_height, input_width,
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
+        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
+            padding),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
+        groups, device, *inputDtype, outputDtype, conv2dConfigConverted,
         /*compute_config_=*/std::nullopt);
   };
 
-  auto output = operation::executeConstraintQuery(prepareConv2dBiasOpQuery);
+  auto output =
+      transpose
+          ? operation::executeConstraintQuery(prepareConvTranspose2dBiasOpQuery)
+          : operation::executeConstraintQuery(prepareConv2dBiasOpQuery);
 
   if (!output) {
     return output.takeError();
@@ -705,6 +792,7 @@ llvm::Expected<OpConstraints> UnaryEltwiseOpModel<OpTy>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -823,12 +911,13 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
 
 // Explicit template instantiation for UnaryEltwiseOpModel.
 template struct UnaryEltwiseOpModel<ReluOp>;
+template struct UnaryEltwiseOpModel<Relu6Op>;
 template struct UnaryEltwiseOpModel<SqrtOp>;
 template struct UnaryEltwiseOpModel<SinOp>;
 template struct UnaryEltwiseOpModel<AbsOp>;
 template struct UnaryEltwiseOpModel<CosOp>;
 template struct UnaryEltwiseOpModel<TanhOp>;
-template struct UnaryEltwiseOpModel<LogOp>;
+template struct UnaryEltwiseWithFastApproxModeOpModel<LogOp>;
 template struct UnaryEltwiseOpModel<CeilOp>;
 template struct UnaryEltwiseOpModel<SignOp>;
 template struct UnaryEltwiseOpModel<FloorOp>;
@@ -840,13 +929,14 @@ template struct UnaryEltwiseOpModel<AtanOp>;
 template struct UnaryEltwiseOpModel<ReciprocalOp>;
 template struct UnaryEltwiseOpModel<CbrtOp>;
 template struct UnaryEltwiseOpModel<BitwiseNotOp>;
-template struct UnaryEltwiseOpModel<Log1pOp>;
+template struct UnaryEltwiseOpModel<SiluOp>;
+template struct UnaryEltwiseWithFastApproxModeOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
+template struct UnaryEltwiseOpModel<RsqrtOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfcOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ExpOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<GeluOp>;
-template struct UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp>;
 
 //===----------------------------------------------------------------------===//
 // SigmoidOp
@@ -1159,12 +1249,105 @@ template struct BinaryEltwiseOpModel<LessThanOp>;
 template struct BinaryEltwiseOpModel<LogicalAndOp>;
 template struct BinaryEltwiseOpModel<LogicalOrOp>;
 template struct BinaryEltwiseOpModel<LogicalXorOp>;
-template struct BinaryEltwiseOpModel<PowOp>;
+template struct BinaryEltwiseOpModel<PowTensorOp>;
 // BinaryCompositeOpModel
 template struct BinaryCompositeOpModel<BitwiseAndOp>;
 template struct BinaryCompositeOpModel<BitwiseOrOp>;
 template struct BinaryCompositeOpModel<BitwiseXorOp>;
 template struct BinaryCompositeOpModel<LogicalLeftShiftOp>;
+template struct BinaryCompositeOpModel<RemainderOp>;
+template struct BinaryCompositeOpModel<Atan2Op>;
+
+//===----------------------------------------------------------------------===//
+// PowScalar
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, mlir::Attribute exponent,
+    TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Helper lambda to create the query with any exponent value type.
+  auto powScalarQuery = [=](auto convertedExponent) {
+    return [=]() {
+      return ::ttnn::graph::query_op_constraints(
+          ::ttnn::pow, device, inputSpec, convertedExponent,
+          detail::getNullableMemoryConfig(outputLayout));
+    };
+  };
+
+  // The invoke function of PowScalarOp is templated over the exponent value
+  // type. That's why the following code is arranged in this way.
+  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
+    uint32_t convertedExponent = static_cast<uint32_t>(value.getInt());
+    auto query = powScalarQuery(convertedExponent);
+    return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                       query);
+  }
+  if (auto value = mlir::dyn_cast<mlir::FloatAttr>(exponent)) {
+    float convertedExponent = value.getValue().convertToFloat();
+    auto query = powScalarQuery(convertedExponent);
+    return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                       query);
+  }
+  return llvm::createStringError("Invalid exponent");
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    mlir::Attribute exponent, TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Helper lambda to create the query with any exponent value type.
+  auto powScalarQuery = [=](auto convertedExponent) {
+    return [=]() {
+      return ::ttnn::graph::query_op_runtime(
+          ::ttnn::pow, device, inputSpec, convertedExponent,
+          detail::getNullableMemoryConfig(outputLayout));
+    };
+  };
+
+  // The invoke function of PowScalarOp is templated over the exponent value
+  // type. That's why the following code is arranged in this way.
+  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
+    uint32_t convertedExponent = static_cast<uint32_t>(value.getInt());
+    auto query = powScalarQuery(convertedExponent);
+    return operation::getOpRuntime(query);
+  }
+  if (auto value = mlir::dyn_cast<mlir::FloatAttr>(exponent)) {
+    float convertedExponent = value.getValue().convertToFloat();
+    auto query = powScalarQuery(convertedExponent);
+    return operation::getOpRuntime(query);
+  }
+
+  return llvm::createStringError("Invalid exponent");
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
 
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops
@@ -1406,7 +1589,8 @@ template struct NamedFullOpModel<OnesOp>;
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
-    TTNNLayoutAttr inputLayout, const int dimArg, TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr inputLayout, const int dimArg, bool numericStable,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -1422,7 +1606,9 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
   auto softmaxOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::softmax, device, inputSpec, dimArg,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt, // compute_kernel_config,
+        numericStable);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -1432,10 +1618,9 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t>
-OpModel<SoftmaxOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                 TTNNLayoutAttr inputLayout, const int dimArg,
-                                 TTNNLayoutAttr outputLayout) {
+llvm::Expected<size_t> OpModel<SoftmaxOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    const int dimArg, bool numericStable, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -1451,7 +1636,9 @@ OpModel<SoftmaxOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   auto softmaxOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::softmax, device, inputSpec, dimArg,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout),
+        std::nullopt, // compute_kernel_config,
+        numericStable);
   };
 
   return operation::getOpRuntime(softmaxOpQuery);
@@ -1598,6 +1785,106 @@ llvm::Expected<size_t> OpModel<SliceStaticOp>::getOpRuntime(
         ::ttnn::slice, device, inputSpec, beginsSpan, endsSpan, stepSpan,
         detail::getNullableMemoryConfig(outputLayout), std::nullopt,
         std::nullopt);
+  };
+
+  return operation::getOpRuntime(sliceOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// SliceDynamicOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<SliceDynamicOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> beginsShape,
+    TTNNLayoutAttr beginsLayout, llvm::ArrayRef<int64_t> endsShape,
+    TTNNLayoutAttr endsLayout, std::optional<llvm::SmallVector<int64_t>> step,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // It is not possible to use the dynamic version of slice in tt-metal since
+  // the validity of the op depends on the actual data that is stored in the
+  // begins/ends tensors (which is not available at compile time). Therefore,
+  // here we approximate the op by using the static version and calling
+  // (possibly) the worst case scenario for the static version which is slicing
+  // from the beginning to one index before the end (Capturing the entire tensor
+  // except for one row results in the highest memory usage). Note that this is
+  // a fairly accurate approximation since the dynamic version in metal also
+  // converts the three tensors (begins, ends, step) to vectors and then calls
+  // the static version.
+  ::ttsl::SmallVector<int> stepVec(inputShape.size(), 1);
+  ::ttsl::SmallVector<int> beginsVec(inputShape.size(), 0);
+  ::ttsl::SmallVector<int> endsVec(inputShape.begin(), inputShape.end());
+  std::ranges::for_each(endsVec, [](int &end) { end = end - 1; });
+
+  // Default values in tt-metal:
+  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<float> padValue = std::nullopt;
+  // Create query closure to make a call to the static version of the op:
+  auto sliceOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::slice, device, inputSpec, beginsVec, endsVec, stepVec,
+        detail::getNullableMemoryConfig(outputLayout), outputSpec, padValue);
+  };
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     sliceOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<SliceDynamicOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> beginsShape, TTNNLayoutAttr beginsLayout,
+    llvm::ArrayRef<int64_t> endsShape, TTNNLayoutAttr endsLayout,
+    std::optional<llvm::SmallVector<int64_t>> step,
+    TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // It is not possible to use the dynamic version of slice in tt-metal since
+  // the validity of the op depends on the actual data that is stored in the
+  // begins/ends tensors (which is not available at compile time). Therefore,
+  // here we approximate the op by using the static version and calling
+  // (possibly) the worst case scenario for the static version which is slicing
+  // from the beginning to the end with a step of 2 (Capturing all possible
+  // stripes of data from the input tensor is the most run time intensive
+  // pattern).
+  // Note that this is a fairly accurate approximation since the dynamic version
+  // in metal also converts the three tensors (begins, ends, step) to vectors
+  // and then calls the static version.
+  ::ttsl::SmallVector<int> stepVec(inputShape.size(), 2);
+  ::ttsl::SmallVector<int> beginsVec(inputShape.size(), 0);
+  ::ttsl::SmallVector<int> endsVec(inputShape.begin(), inputShape.end());
+  // Default values in tt-metal:
+  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<float> padValue = std::nullopt;
+
+  // Create query closure to make a call to the static version of the op:
+  auto sliceOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::slice, device, inputSpec, beginsVec, endsVec, stepVec,
+        detail::getNullableMemoryConfig(outputLayout), outputSpec, padValue);
   };
 
   return operation::getOpRuntime(sliceOpQuery);
@@ -1992,6 +2279,725 @@ llvm::Expected<size_t> OpModel<MorehCumSumOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// ConcatenateHeadsOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<ConcatenateHeadsOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto concatenateHeadsOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::transformer::concatenate_heads, device, inputSpec,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     concatenateHeadsOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<ConcatenateHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                          TTNNLayoutAttr inputLayout,
+                                          TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto concatenateHeadsOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::transformer::concatenate_heads, device, inputSpec,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(concatenateHeadsOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints>
+OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
+    TTNNLayoutAttr queryLayout, llvm::ArrayRef<int64_t> keyShape,
+    TTNNLayoutAttr keyLayout, llvm::ArrayRef<int64_t> valueShape,
+    TTNNLayoutAttr valueLayout, bool isCausal,
+    std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout,
+    llvm::ArrayRef<int64_t> curPosTensorShape,
+    TTNNLayoutAttr curPosTensorLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+    std::optional<TTNNLayoutAttr> attentionSinkLayout,
+    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto querySpecExp =
+      detail::convertToTensorSpec(device, queryShape, queryLayout);
+  if (!querySpecExp) {
+    return querySpecExp.takeError();
+  }
+  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
+  if (!keySpecExp) {
+    return keySpecExp.takeError();
+  }
+  auto valueSpecExp =
+      detail::convertToTensorSpec(device, valueShape, valueLayout);
+  if (!valueSpecExp) {
+    return valueSpecExp.takeError();
+  }
+  auto curPosTensorSpecExp = detail::convertToTensorSpec(
+      device, curPosTensorShape, curPosTensorLayout);
+  if (!curPosTensorSpecExp) {
+    return curPosTensorSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec querySpec = querySpecExp.get();
+  ::ttnn::TensorSpec keySpec = keySpecExp.get();
+  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+  ::ttnn::TensorSpec curPosTensorSpec = curPosTensorSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+      detail::convertToOptionalTensorSpec(device, attentionSinkShape,
+                                          attentionSinkLayout);
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+
+  // The current position information is required for this op. It can either be
+  // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
+  // std::optional so we must pass an empty vector.
+  const std::vector<uint32_t> curPosEmpty = {};
+  auto scaledDotProductAttentionDecodeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::transformer::scaled_dot_product_attention_decode, device,
+        querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
+        curPosTensorSpec, attentionSinkSpec, scaleFloat,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpConstraints(queryLayout.getContext(), deviceGrid,
+                                     scaledDotProductAttentionDecodeOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    bool isCausal, std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout,
+    llvm::ArrayRef<int64_t> curPosTensorShape,
+    TTNNLayoutAttr curPosTensorLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+    std::optional<TTNNLayoutAttr> attentionSinkLayout,
+    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto querySpecExp =
+      detail::convertToTensorSpec(device, queryShape, queryLayout);
+  if (!querySpecExp) {
+    return querySpecExp.takeError();
+  }
+  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
+  if (!keySpecExp) {
+    return keySpecExp.takeError();
+  }
+  auto valueSpecExp =
+      detail::convertToTensorSpec(device, valueShape, valueLayout);
+  if (!valueSpecExp) {
+    return valueSpecExp.takeError();
+  }
+  auto curPosTensorSpecExp = detail::convertToTensorSpec(
+      device, curPosTensorShape, curPosTensorLayout);
+  if (!curPosTensorSpecExp) {
+    return curPosTensorSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec querySpec = querySpecExp.get();
+  ::ttnn::TensorSpec keySpec = keySpecExp.get();
+  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+  ::ttnn::TensorSpec curPosTensorSpec = curPosTensorSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+
+  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+      detail::convertToOptionalTensorSpec(device, attentionSinkShape,
+                                          attentionSinkLayout);
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  // The current position information is required for this op. It can either be
+  // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
+  // std::optional so we must pass an empty vector.
+  const std::vector<uint32_t> curPosEmpty = {};
+  auto scaledDotProductAttentionDecodeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::transformer::scaled_dot_product_attention_decode, device,
+        querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
+        curPosTensorSpec, attentionSinkSpec, scaleFloat,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpRuntime(scaledDotProductAttentionDecodeOpQuery);
+
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints>
+OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
+    TTNNLayoutAttr queryLayout, llvm::ArrayRef<int64_t> keyShape,
+    TTNNLayoutAttr keyLayout, llvm::ArrayRef<int64_t> valueShape,
+    TTNNLayoutAttr valueLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
+    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto querySpecExp =
+      detail::convertToTensorSpec(device, queryShape, queryLayout);
+  if (!querySpecExp) {
+    return querySpecExp.takeError();
+  }
+  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
+  if (!keySpecExp) {
+    return keySpecExp.takeError();
+  }
+  auto valueSpecExp =
+      detail::convertToTensorSpec(device, valueShape, valueLayout);
+  if (!valueSpecExp) {
+    return valueSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec querySpec = querySpecExp.get();
+  ::ttnn::TensorSpec keySpec = keySpecExp.get();
+  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+
+  auto scaledDotProductAttentionOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
+        keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpConstraints(queryLayout.getContext(), deviceGrid,
+                                     scaledDotProductAttentionOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+    std::optional<TTNNLayoutAttr> attentionMaskLayout, bool isCausal,
+    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto querySpecExp =
+      detail::convertToTensorSpec(device, queryShape, queryLayout);
+  if (!querySpecExp) {
+    return querySpecExp.takeError();
+  }
+  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
+  if (!keySpecExp) {
+    return keySpecExp.takeError();
+  }
+  auto valueSpecExp =
+      detail::convertToTensorSpec(device, valueShape, valueLayout);
+  if (!valueSpecExp) {
+    return valueSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec querySpec = querySpecExp.get();
+  ::ttnn::TensorSpec keySpec = keySpecExp.get();
+  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+      detail::convertToOptionalTensorSpec(device, attentionMaskShape,
+                                          attentionMaskLayout);
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+
+  auto scaledDotProductAttentionOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
+        keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpRuntime(scaledDotProductAttentionOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===-----------------------------------------------------------------------===//
+// RotaryEmbeddingLlamaOp
+// ===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> cosShape,
+    TTNNLayoutAttr cosLayout, llvm::ArrayRef<int64_t> sinShape,
+    TTNNLayoutAttr sinLayout, llvm::ArrayRef<int64_t> transMatShape,
+    TTNNLayoutAttr transMatLayout, bool isDecodeMode,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  auto cosSpecExp = detail::convertToTensorSpec(device, cosShape, cosLayout);
+  if (!cosSpecExp) {
+    return cosSpecExp.takeError();
+  }
+  auto sinSpecExp = detail::convertToTensorSpec(device, sinShape, sinLayout);
+  if (!sinSpecExp) {
+    return sinSpecExp.takeError();
+  }
+  auto transMatSpecExp =
+      detail::convertToTensorSpec(device, transMatShape, transMatLayout);
+  if (!transMatSpecExp) {
+    return transMatSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ::ttnn::TensorSpec cosSpec = cosSpecExp.get();
+  ::ttnn::TensorSpec sinSpec = sinSpecExp.get();
+  ::ttnn::TensorSpec transMatSpec = transMatSpecExp.get();
+
+  auto rotaryEmbeddingLlamaOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::experimental::rotary_embedding_llama, device, inputSpec,
+        cosSpec, sinSpec, transMatSpec, isDecodeMode,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     rotaryEmbeddingLlamaOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
+    llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
+    llvm::ArrayRef<int64_t> transMatShape, TTNNLayoutAttr transMatLayout,
+    bool isDecodeMode, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  auto cosSpecExp = detail::convertToTensorSpec(device, cosShape, cosLayout);
+  if (!cosSpecExp) {
+    return cosSpecExp.takeError();
+  }
+  auto sinSpecExp = detail::convertToTensorSpec(device, sinShape, sinLayout);
+  if (!sinSpecExp) {
+    return sinSpecExp.takeError();
+  }
+  auto transMatSpecExp =
+      detail::convertToTensorSpec(device, transMatShape, transMatLayout);
+  if (!transMatSpecExp) {
+    return transMatSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ::ttnn::TensorSpec cosSpec = cosSpecExp.get();
+  ::ttnn::TensorSpec sinSpec = sinSpecExp.get();
+  ::ttnn::TensorSpec transMatSpec = transMatSpecExp.get();
+
+  // Create query closure
+  auto rotaryEmbeddingLlamaOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::experimental::rotary_embedding_llama, device, inputSpec,
+        cosSpec, sinSpec, transMatSpec, isDecodeMode,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(rotaryEmbeddingLlamaOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// NLPCreateQKVHeadsDecodeOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<op_model::OpConstraints>
+OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
+    std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
+    std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
+    std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  std::optional<::ttnn::TensorSpec> batchOffsetSpec = std::nullopt;
+  if (batchOffsetShape && batchOffsetLayout) {
+    auto batchOffsetSpecExp = detail::convertToTensorSpec(
+        device, batchOffsetShape.value(), batchOffsetLayout.value());
+    if (!batchOffsetSpecExp) {
+      return batchOffsetSpecExp.takeError();
+    }
+    batchOffsetSpec = batchOffsetSpecExp.get();
+  }
+
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto nlpCreateQKVHeadsDecode = [&]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::experimental::nlp_create_qkv_heads_decode, device, inputSpec,
+        numHeads, numKVHeads, std::optional<const bool>(overlapQKCoregrid),
+        batchOffsetSpec, sliceSize,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     nlpCreateQKVHeadsDecode);
+
+#else
+  return OpConstraints{};
+#endif
+}
+
+llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> batchOffsetShape,
+    std::optional<TTNNLayoutAttr> batchOffsetLayout, uint32_t numHeads,
+    std::optional<uint32_t> numKVHeads, std::optional<bool> overlapQKCoregrid,
+    std::optional<uint32_t> sliceSize, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  std::optional<::ttnn::TensorSpec> batchOffsetSpec = std::nullopt;
+  if (batchOffsetShape && batchOffsetLayout) {
+    auto batchOffsetSpecExp = detail::convertToTensorSpec(
+        device, batchOffsetShape.value(), batchOffsetLayout.value());
+    if (!batchOffsetSpecExp) {
+      return batchOffsetSpecExp.takeError();
+    }
+    batchOffsetSpec = batchOffsetSpecExp.get();
+  }
+
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto nlpCreateQKVHeadsDecode = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::experimental::nlp_create_qkv_heads_decode, device, inputSpec,
+        numHeads, numKVHeads, std::optional<const bool>(overlapQKCoregrid),
+        batchOffsetSpec, sliceSize,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(nlpCreateQKVHeadsDecode);
+#else
+  return llvm::createStringError("Not implemented");
+#endif
+}
+
+//===----------------------------------------------------------------------===//
+// SplitQueryKeyValueAndSplitHeadsOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints>
+OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
+    std::optional<TTNNLayoutAttr> inputKVLayout, uint32_t numHeads,
+    std::optional<uint32_t> numKVHeads, bool transposeKey,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> inputKVSpec = std::nullopt;
+  if (inputKVShape && inputKVLayout) {
+    auto inputKVSpecExp = detail::convertToTensorSpec(
+        device, inputKVShape.value(), inputKVLayout.value());
+    if (!inputKVSpecExp) {
+      return inputKVSpecExp.takeError();
+    }
+    inputKVSpec = inputKVSpecExp.get();
+  }
+
+  // Create query closure
+  auto splitQueryKeyValueAndSplitHeadsOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::transformer::split_query_key_value_and_split_heads, device,
+        inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     splitQueryKeyValueAndSplitHeadsOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> inputKVShape,
+    std::optional<TTNNLayoutAttr> inputKVLayout, uint32_t numHeads,
+    std::optional<uint32_t> numKVHeads, bool transposeKey,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> inputKVSpec = std::nullopt;
+  if (inputKVShape && inputKVLayout) {
+    auto inputKVSpecExp = detail::convertToTensorSpec(
+        device, inputKVShape.value(), inputKVLayout.value());
+    if (!inputKVSpecExp) {
+      return inputKVSpecExp.takeError();
+    }
+    inputKVSpec = inputKVSpecExp.get();
+  }
+
+  // Create query closure
+  auto splitQueryKeyValueAndSplitHeadsOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::transformer::split_query_key_value_and_split_heads, device,
+        inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(splitQueryKeyValueAndSplitHeadsOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// NLPConcatHeadsOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto nlpConcatHeadsOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::experimental::nlp_concat_heads, device, inputSpec,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     nlpConcatHeadsOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<NLPConcatHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                        TTNNLayoutAttr inputLayout,
+                                        TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto nlpConcatHeadsOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::experimental::nlp_concat_heads, device, inputSpec,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(nlpConcatHeadsOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// NLPConcatHeadsDecodeOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, uint32_t numHeads,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto nlpConcatHeadsDecodeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::experimental::nlp_concat_heads_decode, device, inputSpec,
+        numHeads, detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     nlpConcatHeadsDecodeOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    uint32_t numHeads, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto nlpConcatHeadsDecodeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::experimental::nlp_concat_heads_decode, device, inputSpec,
+        numHeads, detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(nlpConcatHeadsDecodeOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // RepeatInterleaveOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<RepeatInterleaveOp>::getOpConstraints(
@@ -2127,7 +3133,6 @@ llvm::Expected<size_t> OpModel<RepeatOp>::getOpRuntime(
  */
 static ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim>
 convertPadding(llvm::ArrayRef<int32_t> padding) {
-
   ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim> paddingSpec;
   // Reserve space to avoid memory reallocations
   paddingSpec.reserve((padding.size() + 1) / 2);
@@ -2263,6 +3268,370 @@ llvm::Expected<size_t> OpModel<SortOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(sortOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ArgMaxOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<ArgMaxOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, std::optional<int32_t> dim, bool keepDim,
+    bool multicore, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto argMaxOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::argmax, device, inputSpec, dim, keepDim, std::nullopt,
+        multicore, detail::getNullableMemoryConfig(outputLayout), std::nullopt);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     argMaxOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<ArgMaxOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                TTNNLayoutAttr inputLayout,
+                                std::optional<int32_t> dim, bool keepDim,
+                                bool multicore, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto argMaxOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::argmax, device, inputSpec, dim, keepDim, std::nullopt,
+        multicore, detail::getNullableMemoryConfig(outputLayout), std::nullopt);
+  };
+
+  return operation::getOpRuntime(argMaxOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ProdOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<ProdOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, std::optional<int64_t> dim, bool keepDim,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto prodOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::prod, device, inputSpec, dim, keepDim,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     prodOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// Quantization Ops
+//===----------------------------------------------------------------------===//
+
+template <typename OpTy>
+llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> scaleShape,
+    TTNNLayoutAttr scaleLayout, llvm::ArrayRef<int64_t> zeroPointShape,
+    TTNNLayoutAttr zeroPointLayout, std::optional<int32_t> axis,
+    std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto scaleSpecExp =
+      detail::convertToTensorSpec(device, scaleShape, scaleLayout);
+  if (!scaleSpecExp) {
+    return scaleSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec scaleSpec = scaleSpecExp.get();
+
+  auto zeroPointSpecExp =
+      detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout);
+  if (!zeroPointSpecExp) {
+    return zeroPointSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec zeroPointSpec = zeroPointSpecExp.get();
+
+  // Use the explicit outputDtype parameter if provided, otherwise infer from
+  // layout
+  std::optional<::tt::tt_metal::DataType> outputDType;
+  if (outputDtype.has_value()) {
+    outputDType = conversion::getDataType(outputDtype.value());
+  } else {
+    outputDType = detail::getNullableDataType(outputLayout);
+  }
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+  auto quantizationOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        detail::getOpSymbol<OpTy>(), device, inputSpec, scaleSpec,
+        zeroPointSpec, axis, outputDType, outputMemoryConfig);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     quantizationOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+template <typename OpTy>
+llvm::Expected<size_t> QuantizationOpModel<OpTy>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> scaleShape, TTNNLayoutAttr scaleLayout,
+    llvm::ArrayRef<int64_t> zeroPointShape, TTNNLayoutAttr zeroPointLayout,
+    std::optional<int32_t> axis, std::optional<ttcore::DataType> outputDtype,
+    TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto scaleSpecExp =
+      detail::convertToTensorSpec(device, scaleShape, scaleLayout);
+  if (!scaleSpecExp) {
+    return scaleSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec scaleSpec = scaleSpecExp.get();
+
+  auto zeroPointSpecExp =
+      detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout);
+  if (!zeroPointSpecExp) {
+    return zeroPointSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec zeroPointSpec = zeroPointSpecExp.get();
+
+  // Use the explicit outputDtype parameter if provided, otherwise infer from
+  // layout
+  std::optional<::tt::tt_metal::DataType> outputDType;
+  if (outputDtype.has_value()) {
+    outputDType = conversion::getDataType(outputDtype.value());
+  } else {
+    outputDType = detail::getNullableDataType(outputLayout);
+  }
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+  auto quantizationOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        detail::getOpSymbol<OpTy>(), device, inputSpec, scaleSpec,
+        zeroPointSpec, axis, outputDType, outputMemoryConfig);
+  };
+
+  return operation::getOpRuntime(quantizationOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+// Explicit template instantiation for QuantizationOpModel.
+template struct QuantizationOpModel<QuantizeOp>;
+template struct QuantizationOpModel<DequantizeOp>;
+
+//===----------------------------------------------------------------------===//
+// RequantizeOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<RequantizeOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> inScaleShape,
+    TTNNLayoutAttr inScaleLayout, llvm::ArrayRef<int64_t> inZeroPointShape,
+    TTNNLayoutAttr inZeroPointLayout, llvm::ArrayRef<int64_t> outScaleShape,
+    TTNNLayoutAttr outScaleLayout, llvm::ArrayRef<int64_t> outZeroPointShape,
+    TTNNLayoutAttr outZeroPointLayout, std::optional<int32_t> axis,
+    std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto inScaleSpecExp =
+      detail::convertToTensorSpec(device, inScaleShape, inScaleLayout);
+  if (!inScaleSpecExp) {
+    return inScaleSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inScaleSpec = inScaleSpecExp.get();
+
+  auto inZeroPointSpecExp =
+      detail::convertToTensorSpec(device, inZeroPointShape, inZeroPointLayout);
+  if (!inZeroPointSpecExp) {
+    return inZeroPointSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inZeroPointSpec = inZeroPointSpecExp.get();
+
+  auto outScaleSpecExp =
+      detail::convertToTensorSpec(device, outScaleShape, outScaleLayout);
+  if (!outScaleSpecExp) {
+    return outScaleSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec outScaleSpec = outScaleSpecExp.get();
+
+  auto outZeroPointSpecExp = detail::convertToTensorSpec(
+      device, outZeroPointShape, outZeroPointLayout);
+  if (!outZeroPointSpecExp) {
+    return outZeroPointSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec outZeroPointSpec = outZeroPointSpecExp.get();
+
+  // Use the explicit outputDtype parameter if provided, otherwise infer from
+  // layout
+  std::optional<::tt::tt_metal::DataType> outputDType;
+  if (outputDtype.has_value()) {
+    outputDType = conversion::getDataType(outputDtype.value());
+  } else {
+    outputDType = detail::getNullableDataType(outputLayout);
+  }
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+
+  auto requantizeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::requantize, device, inputSpec, inScaleSpec, inZeroPointSpec,
+        outScaleSpec, outZeroPointSpec, axis, outputDType, outputMemoryConfig);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     requantizeOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> inScaleShape, TTNNLayoutAttr inScaleLayout,
+    llvm::ArrayRef<int64_t> inZeroPointShape, TTNNLayoutAttr inZeroPointLayout,
+    llvm::ArrayRef<int64_t> outScaleShape, TTNNLayoutAttr outScaleLayout,
+    llvm::ArrayRef<int64_t> outZeroPointShape,
+    TTNNLayoutAttr outZeroPointLayout, std::optional<int32_t> axis,
+    std::optional<ttcore::DataType> outputDtype, TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto inScaleSpecExp =
+      detail::convertToTensorSpec(device, inScaleShape, inScaleLayout);
+  if (!inScaleSpecExp) {
+    return inScaleSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inScaleSpec = inScaleSpecExp.get();
+
+  auto inZeroPointSpecExp =
+      detail::convertToTensorSpec(device, inZeroPointShape, inZeroPointLayout);
+  if (!inZeroPointSpecExp) {
+    return inZeroPointSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inZeroPointSpec = inZeroPointSpecExp.get();
+
+  auto outScaleSpecExp =
+      detail::convertToTensorSpec(device, outScaleShape, outScaleLayout);
+  if (!outScaleSpecExp) {
+    return outScaleSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec outScaleSpec = outScaleSpecExp.get();
+
+  auto outZeroPointSpecExp = detail::convertToTensorSpec(
+      device, outZeroPointShape, outZeroPointLayout);
+  if (!outZeroPointSpecExp) {
+    return outZeroPointSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec outZeroPointSpec = outZeroPointSpecExp.get();
+
+  // Use the explicit outputDtype parameter if provided, otherwise infer from
+  // layout
+  std::optional<::tt::tt_metal::DataType> outputDType;
+  if (outputDtype.has_value()) {
+    outputDType = conversion::getDataType(outputDtype.value());
+  } else {
+    outputDType = detail::getNullableDataType(outputLayout);
+  }
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  // Create query closure
+  auto requantizeOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::requantize, device, inputSpec, inScaleSpec, inZeroPointSpec,
+        outScaleSpec, outZeroPointSpec, axis, outputDType, outputMemoryConfig);
+  };
+
+  return operation::getOpRuntime(requantizeOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -2457,6 +3826,208 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// DeallocateOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<DeallocateOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, bool force) {
+  // sgholamiTT: DeallocateOp's invoke method in tt-metal returns void. So it
+  // cannot be called via a call to query_op_constraints (see
+  // extract_output_tensor usage). Besides, DeallocateOp has no memory usage as
+  // it simply deallocates memory. So I decided to return an empty
+  // OpConstraints, instead of returning an error.
+  return OpConstraints{};
+}
+
+llvm::Expected<size_t>
+OpModel<DeallocateOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                    TTNNLayoutAttr inputLayout, bool force) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Create query closure
+  auto deallocateOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::deallocate, device,
+                                           inputSpec, force);
+  };
+
+  return operation::getOpRuntime(deallocateOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// FillCacheOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<FillCacheOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
+    TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, uint32_t batchOffset,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto cacheSpecExp =
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
+  if (!cacheSpecExp) {
+    return cacheSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto fillCacheOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::fill_cache, device, cacheSpec, inputSpec, batchOffset);
+  };
+
+  return operation::getOpConstraints(cacheLayout.getContext(), deviceGrid,
+                                     fillCacheOpQuery);
+
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<FillCacheOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    uint32_t batchOffset, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto cacheSpecExp =
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
+  if (!cacheSpecExp) {
+    return cacheSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto fillCacheOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::fill_cache, device,
+                                           cacheSpec, inputSpec, batchOffset);
+  };
+
+  return operation::getOpRuntime(fillCacheOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// UpdateCacheOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<UpdateCacheOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
+    TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> updateIndexShape,
+    TTNNLayoutAttr updateIndexLayout, uint32_t batchOffset,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto cacheSpecExp =
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
+  if (!cacheSpecExp) {
+    return cacheSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // TODO(#1510): modify the ttnn::update_cache to take a tensor for
+  // updateIndex.
+  // UpdateIndex is stored as a tensor in mlir, but the ttnn::update_cache
+  // expects a scalar uint32_t. So we need to extract the scalar value from the
+  // tensor which is not possible in compile time (as opposed to the workaround
+  // that is implemented in runtime code in PR 1437). So we use a default value
+  // of 0.
+  uint32_t updateIdx = 0; // Default to first position
+  (void)updateIndexShape;
+  (void)updateIndexLayout;
+
+  auto updateCacheOpQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(::ttnn::update_cache, device,
+                                               cacheSpec, inputSpec, updateIdx,
+                                               batchOffset);
+  };
+
+  return operation::getOpConstraints(cacheLayout.getContext(), deviceGrid,
+                                     updateCacheOpQuery);
+
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<UpdateCacheOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> updateIndexShape, TTNNLayoutAttr updateIndexLayout,
+    uint32_t batchOffset, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto cacheSpecExp =
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
+  if (!cacheSpecExp) {
+    return cacheSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // TODO(#1510): modify the ttnn::update_cache to take a tensor for
+  // updateIndex.
+  uint32_t updateIdx = 0; // Default to first position
+  (void)updateIndexShape;
+  (void)updateIndexLayout;
+
+  auto updateCacheOpQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(::ttnn::update_cache, device,
+                                           cacheSpec, inputSpec, updateIdx,
+                                           batchOffset);
+  };
+
+  return operation::getOpRuntime(updateCacheOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
@@ -2493,7 +4064,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
             inputShape, inputLayout, *biasShape, *biasLayout,
             weightSpec.data_type(), in_channels, out_channels, batch_size,
             input_height, input_width, kernel_size, stride, padding, dilation,
-            groups, conv2dConfig);
+            groups, conv2dConfig, /*transpose*/ false);
     if (!preparedBiasExp) {
       return preparedBiasExp.takeError();
     }
@@ -2520,6 +4091,10 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
       deviceComputeKernelConfigConverted =
           conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
 
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfig = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig();
+  sliceConfig->slice_type =
+      ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_FULL;
   // Create query closure
   auto conv2dOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -2532,7 +4107,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, outputDtype, biasSpec, conv2dConfigConverted,
         deviceComputeKernelConfigConverted,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getNullableMemoryConfig(outputLayout), sliceConfig);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -2555,7 +4130,6 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-
   // Prepare weight tensor first.
   llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
       getPrepareConv2dWeightsOpOutputTensorSpec(
@@ -2577,7 +4151,7 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
             inputShape, inputLayout, *biasShape, *biasLayout,
             weightSpec.data_type(), in_channels, out_channels, batch_size,
             input_height, input_width, kernel_size, stride, padding, dilation,
-            groups, conv2dConfig);
+            groups, conv2dConfig, /*transpose*/ false);
     if (!preparedBiasExp) {
       return preparedBiasExp.takeError();
     }
@@ -2650,6 +4224,21 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
 
+  // Prepare bias tensor if present.
+  std::optional<::ttnn::TensorSpec> biasSpec;
+  if (biasShape && biasLayout) {
+    llvm::Expected<::ttnn::TensorSpec> preparedBiasExp =
+        getPrepareConv2dBiasOpOutputTensorSpec(
+            inputShape, inputLayout, *biasShape, *biasLayout,
+            weightSpec.data_type(), in_channels, out_channels, batch_size,
+            input_height, input_width, kernel_size, stride, padding, dilation,
+            groups, conv2dConfig, /*transpose*/ true);
+    if (!preparedBiasExp) {
+      return preparedBiasExp.takeError();
+    }
+    biasSpec = preparedBiasExp.get();
+  }
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -2659,15 +4248,6 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
     return inputSpecExp.takeError();
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
-
-  std::optional<::tt::tt_metal::Tensor> biasTensor;
-  if (biasShape && biasLayout) {
-    ::ttnn::TensorSpec biasSpec =
-        conversion::getTensorSpec(biasShape.value(), biasLayout.value());
-    // TODO(odjuricic): This might be really slow. Needs to be done within graph
-    // capture block.
-    biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
-  }
 
   std::optional<::tt::tt_metal::DataType> outputDtype =
       detail::getNullableDataType(outputLayout);
@@ -2685,7 +4265,7 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(output_padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        groups, outputDtype, biasTensor, conv2dConfigConverted,
+        groups, outputDtype, biasSpec, conv2dConfigConverted,
         /* compute_config */ std::nullopt,
         detail::getNullableMemoryConfig(outputLayout));
   };
@@ -2722,6 +4302,21 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
 
   ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
 
+  // Prepare bias tensor if present.
+  std::optional<::ttnn::TensorSpec> biasSpec;
+  if (biasShape && biasLayout) {
+    llvm::Expected<::ttnn::TensorSpec> preparedBiasExp =
+        getPrepareConv2dBiasOpOutputTensorSpec(
+            inputShape, inputLayout, *biasShape, *biasLayout,
+            weightSpec.data_type(), in_channels, out_channels, batch_size,
+            input_height, input_width, kernel_size, stride, padding, dilation,
+            groups, conv2dConfig, /*transpose*/ true);
+    if (!preparedBiasExp) {
+      return preparedBiasExp.takeError();
+    }
+    biasSpec = preparedBiasExp.get();
+  }
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -2731,13 +4326,6 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
     return inputSpecExp.takeError();
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
-
-  std::optional<::tt::tt_metal::Tensor> biasTensor;
-  if (biasShape && biasLayout) {
-    ::ttnn::TensorSpec biasSpec =
-        conversion::getTensorSpec(biasShape.value(), biasLayout.value());
-    biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
-  }
 
   std::optional<::tt::tt_metal::DataType> outputDtype =
       detail::getNullableDataType(outputLayout);
@@ -2755,7 +4343,7 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(output_padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        groups, outputDtype, biasTensor, conv2dConfigConverted,
+        groups, outputDtype, biasSpec, conv2dConfigConverted,
         /* compute_config */ std::nullopt,
         detail::getNullableMemoryConfig(outputLayout));
   };
@@ -2788,6 +4376,17 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
   assert(device != nullptr && "Device is nullptr");
   assert(weightLayout != nullptr && "Weight layout is nullptr");
 
+  if (weightLayout.getBufferType() != BufferType::SystemMemory) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Conv2d weight tensor assumed to be on host.");
+  }
+  if (weightLayout.getDataType() != ttcore::DataType::Float32 &&
+      weightLayout.getDataType() != ttcore::DataType::BFloat16) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Conv2d weight tensor assumed to be float32 or bfloat16.");
+  }
   // TODO(#4043): Move this to tt-metal side.
   ::tt::tt_metal::Tensor weightTensor =
       createMetalHostTensor(weightShape, weightLayout.getDataType());
@@ -2800,7 +4399,9 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
   }
   // The following parameter does not exist in the op yet.
   std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-      sliceConfigConverted = std::nullopt;
+      sliceConfig = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig{
+          .slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
+              SliceType::L1_FULL};
 
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -2816,7 +4417,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
         hasBias, groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
         conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
-        sliceConfigConverted);
+        sliceConfig);
   };
 
   return operation::getOpConstraints(weightLayout.getContext(), deviceGrid,
@@ -2848,6 +4449,16 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
   assert(device != nullptr && "Device is nullptr");
   assert(biasLayout != nullptr && "Weight layout is nullptr");
 
+  if (biasLayout.getBufferType() != BufferType::SystemMemory) {
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "Conv2d bias tensor assumed to be on host.");
+  }
+  if (biasLayout.getDataType() != ttcore::DataType::Float32 &&
+      biasLayout.getDataType() != ttcore::DataType::BFloat16) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Conv2d bias tensor assumed to be float32 or bfloat16.");
+  }
   // TODO(#4043): Move this to tt-metal side.
   ::tt::tt_metal::Tensor biasTensor =
       createMetalHostTensor(biasShape, biasLayout.getDataType());
@@ -2858,6 +4469,9 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
   } else if (outputDtype.has_value()) {
     convertedOutputDtype = conversion::getDataType(outputDtype.value());
   }
+
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
+      sliceConfig = std::nullopt;
 
   auto prepareConv2dWeightsQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -2872,7 +4486,8 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
-        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig));
+        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
+        sliceConfig);
   };
 
   return operation::getOpConstraints(biasLayout.getContext(), deviceGrid,
@@ -2919,10 +4534,12 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
+            padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* applied_shard_scheme */, inPlaceHalo);
+        std::nullopt /* applied_shard_scheme */, inPlaceHalo,
+        false /* return_indices */);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -2965,7 +4582,8 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
+            padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, inPlaceHalo);
@@ -3019,7 +4637,8 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
+            padding),
         ceilMode, countIncludePad, divisorOverride,
         detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, inPlaceHalo);
@@ -3070,7 +4689,8 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
         inputWidthU, inputChannelsU,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding),
+        conversion::convertLLVMArrayRefToMultiSizeStdArray<uint32_t, 2, 4>(
+            padding),
         ceilMode, countIncludePad, divisorOverride,
         detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* applied_shard_scheme */, inPlaceHalo);
@@ -3083,10 +4703,85 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
-// BatchNormOp
+// GlobalAvgPool2dOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, std::optional<mlir::tt::ttcore::DataType> dtype,
+    TTNNLayoutAttr outputLayout) {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::tt::tt_metal::DataType> outputDType;
+  if (dtype.has_value()) {
+    outputDType = conversion::getDataType(dtype.value());
+  } else {
+    outputDType = detail::getNullableDataType(outputLayout);
+  }
+
+  // Create query closure
+  auto globalAvgPool2DQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::global_avg_pool2d, device, inputSpec,
+        detail::getNullableMemoryConfig(outputLayout), outputDType);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     globalAvgPool2DQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<GlobalAvgPool2dOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<mlir::tt::ttcore::DataType> dtype,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::tt::tt_metal::DataType> outputDType;
+  if (dtype.has_value()) {
+    outputDType = conversion::getDataType(dtype.value());
+  } else {
+    outputDType = detail::getNullableDataType(outputLayout);
+  }
+
+  // Create query closure
+  auto globalAvgPool2DQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::global_avg_pool2d, device, inputSpec,
+        detail::getNullableMemoryConfig(outputLayout), outputDType);
+  };
+
+  return operation::getOpRuntime(globalAvgPool2DQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// BatchNormInferenceOp
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<OpConstraints> OpModel<BatchNormOp>::getOpConstraints(
+llvm::Expected<OpConstraints> OpModel<BatchNormInferenceOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
@@ -3097,7 +4792,7 @@ llvm::Expected<OpConstraints> OpModel<BatchNormOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    bool training, llvm::APFloat momentum, TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -3124,6 +4819,128 @@ llvm::Expected<OpConstraints> OpModel<BatchNormOp>::getOpConstraints(
   std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
   std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
       std::nullopt;
+
+  // For inference, training is false and momentum is 0.1 (default)
+  bool training = false;
+  float momentum = 0.1f;
+
+  auto batchNormQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::batch_norm, device, inputSpec, runningMeanSpec, runningVarSpec,
+        training, epsilon.convertToFloat(), momentum, weightSpec, biasSpec,
+        outputSpec, detail::getNullableMemoryConfig(outputLayout),
+        computeKernelConfig);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     batchNormQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<BatchNormInferenceOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
+    std::optional<TTNNLayoutAttr> runningMeanLayout,
+    std::optional<llvm::ArrayRef<int64_t>> runningVarShape,
+    std::optional<TTNNLayoutAttr> runningVarLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> runningMeanSpec =
+      detail::convertToOptionalTensorSpec(device, runningMeanShape,
+                                          runningMeanLayout);
+  std::optional<::ttnn::TensorSpec> runningVarSpec =
+      detail::convertToOptionalTensorSpec(device, runningVarShape,
+                                          runningVarLayout);
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+  // The following arguments are received by the invoke method of batch norm but
+  // they don't exist in the op's definition in TTNNOps.td:
+  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
+      std::nullopt;
+
+  // For inference, training is false and momentum is 0.1 (default)
+  bool training = false;
+  float momentum = 0.1f;
+
+  // Create query closure
+  auto batchNormQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::batch_norm, device, inputSpec, runningMeanSpec, runningVarSpec,
+        training, epsilon.convertToFloat(), momentum, weightSpec, biasSpec,
+        outputSpec, detail::getNullableMemoryConfig(outputLayout),
+        computeKernelConfig);
+  };
+
+  return operation::getOpRuntime(batchNormQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// BatchNormTrainingOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<BatchNormTrainingOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
+    std::optional<TTNNLayoutAttr> runningMeanLayout,
+    std::optional<llvm::ArrayRef<int64_t>> runningVarShape,
+    std::optional<TTNNLayoutAttr> runningVarLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    llvm::APFloat momentum, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> runningMeanSpec =
+      detail::convertToOptionalTensorSpec(device, runningMeanShape,
+                                          runningMeanLayout);
+  std::optional<::ttnn::TensorSpec> runningVarSpec =
+      detail::convertToOptionalTensorSpec(device, runningVarShape,
+                                          runningVarLayout);
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+  // The following arguments are received by the invoke method of batch norm but
+  // they don't exist in the op's definition in TTNNOps.td:
+  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
+      std::nullopt;
+
+  // For training mode
+  bool training = true;
 
   auto batchNormQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -3140,7 +4957,7 @@ llvm::Expected<OpConstraints> OpModel<BatchNormOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> OpModel<BatchNormOp>::getOpRuntime(
+llvm::Expected<size_t> OpModel<BatchNormTrainingOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
     std::optional<TTNNLayoutAttr> runningMeanLayout,
@@ -3150,7 +4967,7 @@ llvm::Expected<size_t> OpModel<BatchNormOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    bool training, llvm::APFloat momentum, TTNNLayoutAttr outputLayout) {
+    llvm::APFloat momentum, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -3177,6 +4994,10 @@ llvm::Expected<size_t> OpModel<BatchNormOp>::getOpRuntime(
   std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
   std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
       std::nullopt;
+
+  // For training mode
+  bool training = true;
+
   // Create query closure
   auto batchNormQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
@@ -3187,6 +5008,92 @@ llvm::Expected<size_t> OpModel<BatchNormOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(batchNormQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// RMSNormOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+
+  // This information is not available in the op's definition in TTNNOps.td:
+  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+
+  // Create query closure
+  auto rmsNormQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
+        weightSpec, biasSpec, residualInputSpec,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     rmsNormQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+
+  // This information is not available in the op's definition in TTNNOps.td:
+  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+
+  // Create query closure
+  auto rmsNormQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
+        weightSpec, biasSpec, residualInputSpec,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(rmsNormQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -3580,9 +5487,15 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingOp>::getOpConstraints(
   // as in the runtime/embedding.cpp. Subject to change in the future.
   std::optional<int> padToken = std::nullopt;
   ::ttnn::Layout layout =
-      inputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
+      outputLayout ? (outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT
+                                             : ::ttnn::ROW_MAJOR_LAYOUT)
+                   : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT
+                                             : ::ttnn::ROW_MAJOR_LAYOUT);
   auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
-  ::ttnn::DataType dtype = conversion::getDataType(inputLayout.getDataType());
+  std::optional<::ttnn::DataType> dtype =
+      outputLayout ? std::make_optional(
+                         conversion::getDataType(outputLayout.getDataType()))
+                   : std::nullopt;
 
   auto embeddingOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
@@ -3618,9 +5531,15 @@ llvm::Expected<size_t> OpModel<EmbeddingOp>::getOpRuntime(
   // as in the runtime/embedding.cpp. Subject to change in the future.
   std::optional<int> padToken = std::nullopt;
   ::ttnn::Layout layout =
-      inputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
+      outputLayout ? (outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT
+                                             : ::ttnn::ROW_MAJOR_LAYOUT)
+                   : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT
+                                             : ::ttnn::ROW_MAJOR_LAYOUT);
   auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
-  ::ttnn::DataType dtype = conversion::getDataType(inputLayout.getDataType());
+  std::optional<::ttnn::DataType> dtype =
+      outputLayout ? std::make_optional(
+                         conversion::getDataType(outputLayout.getDataType()))
+                   : std::nullopt;
 
   auto embeddingOpQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
@@ -3859,7 +5778,7 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
   };
 
   // The invoke function of fullOp is templated over the fill value type. That's
-  // why the following code is aranged in this way.
+  // why the following code is arranged in this way.
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(fillValue)) {
     int convertedFillValue = static_cast<int>(value.getInt());
     auto query = createFullOpQuery(convertedFillValue);
@@ -3983,12 +5902,14 @@ auto dispatchGetRawData(mlir::ElementsAttr value, Func &&func)
     -> decltype(func(std::declval<std::vector<int32_t>>())) {
   // from_span<T> has template instantiations for the following types:
   // int32_t, uint8_t, uint16_t, uint32_t, bfloat16.
-  // The last one is not supported in tt-mlir, so we support the first four:
+  // We support all of these types:
   ::mlir::Type elType = getElementType(value);
-  DISPATCH_TYPE(isInteger(32), int32_t)
   DISPATCH_TYPE(isUnsignedInteger(8), uint8_t)
   DISPATCH_TYPE(isUnsignedInteger(16), uint16_t)
   DISPATCH_TYPE(isUnsignedInteger(32), uint32_t)
+  DISPATCH_TYPE(isInteger(32), int32_t)
+  DISPATCH_TYPE(isF32(), float)
+  DISPATCH_TYPE(isBF16(), bfloat16)
 
   return llvm::createStringError(std::errc::invalid_argument,
                                  "Unsupported element type for ConstantOp");

@@ -15,13 +15,13 @@ The PyKernel framework consists of:
 Foundationally, PyKernel is a compiler built on top of 3 core components, described below.
 
 #### Python `ast` Frontend
-The frontend of PyKernel is made to parse Python code, the behaviour is enabled through using the `ast` (Abstract Syntax Tree) parser builtin to Python. By walking through the AST produced by this module, a MLIR module is created with the `ttkernel` dialect (including others like `arith`, `memref`, `scf`). This MLIR module is then piped into the next step of the PyKernel compiler. For more information about the type of kernel code that can be parsed by the Frontend, refer to the [`ttkernel` Op spec](https://docs.tenstorrent.com/tt-mlir/autogen/md/Dialect/TTKernelOp.html).
+The frontend of PyKernel is made to parse Python code and is enabled through using the `ast` (Abstract Syntax Tree) parser builtin to Python. By walking through the AST produced by this module, a MLIR module is created with the `ttkernel` dialect (among others such as `arith`, `memref`, `scf`). This MLIR module is then piped into the next step of the PyKernel compiler. For more information about the type of kernel code that can be parsed by the Frontend, refer to the [`ttkernel` Op spec](https://docs.tenstorrent.com/tt-mlir/autogen/md/Dialect/TTKernelOp.html).
 
 #### Direct To Metal (D2M) Kernel Code Generation
-Another component of the `tt-mlir` project that PyKernel is built on is the D2M compiler infrastructure. This infrastructure is made to dynamically create Kernels to performantly execute ML models. By replacing the entry point with the custom MLIR module created by the PyKernel Frontend, the same backend can be leveraged. This backend will take the MLIR module and run it through a series of rewritter passes such that it gets lowered to `emitc`, and eventually translated to `C++` code. This C++ code is the artifact that is consumed by the runtime to execute on Tenstorrent Hardware.
+Another component of the `tt-mlir` project that PyKernel is built on is the D2M compiler infrastructure. This infrastructure enables dynamic generation of kernels to performantly execute ML models and is leveraged by providing the custom MLIR module created by the PyKernel frontend. The compilation flow runs a series of transformations on the MLIR module and lowers to the `emitc` dialect to translate the module into `C++` code. This C++ code is the artifact that is consumed by the runtime to execute on Tenstorrent Hardware.
 
 #### TTNN Generic Op
-TTNN comprises of python bound precompiled kernels and factories that operate in a manner similar to PyTorch. The Generic Op builds one step on top of this, intaking and operating on TTNN tensors and primitives, but has a completely undefined factory and set of kernels, these must be provided into the generic op such that it can operate. PyKernel leverages this generality to deploy it's dynamically compiled C++ Kernels into the Generic Op and interface with TTNN data as if a "custom" op was implemented. This is the glue that binds all of the compiler together.
+TTNN consists of Python bindings to precompiled kernels and operator factories that maintain API parity with PyTorch. The Generic Op extends this by operating directly on TTNN tensors and primitives but does not define its own factory or kernels. Instead, these must be supplied to the Generic Op to enable execution. PyKernel leverages this flexibility by injecting dynamically compiled C++ kernels into the Generic Op, allowing them to interface with TTNN data as if they were native “custom” ops. This mechanism serves as the integration layer that connects the compiler to TTNN.
 
 
 ## Prerequisites
@@ -29,7 +29,7 @@ TTNN comprises of python bound precompiled kernels and factories that operate in
 Before using PyKernel, ensure your environment is set up with:
 
 - TT-MLIR built and installed
-- Python 3.10 or newer
+- Python 3.11 or newer
 - Required Python packages
 - TTMLIR_ENABLE_RUNTIME and TTMLIR_ENABLE_PYKERNEL flags set during build
 
@@ -134,7 +134,7 @@ PyKernel supports different types of kernels:
 3. **Writer Kernels**: Transfer data from circular buffers to memory
 
 Each kernel type has a specific decorator:
-- `@compute_thread()` - For compute kernels that run on TenSix cores
+- `@compute_thread()` - For compute kernels that run on Tensix cores
 - `@reader_thread()` - For reader kernels that transfer data from memory to circular buffers
 - `@writer_thread()` - For writer kernels that transfer data from circular buffers to memory
 

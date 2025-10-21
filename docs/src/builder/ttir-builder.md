@@ -37,7 +37,7 @@ def build_ttir_module(
     module_dump: bool = False,
     base: Optional[str] = None,
     output_root: str = ".",
-)
+) -> Tuple[Module, TTIRBuilder]:
 ```
 
 ### Example
@@ -82,13 +82,12 @@ module {
 ```python
 def run_ttir_pipeline(
     module,
-    pipeline_fn: Callable = ttir_to_ttnn_backend_pipeline,
-    pipeline_options: List[str] = None,
+    pipeline_fn: Callable,
+    pipeline_options: List[str] = [],
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
-    mesh_name: str = "mesh",
-    mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
+    mesh_dict: OrderedDict[str, int] = None,
     argument_types_string: Optional[str] = None,
 )
 ```
@@ -438,27 +437,28 @@ module {
 
 ## Compiling into flatbuffer
 
-`compile_ttir_to_flatbuffer` compiles a TTIRBuilder function `fn` straight to flatbuffer. This decorator is mainly a wrapper around the following functions, with each next function called on the output of the last: `build_ttir_module`, `run_ttir_pipeline`, and `ttnn_to_flatbuffer_file` or `ttmetal_to_flatbuffer_file` as dictated by the `target` parameter.
+`compile_ttir_to_flatbuffer` compiles a TTIRBuilder function `fn` straight to flatbuffer. This decorator is mainly a wrapper around the following functions, with each next function called on the output of the last: `build_ttir_module`, `run_ttir_pipeline`, and `ttnn_to_flatbuffer_file`, `ttmetal_to_flatbuffer_file`, `ttir_to_emitpy_pipeline`, or `ttir_to_ttnn_emitc_pipeline` as dictated by the `target` parameter.
 
 ```python
 def compile_ttir_to_flatbuffer(
     fn: Callable,
     inputs_shapes: List[Shape],
     inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
-    system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
+    system_desc_path: Optional[str] = None,
     test_base: str = "test",
     output_root: str = ".",
-    target: Literal["ttnn", "ttmetal"] = "ttnn",
+    target: Literal["ttnn", "ttmetal", "ttnn-standalone", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = True,
     argument_types_string: Optional[str] = None,
-    custom_pipeline: Union[Callable, str] = None,
-    pipeline_options: List[str] = None,
-)
+    custom_pipeline: Optional[Union[Callable, str]] = None,
+    pipeline_options: List[str] = [],
+    print_ir: Union[bool, str] = False,
+) -> str:
 ```
 
-No flatbuffer is printed or returned. It's only written to a file because it is created as an unsupported text encoding.
+The executable flatbuffer is written to a file, `compile_ttir_to_flatbuffer` returns the file address of that flatbuffer.
 
 ### TTNN example
 
@@ -616,10 +616,10 @@ builder.set_graph_input_output([input_0], [output_0], override=True)
 
 ### Running flatbuffer with golden data in ttrt
 
-Running flatbuffers in `ttrt` requires additional building and setting up the environment. Run these commands before creating MLIR modules or flatbuffers so the system description in the flatbuffers match your device.
+Running flatbuffers in `ttrt` requires building and setting up the environment. Run these commands before creating MLIR modules or flatbuffers so the system description in the flatbuffers match your device.
 
 ```bash
-cmake --build build -- ttrt
+cmake --build build
 ttrt query --save-artifacts
 export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys
 ```
@@ -630,10 +630,10 @@ Set environment variable `TTRT_LOGGER_LEVEL` to `DEBUG` so `ttrt` logs golden co
 export TTRT_LOGGER_LEVEL=DEBUG
 ```
 
-Finally run ttrt. Our example flatbuffer file (since we didn't specify otherwise) defaulted to file path `./ttnn/test_ttnn.mlir.ttnn`. `--log-file ttrt.log` and `--save-golden-tensors` are both optional flags. They ensure that all golden data produced by the `ttrt` run gets written to files.
+Finally run ttrt. Our example flatbuffer file (since we didn't specify otherwise) defaulted to file path `./builder-artifacts/ttir-builder/test_ttnn/test_ttnn.mlir.ttnn`. `--log-file ttrt.log` and `--save-golden-tensors` are both optional flags. They ensure that all golden data produced by the `ttrt` run gets written to files.
 
 ```bash
-ttrt run ttnn/test_ttnn.mlir.ttnn --log-file ttrt.log --save-golden-tensors
+ttrt run builder-artifacts/ttir-builder/test_ttnn/test_ttnn.mlir.ttnn --log-file ttrt.log --save-golden-tensors
 ```
 
 #### Golden callbacks

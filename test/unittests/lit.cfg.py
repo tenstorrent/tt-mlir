@@ -60,3 +60,4 @@ else:
 # without running all tests serially which will take a long time. Exclude them and
 # run them in CI separately.
 config.excludes.add("Optimizer")
+config.excludes.add("Validation")

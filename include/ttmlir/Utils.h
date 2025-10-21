@@ -32,14 +32,30 @@ constexpr inline llvm::StringLiteral g_cpuHoistFuncCallAttrName =
     "ttir.cpu_hoist_call";
 constexpr inline llvm::StringLiteral g_skipQdqCommuteAttrName =
     "ttir.skip_qdq_commute";
-constexpr inline llvm::StringLiteral g_decomposedFromAllReduceAttrName =
-    "ttir.decomposed_from_all_reduce";
-constexpr inline llvm::StringLiteral g_outputDtypeAttrName = "output_dtype";
+
+namespace transformer {
+enum InputDimensions {
+  INPUT_BATCH = 0,
+  INPUT_NUM_HEADS = 1,
+  INPUT_SEQ = 2,
+  INPUT_HEAD_SIZE = 3
+};
+
+enum OutputDimensions { OUTPUT_BATCH = 0, OUTPUT_SEQ = 1, OUTPUT_HIDDEN = 2 };
+} // namespace transformer
 
 template <typename T>
-T alignUp(T ptr, T alignment) {
-  T distance = ptr % alignment;
-  return ptr + (distance == 0 ? 0 : (alignment - distance));
+T alignUp(const T val, const T alignment) {
+  assert(alignment > 0);
+  return ((val + alignment - 1) / alignment) * alignment;
+}
+
+template <typename Iter>
+auto product(const Iter begin, const Iter end) ->
+    typename std::iterator_traits<Iter>::value_type {
+  using ValueType = typename std::iterator_traits<Iter>::value_type;
+  return std::accumulate(begin, end, static_cast<ValueType>(1),
+                         std::multiplies<ValueType>());
 }
 
 template <typename T>
@@ -103,6 +119,32 @@ replaceAffineMapSymbols(mlir::AffineMap map, mlir::ArrayRef<int64_t> symbols) {
   unsigned numResultSyms = 0;
   return map.replaceDimsAndSymbols(dimReplacements, symReplacements,
                                    map.getNumDims(), numResultSyms);
+}
+
+// Generates an affine map translating ND grid x ND shard coordinates into ND
+// grid + a linearized offset i.e. collapsing all shard dims into a single
+// byte offset based on provided shard strides.
+//
+// i.e. if strides = [4, 2] --> (g0, g1, s0, s1) -> (g0, g1, 4*s0 + 2*s1)
+inline mlir::AffineMap
+generateAffineMapFromShardStrides(mlir::ArrayRef<int64_t> strides,
+                                  mlir::MLIRContext *context) {
+  int64_t rank = strides.size();
+  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank + 1);
+
+  for (int64_t i = 0; i < rank; i++) {
+    mapExprs[i] = getAffineDimExpr(i, context);
+  }
+
+  mapExprs[rank] = getAffineConstantExpr(0, context);
+  for (int64_t i = rank - 1; i >= 0; i--) {
+    mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
+    mlir::AffineExpr stride = getAffineConstantExpr(strides[i], context);
+    mapExprs[rank] = shardDim * stride + mapExprs[rank];
+  }
+
+  auto map = mlir::AffineMap::get(strides.size() * 2, 0, mapExprs, context);
+  return map;
 }
 
 template <typename T>

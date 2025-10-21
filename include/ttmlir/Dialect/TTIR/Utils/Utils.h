@@ -117,12 +117,6 @@ auto splitAndCall(mlir::OpBuilder &builder, mlir::Location loc,
       builder, loc, output, std::forward<ArgsTy>(args)...);
 }
 } // namespace detail
-// Calculate a reblocking affine map from inputShape to outputShape. Shapes are
-// expressed as [grid..., shard...], and the returned map is defined over the
-// combined device rank (grid rank + shard rank).
-mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
-                                    mlir::ArrayRef<int64_t> outputShape,
-                                    mlir::MLIRContext *ctx);
 
 // Check if the given OpTy has the DestinationStyleOpInterface trait.
 template <typename OpTy>
@@ -264,6 +258,16 @@ mlir::ValueRange getDpsOutputsFromAdaptor(AdaptorT adaptor,
   return operands.take_back(numDpsInits);
 }
 
+/// Add the "ttir.should_hoist" attribute to an operation.
+inline void addShouldHoistAttr(mlir::Operation *op,
+                               mlir::PatternRewriter &rewriter) {
+  op->setAttr("ttir.should_hoist", rewriter.getUnitAttr());
+}
+
+/// Check if the "ttir.should_hoist" attribute is present on an operation.
+inline bool hasShouldHoistAttr(mlir::Operation *op) {
+  return op->hasAttr("ttir.should_hoist");
+}
 } // namespace mlir::tt::ttir::utils
 
 #endif // TTMLIR_DIALECT_TTIR_UTILS_UTILS_H

@@ -78,150 +78,6 @@ class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
     }];
 }
 
-def TTIR_GenericOp : TTIR_BufferizableOp<"generic",
-  [ AttrSizedOperandSegments
-  , NoTerminator
-  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames", "getAsmBlockNames"]>
-  ]> {
-    let summary = "Generically dispatch work to a grid of cores.";
-    let description = [{
-      This generic op carries a region that represents the work each core does. The region is
-      expected to have the same signature as the op itself with respect to input and output
-      operands. The op is expected to be lowered to a backend specific form by a consuming backend.
-      This op is heavily inspired by the linalg.generic op so it can be useful to refer to
-      linalg.generic documentation for more details.
-
-      ```llvm
-      %5 = "ttir.generic"(%1, %2, %3, %4) <{
-        block_factors = [1, 1],                      // The block factors that additionally divide a shard shape into smaller blocks.
-        grid = #ttcore.grid<1x1>,                    // The grid range of cores to dispatch work to.
-        indexing_maps = [#map, #map, #map],          // Affine maps for indexing into the input/output tensors. See linalg.generic
-        iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
-        threads = [#ttir.thread<compute>],           // Thread types for the regions.
-        operandSegmentSizes = array<i32: 2, 1>       // Sizes of the operand segments, i.e. 2 inputs and 1 output.
-      }> ({
-      ^bb0(%arg2: memref<64x128xf32, #l1_>,
-           %arg3: memref<64x128xf32, #l1_>,
-           %arg4: memref<64x128xf32, #l1_>):
-          // Region body, would contain some computation that represents the work each core does.
-      }) : (tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
-      ```
-    }];
-
-    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
-                         Variadic<AnyRankedTensorOrMemRef>:$outputs,
-                         TTCore_GridAttr:$grid,
-                         I64ArrayAttr:$block_factors,
-                         AffineMapArrayAttr:$indexing_maps,
-                         TTCore_IteratorTypeArrayAttr:$iterator_types,
-                         TTIR_ThreadArrayAttr:$threads);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
-    let regions = (region VariadicRegion<AnyRegion>:$regions);
-    let hasVerifier = 1;
-
-    let assemblyFormat = [{ attr-dict `\n`
-    ` ` ` ` ` ` ` ` `ins` `(` $inputs `:` type($inputs) `)` `\n`
-    ` ` ` ` ` ` ` ` `outs` `(` $outputs  `:` type($outputs) `)` ` `  $regions (`:`  type($results)^ )?
-    }];
-
-    let builders =
-    [
-      OpBuilder<(ins "ValueRange": $inputs,
-                     "ValueRange": $outputs,
-                     "ArrayAttr": $indexingMaps,
-                     "ArrayAttr": $iteratorTypes,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
-                     CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
-      [{
-        assert(!indexingMaps.empty() && "expected non-empty indexing maps");
-        assert(outputs.size() == 1 && "expected single output");
-        if (!grid) {
-          if (RankedTensorType tensorType = mlir::dyn_cast<RankedTensorType>(outputs[0].getType()); tensorType) {
-             grid = $_builder.getAttr<ttcore::GridAttr>(mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding()).getGridShape(tensorType));
-          } else {
-            MemRefType memrefType = mlir::cast<MemRefType>(outputs[0].getType());
-            ttcore::DeviceLayoutInterface layout = mlir::cast<ttcore::DeviceLayoutInterface>(memrefType.getLayout());
-            grid = $_builder.getAttr<ttcore::GridAttr>(layout.getGridShape(memrefType));
-          }
-        }
-        auto threads = $_builder.getArrayAttr($_builder.getAttr<ThreadAttr>(singleThreadType));
-        auto blockFactorsAttr = $_builder.getI64ArrayAttr(blockFactors.empty() ?
-                                                          SmallVector<int64_t>(iteratorTypes.size(), 1) :
-                                                          blockFactors);
-        build($_builder, $_state, TypeRange(outputs), inputs, outputs, grid, blockFactorsAttr, indexingMaps, iteratorTypes, threads, 1);
-      }]>,
-      OpBuilder<(ins "ValueRange": $inputs,
-                     "ValueRange": $outputs,
-                     "ArrayAttr": $indexingMaps,
-                     "ArrayAttr": $iteratorTypes,
-                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
-                     CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
-      [{
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadType, grid, blockFactors);
-        llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(TypeRange($_state.operands), [&](Type t) -> Type {
-          mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
-          auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-          auto shardShape = layout.getShardShape(tensorType);
-          return mlir::RankedTensorType::get(shardShape, tensorType.getElementType());
-        });
-        Region& region = *$_state.regions.front().get();
-        llvm::SmallVector<mlir::Location> locs($_state.operands.size(), $_state.location);
-        OpBuilder::InsertionGuard guard($_builder);
-        Block* block = $_builder.createBlock(&region, region.end(), blockTypes, locs);
-        singleThreadRegionBuilder($_builder, $_state.location, block->getArguments());
-      }]>,
-      OpBuilder<(ins "ValueRange": $inputs,
-                     "ValueRange": $outputs,
-                     "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
-                     CArg<"ttcore::GridAttr", "nullptr">: $grid,
-                     CArg<"ArrayRef<int64_t>", "{}">: $blockFactors),
-      [{
-        assert(outputs.size() == 1 && "expected single output");
-        RankedTensorType tensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
-        ttcore::MetalLayoutAttr maybeLayout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-        const size_t rank = (maybeLayout != nullptr) ? maybeLayout.getShardShape(tensorType).size() : tensorType.getShape().size();
-        auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes($_builder,
-            inputs.size() + outputs.size(), rank);
-        build($_builder, $_state, inputs, outputs, indexingMaps, iteratorTypes, singleThreadRegionBuilder, singleThreadType, grid);
-      }]>,
-    ];
-
-    let extraClassDeclaration = [{
-      static std::pair<ArrayAttr, ArrayAttr> buildParallelAffineMapsAndIteratorTypes(mlir::OpBuilder &builder, size_t arity, size_t rank) {
-        auto map = builder.getMultiDimIdentityMap(rank);
-        Attribute parallel = builder.getAttr<ttcore::IteratorTypeAttr>(ttcore::IteratorType::Parallel);
-        return std::make_pair(builder.getAffineMapArrayAttr(SmallVector<AffineMap>(arity, map)),
-                              builder.getArrayAttr(SmallVector<Attribute>(rank, parallel)));
-      }
-      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
-      unsigned getNumLoops();
-      unsigned getNumDims();
-      SmallVector<int64_t> getLoopBounds();
-      SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
-      SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);
-      AffineMap getIndexingMap(int64_t operandIndex);
-      SmallVector<AffineMap> getIndexingMapsValue();
-      SmallVector<ttcore::IteratorType> getIteratorTypesValue();
-      SmallVector<int64_t> getBlockFactorsValue();
-      SmallVector<SmallVector<int64_t>> getOperandGridShapes();
-      SmallVector<SmallVector<int64_t>> getOperandShardShapes(bool convertTileToScalar = false);
-      ThreadType getRegionThreadType(unsigned regionIndex) {
-        return mlir::cast<ThreadAttr>(getThreads()[regionIndex]).getThreadType();
-      }
-      bool isComputeOnlyForm() {
-        auto threads = getThreads();
-        return threads.size() == 1 && mlir::cast<ThreadAttr>(threads[0]).getThreadType() == ThreadType::Compute;
-      }
-      bool isAffineMapForm() { return !getIndexingMaps().empty(); }
-      bool isLoweredLoopForm() { return !isAffineMapForm(); }
-      bool isExternalSymbolForm() { return getRegions().empty(); }
-    }];
-}
-
 def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let summary = "Layout op.";
     let description = [{
@@ -257,22 +113,11 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
 
-      struct CompoundComponents {
-        bool isLayoutChange = false;
-        bool isGridChange = false;
-        bool isFormatChange = false;
-        bool isMemorySpaceChange = false;
-
-        bool isCompound() {
-          return isLayoutChange + isFormatChange + (isGridChange || isMemorySpaceChange) > 1;
-        }
-      };
-
-      // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
-      CompoundComponents compoundComponents();
-      bool isCompound() { return compoundComponents().isCompound(); }
       ttcore::MetalLayoutAttr getOrCreateInputLayout();
       ttcore::MetalLayoutAttr getOrCreateOutputLayout();
+
+      bool isHostToDevice();
+      bool isDeviceToHost();
     }];
 
     let hasVerifier = 1;
@@ -281,51 +126,7 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
     let hasCanonicalizer = 1;
 }
 
-def TTIR_StreamLayoutOp : TTIR_Op<"stream_layout",
-  [ Pure
-  , DeclareOpInterfaceMethods<OpAsmOpInterface , ["getAsmResultNames"]>
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  , TTIR_ViewOpInterface
-  ]> {
-    let summary = "Stream Layout op.";
-    let description = [{
-      StreamLayout operation used to form a stream between remote and local memory spaces. Note that this op has
-      no side-effects, it's purely representational. The primary use cases include, to enable streaming a large
-      tensor out of dram via a small L1 buffer and also as a means for forming reduce or gather multicast
-      operations. A stream definition includes:
-
-      - The tensor to be streamed.
-      - The storage buffer to be used for streaming.
-      - A result, which is also able to take a view over the input, i.e. same semantics as the ViewLayout op.
-
-      Additional constraints:
-      - It is not capable of changing the data type nor the memory space of the tensor.
-
-      ```llvm
-      %input = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!ttcore.tile<32x32, f32>, #l1_>
-      %storage = memref.alloc() {alignment = 64 : i64} : memref<2x4x1x1x!ttcore.tile<32x32, f32>, #l1_>
-      %stream = "ttir.stream_layout"(%input, %storage) : (memref<2x4x4x6x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x1x1x!ttcore.tile<32x32, f32>, #l1_>) -> memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1_>
-      ```
-    }];
-
-    let arguments = (ins AnyRankedTensorOrMemRef:$input,
-                         AnyRankedTensorOrMemRef:$storage);
-    let results = (outs AnyRankedTensorOrMemRef:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getStorageMutable(); }
-    }];
-
-    let hasVerifier = 1;
-    let hasCanonicalizer = 1;
-}
-
-def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
+def TTIR_TTNNMetalLayoutCastOp : TTIR_Op<"ttnn_metal_layout_cast",
   [ Pure
   , TTIROpInterface
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
@@ -335,40 +136,45 @@ def TTIR_ViewLayoutOp : TTIR_Op<"view_layout",
                                                        , "getAliasingValues"
                                                        , "getBufferType"
                                                        ]>
-  , TTIR_ViewOpInterface
   ]> {
-    let summary = "View Layout op.";
-    let description = [{
-      ViewLayout operation, used to take a view of one layout into another.  Note that this op is purely representational
-      and doesn't have any side-effects. Its primary usecase is to allow reinterpreting the layout of a tensor without actually
-      moving the data. Consumers of this op are expected to compose the layout with the underlying backing layout.
+  let summary = "Cast TTNN layout-encoded tensor to/from TTCore metal layout-encoded tensor";
+  let description = [{
+    Purely representational op that reinterprets a tensor's layout encoding from `#ttnn.ttnn_layout<...>`
+    to/from `#ttcore.metal_layout<...>` without modifying the underlying data.
 
-      Additional notes/constraints:
-      - It is not capable of changing the data type nor the memory space of the tensor.
-      - If reinterpretLayout is true, the layout view change can include a data type cast, but note this does not actually change the format of the data in memory.
-      - All ViewLayout ops can trivially be converted to ToLayout ops.
+    Pre-bufferization, the input and output must be a RankedTensorType where one holds a
+    `ttnn::TTNNLayoutAttr` and the other, a `ttcore::MetalLayoutAttr`. Post bufferization,
+    the tensor encoded with a `ttcore::MetalLayoutAttr` is bufferized to a memref.
 
-      ```llvm
-      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
-      %1 = "ttir.view_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
-      ```
-    }];
+    Examples:
+    ```
+    %cast_to_metal = ttir.ttnn_metal_layout_cast %arg0
+                      : tensor<32x32xf32, #ttnn.ttnn_layout<...>>
+                    -> tensor<32x32xf32, #ttcore.metal_layout<...>>
 
-    let arguments = (ins AnyRankedTensorOrMemRef:$input, DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
-    let results = (outs AnyRankedTensorOrMemRef:$result);
+    %cast_to_metal_bufferized = ttir.ttnn_metal_layout_cast %arg0
+                            : tensor<32x32xf32, #ttnn.ttnn_layout<...>>
+                          -> memref<32x32xf32, ...>
 
-    let builders = [
-      OpBuilder<(ins "Value":$input, "ArrayRef<int64_t>":$reblockedShape,
-                     CArg<"bool", "false">:$reinterpretLayout)>,
-    ];
+    %cast_to_ttnn = ttir.ttnn_metal_layout_cast %arg0
+                    : tensor<32x32xf32, #ttcore.metal_layout<...>>
+                  -> tensor<32x32xf32, #ttnn.ttnn_layout<...>>
 
-    let assemblyFormat = [{
-      $input attr-dict `:` type($input) `->` type($result)
-    }];
+    %cast_to_ttnn_bufferized = ttir.ttnn_metal_layout_cast %arg0
+                            : memref<32x32xf32, ...>
+                          -> tensor<32x32xf32, #ttnn.ttnn_layout<...>>
+    ```
+  }];
 
-    let hasVerifier = 1;
-    let hasFolder = 1;
+  let arguments = (ins AnyRankedTensorOrMemRef:$input);
+  let results   = (outs AnyRankedTensorOrMemRef:$result);
+
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($result)
+  }];
+
+  let hasVerifier = 1;
+  let hasCanonicalizer = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -929,6 +735,30 @@ def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu", [TTIR_Idempotence]> {
       Mathematical definition: relu(x) = max(0, x)
     }];
 }
+def TTIR_Relu6Op : TTIR_ElementwiseUnaryOp<"relu6", [TTIR_Idempotence]> {
+  let summary = "Eltwise ReLU6.";
+  let description = [{
+    The `relu6` operation computes the ReLU6 activation function of each element in the input tensor.
+
+    For each element, it returns the minimum of 6 and the maximum of 0 and the value. The operation preserves
+    the data type of the input.
+
+    This operation has the idempotence property, meaning that applying it multiple times
+    produces the same result as applying it once: relu6(relu6(x)) = relu6(x).
+
+    Example:
+    ```mlir
+    // Compute ReLU6 of all elements in %input
+    %result = ttir.relu6(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [[1.7, 2.0, -0.3, 7.0], ... ]
+    // Output tensor:
+    // [[1.7, 2.0, 0.0, 6.0], ... ]
+    ```
+
+    Mathematical definition: relu6(x) = min(6, max(0, x))
+  }];
+}
 
 def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
     let summary = "Eltwise reciprocal square root.";
@@ -970,6 +800,28 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
 
       Mathematical definition: sigmoid(x) = 1 / (1 + exp(-x))
     }];
+}
+def TTIR_SiluOp: TTIR_ElementwiseUnaryOp<"silu"> {
+  let summary = "Elementwise SiLU (Sigmoid Linear Unit) operation.";
+  let description = [{
+    The `silu` operation computes the SiLU (Sigmoid Linear Unit) activation function of each element in the input tensor.
+
+    SiLU, also known as Swish, is defined as x * sigmoid(x). It combines the properties of both
+    linear and sigmoid functions, providing smooth, non-monotonic activation that has shown good
+    performance in deep learning applications.
+
+    Example:
+    ```mlir
+    // Compute SiLU of all elements in %input
+    %result = ttir.silu(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [[-2.0, -1.0, 0.0, 1.0], ... ]
+    // Output tensor:
+    // [[-0.238, -0.269, 0.0, 0.731], ... ]
+    ```
+
+    Mathematical definition: silu(x) = x * sigmoid(x) = x * (1 / (1 + exp(-x)))
+  }];
 }
 
 def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign", [TTIR_Idempotence]> {
@@ -2035,12 +1887,12 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
-def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
+def TTIR_BatchNormInferenceOp : TTIR_DPSOp<"batch_norm_inference"> {
   let summary = "BatchNormInference operation";
   let description = [{
-    Performs batch normalization on the input tensor. Normalizes the `operand` tensor
+    Performs batch normalization inference on the input tensor. Normalizes the `operand` tensor
     across all dimensions except for the specified `dimension` (feature dimension) and
-    produces the normalized result.
+    produces the normalized result using pre-computed mean and variance.
 
     Inputs:
     - `operand` (Tensor): The input tensor to be normalized.
@@ -2052,16 +1904,15 @@ def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
     Attributes:
     - `epsilon` is a small constant added to variance for numerical stability.
     - `dimension` specifies which dimension represents the features/channels.
-    - `training` (Bool): Whether the operation is in training mode.
 
     Output:
     - `result` (Tensor): The normalized output tensor.
 
     Example:
     ```mlir
-      // Normalize a batch of activations
+      // Normalize a batch of activations (inference)
       %result = ttir.batch_norm(%operand, %scale, %offset, %mean, %variance, %output,
-                              epsilon = 0.001, dimension = 1, training = false) :
+                              epsilon = 0.001, dimension = 1) :
             (tensor<8x16x32x32xf32>, tensor<16xf32>, tensor<16xf32>,
               tensor<16xf32>, tensor<16xf32>, tensor<8x16x32x32xf32>) -> tensor<8x16x32x32xf32>
     ```
@@ -2077,10 +1928,70 @@ def TTIR_BatchNormOp : TTIR_DPSOp<"batch_norm"> {
                        AnyRankedTensor:$variance,
                        AnyRankedTensor:$output,
                        F32Attr:$epsilon,
-                       I32Attr:$dimension,
-                       BoolAttr:$training);
+                       I32Attr:$dimension);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_BatchNormTrainingOp : TTIR_DPSOp<"batch_norm_training"> {
+  let summary = "BatchNormTraining operation";
+  let description = [{
+    Performs batch normalization during training on the input tensor. Normalizes the `operand` tensor
+    across all dimensions except for the specified `dimension` (feature dimension) and
+    produces the normalized result along with batch statistics. Updates the running mean and variance.
+
+    Inputs:
+    - `operand` (Tensor): The input tensor to be normalized.
+    - `scale` (Tensor): The scale parameter (gamma).
+    - `offset` (Tensor): The offset parameter (beta).
+    - `running_mean` (Tensor): The running mean (updated during training).
+    - `running_variance` (Tensor): The running variance (updated during training).
+
+    Attributes:
+    - `epsilon` is a small constant added to variance for numerical stability.
+    - `dimension` specifies which dimension represents the features/channels.
+    - `momentum` is the momentum factor for updating running statistics.
+
+    Outputs:
+    - `result` (Tensor): The normalized output tensor.
+    - `batch_mean` (Tensor): The computed batch mean.
+    - `batch_variance` (Tensor): The computed batch variance.
+
+    Example:
+    ```mlir
+      // Normalize a batch of activations (training)
+      %result, %batch_mean, %batch_variance = ttir.batch_norm_training(%operand, %scale, %offset, %running_mean, %running_variance,
+                                           %output, %batch_mean_output, %batch_variance_output :
+                                           epsilon = 0.001, dimension = 1, momentum = 0.1) :
+            (tensor<8x16x32x32xf32>, tensor<16xf32>, tensor<16xf32>,
+              tensor<16xf32>, tensor<16xf32>, tensor<8x16x32x32xf32>,
+              tensor<16xf32>, tensor<16xf32>, tensor<16xf32>, tensor<16xf32>) ->
+            (tensor<8x16x32x32xf32>, tensor<16xf32>, tensor<16xf32>)
+    ```
+
+    Mathematical definition:
+      batch_mean = mean(x, dimension)
+      batch_variance = variance(x, dimension)
+      normalized = (x - batch_mean) / sqrt(batch_variance + epsilon) * scale + offset
+      running_mean = momentum * batch_mean + (1 - momentum) * running_mean
+      running_variance = momentum * batch_variance + (1 - momentum) * running_variance
+  }];
+
+  let arguments = (ins AnyRankedTensor:$operand,
+                       AnyRankedTensor:$scale,
+                       AnyRankedTensor:$offset,
+                       AnyRankedTensor:$running_mean,
+                       AnyRankedTensor:$running_variance,
+                       Variadic<AnyRankedTensor>:$outputs,
+                       F32Attr:$epsilon,
+                       I32Attr:$dimension,
+                       F32Attr:$momentum);
+
+  let results = (outs AnyRankedTensor:$result,
+                      AnyRankedTensor:$batch_mean,
+                      AnyRankedTensor:$batch_variance);
 
   let hasVerifier = 1;
 }
@@ -2855,6 +2766,7 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
 
       Attributes:
       - `dimension` (Integer): The dimension along which to apply the softmax function.
+      - `numericStable` (Boolean, default=false): Whether to use numerically stable computation.
 
       Outputs:
       - `result` (Tensor): The tensor after applying the softmax function.
@@ -2862,7 +2774,8 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dimension);
+                         SI32Attr:$dimension,
+                         DefaultValuedAttr<BoolAttr, "false">:$numericStable);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -4296,6 +4209,8 @@ def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
@@ -5175,7 +5090,16 @@ def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
     let hasVerifier = 1;
 }
 
-def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
+def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
+  [ Pure
+  , TTIROpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  ]> {
     let summary = "Mesh shard operation.";
     let description = [{
       MeshShard op shards the inputs (FullToShard) or concatnates the outputs (ShardToFull) for ccl ops.
@@ -5193,7 +5117,7 @@ def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
       For example, on 2x4 mesh hardware, following op shards arg0 to 8 slices, row divided by 2
       and col divided by 4.
 
-        %1 = "ttir.mesh_shard"(%arg0, %0) <
+        %1 = "ttir.mesh_shard"(%arg0) <
           {... shard_direction = #ttcore.shard_direction<full_to_shard>,
                shard_shape = array<i64: 2, 4>,
                shard_dims = array<i64: 0, 1>,
@@ -5202,24 +5126,39 @@ def TTIR_MeshShardOp : TTIR_NamedOp<"mesh_shard"> {
       On the other hand, this op concatnates %4 to single tensor by concatnating
       one of the top row tensor with one of the bottom row tensor.
 
-        %6 = "ttir.mesh_shard"(%4, %5) <
+        %6 = "ttir.mesh_shard"(%4) <
           {..., shard_direction = #ttcore.shard_direction<shard_to_full>,
                 shard_shape = array<i64: 2, 1>,
                 shard_dims = arrray<i64: 1, -1>,
                 shard_type = #ttcore.shard_type<devices>}> : (tensor<4096x16384xf32>, ...) -> tensor<8192x16384xf32>
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
                          TTCore_MeshShardTypeAttr:$shard_type,
                          TTCore_MeshShardDirectionAttr:$shard_direction,
                          DenseI64ArrayAttr:$shard_shape,
                          DenseI64ArrayAttr:$shard_dims
     );
+    let results = (outs AnyRankedTensorOrMemRef:$result);
 
-    let results = (outs AnyRankedTensor:$result);
+    let extraClassDefinition = [{
+      bool $cppClass::bufferizesToMemoryRead(
+          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+        return true;
+      }
+      bool $cppClass::bufferizesToMemoryWrite(
+          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+        return false;
+      }
+      bufferization::AliasingValueList $cppClass::getAliasingValues(
+          OpOperand &, const bufferization::AnalysisState &) {
+        bufferization::AliasingValueList result;
+        return result;
+      }
+    }];
 
     let hasVerifier = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {
@@ -5507,4 +5446,158 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
   let hasVerifier = 1;
 }
 
+
+
+def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
+    let summary = "A version of scaled dot product attention specifically for decode.";
+    let description = [{
+      A version of scaled dot product attention specifically for decode.
+        The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
+
+        Args:
+            query (AnyRankedTensor): The query tensor [1 x batch x num_heads x head_size]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
+            key (AnyRankedTensor): The key tensor [batch x num_kv_heads x seq_len x head_size].
+            value (AnyRankedTensor): The value tensor [batch x num_kv_heads x seq_len x head_size].
+            is_causal (bool, optional): Whether the attention is causal. Defaults to `true`.
+            attention_mask (AnyRankedTensor, optional): The attention mask [batch x 1 x num_heads x seq_len].
+            cur_pos_tensor (AnyRankedTensor): [batch] Tensor of integers of length batch.
+            attention_sink (AnyRankedTensor, optional): The attention sink [num_heads, 32] (must be a single tile wide).
+            output (AnyRankedTensor): The output DPS operand [1 x batch x num_heads x head_size].
+            scale (float, optional): Defaults to `None`.
+
+        Returns:
+            AnyRankedTensor: The output tensor [1 x batch x num_heads x head_size].
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$value,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                         Optional<AnyRankedTensor>:$attention_mask,
+                         AnyRankedTensor:$cur_pos_tensor,
+                         Optional<AnyRankedTensor>:$attention_sink,
+                         AnyRankedTensor:$output,
+                         OptionalAttr<F32Attr>:$scale);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+
+def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention"> {
+  let summary = "Scaled dot product attention operation.";
+  let description = [{
+    Scaled dot product attention.
+    The implementation is FlashAttention-2.
+
+    Args:
+        query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]
+        key (AnyRankedTensor): The key tensor.              [batch x num_kv_heads x kv_seq_len x head_size]
+        value (AnyRankedTensor): The value tensor.          [batch x num_kv_heads x kv_seq_len x head_size]
+        attention_mask (AnyRankedTensor, optional): Defaults to `None`. [batch x 1 x query_seq_len x kv_seq_len]. Head broadcasting is implied.
+        output (AnyRankedTensor): The output DPS operand [batch x num_heads x query_seq_len x head_size].
+        is_causal (bool): Whether The attention is causal. Defaults to `true`.
+        scale (float, optional): Defaults to `None`.
+
+    Returns:
+        AnyRankedTensor: The output tensor [batch x num_heads x seq_len x head_size].
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       AnyRankedTensor:$value,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       AnyRankedTensor:$output,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       OptionalAttr<F32Attr>:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
+  let summary = "A global average pooling 2d operation";
+  let description = [{
+    The `global_avg_pool2d` operation applies global average pooling over the spatial dimensions
+    (height and width) of a 4D input tensor. In essence, it should be realised as the sum-reduce style operation
+    under the hood, for performance reasons (since we include all elements, there is no need for kernel allocation).
+    It reduces spatial dimensions to 1.
+
+    This operation yields the same result as the standard avg_pool_2d operation when kernel_size == [input_height, input_width].
+    However, it is much more memory efficient, as the underlying implementation doesn't need to allocate
+    the kernel for pooling (since the operation boils down to a simple sum-reduce).
+
+    Example:
+    ```mlir
+    // Basic global average pooling reducing 32x32 spatial dimensions to 1x1
+    %input = ... : tensor<1x32x32x64xbf16>  // Input tensor with values in NHWC format
+                                            // N=1 (batch), H=32 (height), W=32 (width), C=64 (channels)
+    %output = ttir.empty() : tensor<1x1x1x64xbf16>
+    %result = "ttir.global_avg_pool2d"(%input, %output) : (tensor<1x32x32x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x1x1x64xbf16>
+    // Result: tensor<1x1x1x64xbf16> where each channel contains the average of all 32*32=1024 spatial locations
+
+    // Example with different input sizes
+    %large_input = ... : tensor<1x128x128x32xbf16>  // Large spatial dimensions
+    %large_output = ttir.empty() : tensor<1x1x1x32xbf16>
+    %large_result = "ttir.global_avg_pool2d"(%large_input, %large_output) : (tensor<1x128x128x32xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x1x1x32xbf16>
+    // Each output channel averages across 128*128=16384 spatial locations
+    ```
+
+    Inputs:
+    - `input`: 4D tensor with shape [N, H, W, C] where N is batch size, H is height, W is width, and C is channels
+    - `output`: Pre-allocated output tensor with shape [N, 1, 1, C] to store the result
+
+    Attributes:
+    - None (this operation has no configurable attributes, unlike regular pooling operations)
+
+    Outputs:
+    - `result`: 4D tensor with shape [N, 1, 1, C] containing the global average pooled values
+
+    Note: The operation reduces spatial dimensions (H, W) to (1, 1) by computing the average across
+    all spatial locations for each channel independently. This is equivalent to avg_pool2d with
+    kernel_size=[H, W], stride=[1, 1], and no padding, but implemented more efficiently.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_value_and_split_heads"> {
+    let summary = "Split query, key, values and split heads op used in attention layer.";
+    let description = [{
+      Splits input_tensor of shape [batch_size, sequence_size, 3 * hidden_size] into 3 tensors (Query, Key, Value) of shape [batch_size, sequence_size, hidden_size]. Then, reshapes and permutes the output tensors, to make them ready for computing attention scores.
+      If kv_input_tensor is passed in, then input_tensor of shape [batch_size, sequence_size, hidden_size] is only used for Query, and kv_input_tensor of shape [batch_size, sequence_size, 2 * hidden_size] is used for Key and Value.
+      For the sharded implementation, the input query, key and value are expected to be concatenated such that the heads are interleaved (q1 k1 v1…qn kn vn).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         Optional<AnyRankedTensor>:$kv_input_tensor,
+                         AnyRankedTensor:$query_output,
+                         AnyRankedTensor:$key_output,
+                         AnyRankedTensor:$value_output,
+                         UI32Attr:$num_heads,
+                         OptionalAttr<UI32Attr>:$num_kv_heads,
+                         BoolAttr:$transpose_key);
+
+    let results = (outs AnyRankedTensor:$query,
+                        AnyRankedTensor:$key,
+                        AnyRankedTensor:$value);
+
+    let extraClassDeclaration = [{
+        MutableOperandRange getDpsInitsMutable() {
+            // query_output is at index 2 (after input_tensor and kv_input_tensor)
+            // But kv_input_tensor is optional, so we need to account for that
+            unsigned startIdx = getKvInputTensor() ? 2 : 1;
+            return MutableOperandRange(*this, startIdx, 3);
+        }
+    }];
+
+    let hasVerifier = 1;
+}
 #endif

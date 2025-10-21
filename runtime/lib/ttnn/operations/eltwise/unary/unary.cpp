@@ -46,7 +46,7 @@ static void runEltwiseUnaryTanhOp(
              "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out =
-      ttnnOp(in, outputMemoryConfig, std::nullopt, /* accuracy= */ true);
+      ttnnOp(in, outputMemoryConfig, std::nullopt, /* approx= */ false);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -154,17 +154,25 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu);
     break;
   }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Relu6: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu6);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sqrt: {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::sqrt);
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Rsqrt: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::rsqrt);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::rsqrt);
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sigmoid: {
     runEltwiseUnaryWithVectorAndFastAndApproximateModeOp(op, tensorPool,
                                                          ::ttnn::sigmoid);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Silu: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::silu);
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sin: {
@@ -196,7 +204,7 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Log: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::log);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::log);
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Expm1: {

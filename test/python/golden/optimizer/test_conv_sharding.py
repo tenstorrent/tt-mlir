@@ -9,7 +9,7 @@ import re
 
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_ttir_to_flatbuffer
+from builder.base.builder_utils import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -31,6 +31,9 @@ def check_sharded_input_output(mlir_file: str, op_name: str):
     return False
 
 
+@pytest.mark.skip(
+    "Causes segfault during pipeline, see https://github.com/tenstorrent/tt-mlir/issues/5283"
+)
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -38,11 +41,10 @@ def check_sharded_input_output(mlir_file: str, op_name: str):
             (16, 32, 32, 64),
             (64, 64, 3, 3),
             (1, 1, 1, 64),
-            (1, 1, 1, 64),
         ]
     ],
 )
-@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
 @pytest.mark.parametrize(
     "stride,padding,dilation,groups", [([1, 1], [1, 1], [1, 1], 1)]
 )
@@ -54,12 +56,12 @@ def test_conv2d_sharding(
     dilation: List[int],
     groups: int,
     request,
+    device,
 ):
     def conv2d(
         in0: Operand,
         weight: Operand,
         bias: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
@@ -67,7 +69,6 @@ def test_conv2d_sharding(
             in0,
             weight,
             bias,
-            in1,
             stride=stride,
             padding=padding,
             dilation=dilation,
@@ -75,12 +76,13 @@ def test_conv2d_sharding(
             unit_attrs=unit_attrs,
         )
 
-    output_file_mlir = compile_ttir_to_flatbuffer(
+    output_file_mlir = compile_and_execute_ttir(
         conv2d,
         shapes,
         dtypes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
+        device=device,
         system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=[
             "enable-optimizer=true",

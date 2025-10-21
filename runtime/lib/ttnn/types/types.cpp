@@ -20,7 +20,9 @@ uint64_t TTNNTensorWrapper::getLatestVersion() {
 //
 // LayoutDesc APIs
 //
-LayoutDesc LayoutDesc::fromTensor(const ::tt::runtime::Tensor &tensor) {
+
+std::shared_ptr<LayoutDesc>
+LayoutDesc::fromTensor(const ::tt::runtime::Tensor &tensor) {
   const ::ttnn::Tensor &ttnnTensor =
       ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(tensor);
   ::ttnn::StorageType storageType = ttnnTensor.storage_type();
@@ -32,7 +34,20 @@ LayoutDesc LayoutDesc::fromTensor(const ::tt::runtime::Tensor &tensor) {
     memoryConfig = ttnnTensor.memory_config();
   }
 
-  return LayoutDesc(storageType, layout, dtype, memoryConfig);
+  return std::make_shared<LayoutDesc>(storageType, layout, dtype, memoryConfig);
+}
+
+std::shared_ptr<LayoutDesc>
+LayoutDesc::fromMemoryDesc(const ::tt::target::ttnn::MemoryDesc *memoryDesc) {
+  ::ttnn::StorageType storageType =
+      utils::toTTNNStorageType(memoryDesc->storage_type());
+  ::ttnn::Layout layout =
+      utils::inferLayoutFromTileShape(memoryDesc->tile_shape());
+  ::ttnn::DataType dtype = utils::toTTNNDataType(memoryDesc->data_type());
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      utils::createMemoryConfigIfNeeded(memoryDesc->memory_config());
+
+  return std::make_shared<LayoutDesc>(storageType, layout, dtype, memoryConfig);
 }
 
 LayoutDesc::LayoutDesc(const ::ttnn::StorageType &storageType,
@@ -49,6 +64,37 @@ bool LayoutDesc::isOnHost() const {
 bool LayoutDesc::isOnDevice() const { return !isOnHost(); }
 
 bool LayoutDesc::isTilized() const { return layout == ::ttnn::Layout::TILE; }
+
+::flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
+LayoutDesc::toMemoryDesc(::flatbuffers::FlatBufferBuilder &fbb) const {
+  ::tt::target::ttnn::StorageType fbStorageType =
+      ::tt::runtime::ttnn::utils::fromTTNNStorageType(storageType);
+
+  ::tt::target::Dim2d tileShape(1, 1);
+  if (layout == ::ttnn::Layout::TILE) {
+    tileShape = ::tt::target::Dim2d(32, 32);
+  } else {
+    LOG_ASSERT(layout == ::ttnn::Layout::ROW_MAJOR,
+               "Expected layout to be TILE or ROW_MAJOR");
+    tileShape = ::tt::target::Dim2d(1, 1);
+  }
+
+  ::tt::target::DataType fbDataType =
+      ::tt::runtime::ttnn::utils::fromTTNNDataType(dataType);
+
+  if (!memoryConfig.has_value()) {
+    return ::tt::target::ttnn::CreateMemoryDesc(
+        fbb, fbStorageType, &tileShape, fbDataType, /*memory_config=*/0);
+  }
+
+  const ::ttnn::MemoryConfig &outputMemoryConfig = memoryConfig.value();
+
+  auto fbMemoryConfig =
+      ::tt::runtime::ttnn::utils::fromTTNNMemoryConfig(fbb, outputMemoryConfig);
+
+  return ::tt::target::ttnn::CreateMemoryDesc(fbb, fbStorageType, &tileShape,
+                                              fbDataType, fbMemoryConfig);
+}
 
 bool LayoutDesc::operator==(const LayoutDesc &other) const {
   return (storageType == other.storageType) && (layout == other.layout) &&
