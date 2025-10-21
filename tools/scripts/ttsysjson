@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# Simple JSON/FlatBuffer converter
+# Automatically detects conversion direction based on input file extension
+# Usage: ttsysjson <input_file> [schema_file] [root_type]
+
+set -e
+
+MLIR_ROOT="${TT_MLIR_HOME:-.}"
+INCLUDE_DIR="${MLIR_ROOT}/include"
+
+INPUT="$1"
+SCHEMA="${2:-${MLIR_ROOT}/include/ttmlir/Target/Common/system_desc.fbs}"
+ROOT_TYPE="${3:-tt.target.SystemDescRoot}"
+
+# Check if input file is provided
+if [[ -z "$INPUT" ]]; then
+    echo "Usage: $(basename $0) <input_file> [schema_file] [root_type]" >&2
+    echo "Examples:" >&2
+    echo "  $(basename $0) data.json" >&2
+    echo "  $(basename $0) data.ttsys" >&2
+    exit 1
+fi
+
+# Check if input file exists
+if [[ ! -f "$INPUT" ]]; then
+    echo "Error: Input file not found: $INPUT" >&2
+    exit 1
+fi
+
+# Check if schema exists
+if [[ ! -f "$SCHEMA" ]]; then
+    echo "Error: Schema file not found: $SCHEMA" >&2
+    exit 1
+fi
+
+# Check if flatc is installed
+if ! command -v flatc &> /dev/null; then
+    echo "Error: flatc compiler not found" >&2
+    echo "Install from: https://github.com/google/flatbuffers" >&2
+    exit 1
+fi
+
+# Detect conversion mode based on file extension
+if [[ "$INPUT" == *.json ]]; then
+    # JSON to FlatBuffer
+    flatc -I "$INCLUDE_DIR" -b --size-prefixed --root-type "$ROOT_TYPE" "$SCHEMA" "$INPUT"
+    OUTPUT="$(basename "$INPUT" .json).ttsys"
+elif [[ "$INPUT" == *.ttsys ]]; then
+    # FlatBuffer to JSON
+    flatc -I "$INCLUDE_DIR" --json --size-prefixed --root-type "$ROOT_TYPE" "$SCHEMA" -- "$INPUT"
+    OUTPUT="$(basename "$INPUT" .ttsys).json"
+else
+    echo "Error: Unknown file extension for input $INPUT"
+    exit 1
+fi
+
+echo "Converted $INPUT -> $OUTPUT"
