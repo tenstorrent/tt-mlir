@@ -74,10 +74,10 @@ public:
         continue;
       }
 
-      Region *genericRegion = &op.getRegion(regionIndex);
-      Block &block = genericRegion->getBlocks().front();
+      Region &region = op.getRegion(regionIndex);
+      Block &block = region.getBlocks().front();
 
-      Type largestDstType = utils::getRegionLargestDstElemType(*genericRegion);
+      Type largestDstType = utils::getRegionLargestDstElemType(region);
       const unsigned dstCapacity =
           ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
               largestDstType, false, maxDstPhysicalSizeTiles);
@@ -86,8 +86,7 @@ public:
       block.walk([&](linalg::GenericOp linalgGenericOp) {
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
           linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
-              rewriter, op, *genericRegion, linalgGenericOp, dstCapacity,
-              modified);
+              rewriter, op, region, linalgGenericOp, dstCapacity, modified);
           return;
         }
 
@@ -99,14 +98,11 @@ public:
           linalgToAffineFailed = true;
           return;
         }
-        assert(!linalgLoops.value().empty());
-
-        rewriter.replaceOp(linalgGenericOp, linalgLoops.value().front());
-
-        Operation *rootLoopNest = linalgLoops.value().front();
-        Region &dstRegisterAccessRegion = rootLoopNest->getRegion(0);
-        modified |= insertDstRegisterAccess(
-            rewriter, op, dstRegisterAccessRegion, dstCapacity, rootLoopNest);
+        rewriter.eraseOp(linalgGenericOp);
+        modified |= insertDstRegisterAccess(rewriter, op, region, dstCapacity,
+                                            !linalgLoops.value().empty()
+                                                ? linalgLoops.value().front()
+                                                : nullptr);
       });
       if (linalgToAffineFailed) {
         return failure();
@@ -321,7 +317,7 @@ public:
                memref.getDefiningOp())) {
       memref = subView.getSource();
     }
-    return mlir::dyn_cast<BlockArgument>(memref);
+    return mlir::cast<BlockArgument>(memref);
   }
 
   // Collect a single load or store to dst organized by loop nest.
@@ -339,10 +335,8 @@ public:
     auto [iter, inserted] = copyInfos.try_emplace(outermostInnerComputeLoop);
     CopyInfo &copyInfo = iter->second;
     copyInfo.push_back(loadOrStore, nextDstSliceIndex);
-    BlockArgument blockArg = lookThroughSubView(loadOrStore.getMemRef());
-    SmallVector<int64_t> guardIndices =
-        blockArg ? op.getNonParticipatingLoopDims(blockArg.getArgNumber())
-                 : SmallVector<int64_t>{};
+    SmallVector<int64_t> guardIndices = op.getNonParticipatingLoopDims(
+        lookThroughSubView(loadOrStore.getMemRef()).getArgNumber());
     if (inserted) {
       // First access in this loop nest - set the guard indices.
       copyInfo.guardIndices = guardIndices;
