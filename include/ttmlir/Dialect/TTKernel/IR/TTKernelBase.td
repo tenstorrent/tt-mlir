@@ -68,10 +68,10 @@ class TTKernel_FPUOp<string mnemonic, list<Trait> traits = []> :
         TTKernel_Op<mnemonic, [TTKernel_FPUOpTrait] # traits>;
 
 class TTKernel_SFPUOp<string mnemonic, list<Trait> traits = []> :
-        TTKernel_Op<mnemonic, [TTKernel_SFPUOpTrait] # traits>;
+        TTKernel_Op<mnemonic, [TTKernel_SFPUOpTrait, TTKernel_DeviceZoneOpTrait] # traits>;
 
 class TTKernel_InitOp<string mnemonic, list<Trait> traits = []> :
-        TTKernel_Op<mnemonic, [TTKernel_InitOpTrait] # traits>;
+        TTKernel_Op<mnemonic, [TTKernel_InitOpTrait, TTKernel_DeviceZoneOpTrait] # traits>;
 
 
 #endif
