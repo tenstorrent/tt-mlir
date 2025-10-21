@@ -82,8 +82,8 @@ MemRefType getBufferType(Type type, bool isView,
   fullMemrefShape.append(shardShape.begin(), shardShape.end());
 
   MemRefLayoutAttrInterface layoutAttr;
-  const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
   if (isView) {
+    const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
     mlir::AffineMap map = layout.getIndexAffineMap();
     assert(map && map.getNumResults() == rank && map.getNumDims() == rank &&
            "expected tensor encoding to provide a concrete index_map for view");
