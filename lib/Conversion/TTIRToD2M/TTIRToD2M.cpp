@@ -393,7 +393,7 @@ public:
                                targetGridShape, ttnnMode, collapseTensors) {}
 
 private:
-  static constexpr bool isComparisonOp =
+  static constexpr bool kIsComparisonOp =
       std::is_same_v<TileOp, d2m::TileEqzOp> ||
       std::is_same_v<TileOp, d2m::TileNezOp> ||
       std::is_same_v<TileOp, d2m::TileGtzOp> ||
@@ -401,7 +401,7 @@ private:
       std::is_same_v<TileOp, d2m::TileLtzOp> ||
       std::is_same_v<TileOp, d2m::TileLezOp>;
 
-  static constexpr bool isSignOp = std::is_same_v<TileOp, d2m::TileSignOp>;
+  static constexpr bool kIsSignOp = std::is_same_v<TileOp, d2m::TileSignOp>;
 
   void createComputeRegion(mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                            mlir::ValueRange bbArgs,
@@ -412,11 +412,11 @@ private:
     mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
 
     mlir::Value yield;
-    if constexpr (isComparisonOp) {
+    if constexpr (kIsComparisonOp) {
       // For comparison ops, first subtract then compare with zero.
       yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
       yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
-    } else if constexpr (isSignOp) {
+    } else if constexpr (kIsSignOp) {
       // For sign op, typecast to/from f16 (sign requires f16 in llk kernel).
       mlir::Value input = bbArgs.front();
       auto tileType = mlir::cast<ttcore::TileType>(input.getType());
@@ -441,6 +441,7 @@ private:
 
     bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
   }
+
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {

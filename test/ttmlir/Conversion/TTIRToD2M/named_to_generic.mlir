@@ -195,11 +195,11 @@ module {
   // CHECK-LABEL: func @test_sign_f32
   func.func @test_sign_f32(%arg: !ttype, %out: !ttype) -> (!ttype) {
     // CHECK: linalg.generic
-    // CHECK: ^bb0([[IN:%.*]]: !ttcore.tile<32x32, f32>,
-    // CHECK: [[CAST_IN:%.*]] = "d2m.tile_typecast"([[IN]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f16>
-    // CHECK: [[SIGN:%.*]] = "d2m.tile_sign"([[CAST_IN]]) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
-    // CHECK: [[CAST_OUT:%.*]] = "d2m.tile_typecast"([[SIGN]]) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f32>
-    // CHECK: linalg.yield [[CAST_OUT]] : !ttcore.tile<32x32, f32>
+    // CHECK: ^bb0(%[[IN:.+]]: !ttcore.tile<32x32, f32>,
+    // CHECK: %[[CAST_IN:.+]] = "d2m.tile_typecast"(%[[IN]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f16>
+    // CHECK: %[[SIGN:.+]] = "d2m.tile_sign"(%[[CAST_IN]]) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
+    // CHECK: %[[CAST_OUT:.+]] = "d2m.tile_typecast"(%[[SIGN]]) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f32>
+    // CHECK: linalg.yield %[[CAST_OUT]] : !ttcore.tile<32x32, f32>
     %0 = "ttir.sign"(%arg, %out) : (!ttype, !ttype) -> !ttype
     return %0 : !ttype
   }
@@ -207,10 +207,10 @@ module {
   // CHECK-LABEL: func @test_sign_f16
   func.func @test_sign_f16(%arg: tensor<128x96xf16>, %out: tensor<128x96xf16>) -> (tensor<128x96xf16>) {
     // CHECK: linalg.generic
-    // CHECK: ^bb0([[IN:%.*]]: !ttcore.tile<32x32, f16>,
+    // CHECK: ^bb0(%[[IN:.+]]: !ttcore.tile<32x32, f16>,
     // CHECK-NOT: d2m.tile_typecast
-    // CHECK: [[SIGN:%.*]] = "d2m.tile_sign"([[IN]]) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
-    // CHECK: linalg.yield [[SIGN]] : !ttcore.tile<32x32, f16>
+    // CHECK: %[[SIGN:.+]] = "d2m.tile_sign"(%[[IN]]) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
+    // CHECK: linalg.yield %[[SIGN]] : !ttcore.tile<32x32, f16>
     %0 = "ttir.sign"(%arg, %out) : (tensor<128x96xf16>, tensor<128x96xf16>) -> tensor<128x96xf16>
     return %0 : tensor<128x96xf16>
   }
@@ -218,11 +218,11 @@ module {
   // CHECK-LABEL: func @test_sign_bf16
   func.func @test_sign_bf16(%arg: tensor<128x96xbf16>, %out: tensor<128x96xbf16>) -> (tensor<128x96xbf16>) {
     // CHECK: linalg.generic
-    // CHECK: ^bb0([[IN:%.*]]: !ttcore.tile<32x32, bf16>,
-    // CHECK: [[CAST_IN:%.*]] = "d2m.tile_typecast"([[IN]]) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, f16>
-    // CHECK: [[SIGN:%.*]] = "d2m.tile_sign"([[CAST_IN]]) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
-    // CHECK: [[CAST_OUT:%.*]] = "d2m.tile_typecast"([[SIGN]]) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, bf16>
-    // CHECK: linalg.yield [[CAST_OUT]] : !ttcore.tile<32x32, bf16>
+    // CHECK: ^bb0(%[[IN:.+]]: !ttcore.tile<32x32, bf16>,
+    // CHECK: %[[CAST_IN:.+]] = "d2m.tile_typecast"(%[[IN]]) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, f16>
+    // CHECK: %[[SIGN:.+]] = "d2m.tile_sign"(%[[CAST_IN]]) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
+    // CHECK: %[[CAST_OUT:.+]] = "d2m.tile_typecast"(%[[SIGN]]) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, bf16>
+    // CHECK: linalg.yield %[[CAST_OUT]] : !ttcore.tile<32x32, bf16>
     %0 = "ttir.sign"(%arg, %out) : (tensor<128x96xbf16>, tensor<128x96xbf16>) -> tensor<128x96xbf16>
     return %0 : tensor<128x96xbf16>
   }

@@ -617,7 +617,7 @@ module {
         // CHECK: ttkernel.init_sfpu(%[[CB_IN]], %[[CB_OUT]])
         // CHECK: ttkernel.tile_regs_acquire
         // CHECK: ttkernel.copy_tile_init(%[[CB_IN]])
-        // CHECK-NEXT: ttkernel.copy_tile(%[[CB_IN]], %{{.+}}, %[[DST_IDX:[^,)]+]])
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB_IN]], %{{.+}}, %[[DST_IDX:.+]]) :
         // CHECK: ttkernel.sign_tile_init()
         // CHECK-NEXT: ttkernel.sign_tile(%[[DST_IDX]])
         %0 = "d2m.tile_sign"(%arg0) : (!ttype_f16) -> !ttype_f16
