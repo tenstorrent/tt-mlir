@@ -61,35 +61,23 @@ public:
   // the final affine.store in the innermost loop.
   static std::pair<std::unique_ptr<OpTreeNode>, SmallVector<OpTreeNode *>>
   buildOpTree(Operation *outermostLoop) {
-    int dbgCnt = 0;
-
     SmallVector<OpTreeNode *> leafNodes;
-
-    llvm::errs() << "BOT " << dbgCnt++ << "\n";
 
     if (!outermostLoop) {
       return {nullptr, leafNodes};
     }
 
-    llvm::errs() << "BOT " << dbgCnt++ << "\n";
-
     // Find the innermost affine.for loop using post-order traversal.
     // Post-order visits children before parents, so the last loop is innermost.
     affine::AffineForOp innermostLoop = nullptr;
     outermostLoop->walk([&](affine::AffineForOp loop) {
-      llvm::errs() << "Found loop: " << loop << "\n";
       innermostLoop = loop;
       return WalkResult::interrupt();
     });
 
-    llvm::errs() << "BOT " << dbgCnt++ << "\n";
-
     if (!innermostLoop) {
       return {nullptr, leafNodes};
     }
-
-    llvm::errs() << "BOT " << dbgCnt++ << "\n";
-    llvm::errs() << *innermostLoop << "\n";
 
     // Find the last affine.store in the innermost loop.
     affine::AffineStoreOp finalStore = nullptr;
@@ -98,13 +86,10 @@ public:
       return WalkResult::interrupt();
     });
 
-    llvm::errs() << "BOT " << dbgCnt++ << "\n";
 
     if (!finalStore) {
       return {nullptr, leafNodes};
     }
-
-    llvm::errs() << "BOT " << dbgCnt++ << "\n";
 
     // Get the operation that generates the stored SSA value.
     Value storedValue = finalStore.getValue();
@@ -113,12 +98,8 @@ public:
       return {nullptr, leafNodes};
     }
 
-    llvm::errs() << "BOT " << dbgCnt++ << "\n";
-
     // Get the block containing the affine loop operations.
     Block *affineBlock = innermostLoop.getBody();
-
-    llvm::errs() << "BOT " << dbgCnt++ << "\n";
 
     // Build the tree recursively starting from the root operation.
     auto rootNode = buildOpTreeRecursive(rootOp, affineBlock, leafNodes);
@@ -131,35 +112,28 @@ public:
   buildOpTreeRecursive(Operation *op, Block *affineBlock,
                        SmallVector<OpTreeNode *> &leafNodes) {
 
-    int dbgCnt = 0;
     // Create the node for this operation.
     auto node = std::make_unique<OpTreeNode>(op);
 
-    llvm::errs() << "BOT RRR " << dbgCnt++ << "\n";
 
     // Process operands to build child nodes.
     SmallVector<std::unique_ptr<OpTreeNode>> children;
 
     for (Value operand : op->getOperands()) {
-      llvm::errs() << "BOT RRR " << dbgCnt++ << "\n";
       if (Operation *definingOp = operand.getDefiningOp()) {
-        llvm::errs() << "BOT RRR " << dbgCnt++ << "\n";
         // If operand is an affine.load, treat it as a leaf node.
         if (mlir::isa<affine::AffineLoadOp>(definingOp)) {
-          llvm::errs() << "BOT RRR " << dbgCnt++ << "\n";
           auto leafNode = std::make_unique<OpTreeNode>(definingOp);
           leafNodes.push_back(leafNode.get());
           children.push_back(std::move(leafNode));
         }
         // If operand is defined by a compute operation in the affine block, recurse.
         else if (definingOp->getBlock() == affineBlock) {
-          llvm::errs() << "BOT RRR " << dbgCnt++ << "\n";
           children.push_back(
               buildOpTreeRecursive(definingOp, affineBlock, leafNodes));
         }
       }
     }
-    llvm::errs() << "BOT RRR " << dbgCnt++ << "\n";
 
     // Assign children based on operand count.
     if (children.size() == 1) {
@@ -348,7 +322,6 @@ public:
 
   static bool hasAcquireDstOp(Region &region) {
     bool hasAcquire = !region.getOps<AcquireDstOp>().empty();
-    llvm::errs() << "  hasAcquireDstOp check: " << (hasAcquire ? "YES" : "NO") << "\n";
     return hasAcquire;
   }
   
@@ -369,7 +342,7 @@ public:
       }
       return WalkResult::advance();
     });
-    llvm::errs() << "  hasDstMemoryAccess check: " << (hasDstAccess ? "YES" : "NO") << "\n";
+  
     return hasDstAccess;
   }
 
@@ -452,8 +425,14 @@ public:
         id = inputStack.pop_back_val();
       }
       else {
-        id = outputQueue.front();
-        outputQueue.pop_front();
+        if (outputQueue.size() > 1) {
+          id = outputQueue.at(outputQueue.size()-2);  
+          outputQueue.erase(outputQueue.end() - 2);
+        }
+        else {
+          id = outputQueue.back();
+          outputQueue.pop_back();
+        }
       }
 
       sliceStack.push_back(id);
@@ -500,31 +479,23 @@ public:
 
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    llvm::errs() << "\n=== matchAndRewrite called on GenericOp ===\n";
-    llvm::errs() << "GenericOp has " << op.getNumRegions() << " regions\n";
     
     // Early check: if any region already has DST ops, skip this entire GenericOp.
     for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
          regionIndex++) {
       if (op.getRegionThreadType(regionIndex) != ThreadType::Compute) {
-        llvm::errs() << "  Region " << regionIndex << ": not compute, skipping\n";
         continue;
       }
-      llvm::errs() << "  Checking region " << regionIndex << " for DST ops:\n";
+
       Region &region = op.getRegion(regionIndex);
       
       bool hasAcquire = hasAcquireDstOp(region);
       bool hasDstAccess = hasDstMemoryAccess(region);
       
       if (hasAcquire || hasDstAccess) {
-        llvm::errs() << "!!! Region " << regionIndex << " already has DST ops (acquire=" 
-                     << hasAcquire << ", access=" << hasDstAccess 
-                     << "), returning failure to prevent reprocessing !!!\n";
         return failure();  // Don't process this op again
       }
     }
-    
-    llvm::errs() << "No DST ops found in any region, proceeding with processing\n";
     
     bool modified = false;
     for (unsigned regionIndex = 0; regionIndex < op.getNumRegions();
@@ -542,24 +513,28 @@ public:
               largestDstType, false, maxDstPhysicalSizeTiles);
 
       // Temporary START
-      // TODO(mbagherbeik) remove when fixing fusions/dstAllocs
-      
-      // NumOperands includes the output/init operand ( > vs >= )
-      // halve the capacity if we have a binary fused op
-      // if (op->getNumOperands() > 2) {
-      //   dstCapacity /= 2;
-      // }
-      // halve capacity again if fused op is ternary or more
-      if (op->getNumOperands() > 3) {
-        dstCapacity = 4;
+      // if all parallel --> no reductions --> eltwise only
+      bool isEltwiseOnly = op.isAllParallel();
+      // doesn't contain skippable eltwise ops (i.e. went through eltwise fusion)
+      bool noSkip = !op.hasSkipOpEltwiseFusionTrait();
+
+      bool nonTriviallyFused = op->getNumOperands() > 3;
+
+      bool takeFusionPath = isEltwiseOnly && noSkip && nonTriviallyFused;
+
+      if (takeFusionPath) {
+        // halve capacity again if fused op is ternary or more
+        if (op->getNumOperands() > 3) {
+          dstCapacity = 4;
+        }
+        if (op->getNumOperands() > 4) {
+          dstCapacity = 8;
+        }
+        // halve capacity again if data type is more than 16 bits
+        // if (largestDstType.getIntOrFloatBitWidth() > 16) {
+        //   dstCapacity /= 2;
+        // }
       }
-      if (op->getNumOperands() > 4) {
-        dstCapacity = 8;
-      }
-      // halve capacity again if data type is more than 16 bits
-      // if (largestDstType.getIntOrFloatBitWidth() > 16) {
-      //   dstCapacity /= 2;
-      // }
       // Temporary END
 
       bool linalgToAffineFailed = false;
@@ -580,35 +555,18 @@ public:
         }
         rewriter.eraseOp(linalgGenericOp);
 
-
-        // if all parallel --> no reductions --> eltwise only
-        bool isEltwiseOnly = op.isAllParallel();
-        // doesn't contain skippable eltwise ops (i.e. went through eltwise fusion)
-        bool noSkip = !op.hasSkipOpEltwiseFusionTrait();
-
-        bool nonTriviallyFused = op->getNumOperands() > 3;
-
-        int dbgCnt = 0;
-
-        llvm::errs() << dbgCnt++ << "\n";
-
-        if (isEltwiseOnly && noSkip && nonTriviallyFused) {
+        if (takeFusionPath) {
           // NEW: Try tree-based approach with Sethi-Ullman register allocation.
           // Now working with affine loops instead of linalg.generic.
           Operation *outermostLoop = !linalgLoops.value().empty() 
                                       ? linalgLoops.value().front() 
                                       : nullptr;
 
-          
-          llvm::errs() << dbgCnt++ << "\n";
-
-          
           if (outermostLoop) {
-            llvm::errs() << dbgCnt++ << "\n";
             auto [opTreeRoot, leafNodes] = buildOpTree(outermostLoop);
-            llvm::errs() << dbgCnt++ << "\n";
+            
             if (opTreeRoot) {
-              llvm::errs() << dbgCnt++ << "\n";
+              
               // Mark node weights using Sethi-Ullman algorithm.
               markNodeWeights(opTreeRoot.get());
 
@@ -618,10 +576,6 @@ public:
 
               // Apply Sethi-Ullman ordering to reorder operations.
               reorderOperationsSethi(rewriter, outermostLoop, opTreeRoot.get());
-
-              llvm::errs() << "POST SU " << "\n\n";
-              llvm::errs() << *outermostLoop << "\n";
-
 
               // Insert DST register loads/stores and perform allocation (inline version).
               modified |= insertDstRegisterAccessSU(rewriter, op, region, dstCapacity,
@@ -638,11 +592,9 @@ public:
         }
       });
       if (linalgToAffineFailed) {
-        llvm::errs() << "=== Linalg to affine failed, returning failure ===\n";
         return failure();
       }
     }
-    llvm::errs() << "=== matchAndRewrite complete, modified=" << modified << " ===\n";
     return success(modified);
   }
 
