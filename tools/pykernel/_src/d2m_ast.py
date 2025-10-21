@@ -8,6 +8,7 @@ from ttmlir.ir import *
 from ttmlir.dialects import (
     ttcore,
     d2m,
+    ttkernel,
     func,
     arith,
 )
@@ -57,7 +58,7 @@ class D2MGenericCompiler(TTCompilerBase):
                 shape = self.args[i].shape
                 dtype = F32Type.get(self.ctx)
                 tensor = RankedTensorType.get(shape, dtype)
-                func_operand_types.append(d2m.ir.CBType.get(self.ctx, tensor))
+                func_operand_types.append(ttkernel.ir.CBType.get(self.ctx, tensor))
             elif arg.annotation.id == "Semaphore":
                 func_operand_types.append(d2m.ir.SemaphoreType.get(self.ctx))
             else:
@@ -123,7 +124,7 @@ def syntax(syntax_name):
             assert isinstance(cls, type)
 
             for name, method in cls.__dict__.items():
-                if callable(method): 
+                if callable(method):
                     sig = inspect.signature(method)
                     first_arg_name = next(iter(sig.parameters.keys()))
                     if first_arg_name == "ast_self":
