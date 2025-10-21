@@ -126,7 +126,7 @@ def log(
 def broadcast_in_dim(
     in0: Operand,
     builder: StableHLOBuilder,
-    broadcast_dimensions: Optional[List[int]] = None,
+    broadcast_dimensions: List[int],
     unit_attrs: Optional[List[str]] = None,
 ):
     builder.set_graph_level_check(True)
