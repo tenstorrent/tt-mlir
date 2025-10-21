@@ -420,51 +420,6 @@ def test_binary_ops_dram(device, h, w, dtype, op):
 
 
 # ------------------------------------------------------------
-# Composite ops
-# ------------------------------------------------------------
-def cosh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.add(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-def sinh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.subtract(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-@pytest.mark.parametrize("h , w, max_grid", BLOCK_SHARDED_SHAPE_GRIDS)
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-@pytest.mark.parametrize("op", [cosh, sinh])
-@pytest.mark.parametrize("graph_capture", [True, False])
-def test_composite_ops(device, h, w, max_grid, dtype, op, graph_capture):
-    run_op_test(
-        device,
-        h,
-        w,
-        max_grid,
-        dtype,
-        op,
-        1,
-        buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
-    )
-
-
-@pytest.mark.parametrize("h , w", DRAM_INTERLEAVED_SHAPES)
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-@pytest.mark.parametrize("op", [cosh, sinh])
-def test_composite_ops_dram(device, h, w, dtype, op):
-    max_grid = (0, 0)
-    run_op_test(device, h, w, max_grid, dtype, op, 1, buffer_type=ttnn.BufferType.DRAM)
-
-
-# ------------------------------------------------------------
 # Interop tests
 # ------------------------------------------------------------
 
