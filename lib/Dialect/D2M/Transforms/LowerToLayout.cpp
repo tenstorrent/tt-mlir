@@ -24,6 +24,7 @@ namespace mlir::tt::d2m {
 // MetalLayoutAttr as optional gracefully.
 namespace {
 struct TensorInfo {
+  Value val; 
   RankedTensorType type;
   std::optional<ttcore::MetalLayoutAttr> layout;
 
@@ -31,7 +32,7 @@ struct TensorInfo {
     auto type = mlir::cast<RankedTensorType>(val.getType());
     auto layout =
         mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(type.getEncoding());
-    return {type, layout ? std::optional(layout) : std::nullopt};
+    return {val, type, layout ? std::optional(layout) : std::nullopt};
   }
 
   bool hasLayout() const { return layout.has_value(); }
@@ -55,9 +56,9 @@ struct TensorInfo {
            layout->getMemorySpace() == ttcore::MemorySpace::System;
   }
 
-  ArrayRef<int64_t> getGridShape() const {
+  llvm::SmallVector<int64_t> getGridShape() const {
     assert(hasLayout() && "Cannot get grid shape without layout");
-    return layout->getGridShape(type);
+    return d2m::utils::getPhysicalGridShape(val);
   }
 };
 } // namespace
@@ -178,9 +179,6 @@ public:
     // TODO: cleanup
     ttcore::GridAttr grid =
         ttcore::GridAttr::get(rewriter.getContext(), outputInfo.getGridShape());
-    if (outputInfo.getGridShape()[0] > 8 || outputInfo.getGridShape()[1] > 8) {
-      grid = ttcore::GridAttr::get(rewriter.getContext(), {8, 8});
-    }
 
     ArrayAttr indexingMaps, iteratorTypes;
     std::tie(indexingMaps, iteratorTypes) =
@@ -216,13 +214,10 @@ public:
     // TODO: cleanup
     ArrayRef<int64_t> outputShape = outputType.getShape();
     assert(outputShape.size() % 2 == 0);
-    auto gridShape = outputShape.drop_back(outputShape.size() / 2);
+    auto gridShape = utils::getPhysicalGridShape(op.getOutput());
 
     ttcore::GridAttr grid =
         ttcore::GridAttr::get(rewriter.getContext(), gridShape);
-    if (outputShape[0] > 8 || outputShape[1] > 8) {
-      grid = ttcore::GridAttr::get(rewriter.getContext(), {8, 8});
-    }
 
     rewriter.replaceOpWithNewOp<GenericOp>(
         op, op.getInput(), op.getOutput(),
