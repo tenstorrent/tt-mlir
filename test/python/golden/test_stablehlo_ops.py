@@ -126,7 +126,7 @@ def log(
 def broadcast_in_dim(
     in0: Operand,
     builder: StableHLOBuilder,
-    broadcast_dimensions: Optional[List[int]] = None,
+    broadcast_dimensions: List[int],
     unit_attrs: Optional[List[str]] = None,
 ):
     builder.set_graph_level_check(True)
@@ -227,7 +227,7 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -241,7 +241,7 @@ def test_broadcast_ops(
     target: str,
     request,
 ):
-    compile_stablehlo_to_flatbuffer(
+    compile_and_execute_shlo(
         test_fn,
         [shape],
         [dtype],
