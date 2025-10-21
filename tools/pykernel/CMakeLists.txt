@@ -13,6 +13,7 @@ declare_mlir_python_sources(TTPykernelSources
         _src/kernel_types.py
         _src/kernel_op.py
         _src/d2m_ast.py
+        _src/stream.py
         _src/utils.py
 )
 

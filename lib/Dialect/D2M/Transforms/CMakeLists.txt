@@ -15,6 +15,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         SFPUTileLoopFission.cpp
         GenericReplaceGlobals.cpp
         InsertExplicitStreams.cpp
+        ValidateLayouts.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir

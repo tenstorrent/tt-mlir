@@ -33,7 +33,8 @@ from ttmlir.dialects import (
 from ttmlir.passes import ttmetal_to_flatbuffer_bin
 
 from ._src.utils import _discover_dialect_ops, _asindex, _cleanup_source_code
-from ._src.d2m_ast import D2MGenericCompiler, syntax, Stream
+from ._src.d2m_ast import D2MGenericCompiler, syntax
+from ._src.stream import Stream
 
 
 def create_metal_layout(
@@ -70,7 +71,7 @@ def create_metal_layout(
         raise ValueError(f"Invalid memory_space: {memory_space}")
 
     if collapse_intervals is None:
-        collapse_intervals = ttcore.MetalLayoutAttr.getDefaultCollapseIntervals(ctx)
+        collapse_intervals = ttcore.ir.MetalLayoutAttr.getDefaultCollapseIntervals(ctx)
     else:
         # Convert to DenseIntElementsAttr
         interval_type = RankedTensorType.get(
@@ -89,7 +90,7 @@ def create_metal_layout(
     # Use a fixed 8x8 worker grid for MetalLayoutAttr creation (like existing builder utility)
     # The user-provided grid will be used later for getDeviceShape calculation
     worker_grid = [8, 8]  # Fixed device grid shape for layout creation
-    layout = ttcore.MetalLayoutAttr.get(
+    layout = ttcore.ir.MetalLayoutAttr.get(
         ctx,
         logical_shape,
         worker_grid,
@@ -756,15 +757,3 @@ explicit_template = {
     "indexing_maps": None,
     "iterator_types": None,
 }
-
-
-class Stream:
-    def __init__(self, tensor, num_buffers=None):
-        assert hasattr(
-            tensor, "_global_name"
-        ), "Stream must be created from a top level tensor argument"
-        self.name = tensor._global_name
-        self.shape = tensor.shape
-        self.dtype = tensor.dtype
-        assert num_buffers is None, "Unsupported"
-        self.num_buffers = num_buffers

@@ -13,11 +13,12 @@ from ttmlir.dialects import (
     arith,
 )
 from ttmlir.dialects._ods_common import get_default_loc_context
-from ..d2m_api import Stream
 
 from .kernel_types import *
 from .utils import _discover_dialect_ops, _cast
 from .kernel_ast import TTCompilerBase
+
+from .stream import Stream
 
 
 class D2MGenericCompiler(TTCompilerBase):
