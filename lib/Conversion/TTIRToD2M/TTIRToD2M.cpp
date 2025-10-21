@@ -1183,7 +1183,9 @@ private:
                      std::size_t rank) {
     assert(arity == 3 && "expected 3 operands");
     // TODO(#2592) handle higher ranks, if needed in this pass
-    assert(rank == 2 && "expected a rank 2 operation");
+    std::string errMsg =
+        "expected a rank 2 operation, got rank " + std::to_string(rank);
+    assert(rank == 2 && errMsg.c_str());
     mlir::MLIRContext *ctx = builder.getContext();
 
     return SmallVector<mlir::AffineMap>{makeAffineMap(ctx, {0, 2}),

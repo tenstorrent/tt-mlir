@@ -143,7 +143,13 @@ class TensorBlock:
         assert isinstance(lhs.type, RankedTensorType)
         out_shape = lhs.type.shape
         out_shape[-1] = rhs.type.shape[-1]
-        out = d2m.empty(RankedTensorType.get(out_shape, lhs.type.element_type))
+
+        # Preserve the layout attribute from the left-hand side tensor
+        # Create a new tensor type with the same layout as the input
+        out_type = RankedTensorType.get(
+            out_shape, lhs.type.element_type, lhs.type.encoding
+        )
+        out = d2m.empty(out_type)
         d2m.tile_matmul_block(lhs, rhs, out)
         return out
 

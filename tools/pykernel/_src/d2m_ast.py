@@ -71,6 +71,16 @@ class D2MGenericCompiler(TTCompilerBase):
                 if typed_layout is None:
                     raise RuntimeError("Failed to downcast MetalLayoutAttr")
                 device_shape = typed_layout.getDeviceShape(self.grid, tile_shape)
+
+                # For 1x1 grid, use logical shape with proper tile counting (like builder_utils.py)
+                if self.grid == [1, 1] or self.grid == (1, 1):
+                    if self.tiled:
+                        # For tiled layouts, calculate tile count for last 2 dimensions
+                        tile_count_h = (shape[-2] + 31) // 32
+                        tile_count_w = (shape[-1] + 31) // 32
+                        device_shape = list(shape[:-2]) + [tile_count_h, tile_count_w]
+                    else:
+                        device_shape = list(shape)
                 element_type = (
                     ttcore.ir.TileType.get(self.ctx, 32, 32, ttcore.DataType.Float32)
                     if self.tiled
@@ -93,6 +103,16 @@ class D2MGenericCompiler(TTCompilerBase):
                 if typed_layout is None:
                     raise RuntimeError("Failed to downcast MetalLayoutAttr")
                 device_shape = typed_layout.getDeviceShape(self.grid, tile_shape)
+
+                # For 1x1 grid, use logical shape with proper tile counting (like builder_utils.py)
+                if self.grid == [1, 1] or self.grid == (1, 1):
+                    if self.tiled:
+                        # For tiled layouts, calculate tile count for last 2 dimensions
+                        tile_count_h = (shape[-2] + 31) // 32
+                        tile_count_w = (shape[-1] + 31) // 32
+                        device_shape = list(shape[:-2]) + [tile_count_h, tile_count_w]
+                    else:
+                        device_shape = list(shape)
                 element_type = (
                     ttcore.ir.TileType.get(self.ctx, 32, 32, ttcore.DataType.Float32)
                     if self.tiled
@@ -143,9 +163,28 @@ class D2MGenericCompiler(TTCompilerBase):
                             self.memory_space,
                         )
                         tile_shape = [32, 32] if self.tiled else [1, 1]
-                        device_shape = layout.getDeviceShape(self.grid, tile_shape)
+                        # Downcast to properly typed MetalLayoutAttr for getDeviceShape
+                        typed_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
+                        if typed_layout is None:
+                            raise RuntimeError("Failed to downcast MetalLayoutAttr")
+                        device_shape = typed_layout.getDeviceShape(
+                            self.grid, tile_shape
+                        )
+
+                        # For 1x1 grid, use logical shape with proper tile counting (like builder_utils.py)
+                        if self.grid == [1, 1] or self.grid == (1, 1):
+                            if self.tiled:
+                                # For tiled layouts, calculate tile count for last 2 dimensions
+                                tile_count_h = (val.shape[-2] + 31) // 32
+                                tile_count_w = (val.shape[-1] + 31) // 32
+                                device_shape = list(val.shape[:-2]) + [
+                                    tile_count_h,
+                                    tile_count_w,
+                                ]
+                            else:
+                                device_shape = list(val.shape)
                         element_type = (
-                            ttcore.TileType.get(
+                            ttcore.ir.TileType.get(
                                 self.ctx, 32, 32, ttcore.DataType.Float32
                             )
                             if self.tiled
