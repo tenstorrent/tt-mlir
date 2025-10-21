@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinOps.h"
 
@@ -168,6 +169,70 @@ llvm::SmallVector<int64_t, 2> collapseGridTo2D(ArrayRef<int64_t> gridShape) {
   int64_t width = gridShape.back();
 
   return {collapsedHeight, width};
+}
+
+MemRefType getBufferType(Type type, bool isView,
+                         std::optional<MetalLayoutAttr> hostInfo) {
+  auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
+  MLIRContext *ctx = tensorType.getContext();
+  auto tensorMeshAttr =
+      mlir::dyn_cast_if_present<TensorMeshAttr>(tensorType.getEncoding());
+  HostLayoutAttr hostLayout = nullptr;
+
+  if (hostInfo.has_value()) {
+    // Calculate host layout for I/O with potentially unaligned host memref.
+    hostLayout = HostLayoutAttr::get(ctx, tensorType.getShape(),
+                                     hostInfo->getHostStride(),
+                                     hostInfo->getHostVolume(), tensorMeshAttr);
+  } else if (tensorMeshAttr) {
+    // Create host layout with tensor mesh info and default
+    // shape/strides/volume.
+    hostLayout = HostLayoutAttr::get(
+        ctx, tensorType.getShape(),
+        ttmlir::utils::calculateStrides(tensorType.getShape()),
+        ttmlir::utils::volume(tensorType.getShape()), tensorMeshAttr);
+  }
+
+  // If there is no encoding or encoding with TensorMesh info, return with the
+  // host layout attribute.
+  if (!tensorType.getEncoding() || tensorMeshAttr) {
+    return MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
+                           hostLayout);
+  }
+
+  auto layout = mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
+
+  auto gridShape = layout.getGridShape(tensorType);
+  auto shardShape = layout.getShardShape(tensorType);
+  SmallVector<int64_t> fullMemrefShape;
+  fullMemrefShape.append(gridShape.begin(), gridShape.end());
+  fullMemrefShape.append(shardShape.begin(), shardShape.end());
+
+  // Create the appropriate layout attribute based on whether this is a view or
+  // a materialized buffer. Views use affine maps for flexible indexing, while
+  // materialized buffers use shard or interleaved layouts depending on the
+  // tensor's memory layout strategy.
+  MemRefLayoutAttrInterface layoutAttr;
+  if (isView) {
+    const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
+    mlir::AffineMap map = layout.getIndexAffineMap();
+    assert(map && map.getNumResults() == rank && map.getNumDims() == rank &&
+           "expected tensor encoding to provide a concrete index_map for view");
+    layoutAttr = ViewLayoutAttr::get(ctx, map);
+  } else {
+    SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
+    if (layout.getMemoryLayout() == TensorMemoryLayout::Sharded) {
+      layoutAttr = ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+    } else if (layout.getMemoryLayout() == TensorMemoryLayout::Interleaved) {
+      layoutAttr = InterleavedLayoutAttr::get(ctx, shardStride);
+    } else {
+      llvm_unreachable("Unsupported memory layout");
+    }
+  }
+
+  return MemRefType::get(fullMemrefShape, tensorType.getElementType(),
+                         layoutAttr,
+                         MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
 }
 
 } // namespace mlir::tt::ttcore
