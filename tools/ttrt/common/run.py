@@ -940,6 +940,8 @@ class Run:
                                     _, _, cal_pcc, _ = get_atol_rtol_pcc(
                                         golden_tensor_torch,
                                         output_tensor_torch,
+                                        self["atol"],
+                                        self["rtol"],
                                         self.logging,
                                     )
                                     pcc_fail = (
