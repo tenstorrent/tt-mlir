@@ -35,7 +35,7 @@ jobs:
   prepare-run:
     uses: ./.github/workflows/call-prepare-run.yml
     with:
-      builder_build: ${{ inputs.builder_build || github.event.pull_request.head.ref == 'uplift' }}
+      builder_build: true
       build_all: ${{ github.event.pull_request.head.ref == 'uplift' }}
     secrets: inherit
   release-build:

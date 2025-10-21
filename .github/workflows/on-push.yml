@@ -22,7 +22,7 @@ jobs:
   prepare-run:
     uses: ./.github/workflows/call-prepare-run.yml
     with:
-      builder_build: false
+      builder_build: true
     secrets: inherit
   release-build:
     needs: [ prepare-run, build-image ]
