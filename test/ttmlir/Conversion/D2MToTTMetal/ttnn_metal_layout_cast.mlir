@@ -34,8 +34,9 @@ module {
                   threads = [#d2m.thread<compute>]}
         ins(%2 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #metal_layout>)
         outs(%4 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #metal_layout>) {
-      ^compute0(%arg_in: tensor<1x1x!ttcore.tile<32x32, f32>>, %arg_out: tensor<1x1x!ttcore.tile<32x32, f32>>):
-        d2m.yield %arg_in : (tensor<1x1x!ttcore.tile<32x32, f32>>)
+      ^compute0(%arg_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %arg_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
+        %out = d2m.reserve %arg_out : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
+        d2m.yield %out : (tensor<1x1x!ttcore.tile<32x32, f32>>)
     } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #metal_layout>
 
     // CHECK: ttir.ttnn_metal_layout_cast %[[CAST1]] : memref{{.*}}> -> tensor<32x32xf32, #ttnn_layout>

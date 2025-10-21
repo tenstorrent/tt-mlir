@@ -80,10 +80,6 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
     target.addLegalOp<ttir::MeshShardOp>();
 
-    // Inputs to matmul_block. Will be folded in this pass.
-    target.addLegalOp<memref::CastOp>();
-    target.addLegalOp<memref::SubViewOp>();
-
     if (ttnnMode) {
       target.addLegalDialect<ttnn::TTNNDialect>();
     }
@@ -116,26 +112,27 @@ struct ConvertD2MToTTKernel
       return IndexType::get(memtx.getContext());
     });
     typeConverter.addConversion([](MemRefType memref) -> Type {
-      if (ttcore::getMemorySpace(memref) == ttcore::MemorySpace::RegisterDst) {
+      auto memorySpace = ttcore::getMemorySpace(memref);
+      if (mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout())) {
+        // This memref has a device layout meaning it's an address.
+        return IntegerType::get(memref.getContext(), 32);
+      }
+
+      if (memorySpace == ttcore::MemorySpace::RegisterDst) {
+        // This memref abstracts tile indices in dst register, convert to index
+        // type.
         return IndexType::get(memref.getContext());
       }
-      return ttkernel::CBType::get(memref.getContext(), memref);
+
+      // Since none of the above is true, this memref abstracts cb backing.
+      return ttkernel::CBType::get(memref);
+    });
+    typeConverter.addConversion([](d2m::CBType cb) -> Type {
+      return ttkernel::CBType::get(cb.getUnderlyingAs<MemRefType>());
     });
     typeConverter.addConversion([](d2m::SemaphoreType semaphore) {
       return ttkernel::SemaphoreType::get(semaphore.getContext());
     });
-
-    auto materializeAsUnrealizedCast = [](OpBuilder &builder, Type resultType,
-                                          ValueRange inputs,
-                                          Location loc) -> Value {
-      if (inputs.size() != 1) {
-        return Value();
-      }
-      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
-          .getResult(0);
-    };
-    typeConverter.addSourceMaterialization(materializeAsUnrealizedCast);
-    typeConverter.addTargetMaterialization(materializeAsUnrealizedCast);
 
     d2m::AssociatedDMAWaits associatedDMAWaits =
         getAnalysis<d2m::AssociatedDMAWaits>();

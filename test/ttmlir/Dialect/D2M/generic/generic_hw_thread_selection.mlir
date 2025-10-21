@@ -14,30 +14,26 @@
 func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>, %arg1: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>
   "d2m.generic"(%arg0, %arg1, %alloc) <{block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
-  ^datamovement0(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
-    d2m.yield %cb0 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
+  ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
   }, {
-  ^datamovement1(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
-    d2m.yield %cb1 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
+  ^datamovement1(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
   }, {
   // CHECK-NOT: ^datamovement2
   // CHECK: ^compute
-  // CHECK: d2m.yield [[CB2:%.*]] : {{.*}}
-  // CHECK-NEXT: d2m.await [[CB2]] : {{.*}}
-  ^datamovement2(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
-    d2m.await %cb2 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
+  ^datamovement2(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
   }, {
-  ^compute(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>):
-    d2m.await %cb0, %cb1 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
+  ^compute(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    %mem0 = d2m.pop %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %mem1 = d2m.pop %cb1 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     affine.for %arg2 = 0 to 2 {
       affine.for %arg3 = 0 to 4 {
-        %0 = affine.load %cb0[%arg2, %arg3] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-        %1 = affine.load %cb1[%arg2, %arg3] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %0 = affine.load %mem0[%arg2, %arg3] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %1 = affine.load %mem1[%arg2, %arg3] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         %2 = "d2m.tile_add"(%0, %1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-        affine.store %2, %cb2[%arg2, %arg3] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        affine.store %2, %mem2[%arg2, %arg3] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
       }
     }
-    d2m.yield %cb2 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
   }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>) -> ()
   return %alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>
 }
@@ -46,23 +42,19 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<163
 func.func @matmul_single_core(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>, %arg1: memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>
   "d2m.generic"(%arg0, %arg1, %alloc) <{block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
-  ^datamovement0(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-    d2m.yield %cb0 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>)
+  ^datamovement0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
   }, {
-  ^datamovement1(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-    d2m.yield %cb1 : (memref<4x2x!ttcore.tile<32x32, f32>, #l1_>)
+  ^datamovement1(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
   }, {
   // CHECK-NOT: ^datamovement2
   // CHECK: ^compute
-  // CHECK: d2m.yield [[CB2:%.*]] : {{.*}}
-  // CHECK-NEXT: d2m.await [[CB2]] : {{.*}}
-  ^datamovement2(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-    d2m.await %cb2 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
+  ^datamovement2(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
   }, {
-  ^compute(%cb0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, %cb1: memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, %cb2: memref<2x2x!ttcore.tile<32x32, f32>, #l1_>):
-    d2m.await %cb0, %cb1 : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>)
-    "d2m.tile_matmul_block"(%cb0, %cb1, %cb2) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
-    d2m.yield %cb2 : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>)
+  ^compute(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1:  !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2:  !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+    %mem0 = d2m.pop %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %mem1 = d2m.pop %cb1 : !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x2x!ttcore.tile<32x32, f32>, #l1_>
+    %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+    "d2m.tile_matmul_block"(%mem0, %mem1, %mem2) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
   }) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096>, #l1_>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>) -> ()
   return %alloc : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096>, #l1_>
 }
@@ -71,17 +63,15 @@ func.func @matmul_single_core(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #t
 func.func @tilize(%arg0: memref<2x4x128x192xf32, #ttcore.shard<768x4>, #l1_>) -> memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #l1_> {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #l1_>
   "d2m.generic"(%arg0, %alloc) <{block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>], operandSegmentSizes = array<i32: 1, 1>}> ({
-  ^datamovement0(%cb0: memref<128x192xf32, #l1_>, %cb1: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>):
-    d2m.yield %cb0 : (memref<128x192xf32, #l1_>)
+  ^datamovement0(%cb0: !d2m.cb<memref<128x192xf32, #l1_>>, %cb1:  !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>):
   }, {
   // CHECK-NOT: ^datamovement2
-  ^datamovement1(%cb0: memref<128x192xf32, #l1_>, %cb1: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>):
-    d2m.await %cb1 : (memref<4x6x!ttcore.tile<32x32, f32>, #l1_>)
+  ^datamovement1(%cb0: !d2m.cb<memref<128x192xf32, #l1_>>, %cb1:  !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>):
   }, {
-  ^compute(%cb0: memref<128x192xf32, #l1_>, %cb1: memref<4x6x!ttcore.tile<32x32, f32>, #l1_>):
-    d2m.await %cb0 : (memref<128x192xf32, #l1_>)
-    "d2m.tile_tilize_block"(%cb0, %cb1) : (memref<128x192xf32, #l1_>, memref<4x6x!ttcore.tile<32x32, f32>, #l1_>) -> ()
-    d2m.yield %cb1 : (memref<4x6x!ttcore.tile<32x32, f32>, #l1_>)
+  ^compute(%cb0: !d2m.cb<memref<128x192xf32, #l1_>>, %cb1:  !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>):
+    %mem0 = d2m.pop %cb0 : !d2m.cb<memref<128x192xf32, #l1_>> -> memref<128x192xf32, #l1_>
+    %mem1 = d2m.reserve %cb1 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x6x!ttcore.tile<32x32, f32>, #l1_>
+    "d2m.tile_tilize_block"(%mem0, %mem1) : (memref<128x192xf32, #l1_>, memref<4x6x!ttcore.tile<32x32, f32>, #l1_>) -> ()
   }) : (memref<2x4x128x192xf32, #ttcore.shard<768x4>, #l1_>, memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #l1_>) -> ()
   return %alloc : memref<2x4x4x6x!ttcore.tile<32x32, f32>, #ttcore.shard<24576x4096>, #l1_>
 }
@@ -101,33 +91,28 @@ func.func @mergeNonTrivialDatamovementThreads(%arg0: memref<1x1x4x4x!ttcore.tile
   d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>]}
       ins(%stream, %stream_3 : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>)
       outs(%stream_6 : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>)  {
-  ^datamovement0(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    %tx = d2m.dma %stream<#map>, %cb0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+  ^datamovement0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem0 = d2m.reserve %cb0 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %stream<#map>, %mem0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
-    d2m.yield %cb0 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
   }, {
-  ^datamovement1(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    %tx = d2m.dma %stream_3<#map>, %cb1 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+  ^datamovement1(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem1 = d2m.reserve %cb1 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %stream_3<#map>, %mem1 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
-    d2m.yield %cb1 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
   }, {
   // CHECK: ^datamovement0
   // CHECK: d2m.dma [[STREAM0:%.*]]<#map>, [[CB0:%.*]]
-  // CHECK: d2m.yield [[CB0:%.*]] : {{.*}}
   // CHECK: ^datamovement1
   // CHECK: d2m.dma [[STREAM1:%.*]]<#map>, [[CB1:%.*]]
-  // CHECK: d2m.yield [[CB1:%.*]] : {{.*}}
-  // CHECK-NEXT: d2m.await [[CB2:%.*]] : {{.*}}
   // CHECK-NOT: ^datamovement2
   // CHECK: ^compute
-  ^datamovement2(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    d2m.await %cb2 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
-    %tx = d2m.dma %cb2, %stream_6<#map> : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>) -> !d2m.mem_tx
+  ^datamovement2(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem2 = d2m.pop %cb2 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %mem2, %stream_6<#map> : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
   }, {
-  ^compute0(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    d2m.await %cb0, %cb1 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
-    d2m.yield %cb2 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
+  ^compute0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
   }
   return
 }
@@ -167,43 +152,37 @@ func.func @mergeManyNonTrivialDatamovementThreads(%arg0: memref<1x1x4x4x!ttcore.
       outs(%stream_6 : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>)  {
   // CHECK: ^datamovement0
   // CHECK: d2m.dma [[STREAM0:%.*]]<#map>, [[CB0:%.*]]
-  // CHECK-NEXT: d2m.dma_wait
-  // CHECK-NEXT: d2m.yield [[CB0:%.*]] : {{.*}}
-  // CHECK-NEXT: d2m.dma [[STREAM2:%.*]]<#map>, [[CB2:%.*]]
-  // CHECK-NEXT: d2m.dma_wait
-  // CHECK-NEXT: d2m.yield [[CB2:%.*]] : {{.*}}
-  ^datamovement0(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    %tx = d2m.dma %stream<#map>, %cb0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+  // CHECK: d2m.dma_wait
+  // CHECK: d2m.dma [[STREAM2:%.*]]<#map>, [[CB2:%.*]]
+  // CHECK: d2m.dma_wait
+  ^datamovement0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem0 = d2m.reserve %cb0 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %stream<#map>, %mem0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
-    d2m.yield %cb0 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
   }, {
   // CHECK: ^datamovement1
-  // CHECK-NEXT: d2m.dma [[STREAM1:%.*]]<#map>, [[CB1:%.*]]
-  // CHECK-NEXT: d2m.dma_wait
-  // CHECK-NEXT: d2m.yield [[CB1:%.*]] : {{.*}}
-  // CHECK-NEXT: d2m.await [[CB3:%.*]] : {{.*}}
-  // CHECK-NEXT: d2m.dma [[CB3:%.*]], [[STREAM3:%.*]]<#map>
-  // CHECK-NEXT: d2m.dma_wait
-  ^datamovement1(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    %tx = d2m.dma %stream_3<#map>, %cb1 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+  // CHECK: d2m.dma [[STREAM1:%.*]]<#map>, [[CB1:%.*]]
+  // CHECK: d2m.dma_wait
+  // CHECK: d2m.dma [[CB3:%.*]], [[STREAM3:%.*]]<#map>
+  // CHECK: d2m.dma_wait
+  ^datamovement1(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem1 = d2m.reserve %cb1 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %stream_3<#map>, %mem1 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
-    d2m.yield %cb1 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
   }, {
-  ^datamovement2(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    %tx = d2m.dma %stream_9<#map>, %cb2 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+  ^datamovement2(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %stream_9<#map>, %mem2 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
-    d2m.yield %cb2 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
   }, {
   // CHECK-NOT: ^datamovement2
   // CHECK: ^compute
-  ^datamovement3(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    d2m.await %cb3 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
-    %tx = d2m.dma %cb3, %stream_6<#map> : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>) -> !d2m.mem_tx
+  ^datamovement3(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem3 = d2m.pop %cb3 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %mem3, %stream_6<#map> : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
   }, {
-  ^compute0(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    d2m.await %cb0, %cb1, %cb2 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
-    d2m.yield %cb3 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
+  ^compute0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
   }
   return
 }
@@ -243,38 +222,34 @@ func.func @mergeManyNonTrivialDatamovementThreadsNoCompute(%arg0: memref<1x1x4x4
       outs(%stream_6 : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>)  {
   // CHECK: ^datamovement0
   // CHECK: d2m.dma [[STREAM0:%.*]]<#map>, [[CB0:%.*]]
-  // CHECK-NEXT: d2m.dma_wait
-  // CHECK-NEXT: d2m.yield [[CB0:%.*]] : {{.*}}
-  // CHECK-NEXT: d2m.dma [[STREAM2:%.*]]<#map>, [[CB2:%.*]]
-  // CHECK-NEXT: d2m.dma_wait
-  // CHECK-NEXT: d2m.yield [[CB2:%.*]] : {{.*}}
-  ^datamovement0(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    %tx = d2m.dma %stream<#map>, %cb0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+  // CHECK: d2m.dma_wait
+  // CHECK: d2m.dma [[STREAM2:%.*]]<#map>, [[CB2:%.*]]
+  // CHECK: d2m.dma_wait
+  ^datamovement0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem0 = d2m.reserve %cb0 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %stream<#map>, %mem0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
-    d2m.yield %cb0 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
   }, {
   // CHECK: ^datamovement1
-  // CHECK-NEXT: d2m.dma [[STREAM1:%.*]]<#map>, [[CB1:%.*]]
-  // CHECK-NEXT: d2m.dma_wait
-  // CHECK-NEXT: d2m.yield [[CB1:%.*]] : {{.*}}
-  // CHECK-NEXT: d2m.await [[CB3:%.*]] : {{.*}}
-  // CHECK-NEXT: d2m.dma [[CB3:%.*]], [[STREAM3:%.*]]<#map>
-  // CHECK-NEXT: d2m.dma_wait
-  ^datamovement1(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    %tx = d2m.dma %stream_3<#map>, %cb1 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+  // CHECK: d2m.dma [[STREAM1:%.*]]<#map>, [[CB1:%.*]]
+  // CHECK: d2m.dma_wait
+  // CHECK: d2m.dma [[CB3:%.*]], [[STREAM3:%.*]]<#map>
+  // CHECK: d2m.dma_wait
+  ^datamovement1(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem1 = d2m.reserve %cb1 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %stream_3<#map>, %mem1 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
-    d2m.yield %cb1 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
   }, {
-  ^datamovement2(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    %tx = d2m.dma %stream_9<#map>, %cb2 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+  ^datamovement2(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %stream_9<#map>, %mem2 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
-    d2m.yield %cb2 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
   }, {
   // CHECK-NOT: ^datamovement2
   // CHECK-NOT: ^compute
-  ^datamovement3(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    d2m.await %cb3 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
-    %tx = d2m.dma %cb3, %stream_6<#map> : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>) -> !d2m.mem_tx
+  ^datamovement3(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem3 = d2m.pop %cb3 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %mem3, %stream_6<#map> : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
   }
   return
@@ -313,24 +288,22 @@ func.func @dontMergePreFusedDMThreads(%arg0: memref<1x1x4x4x!ttcore.tile<32x32, 
         )
       outs(%stream_6 : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>)  {
   // CHECK: ^datamovement0
-  ^datamovement0(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    %tx = d2m.dma %stream<#map>, %cb0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+  ^datamovement0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem0 = d2m.reserve %cb0 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %stream<#map>, %mem0 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
-    d2m.yield %cb0 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
   }, {
   // CHECK: ^datamovement1
-  ^datamovement1(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    %tx = d2m.dma %stream_3<#map>, %cb1 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+  ^datamovement1(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
+    %mem1 = d2m.reserve %cb1 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx = d2m.dma %stream_3<#map>, %mem1 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx
-    d2m.yield %cb1 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
-    %tx2 = d2m.dma %stream_9<#map>, %cb2 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+    %mem2 = d2m.reserve %cb2 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %tx2 = d2m.dma %stream_9<#map>, %mem2 : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
     d2m.dma_wait %tx2
-    d2m.yield %cb2 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
   }, {
   // CHECK: ^compute
-  ^compute0(%cb0: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb1: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb2: memref<4x4x!ttcore.tile<32x32, f32>, #l1>, %cb3: memref<4x4x!ttcore.tile<32x32, f32>, #l1>):
-    d2m.await %cb0, %cb1, %cb2 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
-    d2m.yield %cb3 : (memref<4x4x!ttcore.tile<32x32, f32>, #l1>)
+  ^compute0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb1:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb2:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>, %cb3:  !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1>>):
   }
   return
 }

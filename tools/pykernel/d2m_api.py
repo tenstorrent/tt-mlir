@@ -9,7 +9,7 @@ import inspect
 import functools
 import json
 import os
-from typing import List, Optional, Literal
+from typing import List, Optional
 
 try:
     import torch
@@ -137,10 +137,10 @@ class TensorBlock:
 @syntax("!d2m.cb")
 class CircularBuffer:
     def pop(ast_self) -> TensorBlock:
-        return d2m.pop(d2m.ir.CBType.get_underlying(ast_self.type), ast_self)
+        return d2m.pop(d2m.ir.CBType.cast(ast_self.type).getUnderlying(), ast_self)
 
     def reserve(ast_self) -> TensorBlock:
-        return d2m.reserve(d2m.ir.CBType.get_underlying(ast_self.type), ast_self)
+        return d2m.reserve(d2m.ir.CBType.cast(ast_self.type).getUnderlying(), ast_self)
 
 
 @syntax("!d2m.mem_tx")
@@ -333,7 +333,7 @@ def _create_generic_func(
         if isinstance(t, RankedTensorType):
             ordered_tensor_args.append(t)
         elif str(t).startswith("!d2m.cb"):
-            ordered_tensor_args.append(d2m.ir.CBType.get_underlying(t))
+            ordered_tensor_args.append(d2m.ir.CBType.cast(t).getUnderlying())
     arg_types = ordered_tensor_args
     ret_type = ordered_tensor_args[-1]
     func_entry = func.FuncOp(name=name, type=(arg_types, [ret_type]))

@@ -5,7 +5,11 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 #define TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::tt::d2m::utils {
 
@@ -41,6 +45,10 @@ Type getRegionLargestDstElemType(Region &region);
 //        (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2)
 AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
                                       bool reverse);
+
+MemRefType
+getBufferType(Type type, bool isView,
+              std::optional<ttcore::MetalLayoutAttr> hostInfo = std::nullopt);
 
 } // namespace mlir::tt::d2m::utils
 
