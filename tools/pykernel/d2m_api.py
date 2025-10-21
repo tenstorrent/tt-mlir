@@ -26,7 +26,6 @@ from ttmlir.passmanager import PassManager
 from ttmlir.dialects import (
     ttcore,
     d2m,
-    ttkernel,
     func,
     arith,
 )
@@ -70,10 +69,10 @@ class TensorBlock:
 @syntax("!d2m.cb")
 class CircularBuffer:
     def pop(ast_self) -> TensorBlock:
-        return d2m.pop(ttkernel.ir.CBType.get_underlying(ast_self.type), ast_self)
+        return d2m.pop(d2m.ir.CBType.cast(ast_self.type).getUnderlying(), ast_self)
 
     def reserve(ast_self) -> TensorBlock:
-        return d2m.reserve(ttkernel.ir.CBType.get_underlying(ast_self.type), ast_self)
+        return d2m.reserve(d2m.ir.CBType.cast(ast_self.type).getUnderlying(), ast_self)
 
 
 @syntax("!d2m.mem_tx")
@@ -103,13 +102,19 @@ def dma(src, dst, core=None, mcast=None) -> MemTx:
 @syntax("!d2m.semaphore")
 class Semaphore:
     def set(ast_self, value, core=None, mcast=None):
-        return d2m.semaphore_set(ast_self, _asindex(value), _asindex(core), _asindex(mcast))
+        return d2m.semaphore_set(
+            ast_self, _asindex(value), _asindex(core), _asindex(mcast)
+        )
 
     def inc(ast_self, value, core=None, mcast=None):
-        return d2m.semaphore_inc(ast_self, _asindex(value), _asindex(core), _asindex(mcast))
+        return d2m.semaphore_inc(
+            ast_self, _asindex(value), _asindex(core), _asindex(mcast)
+        )
 
     def wait(ast_self, value, reset=None):
-        return d2m.semaphore_wait(ast_self, _asindex(value), reset_value=_asindex(reset))
+        return d2m.semaphore_wait(
+            ast_self, _asindex(value), reset_value=_asindex(reset)
+        )
 
 
 def _collect_captures(f):
@@ -131,7 +136,9 @@ def _collect_captures(f):
 
 
 def _compile(
-    kernel_type=None, verbose: bool = False, optimize: bool = False,
+    kernel_type=None,
+    verbose: bool = False,
+    optimize: bool = False,
 ):
     def _decorator(f):
         @functools.wraps(f)
@@ -258,7 +265,7 @@ def _create_generic_func(
         if isinstance(t, RankedTensorType):
             ordered_tensor_args.append(t)
         elif str(t).startswith("!d2m.cb"):
-            ordered_tensor_args.append(ttkernel.ir.CBType.get_underlying(t))
+            ordered_tensor_args.append(d2m.ir.CBType.cast(t).getUnderlying())
     arg_types = ordered_tensor_args
     ret_type = ordered_tensor_args[-1]
     func_entry = func.FuncOp(name=name, type=(arg_types, [ret_type]))

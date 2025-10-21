@@ -8,7 +8,6 @@ from ttmlir.ir import *
 from ttmlir.dialects import (
     ttcore,
     d2m,
-    ttkernel,
     func,
     arith,
 )
@@ -58,7 +57,7 @@ class D2MGenericCompiler(TTCompilerBase):
                 shape = self.args[i].shape
                 dtype = F32Type.get(self.ctx)
                 tensor = RankedTensorType.get(shape, dtype)
-                func_operand_types.append(ttkernel.ir.CBType.get(self.ctx, tensor))
+                func_operand_types.append(d2m.ir.CBType.get(self.ctx, tensor))
             elif arg.annotation.id == "Semaphore":
                 func_operand_types.append(d2m.ir.SemaphoreType.get(self.ctx))
             else:

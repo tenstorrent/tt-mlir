@@ -130,3 +130,4 @@ matmul(lhs, rhs, out)
 
 golden = lhs @ rhs
 assert_pcc(golden, out)
+print("Passed")
