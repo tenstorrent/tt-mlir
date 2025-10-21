@@ -852,6 +852,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseNotTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseNotTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotUnaryTileI32Op>,

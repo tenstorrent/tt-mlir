@@ -1118,6 +1118,7 @@ void populateTTIRToD2MPatterns(
     D2MNamedElementwiseRewriter<ttir::FloorOp,      d2m::TileFloorOp>,
     D2MNamedElementwiseRewriter<ttir::GeluOp,       d2m::TileGeluOp>,
     D2MNamedElementwiseRewriter<ttir::LogOp,        d2m::TileLogOp>,
+    D2MNamedElementwiseRewriter<ttir::BitwiseNotOp, d2m::TileBitwiseNotOp>,
     D2MNamedElementwiseRewriter<ttir::LogicalNotOp, d2m::TileLogicalNotOp>,
     D2MNamedElementwiseRewriter<ttir::MultiplyOp,   d2m::TileMulOp>,
     D2MNamedElementwiseRewriter<ttir::MaximumOp,    d2m::TileMaximumOp>,

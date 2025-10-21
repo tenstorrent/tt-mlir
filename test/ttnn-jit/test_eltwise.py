@@ -240,8 +240,9 @@ def test_unary_op_dram(device, h, w, dtype, op):
         sin,
         ceil,
         floor,
+        bitwise_not,
         # Not supported in TTIRToD2M:
-        # gelu, logical_not, reciprocal cbrt, sign, erf, erfc, bitwise_not
+        # gelu, logical_not?, reciprocal cbrt, sign, erf, erfc
         # Always fails allclose
         # tan, sqrt
     ],
