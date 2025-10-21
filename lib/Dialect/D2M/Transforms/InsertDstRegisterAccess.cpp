@@ -83,7 +83,6 @@ public:
               largestDstType, false, maxDstPhysicalSizeTiles);
 
       bool linalgToAffineFailed = false;
-      SmallVector<SmallVector<Operation *, 4>> outermostInnerComputeLoops;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
         if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
           linalgToAffineFailed |= rewriteTileMatmulAsTileMatmulBlock(
@@ -99,15 +98,12 @@ public:
           linalgToAffineFailed = true;
           return;
         }
-        outermostInnerComputeLoops.push_back(linalgLoops.value());
         rewriter.eraseOp(linalgGenericOp);
+        modified |= insertDstRegisterAccess(rewriter, op, region, dstCapacity,
+                                            !linalgLoops.value().empty()
+                                                ? linalgLoops.value().front()
+                                                : nullptr);
       });
-      for (SmallVector<Operation *, 4> &loops : outermostInnerComputeLoops) {
-        modified |=
-            insertDstRegisterAccess(rewriter, op, region, dstCapacity,
-                                    loops.empty() ? nullptr : loops.front());
-      }
-
       if (linalgToAffineFailed) {
         return failure();
       }
@@ -267,8 +263,8 @@ public:
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
             notDstMemspace(potentialStore)) {
 
-          // assert(!dstSliceAllocationState.didStoreToDst() &&
-          //        "Multiple stores from last op to dst not supported");
+          assert(!dstSliceAllocationState.didStoreToDst() &&
+                 "Multiple stores from last op to dst not supported");
 
           auto dstRegInPlace = computeOp.getDstRegInPlace();
           int64_t dstSliceIndex = -1;
@@ -295,7 +291,9 @@ public:
         // If the user isn't a store, it must be another compute consumer and we
         // need to set or allocate a dest register intermediate for it.
         else {
-          op->dump();
+          llvm::dbgs() << "User is not a store: " << user << "\n";
+          llvm::dbgs() << "User: " << user->getName() << "\n";
+          llvm::dbgs() << "Details: " << *user << "\n";
           assert(user->hasTrait<D2MGenericRegionComputeOpTrait>());
           assert(computeOp->hasOneUse() &&
                  "Currently we do not support multiple "
