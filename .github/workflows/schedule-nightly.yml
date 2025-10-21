@@ -66,7 +66,7 @@ jobs:
           allowed-failures: test_models_ops, test_sweeps
           allowed-skips: test_models_ops, test_sweeps
       - name: Send Fail Notification
-        if: steps.check.outputs.failed == 'true' && steps.branch-check.outputs.IS_MAIN == 'true'
+        if: failure() && steps.check.conclusion == 'failure' && steps.branch-check.outputs.IS_MAIN == 'true'
         uses: slackapi/slack-github-action@v1.26.0
         with:
           payload: |
