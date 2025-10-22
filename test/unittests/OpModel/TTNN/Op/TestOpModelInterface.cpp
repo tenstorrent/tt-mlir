@@ -2434,7 +2434,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*output_layout=*/Layout::Tile,
       /*enable_act_double_buffer=*/BoolAttr::get(&context, false),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, false),
-      /*in_place=*/BoolAttr::get(&context, false));
+      /*in_place=*/BoolAttr::get(&context, false),
+      /*enable_kernel_stride_folding=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(conv2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -2466,7 +2467,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
       /*output_layout=*/Layout::Tile,
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
-      /*in_place=*/BoolAttr::get(&context, false));
+      /*in_place=*/BoolAttr::get(&context, false),
+      /*enable_kernel_stride_folding=*/BoolAttr::get(&context, false));
 
   constraintsExp = backend.getOpConstraints(
       getInputLayouts(conv2d),
@@ -2601,7 +2603,8 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*output_layout=*/Layout::Tile,
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
-      /*in_place=*/BoolAttr::get(&context, false));
+      /*in_place=*/BoolAttr::get(&context, false),
+      /*enable_kernel_stride_folding=*/BoolAttr::get(&context, false));
 
   OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
