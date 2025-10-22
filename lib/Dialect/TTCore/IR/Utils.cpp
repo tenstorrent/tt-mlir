@@ -202,7 +202,7 @@ MemRefType getBufferType(Type type, bool isView,
 
   auto layout = mlir::cast<MetalLayoutAttr>(tensorType.getEncoding());
 
-  SmallVector<int64_t> fullMemrefShape = tensorType.getShape();
+  SmallVector<int64_t> fullMemrefShape(tensorType.getShape());
 
   // Create the appropriate layout attribute based on whether this is a view or
   // a materialized buffer. Views use affine maps for flexible indexing, while
