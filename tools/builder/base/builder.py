@@ -28,7 +28,7 @@ from ttmlir.ir import (
 )
 from ttmlir.dialects import tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
-from goldens import GoldenFunction
+from golden import GoldenFunction
 
 # ----- Public APIs -----
 
@@ -303,7 +303,7 @@ class Builder:
         self._global_id += 1
         return self._global_id
 
-    def _get_loc_of_extra_file_callee(self, id: int = 0) -> Location:
+    def _get_loc_of_extra_file_callee(self, id: int = 0) -> str:
         stack = inspect.stack()
         caller_filename = stack[1].filename
 
@@ -315,9 +315,9 @@ class Builder:
                 "Top of callstack to builder funcs must be outside the caller's file"
             )
 
-        return Location.name(
-            f"{stack[0].filename}:{str(stack[0].lineno)}:id({str(id)})"
-        )
+        # return Location.name(
+        return f"{stack[0].filename}:{str(stack[0].lineno)}:id({str(id)})"
+        # )
 
     def _get_loc_from_str(self, loc: Union[str, Location]) -> Location:
         if isinstance(loc, str):

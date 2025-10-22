@@ -400,11 +400,13 @@ class Read:
         return all_binaries
 
     def _operate_on_binary(self, binaries, process_func):
+        print("1")
         binaries = list(binaries)
         result = []
         if not binaries:
             operating_binaries = self._get_operating_binaries()
             binaries.extend(operating_binaries)
+        print("2")
         for binary in binaries:
             try:
                 res = process_func(binary)
@@ -417,6 +419,7 @@ class Read:
                         json.dumps(x, indent=2) if isinstance(x, dict) else x
                         for x in res
                     )
+                print("3")
                 result.append(res)
                 self.logging.info(msg)
             except Exception as e:

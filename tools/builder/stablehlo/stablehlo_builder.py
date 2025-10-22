@@ -16,7 +16,7 @@ from ttmlir.ir import *
 from ttmlir.dialects import stablehlo, sdy, mpmd
 
 from builder.base.builder import *
-from goldens import *
+from golden import *
 
 
 class StableHLOBuilder(Builder):

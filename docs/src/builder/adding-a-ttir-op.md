@@ -69,7 +69,7 @@ In your operation implementation in `ops.py`, simply pass the TTIR operation cla
 
 ```python
 # In ops.py
-from goldens import GOLDEN_MAPPINGS
+from golden import GOLDEN_MAPPINGS
 
 def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
     return self._op_proxy(

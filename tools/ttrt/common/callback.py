@@ -120,11 +120,26 @@ def golden(callback_runtime_config, binary, program_context, op_context):
     logging.debug("executing golden comparison")
 
     loc = ttrt.runtime.get_op_loc_info(op_context)
+    # print(loc)
+    # print(op_context)
+    # print(dir(op_context))
+    # print(str(op_context))
+    # print(op_context.__getstate__())
+    # print(op_context.__module__())
+    # print(op_context.__class__())
 
     op_golden_tensor_map = binary.get_debug_info_golden(loc)
+    print(ttrt.runtime.get_op_debug_str(op_context))
     if len(op_golden_tensor_map) == 0:
         logging.debug("Golden tensor is None - skipping golden comparison")
         return
+    # print(dir(op_golden_tensor_map))
+
+    from ttmlir.passes import GoldenTensor
+
+    print(str(op_context))
+    # print(op_golden_tensor_map[0].name)
+    # print(op_context.__name__)
 
     op_output_tensor_map = ttrt.runtime.get_op_output_tensor(
         op_context, program_context
@@ -159,6 +174,7 @@ def golden(callback_runtime_config, binary, program_context, op_context):
                 golden_tensor_torch,
                 f"{callback_runtime_config.artifact_dir}/{golden_tensor_torch_name}",
             )
+            print("LLLLLL")
             torch.save(
                 output_tensor_torch,
                 f"{callback_runtime_config.artifact_dir}/{device_tensor_torch_name}",

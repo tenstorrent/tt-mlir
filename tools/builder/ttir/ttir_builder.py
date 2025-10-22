@@ -15,7 +15,7 @@ from ttmlir.dialects import ttir, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
-from goldens import *
+from golden import *
 
 
 class TTIRBuilder(Builder):
@@ -126,11 +126,18 @@ class TTIRBuilder(Builder):
 
             # Prepare location for the op.
             id = self._get_next_global_id()
+            print(dir(op_ttir_function))
+            print(op_ttir_function.OPERATION_NAME)
             loc = (
-                self._get_loc_from_str(loc)
+                self._get_loc_from_str(loc + op_ttir_function.OPERATION_NAME)
                 if loc is not None
-                else self._get_loc_of_extra_file_callee(id=id)
+                else Location.name(
+                    self._get_loc_of_extra_file_callee(id=id)
+                    + op_ttir_function.OPERATION_NAME
+                )
             )
+            # loc += self._get_loc_from_string(op_ttir_function.__name__)
+            print(loc)
 
             # Organize arguments and create the TTIR op.
             if organize_ttir_args(inputs, output, output_shape) == 0:
