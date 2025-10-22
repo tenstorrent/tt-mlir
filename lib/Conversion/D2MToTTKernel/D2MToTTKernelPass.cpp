@@ -76,9 +76,9 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<d2m::ViewLayoutOp>();
     target.addLegalOp<d2m::GenericOp>();
     target.addLegalOp<d2m::EmptyOp>();
+    target.addLegalOp<d2m::MeshShardOp>();
 
     target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
-    target.addLegalOp<ttir::MeshShardOp>();
 
     // Inputs to matmul_block. Will be folded in this pass.
     target.addLegalOp<memref::CastOp>();
