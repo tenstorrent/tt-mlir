@@ -71,112 +71,35 @@ protected:
            "are supported");
   }
 
-  // This function takes a TTNN DRAM tensor and returns a tuple of three
-  // tensors:
-  // 1. The cannonical translation of the TTNN tensor to a Metal tensor, having
-  // a metal layout, DRAM memory space, and a 1x1 grid.
-  //
-  // 2. The "reblocked" version of tensor 1, having a metal layout, DRAM memory
-  // space, an inferred grid, and an index map to index into the original
-  // tensor.
-  //
-  // 3. A storage tensor required by the stream_layout op to represent the
-  // mapping of tensor 1 to tensor 2. This tensor has the inferred grid and L1
-  // memory space.
-  //
-  // The end effect of this function is that ops with DRAM tensors aim to
-  // maximize their worker grid.
-  std::tuple<RankedTensorType, RankedTensorType, RankedTensorType>
-  translateTTNNDRAMTensor(mlir::ConversionPatternRewriter &rewriter,
-                          RankedTensorType tensorType) const {
-    auto ttnnLayout =
-        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-    assert(ttnnLayout.getBufferType() == ttnn::BufferType::DRAM &&
-           "Expected DRAM tensor");
-
-    ttcore::MemorySpace memSpace = ttcore::MemorySpace::DeviceDRAM;
-    ttcore::TensorMemoryLayout memLayout =
-        ttcore::TensorMemoryLayout::Interleaved;
-
-    // Hardcode collapse intervals to [[0, -1)] to match ttnn.
-    auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
-    auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
-    DenseIntElementsAttr collapsedIntervals =
-        DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
-
-    // For tiled tensors the tile dims need to be 32 aligned.
-    llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
-    dimAlignments[dimAlignments.size() - 1] = 32;
-    dimAlignments[dimAlignments.size() - 2] = 32;
-
-    // The index map in TTNNLayoutAttr is for collapsing an N-D tensor on to
-    // the grid. It has no relevance to the index map in MetalLayoutAttr.
-    // MetalLayoutAttr takes the grid shape of the device, not the grid on which
-    // the tensor is sharded.
-    auto metalLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), tensorType.getShape(), targetSquareGridShape,
-        ttcore::OOBVal::Undef, memSpace, memLayout, collapsedIntervals,
-        dimAlignments);
-
-    llvm::SmallVector<int64_t> unshardedShape =
-        metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
-
-    llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
-        ttnnLayout.getGrid().getShape(), ttcore::TileType::getDefaultShape());
-
-    Type elementType = ttnnLayout.getElementType();
-    auto baseTensor =
-        mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
-    llvm::SmallVector<int64_t> workerGrid = computeOptimalGrid(unshardedShape);
-    llvm::SmallVector<int64_t> fakeShardedShape = metalLayout.getDeviceShape(
-        workerGrid, ttcore::TileType::getDefaultShape());
-
-    auto streamOutputLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), tensorType.getShape(), dimAlignments,
-        collapsedIntervals, ttcore::OOBVal::Undef, memSpace, memLayout,
-        mlir::tt::d2m::utils::calculateReblockMap(
-            shardedShape, fakeShardedShape, rewriter.getContext()));
-
-    auto streamOutput = mlir::RankedTensorType::get(
-        fakeShardedShape, elementType, streamOutputLayout);
-
-    auto storageLayout = ttcore::MetalLayoutAttr::get(
-        rewriter.getContext(), tensorType.getShape(), targetSquareGridShape,
-        ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
-        ttcore::TensorMemoryLayout::Sharded, collapsedIntervals, dimAlignments);
-
-    auto storage = mlir::RankedTensorType::get(fakeShardedShape, elementType,
-                                               storageLayout);
-    return {baseTensor, streamOutput, storage};
-  }
-
   RankedTensorType
-  getMetalTensorFromL1TTNNTensor(mlir::ConversionPatternRewriter &rewriter,
-                                 RankedTensorType tensorType) const {
+  getMetalTensorFromTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
+                               Value value) const {
+    auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
     auto ttnnLayout =
         mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
 
-    assert(ttnnLayout.getBufferType() == ttnn::BufferType::L1 &&
-           "Expected L1 tensor");
+    assertTTNNLayoutSupported(ttnnLayout);
 
-    // Hardcode collapse intervals to [[0, -1)] to match ttnn.
+    ttcore::MemorySpace memSpace =
+        ttnnLayout.getBufferType() == ttnn::BufferType::DRAM
+            ? ttcore::MemorySpace::DeviceDRAM
+            : ttcore::MemorySpace::DeviceL1;
+
     auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
     auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
     DenseIntElementsAttr collapsedIntervals =
         DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
 
-    // For tiled tensors the tile dims need to be 32 aligned.
+    ttcore::TensorMemoryLayout memLayout =
+        (ttnnLayout.getMemLayout().getValue() ==
+         ttnn::TensorMemoryLayout::Interleaved)
+            ? ttcore::TensorMemoryLayout::Interleaved
+            : ttcore::TensorMemoryLayout::Sharded;
+
     llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
     dimAlignments[dimAlignments.size() - 1] = 32;
     dimAlignments[dimAlignments.size() - 2] = 32;
 
-    ttcore::MemorySpace memSpace = ttcore::MemorySpace::DeviceL1;
-    ttcore::TensorMemoryLayout memLayout = ttcore::TensorMemoryLayout::Sharded;
-
-    // The index map in TTNNLayoutAttr is for collapsing an N-D tensor on to
-    // the grid. It has no relevance to the index map in MetalLayoutAttr.
-    // MetalLayoutAttr takes the grid shape of the device, not the grid on which
-    // the tensor is sharded.
     auto metalLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), tensorType.getShape(), ttcore::OOBVal::Undef,
         memSpace, memLayout, collapsedIntervals, dimAlignments);
@@ -191,57 +114,14 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
-  Value createWrappersForTTNNTensor(mlir::ConversionPatternRewriter &rewriter,
-                                    Value value) const {
-    assert(isTTNNTensor(value.getType()) && "Expected TTNN tensor");
-    auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    auto ttnnLayout =
-        mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-    assertTTNNLayoutSupported(ttnnLayout);
-
-    if (ttnnLayout.getBufferType() == ttnn::BufferType::L1) {
-      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-          value.getLoc(), getMetalTensorFromL1TTNNTensor(rewriter, tensorType),
-          value);
-    }
-
-    if (ttnnLayout.getBufferType() == ttnn::BufferType::DRAM) {
-      // TTNN DRAM Interleaved Tensors do not have an associated grid, but D2M
-      // needs one to set the worker grid for the D2M generic op. We use the
-      // same grid inference logic for layouts in D2M core to infer a grid by
-      // pretending the tensor is sharded, then we represent this grid by
-      // wrapping the DRAM tensor in a stream_layout op. The stream_layout
-      // encodes the required indexing map for the inferred grid.
-      auto [metalTensor, streamOutputTensor, storageTensor] =
-          translateTTNNDRAMTensor(rewriter, tensorType);
-
-      // input type: tensor with TTNN layout in DRAM
-      // output type: tensor with metal layout in DRAM and 1x1 grid
-      auto castOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-          value.getLoc(), metalTensor, value);
-
-      // stream_layout requires a storage tensor. This tensor has the inferred
-      // grid and L1 memory space.
-      auto storage =
-          rewriter.create<d2m::EmptyOp>(value.getLoc(), storageTensor);
-
-      // The output of the stream_layout op is a tensor with the inferred grid
-      // and DRAM memory space.
-      auto stream = rewriter.create<d2m::StreamLayoutOp>(
-          value.getLoc(), streamOutputTensor, castOp.getResult(), storage);
-
-      return stream;
-    }
-
-    llvm_unreachable("Expected L1 or DRAM tensor from TTNN");
-  }
   // Create a ToLayout op for a value using the provided layout info and grid.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled,
                               mlir::ConversionPatternRewriter &rewriter) const {
     if (isTTNNTensor(value.getType())) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
-      return createWrappersForTTNNTensor(rewriter, value);
+      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+          value.getLoc(), getMetalTensorFromTTNNTensor(rewriter, value), value);
     }
 
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
