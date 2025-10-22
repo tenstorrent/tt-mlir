@@ -389,28 +389,16 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     auto storageLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(storageType.getEncoding());
 
-    // Storage logical shape is already correct from TTIRToD2M (transposed if
-    // needed). Just recompute alignments for the target grid.
-    bool hasIndexMap = static_cast<bool>(storageLayout.getIndexAffineMap());
-
     llvm::SmallVector<int64_t> storageDimAlignments =
         computeGridAwareDimAlignments(storageLayout.getLogicalShape(),
                                       targetGridShape,
                                       storageLayout.getNormalizedIntervals());
 
-    auto newStorageLayout =
-        (hasIndexMap)
-            ? ttcore::MetalLayoutAttr::get(
-                  builder.getContext(), storageLayout.getLogicalShape(),
-                  storageDimAlignments, storageLayout.getCollapsedIntervals(),
-                  storageLayout.getOobVal(), storageLayout.getMemorySpace(),
-                  storageLayout.getMemoryLayout(),
-                  storageLayout.getIndexAffineMap())
-            : ttcore::MetalLayoutAttr::get(
-                  builder.getContext(), storageLayout.getLogicalShape(),
-                  storageLayout.getOobVal(), storageLayout.getMemorySpace(),
-                  storageLayout.getMemoryLayout(),
-                  storageLayout.getCollapsedIntervals(), storageDimAlignments);
+    auto newStorageLayout = ttcore::MetalLayoutAttr::get(
+        builder.getContext(), storageLayout.getLogicalShape(),
+        storageDimAlignments, storageLayout.getCollapsedIntervals(),
+        storageLayout.getOobVal(), storageLayout.getMemorySpace(),
+        storageLayout.getMemoryLayout(), storageLayout.getIndexAffineMap());
 
     llvm::SmallVector<int64_t> tileShape;
     if (auto tileType =
@@ -486,7 +474,7 @@ static void recreateGenericOp(d2m::GenericOp genericOp) {
             // For nested linalg.generic ops, update result types to match the
             // new output operand types (which have changed due to grid
             // updates).
-            if (clonedOp->getName().getStringRef() == "linalg.generic") {
+            if (llvm::isa<DestinationStyleOpInterface>(clonedOp)) {
               auto numInputs = clonedOp->getAttrOfType<mlir::DenseI32ArrayAttr>(
                   "operandSegmentSizes");
               if (numInputs && numInputs.size() >= 2) {
