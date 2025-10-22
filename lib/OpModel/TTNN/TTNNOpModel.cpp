@@ -4,6 +4,7 @@
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
+#include <operations/eltwise/unary/unary.hpp>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -453,6 +454,8 @@ auto getOpSymbol() {
     return ::ttnn::global_avg_pool2d;
   } else if constexpr (std::is_same_v<OpTy, SiluOp>) {
     return ::ttnn::silu;
+  } else if constexpr (std::is_same_v<OpTy, MishOp>) {
+    return ::ttnn::mish;
   } else {
     static_assert(ttmlir::utils::always_false(),
                   "add mapping from TTNN dialect to TTNN lib op");
@@ -933,6 +936,7 @@ template struct UnaryEltwiseOpModel<ReciprocalOp>;
 template struct UnaryEltwiseOpModel<CbrtOp>;
 template struct UnaryEltwiseOpModel<BitwiseNotOp>;
 template struct UnaryEltwiseOpModel<SiluOp>;
+template struct UnaryEltwiseOpModel<MishOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseOpModel<RsqrtOp>;
