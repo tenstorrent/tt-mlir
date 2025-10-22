@@ -200,6 +200,7 @@ def test_dot_general(
     batch_dims_rhs: List[int],
     contract_dims_rhs: List[int],
     request,
+    device,
 ):
     def dot_general(
         in0: Operand,
@@ -217,13 +218,14 @@ def test_dot_general(
             unit_attrs=unit_attrs,
         )
 
-    compile_stablehlo_to_flatbuffer(
+    compile_and_execute_shlo(
         dot_general,
         shapes,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target="ttnn",
+        device=device,
     )
 
 
