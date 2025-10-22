@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -16,10 +17,12 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/WalkResult.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Error.h"
 
 #include <cassert>
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -275,10 +278,11 @@ private:
     }
 
     // For Conv2d operations, extract op-specific attributes
-    if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(operation)) {
-      config.opSpecificAttrs = Conv2dAttrs{conv2dOp.getConv2dConfigAttr(),
-                                           conv2dOp.getComputeConfigAttr()};
-    }
+    llvm::TypeSwitch<Operation *>(operation)
+        .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&config](auto convOp) {
+          config.opSpecificAttrs = Conv2dAttrs{convOp.getConv2dConfigAttr(),
+                                               convOp.getComputeConfigAttr()};
+        });
 
     return config;
   }

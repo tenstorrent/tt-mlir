@@ -432,10 +432,10 @@ defvar D2MStreamingOptions = [
          "num-stream-buffers",
          "unsigned", /*default=*/"2",
          "Number of backing buffers to allocate per stream storage (>=1) Default is 2.">,
-  Option<"allowOutputSpilling",
-         "allow-output-spilling",
+  Option<"allowL1OutputSpilling",
+         "allow-l1-output-spilling",
          "bool", /*default=*/"false",
-         "Make generic outputs eligible for spilling to DRAM.">,
+         "Make generic outputs eligible for spilling from L1 to DRAM.">,
 ];
 
 def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
@@ -504,6 +504,28 @@ def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
   let options = D2MStreamingOptions;
+}
+
+def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
+  let summary = "Optimized grid selection for D2M generic ops.";
+  let description = [{
+    This pass optimizes the grid selection for D2M generic operations. It walks through
+    all d2m.generic ops and updates their operand ToLayoutOps with optimal grid sizes
+    and proper dimAlignments based on the tensor physical shapes.
+
+    The TTIRToD2M conversion creates all tensors with simple 1x1 grids and minimal
+    dimAlignments. This pass then computes the optimal grid for each tensor based on
+    its physical shape, finding the largest grid dimensions that evenly divide the shape.
+    It also recomputes proper dimAlignments that account for grid-based alignment requirements.
+
+    Note: This pass is not used in TTNN mode, where grids are already correctly set.
+    The pipeline conditionally adds this pass only for non-TTNN mode.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
+  let options = [
+    ListOption<"overrideDeviceShape", "override-device-shape", "int64_t",
+        "Override the device shape for grid optimization.">,
+  ];
 }
 
 #endif

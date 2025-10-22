@@ -20,6 +20,10 @@ declare_mlir_python_sources(BuilderSources
     # d2m subpackage files
     d2m/__init__.py
     d2m/d2m_builder.py
+
+    # ttnn subpackage files
+    ttnn/__init__.py
+    ttnn/ttnn_builder.py
 )
 
 add_mlir_python_modules(BuilderPythonModules

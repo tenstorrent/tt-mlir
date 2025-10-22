@@ -78,10 +78,6 @@ static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
 
 static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
                                        Value inputView) {
-  if (auto collapseOp =
-          mlir::dyn_cast<memref::CollapseShapeOp>(inputView.getDefiningOp())) {
-    return getTileIndexFromBlockView(rewriter, loc, collapseOp.getSrc());
-  }
   if (auto subViewOp =
           mlir::dyn_cast<memref::SubViewOp>(inputView.getDefiningOp())) {
     // We have blocked this input. We need to get the indicies for the first
@@ -119,11 +115,6 @@ static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
-  if (auto collapseOp =
-          mlir::dyn_cast<memref::CollapseShapeOp>(cb.getDefiningOp())) {
-    return getCB(rewriter, collapseOp.getSrc());
-  }
-
   if (memref::LoadOp loadOp =
           mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
       loadOp) {
@@ -290,7 +281,20 @@ public:
   LogicalResult
   matchAndRewrite(memref::StoreOp op, memref::StoreOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto load = mlir::dyn_cast<memref::LoadOp>(op.getValue().getDefiningOp());
+    // Look for the load operation, potentially through a dst reinterpret cast
+    Operation *definingOp = op.getValue().getDefiningOp();
+    auto load = mlir::dyn_cast<memref::LoadOp>(definingOp);
+
+    // If not a direct load, check if it's a cast wrapping a load
+    if (!load && definingOp) {
+      if (auto dstCast =
+              mlir::dyn_cast<d2m::DstReinterpretCastOp>(definingOp)) {
+        // Look through the dst reinterpret cast to find the actual load
+        load = mlir::dyn_cast_or_null<memref::LoadOp>(
+            dstCast.getInput().getDefiningOp());
+      }
+    }
+
     bool storeToDst = ttcore::getMemorySpace(op.getMemRef()) ==
                       ttcore::MemorySpace::RegisterDst;
 
@@ -298,6 +302,10 @@ public:
       // If we are coming from a load, then we are a copy tile. Pattern:
       //    %0 = memref.load %arg0, %c0 : memref<1x!tt.tile, l1>
       //    tt.store %0, %arg1, %c0 : memref<1x!tt.tile, dst>
+      // OR with dst reinterpret cast:
+      //    %0 = memref.load %arg0, %c0 : memref<1x!tt.tile, l1>
+      //    %1 = d2m.dst_reinterpret_cast %0 : type1 -> type2
+      //    tt.store %1, %arg1, %c0 : memref<1x!tt.tile, dst>
       return lowerCopyTile(load, op, adaptor, rewriter);
     }
 
@@ -447,16 +455,24 @@ public:
       // the entire dest in a loop.
       Value destIndex = index(rewriter, op->getLoc(), 0);
 
-      assert(op.hasBlockDims() &&
-             "MatmulBlockOp must have all block dimensions to be lowered");
-      auto rt_i32 =
-          i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockM()));
-      auto kt_i32 =
-          i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockK()));
-      auto ct_i32 =
-          i32(rewriter, op->getLoc(), static_cast<int32_t>(*op.getBlockN()));
-      auto nt_i32 = i32(rewriter, op->getLoc(),
-                        static_cast<int32_t>(*op.getBBlockStride()));
+      auto typeA = llvm::cast<MemRefType>(op.getA().getType());
+      auto typeB = llvm::cast<MemRefType>(op.getB().getType());
+      auto rt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[0]);
+      auto kt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[1]);
+      auto ct_i32 = i32(rewriter, op->getLoc(), typeB.getShape()[1]);
+
+      auto getNumColumns = [](Value view) {
+        if (auto castOp =
+                dyn_cast_or_null<memref::CastOp>(view.getDefiningOp())) {
+          view = castOp.getSource();
+        } else if (auto svOp = dyn_cast_or_null<memref::SubViewOp>(
+                       view.getDefiningOp())) {
+          view = svOp.getSource();
+        }
+        auto srcTy = cast<MemRefType>(view.getType());
+        return srcTy.getShape()[1];
+      };
+      auto nt_i32 = i32(rewriter, op->getLoc(), getNumColumns(op.getB()));
 
       auto transpose = i32(rewriter, op->getLoc(), 0);
 
@@ -477,28 +493,6 @@ public:
       rewriter.create<ttkernel::ExperimentalMatmulBlockOp>(
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
           ct_i32, rt_i32, kt_i32, nt_i32);
-
-      // Operands are linearized, so this pass creates a
-      // ttkernel.cb_reinterpret_shape from each memref.collapse_shape. However,
-      // ttkernel.matmul_block does *not* use the cb_reinterpret_shape so we
-      // need to clean it up. Cannonicalize does *not* do this automatically.
-      auto tryEraseDeadCBReinterpret = [&](Value v) {
-        Value remapped = rewriter.getRemappedValue(v);
-        if (!remapped) {
-          return;
-        }
-        if (auto *def = remapped.getDefiningOp()) {
-          if (auto cbri = dyn_cast<ttkernel::CBReinterpretShapeOp>(def)) {
-            if (cbri->use_empty()) {
-              rewriter.eraseOp(cbri);
-            }
-          }
-        }
-      };
-      tryEraseDeadCBReinterpret(op.getA());
-      tryEraseDeadCBReinterpret(op.getB());
-      tryEraseDeadCBReinterpret(op.getOutput());
-
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp> ||
                          std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp>) {
       ttkernel::ReduceType reduce_type;
@@ -794,13 +788,15 @@ public:
   LogicalResult
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const final {
-    if (mlir::isa<d2m::TileTypecastOp>(op)) {
+    if (auto typecastOp = mlir::dyn_cast<d2m::TileTypecastOp>(op)) {
       rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc());
 
       auto inDtype =
-          mlir::cast<ttcore::TileType>(operands[0].getType()).getDataType();
-      auto outDtype = mlir::cast<ttcore::TileType>(op->getResult(0).getType())
-                          .getDataType();
+          mlir::cast<ttcore::TileType>(typecastOp.getInput().getType())
+              .getDataType();
+      auto outDtype =
+          mlir::cast<ttcore::TileType>(typecastOp.getResult().getType())
+              .getDataType();
       rewriter.create<ttkernel::TypecastTileOp>(
           op->getLoc(), i32(rewriter, op->getLoc(), 0), inDtype, outDtype);
     } else {
@@ -808,6 +804,20 @@ public:
     }
 
     rewriter.eraseOp(op);
+    return success();
+  };
+};
+
+class D2MDstReinterpretCastRewriter
+    : public OpConversionPattern<d2m::DstReinterpretCastOp> {
+public:
+  using OpConversionPattern<d2m::DstReinterpretCastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::DstReinterpretCastOp op,
+                  d2m::DstReinterpretCastOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOp(op, adaptor.getInput());
     return success();
   };
 };
@@ -1480,6 +1490,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTilizeUntilizeRewriter,
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MTypecastRewriter,
+               ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,

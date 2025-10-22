@@ -8,10 +8,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/Attributes.h"
@@ -20,7 +17,6 @@
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
@@ -664,7 +660,7 @@ public:
     auto zerosConst =
         rewriter.create<tosa::ConstOp>(op.getLoc(), resultType, zerosAttr);
 
-    // Multiply by ones to implicitly broadcast
+    // Add by zeros to implicitly broadcast.
     auto result = rewriter.create<tosa::AddOp>(op.getLoc(), resultType, input,
                                                zerosConst);
 
@@ -992,7 +988,10 @@ public:
           op.getLoc(), resultType, matmulResult, shapeOp.getResult());
     }
 
-    rewriter.replaceOp(op, matmulResult);
+    Value dest = adaptor.getOutput();
+    auto copyOp =
+        rewriter.create<linalg::CopyOp>(op.getLoc(), matmulResult, dest);
+    rewriter.replaceOp(op, copyOp.getResult(0));
     return success();
   }
 };

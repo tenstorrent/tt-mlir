@@ -7,7 +7,10 @@ from _ttmlir_runtime.runtime import (
     set_compatible_device_runtime,
     get_current_device_runtime,
 )
-from _ttmlir_runtime.binary import load_binary_from_path
+from _ttmlir_runtime.binary import (
+    load_binary_from_path,
+    load_binary_from_capsule,
+)
 from _ttmlir_runtime.utils import (
     create_runtime_device_from_ttnn,
     create_runtime_tensor_from_ttnn,
@@ -15,8 +18,17 @@ from _ttmlir_runtime.utils import (
 )
 
 
-def _run_binary(binary_path, input_tensors):
+def _run_binary_from_path(binary_path, input_tensors):
     bin = load_binary_from_path(binary_path)
+    return _run_binary(bin, input_tensors)
+
+
+def _run_binary_from_capsule(binary_capsule, input_tensors):
+    bin = load_binary_from_capsule(binary_capsule)
+    return _run_binary(bin, input_tensors)
+
+
+def _run_binary(bin, input_tensors):
     set_compatible_device_runtime(bin)
 
     num_programs = bin.get_num_programs()

@@ -7,24 +7,28 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/OperationValidationAndFallback.cpp
         OptimizerPasses/Optimizer.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
-        TTNNLayout.cpp
+        TTNNAdjustDeallocs.cpp
         TTNNDecomposeLayouts.cpp
+        TTNNEmitPyWorkarounds.cpp
+        TTNNFusing.cpp
+        TTNNLayout.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
-        TTNNUniqueLocs.cpp
-        TTNNFusing.cpp
         TTNNTraceHoistTransform.cpp
-        TTNNEmitPyWorkarounds.cpp
+        TTNNUniqueLocs.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.cpp
         Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpReshapeRewritePattern.cpp
+        Workarounds/Decomposition/Conv2dSliceConfigRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
+        Workarounds/Decomposition/LinearOpRewritePattern.cpp
         Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
+        Workarounds/Decomposition/ScatterOpRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
         Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.cpp
         Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.cpp

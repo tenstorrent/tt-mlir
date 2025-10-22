@@ -162,6 +162,12 @@ void createTTIRToTTNNBackendPipeline(
       options.enableBfp8Conversion;
   pm.addPass(
       ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
+
+  // Add Decomposition pass here to ensure it runs before hoisting.
+  TTIRToTTIRDecompositionOptions decompOptions;
+  decompOptions.decompConfig = DecompMode::CPUFallback;
+  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
+
   // Create DeviceModule to wrap all ops.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
   // Create CPUModuleOp to wrap hoisted ops (if any).
@@ -207,6 +213,9 @@ void createTTIRToTTNNBackendPipeline(
 
 void createTTNNBackendToEmitCPipeline(
     OpPassManager &pm, const TTNNBackendToEmitCPipelineOptions &options) {
+
+  pm.addPass(createTTNNAdjustDeallocs());
+
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
   if (options.targetDylib) {
@@ -234,6 +243,8 @@ void createTTNNBackendToEmitCPipeline(
 
 void createTTNNBackendToEmitPyPipeline(
     OpPassManager &pm, const TTNNBackendToEmitPyPipelineOptions &options) {
+
+  pm.addPass(createTTNNAdjustDeallocs());
 
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 

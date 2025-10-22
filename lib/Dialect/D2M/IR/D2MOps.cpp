@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -24,60 +25,6 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.cpp.inc"
 
 namespace mlir::tt::d2m {
-// Convert TensorType + MetalLayout into a memref including a
-// Shard/View/HostAttr.
-MemRefType getBufferType(Type type, bool isView,
-                         std::optional<ttcore::MetalLayoutAttr> hostInfo) {
-  auto tensorType = mlir::cast<mlir::RankedTensorType>(type);
-  MLIRContext *ctx = tensorType.getContext();
-  auto tensorMeshAttr = mlir::dyn_cast_if_present<ttcore::TensorMeshAttr>(
-      tensorType.getEncoding());
-  ttcore::HostLayoutAttr hostLayout = nullptr;
-
-  if (hostInfo.has_value()) {
-    // Calculate host layout for I/O with potentially unaligned host memref
-    hostLayout = ttcore::HostLayoutAttr::get(
-        ctx, tensorType.getShape(), hostInfo->getHostStride(),
-        hostInfo->getHostVolume(), tensorMeshAttr);
-  } else if (tensorMeshAttr) {
-    // Create host layout with tensor mesh info and default shape/strides/volume
-    hostLayout = ttcore::HostLayoutAttr::get(
-        ctx, tensorType.getShape(),
-        ttmlir::utils::calculateStrides(tensorType.getShape()),
-        ttmlir::utils::volume(tensorType.getShape()), tensorMeshAttr);
-  }
-
-  // If there is no encoding or encoding with TensorMesh info, return with the
-  // host layout attribute.
-  if (!tensorType.getEncoding() || tensorMeshAttr) {
-    return MemRefType::get(tensorType.getShape(), tensorType.getElementType(),
-                           hostLayout);
-  }
-
-  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-
-  auto gridShape = layout.getGridShape(tensorType);
-  auto shardShape = layout.getShardShape(tensorType);
-  SmallVector<int64_t> fullMemrefShape;
-  fullMemrefShape.append(gridShape.begin(), gridShape.end());
-  fullMemrefShape.append(shardShape.begin(), shardShape.end());
-
-  MemRefLayoutAttrInterface layoutAttr;
-  if (isView) {
-    const unsigned rank = static_cast<unsigned>(fullMemrefShape.size());
-    mlir::AffineMap map = layout.getIndexAffineMap();
-    assert(map && map.getNumResults() == rank && map.getNumDims() == rank &&
-           "expected tensor encoding to provide a concrete index_map for view");
-    layoutAttr = ttcore::ViewLayoutAttr::get(ctx, map);
-  } else {
-    SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-    layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
-  }
-
-  return MemRefType::get(
-      fullMemrefShape, tensorType.getElementType(), layoutAttr,
-      ttcore::MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
-}
 
 void d2m::GenericOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
@@ -87,52 +34,6 @@ void d2m::GenericOp::getEffects(
 
 mlir::tt::ttcore::DeviceAttr d2m::GenericOp::getDevice() {
   return ttcore::lookupDevice(*this);
-}
-
-namespace {
-static mlir::tt::ttcore::MetalLayoutAttr
-createDefaultLayout(mlir::MLIRContext *ctx,
-                    mlir::ArrayRef<int64_t> workerGridShape,
-                    mlir::RankedTensorType tensorType) {
-  llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
-
-  // TODO (#4820): Remove this during cleanup.
-  SmallVector<int64_t> squareGridShape =
-      d2m::utils::getSquareTargetGrid(workerGridShape);
-
-  return mlir::tt::ttcore::MetalLayoutAttr::get(
-      ctx, logicalShape, squareGridShape, mlir::tt::ttcore::OOBVal::Undef,
-      mlir::tt::ttcore::MemorySpace::System,
-      mlir::tt::ttcore::TensorMemoryLayout::Sharded);
-}
-} // namespace
-
-mlir::tt::ttcore::MetalLayoutAttr d2m::ToLayoutOp::getOrCreateInputLayout() {
-  auto tensorType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
-  auto inputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-      tensorType.getEncoding());
-  if (inputLayout) {
-    return inputLayout;
-  }
-
-  ArrayRef<int64_t> workerGridShape =
-      ttcore::lookupDevice(*this).getWorkerGrid().getShape();
-
-  return createDefaultLayout(getContext(), workerGridShape, tensorType);
-}
-
-mlir::tt::ttcore::MetalLayoutAttr d2m::ToLayoutOp::getOrCreateOutputLayout() {
-  auto tensorType = mlir::cast<mlir::RankedTensorType>(getOutput().getType());
-  auto outputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-      tensorType.getEncoding());
-  if (outputLayout) {
-    return outputLayout;
-  }
-
-  ArrayRef<int64_t> workerGridShape =
-      ttcore::lookupDevice(*this).getWorkerGrid().getShape();
-
-  return createDefaultLayout(getContext(), workerGridShape, tensorType);
 }
 
 //===----------------------------------------------------------------------===//
@@ -183,7 +84,126 @@ d2m::EmptyOp::getBufferType(mlir::Value value,
                             const mlir::bufferization::BufferizationOptions &,
                             const mlir::bufferization::BufferizationState &,
                             ::llvm::SmallVector<mlir::Value> &) {
-  return d2m::getBufferType(value.getType(), /*isView=*/false);
+  return ttcore::getBufferType(value.getType(), /*isView=*/false);
+}
+
+//===----------------------------------------------------------------------===//
+// FullOp
+//===----------------------------------------------------------------------===//
+
+bool d2m::FullOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+bool d2m::FullOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false;
+}
+
+mlir::LogicalResult
+d2m::FullOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
+  ::llvm::SmallVector<mlir::Value> invocationStack;
+  auto memrefType = mlir::cast<mlir::MemRefType>(
+      getBufferType(getResult(), options, state, invocationStack).value());
+
+  auto denseAttr =
+      mlir::DenseElementsAttr::get(getResult().getType(), getFillValueAttr());
+
+  mlir::memref::GlobalOp global = ttcore::createGlobal(
+      getOperation()->getParentOfType<ModuleOp>(), memrefType, denseAttr);
+  mlir::bufferization::replaceOpWithNewBufferizedOp<memref::GetGlobalOp>(
+      rewriter, *this, global.getType(), global.getName());
+
+  return mlir::success();
+}
+
+mlir::bufferization::AliasingValueList
+d2m::FullOp::getAliasingValues(mlir::OpOperand &,
+                               const mlir::bufferization::AnalysisState &) {
+  bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::BaseMemRefType>
+d2m::FullOp::getBufferType(mlir::Value value,
+                           const mlir::bufferization::BufferizationOptions &,
+                           const mlir::bufferization::BufferizationState &,
+                           ::llvm::SmallVector<mlir::Value> &) {
+  return ttcore::getBufferType(value.getType(), /*isView=*/false);
+}
+
+::mlir::LogicalResult d2m::FullOp::verify() {
+  // Verify that the shape attribute matches the result type's shape.
+  if (!llvm::equal(getShape(), getType().getShape())) {
+    return emitOpError() << "expected shape (" << getType().getShape()
+                         << "), got (" << getShape() << ")";
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// MeshShardOp
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult d2m::MeshShardOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+
+  if (mlir::isa<::mlir::MemRefType>(getInput().getType())) {
+    return failure();
+  }
+
+  auto maybeInput =
+      mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
+  if (failed(maybeInput)) {
+    return maybeInput;
+  }
+
+  auto maybeResult =
+      mlir::bufferization::getBuffer(rewriter, getResult(), options, state);
+  if (failed(maybeResult)) {
+    return maybeResult;
+  }
+
+  mlir::bufferization::replaceOpWithNewBufferizedOp<d2m::MeshShardOp>(
+      rewriter, *this, maybeResult->getType(), *maybeInput, getShardType(),
+      getShardDirection(), getShardShape(), getShardDims());
+
+  return success();
+}
+
+mlir::FailureOr<mlir::BaseMemRefType> d2m::MeshShardOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  return ttcore::getBufferType(value.getType(), false);
+}
+
+::mlir::OpFoldResult d2m::MeshShardOp::fold(FoldAdaptor adaptor) {
+  auto shardShapeArray = getShardShape();
+  auto shardType = getShardType();
+  if (shardType != mlir::tt::ttcore::MeshShardType::Replicate &&
+      ttmlir::utils::volume(shardShapeArray) == 1) {
+    return getInput();
+  }
+
+  return {};
+}
+
+::mlir::LogicalResult d2m::MeshShardOp::verify() {
+  auto shardType = getShardType();
+
+  // Currently, we are not supporting maximal from StableHLO.
+  if (shardType == mlir::tt::ttcore::MeshShardType::Maximal) {
+    return emitOpError("Invalid shard_type (maximal) for mesh_shard op.");
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -521,7 +541,7 @@ ToLayoutOp::getBufferType(mlir::Value value,
                           const mlir::bufferization::BufferizationOptions &,
                           const mlir::bufferization::BufferizationState &,
                           ::llvm::SmallVector<mlir::Value> &) {
-  return d2m::getBufferType(value.getType(), /*isView=*/false, getLayout());
+  return ttcore::getBufferType(value.getType(), /*isView=*/false, getLayout());
 }
 
 //===----------------------------------------------------------------------===//
@@ -581,7 +601,7 @@ mlir::FailureOr<mlir::BaseMemRefType> d2m::StreamLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return d2m::getBufferType(value.getType(), /*isView=*/true);
+  return ttcore::getBufferType(value.getType(), /*isView=*/true);
 }
 
 void d2m::StreamLayoutOp::getCanonicalizationPatterns(
@@ -752,7 +772,7 @@ mlir::FailureOr<mlir::BaseMemRefType> d2m::ViewLayoutOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
-  return d2m::getBufferType(value.getType(), /*isView=*/true);
+  return ttcore::getBufferType(value.getType(), /*isView=*/true);
 }
 
 mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
@@ -784,6 +804,113 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//
+
+void d2m::GenericOp::build(mlir::OpBuilder &builder,
+                           mlir::OperationState &state, ValueRange inputs,
+                           ValueRange outputs, ArrayAttr indexingMaps,
+                           ArrayAttr iteratorTypes, ThreadType singleThreadType,
+                           ttcore::GridAttr grid,
+                           ArrayRef<int64_t> blockFactors) {
+  TT_assertv(!indexingMaps.empty(), "expected non-empty indexing maps");
+  TT_assertv(outputs.size() == 1u, "expected single output");
+
+  if (!grid) {
+    auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
+    ttcore::DeviceLayoutInterface layout = ttcore::getDeviceLayout(shapedType);
+    TT_assertv(
+        layout,
+        "This generic constructor expects operands to be in device layout");
+    grid = builder.getAttr<ttcore::GridAttr>(layout.getGridShape(shapedType));
+  }
+
+  ArrayAttr blockFactorsAttr;
+  if (blockFactors.empty()) {
+    auto maps =
+        llvm::to_vector(llvm::map_range(indexingMaps, [](Attribute attr) {
+          return cast<AffineMapAttr>(attr).getValue();
+        }));
+    auto flatInverseMap =
+        utils::concatInversePermutationMap(maps, /*reverse=*/true);
+
+    SmallVector<int64_t> flattenedOperandGridShapes;
+    for (Value v :
+         llvm::reverse(llvm::to_vector(llvm::concat<Value>(inputs, outputs)))) {
+      auto shapedType = mlir::cast<ShapedType>(v.getType());
+      ttcore::DeviceLayoutInterface layout =
+          ttcore::getDeviceLayout(shapedType);
+      TT_assertv(
+          layout,
+          "This generic constructor expects operands to be in device layout");
+      auto gridShape = layout.getGridShape(shapedType);
+      flattenedOperandGridShapes.append(gridShape.begin(), gridShape.end());
+    }
+
+    // Divide out the grid shape, this is safe to do because we reversed the
+    // affine map above, so output dims are guaranteed to appear first in the
+    // affine map.
+
+    for (std::size_t i = 0; i < grid.getShape().size(); ++i) {
+      flattenedOperandGridShapes[i] /= grid.getShape()[i];
+    }
+
+    blockFactorsAttr = builder.getI64ArrayAttr(
+        flatInverseMap.compose(flattenedOperandGridShapes));
+  } else {
+    blockFactorsAttr = builder.getI64ArrayAttr(blockFactors);
+  }
+
+  auto threads =
+      builder.getArrayAttr(builder.getAttr<ThreadAttr>(singleThreadType));
+
+  build(builder, state, TypeRange(outputs), inputs, outputs, grid,
+        blockFactorsAttr, indexingMaps, iteratorTypes, threads, 1);
+}
+
+void d2m::GenericOp::build(
+    mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
+    ValueRange outputs, ArrayAttr indexingMaps, ArrayAttr iteratorTypes,
+    llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
+        singleThreadRegionBuilder,
+    ThreadType singleThreadType, ttcore::GridAttr grid,
+    ArrayRef<int64_t> blockFactors) {
+  build(builder, state, inputs, outputs, indexingMaps, iteratorTypes,
+        singleThreadType, grid, blockFactors);
+  llvm::SmallVector<Type> blockTypes =
+      llvm::map_to_vector(TypeRange(state.operands), [&](Type t) -> Type {
+        mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(t);
+        auto layout =
+            mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+        auto shardShape = layout.getShardShape(tensorType);
+        return mlir::RankedTensorType::get(shardShape,
+                                           tensorType.getElementType());
+      });
+  Region &region = *state.regions.front().get();
+  llvm::SmallVector<mlir::Location> locs(state.operands.size(), state.location);
+  OpBuilder::InsertionGuard guard(builder);
+  Block *block = builder.createBlock(&region, region.end(), blockTypes, locs);
+  singleThreadRegionBuilder(builder, state.location, block->getArguments());
+}
+
+void d2m::GenericOp::build(
+    mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
+    ValueRange outputs,
+    llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
+        singleThreadRegionBuilder,
+    ThreadType singleThreadType, ttcore::GridAttr grid,
+    ArrayRef<int64_t> blockFactors) {
+  TT_assertv(outputs.size() == 1u, "expected single output");
+  RankedTensorType tensorType =
+      mlir::cast<RankedTensorType>(outputs[0].getType());
+  ttcore::MetalLayoutAttr maybeLayout =
+      mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  const size_t rank = (maybeLayout != nullptr)
+                          ? maybeLayout.getShardShape(tensorType).size()
+                          : tensorType.getShape().size();
+  auto [indexingMaps, iteratorTypes] = buildParallelAffineMapsAndIteratorTypes(
+      builder, inputs.size() + outputs.size(), rank);
+  build(builder, state, inputs, outputs, indexingMaps, iteratorTypes,
+        singleThreadRegionBuilder, singleThreadType, grid);
+}
 
 bool d2m::GenericOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
@@ -873,10 +1000,7 @@ static mlir::LogicalResult verifyAffineBlocking(
   mlir::SmallVector<int64_t> factors = inverseOpGridMap.compose(opGridShape);
   assert(factors.size() == blockingFactors.size());
   for (size_t i = 0; i < blockingFactors.size(); ++i) {
-    // Enable this check once optimize tensor layout pass is doing the right
-    // thing: https://github.com/tenstorrent/tt-mlir/issues/3720
-    bool enableFreeDimCheck = false;
-    if (enableFreeDimCheck && factors[i] == 0) {
+    if (factors[i] == 0) {
       // The "Broacast" part of inverseAndBroadcastProjectedPermutation will 0
       // fill unparticipating dims.  Promote these to 1's so that we can
       // multiply by blocking factor.
@@ -1064,7 +1188,6 @@ static mlir::LogicalResult verifyAffineBlocking(
       Type operandType = operandTypes[arg.getArgNumber()];
       ArrayRef<int64_t> expectedShardShape;
       std::optional<Attribute> expectedMemorySpace;
-      bool isStream = false;
       if (RankedTensorType tensorType =
               mlir::dyn_cast<RankedTensorType>(operandType)) {
         if (!tensorType.getEncoding()) {
@@ -1086,15 +1209,9 @@ static mlir::LogicalResult verifyAffineBlocking(
             mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
                 memref.getLayout());
         expectedShardShape = layout.getShardShape(memref);
-        isStream = mlir::isa<ttcore::ViewLayoutAttr>(memref.getLayout());
       }
 
       if (auto blockMemref = mlir::dyn_cast<MemRefType>(blockArgType)) {
-        if (!isStream && expectedMemorySpace &&
-            *expectedMemorySpace != blockMemref.getMemorySpace()) {
-          return emitOpError("region argument memory space must match "
-                             "the memory space of the corresponding operand");
-        }
         if (expectedShardShape != blockMemref.getShape()) {
           return emitOpError("region argument shape must match the "
                              "shape of the corresponding operand");
@@ -1241,6 +1358,35 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getBlockFactorsValue() {
   });
 }
 
+mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
+  auto maps = getIndexingMapsValue();
+  // Priority doesn't matter here, so reverse can be false.
+  auto flatInverseMap =
+      utils::concatInversePermutationMap(maps, /*reverse=*/false);
+
+  SmallVector<int64_t> flattenedOperandShardShapes;
+  for (Value v : getOperands()) {
+    auto shapedType = mlir::cast<ShapedType>(v.getType());
+    ttcore::DeviceLayoutInterface layout = ttcore::getDeviceLayout(shapedType);
+    TT_assertv(
+        layout,
+        "This generic constructor expects operands to be in device layout");
+    auto shardShape = layout.getShardShape(shapedType);
+    flattenedOperandShardShapes.append(shardShape.begin(), shardShape.end());
+  }
+
+  auto currentBlockFactors = getBlockFactorsValue();
+  auto factorizations = flatInverseMap.compose(flattenedOperandShardShapes);
+  TT_assert(currentBlockFactors.size() == factorizations.size());
+
+  // Multiply back in the current block factors to normalize the result.
+  for (std::size_t i = 0; i < currentBlockFactors.size(); ++i) {
+    factorizations[i] *= currentBlockFactors[i];
+  }
+
+  return factorizations;
+}
+
 mlir::SmallVector<mlir::SmallVector<int64_t>>
 d2m::GenericOp::getOperandGridShapes() {
   SmallVector<SmallVector<int64_t>> gridShapes;
@@ -1295,40 +1441,7 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
-  assert(!getIndexingMaps().empty() && "GenericOp must be pre-loop generated "
-                                       "with indexing maps to use this method");
-  assert(getOutputs().size() == 1);
-  // Concat all of the indexing maps together, matmul example:
-  // (d0, d1, d2) -> (d0, d2)
-  // (d0, d1, d2) -> (d2, d1)
-  // (d0, d1, d2) -> (d0, d1)
-  // Becomes:
-  // (d0, d1, d2) -> (d0, d2, d2, d1, d0, d1)
-  //
-  // We reverse it so that output dimensions get priority for the inverse
-  // permutation.
-  SmallVector<AffineMap> affineMaps = getIndexingMapsValue();
-  SmallVector<AffineMap> affineMapsReversed =
-      llvm::to_vector(llvm::reverse(affineMaps));
-  AffineMap concat = concatAffineMaps(affineMapsReversed, getContext());
-  // Invert the permutation to get a map that we can use to get the loop
-  // bounds. Above example becomes: (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
-  AffineMap inverse = inversePermutation(concat);
-
-  // Eval the affine map to get the loop bounds.
-  SmallVector<SmallVector<int64_t>> operandGridShapes = getOperandGridShapes();
-  SmallVector<int64_t> flattenedGridShapes(
-      ttmlir::utils::flatten(llvm::reverse(operandGridShapes)));
-
-  // Divide out the compute grid dims and re-eval
-  ArrayRef<int64_t> computeGrid = getGrid().getShape();
-  for (size_t i = 0; i < computeGrid.size(); ++i) {
-    assert(flattenedGridShapes[i] % computeGrid[i] == 0 &&
-           "Output grid shape must be divisible by compute grid shape");
-    flattenedGridShapes[i] /= computeGrid[i];
-  }
-
-  return inverse.compose(flattenedGridShapes);
+  return getBlockFactorsValue();
 }
 
 mlir::SmallVector<int64_t>
@@ -1463,7 +1576,7 @@ d2m::GenericOp::getBufferType(mlir::Value value,
         ttcore::MemorySpaceAttr::get(tensorType.getContext(),
                                      ttcore::MemorySpace::DeviceL1));
   }
-  return d2m::getBufferType(tensorType, /*isView=*/false);
+  return ttcore::getBufferType(tensorType, /*isView=*/false);
 }
 
 bool d2m::GenericOp::hasCompatibleBlocking(GenericOp b) {

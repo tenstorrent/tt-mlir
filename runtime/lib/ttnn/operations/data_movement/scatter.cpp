@@ -10,32 +10,22 @@
 
 namespace tt::runtime::ttnn::operations::data_movement {
 
-void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
-         ProgramContext &context) {
+void run(const ::tt::target::ttnn::ScatterOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &lhs = tensorPool.getTTNNTensorAndValidate(op->lhs());
-  const ::ttnn::Tensor &rhs = tensorPool.getTTNNTensorAndValidate(op->rhs());
+  const ::ttnn::Tensor &input =
+      tensorPool.getTTNNTensorAndValidate(op->input());
+  const ::ttnn::Tensor &index =
+      tensorPool.getTTNNTensorAndValidate(op->index());
+  const ::ttnn::Tensor &source =
+      tensorPool.getTTNNTensorAndValidate(op->source());
+  int32_t dim = op->dim();
 
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
 
-  // Use mask-based scatter workaround instead of using ttnn::scatter
-  ::ttnn::Tensor onesLikeLhs = ::ttnn::ones_like(
-      lhs, lhs.dtype(), lhs.layout(), std::nullopt, outputMemoryConfig);
-  ::tt::tt_metal::Array4D startIndex = {0, 0, 0, 0};
-
-  ::ttnn::Tensor indexPad =
-      ::ttnn::pad(onesLikeLhs, rhs.padded_shape().to_array_4D(), startIndex, 0,
-                  false, std::nullopt);
-
-  ::ttnn::Tensor tempA = ::ttnn::pad(lhs, rhs.padded_shape().to_array_4D(),
-                                     startIndex, 0, false, std::nullopt);
-
-  ::ttnn::Tensor out = ::ttnn::where(indexPad, tempA, rhs);
+  ::ttnn::Tensor out = ::ttnn::scatter(input, dim, index, source,
+                                       outputMemoryConfig, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
