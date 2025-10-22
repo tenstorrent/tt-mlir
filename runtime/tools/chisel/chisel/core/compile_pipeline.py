@@ -8,33 +8,6 @@ from ttmlir.ir import Context, Module
 from ttmlir.passmanager import PassManager
 
 
-def run_ttir_decomposition_with_passmanager(module_path: str) -> Module:
-    """
-    Run ttir-to-ttir-decomposition using PassManager
-    Following passes are executed:
-    - ttir-implicit-broadcast-fold:
-        This is executed before TTIR Golden Module as it can be tricky to compare tensors
-        in golden which are not implicit broadcasted and device which are implicit broadcasted
-    - ttir-to-ttir-decomposition:
-        This is executed to decompose the TTIR OPs so that we can reduce number of ops for which golden are needed.
-        Also allows for easier comparison of tensors in golden and device.
-    - canonicalize: This is executed to canonicalize the module
-    """
-    with Context():
-        module = Module.parseFile(str(module_path))
-        pre_passes = [
-            "ttir-implicit-broadcast-fold",
-            "ttir-to-ttir-decomposition",
-            "canonicalize",
-        ]
-        pm = PassManager.parse(
-            "builtin.module({})".format(",".join(pre_passes)),
-        )
-        pm.run(module.operation)
-
-    return module
-
-
 def run_ttir_to_ttnn(module_str: str, ctx) -> Module:
     """
     Run ttir-to-ttnn backend pipeline
@@ -49,7 +22,6 @@ def run_ttir_to_ttnn(module_str: str, ctx) -> Module:
     pass_params = {
         "enable-erase-inverse-ops-pass": "false",
         "enable-const-eval": "false",
-        "enable-fusing-conv2d-with-multiply-pattern": "true",
         "system-desc-path": "ttrt-artifacts/system_desc.ttsys",  # TODO: make this configurable as in the rest of the code
     }
     pm = PassManager.parse(
