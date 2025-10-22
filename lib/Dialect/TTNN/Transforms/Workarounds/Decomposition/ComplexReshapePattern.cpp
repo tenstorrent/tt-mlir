@@ -7,6 +7,11 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 
 LogicalResult ComplexReshapePattern::matchAndRewrite(ttnn::ReshapeOp srcOp,
                                                      PatternRewriter &rewriter) const {
+  // Skip if already decomposed by this pattern to prevent infinite loops
+  if (srcOp->hasAttr("complex_reshape_decomposed")) {
+    return failure();
+  }
+
   mlir::RankedTensorType inputType = ::mlir::dyn_cast<mlir::RankedTensorType>(srcOp.getInput().getType());
   mlir::RankedTensorType outputType = ::mlir::dyn_cast<mlir::RankedTensorType>(srcOp.getResult().getType());
 
@@ -46,10 +51,14 @@ LogicalResult ComplexReshapePattern::matchAndRewrite(ttnn::ReshapeOp srcOp,
 
   auto firstNewReshape = rewriter.create<ttnn::ReshapeOp>(ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_intermediate_reshape"),
   intermediateShapeType, srcOp.getInput(), rewriter.getI64ArrayAttr(intermediateShape), srcOp.getMemoryConfigAttr());
+  // Mark as decomposed to prevent infinite loops
+  firstNewReshape->setAttr("complex_reshape_decomposed", rewriter.getUnitAttr());
 
-  rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+  auto secondNewReshape = rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
       srcOp, outputType, firstNewReshape.getResult(),
       rewriter.getI64ArrayAttr(outputShape), srcOp.getMemoryConfigAttr());
+  // Mark as decomposed to prevent infinite loops
+  secondNewReshape->setAttr("complex_reshape_decomposed", rewriter.getUnitAttr());
 
   return success();
 }
