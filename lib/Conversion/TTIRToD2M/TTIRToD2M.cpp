@@ -248,23 +248,33 @@ protected:
     return r;
   }
 
-  static Block::BlockArgListType createBlockArguments(mlir::Block *block,
-                                                      mlir::Location loc,
-                                                      mlir::TypeRange inputs,
-                                                      mlir::TypeRange outputs) {
+  static SmallVector<Value> createBlockArguments(mlir::OpBuilder &builder,
+                                                 mlir::Block *block,
+                                                 mlir::Location loc,
+                                                 mlir::TypeRange inputs,
+                                                 mlir::TypeRange outputs) {
     auto fn = [&](Type t) {
       mlir::RankedTensorType tensorType = mlir::cast<mlir::RankedTensorType>(t);
       ttcore::MetalLayoutAttr layout =
           mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
       auto shardShape = layout.getShardShape(tensorType);
-      block->addArgument(
-          mlir::RankedTensorType::get(shardShape, tensorType.getElementType()),
-          loc);
+      block->addArgument(d2m::CBType::get(mlir::RankedTensorType::get(
+                             shardShape, tensorType.getElementType())),
+                         loc);
     };
 
     llvm::for_each(mlir::TypeRange(inputs), fn);
     llvm::for_each(mlir::TypeRange(outputs), fn);
-    return block->getArguments();
+
+    SmallVector<Value> operands;
+    for (auto arg : block->getArguments()) {
+      Value acquire =
+          (arg.getArgNumber() < inputs.size())
+              ? builder.create<d2m::WaitOp>(loc, arg).getResult()
+              : builder.create<d2m::ReserveOp>(loc, arg).getResult();
+      operands.push_back(acquire);
+    }
+    return operands;
   }
 
   template <typename ConcreteOp>
@@ -378,8 +388,9 @@ private:
 
       // Populate 'block'.
       {
-        auto blockArgs = createBlockArguments(block, loc, TypeRange(inputs),
-                                              TypeRange(outputs));
+        auto blockArgsVec = createBlockArguments(
+            rewriter, block, loc, TypeRange(inputs), TypeRange(outputs));
+        ArrayRef<Value> blockArgs(blockArgsVec);
 
         // Create 'linalg.generic' accepting 'blockArgs'.
 
@@ -499,8 +510,9 @@ private:
 
       // Populate 'block'.
       {
-        auto blockArgs = createBlockArguments(block, loc, TypeRange(inputs),
-                                              TypeRange(outputs));
+        auto blockArgsVec = createBlockArguments(
+            rewriter, block, loc, TypeRange(inputs), TypeRange(outputs));
+        ArrayRef<Value> blockArgs(blockArgsVec);
         assert(blockArgs.size() == numOperands);
 
         // Create 'linalg.generic' accepting 'blockArgs'.
@@ -732,8 +744,9 @@ private:
 
       // Populate 'block'.
       {
-        auto blockArgs = createBlockArguments(block, loc, TypeRange(inputs),
-                                              TypeRange(outputs));
+        auto blockArgsVec = createBlockArguments(
+            rewriter, block, loc, TypeRange(inputs), TypeRange(outputs));
+        ArrayRef<Value> blockArgs(blockArgsVec);
 
         // Delegate next level of nesting to a "block" op.
 
@@ -910,15 +923,18 @@ public:
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs,
         [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
+          assert(blockArgs.size() == 2);
           auto identityMap = builder.getMultiDimIdentityMap(2);
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
               2, mlir::utils::IteratorType::parallel);
 
+          auto input =
+              builder.create<d2m::WaitOp>(bodyLoc, blockArgs[0]).getResult();
+          auto output =
+              builder.create<d2m::ReserveOp>(bodyLoc, blockArgs[1]).getResult();
+
           auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
-              bodyLoc,
-              llvm::to_vector(
-                  mlir::ValueRange(blockArgs.take_back(1)).getTypes()),
-              blockArgs.take_front(1), blockArgs.take_back(1),
+              bodyLoc, output.getType(), input, output,
               SmallVector<mlir::AffineMap>{identityMap, identityMap},
               linalgIteratorTypes,
               [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
