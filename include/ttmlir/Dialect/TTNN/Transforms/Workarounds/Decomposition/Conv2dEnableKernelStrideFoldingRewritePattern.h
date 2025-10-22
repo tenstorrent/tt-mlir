@@ -26,7 +26,8 @@ public:
     auto conv2dConfig = srcOp.getConv2dConfig();
 
     if (conv2dConfig && *conv2dConfig &&
-        !conv2dConfig->getEnableKernelStrideFolding()) {
+        conv2dConfig->getEnableKernelStrideFolding() &&
+        !conv2dConfig->getEnableKernelStrideFolding().getValue()) {
       // Conv2dConfig already has disabled kernel stride folding, no need to
       // apply the workaround.
       return failure();
