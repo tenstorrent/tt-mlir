@@ -117,16 +117,7 @@ bool TTAlchemist::generatePython(const std::string &input_file,
 
   pythonFile.close();
 
-  // Format the generated Python code using black
-  //
-  std::string formatCommand = "black " + pythonFilePath.string() + " 2>&1";
-  int formatResult = std::system(formatCommand.c_str());
-  if (formatResult != 0) {
-    std::cout << "Warning: Failed to format Python file with black (exit code: "
-              << formatResult << ")" << std::endl;
-    std::cout << "The generated Python code is still available at: "
-              << pythonFilePath << std::endl;
-  }
+  utils::formatCode(pythonFilePath, utils::CodeGenerationTarget::Python);
 
   return true;
 }
