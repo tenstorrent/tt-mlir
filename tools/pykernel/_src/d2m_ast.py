@@ -133,7 +133,6 @@ class D2MGenericCompiler(TTCompilerBase):
                 dtype = F32Type.get(self.ctx)
                 from ..d2m_api import create_metal_layout
 
-                # Create layout to compute device shape (for shard calculation)
                 layout = create_metal_layout(
                     self.ctx, shape, self.grid, self.tiled, self.memory_space
                 )
@@ -146,7 +145,8 @@ class D2MGenericCompiler(TTCompilerBase):
                 else:
                     grid_shape = list(self.grid) + [1] * (logical_rank - len(self.grid))
 
-                # Get full device shape to extract shard portion
+                # Get layout only so we can get the device shape
+                # (using C++ implementation instead of replicating the logic here)
                 typed_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
                 if typed_layout is None:
                     raise RuntimeError("Failed to downcast MetalLayoutAttr")

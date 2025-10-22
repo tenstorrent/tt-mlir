@@ -49,13 +49,17 @@ public:
         continue;
       }
 
-      const bool hasStream =
-          mlir::isa<d2m::StreamLayoutOp>(operand->get().getDefiningOp());
-      if (hasStream) {
+      Operation *definingOp = operand->get().getDefiningOp();
+      if (definingOp && mlir::isa<d2m::StreamLayoutOp>(definingOp)) {
         continue;
       }
 
       d2m::StreamLayoutOp stream = createStream(rewriter, op.getLoc(), operand);
+      if (!stream) {
+        // Skip if stream creation failed (e.g., memref without
+        // DeviceLayoutInterface)
+        continue;
+      }
 
       // Replace uses involved with this generic op:
       //  - Op operand
@@ -76,7 +80,14 @@ public:
                                           Location loc, OpOperand *opOperand) {
     Value operand = opOperand->get();
     MemRefType memref = mlir::cast<MemRefType>(operand.getType());
-    auto layout = mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout());
+
+    // TODO: This is a temp hack to avoid seg fault since the pass is going away
+    auto layout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
+        memref.getLayout());
+    if (!layout) {
+      // Memref doesn't have a DeviceLayoutInterface, skip stream creation
+      return nullptr;
+    }
     SmallVector<int64_t> viewGrid(layout.getGridShape(memref));
     SmallVector<int64_t> storageGrid(layout.getGridShape(memref));
     SmallVector<int64_t> storageShard(layout.getShardShape(memref));
