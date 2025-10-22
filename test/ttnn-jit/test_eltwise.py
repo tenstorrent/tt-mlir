@@ -197,6 +197,8 @@ def rsqrt(input_tensor):
         sin,
         ceil,
         floor,
+        bitwise_not,
+        logical_not,
     ],
 )
 @pytest.mark.parametrize(
@@ -241,8 +243,9 @@ def test_unary_op_dram(device, h, w, dtype, op):
         ceil,
         floor,
         bitwise_not,
+        logical_not,
         # Not supported in TTIRToD2M:
-        # gelu, logical_not?, reciprocal cbrt, sign, erf, erfc
+        # gelu, reciprocal cbrt, sign, erf, erfc
         # Always fails allclose
         # tan, sqrt
     ],
