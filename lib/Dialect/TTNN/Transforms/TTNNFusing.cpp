@@ -115,7 +115,7 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    // TODO: @mvasiljevicTT Add HardsigmoidOp once tt-metal issue is resolved
+    // TODO(mvasiljevic): Add HardsigmoidOp once tt-metal issue is resolved
     // https://github.com/tenstorrent/tt-metal/issues/30973
     patterns.add<
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
