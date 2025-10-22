@@ -4,6 +4,8 @@
 
 import ast
 import inspect
+import logging
+import os
 from typing import Dict, Any, Optional, List
 from ttmlir.ir import *
 from ttmlir.dialects import (
@@ -13,6 +15,28 @@ from ttmlir.dialects import (
     arith,
 )
 from ttmlir.dialects._ods_common import get_default_loc_context
+
+logger = logging.getLogger(__name__)
+
+
+def _get_ast_location(node: ast.AST, source_file: str = None) -> str:
+    """Get source location information from an AST node."""
+    if hasattr(node, "lineno") and hasattr(node, "col_offset"):
+        location = f"line {node.lineno}, col {node.col_offset}"
+        if source_file:
+            # Get just the filename without the full path
+            filename = os.path.basename(source_file)
+            location = f"{filename}:{location}"
+        return location
+    return "unknown location"
+
+
+def _trace_ast_node(node: ast.AST, operation: str, source_file: str = None):
+    """Log trace information for AST node processing."""
+    location = _get_ast_location(node, source_file)
+    node_type = type(node).__name__
+    logger.trace(f"[AST TRACE] {operation} {node_type} at {location}")
+
 
 from .kernel_types import *
 from .utils import _discover_dialect_ops, _cast
@@ -31,9 +55,18 @@ class D2MGenericCompiler(TTCompilerBase):
         self.streams = set()
         self.supported_nodes.append(ast.AsyncFunctionDef)
 
-        self.grid: List[int] = kwargs.get("grid", [1, 1])
+        logger.debug(f"Compiler __init__ kwargs keys: {list(kwargs.keys())}")
+        logger.debug(f"Compiler __init__ kwargs.get('grid'): {kwargs.get('grid')}")
+        self.grid: List[int] = list(kwargs.get("grid", [1, 1]))
+        logger.debug(f"Grid: {self.grid}")
+        logger.debug(f"Grid type: {type(self.grid)}")
         self.memory_space: str = kwargs.get("memory_space", "L1")
+        logger.debug(f"Memory space: {self.memory_space}")
+        logger.debug(f"Memory space type: {type(self.memory_space)}")
         self.tiled: bool = kwargs.get("tiled", True)
+
+        # Track source file for AST tracing
+        self.source_file = kwargs.get("source_file", None)
 
         self._fn_map = {}
         self._fn_map["iter_index"] = (
@@ -48,17 +81,22 @@ class D2MGenericCompiler(TTCompilerBase):
             self._fn_map[name] = val
 
     def _emit_entry(self, node):
+        _trace_ast_node(node, "Processing function entry", self.source_file)
         # TODO: add alloca args name into symbol table
         assert not self.func_entry, "Cannot declare function within a function"
 
         func_operand_types = []
         for i in range(len(node.args.args)):
             arg = node.args.args[i]
+            _trace_ast_node(arg, f"Processing argument {i}", self.source_file)
 
             if not arg.annotation:
                 raise TypeError("All kernel arguments must have a type annotation")
             elif arg.annotation.id == "TensorBlock":
                 shape = self.args[i].shape
+                logger.debug(
+                    f"TensorBlock arg {i}: shape = {shape}, type = {type(shape)}"
+                )
                 dtype = F32Type.get(self.ctx)
                 from ..d2m_api import create_metal_layout
 
@@ -82,15 +120,10 @@ class D2MGenericCompiler(TTCompilerBase):
                     raise RuntimeError("Failed to downcast MetalLayoutAttr")
                 device_shape = typed_layout.getDeviceShape(grid_shape, tile_shape)
 
-                # For 1x1 grid, use logical shape with proper tile counting (like builder_utils.py)
-                if self.grid == [1, 1] or self.grid == (1, 1):
-                    if self.tiled:
-                        # For tiled layouts, calculate tile count for last 2 dimensions
-                        tile_count_h = (shape[-2] + 31) // 32
-                        tile_count_w = (shape[-1] + 31) // 32
-                        device_shape = list(shape[:-2]) + [tile_count_h, tile_count_w]
-                    else:
-                        device_shape = list(shape)
+                logger.debug(
+                    f"TensorBlock device_shape from getDeviceShape: {device_shape}"
+                )
+
                 element_type = (
                     ttcore.ir.TileType.get(self.ctx, 32, 32, ttcore.DataType.Float32)
                     if self.tiled
@@ -100,24 +133,49 @@ class D2MGenericCompiler(TTCompilerBase):
                 func_operand_types.append(tensor_type)
             elif arg.annotation.id == "CircularBuffer":
                 shape = self.args[i].shape
+                logger.debug(
+                    f"CircularBuffer arg {i}: shape = {shape}, type = {type(shape)}"
+                )
                 dtype = F32Type.get(self.ctx)
+                from ..d2m_api import create_metal_layout
 
-                # CircularBuffer should create local memrefs (without MetalLayoutAttr)
-                # for use in DMA operations. The underlying memref should be local L1.
-                if self.tiled:
-                    # For tiled layouts, calculate tile count for last 2 dimensions
-                    tile_count_h = (shape[-2] + 31) // 32
-                    tile_count_w = (shape[-1] + 31) // 32
-                    device_shape = list(shape[:-2]) + [tile_count_h, tile_count_w]
-                    element_type = ttcore.ir.TileType.get(
-                        self.ctx, 32, 32, ttcore.DataType.Float32
-                    )
+                # Create layout to compute device shape (for shard calculation)
+                layout = create_metal_layout(
+                    self.ctx, shape, self.grid, self.tiled, self.memory_space
+                )
+                tile_shape = [32, 32] if self.tiled else [1, 1]
+
+                # Create grid shape that matches logical rank
+                logical_rank = len(shape)
+                if len(self.grid) == 2 and logical_rank == 2:
+                    grid_shape = list(self.grid)
                 else:
-                    device_shape = list(shape)
-                    element_type = dtype
+                    grid_shape = list(self.grid) + [1] * (logical_rank - len(self.grid))
 
-                # Create local memref type (no MetalLayoutAttr) for CircularBuffer
-                tensor = RankedTensorType.get(device_shape, element_type, None)
+                # Get full device shape to extract shard portion
+                typed_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
+                if typed_layout is None:
+                    raise RuntimeError("Failed to downcast MetalLayoutAttr")
+                device_shape = typed_layout.getDeviceShape(grid_shape, tile_shape)
+
+                # CircularBuffer is LOCAL per-core - use only shard shape (last N dimensions)
+                # For 2D tensor with 2D grid: device_shape = [grid_y, grid_x, shard_y, shard_x]
+                # We want the shard portion: [shard_y, shard_x]
+                logical_rank = len(shape)
+                shard_shape = device_shape[-logical_rank:]
+
+                logger.debug(
+                    f"CircularBuffer full device_shape: {device_shape}, shard_shape: {shard_shape}"
+                )
+
+                element_type = (
+                    ttcore.ir.TileType.get(self.ctx, 32, 32, ttcore.DataType.Float32)
+                    if self.tiled
+                    else dtype
+                )
+
+                # Create tensor WITHOUT MetalLayoutAttr - CircularBuffer is local!
+                tensor = RankedTensorType.get(shard_shape, element_type, None)
                 func_operand_types.append(d2m.ir.CBType.get(self.ctx, tensor))
             elif arg.annotation.id == "Semaphore":
                 func_operand_types.append(d2m.ir.SemaphoreType.get(self.ctx))
@@ -154,6 +212,9 @@ class D2MGenericCompiler(TTCompilerBase):
                         IndexType.get(self.ctx), val
                     )
                 elif isinstance(val, Stream):
+                    logger.debug(
+                        f"Stream '{name}': val.shape = {val.shape}, type = {type(val.shape)}"
+                    )
                     with InsertionPoint.at_block_begin(self.module.body):
                         from ..d2m_api import create_metal_layout
 
@@ -185,18 +246,9 @@ class D2MGenericCompiler(TTCompilerBase):
                             grid_shape, tile_shape
                         )
 
-                        # For 1x1 grid, use logical shape with proper tile counting (like builder_utils.py)
-                        if self.grid == [1, 1] or self.grid == (1, 1):
-                            if self.tiled:
-                                # For tiled layouts, calculate tile count for last 2 dimensions
-                                tile_count_h = (val.shape[-2] + 31) // 32
-                                tile_count_w = (val.shape[-1] + 31) // 32
-                                device_shape = list(val.shape[:-2]) + [
-                                    tile_count_h,
-                                    tile_count_w,
-                                ]
-                            else:
-                                device_shape = list(val.shape)
+                        logger.debug(
+                            f"Stream '{name}' device_shape from getDeviceShape: {device_shape}"
+                        )
                         element_type = (
                             ttcore.ir.TileType.get(
                                 self.ctx, 32, 32, ttcore.DataType.Float32
@@ -215,6 +267,9 @@ class D2MGenericCompiler(TTCompilerBase):
                     raise TypeError(f"Invalid capture type for var {name}: {type(val)}")
 
             for target in node.body:
+                _trace_ast_node(
+                    target, "Processing function body statement", self.source_file
+                )
                 self.visit(target)
 
             func.ReturnOp([])
@@ -222,12 +277,20 @@ class D2MGenericCompiler(TTCompilerBase):
         self.symbol_tables.pop()
 
     def visit_FunctionDef(self, node):
+        _trace_ast_node(node, "Visiting FunctionDef", self.source_file)
         with self.loc:
             return self._emit_entry(node)
 
     def visit_AsyncFunctionDef(self, node):
+        _trace_ast_node(node, "Visiting AsyncFunctionDef", self.source_file)
         with self.loc:
             return self._emit_entry(node)
+
+    def visit(self, node, **kwargs):
+        """Override visit method to add trace logging for all AST nodes."""
+        if node is not None:
+            _trace_ast_node(node, "Visiting", self.source_file)
+        return super().visit(node, **kwargs)
 
 
 def syntax(syntax_name):

@@ -8,8 +8,11 @@ import ast
 import inspect
 import functools
 import json
+import logging
 import os
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     import torch
@@ -62,6 +65,10 @@ def create_metal_layout(
     """
     from ttmlir.dialects import ttcore
 
+    logger.debug(
+        f"Creating MetalLayoutAttr: logical_shape={logical_shape}, grid={grid}, tiled={tiled}, memory_space={memory_space}"
+    )
+
     # Convert memory_space string to enum
     if memory_space == "L1":
         mem_space = ttcore.MemorySpace.DeviceL1
@@ -96,6 +103,7 @@ def create_metal_layout(
         int(ttcore.TensorMemoryLayout.Sharded),
     )
 
+    logger.debug(f"Created MetalLayoutAttr: {layout}")
     return layout
 
 
@@ -222,22 +230,33 @@ def _compile(
                 kwargs["_verbose"] = True
 
             m = ast.parse(source_code)
+
+            # Get source file information for AST tracing if logging level is TRACE
+            source_file = None
+            if logger.isEnabledFor(logging.TRACE):
+                source_file = (
+                    getattr(f, "__code__", {}).co_filename
+                    if hasattr(f, "__code__")
+                    else None
+                )
+
             b = D2MGenericCompiler(
                 f.__name__,
                 kernel_type,
                 _collect_captures(f),
                 *args,
+                source_file=source_file,
                 **kwargs,
             )
 
             if verbose:
-                print(ast.dump(m, indent=4) + "\n")
+                logger.debug(f"AST dump:\n{ast.dump(m, indent=4)}")
 
             b.visit(m)
 
             # Check if generated IR is valid
             if verbose:
-                print(b.module)
+                logger.debug(f"Generated IR:\n{b.module}")
 
             b.module.operation.verify()
 
@@ -540,10 +559,16 @@ def pykernel_gen(
             ctx = Context()
             loc = Location.unknown(ctx)
             with ctx, loc:
+                # Add grid, memory_space, and tiled to program.kwargs for compile threads
+                thread_kwargs = dict(program.kwargs)
+                thread_kwargs["grid"] = grid
+                thread_kwargs["memory_space"] = memory_space
+                thread_kwargs["tiled"] = tiled
+
                 compiled_threads = []
                 for compile_thread in program.threads:
                     compiled_threads.append(
-                        compile_thread(*program.args, **program.kwargs)
+                        compile_thread(*program.args, **thread_kwargs)
                     )
 
                 module = Module.create(loc)
@@ -578,7 +603,7 @@ def pykernel_gen(
                         num_outs,
                     )
 
-                print(module)
+                logger.debug(f"Module after compilation:\n{module}")
                 with open("tmp.mlir", "w") as fd:
                     print(module, file=fd)
 
@@ -597,7 +622,7 @@ def pykernel_gen(
                 )
                 pm = PassManager.parse(pipeline_str)
                 pm.enable_verifier(verify)
-                print("Running custom pipeline:", pm)
+                logger.debug(f"Running custom pipeline: {pm}")
                 if print_ir:
                     print_ir_path = print_ir if isinstance(print_ir, str) else None
                     ctx.enable_multithreading(False)
@@ -610,14 +635,14 @@ def pykernel_gen(
                     )
                 pm.run(module.operation)
 
-                print(module)
+                logger.debug(f"Final module:\n{module}")
                 bin = ttmetal_to_flatbuffer_bin(module)
 
                 # print("RUNTIME DISABLED")
                 # return
 
                 if runtime is None or binary is None:
-                    print("Warning: runtime not enabled, returning compiled object")
+                    logger.warning("Runtime not enabled, returning compiled object")
                     return bin
 
                 #
@@ -642,7 +667,7 @@ def pykernel_gen(
                     False,  # disable_device_address_validation
                     False,  # blocking_cq
                 )
-                print(f"setting tt runtime debug env={debug_env}")
+                logger.debug(f"Setting tt runtime debug env={debug_env}")
 
                 inputs = []
                 for tensor in args:
