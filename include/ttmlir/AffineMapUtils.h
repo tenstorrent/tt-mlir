@@ -9,6 +9,8 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Utils.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
@@ -106,6 +108,28 @@ fullyApplyAffineMap(mlir::OpBuilder &builder, mlir::Location loc,
   }
   return results;
 }
+
+// Derive a grid shape by sampling an affine map over a reference grid shape.
+inline llvm::SmallVector<int64_t>
+applyMapToGrid(mlir::ArrayRef<int64_t> gridShape, mlir::AffineMap map) {
+  using namespace llvm;
+  if (!map || map.isIdentity()) {
+    return SmallVector<int64_t>(gridShape.begin(), gridShape.end());
+  }
+
+  SmallVector<int64_t> resultGridShape =
+      SmallVector<int64_t>(map.getNumResults(), 0);
+  TT_assertv(gridShape.size() == map.getNumDims(),
+             "Grid shape must have the same number of dimensions as the map");
+  ttmlir::utils::sample(gridShape, [&](SmallVector<int64_t, 8> point) {
+    SmallVector<int64_t> virtualPoint = map.compose(point);
+    for (size_t i = 0; i < virtualPoint.size(); ++i) {
+      resultGridShape[i] = std::max(resultGridShape[i], virtualPoint[i] + 1);
+    }
+  });
+  return resultGridShape;
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_AFFINEMAPUTILS_H

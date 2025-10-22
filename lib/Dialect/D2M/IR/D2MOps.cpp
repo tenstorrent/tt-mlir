@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -426,9 +427,9 @@ void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
       return failure();
     }
 
-    // DO NOT fold away toLayout from underlying empty physical tensor to a view.
-    // It isn't possible to fold the underlying physical tensor into the virtual
-    // view tensor; both must be preserved.
+    // DO NOT fold away toLayout from underlying empty physical tensor to a
+    // view. It isn't possible to fold the underlying physical tensor into the
+    // virtual view tensor; both must be preserved.
     auto outType = op.getOutput().getType();
     if (auto tensorType = dyn_cast<RankedTensorType>(outType);
         tensorType && utils::hasVirtualGrid(op.getOutput())) {
@@ -852,7 +853,7 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
     auto coreVirtualizationMap =
         d2m::utils::getCoreVirtualizationMap(outputs[0]);
     SmallVector<int64_t> vGridShape =
-        d2m::utils::applyMapToGrid(grid.getShape(), coreVirtualizationMap);
+        ttmlir::utils::applyMapToGrid(grid.getShape(), coreVirtualizationMap);
 
     for (std::size_t i = 0; i < vGridShape.size(); ++i) {
       flattenedOperandGridShapes[i] /= vGridShape[i];
@@ -1002,7 +1003,8 @@ static mlir::LogicalResult verifyAffineBlocking(
   // the expected operand grid shapes.
   auto inverseOpGridMap =
       inverseAndBroadcastProjectedPermutation(opGridIndexingMap);
-  mlir::SmallVector<int64_t> factors = inverseOpGridMap.compose(computeGridShape);
+  mlir::SmallVector<int64_t> factors =
+      inverseOpGridMap.compose(computeGridShape);
   assert(factors.size() == blockingFactors.size());
   for (size_t i = 0; i < blockingFactors.size(); ++i) {
     if (factors[i] == 0) {
@@ -1019,8 +1021,7 @@ static mlir::LogicalResult verifyAffineBlocking(
     auto factor = indexingMaps[operand].compose(factors);
     assert(shape.size() == factor.size());
     if (auto dim = isNotEqualOrBroadcast(shape, factor)) {
-      return diagFn() << shapeName << " dim unexpected for operand[" <<
-      operand
+      return diagFn() << shapeName << " dim unexpected for operand[" << operand
                       << "] " << shapeName << "_shape=[" << shapes[operand]
                       << "] expected " << shapeName << "_shape=[" << factor
                       << "] at affine dim d" << *dim;
@@ -1452,8 +1453,8 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getVirtualComputeGridShape() {
   if (auto coreVirtualizationMap = getCoreVirtualizationMap()) {
     // Compute the virtual compute grid by sampling the core virt map
     // over the domain of the physical grid shape
-    return d2m::utils::applyMapToGrid(getGrid().getShape(),
-                                      coreVirtualizationMap);
+    return ttmlir::utils::applyMapToGrid(getGrid().getShape(),
+                                         coreVirtualizationMap);
   } else {
     // If no core virt map is defined, the physical grid shape and virtual
     // compute grid are the same.

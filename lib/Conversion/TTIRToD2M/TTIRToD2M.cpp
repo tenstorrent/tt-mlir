@@ -8,11 +8,11 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 // D2M generic/region ops
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
-#include "ttmlir/Asserts.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -88,7 +88,8 @@ protected:
     // for now, can only support if largest dim is divisible by grid volume
     int64_t gridVolume = getTargetGridVolume();
     TT_assertv((physicalShape[shardedDimIndex] % gridVolume == 0),
-               "Sharded dimension in virtual gridPhysical shape dimension is not divisible by grid volume {1}",
+               "Sharded dimension in virtual gridPhysical shape dimension is "
+               "not divisible by grid volume {1}",
                shardedDimIndex, gridVolume);
 
     llvm::SmallVector<int64_t> grid;
@@ -99,7 +100,8 @@ protected:
         grid.push_back(1);
       }
     }
-    int64_t virtualGridVolume = std::accumulate(grid.begin(), grid.end(), 1, std::multiplies<int64_t>());
+    int64_t virtualGridVolume = std::accumulate(grid.begin(), grid.end(), 1,
+                                                std::multiplies<int64_t>());
     TT_assertv((virtualGridVolume % gridVolume == 0),
                "Virtual grid volume should be divisible by target grid volume");
     return grid;
@@ -216,24 +218,23 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
-  Value
-  createVirtualGridToLayoutOp(Value value, ttcore::MetalLayoutAttr layout,
-                             ArrayRef<int64_t> logicalShape,
-                             ArrayRef<int64_t> unshardedShape,
-                             ArrayRef<int64_t> tileShape,
-                             ttcore::MemorySpace memSpace,
-                             Type elementType,
-                             mlir::ConversionPatternRewriter &rewriter) const {
+  Value createVirtualGridToLayoutOp(
+      Value value, ttcore::MetalLayoutAttr layout,
+      ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> unshardedShape,
+      ArrayRef<int64_t> tileShape, ttcore::MemorySpace memSpace,
+      Type elementType, mlir::ConversionPatternRewriter &rewriter) const {
 
-    auto [maxRatioIndex, aspectRatio] = findMaxDimAndAspectRatio(unshardedShape);
+    auto [maxRatioIndex, aspectRatio] =
+        findMaxDimAndAspectRatio(unshardedShape);
     auto optimalGrid = computeOptimalVirtualGrid(unshardedShape, maxRatioIndex);
 
-    auto [coreVirtMap, invCoreVirtMap] = createCoreVirtMaps(
-        rewriter.getContext(), optimalGrid, targetSquareGridShape);
+    auto [coreVirtMap, invCoreVirtMap] =
+        ttmlir::d2m::VirtualGridUtil::createCoreVirtMaps(
+            rewriter.getContext(), optimalGrid, targetSquareGridShape);
 
-      // Get optimal sharded, on-device shape.
-      llvm::SmallVector<int64_t> shardedShape =
-          layout.getDeviceShape(optimalGrid, tileShape);
+    // Get optimal sharded, on-device shape.
+    llvm::SmallVector<int64_t> shardedShape =
+        layout.getDeviceShape(optimalGrid, tileShape);
 
     // create underlying physical buffer
     size_t numShardDims = targetSquareGridShape.size();
@@ -264,7 +265,7 @@ protected:
             ->getResult(0);
 
     return rewriter.create<d2m::ToLayoutOp>(value.getLoc(), value, view)
-                    ->getResult(0);
+        ->getResult(0);
   }
 
   // Create a ToLayout op for a value using the provided layout info and grid.
@@ -316,8 +317,8 @@ protected:
     Value to_layout;
     if (shouldImplementAsVirtualGrid(unshardedShape)) {
       to_layout = createVirtualGridToLayoutOp(value, layout, logicalShape,
-                                             unshardedShape, tileShape,
-                                             memSpace, elementType, rewriter);
+                                              unshardedShape, tileShape,
+                                              memSpace, elementType, rewriter);
     } else {
 
       // Calculate optimal grid for given physical shape.

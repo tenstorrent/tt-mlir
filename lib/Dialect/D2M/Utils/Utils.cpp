@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Utils.h"
-#include "ttmlir/Asserts.h"
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
@@ -132,8 +132,10 @@ Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref) {
             physTensor.getDefiningOp())) {
       physTensor = viewOp.getInput();
     }
-  } else if (auto genericOp = mlir::dyn_cast<mlir::tt::d2m::GenericOp>(tensorOrMemref.getDefiningOp())) {
-    // Assume that if the defining op is a generic op, the output is the first of the outputs.
+  } else if (auto genericOp = mlir::dyn_cast<mlir::tt::d2m::GenericOp>(
+                 tensorOrMemref.getDefiningOp())) {
+    // Assume that if the defining op is a generic op, the output is the first
+    // of the outputs.
     auto genericOutput = genericOp.getOutputs()[0];
     physTensor = getPhysicalTensorOrMemref(genericOutput);
   }
@@ -143,7 +145,8 @@ Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref) {
 
 AffineMap getCoreVirtualizationMap(mlir::Value tensorOrMemref) {
   auto physicalTensorOrMemref = getPhysicalTensorOrMemref(tensorOrMemref);
-  auto shapedType = mlir::dyn_cast<ShapedType>(physicalTensorOrMemref.getType());
+  auto shapedType =
+      mlir::dyn_cast<ShapedType>(physicalTensorOrMemref.getType());
   TT_assertv(shapedType, "Expected a shaped type");
 
   auto layout = ttcore::getDeviceLayout(shapedType);
@@ -153,7 +156,8 @@ AffineMap getCoreVirtualizationMap(mlir::Value tensorOrMemref) {
     return shardLayout.getCoreVirtualizationMap();
   } else if (auto metalLayout =
                  mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(layout)) {
-    // Core virtualization is stored in the IndexAffineMap field of MetalLayoutAttr
+    // Core virtualization is stored in the IndexAffineMap field of
+    // MetalLayoutAttr
     auto map = metalLayout.getIndexAffineMap();
 
     // This is a hack to get around MetalLayoutAttr defaulting to an identity
@@ -179,26 +183,6 @@ SmallVector<int64_t> getGridShape(mlir::Value tensorOrMemref) {
   auto layout = ttcore::getDeviceLayout(shapedType);
   return (layout) ? llvm::SmallVector<int64_t>(layout.getGridShape(shapedType))
                   : llvm::SmallVector<int64_t>({1, 1});
-}
-
-mlir::SmallVector<int64_t> applyMapToGrid(mlir::ArrayRef<int64_t> gridShape,
-                                          mlir::AffineMap map) {
-  if (!map || map.isIdentity()) {
-    return SmallVector<int64_t>(gridShape.begin(), gridShape.end());
-  }
-
-  SmallVector<int64_t> resultGridShape =
-      SmallVector<int64_t>(map.getNumResults(), 0);
-  TT_assertv(gridShape.size() == map.getNumDims(),
-             "Grid shape must have the same number of dimensions as the map");
-  ttmlir::utils::sample(gridShape, [&](SmallVector<int64_t, 8> point) {
-    SmallVector<int64_t> virtualPoint = map.compose(point);
-    for (size_t i = 0; i < virtualPoint.size(); ++i) {
-      resultGridShape[i] =
-          std::max(resultGridShape[i], virtualPoint[i] + 1);
-    }
-  });
-  return resultGridShape;
 }
 
 SmallVector<int64_t> getPhysicalGridShape(mlir::Value tensorOrMemref) {

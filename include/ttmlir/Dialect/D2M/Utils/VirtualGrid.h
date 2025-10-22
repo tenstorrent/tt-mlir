@@ -6,18 +6,25 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/SmallVector.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Utils.h"
+#include "llvm/ADT/SmallVector.h"
 
-namespace mlir::tt {
+namespace ttmlir::d2m {
+using namespace llvm;
+using namespace mlir;
+
+class VirtualGridUtil {
+public:
   static std::pair<AffineMap, AffineMap>
   createCoreVirtMaps(MLIRContext *context,
                      const SmallVector<int64_t> &virtualGrid,
                      const SmallVector<int64_t> &targetGrid) {
 
-    TT_assertv(targetGrid.size() == 2ul, "Target grid must have 2 dimensions {1}", targetGrid.size());
-    TT_assertv(virtualGrid.size() == 2ul, "Virtual grid only supported for 2D shapes.");
+    TT_assertv(targetGrid.size() == 2ul,
+               "Target grid must have 2 dimensions {1}", targetGrid.size());
+    TT_assertv(virtualGrid.size() == 2ul,
+               "Virtual grid only supported for 2D shapes.");
     int64_t rank = virtualGrid.size();
 
     bool is2DWidthSharded = (rank == 2) && virtualGrid[0] == 1;
@@ -46,9 +53,8 @@ namespace mlir::tt {
         inverseMapExprs = {d1 * gridColStride + d0, zero};
       }
       auto forward =
-          mlir::AffineMap::get(2*rank, 0, forwardMapExprs, context);
-      auto inverse =
-          mlir::AffineMap::get(rank, 0, inverseMapExprs, context);
+          mlir::AffineMap::get(2 * rank, 0, forwardMapExprs, context);
+      auto inverse = mlir::AffineMap::get(rank, 0, inverseMapExprs, context);
       return {forward, inverse};
     } else {
       TT_assertv((is2DWidthSharded || is2DHeightSharded),
@@ -58,5 +64,5 @@ namespace mlir::tt {
       llvm_unreachable("Only supporting 2D width or height sharding");
     }
   }
-
-}
+};
+} // namespace ttmlir::d2m

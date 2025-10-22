@@ -44,29 +44,23 @@ Type getRegionLargestDstElemType(Region &region);
 AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
                                       bool reverse);
 
-// returns true if the tensor/memref has a virtual grid (i.e. non trivial core
-// virtualization map defined in underlying ShardLayoutAttr)
+// Get grid shape of a tensor or memref using its DeviceLayoutInterface.
+llvm::SmallVector<int64_t> getGridShape(mlir::Value tensorOrMemref);
+
+// Returns true if the tensor/memref has a virtual grid (i.e. non trivial core
+// virtualization map defined in underlying ShardLayoutAttr).
 bool hasVirtualGrid(mlir::Value tensorOrMemref);
 
-// Trace IR to find underlying physical (non-view) tensor/memref
+// Traces IR to find underlying physical (non-view) tensor/memref.
 Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref);
 
 // Trace IR to find underlying physical (non-view) tensor/memref and return its
-// grid shape
+// grid shape.
 llvm::SmallVector<int64_t> getPhysicalGridShape(mlir::Value tensorOrMemref);
 
-// Get grid shape of a tensor or memref using layout attribute
-llvm::SmallVector<int64_t> getGridShape(mlir::Value tensorOrMemref);
-
-// Get device layout interface if it exists
-ttcore::DeviceLayoutInterface getDeviceLayoutInterfaceIfExists(mlir::Value tensorOrMemref);
-
-// Derive a grid shape by sampling an affine map over a reference grid shape
-llvm::SmallVector<int64_t> applyMapToGrid(mlir::ArrayRef<int64_t> gridShape,
-                                          mlir::AffineMap map);
-
 // Get core virtualization map associated with a tensor/memref's underlying
-// physical implementation. The input is traced
+// physical implementation. The input through IR to find its underlying physical
+// tensor/memref.
 AffineMap getCoreVirtualizationMap(mlir::Value tensorOrMemref);
 
 } // namespace mlir::tt::d2m::utils
