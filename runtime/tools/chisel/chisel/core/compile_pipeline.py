@@ -22,6 +22,7 @@ def run_ttir_to_ttnn(module_str: str, ctx) -> Module:
     pass_params = {
         "enable-erase-inverse-ops-pass": "false",
         "enable-const-eval": "false",
+        "enable-fusing-conv2d-with-multiply-pattern": "true",
         "system-desc-path": "ttrt-artifacts/system_desc.ttsys",  # TODO: make this configurable as in the rest of the code
     }
     pm = PassManager.parse(
