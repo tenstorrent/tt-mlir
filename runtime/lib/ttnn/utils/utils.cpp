@@ -468,15 +468,14 @@ createRuntimeDeviceFromTTNN(::ttnn::MeshDevice *meshDevice) {
   // Wrap the the device in the runtime device.
   auto ttnnTraceCache = std::make_shared<::tt::runtime::ttnn::TraceCache>(
       std::static_pointer_cast<::ttnn::MeshDevice>(unsafeMeshDeviceSharedPtr));
-  auto traceCache = std::make_shared<::tt::runtime::detail::TraceCache>(
+  auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
       std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
 
   auto ttnnProgramDescCache =
       std::make_shared<::tt::runtime::ttnn::ProgramDescCache>();
-  auto programDescCache =
-      std::make_shared<::tt::runtime::detail::ProgramDescCache>(
-          std::static_pointer_cast<void>(ttnnProgramDescCache),
-          DeviceRuntime::TTNN);
+  auto programDescCache = std::make_shared<::tt::runtime::ProgramDescCache>(
+      std::static_pointer_cast<void>(ttnnProgramDescCache),
+      DeviceRuntime::TTNN);
 
   return Device(unsafeMeshDeviceSharedPtr, traceCache, programDescCache,
                 DeviceRuntime::TTNN);
