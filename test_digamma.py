@@ -10,7 +10,7 @@ import pytest
 
 
 @ttnn_jit.jit(backend="ttnn", max_grid=(7, 7), debug=False)
-def digamma(
+def digamma_trace(
     input_a,
     one_tensor,  # = 1 for the divide that replaces the reciprocal.
     reciprocal_coeff,  # =0.5,           # 1/2(z) coefficient
@@ -60,6 +60,46 @@ def digamma(
     # (1/12) * x^14
     tmp = ttnn.multiply(tmp, val_square)
     output = ttnn.subtract(output, ttnn.multiply(tmp, x14_coeff))
+
+    return ttnn.subtract(t_log_out, output)
+
+
+@ttnn_jit.jit(backend="ttnn", max_grid=(7, 7), debug=False)
+def digamma(input_a, one_tensor):
+    t_log_out = ttnn.log(input_a)  # negative log is not useful here
+
+    # 1/2(z)
+    tmp_reciprocal = ttnn.divide(one_tensor, input_a)
+    output = ttnn.multiply(tmp_reciprocal, 0.5)
+    tmp = ttnn.multiply(tmp_reciprocal, tmp_reciprocal)
+    val_square = tmp
+
+    # (1/12) * x^2
+    output = ttnn.subtract(output, ttnn.multiply(tmp, 0.083333333))
+
+    # (1/120) * x^4
+    tmp = ttnn.multiply(tmp, val_square)
+    output = ttnn.add(output, ttnn.multiply(tmp, 0.008333333333333333))
+
+    # (1/252) * x^6
+    tmp = ttnn.multiply(tmp, val_square)
+    output = ttnn.subtract(output, ttnn.multiply(tmp, 0.003968253968253968))
+
+    # (1/240) * x^8
+    tmp = ttnn.multiply(tmp, val_square)
+    output = ttnn.add(output, ttnn.multiply(tmp, 0.004166666666666667))
+
+    # (1/132) * x^10
+    tmp = ttnn.multiply(tmp, val_square)
+    output = ttnn.subtract(output, ttnn.multiply(tmp, 0.007575757575757576))
+
+    # (691/32760) * x^12
+    tmp = ttnn.multiply(tmp, val_square)
+    output = ttnn.add(output, ttnn.multiply(tmp, 0.021092796092796094))
+
+    # (1/12) * x^14
+    tmp = ttnn.multiply(tmp, val_square)
+    output = ttnn.subtract(output, ttnn.multiply(tmp, 0.08333333333333333))
 
     return ttnn.subtract(t_log_out, output)
 
@@ -115,7 +155,7 @@ def test_digamma_trace(h, w):
     x14_coeff = ttnn.from_torch(torch_x14_coeff, spec=tensor_spec)
 
     # op_jit = ttnn_jit.jit(backend="ttnn", max_grid=max_grid, debug=True)(digamma)
-    op_jit = digamma
+    op_jit = digamma_trace
 
     # Warmup program caches
     input_a_tensor = ttnn.allocate_tensor_on_device(tensor_spec, device)
@@ -278,14 +318,6 @@ def test_digamma_compare(h, w):
     max_grid = (7, 7)
     torch_tensor_a = torch.rand((h, w), dtype=dtype) * 100
     torch_one_tensor = torch.full((h, w), 1.0, dtype=dtype)
-    reciprocal_coeff = torch.full((h, w), 0.5, dtype=dtype)
-    torch_x2_coeff = torch.full((h, w), 0.083333333, dtype=dtype)
-    torch_x4_coeff = torch.full((h, w), 0.008333333333333333, dtype=dtype)
-    torch_x6_coeff = torch.full((h, w), 0.003968253968253968, dtype=dtype)
-    torch_x8_coeff = torch.full((h, w), 0.004166666666666667, dtype=dtype)
-    torch_x10_coeff = torch.full((h, w), 0.007575757575757576, dtype=dtype)
-    torch_x12_coeff = torch.full((h, w), 0.021092796092796094, dtype=dtype)
-    torch_x14_coeff = torch.full((h, w), 0.08333333333333333, dtype=dtype)
 
     core_range = ttnn.CoreRange(
         ttnn.CoreCoord(0, 0), ttnn.CoreCoord(max_grid[0], max_grid[1])
@@ -300,30 +332,12 @@ def test_digamma_compare(h, w):
 
     input_a = ttnn.from_torch(torch_tensor_a, spec=tensor_spec, device=device)
     one_ = ttnn.from_torch(torch_one_tensor, spec=tensor_spec, device=device)
-    reciprocal_coeff = ttnn.from_torch(
-        reciprocal_coeff, spec=tensor_spec, device=device
-    )
-    x2_coeff = ttnn.from_torch(torch_x2_coeff, spec=tensor_spec, device=device)
-    x4_coeff = ttnn.from_torch(torch_x4_coeff, spec=tensor_spec, device=device)
-    x6_coeff = ttnn.from_torch(torch_x6_coeff, spec=tensor_spec, device=device)
-    x8_coeff = ttnn.from_torch(torch_x8_coeff, spec=tensor_spec, device=device)
-    x10_coeff = ttnn.from_torch(torch_x10_coeff, spec=tensor_spec, device=device)
-    x12_coeff = ttnn.from_torch(torch_x12_coeff, spec=tensor_spec, device=device)
-    x14_coeff = ttnn.from_torch(torch_x14_coeff, spec=tensor_spec, device=device)
 
     # op_jit = ttnn_jit.jit(backend="ttnn", max_grid=max_grid, debug=True)(digamma)
     op_jit = digamma
     output_tensor = op_jit(
         input_a,
         one_,
-        reciprocal_coeff,
-        x2_coeff,
-        x4_coeff,
-        x6_coeff,
-        x8_coeff,
-        x10_coeff,
-        x12_coeff,
-        x14_coeff,
     )
     golden = ttnn.digamma(input_a)
 
