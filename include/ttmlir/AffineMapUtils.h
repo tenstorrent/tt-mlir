@@ -17,6 +17,7 @@
 
 namespace ttmlir::utils {
 
+/// Returns a new shape by applying `map` to the input shape.
 template <typename Vector>
 llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
   mlir::SmallVector<int64_t> lastIndex;
@@ -31,6 +32,8 @@ llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
   return result;
 }
 
+/// Returns a new affine map with all symbols replaced with given constant
+/// values.
 inline mlir::AffineMap
 replaceAffineMapSymbols(mlir::AffineMap map, mlir::ArrayRef<int64_t> symbols) {
   assert(map.getNumSymbols() == symbols.size());
@@ -51,11 +54,9 @@ replaceAffineMapSymbols(mlir::AffineMap map, mlir::ArrayRef<int64_t> symbols) {
                                    map.getNumDims(), numResultSyms);
 }
 
-// Generates an affine map translating ND grid x ND shard coordinates into ND
-// grid + a linearized offset i.e. collapsing all shard dims into a single
-// byte offset based on provided shard strides.
-//
-// i.e. if strides = [4, 2] --> (g0, g1, s0, s1) -> (g0, g1, 4*s0 + 2*s1)
+/// Generates an affine map translating ND grid + ND shard coordinates into ND
+/// grid + linearized offset.
+/// Example: strides=[4,2] -> (g0,g1,s0,s1) -> (g0,g1,4*s0+2*s1)
 inline mlir::AffineMap
 generateAffineMapFromShardStrides(mlir::ArrayRef<int64_t> strides,
                                   mlir::MLIRContext *context) {
@@ -77,6 +78,7 @@ generateAffineMapFromShardStrides(mlir::ArrayRef<int64_t> strides,
   return map;
 }
 
+/// Returns a new affine map with only the selected result.
 inline mlir::AffineMap affineMapSelectOneOutput(mlir::AffineMap map,
                                                 unsigned selectedResult) {
   mlir::SmallVector<int64_t> dropMask;
@@ -88,16 +90,8 @@ inline mlir::AffineMap affineMapSelectOneOutput(mlir::AffineMap map,
   return map.dropResults(mlir::ArrayRef<int64_t>(dropMask));
 }
 
-inline mlir::AffineMap affineMapDropRange(mlir::AffineMap map, unsigned start,
-                                          unsigned end) {
-  mlir::SmallVector<int64_t> dropMask;
-  for (unsigned i = start; i <= end; i++) {
-    dropMask.push_back(i);
-  }
-  return map.dropResults(mlir::ArrayRef<int64_t>(dropMask));
-}
-
-// returns
+/// Applies an affine map to input values, returning an AffineApplyOp for each
+/// result.
 inline llvm::SmallVector<mlir::Value>
 fullyApplyAffineMap(mlir::OpBuilder &builder, mlir::Location loc,
                     mlir::AffineMap map, mlir::ValueRange inputs) {
@@ -109,7 +103,8 @@ fullyApplyAffineMap(mlir::OpBuilder &builder, mlir::Location loc,
   return results;
 }
 
-// Derive a grid shape by sampling an affine map over a reference grid shape.
+/// Derives a new grid shape by sampling an affine map over a reference grid
+/// shape.
 inline llvm::SmallVector<int64_t>
 applyMapToGrid(mlir::ArrayRef<int64_t> gridShape, mlir::AffineMap map) {
   using namespace llvm;

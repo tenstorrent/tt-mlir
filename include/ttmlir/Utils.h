@@ -119,7 +119,7 @@ llvm::SmallVector<std::string> iterableToStrings(Range &&iterable) {
 }
 
 // Formats an iterable collection as a string with parentheses and separator.
-// Example: formatIterable({1, 2, 3}) -> "(1, 2, 3)"
+// Example: formatIterable({1, 2, 3}) -> "(1,2,3)"
 // Example: formatIterable({1, 2, 3}, "x") -> "(1x2x3)"
 template <typename Range>
 std::string formatIterable(Range &&iterable, llvm::StringRef separator = ",") {

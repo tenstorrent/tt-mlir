@@ -17,6 +17,18 @@ using namespace mlir;
 class VirtualGridUtil {
 public:
   static std::pair<AffineMap, AffineMap>
+  /// Generates a pair of forward and inverse affine maps that allow
+  /// implementing a virtual grid as a physical-view pair of tensors/memrefs.
+  ///
+  /// The view uses the grid x shard forward map to translate pure virtual
+  /// coordinates to physical coordinates compatible with the physical grid.
+  ///
+  /// The physical memref/tensor uses the inverse map to perform core
+  /// virtualization, translating raw physical core locations at runtime into
+  /// virtual core locations that are compatible with virtual space. The inverse
+  /// map is restricted to only the grid dimensions; shard dims CANNOT
+  /// participate in virtual grid dim exprs (and vice-versa) or reblocking will
+  /// not work reliably.
   createCoreVirtMaps(MLIRContext *context,
                      const SmallVector<int64_t> &virtualGrid,
                      const SmallVector<int64_t> &targetGrid) {
