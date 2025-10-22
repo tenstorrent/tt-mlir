@@ -336,13 +336,13 @@ using ComputeOpMap = OpMap<
 
   // Elementwise SFPU Unary.
   std::pair<d2m::TileAbsOp,         std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
+  std::pair<d2m::TileBitwiseNotOp,  std::pair<ttkernel::BitwiseNotTileInitOp,      ttkernel::BitwiseNotTileOp>>,
   std::pair<d2m::TileCeilOp,        std::pair<ttkernel::RoundingTileInitOp,        ttkernel::CeilTileOp>>,
   std::pair<d2m::TileCosOp,         std::pair<ttkernel::CosTileInitOp,             ttkernel::CosTileOp>>,
   std::pair<d2m::TileExpOp,         std::pair<ttkernel::ExpTileInitOp,             ttkernel::ExpTileOp>>,
   std::pair<d2m::TileFloorOp,       std::pair<ttkernel::RoundingTileInitOp,        ttkernel::FloorTileOp>>,
   std::pair<d2m::TileGeluOp,        std::pair<ttkernel::GeluTileInitOp,            ttkernel::GeluTileOp>>,
   std::pair<d2m::TileLogOp,         std::pair<ttkernel::LogTileInitOp,             ttkernel::LogTileOp>>,
-  std::pair<d2m::TileBitwiseNotOp,  std::pair<ttkernel::BitwiseNotTileInitOp,      ttkernel::BitwiseNotTileOp>>,
   std::pair<d2m::TileLogicalNotOp,  std::pair<ttkernel::LogicalNotUnaryTileInitOp, ttkernel::LogicalNotUnaryTileOp>>,
   std::pair<d2m::TileNegativeOp,    std::pair<ttkernel::NegativeTileInitOp,        ttkernel::NegativeTileOp>>,
   std::pair<d2m::TileRecipOp,       std::pair<ttkernel::RecipTileInitOp,           ttkernel::RecipTileOp>>,
@@ -1459,13 +1459,13 @@ void populateD2MToTTKernelPatterns(
 
                // Elementwise SFPU Unary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAbsOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseNotOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileCeilOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileCosOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileExpOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileFloorOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileGeluOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLogOp>,
-               ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseNotOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLogicalNotOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileNegativeOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileRecipOp>,

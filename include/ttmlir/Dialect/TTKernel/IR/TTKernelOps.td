@@ -1119,7 +1119,7 @@ def TTKernel_BitwiseNotTileOp : TTKernel_SFPUOp<"bitwise_not_tile", [TTKernel_Un
       DST[tile_index] <- bitwise_not(DST[tile_index])
       on DST register operands.
       The DST register buffer must be in acquired state via *tile_regs_acquire* call.
-      ??This call is blocking and is only available on the compute engine.
+      This call is blocking and is only available on the compute engine.
     }];
 
     let arguments = (ins IndexLike:$tile_index);
