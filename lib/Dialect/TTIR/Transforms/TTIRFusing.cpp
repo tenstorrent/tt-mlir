@@ -2303,9 +2303,7 @@ public:
       patterns.add<PadPoolingFusionPattern>(&getContext());
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
-      if (globalPoolFusingEnabled) {
-        patterns.add<GlobalAveragePoolingPattern>(&getContext());
-      }
+      patterns.add<GlobalAveragePoolingPattern>(&getContext());
 
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
 
