@@ -489,6 +489,12 @@ static void recreateGenericOp(d2m::GenericOp genericOp) {
                   clonedOp->getResult(i).setType(outputOperandType);
                 }
               }
+            } else if (llvm::isa<d2m::WaitOp, d2m::ReserveOp>(clonedOp)) {
+              assert(clonedOp->getNumOperands() == 1);
+              assert(clonedOp->getNumResults() == 1);
+              clonedOp->getResult(0).setType(
+                  mlir::cast<d2m::CBType>(clonedOp->getOperand(0).getType())
+                      .getUnderlying());
             }
           }
         });

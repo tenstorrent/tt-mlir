@@ -155,7 +155,8 @@ def D2M_GenericOp : D2M_Op<"generic",
       "bufferize",
       "getAliasingValues",
       "getBufferType",
-      "isWritable"
+      "isWritable",
+      "hasTensorSemantics",
     ]>
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
