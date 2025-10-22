@@ -48,8 +48,7 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   }
   auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
 
-  auto map = canonicalToInput.compose(outputToCanonical);
-  return map;
+  return canonicalToInput.compose(outputToCanonical);
 }
 
 llvm::SmallVector<int64_t>

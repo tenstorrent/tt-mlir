@@ -2,12 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
-#include "ttmlir/AffineMapUtils.h"
-#include "ttmlir/Asserts.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -127,7 +127,6 @@ public:
               loc, builder.getIndexType(),
               builder.getIndexAttr(blockFactors[dim]));
 
-          // use virtual grid indices
           index = virtualGridIndices[gridDim];
 
           index = builder.create<arith::MulIOp>(loc, builder.getIndexType(),

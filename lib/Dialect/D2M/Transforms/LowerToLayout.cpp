@@ -24,7 +24,7 @@ namespace mlir::tt::d2m {
 // MetalLayoutAttr as optional gracefully.
 namespace {
 struct TensorInfo {
-  Value val; 
+  Value val;
   RankedTensorType type;
   std::optional<ttcore::MetalLayoutAttr> layout;
 
@@ -143,7 +143,7 @@ public:
           fromTy.getShape(), toTy.getShape(), ctx);
       auto toLayout = mlir::cast<ttcore::MetalLayoutAttr>(toTy.getEncoding());
 
-      // compose reblocking map with existing index map on toTy
+      // Compose reblocking map with existing index map on toTy.
       auto toIndexMap =
           toLayout.getIndexAffineMapOrIdentity(toTy.getShape().size());
       AffineMap mergedMap = toIndexMap.compose(reblockMap);
@@ -176,7 +176,6 @@ public:
 
     const size_t gridRank = outputInfo.getGridShape().size();
 
-    // TODO: cleanup
     ttcore::GridAttr grid =
         ttcore::GridAttr::get(rewriter.getContext(), outputInfo.getGridShape());
 
@@ -211,7 +210,6 @@ public:
     assert(inputTiled != outputTiled &&
            "one of input or output must be tiled for now");
 
-    // TODO: cleanup
     ArrayRef<int64_t> outputShape = outputType.getShape();
     assert(outputShape.size() % 2 == 0);
     auto gridShape = utils::getPhysicalGridShape(op.getOutput());
@@ -270,62 +268,6 @@ public:
   }
 };
 } // namespace
-
-// namespace {
-// class D2MVirtualGridRewriter : public OpRewritePattern<GenericOp> {
-// public:
-//   using OpRewritePattern<GenericOp>::OpRewritePattern;
-//
-//   static bool hasVirtualGrid(ArrayRef<int64_t> tensorGrid,
-//                             ArrayRef<int64_t> deviceGrid2D) {
-//     if (tensorGrid.size() > 2) {
-//       return true;
-//     }
-//     int64_t gy = tensorGrid.size() >= 1 ? tensorGrid[0] : 1;
-//     int64_t gx = tensorGrid.size() >= 2 ? tensorGrid[1] : 1;
-//     return gy > deviceGrid2D[0] || gx > deviceGrid2D[1];
-//   }
-//
-//   static bool opHasRawVirtualGridOutput(GenericOp op, ArrayRef<int64_t>
-//   deviceGrid2D) {
-//     for (Value res : op.getResults()) {
-//       auto t = dyn_cast<RankedTensorType>(res.getType());
-//       if (!t) {
-//         return false;
-//       }
-//       auto layout =
-//           dyn_cast_if_present<tt::ttcore::MetalLayoutAttr>(t.getEncoding());
-//       if (!layout) {
-//         return false;
-//       }
-//       ArrayRef<int64_t> grid = layout.getGridShape(t);
-//       return hasVirtualGrid(grid, deviceGrid2D);
-//     }
-//     return false;
-//   }
-//
-//   LogicalResult matchAndRewrite(GenericOp op,
-//                                 PatternRewriter &rewriter) const final {
-//     SmallVector<int64_t, 2> deviceGrid2D = {8,8};//getDeviceGrid2D(root);
-//
-//     size_t changesMade = 0;
-//     for (Value res : op.getResults()) {
-//       auto t = dyn_cast<RankedTensorType>(res.getType());
-//       if (!t) continue;
-//       auto layout =
-//       dyn_cast_if_present<tt::ttcore::MetalLayoutAttr>(t.getEncoding()); if
-//       (!layout) continue; ArrayRef<int64_t> grid = layout.getGridShape(t);
-//       return hasVirtualGrid(grid, deviceGrid2D);
-//     }
-//
-//     if (changesMade) {
-//       return success();
-//     } else {
-//       return failure();
-//     }
-//   }
-// };
-// } // namespace
 
 namespace {
 class D2MSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
@@ -417,31 +359,21 @@ public:
                                  targetGridShape.end());
   }
 
-  // computes a workable bounce shape grid for a virtual grid
+  // Computes a workable bounce shape grid for a virtual grid.
   llvm::SmallVector<int64_t>
   computeVirtualGridBounceShape(ArrayRef<int64_t> virtualGridShape,
                                 ArrayRef<int64_t> deviceGridShape) const {
-    // TODO: generalize to N dimensions
+    // TODO: Generalize to N dimensions.
     assert(virtualGridShape.size() == 2);
     assert(virtualGridShape[0] > deviceGridShape[0] ^
            virtualGridShape[1] > deviceGridShape[1]);
 
-    // Helper lambda for finding the greatest divisor <= maxDivisor for n
-    auto findMaxDivisor = [](int64_t n, int64_t maxDivisor) -> int64_t {
-      for (int64_t i = maxDivisor; i > 0; --i) {
-        if (n % i == 0) {
-          return i;
-        }
-      }
-      llvm_unreachable("No greatest divisor found");
-    };
-
     llvm::SmallVector<int64_t> ret;
     if (virtualGridShape[0] > deviceGridShape[0]) {
-      int64_t divisor = findMaxDivisor(virtualGridShape[0], deviceGridShape[0]);
+      int64_t divisor = std::gcd(virtualGridShape[0], deviceGridShape[0]);
       ret = {divisor, virtualGridShape[1]};
     } else {
-      int64_t divisor = findMaxDivisor(virtualGridShape[1], deviceGridShape[1]);
+      int64_t divisor = std::gcd(virtualGridShape[1], deviceGridShape[1]);
       ret = {virtualGridShape[0], divisor};
     }
     assert(ret.size());
@@ -451,16 +383,16 @@ public:
   d2m::ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
                                    Value input,
                                    RankedTensorType desiredType) const {
-    // Create empty tensor with desired type and layout
+    // Create empty tensor with desired type and layout.
     auto layout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
         desiredType.getEncoding());
 
     SmallVector<int64_t> emptyShape(desiredType.getShape());
 
-    // compute underlying shape for virtual grid if needed
     auto gridShape = layout.getGridShape(desiredType);
-    if (gridShape[0] > 8 || gridShape[1] > 8) {
+    if (d2m::utils::hasVirtualGrid(input)) {
 
+      // Compute legal physical shape for tensor used to implement virtual grid.
       SmallVector<int64_t> tileShape = {1, 1};
       if (ttcore::isTiled(desiredType)) {
         constexpr std::array<int64_t, 2> defaultShape =
@@ -478,7 +410,7 @@ public:
 
       emptyShape = shardedShape;
 
-      // remove index affine map from layout, preserving everything else
+      // Reset index affine map from layout, preserving everything else.
       auto map = rewriter.getMultiDimIdentityMap(emptyShape.size());
       layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), layout.getLogicalShape(),
@@ -531,7 +463,6 @@ public:
         // Device -> System: need intermediate in L1 with input's
         // characteristics.
         assert(inputInfo.layout && "Input must have layout for device->system");
-
         auto bounceType = typeBuilder.modifyDeviceType(
             inputInfo.type, *inputInfo.layout, ttcore::MemorySpace::DeviceL1,
             /*newTensorGrid=*/{}, outputInfo.type.getElementType());
@@ -640,7 +571,6 @@ public:
                                                  targetGridShape);
     patterns.add<D2MLowerToLayoutRewriter>(&getContext());
     GreedyRewriteConfig config;
-    config.setMaxNumRewrites(2);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
                                      config))) {
       signalPassFailure();
