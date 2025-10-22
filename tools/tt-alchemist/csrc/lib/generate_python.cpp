@@ -117,6 +117,8 @@ bool TTAlchemist::generatePython(const std::string &input_file,
 
   pythonFile.close();
 
+  utils::formatCode(pythonFilePath, utils::CodeGenerationTarget::Python);
+
   return true;
 }
 
