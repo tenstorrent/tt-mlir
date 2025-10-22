@@ -1010,11 +1010,11 @@ private:
 
     // Use the existing broadcastValue utility
     Value output;
-    if (!ttir::utils::broadcastValue(rewriter, input, targetType, output, loc,
-                                     /*frontUnsqueeze=*/false)
-             .succeeded()) {
-      return failure();
-    }
+    LogicalResult result =
+        ttir::utils::broadcastValue(rewriter, input, targetType, output, loc,
+                                    /*frontUnsqueeze=*/false);
+    assert(result.succeeded() &&
+           "Broadcast should succeed after legality checks");
     return output;
   }
 
