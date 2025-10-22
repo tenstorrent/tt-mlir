@@ -774,7 +774,6 @@ public:
     // Default momentum for batch norm training
     FloatAttr momentumAttr = rewriter.getF32FloatAttr(1.0f);
 
-    // Create zero-initialized tensors for running mean and variance
     auto meanShapeAttr = rewriter.getDenseI32ArrayAttr(
         llvm::SmallVector<int32_t>(meanType.getShape()));
     auto varianceShapeAttr = rewriter.getDenseI32ArrayAttr(
@@ -803,6 +802,53 @@ public:
 } // namespace
 
 namespace {
+
+// Verify that scale, mean, variance parameters are 1D tensors with correct size
+static LogicalResult checkBatchNormGradParametersLegality(
+    mlir::stablehlo::BatchNormGradOp &srcOp,
+    mlir::stablehlo::BatchNormGradOp::Adaptor adaptor,
+    ConversionPatternRewriter &rewriter) {
+  auto operandType =
+      mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+  auto scaleType = mlir::cast<RankedTensorType>(adaptor.getScale().getType());
+  auto meanType = mlir::cast<RankedTensorType>(adaptor.getMean().getType());
+  auto varianceType =
+      mlir::cast<RankedTensorType>(adaptor.getVariance().getType());
+
+  int64_t featureIndex = srcOp.getFeatureIndex();
+  int64_t expectedSize = operandType.getShape()[featureIndex];
+
+  // Check that parameters are 1D tensors
+  if (scaleType.getRank() != 1) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "batch_norm_grad scale must be a 1D tensor");
+  }
+  if (meanType.getRank() != 1) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "batch_norm_grad mean must be a 1D tensor");
+  }
+  if (varianceType.getRank() != 1) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "batch_norm_grad variance must be a 1D tensor");
+  }
+
+  // Check that sizes match feature dimension
+  if (scaleType.getDimSize(0) != expectedSize) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "batch_norm_grad scale size must match feature dimension");
+  }
+  if (meanType.getDimSize(0) != expectedSize) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "batch_norm_grad mean size must match feature dimension");
+  }
+  if (varianceType.getDimSize(0) != expectedSize) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "batch_norm_grad variance size must match feature dimension");
+  }
+
+  return success();
+}
+
 class StableHLOToBatchNormGradOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BatchNormGradOp> {
 
@@ -814,9 +860,16 @@ public:
   matchAndRewrite(mlir::stablehlo::BatchNormGradOp srcOp,
                   mlir::stablehlo::BatchNormGradOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check legality of the conversion
+    // Check legality of the general batch norm conversion
     LogicalResult legalityResult =
         checkBatchNormConversionLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    // Check that parameters have the expected shape
+    legalityResult =
+        checkBatchNormGradParametersLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
@@ -843,7 +896,7 @@ public:
     FloatAttr epsilonAttr = srcOp.getEpsilonAttr();
     float epsilon = epsilonAttr.getValueAsDouble();
 
-    // Helper to create reduction dimensions (all dims except feature_index)
+    // Create reduction dimensions (all dims except feature_index)
     int64_t rank = operandType.getRank();
     SmallVector<int32_t> reductionDims(rank);
     std::iota(reductionDims.begin(), reductionDims.end(), 0);
@@ -1003,12 +1056,12 @@ private:
     const int64_t rank = targetType.getRank();
 
     // First reshape to match target rank if needed
-    if (inputType.getRank() != rank) {
+    if (inputType.getRank() < rank) {
       input =
           reshapeToTargetRank(rewriter, loc, input, targetType, featureIndex);
     }
 
-    // Use the existing broadcastValue utility
+    // Broadcast the input to the target type
     Value output;
     LogicalResult result =
         ttir::utils::broadcastValue(rewriter, input, targetType, output, loc,
@@ -1027,7 +1080,6 @@ private:
     SmallVector<int64_t> unsqueezeShape(rank, 1);
 
     if (inputType.getRank() > 0) {
-      // 1D feature vector: place length at feature index
       unsqueezeShape[featureIndex] = inputType.getDimSize(0);
     }
 

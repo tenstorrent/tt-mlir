@@ -190,11 +190,12 @@ private:
       }
     }
 
-    // Check if any of my results are written to, not safe for consteval
+    // Check if any of my results are written to, they are not safe for
+    // consteval
     for (auto result : op->getResults()) {
-      // check all users of this result
+      // Check all users of this result
       for (auto user : result.getUsers()) {
-        // check their operands
+        // Check their operands
         auto memEffectOp = dyn_cast<mlir::MemoryEffectOpInterface>(user);
         if (!memEffectOp) {
           continue;
@@ -205,7 +206,7 @@ private:
               return isa<mlir::MemoryEffects::Write>(effect.getEffect()) &&
                      effect.getValue() == result;
             })) {
-          // Not safe for consteval, has write effects
+          // This result is written to, not safe for consteval
           return;
         }
       }
