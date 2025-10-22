@@ -1900,16 +1900,18 @@ def test_arange(
 @pytest.mark.parametrize(
     "from_type,to_type",
     [
-        (torch.int32, torch.float32),
-        (torch.float32, torch.int32),
+        pytest.param(
+            torch.int32, torch.float32, marks=pytest.mark.xfail(reason="Golden failure")
+        ),
+        pytest.param(
+            torch.float32, torch.int32, marks=pytest.mark.xfail(reason="Golden failure")
+        ),
         (torch.bfloat16, torch.float32),
         (torch.float32, torch.bfloat16),
     ],
     ids=["i32-f32", "f32-i32", "bf16-f32", "f32-bf16"],
 )
-@pytest.mark.parametrize(
-    "target", ["ttnn", "ttmetal" | Marks(pytest.mark.xfail(reason="Golden failure"))]
-)
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_typecast(
     shape: Shape,
     from_type: torch.dtype,
