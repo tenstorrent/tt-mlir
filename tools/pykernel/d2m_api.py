@@ -8,11 +8,8 @@ import ast
 import inspect
 import functools
 import json
-import logging
 import os
 from typing import List, Optional
-
-logger = logging.getLogger(__name__)
 
 try:
     import torch
@@ -63,11 +60,11 @@ def create_metal_layout(
     Returns:
         ttcore.MetalLayoutAttr with computed device shape
     """
+    print(f"[SHAPE DEBUG d2m_api.py:41] create_metal_layout called with:")
+    print(f"  logical_shape = {logical_shape} (type: {type(logical_shape)})")
+    print(f"  grid = {grid}")
+    print(f"  tiled = {tiled}")
     from ttmlir.dialects import ttcore
-
-    logger.debug(
-        f"Creating MetalLayoutAttr: logical_shape={logical_shape}, grid={grid}, tiled={tiled}, memory_space={memory_space}"
-    )
 
     # Convert memory_space string to enum
     if memory_space == "L1":
@@ -103,7 +100,6 @@ def create_metal_layout(
         int(ttcore.TensorMemoryLayout.Sharded),
     )
 
-    logger.debug(f"Created MetalLayoutAttr: {layout}")
     return layout
 
 
@@ -230,33 +226,22 @@ def _compile(
                 kwargs["_verbose"] = True
 
             m = ast.parse(source_code)
-
-            # Get source file information for AST tracing if logging level is TRACE
-            source_file = None
-            if logger.isEnabledFor(logging.TRACE):
-                source_file = (
-                    getattr(f, "__code__", {}).co_filename
-                    if hasattr(f, "__code__")
-                    else None
-                )
-
             b = D2MGenericCompiler(
                 f.__name__,
                 kernel_type,
                 _collect_captures(f),
                 *args,
-                source_file=source_file,
                 **kwargs,
             )
 
             if verbose:
-                logger.debug(f"AST dump:\n{ast.dump(m, indent=4)}")
+                print(ast.dump(m, indent=4) + "\n")
 
             b.visit(m)
 
             # Check if generated IR is valid
             if verbose:
-                logger.debug(f"Generated IR:\n{b.module}")
+                print(b.module)
 
             b.module.operation.verify()
 
@@ -335,6 +320,9 @@ def _create_generic_func(
     iterator_types,
     compiled_threads,
     num_outs,
+    user_args,  # Original torch tensor arguments
+    tiled,
+    memory_space,
 ):
     # Flatten the block factors if need be.
     if (
@@ -349,12 +337,37 @@ def _create_generic_func(
     # Some passes still rely on the compute thread being last.
     compiled_threads.sort(key=lambda ct: ct.kernel_type == "compute")
 
+    # Create proper function argument types from original user arguments
+    # instead of extracting from CircularBuffer types
     ordered_tensor_args = []
-    for t in compiled_threads[0].func_entry.arguments.types:
-        if isinstance(t, RankedTensorType):
-            ordered_tensor_args.append(t)
-        elif str(t).startswith("!d2m.cb"):
-            ordered_tensor_args.append(d2m.ir.CBType.cast(t).getUnderlying())
+    for arg in user_args:
+        shape = arg.shape
+        dtype = F32Type.get(ctx)
+
+        # Create MetalLayoutAttr for distributed tensor
+        layout = create_metal_layout(ctx, shape, grid, tiled, memory_space)
+        tile_shape = [32, 32] if tiled else [1, 1]
+
+        logical_rank = len(shape)
+        if len(grid) == 2 and logical_rank == 2:
+            grid_shape = list(grid)
+        else:
+            grid_shape = list(grid) + [1] * (logical_rank - len(grid))
+
+        typed_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
+        if typed_layout is None:
+            raise RuntimeError("Failed to downcast MetalLayoutAttr")
+        device_shape = typed_layout.getDeviceShape(grid_shape, tile_shape)
+
+        element_type = (
+            ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
+            if tiled
+            else dtype
+        )
+
+        tensor_type = RankedTensorType.get(device_shape, element_type, layout)
+        ordered_tensor_args.append(tensor_type)
+
     arg_types = ordered_tensor_args
     ret_type = ordered_tensor_args[-1]
     func_entry = func.FuncOp(name=name, type=(arg_types, [ret_type]))
@@ -556,19 +569,22 @@ def pykernel_gen(
             program = f(*args, **kwargs)
             assert isinstance(program, Program)
 
+            # Inject decorator parameters into program.kwargs so threads receive them
+            # Merge with user-provided kwargs (user kwargs take precedence)
+            injected_program_kwargs = {
+                "grid": grid,
+                "memory_space": memory_space,
+                "tiled": tiled,
+            }
+            program.kwargs = {**injected_program_kwargs, **program.kwargs}
+
             ctx = Context()
             loc = Location.unknown(ctx)
             with ctx, loc:
-                # Add grid, memory_space, and tiled to program.kwargs for compile threads
-                thread_kwargs = dict(program.kwargs)
-                thread_kwargs["grid"] = grid
-                thread_kwargs["memory_space"] = memory_space
-                thread_kwargs["tiled"] = tiled
-
                 compiled_threads = []
                 for compile_thread in program.threads:
                     compiled_threads.append(
-                        compile_thread(*program.args, **thread_kwargs)
+                        compile_thread(*program.args, **program.kwargs)
                     )
 
                 module = Module.create(loc)
@@ -601,9 +617,12 @@ def pykernel_gen(
                         iterator_types,
                         compiled_threads,
                         num_outs,
+                        args,  # Pass original user arguments
+                        tiled,
+                        memory_space,
                     )
 
-                logger.debug(f"Module after compilation:\n{module}")
+                print(module)
                 with open("tmp.mlir", "w") as fd:
                     print(module, file=fd)
 
@@ -622,27 +641,36 @@ def pykernel_gen(
                 )
                 pm = PassManager.parse(pipeline_str)
                 pm.enable_verifier(verify)
-                logger.debug(f"Running custom pipeline: {pm}")
+
+                # Enable pass tracking for crash diagnostics
+                try:
+                    from ttmlir._mlir_libs._ttmlir import enable_pretty_stack_traces
+
+                    enable_pretty_stack_traces(pm._CAPIPtr)
+                except Exception as e:
+                    print(f"Warning: Could not enable pass tracking: {e}")
+
+                print("Running custom pipeline:", pm)
                 if print_ir:
                     print_ir_path = print_ir if isinstance(print_ir, str) else None
                     ctx.enable_multithreading(False)
                     pm.enable_ir_printing(
                         # tree_printing_dir_path=print_ir_path,
                         print_after_all=True,
-                        # print_before_all=True,
-                        # print_after_failure=True,
+                        print_before_all=True,
+                        print_after_failure=True,
                         enable_debug_info=True,
                     )
                 pm.run(module.operation)
 
-                logger.debug(f"Final module:\n{module}")
+                print(module)
                 bin = ttmetal_to_flatbuffer_bin(module)
 
-                # print("RUNTIME DISABLED")
-                # return
+                print("RUNTIME DISABLED")
+                return
 
                 if runtime is None or binary is None:
-                    logger.warning("Runtime not enabled, returning compiled object")
+                    print("Warning: runtime not enabled, returning compiled object")
                     return bin
 
                 #
@@ -667,7 +695,7 @@ def pykernel_gen(
                     False,  # disable_device_address_validation
                     False,  # blocking_cq
                 )
-                logger.debug(f"Setting tt runtime debug env={debug_env}")
+                print(f"setting tt runtime debug env={debug_env}")
 
                 inputs = []
                 for tensor in args:

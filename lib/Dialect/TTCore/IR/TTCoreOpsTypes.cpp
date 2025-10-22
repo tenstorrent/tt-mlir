@@ -819,6 +819,34 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
   llvm::SmallVector<int64_t> deviceShape(gridShape);
   deviceShape.reserve(physicalShape.size() * 2);
 
+  // Debug output
+  llvm::errs()
+      << "DEBUG MetalLayoutAttr::getDeviceShape() - Input parameters:\n";
+  llvm::errs() << "  gridShape: [";
+  for (size_t i = 0; i < gridShape.size(); ++i) {
+    llvm::errs() << gridShape[i];
+    if (i < gridShape.size() - 1) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "]\n";
+  llvm::errs() << "  tileShape: [";
+  for (size_t i = 0; i < tileShape.size(); ++i) {
+    llvm::errs() << tileShape[i];
+    if (i < tileShape.size() - 1) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "]\n";
+  llvm::errs() << "  computed physicalShape: [";
+  for (size_t i = 0; i < physicalShape.size(); ++i) {
+    llvm::errs() << physicalShape[i];
+    if (i < physicalShape.size() - 1) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "]\n";
+
   assert(physicalShape.size() == gridShape.size() &&
          "Grid rank must equalcollapsed tensor rank");
   // Without tiling, distribute dimensions across grid.
@@ -1045,6 +1073,25 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> deviceGridShape,
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout) {
+  // Debug output to trace where this call is coming from
+  llvm::errs() << "DEBUG MetalLayoutAttr::get() - Input parameters:\n";
+  llvm::errs() << "  logicalShape: [";
+  for (size_t i = 0; i < logicalShape.size(); ++i) {
+    llvm::errs() << logicalShape[i];
+    if (i < logicalShape.size() - 1) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "]\n";
+  llvm::errs() << "  deviceGridShape: [";
+  for (size_t i = 0; i < deviceGridShape.size(); ++i) {
+    llvm::errs() << deviceGridShape[i];
+    if (i < deviceGridShape.size() - 1) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "]\n";
+
   // Create collapse intervals.
   int64_t numDimsToCollapse = logicalShape.size() - deviceGridShape.size() + 1;
   llvm::SmallVector<int64_t> flattenedIntervals;

@@ -97,9 +97,37 @@ createDefaultLayout(mlir::MLIRContext *ctx,
                     mlir::RankedTensorType tensorType) {
   llvm::SmallVector<int64_t> logicalShape(tensorType.getShape());
 
+  // Debug output
+  llvm::errs() << "DEBUG createDefaultLayout() - Input parameters:\n";
+  llvm::errs() << "  workerGridShape: [";
+  for (size_t i = 0; i < workerGridShape.size(); ++i) {
+    llvm::errs() << workerGridShape[i];
+    if (i < workerGridShape.size() - 1) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "]\n";
+  llvm::errs() << "  logicalShape: [";
+  for (size_t i = 0; i < logicalShape.size(); ++i) {
+    llvm::errs() << logicalShape[i];
+    if (i < logicalShape.size() - 1) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "]\n";
+
   // TODO (#4820): Remove this during cleanup.
   SmallVector<int64_t> squareGridShape =
       d2m::utils::getSquareTargetGrid(workerGridShape);
+
+  llvm::errs() << "  squareGridShape: [";
+  for (size_t i = 0; i < squareGridShape.size(); ++i) {
+    llvm::errs() << squareGridShape[i];
+    if (i < squareGridShape.size() - 1) {
+      llvm::errs() << ", ";
+    }
+  }
+  llvm::errs() << "]\n";
 
   return mlir::tt::ttcore::MetalLayoutAttr::get(
       ctx, logicalShape, squareGridShape, mlir::tt::ttcore::OOBVal::Undef,

@@ -55,14 +55,8 @@ class D2MGenericCompiler(TTCompilerBase):
         self.streams = set()
         self.supported_nodes.append(ast.AsyncFunctionDef)
 
-        logger.debug(f"Compiler __init__ kwargs keys: {list(kwargs.keys())}")
-        logger.debug(f"Compiler __init__ kwargs.get('grid'): {kwargs.get('grid')}")
         self.grid: List[int] = list(kwargs.get("grid", [1, 1]))
-        logger.debug(f"Grid: {self.grid}")
-        logger.debug(f"Grid type: {type(self.grid)}")
         self.memory_space: str = kwargs.get("memory_space", "L1")
-        logger.debug(f"Memory space: {self.memory_space}")
-        logger.debug(f"Memory space type: {type(self.memory_space)}")
         self.tiled: bool = kwargs.get("tiled", True)
 
         # Track source file for AST tracing
