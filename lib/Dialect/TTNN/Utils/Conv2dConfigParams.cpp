@@ -51,7 +51,9 @@ Conv2dConfigParams::Conv2dConfigParams(Conv2dConfigAttr attr, bool partial) {
   enableWeightsDoubleBuffer =
       getOrDefaultBool(attr.getEnableWeightsDoubleBuffer());
   inPlace = getOrDefaultBool(attr.getInPlace());
-  // TODO (azecevic): UPLIFT
+  // TODO (azecevic): Has to be set explicitly to false, otherwise it will
+  // assert for flattened Conv2dOp.
+  // https://github.com/tenstorrent/tt-metal/issues/30985
   enableKernelStrideFolding = false;
 }
 

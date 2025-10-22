@@ -1360,6 +1360,16 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::Conv2dOp> emitter(
         conv2dOp, adaptor, rewriter);
 
+    // TODO (azecevic): Has to be set explicitly to false, otherwise it will
+    // assert for flattened Conv2dOp.
+    // https://github.com/tenstorrent/tt-metal/issues/30985
+    auto conv2dConfig = conv2dOp.getConv2dConfig();
+    if (!conv2dConfig || !*conv2dConfig) {
+      conv2dConfig =
+          mlir::tt::ttnn::Conv2dConfigAttr::getDefault(rewriter.getContext());
+      conv2dConfig = conv2dConfig->withEnableKernelStrideFolding(false);
+    }
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(conv2dOp.getInput(), "input_tensor"),
         emitter.emit(conv2dOp.getWeight(), "weight_tensor"),
@@ -1379,7 +1389,7 @@ public:
                                                      "dilation"),
         emitter.emit(conv2dOp.getGroups(), "groups"),
         emitter.emit(conv2dOp.getBias(), "bias_tensor"),
-        emitter.emit(conv2dOp.getConv2dConfig(), "conv_config"),
+        emitter.emit(conv2dConfig, "conv_config"),
         emitter.emit(std::nullopt, "compute_config"),
         emitter.emit(conv2dOp.getConv2dSliceConfig(), "slice_config"),
         emitter.emit(std::nullopt |
@@ -1419,6 +1429,16 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ConvTranspose2dOp>
         emitter(srcOp, adaptor, rewriter);
 
+    // TODO (azecevic): Has to be set explicitly to false, otherwise it will
+    // assert for flattened Conv2dOp.
+    // https://github.com/tenstorrent/tt-metal/issues/30985
+    auto conv2dConfig = srcOp.getConv2dConfig();
+    if (!conv2dConfig || !*conv2dConfig) {
+      conv2dConfig =
+          mlir::tt::ttnn::Conv2dConfigAttr::getDefault(rewriter.getContext());
+      conv2dConfig = conv2dConfig->withEnableKernelStrideFolding(false);
+    }
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getWeight(), "weight_tensor"),
@@ -1440,7 +1460,7 @@ public:
         emitter.emit(srcOp.getGroups(), "groups"),
         emitter.emit(srcOp.getDtype(), "dtype"),
         emitter.emit(srcOp.getBias(), "bias_tensor"),
-        emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
+        emitter.emit(conv2dConfig, "conv_config"),
         emitter.emit(std::nullopt, "compute_config"),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),

@@ -438,7 +438,12 @@ convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
 std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
 getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   if (!conv2dConfig || !conv2dConfig.has_value() || !conv2dConfig.value()) {
-    return std::nullopt;
+    // TODO (azecevic): Has to be set explicitly to false, otherwise it will
+    // assert for flattened Conv2dOp.
+    // https://github.com/tenstorrent/tt-metal/issues/30985
+    auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
+    config.enable_kernel_stride_folding = false;
+    return config;
   }
 
   // TODO(#2130): config.core_grid is hardcoded to nullopt until we add
@@ -508,6 +513,15 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   if (conv2dConfig->getEnableWeightsDoubleBuffer()) {
     config.enable_weights_double_buffer =
         conv2dConfig->getEnableWeightsDoubleBuffer().getValue();
+  }
+
+  if (conv2dConfig->getInPlace()) {
+    config.in_place = conv2dConfig->getInPlace().getValue();
+  }
+
+  if (conv2dConfig->getEnableKernelStrideFolding()) {
+    config.enable_kernel_stride_folding =
+        conv2dConfig->getEnableKernelStrideFolding().getValue();
   }
 
   return config;

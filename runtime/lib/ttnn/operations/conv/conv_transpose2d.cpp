@@ -52,6 +52,11 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
   auto conv2dConfig = ::ttnn::operations::conv::Conv2dConfig();
   if (op->conv2d_config()) {
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
+  } else {
+    // TODO (azecevic): Has to be set explicitly to false, otherwise it will
+    // assert for flattened Conv2dOp.
+    // https://github.com/tenstorrent/tt-metal/issues/30985
+    conv2dConfig.enable_kernel_stride_folding = false;
   }
 
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
