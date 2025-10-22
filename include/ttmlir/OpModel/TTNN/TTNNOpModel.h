@@ -132,6 +132,9 @@ template <>
 struct OpModel<SiluOp> : UnaryEltwiseOpModel<SiluOp> {};
 
 template <>
+struct OpModel<MishOp> : UnaryEltwiseOpModel<MishOp> {};
+
+template <>
 struct OpModel<RsqrtOp> : UnaryEltwiseOpModel<RsqrtOp> {};
 
 template <>
