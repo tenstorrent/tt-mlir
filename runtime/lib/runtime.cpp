@@ -461,6 +461,23 @@ std::uint32_t getTensorVolume(Tensor t) {
       });
 }
 
+std::uint32_t getTensorLogicalVolume(Tensor t) {
+  using RetType = std::uint32_t;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getTensorLogicalVolume(t);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorLogicalVolume",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorLogicalVolume",
+                                    HostRuntime::Distributed);
+      });
+}
+
 TensorDesc getTensorDesc(Tensor t) {
   using RetType = TensorDesc;
   return DISPATCH_TO_CURRENT_RUNTIME(
