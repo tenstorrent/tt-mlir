@@ -46,17 +46,28 @@ LogicalResult ComplexReshapePattern::matchAndRewrite(ttnn::ReshapeOp srcOp,
     return failure();
   }
 
-  llvm::SmallVector<int64_t, 4> intermediateShape = {Bi, Ci * Hi, 1, Wo};
+  llvm::SmallVector<int64_t, 4> intermediateShape = {Bi, Ci * Hi, 1, Wi};
   RankedTensorType intermediateShapeType = ttnn::utils::RankedTensorTypeFactory::create(inputType, intermediateShape);
 
+  // Convert to 32-bit integers for TTNN compatibility
+  llvm::SmallVector<int32_t, 4> intermediateShape32;
+  for (auto dim : intermediateShape) {
+    intermediateShape32.push_back(static_cast<int32_t>(dim));
+  }
+
+  llvm::SmallVector<int32_t, 4> outputShape32;
+  for (auto dim : outputShape) {
+    outputShape32.push_back(static_cast<int32_t>(dim));
+  }
+
   auto firstNewReshape = rewriter.create<ttnn::ReshapeOp>(ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_intermediate_reshape"),
-  intermediateShapeType, srcOp.getInput(), rewriter.getI64ArrayAttr(intermediateShape), srcOp.getMemoryConfigAttr());
+  intermediateShapeType, srcOp.getInput(), rewriter.getI32ArrayAttr(intermediateShape32), srcOp.getMemoryConfigAttr());
   // Mark as decomposed to prevent infinite loops
   firstNewReshape->setAttr("complex_reshape_decomposed", rewriter.getUnitAttr());
 
   auto secondNewReshape = rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
       srcOp, outputType, firstNewReshape.getResult(),
-      rewriter.getI64ArrayAttr(outputShape), srcOp.getMemoryConfigAttr());
+      rewriter.getI32ArrayAttr(outputShape32), srcOp.getMemoryConfigAttr());
   // Mark as decomposed to prevent infinite loops
   secondNewReshape->setAttr("complex_reshape_decomposed", rewriter.getUnitAttr());
 
