@@ -2584,6 +2584,40 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// ScatterOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult ScatterOp::verify() {
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+  const ::mlir::RankedTensorType indexType = getIndex().getType();
+  const ::mlir::RankedTensorType sourceType = getSource().getType();
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> indexShape = indexType.getShape();
+  llvm::ArrayRef<int64_t> sourceShape = sourceType.getShape();
+
+  const size_t inputTypeRank = inputShape.size();
+  const size_t indexTypeRank = indexShape.size();
+  const size_t sourceTypeRank = sourceShape.size();
+
+  if (inputTypeRank != indexTypeRank || inputTypeRank != sourceTypeRank ||
+      indexTypeRank != sourceTypeRank) {
+    return emitOpError() << "Input tensor, index tensor, and source tensor "
+                            "must have the same rank. "
+                         << "Got input rank = " << inputTypeRank
+                         << ", index rank = " << indexTypeRank
+                         << ", source rank = " << sourceTypeRank;
+  }
+
+  if (indexShape != sourceShape) {
+    return emitOpError(
+        "Index tensor must have the same shape as source tensor.");
+  }
+
+  return ::mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllReduceOp
 //===----------------------------------------------------------------------===//
 

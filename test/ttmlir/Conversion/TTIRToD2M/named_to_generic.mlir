@@ -158,7 +158,7 @@ module {
   // CHECK-LABEL: func @named_reductions_R
   func.func @named_reductions_R(%arg: !ttype) -> (tensor<1x96xf32>) {
     %0 = ttir.empty() : tensor<1x96xf32>
-    // CHECK: ttir.constant
+    // CHECK: d2m.full
     // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "parallel"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim C>
@@ -169,7 +169,7 @@ module {
   // CHECK-LABEL: func @named_reductions_C
   func.func @named_reductions_C(%arg: !ttype) -> (tensor<128x1xf32>) {
     %0 = ttir.empty() : tensor<128x1xf32>
-    // CHECK: ttir.constant
+    // CHECK: d2m.full
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim R>
@@ -180,7 +180,7 @@ module {
   // CHECK-LABEL: func @named_reductions_RC
   func.func @named_reductions_RC(%arg: !ttype) -> (tensor<1x1xf32>) {
     %0 = ttir.empty() : tensor<1x1xf32>
-    // CHECK: ttir.constant
+    // CHECK: d2m.full
     // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "reduction"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim RC>
