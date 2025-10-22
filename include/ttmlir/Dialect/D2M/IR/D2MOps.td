@@ -108,6 +108,7 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
       bool isCompound() { return compoundComponents().isCompound(); }
       ttcore::MetalLayoutAttr getOrCreateInputLayout();
       ttcore::MetalLayoutAttr getOrCreateOutputLayout();
+      Value getInitOperand() { return getOperand(1); }
 
       bool isHostToDevice();
       bool isDeviceToHost();
@@ -234,6 +235,7 @@ def D2M_GenericOp : D2M_Op<"generic",
                 d2m::ThreadType::Compute;
         });
       }
+
       bool isAffineMapForm() { return !getIndexingMaps().empty(); }
       bool isLoweredLoopForm() { return !isAffineMapForm(); }
       bool isExternalSymbolForm() { return getRegions().empty(); }
@@ -242,6 +244,10 @@ def D2M_GenericOp : D2M_Op<"generic",
       SmallVector<AffineMap> getIndexingMapsValue();
       SmallVector<int64_t> getBlockFactorsValue();
       SmallVector<int64_t> getFullBlockFactors();
+      SmallVector<int64_t> getVirtualComputeGridShape();
+      // get core virtualization map from the output operand of the generic
+      AffineMap getCoreVirtualizationMap();
+
       ttcore::DeviceAttr getDevice();
       SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
       SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);

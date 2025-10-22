@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -71,7 +72,16 @@ MemRefType getBufferType(Type type, bool isView,
     layoutAttr = ttcore::ViewLayoutAttr::get(ctx, map);
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-    layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride, /*buffered=*/1);
+
+    auto indexMap = layout.getIndexAffineMap();
+    indexMap.isMinorIdentity();
+    if (!indexMap || indexMap.isIdentity() || indexMap.getNumResults() == 0) {
+      layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
+                                                /*buffered=*/1);
+    } else {
+      layoutAttr = ttcore::ShardLayoutAttr::get(ctx, shardStride,
+                                                /*buffered=*/1, indexMap);
+    }
   }
 
   return MemRefType::get(
@@ -416,6 +426,16 @@ void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
     if (!emptyOp) {
       return failure();
     }
+
+    // DO NOT fold away toLayout from underlying empty physical tensor to a
+    // view. It isn't possible to fold the underlying physical tensor into the
+    // virtual view tensor; both must be preserved.
+    auto outType = op.getOutput().getType();
+    if (auto tensorType = dyn_cast<RankedTensorType>(outType);
+        tensorType && utils::hasVirtualGrid(op.getOutput())) {
+      return failure();
+    }
+
     rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType());
     return success();
   });
@@ -488,8 +508,9 @@ ToLayoutOp::bufferize(mlir::RewriterBase &rewriter,
     MemRefType alignedHostMemref = mlir::cast<MemRefType>(
         *getBufferType(getOutput(), options, state, invocationStack));
 
-    if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
-            .isPadded()) {
+    auto host_layout =
+        mlir::dyn_cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout());
+    if (host_layout && host_layout.isPadded()) {
       rewriter.setInsertionPoint(toLayoutOp);
       auto alignedHostTensor =
           rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
@@ -800,7 +821,8 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
     TT_assertv(
         layout,
         "This generic constructor expects operands to be in device layout");
-    grid = builder.getAttr<ttcore::GridAttr>(layout.getGridShape(shapedType));
+    grid = builder.getAttr<ttcore::GridAttr>(
+        d2m::utils::getPhysicalGridShape(outputs[0]));
   }
 
   ArrayAttr blockFactorsAttr;
@@ -825,12 +847,16 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       flattenedOperandGridShapes.append(gridShape.begin(), gridShape.end());
     }
 
-    // Divide out the grid shape, this is safe to do because we reversed the
-    // affine map above, so output dims are guaranteed to appear first in the
-    // affine map.
+    // Divide flattened operand grid shapes by the implied virtual compute
+    // grid. This is safe to do because we reversed the affine map above, so
+    // output dims are guaranteed to appear first in the affine map.
+    auto coreVirtualizationMap =
+        d2m::utils::getCoreVirtualizationMap(outputs[0]);
+    SmallVector<int64_t> vGridShape =
+        ttmlir::utils::applyMapToGrid(grid.getShape(), coreVirtualizationMap);
 
-    for (std::size_t i = 0; i < grid.getShape().size(); ++i) {
-      flattenedOperandGridShapes[i] /= grid.getShape()[i];
+    for (std::size_t i = 0; i < vGridShape.size(); ++i) {
+      flattenedOperandGridShapes[i] /= vGridShape[i];
     }
 
     blockFactorsAttr = builder.getI64ArrayAttr(
@@ -963,7 +989,7 @@ static mlir::LogicalResult verifyAffineBlocking(
     const char *shapeName, mlir::ArrayRef<mlir::AffineMap> indexingMaps,
     mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes,
     mlir::ArrayRef<int64_t> blockingFactors, mlir::AffineMap opGridIndexingMap,
-    mlir::ArrayRef<int64_t> opGridShape,
+    mlir::ArrayRef<int64_t> computeGridShape,
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
   assert(indexingMaps.size() == shapes.size());
 
@@ -977,7 +1003,8 @@ static mlir::LogicalResult verifyAffineBlocking(
   // the expected operand grid shapes.
   auto inverseOpGridMap =
       inverseAndBroadcastProjectedPermutation(opGridIndexingMap);
-  mlir::SmallVector<int64_t> factors = inverseOpGridMap.compose(opGridShape);
+  mlir::SmallVector<int64_t> factors =
+      inverseOpGridMap.compose(computeGridShape);
   assert(factors.size() == blockingFactors.size());
   for (size_t i = 0; i < blockingFactors.size(); ++i) {
     if (factors[i] == 0) {
@@ -1046,37 +1073,33 @@ static mlir::LogicalResult verifyAffineBlocking(
     return emitOpError("number of regions must match the number of threads");
   }
 
-  // Output grid shape must equal the GenericOp grid shape.
-  auto opGridShape = getGrid().getShape();
-  for (auto output : getOutputs()) {
-    Type operandType = output.getType();
-    ArrayRef<int64_t> outputGridShape;
-    if (RankedTensorType tensorType =
-            mlir::dyn_cast<RankedTensorType>(operandType)) {
-      if (!tensorType.getEncoding()) {
-        // Skip layout checks if the tensor type does not have a layout yet.
-        continue;
-      }
-      ttcore::MetalLayoutAttr layout =
-          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-      outputGridShape = layout.getGridShape(tensorType);
-    } else {
-      auto memref = mlir::cast<MemRefType>(operandType);
-      // If the top level operand is a memref, the front half of its shape
-      // is the grid shape, so we cut it off the back to get just the grid
-      // shape.
-      mlir::tt::ttcore::DeviceLayoutInterface layout =
-          mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
-              memref.getLayout());
-      outputGridShape = layout.getGridShape(memref);
+  auto virtualComputeGrid = getVirtualComputeGridShape();
+  auto firstOutput = getOutputs()[0];
+  auto firstOutputVirtualGrid = d2m::utils::getGridShape(firstOutput);
+  for (auto output : llvm::drop_begin(getOutputs())) {
+    auto outputVirtualGrid = d2m::utils::getGridShape(output);
+    if (outputVirtualGrid != firstOutputVirtualGrid) {
+      return emitOpError("All output operands must have the same virtual "
+                         "compute grid shape");
     }
-    if (!llvm::all_of(llvm::zip(outputGridShape, opGridShape), [](auto pair) {
-          auto [out, op] = pair;
-          return out % op == 0;
-        })) {
-      return emitOpError("output grid shape must be divisible by the generic "
-                         "op's grid shape");
-    }
+  }
+
+  auto computeGridShape = getGrid().getShape();
+  auto physOutputGridShape = d2m::utils::getPhysicalGridShape(firstOutput);
+  if (physOutputGridShape != computeGridShape) {
+    return emitOpError("Physical grid shape of the output operand must be "
+                       "identical to the generic "
+                       "op's grid shape");
+  }
+
+  auto gridShape = d2m::utils::getGridShape(firstOutput);
+  if (!llvm::all_of(llvm::zip(gridShape, virtualComputeGrid), [](auto pair) {
+        auto [out, op] = pair;
+        return out % op == 0;
+      })) {
+    return emitOpError("Output operand's grid shape must be divisible by the "
+                       "implied virtual compute grid "
+                       "shape");
   }
 
   if (!llvm::all_equal(llvm::map_range(getIndexingMapsValue(), [](AffineMap m) {
@@ -1125,7 +1148,7 @@ static mlir::LogicalResult verifyAffineBlocking(
     AffineMap opGridMap = indexingMaps[output->getOperandNumber()];
     LogicalResult blockFactorResult =
         verifyAffineBlocking("grid", indexingMaps, gridShapes, blockFactors,
-                             opGridMap, opGridShape, emitDiag);
+                             opGridMap, getVirtualComputeGridShape(), emitDiag);
     if (failed(blockFactorResult)) {
       return blockFactorResult;
     }
@@ -1418,6 +1441,25 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
   }
 
   return shardShapes;
+}
+
+AffineMap d2m::GenericOp::getCoreVirtualizationMap() {
+  // Assume that verification guarantees that all core virtualization maps are
+  // aligned between all output operands.
+  return d2m::utils::getCoreVirtualizationMap(getOutputs()[0]);
+}
+
+mlir::SmallVector<int64_t> d2m::GenericOp::getVirtualComputeGridShape() {
+  if (auto coreVirtualizationMap = getCoreVirtualizationMap()) {
+    // Compute the virtual compute grid by sampling the core virt map
+    // over the domain of the physical grid shape
+    return ttmlir::utils::applyMapToGrid(getGrid().getShape(),
+                                         coreVirtualizationMap);
+  } else {
+    // If no core virt map is defined, the physical grid shape and virtual
+    // compute grid are the same.
+    return llvm::to_vector(getGrid().getShape());
+  }
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
