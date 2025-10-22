@@ -125,6 +125,11 @@ inline DeviceLayoutInterface getDeviceLayout(ShapedType shapedType) {
   return nullptr;
 }
 
+// Convenience overload that extracts the shaped type from a value.
+inline DeviceLayoutInterface getDeviceLayout(Value value) {
+  return getDeviceLayout(mlir::cast<ShapedType>(value.getType()));
+}
+
 Type getOperandInnerElementType(const mlir::Value operand);
 
 // Convert a TensorType with MetalLayoutAttr encoding into a MemRefType with

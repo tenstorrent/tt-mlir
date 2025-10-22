@@ -68,6 +68,12 @@ def TTCore_DeviceLayoutInterface : AttrInterface<"DeviceLayoutInterface"> {
         return !isView();
       }]
     >,
+    InterfaceMethod<
+      "Get the full rank of the layout (including grid dimensions)",
+      "unsigned", "getRank", (ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/""
+    >,
   ];
 }
 

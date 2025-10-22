@@ -83,17 +83,24 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  // Configure D2M options to match the original TTIR options
   tt::TTIRToD2MOptions toD2MOptions;
   {
     toD2MOptions.defaultInputMemSpace = options.defaultInputMemSpace;
     toD2MOptions.defaultOutputMemSpace = options.defaultOutputMemSpace;
-    toD2MOptions.overrideDeviceShape =
-        llvm::to_vector(options.overrideDeviceShape);
     toD2MOptions.ttnnMode = options.ttnnMode;
     toD2MOptions.collapseTensorsTo2D = options.collapseTensors;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
+  // Grid selection is only needed for non-TTNN mode; TTNN tensors already
+  // have their grids correctly set.
+  if (!options.ttnnMode) {
+    d2m::D2MGridSelectionOptions gridOptOptions;
+    {
+      gridOptOptions.overrideDeviceShape =
+          llvm::to_vector(options.overrideDeviceShape);
+    }
+    pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
+  }
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
 }
