@@ -45,6 +45,7 @@ module {
     }
 
     // CHECK-NOT: d2m.dst_reinterpret_cast
+    // CHECK: ttkernel.init_sfpu
     // CHECK: ttkernel.tile_regs_acquire
     // CHECK: ttkernel.copy_tile_init
     // CHECK: ttkernel.copy_tile
