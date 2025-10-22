@@ -251,6 +251,50 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
   return success();
 }
 
+// ClampScalarOp canonicalization
+void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Fold two consecutive ClampScalarOp into a single one with tighter bounds
+  patterns.add(+[](mlir::tt::ttir::ClampScalarOp op,
+                   mlir::PatternRewriter &rewriter) {
+    auto producerOp = op.getInput().getDefiningOp<ClampScalarOp>();
+    if (!producerOp || !producerOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // Get the min/max values from both ops
+    auto producerMin = producerOp.getMin();
+    auto producerMax = producerOp.getMax();
+    auto consumerMin = op.getMin();
+    auto consumerMax = op.getMax();
+
+    // Calculate the tightest bounds
+    auto newMin = std::max(producerMin, consumerMin);
+    auto newMax = std::min(producerMax, consumerMax);
+
+    // Replace with a single ClampScalarOp with the new bounds
+    rewriter.replaceOpWithNewOp<ClampScalarOp>(op, op.getResult().getType(),
+                                               producerOp.getInput(),
+                                               op.getOutput(), newMin, newMax);
+    return mlir::success();
+  });
+
+  // Fold clamp with min=0 and max=6 to relu6
+  patterns.add(+[](mlir::tt::ttir::ClampScalarOp op,
+                   mlir::PatternRewriter &rewriter) {
+    auto minVal = op.getMin();
+    auto maxVal = op.getMax();
+
+    if (minVal.convertToFloat() == 0.0f && maxVal.convertToFloat() == 6.0f) {
+      rewriter.replaceOpWithNewOp<ttir::Relu6Op>(op, op.getResult().getType(),
+                                                 op.getInput(), op.getOutput());
+      return mlir::success();
+    }
+
+    return mlir::failure();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // LogicalRightShiftOp
 //===----------------------------------------------------------------------===//

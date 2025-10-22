@@ -26,6 +26,8 @@ classifiers = [
 
 dependencies = [
   "click>=7.0",
+  "black>=22.3.0",
+  "clang-format>=18.0.0",
 ]
 
 [project.urls]

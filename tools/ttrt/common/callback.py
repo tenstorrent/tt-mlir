@@ -171,7 +171,11 @@ def golden(callback_runtime_config, binary, program_context, op_context):
             return
 
         _, _, cal_pcc, output_str = get_atol_rtol_pcc(
-            golden_tensor_torch, output_tensor_torch, logging
+            golden_tensor_torch,
+            output_tensor_torch,
+            callback_runtime_config.atol,
+            callback_runtime_config.rtol,
+            logging,
         )
 
         # Handle case where tensor has only one element.

@@ -1558,12 +1558,24 @@ uint64_t TileType::getSizeBytes() const {
   case DataType::UInt16:
     return getHeight() * getWidth() * 2;
   case DataType::UInt8:
+  case DataType::Bool:
     return getHeight() * getWidth();
   }
 }
 
 mlir::Type TileType::getElementType() const {
   return dataTypeToElementType(getContext(), getDataType());
+}
+
+TileType TileType::cloneWith(::std::optional<::llvm::ArrayRef<int64_t>> shape,
+                             ::mlir::Type elementType) const {
+  // Use provided shape or keep current shape
+  ::llvm::ArrayRef<int64_t> newShape = shape.has_value() ? *shape : getShape();
+
+  // Convert element type to DataType
+  DataType newDataType = elementTypeToDataType(elementType);
+
+  return TileType::get(getContext(), newShape, newDataType);
 }
 
 void TTCoreDialect::registerTypes() {
