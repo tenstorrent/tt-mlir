@@ -186,7 +186,7 @@ void createTTIRToTTMetalBackendPipeline(
   // lowering.
   // if (options.insertProfilerTraces) {
   pm.addPass(ttkernel::createTTKernelHoistInits());
-  pm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes());
+  // pm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes());
   // }
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(createCanonicalizerPassWithOptions(options));

@@ -38,9 +38,9 @@ void JitCache::compile(Operation *op, std::string options) {
   if (mlir::failed(pm.run(op))) {
     throw std::runtime_error("Failed to run pass manager");
   }
-  llvm::outs() << "After compile: " << op << "\n";
-  op->print(llvm::outs());
-  llvm::outs().flush();
+  // llvm::outs() << "After compile: " << op << "\n";
+  // op->print(llvm::outs());
+  // llvm::outs().flush();
 }
 
 JitCacheEntry JitCache::get(Operation *op,
