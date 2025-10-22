@@ -2022,10 +2022,17 @@ public:
     // Restore the insertion point to continue with the function
     rewriter.restoreInsertionPoint(currentInsertionPoint);
 
+    const bool isZeroArgWrapper = adaptor.getInputs().size() == 0;
     // Create the function pointer type
-    auto funcPtrType = emitc::OpaqueType::get(
-        rewriter.getContext(), "::std::function<::std::vector<::ttnn::Tensor>(:"
-                               ":std::vector<::ttnn::Tensor>)>");
+    auto funcPtrType =
+        isZeroArgWrapper
+            ? emitc::OpaqueType::get(
+                  rewriter.getContext(),
+                  "::std::function<::std::vector<::ttnn::Tensor>()>")
+            : emitc::OpaqueType::get(
+                  rewriter.getContext(),
+                  "::std::function<::std::vector<::ttnn::Tensor>(:"
+                  ":std::vector<::ttnn::Tensor>)>");
     auto addressAttr =
         emitc::OpaqueAttr::get(rewriter.getContext(), "&" + callee.str());
     auto funcPtrValue = rewriter.create<emitc::ConstantOp>(
@@ -2049,9 +2056,15 @@ public:
                                                        "&", globalVar);
 
     // Call the wrapper function with the pointer
-    rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
-        ValueRange{funcPtrValue, tupleValue, addressOfOp}, ArrayAttr{});
+    if (isZeroArgWrapper) {
+      rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapperZeroArg",
+          ValueRange{funcPtrValue, addressOfOp}, ArrayAttr{});
+    } else {
+      rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
+          ValueRange{funcPtrValue, tupleValue, addressOfOp}, ArrayAttr{});
+    }
 
     // Load the value from the global variable
     auto resultVar =

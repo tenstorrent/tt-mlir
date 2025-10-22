@@ -126,7 +126,7 @@ void setDevice(ttnn::MeshDevice *device) { DeviceGetter::setInstance(device); }
 }
 
 // Wrapper to abstract const-eval logic out of runtime funcs to keep them
-// cleaner.  Invokes constEvalFunc iff outputs is empty.
+// cleaner. Invokes constEvalFunc iff outputs is empty.
 void constEvalFuncWrapper(
     std::function<std::vector<ttnn::Tensor>(std::vector<ttnn::Tensor>)>
         constEvalFunc,
@@ -134,6 +134,19 @@ void constEvalFuncWrapper(
     std::vector<ttnn::Tensor> *outputs) {
   if (outputs->empty()) {
     *outputs = constEvalFunc(inputs);
+  }
+}
+
+// Wrapper to abstract const-eval logic out of runtime funcs to keep them
+// cleaner. Invokes constEvalFunc iff outputs is empty.
+// This is an overload of constEvalFuncWrapper for const-eval functions that
+// take zero arguments.
+void constEvalFuncWrapperZeroArg(
+    std::function<std::vector<ttnn::Tensor>()> constEvalFunc,
+    // const std::vector<ttnn::Tensor> &inputs,
+    std::vector<ttnn::Tensor> *outputs) {
+  if (outputs->empty()) {
+    *outputs = constEvalFunc();
   }
 }
 
