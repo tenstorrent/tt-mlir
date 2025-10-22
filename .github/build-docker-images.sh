@@ -53,7 +53,7 @@ build_and_push() {
         docker build \
             --progress=plain \
             --build-arg FROM_TAG=$DOCKER_TAG \
-            ${target_image:+--target $target_image} \
+            ${from_image:+--build-arg FROM_IMAGE=$from_image} \
             -t $image_name:$DOCKER_TAG \
             -t $image_name:latest \
             -f $dockerfile .
