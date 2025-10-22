@@ -55,7 +55,9 @@ apt-get install -y \
 # -------------------------------
 # Install tt-metal dependencies
 # -------------------------------
-wget https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/{install_dependencies.sh,tt_metal/sfpi-version.sh}
+export TT_METAL_DEPENDENCIES_COMMIT="main"  # or a specific commit hash
+wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_DEPENDENCIES_COMMIT}/{install_dependencies.sh,tt_metal/sfpi-info.sh,tt_metal/sfpi-version}
+chmod u+x sfpi-info.sh
 bash install_dependencies.sh --docker
 
 # -------------------------------
