@@ -39,7 +39,7 @@ jobs:
     secrets: inherit
     with:
       metal_override: ${{ inputs.metal_override }}
-      builder_build: ${{ inputs.builder_build || false }}
+      builder_build: ${{ inputs.builder_build || true }}
 
   # When a PR runs on the uplift branch trigger the downstream checks
   downstream-checks:

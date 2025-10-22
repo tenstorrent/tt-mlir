@@ -25,6 +25,8 @@ jobs:
       - spdx
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
+    with:
+      builder_build: true
   save-durations:
     needs: build-and-test
     runs-on: ubuntu-latest
