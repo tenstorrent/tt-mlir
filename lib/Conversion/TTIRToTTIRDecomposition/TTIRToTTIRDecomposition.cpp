@@ -323,8 +323,7 @@ public:
       Value result = convert1DConvTo2D(
           rewriter, op.getLoc(), inputSlices[i], weightSlices[i],
           outputSliceShapes[i], outputType.getElementType(),
-          outputType.getEncoding(), adaptor, convolutionLayout,
-          batchGroupCount > 1 ? 1 : adaptor.getBatchGroupCount());
+          outputType.getEncoding(), adaptor, convolutionLayout);
       results.push_back(result);
     }
 
@@ -346,8 +345,7 @@ private:
       ConversionPatternRewriter &rewriter, Location loc, Value input,
       Value weight, llvm::ArrayRef<int64_t> expectedOutputShape,
       Type outputElementType, Attribute outputEncoding, OpAdaptor adaptor,
-      mlir::tt::ttir::ConvolutionLayoutAttr convolutionLayout,
-      uint64_t batchGroupCount) const {
+      mlir::tt::ttir::ConvolutionLayoutAttr convolutionLayout) const {
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     auto weightType = mlir::cast<RankedTensorType>(weight.getType());
 
@@ -417,8 +415,7 @@ private:
             convolutionLayout.getOutputBatchDimension(),
             convolutionLayout.getOutputFeatureDimension(),
             conv2dOutputSpatialDimensions),
-        adaptor.getFeatureGroupCountAttr(),
-        rewriter.getI64IntegerAttr(batchGroupCount));
+        adaptor.getFeatureGroupCountAttr(), rewriter.getI64IntegerAttr(1));
 
     ttir::ReshapeOp reshapeOutput = createReshapeOp(
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshapeOutput"),
