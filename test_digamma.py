@@ -9,6 +9,7 @@ import torch
 import pytest
 
 
+@ttnn_jit.jit(backend="ttnn", max_grid=(7, 7), debug=False)
 def digamma(
     input_a,
     one_tensor,  # = 1 for the divide that replaces the reciprocal.
@@ -113,7 +114,8 @@ def test_digamma_trace(h, w):
     x12_coeff = ttnn.from_torch(torch_x12_coeff, spec=tensor_spec)
     x14_coeff = ttnn.from_torch(torch_x14_coeff, spec=tensor_spec)
 
-    op_jit = ttnn_jit.jit(backend="ttnn", max_grid=max_grid, debug=True)(digamma)
+    # op_jit = ttnn_jit.jit(backend="ttnn", max_grid=max_grid, debug=True)(digamma)
+    op_jit = digamma
 
     # Warmup program caches
     input_a_tensor = ttnn.allocate_tensor_on_device(tensor_spec, device)
@@ -309,7 +311,8 @@ def test_digamma_compare(h, w):
     x12_coeff = ttnn.from_torch(torch_x12_coeff, spec=tensor_spec, device=device)
     x14_coeff = ttnn.from_torch(torch_x14_coeff, spec=tensor_spec, device=device)
 
-    op_jit = ttnn_jit.jit(backend="ttnn", max_grid=max_grid, debug=True)(digamma)
+    # op_jit = ttnn_jit.jit(backend="ttnn", max_grid=max_grid, debug=True)(digamma)
+    op_jit = digamma
     output_tensor = op_jit(
         input_a,
         one_,
