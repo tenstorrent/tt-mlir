@@ -17,6 +17,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/WalkResult.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Error.h"
 
 #include <cassert>
@@ -277,21 +278,11 @@ private:
     }
 
     // For Conv2d operations, extract op-specific attributes
-    if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(operation)) {
-      config.opSpecificAttrs = Conv2dAttrs{conv2dOp.getConv2dConfigAttr(),
-                                           conv2dOp.getComputeConfigAttr()};
-    }
-
-    // TODO(rpavlovicTT): Once
-    // https://github.com/tenstorrent/tt-mlir/issues/3994 is
-    // resolved, set the deviceComputeKernelConfig here as
-    // well and merge with the Conv2dOp case above.
-    if (auto convTranspose2dOp =
-            mlir::dyn_cast<ttnn::ConvTranspose2dOp>(operation)) {
-      config.opSpecificAttrs =
-          Conv2dAttrs{convTranspose2dOp.getConv2dConfigAttr(),
-                      /*deviceComputeConfigAttr*/ std::nullopt};
-    }
+    llvm::TypeSwitch<Operation *>(operation)
+        .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&config](auto convOp) {
+          config.opSpecificAttrs = Conv2dAttrs{convOp.getConv2dConfigAttr(),
+                                               convOp.getComputeConfigAttr()};
+        });
 
     return config;
   }

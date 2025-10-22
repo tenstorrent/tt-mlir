@@ -2022,10 +2022,17 @@ public:
     // Restore the insertion point to continue with the function
     rewriter.restoreInsertionPoint(currentInsertionPoint);
 
+    const bool isZeroArgWrapper = adaptor.getInputs().size() == 0;
     // Create the function pointer type
-    auto funcPtrType = emitc::OpaqueType::get(
-        rewriter.getContext(), "::std::function<::std::vector<::ttnn::Tensor>(:"
-                               ":std::vector<::ttnn::Tensor>)>");
+    auto funcPtrType =
+        isZeroArgWrapper
+            ? emitc::OpaqueType::get(
+                  rewriter.getContext(),
+                  "::std::function<::std::vector<::ttnn::Tensor>()>")
+            : emitc::OpaqueType::get(
+                  rewriter.getContext(),
+                  "::std::function<::std::vector<::ttnn::Tensor>(:"
+                  ":std::vector<::ttnn::Tensor>)>");
     auto addressAttr =
         emitc::OpaqueAttr::get(rewriter.getContext(), "&" + callee.str());
     auto funcPtrValue = rewriter.create<emitc::ConstantOp>(
@@ -2049,9 +2056,15 @@ public:
                                                        "&", globalVar);
 
     // Call the wrapper function with the pointer
-    rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
-        ValueRange{funcPtrValue, tupleValue, addressOfOp}, ArrayAttr{});
+    if (isZeroArgWrapper) {
+      rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapperZeroArg",
+          ValueRange{funcPtrValue, addressOfOp}, ArrayAttr{});
+    } else {
+      rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
+          ValueRange{funcPtrValue, tupleValue, addressOfOp}, ArrayAttr{});
+    }
 
     // Load the value from the global variable
     auto resultVar =
@@ -2452,27 +2465,76 @@ public:
 };
 } // namespace
 
-// BatchNormOp conversion pattern
+// BatchNormInferenceOp conversion pattern
 //
 namespace {
-class BatchNormOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::BatchNormOp> {
+class BatchNormInferenceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::BatchNormInferenceOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.batch_norm_inference";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::batch_norm";
+  }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::BatchNormOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::BatchNormInferenceOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::BatchNormOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::BatchNormInferenceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::BatchNormOp> emitter(
-        srcOp, adaptor, rewriter);
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::BatchNormInferenceOp>
+        emitter(srcOp, adaptor, rewriter);
 
+    // For inference BatchNormInferenceOp, training is false and momentum is 0.1
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getRunningMean()),
         emitter.emit(srcOp.getRunningVar()),
-        emitter.emit(srcOp.getTraining()),
+        emitter.emit(false), // training
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(0.1f), // momentum
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(/* output= */ std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+//
+// BatchNormTrainingOp conversion pattern
+//
+namespace {
+class BatchNormTrainingOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::BatchNormTrainingOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::BatchNormTrainingOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::BatchNormTrainingOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::BatchNormTrainingOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // For training BatchNormTrainingOp, training is true
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getRunningMean()),
+        emitter.emit(srcOp.getRunningVar()),
+        emitter.emit(true), // training
         emitter.emit(srcOp.getEpsilon()),
         emitter.emit(srcOp.getMomentum()),
         emitter.emit(srcOp.getWeight()),
@@ -2481,7 +2543,18 @@ public:
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
 
-    emitter.replaceOp(*this, args);
+    // ttnn::batch_norm with training=true returns the output tensor and
+    // updates running_mean/running_var in-place
+    auto resultType =
+        this->getTypeConverter()->convertType(srcOp.getResult().getType());
+
+    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), resultType, "ttnn::batch_norm",
+        rewriter.getArrayAttr(args), /*template_args=*/nullptr,
+        adaptor.getOperands());
+
+    // The batch stats are the updated running_mean and running_var
+    rewriter.replaceOp(srcOp, callOp.getResult(0));
 
     return success();
   }
@@ -3632,10 +3705,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Other ops
   //
-  patterns.add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
-               DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-               MorehCumSumOpConversionPattern, BatchNormOpConversionPattern,
-               RMSNormOpConversionPattern>(typeConverter, ctx);
+  patterns.add<
+      SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
+      DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
+      MorehCumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
+      BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern>(
+      typeConverter, ctx);
 
   // CCL ops
   //

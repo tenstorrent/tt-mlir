@@ -189,6 +189,50 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
   return success();
 }
 
+// ClampScalarOp canonicalization
+void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Fold two consecutive ClampScalarOp into a single one with tighter bounds
+  patterns.add(+[](mlir::tt::ttir::ClampScalarOp op,
+                   mlir::PatternRewriter &rewriter) {
+    auto producerOp = op.getInput().getDefiningOp<ClampScalarOp>();
+    if (!producerOp || !producerOp.getResult().hasOneUse()) {
+      return mlir::failure();
+    }
+
+    // Get the min/max values from both ops
+    auto producerMin = producerOp.getMin();
+    auto producerMax = producerOp.getMax();
+    auto consumerMin = op.getMin();
+    auto consumerMax = op.getMax();
+
+    // Calculate the tightest bounds
+    auto newMin = std::max(producerMin, consumerMin);
+    auto newMax = std::min(producerMax, consumerMax);
+
+    // Replace with a single ClampScalarOp with the new bounds
+    rewriter.replaceOpWithNewOp<ClampScalarOp>(op, op.getResult().getType(),
+                                               producerOp.getInput(),
+                                               op.getOutput(), newMin, newMax);
+    return mlir::success();
+  });
+
+  // Fold clamp with min=0 and max=6 to relu6
+  patterns.add(+[](mlir::tt::ttir::ClampScalarOp op,
+                   mlir::PatternRewriter &rewriter) {
+    auto minVal = op.getMin();
+    auto maxVal = op.getMax();
+
+    if (minVal.convertToFloat() == 0.0f && maxVal.convertToFloat() == 6.0f) {
+      rewriter.replaceOpWithNewOp<ttir::Relu6Op>(op, op.getResult().getType(),
+                                                 op.getInput(), op.getOutput());
+      return mlir::success();
+    }
+
+    return mlir::failure();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // LogicalRightShiftOp
 //===----------------------------------------------------------------------===//
@@ -4113,14 +4157,48 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
-// BatchNormOp
+// BatchNorm verification helpers
 //===----------------------------------------------------------------------===//
-::mlir::LogicalResult mlir::tt::ttir::BatchNormOp::verify() {
-  if (getOperand().getType().getRank() != 4) {
-    return emitOpError("input tensor must be a 4D tensor");
+namespace {
+// Shared verification logic for BatchNorm operations
+static ::mlir::LogicalResult verifyBatchNormOp(mlir::Operation *op,
+                                               mlir::RankedTensorType inputType,
+                                               int64_t dimension) {
+  int64_t inputRank = inputType.getRank();
+
+  // Input must be 2D to 5D
+  if (inputRank < 2 || inputRank > 5) {
+    return op->emitOpError(
+               "input tensor must have rank between 2 and 5, got rank ")
+           << inputRank;
+  }
+
+  // Dimension attribute must be within bounds
+  if (dimension < 0 || dimension >= inputRank) {
+    return op->emitOpError(
+               "dimension attribute must be within input rank bounds, "
+               "got dimension ")
+           << dimension << " for rank " << inputRank;
   }
 
   return success();
+}
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// BatchNormInferenceOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::BatchNormInferenceOp::verify() {
+  return verifyBatchNormOp(getOperation(), getOperand().getType(),
+                           getDimension());
+}
+
+//===----------------------------------------------------------------------===//
+// BatchNormTrainingOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::BatchNormTrainingOp::verify() {
+  return verifyBatchNormOp(getOperation(), getOperand().getType(),
+                           getDimension());
 }
 
 //===----------------------------------------------------------------------===//

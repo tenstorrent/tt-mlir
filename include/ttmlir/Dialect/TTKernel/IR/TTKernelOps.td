@@ -2487,6 +2487,7 @@ def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]
       Notes:
         - Only trivial format specifier currently supported, i.e. `{}`.
         - Must double escape newline character or other special characters.
+        - When a CB operand is provided, calls print_cb_details, printing underlying CB pointers and details.
     }];
     let arguments = (ins StrAttr:$fmt, Variadic<AnyType>:$argv);
 
