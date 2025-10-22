@@ -1233,16 +1233,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::Conv2dOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // TODO (azecevic): Has to be set explicitly to false, otherwise it will
-    // assert for flattened Conv2dOp.
-    // https://github.com/tenstorrent/tt-metal/issues/30985
-    auto conv2dConfig = srcOp.getConv2dConfig();
-    if (!conv2dConfig || !*conv2dConfig) {
-      conv2dConfig =
-          mlir::tt::ttnn::Conv2dConfigAttr::getDefault(rewriter.getContext());
-      conv2dConfig = conv2dConfig->withEnableKernelStrideFolding(false);
-    }
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getWeight()),
@@ -1261,7 +1251,7 @@ public:
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getBias()),
-        emitter.emit(conv2dConfig),
+        emitter.emit(srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getConv2dSliceConfigAttr()),
@@ -1293,16 +1283,6 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ConvTranspose2dOp> emitter(
         srcOp, adaptor, rewriter);
 
-    // TODO (azecevic): Has to be set explicitly to false, otherwise it will
-    // assert for flattened Conv2dOp.
-    // https://github.com/tenstorrent/tt-metal/issues/30985
-    auto conv2dConfig = srcOp.getConv2dConfig();
-    if (!conv2dConfig || !*conv2dConfig) {
-      conv2dConfig =
-          mlir::tt::ttnn::Conv2dConfigAttr::getDefault(rewriter.getContext());
-      conv2dConfig = conv2dConfig->withEnableKernelStrideFolding(false);
-    }
-
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getWeight()),
@@ -1320,7 +1300,7 @@ public:
         emitter.emit(srcOp.getGroups()),
         emitter.emit(srcOp.getDtype()),
         emitter.emit(srcOp.getBias()),
-        emitter.emit(conv2dConfig),
+        emitter.emit(srcOp.getConv2dConfig()),
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
