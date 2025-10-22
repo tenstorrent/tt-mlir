@@ -231,8 +231,8 @@ static MemRefType getMemRefType(Type type, bool isView,
                          MemorySpaceAttr::get(ctx, layout.getMemorySpace()));
 }
 
-bufferization::BufferLikeType getBufferType(Type type, bool isView,
-                                std::optional<MetalLayoutAttr> hostInfo) {
+bufferization::BufferLikeType
+getBufferType(Type type, bool isView, std::optional<MetalLayoutAttr> hostInfo) {
   return mlir::cast<bufferization::BufferLikeType>(
       getMemRefType(type, isView, hostInfo));
 }

@@ -127,7 +127,7 @@ d2m::FullOp::getAliasingValues(mlir::OpOperand &,
   return result;
 }
 
-mlir::FailureOr<mlir::BaseMemRefType>
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
 d2m::FullOp::getBufferType(mlir::Value value,
                            const mlir::bufferization::BufferizationOptions &,
                            const mlir::bufferization::BufferizationState &,
@@ -177,7 +177,8 @@ mlir::LogicalResult d2m::MeshShardOp::bufferize(
   return success();
 }
 
-mlir::FailureOr<mlir::BaseMemRefType> d2m::MeshShardOp::getBufferType(
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+d2m::MeshShardOp::getBufferType(
     mlir::Value value, const mlir::bufferization::BufferizationOptions &,
     const mlir::bufferization::BufferizationState &,
     ::llvm::SmallVector<mlir::Value> &) {
