@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -314,7 +315,7 @@ DMAOp::getBufferType(mlir::Value value,
                      const mlir::bufferization::BufferizationState &,
                      ::llvm::SmallVector<mlir::Value> &) {
   auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-  return mlir::tt::d2m::getBufferType(rankedTensorType, /*isView=*/true);
+  return mlir::tt::ttcore::getBufferType(rankedTensorType, /*isView=*/true);
 }
 
 mlir::LogicalResult
