@@ -77,4 +77,30 @@ bool runPipeline(mlir::PassManager &pm, mlir::ModuleOp module,
   std::string pipelineName = getPipelineName(module, target);
   return runPipeline(pm, module, pipelineName, pipelineOptions);
 }
+
+void formatCode(const fs::path &filePath, CodeGenerationTarget target) {
+  if (target == CodeGenerationTarget::Python) {
+    std::string formatCommand = "black --quiet " + filePath.string() + " 2>&1";
+    int formatResult = std::system(formatCommand.c_str());
+    if (formatResult != 0) {
+      std::cout
+          << "Warning: Failed to format Python file with black (exit code: "
+          << formatResult << ")" << std::endl;
+      std::cout << "The generated Python code is still available at: "
+                << filePath << std::endl;
+    }
+  } else if (target == CodeGenerationTarget::Cpp) {
+    std::string formatCommand =
+        "clang-format -i " + filePath.string() + " > /dev/null 2>&1";
+    int formatResult = std::system(formatCommand.c_str());
+    if (formatResult != 0) {
+      std::cout
+          << "Warning: Failed to format C++ file with clang-format (exit code: "
+          << formatResult << ")" << std::endl;
+      std::cout << "The generated C++ code is still available at: " << filePath
+                << std::endl;
+    }
+  }
+}
+
 } // namespace tt::alchemist::utils

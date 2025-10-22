@@ -121,6 +121,8 @@ bool TTAlchemist::generateCpp(const std::string &input_file,
 
   cppFile.close();
 
+  utils::formatCode(cppFilePath, utils::CodeGenerationTarget::Cpp);
+
   return true;
 }
 

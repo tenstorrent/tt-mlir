@@ -35,6 +35,8 @@ bool runPipeline(mlir::PassManager &pm, mlir::ModuleOp module,
 bool runPipeline(mlir::PassManager &pm, mlir::ModuleOp module,
                  CodeGenerationTarget target,
                  const std::string &pipelineOptions = "");
+
+void formatCode(const fs::path &dirOrFilePath, CodeGenerationTarget target);
 } // namespace tt::alchemist::utils
 
 #endif // TT_ALCHEMIST_UTILS_HPP
