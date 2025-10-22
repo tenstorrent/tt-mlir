@@ -12,8 +12,6 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Pass/PassRegistry.h"
-#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
 
 #include <dlfcn.h>
@@ -46,68 +44,12 @@ bool TTAlchemist::generatePython(const std::string &input_file,
     return false;
   }
 
-  // Detect whether the input is TTIR or TTNN by checking for operations
-  // from each dialect
-  bool hasTTIR = false;
-  bool hasTTNN = false;
-
-  module->walk([&](mlir::Operation *op) {
-    llvm::StringRef dialectName = op->getDialect()->getNamespace();
-    if (dialectName == "ttir") {
-      hasTTIR = true;
-    } else if (dialectName == "ttnn") {
-      hasTTNN = true;
-    }
-  });
-
-  bool isTTNNBackendToEmitPyPipeline = hasTTNN && !hasTTIR;
-
   mlir::PassManager pm(&context);
 
-  // Determine which pipeline to use based on detected dialect
-  std::string pipelineName;
-  if (isTTNNBackendToEmitPyPipeline) {
-    // Input is TTNN, use direct TTNN to EmitPy pipeline
-    pipelineName = "ttnn-backend-to-emitpy-pipeline";
-  } else {
-    // Input is TTIR (or mixed), use full TTIR to EmitPy pipeline
-    pipelineName = "ttir-to-emitpy-pipeline";
-  }
-
-  // Parse pipeline options if provided
-  if (!pipeline_options.empty()) {
-    // Use the registered pipeline with options
-    const auto *pipeline = mlir::PassPipelineInfo::lookup(pipelineName);
-    if (!pipeline) {
-      std::cout << "Failed to find " << pipelineName << std::endl;
-      return false;
-    }
-
-    std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
-        [](const llvm::Twine &msg) {
-          std::cout << "Pipeline error: " << msg.str() << std::endl;
-          return mlir::failure();
-        };
-
-    if (mlir::failed(
-            pipeline->addToPipeline(pm, pipeline_options, err_handler))) {
-      std::cout << "Failed to add pipeline with options: " << pipeline_options
-                << std::endl;
-      return false;
-    }
-  } else {
-    // Use default options based on detected dialect
-    if (isTTNNBackendToEmitPyPipeline) {
-      mlir::tt::ttnn::createTTNNBackendToEmitPyPipeline(
-          pm, mlir::tt::ttnn::TTNNBackendToEmitPyPipelineOptions());
-    } else {
-      mlir::tt::ttnn::createTTIRToEmitPyPipeline(
-          pm, mlir::tt::ttnn::TTIRToEmitPyPipelineOptions());
-    }
-  }
-
-  if (mlir::failed(pm.run(module.get()))) {
-    std::cout << "Failed to run pipeline: " << pipelineName << std::endl;
+  // Run the appropriate pipeline
+  //
+  if (!utils::runPipeline(pm, module.get(), utils::CodeGenerationTarget::Python,
+                          pipeline_options)) {
     return false;
   }
 
@@ -137,10 +79,10 @@ bool TTAlchemist::generatePython(const std::string &input_file,
   //
   fs::path templatesPath;
   if (is_local) {
-    templatesPath = get_templates_dir() / "python" / "local";
+    templatesPath = utils::get_templates_dir() / "python" / "local";
   } else {
     // For standalone mode, we might want different templates or behavior
-    templatesPath = get_templates_dir() / "python" / "standalone";
+    templatesPath = utils::get_templates_dir() / "python" / "standalone";
   }
 
   if (!fs::exists(templatesPath) || !fs::is_directory(templatesPath)) {

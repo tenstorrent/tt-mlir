@@ -12,9 +12,7 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Pass/PassRegistry.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
-#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
 #include <dlfcn.h>
 #include <filesystem>
@@ -48,36 +46,10 @@ bool TTAlchemist::generateCpp(const std::string &input_file,
 
   mlir::PassManager pm(&context);
 
-  // Parse pipeline options if provided
-  if (!pipeline_options.empty()) {
-    // Use the registered pipeline with options
-    const auto *pipeline =
-        mlir::PassPipelineInfo::lookup("ttir-to-emitc-pipeline");
-    if (!pipeline) {
-      std::cout << "Failed to find ttir-to-emitc-pipeline" << std::endl;
-      return false;
-    }
-
-    std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
-        [](const llvm::Twine &msg) {
-          std::cout << "Pipeline error: " << msg.str() << std::endl;
-          return mlir::failure();
-        };
-
-    if (mlir::failed(
-            pipeline->addToPipeline(pm, pipeline_options, err_handler))) {
-      std::cout << "Failed to add pipeline with options: " << pipeline_options
-                << std::endl;
-      return false;
-    }
-  } else {
-    // Use default options
-    mlir::tt::ttnn::createTTIRToEmitCPipeline(
-        pm, mlir::tt::ttnn::TTIRToEmitCPipelineOptions());
-  }
-
-  if (mlir::failed(pm.run(module.get()))) {
-    std::cout << "Failed to run TTIR to EmitC pipeline" << std::endl;
+  // Run the appropriate pipeline
+  //
+  if (!utils::runPipeline(pm, module.get(), utils::CodeGenerationTarget::Cpp,
+                          pipeline_options)) {
     return false;
   }
 
@@ -106,9 +78,9 @@ bool TTAlchemist::generateCpp(const std::string &input_file,
   //
   fs::path templatesPath;
   if (is_local) {
-    templatesPath = get_templates_dir() / "cpp" / "local";
+    templatesPath = utils::get_templates_dir() / "cpp" / "local";
   } else {
-    templatesPath = get_templates_dir() / "cpp" / "standalone";
+    templatesPath = utils::get_templates_dir() / "cpp" / "standalone";
   }
 
   if (!fs::exists(templatesPath) || !fs::is_directory(templatesPath)) {

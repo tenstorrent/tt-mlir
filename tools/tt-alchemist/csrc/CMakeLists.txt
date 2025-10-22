@@ -18,6 +18,7 @@ set(LIB_SOURCES
   lib/model_to_python.cpp
   lib/generate_cpp.cpp
   lib/generate_python.cpp
+  lib/utils.cpp
 )
 
 # Add library
