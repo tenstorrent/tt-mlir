@@ -21,8 +21,8 @@ class Conv2dEnableKernelStrideFoldingRewritePattern
 public:
   using mlir::OpRewritePattern<OpTy>::OpRewritePattern;
 
-  mlir::LogicalResult matchAndRewrite(OpTy srcOp,
-                                      PatternRewriter &rewriter) const {
+  mlir::LogicalResult
+  matchAndRewrite(OpTy srcOp, PatternRewriter &rewriter) const override {
     auto conv2dConfig = srcOp.getConv2dConfig();
 
     if (conv2dConfig && *conv2dConfig &&
