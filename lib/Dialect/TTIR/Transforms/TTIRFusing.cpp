@@ -450,20 +450,21 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MinimumOp minimumOp,
                   mlir::PatternRewriter &rewriter) const final {
-    // Try to match pattern: Minimum(ReLU(x), 6) or Minimum(6, ReLU(x))
-    Value lhs = minimumOp.getLhs();
-    Value rhs = minimumOp.getRhs();
+    // Try first to match pattern minimum(relu(x), 6)
+    Value relu = minimumOp.getLhs();
+    Value fullSix = minimumOp.getRhs();
 
-    auto reluOp = lhs.getDefiningOp<ReluOp>();
+    auto reluOp = relu.getDefiningOp<ReluOp>();
 
-    // Check the reversed pattern if initial match fails
+    // If lhs is not relu, try the reversed pattern minimum(6, relu(x))
     if (!reluOp) {
-      reluOp = rhs.getDefiningOp<ReluOp>();
-      std::swap(lhs, rhs);
+      reluOp = fullSix.getDefiningOp<ReluOp>();
+      std::swap(relu, fullSix);
     }
 
     // Verify we found the expected pattern
-    if (!reluOp || !isFullOpWithValue(rhs, 6)) {
+    if (!reluOp || !reluOp.getInput().hasOneUse() ||
+        !isFullOpWithValue(fullSix, 6)) {
       return mlir::failure();
     }
 
