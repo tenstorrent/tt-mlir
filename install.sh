@@ -96,7 +96,7 @@ while true; do
         --skip-tests)
             skip_tests="ON";;
         --clean)
-	    clean; exit 0;;
+            clean; exit 0;;
         --)
             shift;break;;
     esac
