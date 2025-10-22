@@ -567,6 +567,7 @@ public:
           workarounds::decomposition::Conv2dRewritePattern<Conv2dOp>,
           workarounds::decomposition::Conv2dRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::Conv2dSliceConfigRewritePattern,
+          workarounds::decomposition::ComplexReshapePattern,
           workarounds::decomposition::ConcatenateHeadsOpRewritePattern>(
           &getContext());
 
