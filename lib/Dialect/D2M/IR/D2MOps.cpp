@@ -426,31 +426,13 @@ void ToLayoutOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
       return failure();
     }
 
-    // do not fold away virtual grid types
-    if (auto tensorType =
-            mlir::dyn_cast<mlir::RankedTensorType>(op.getOutput().getType())) {
-      auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-          tensorType.getEncoding());
-      if (layout) {
-        auto gridShape = layout.getGridShape(tensorType);
-        if (gridShape[0] > 8 || gridShape[1] > 8) {
-
-          return failure();
-          // Check if any uses of the ToLayout op result are as inputs to a
-          // GenericOp
-          // for (OpOperand &use : op.getResult(0).getUses()) {
-          //  if (auto genericOp = mlir::dyn_cast<GenericOp>(use.getOwner())) {
-          //    // Check if this is an input operand (not an output operand)
-          //    if (genericOp.isDpsInput(&use)) {
-          //      llvm::dbgs() << "ToLayoutOp::getCanonicalizationPatterns | "
-          //                      "virtual grid type, do not fold away : \n"
-          //                   << op << "\n";
-          //      return failure();
-          //    }
-          //  }
-          //}
-        }
-      }
+    // DO NOT fold away toLayout from underlying empty physical tensor to a view.
+    // It isn't possible to fold the underlying physical tensor into the virtual
+    // view tensor; both must be preserved.
+    auto outType = op.getOutput().getType();
+    if (auto tensorType = dyn_cast<RankedTensorType>(outType);
+        tensorType && utils::hasVirtualGrid(op.getOutput())) {
+      return failure();
     }
 
     rewriter.replaceOpWithNewOp<EmptyOp>(op, op.getOutput().getType());

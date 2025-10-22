@@ -164,6 +164,13 @@ AffineMap getCoreVirtualizationMap(mlir::Value tensorOrMemref) {
   }
 }
 
+bool hasVirtualGrid(mlir::Value tensorOrMemref) {
+  // If a non-identitycore virtualization map is defined, then the tensor has a
+  // virtual grid.
+  auto map = getCoreVirtualizationMap(tensorOrMemref);
+  return map && !map.isIdentity();
+}
+
 SmallVector<int64_t> getGridShape(mlir::Value tensorOrMemref) {
   auto shapedType = mlir::dyn_cast<ShapedType>(tensorOrMemref.getType());
   TT_assertv(shapedType, "Expected a shaped type");

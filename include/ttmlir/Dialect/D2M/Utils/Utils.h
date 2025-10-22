@@ -43,6 +43,11 @@ Type getRegionLargestDstElemType(Region &region);
 //        (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2)
 AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
                                       bool reverse);
+
+// returns true if the tensor/memref has a virtual grid (i.e. non trivial core
+// virtualization map defined in underlying ShardLayoutAttr)
+bool hasVirtualGrid(mlir::Value tensorOrMemref);
+
 // Trace IR to find underlying physical (non-view) tensor/memref
 Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref);
 
