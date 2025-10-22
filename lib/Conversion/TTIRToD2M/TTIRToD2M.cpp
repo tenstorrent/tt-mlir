@@ -724,10 +724,9 @@ private:
       llvm_unreachable("unexpected input element type");
     }
 
-    mlir::DenseElementsAttr scalerValue =
-        mlir::SplatElementsAttr::get(scalerType, one);
-
-    return builder.create<ttir::ConstantOp>(loc, scalerType, scalerValue);
+    return builder.create<d2m::FullOp>(
+        loc, scalerType, llvm::to_vector_of<int32_t>(scalerType.getShape()),
+        one);
   }
 
   static d2m::ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {
@@ -1118,6 +1117,31 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
   }
 };
 
+class D2MFullOpRewriter : public OpConversionPattern<ttir::FullOp> {
+  using OpConversionPattern<ttir::FullOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::FullOp op, ttir::FullOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<d2m::FullOp>(
+        op, op.getResult().getType(), op.getShape(), op.getFillValueAttr());
+    return success();
+  }
+};
+
+class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
+  using OpConversionPattern<ttir::MeshShardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MeshShardOp op, ttir::MeshShardOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<d2m::MeshShardOp>(
+        op, op.getResult().getType(), adaptor.getInput(), op.getShardType(),
+        op.getShardDirection(), op.getShardShape(), op.getShardDims());
+    return success();
+  }
+};
+
 } // namespace mlir::tt
 
 namespace mlir::tt {
@@ -1174,7 +1198,10 @@ void populateTTIRToD2MPatterns(
   patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx);
 
   // Creation ops 1:1 conversion.
-  patterns.add<D2MEmptyOpRewriter>(typeConverter, ctx);
+  patterns.add<D2MEmptyOpRewriter, D2MFullOpRewriter>(typeConverter, ctx);
+
+  // Mesh ops 1:1 conversion.
+  patterns.add<D2MMeshShardOpRewriter>(typeConverter, ctx);
 
   // Matmul.
   patterns.add<D2MMatmulRewriter<d2m::TileMatmulOp>>(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, targetGridShape, ttnnMode, collapseTensors);
@@ -1234,9 +1261,6 @@ public:
     target.addLegalDialect<mlir::tt::ttcore::TTCoreDialect>();
 
     // Keep some TTIR ops legal if they don't have D2M equivalents.
-    target.addLegalOp<mlir::tt::ttir::ConstantOp>();
-    target.addLegalOp<mlir::tt::ttir::FullOp>();
-    target.addLegalOp<ttir::MeshShardOp>();
     target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
 
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {

@@ -14,19 +14,43 @@ permissions:
 
 jobs:
   pre-commit:
-    uses: ./.github/workflows/pre-commit.yml
+    uses: ./.github/workflows/call-pre-commit.yml
     secrets: inherit
-  spdx:
-    uses: ./.github/workflows/spdx.yml
+  build-image:
+    uses: ./.github/workflows/call-build-docker.yml
     secrets: inherit
-  build-and-test:
-    needs:
-      - pre-commit
-      - spdx
-    uses: ./.github/workflows/build-and-test.yml
+  prepare-run:
+    uses: ./.github/workflows/call-prepare-run.yml
+    with:
+      builder_build: true
     secrets: inherit
+  release-build:
+    needs: [ prepare-run, build-image ]
+    if: needs.prepare-run.outputs.skip_build != 'true'
+    uses: ./.github/workflows/call-build-release.yml
+    secrets: inherit
+    with:
+      docker_image: ${{ needs.build-image.outputs.docker-image }}
+      runner: ${{ needs.prepare-run.outputs.runner }}
+      sh_builder: ${{ fromJson(needs.prepare-run.outputs.sh_builder) }}
+      component_matrix: ${{ needs.prepare-run.outputs.build_matrix }}
+  debug-build:
+    needs: [ prepare-run, build-image ]
+    if: needs.prepare-run.outputs.skip_build != 'true'
+    uses: ./.github/workflows/call-build-debug.yml
+    secrets: inherit
+    with:
+      docker-image: ${{ needs.build-image.outputs.docker-image }}
+  test:
+    needs: [ prepare-run, build-image, release-build ]
+    if: needs.prepare-run.outputs.skip_build != 'true'
+    uses: ./.github/workflows/call-test.yml
+    secrets: inherit
+    with:
+      docker_image: ${{ needs.build-image.outputs.docker-image }}
+      test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
   save-durations:
-    needs: build-and-test
+    needs: test
     runs-on: ubuntu-latest
     if: success() && github.ref == 'refs/heads/main'
     steps:
@@ -43,7 +67,6 @@ jobs:
           gh variable set test_durations --body "$(cat _test_durations)" --repo tenstorrent/tt-mlir
           rm -rf _test_durations*
   docs:
-    needs:
-      - build-and-test
-    uses: ./.github/workflows/pages.yml
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/call-build-docs.yml
     secrets: inherit

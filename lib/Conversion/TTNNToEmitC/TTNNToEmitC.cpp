@@ -2022,10 +2022,17 @@ public:
     // Restore the insertion point to continue with the function
     rewriter.restoreInsertionPoint(currentInsertionPoint);
 
+    const bool isZeroArgWrapper = adaptor.getInputs().size() == 0;
     // Create the function pointer type
-    auto funcPtrType = emitc::OpaqueType::get(
-        rewriter.getContext(), "::std::function<::std::vector<::ttnn::Tensor>(:"
-                               ":std::vector<::ttnn::Tensor>)>");
+    auto funcPtrType =
+        isZeroArgWrapper
+            ? emitc::OpaqueType::get(
+                  rewriter.getContext(),
+                  "::std::function<::std::vector<::ttnn::Tensor>()>")
+            : emitc::OpaqueType::get(
+                  rewriter.getContext(),
+                  "::std::function<::std::vector<::ttnn::Tensor>(:"
+                  ":std::vector<::ttnn::Tensor>)>");
     auto addressAttr =
         emitc::OpaqueAttr::get(rewriter.getContext(), "&" + callee.str());
     auto funcPtrValue = rewriter.create<emitc::ConstantOp>(
@@ -2049,9 +2056,15 @@ public:
                                                        "&", globalVar);
 
     // Call the wrapper function with the pointer
-    rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
-        ValueRange{funcPtrValue, tupleValue, addressOfOp}, ArrayAttr{});
+    if (isZeroArgWrapper) {
+      rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapperZeroArg",
+          ValueRange{funcPtrValue, addressOfOp}, ArrayAttr{});
+    } else {
+      rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
+          ValueRange{funcPtrValue, tupleValue, addressOfOp}, ArrayAttr{});
+    }
 
     // Load the value from the global variable
     auto resultVar =
@@ -2237,6 +2250,35 @@ public:
         rewriter.getType<emitc::OpaqueAttr>("::ttnn::ccl::Topology::Linear"),
         /*userDefinedNumWorkers=*/emitter.emit(std::nullopt),
         /*userDefinedNumBuffersPerChannel=*/emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class ScatterOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::ScatterOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ScatterOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ScatterOp srcOp,
+                  mlir::tt::ttnn::ScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ScatterOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getIndex()),
+        emitter.emit(srcOp.getSource()),
+        emitter.emit(std::nullopt) |
+            emitter.getMemoryConfig(srcOp.getResult()), // mem config
+        emitter.emit(std::nullopt)                      // opt_reduction
     };
 
     emitter.replaceOp(*this, args);
@@ -3633,7 +3675,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::MaximumOp>,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::MinimumOp>,
       EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::DivideOp>,
-      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::ScatterOp>,
       EltwiseBinaryCompositeOpConversionPattern<
           mlir::tt::ttnn::LogicalLeftShiftOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
@@ -3703,6 +3744,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<AllGatherOpConversionPattern>(typeConverter, ctx);
   patterns.add<ReduceScatterOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<CollectivePermuteOpConversionPattern>(typeConverter, ctx);
   patterns.add<MeshShardOpConversionPattern>(typeConverter, ctx);
   patterns.add<PointToPointOpConversionPattern>(typeConverter, ctx);
