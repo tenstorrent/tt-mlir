@@ -1,0 +1,43 @@
+namespace tt.runtime.flatbuffer;
+
+enum DispatchCoreType: uint {
+  Worker,
+  Ethernet
+}
+
+enum DeviceRuntime: uint32 {
+  Disabled,
+  TTNN,
+  TTMetal,
+}
+
+enum HostRuntime: uint32 {
+  Local,
+  Distributed,
+}
+
+enum FabricConfig: uint32 {
+  DISABLED,
+  FABRIC_1D,
+  FABRIC_1D_RING,
+  FABRIC_2D,
+  FABRIC_2D_TORUS_X,
+  FABRIC_2D_TORUS_Y,
+  FABRIC_2D_TORUS_XY,
+  FABRIC_2D_DYNAMIC,
+  FABRIC_2D_DYNAMIC_TORUS_X,
+  FABRIC_2D_DYNAMIC_TORUS_Y,
+  FABRIC_2D_DYNAMIC_TORUS_XY,
+  CUSTOM,
+}
+
+table MeshDeviceOptions {
+  mesh_offset: [uint32];
+  device_ids: [int];
+  num_hw_cqs: uint8;
+  enable_program_cache: bool;
+  mesh_shape: [uint32];
+  l1_small_size: uint64 = null;
+  trace_region_size: uint64 = null;
+  dispatch_core_type: DispatchCoreType = null;
+}

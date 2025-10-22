@@ -252,7 +252,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 }
 
 static std::shared_ptr<::tt::tt_metal::distributed::MeshDevice>
-createNewMeshDevice(std::optional<DispatchCoreType> dispatchCoreType) {
+createNewMeshDevice(
+    std::optional<tt::runtime::DispatchCoreType> dispatchCoreType) {
 
   ::tt::tt_metal::DispatchCoreType type =
       tt::runtime::common::getDispatchCoreType(dispatchCoreType);
@@ -263,9 +264,9 @@ createNewMeshDevice(std::optional<DispatchCoreType> dispatchCoreType) {
       DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
 }
 
-::tt::runtime::SystemDesc
-getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
-                     std::optional<Device> meshDevice) {
+::tt::runtime::SystemDesc getCurrentSystemDesc(
+    std::optional<tt::runtime::DispatchCoreType> dispatchCoreType,
+    std::optional<Device> meshDevice) {
 
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevicePtr;
   if (meshDevice.has_value()) {

@@ -145,7 +145,7 @@ TensorDesc getTensorDesc(::tt::runtime::Tensor tensor);
 bool getTensorRetain(::tt::runtime::Tensor tensor);
 void setTensorRetain(::tt::runtime::Tensor tensor, bool retain);
 
-Arch getArch();
+tt::target::Arch getArch();
 
 void enablePersistentKernelCache();
 void disablePersistentKernelCache();
@@ -189,7 +189,7 @@ void readDeviceProfilerResults(Device device);
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);
 
-void setFabricConfig(FabricConfig config);
+void setFabricConfig(tt::runtime::FabricConfig config);
 
 void wait(Event event);
 
