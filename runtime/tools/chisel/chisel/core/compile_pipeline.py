@@ -49,6 +49,7 @@ def run_ttir_to_ttnn(module_str: str, ctx) -> Module:
     pass_params = {
         "enable-erase-inverse-ops-pass": "false",
         "enable-const-eval": "false",
+        "enable-fusing-conv2d-with-multiply-pattern": "true",
         "system-desc-path": "ttrt-artifacts/system_desc.ttsys",  # TODO: make this configurable as in the rest of the code
     }
     pm = PassManager.parse(
@@ -62,12 +63,30 @@ def run_ttir_to_ttnn(module_str: str, ctx) -> Module:
     return module
 
 
-def chisel_pipeline(ttir_path: Path) -> Tuple[Module, Module]:
-    ttir_module = run_ttir_decomposition_with_passmanager(ttir_path)
+def chisel_pipeline(
+    ttir_path: Path, dump_ttir: bool = False, dump_ttnn: bool = False
+) -> Tuple[Module, Module]:
     ctx = Context()
+    with ctx:
+        ttir_module = Module.parseFile(str(ttir_path))
     # This resets the location so that ttir_module location is just the line and column number where that op is defined
     # and ttnn_module locations points to the location from where that op originates in ttir_module
     ttir_module = Module.parse(str(ttir_module), ctx)
+    print(str(ttir_module))
+
+    # Dump TTIR module to file
+    if dump_ttir:
+        chisel_mlir_path = Path("chisel_ttir.mlir")
+        with open(chisel_mlir_path, "w") as f:
+            f.write(str(ttir_module))
+        print(f"TTIR module dumped to: {chisel_mlir_path}")
+
     ttnn_module = run_ttir_to_ttnn(str(ttir_module), ctx)
+
+    if dump_ttnn:
+        chisel_mlir_path = Path("chisel_ttnn.mlir")
+        with open(chisel_mlir_path, "w") as f:
+            f.write(str(ttnn_module))
+        print(f"TTNN module dumped to: {chisel_mlir_path}")
 
     return ttir_module, ttnn_module
