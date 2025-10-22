@@ -683,11 +683,13 @@ parseDimensionShardings(const std::string &dimsContent,
         dimsContent.substr(braceStart + 1, braceEnd - braceStart - 1);
 
     if (dimContent.empty()) {
+      // "#sdy.sharding<@mesh, [{}]>"
       dimShardings.push_back(
-          mlir::sdy::DimensionShardingAttr::get(context, {}, false));
+          mlir::sdy::DimensionShardingAttr::get(context, {}, true));
     } else {
       llvm::SmallVector<mlir::sdy::AxisRefAttr> axisRefs;
       size_t axisPos = 0;
+      bool isClosed = dimContent.find("?") == std::string::npos;
       while (axisPos < dimContent.length()) {
         size_t quoteStart = dimContent.find('"', axisPos);
         if (quoteStart == std::string::npos) {
@@ -706,7 +708,7 @@ parseDimensionShardings(const std::string &dimsContent,
       }
 
       dimShardings.push_back(
-          mlir::sdy::DimensionShardingAttr::get(context, axisRefs, false));
+          mlir::sdy::DimensionShardingAttr::get(context, axisRefs, isClosed));
     }
 
     pos = braceEnd + 1;
@@ -755,7 +757,6 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
   size_t atPos = shardingValue.find("@");
   size_t commaPos = shardingValue.find(",", atPos);
   std::string meshName = shardingValue.substr(atPos + 1, commaPos - atPos - 1);
-
   size_t startPos = shardingValue.find("[");
   size_t endPos = shardingValue.rfind("]");
   if (startPos != std::string::npos && endPos != std::string::npos) {
