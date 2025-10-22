@@ -57,7 +57,7 @@ def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLike
         return mlir::cast<mlir::ShapedType>(get(clone));
       }
 
-      template<typename T>
+      template <typename T>
       T getUnderlyingAs() {
         return mlir::cast<T>(getUnderlying());
       }

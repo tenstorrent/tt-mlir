@@ -1131,7 +1131,16 @@ def D2M_WaitOp : D2M_CBOp<"wait"> {
   let description = [{
     Wait operation, extracts the enclosing memref from a circular buffer.
     This operation is used by consumer threads to access data from the circular buffer.
-    It replaces the d2m.await operation when using the new circular buffer semantics.
+    It implicitly blocks until a chunk of memref sized underlying type is made
+    available by a producer thread via d2m.reserve.
+
+    Each value of !d2m.cb type can be thought of as a shared resource between threads
+    akin to a single-producer, single-consumer queue. Where d2m.reserve and d2m.wait
+    effectively implement push/pop queue semantics. One distinction which lends itself
+    better to DPS style is that both reserve and wait guarantee acquisition of the
+    underlying memory after the op has executed.
+
+    The resource is implicitly released at the end of block scope.
 
     Example:
     ```mlir
@@ -1144,8 +1153,17 @@ def D2M_ReserveOp : D2M_CBOp<"reserve"> {
   let summary = "Reserve from circular buffer.";
   let description = [{
     Reserve operation, extracts the enclosing memref from a circular buffer.
-    This operation is used by producer threads to reserve space in the circular buffer.
-    It replaces the d2m.yield operation when using the new circular buffer semantics.
+    This operation is used by producer threads to reserve a memref sized underlying
+    type's worth of space in the circular buffer. It implicitly blocks if there hasn't
+    yet been a consumer of the data from another thread via d2m.wait.
+
+    Each value of !d2m.cb type can be thought of as a shared resource between threads
+    akin to a single-producer, single-consumer queue. Where d2m.reserve and d2m.wait
+    effectively implement push/pop queue semantics. One distinction which lends itself
+    better to DPS style is that both reserve and wait guarantee acquisition of the
+    underlying memory after the op has executed.
+
+    The resource is implicitly released at the end of block scope.
 
     Example:
     ```mlir
