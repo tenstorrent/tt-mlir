@@ -848,7 +848,11 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GetDeviceOp> emitter(
         getDeviceOp, adaptor, rewriter);
 
-    emitter.replaceOp(*this, {});
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(getDeviceOp.getMeshShapeAttr()),
+    };
+
+    emitter.replaceOp(*this, args);
 
     return success();
   }
