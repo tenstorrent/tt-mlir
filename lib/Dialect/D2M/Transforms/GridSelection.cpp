@@ -550,11 +550,13 @@ static void insertTTNNDRAMStreams(d2m::GenericOp genericOp,
     if (baseMetalLayout.getMemorySpace() != ttcore::MemorySpace::DeviceDRAM) {
       continue;
     }
-    auto elementType = metalTensor.getElementType();
-    auto logiclShape = baseMetalLayout.getLogicalShape();
 
     llvm::SmallVector<int64_t> unshardedShape =
         baseMetalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
+    llvm::SmallVector<int64_t> unitGridShape {1, 1};
+    llvm::SmallVector<int64_t> unShardedShapeWithGrid =
+        baseMetalLayout.getDeviceShape(unitGridShape,
+                                       ttcore::TileType::getDefaultShape());
 
     llvm::SmallVector<int64_t> workerGrid =
         computeOptimalGrid(unshardedShape, targetSquareGridShape);
@@ -562,34 +564,33 @@ static void insertTTNNDRAMStreams(d2m::GenericOp genericOp,
         baseMetalLayout.getDeviceShape(workerGrid,
                                        ttcore::TileType::getDefaultShape());
 
-    // Use a placeholder, 1-filled grid for this pass.
-    llvm::SmallVector<int64_t> simpleGrid(unshardedShape.size(), 1);
-    llvm::SmallVector<int64_t> shardedShape = baseMetalLayout.getDeviceShape(
-        simpleGrid, ttcore::TileType::getDefaultShape());
     auto streamOutputLayout = ttcore::MetalLayoutAttr::get(
-        builder.getContext(), logiclShape, baseMetalLayout.getDimAlignments(),
-        baseMetalLayout.getCollapsedIntervals(), ttcore::OOBVal::Undef,
+        builder.getContext(), baseMetalLayout.getLogicalShape(),
+        baseMetalLayout.getDimAlignments(),
+        baseMetalLayout.getCollapsedIntervals(), baseMetalLayout.getOobVal(),
         ttcore::MemorySpace::DeviceDRAM,
         ttcore::TensorMemoryLayout::Interleaved,
         mlir::tt::d2m::utils::calculateReblockMap(
-            shardedShape, fakeShardedShape, builder.getContext()));
+            unShardedShapeWithGrid, fakeShardedShape, builder.getContext()));
 
-    auto streamOutput = mlir::RankedTensorType::get(
-        fakeShardedShape, elementType, streamOutputLayout);
+    auto streamOutputTensor = mlir::RankedTensorType::get(
+        fakeShardedShape, metalTensor.getElementType(), streamOutputLayout);
 
     auto storageLayout = ttcore::MetalLayoutAttr::get(
-        builder.getContext(), logiclShape, ttcore::OOBVal::Undef,
-        ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded,
+        builder.getContext(), baseMetalLayout.getLogicalShape(),
+        baseMetalLayout.getOobVal(), ttcore::MemorySpace::DeviceL1,
+        ttcore::TensorMemoryLayout::Sharded,
         baseMetalLayout.getCollapsedIntervals(),
         baseMetalLayout.getDimAlignments());
 
     auto storageTensor = mlir::RankedTensorType::get(
-        fakeShardedShape, elementType, storageLayout);
+        fakeShardedShape, metalTensor.getElementType(), storageLayout);
+
     builder.setInsertionPointAfter(castOp);
     auto storageOp =
         builder.create<d2m::EmptyOp>(castOp.getLoc(), storageTensor);
     auto streamOp = builder.create<d2m::StreamLayoutOp>(
-        castOp.getLoc(), streamOutput, castOp.getResult(), storageOp);
+        castOp.getLoc(), streamOutputTensor, castOp.getResult(), storageOp);
     castOp.getResult().replaceAllUsesExcept(streamOp.getResult(), streamOp);
   }
 }
