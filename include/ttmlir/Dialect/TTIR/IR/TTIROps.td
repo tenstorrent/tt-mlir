@@ -30,55 +30,11 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
 }
 
 //===----------------------------------------------------------------------===//
-// TTIR top level, bufferizable, ops
+// TTIR top level ops
 //===----------------------------------------------------------------------===//
 
-class TTIR_BufferizableOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat(
-      [ DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                           , "bufferizesToMemoryWrite"
-                                                           , "bufferize"
-                                                           , "getAliasingValues"
-                                                           , "getBufferType"
-                                                           , "isWritable"
-                                                           ]>
-      , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
-      ], traits)> {
-
-    let extraClassDefinition = [{
-      bool $cppClass::bufferizesToMemoryRead(
-          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-        // If the operand is an input, it is a bufferized to a memory read.
-        return isDpsInput(&operand);
-      }
-
-      bool $cppClass::bufferizesToMemoryWrite(
-          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-        // If the operand is an output, it is a bufferized to a memory write.
-        return isDpsInit(&operand);
-      }
-
-      bufferization::AliasingValueList $cppClass::getAliasingValues(
-          OpOperand &, const bufferization::AnalysisState &) {
-        bufferization::AliasingValueList result;
-        return result;
-      }
-
-      void $cppClass::getEffects(
-          SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-              &effects) {
-        ttir::getDpsEffects(*this, effects);
-      }
-
-      bool $cppClass::isWritable(
-          mlir::Value value, const mlir::bufferization::AnalysisState &) {
-        return mlir::isa<mlir::OpResult>(value) ||
-               mlir::isa<mlir::BlockArgument>(value);
-      }
-    }];
-}
-
-def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
+def TTIR_ToLayoutOp : TTIR_DPSOp<"to_layout",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "Layout op.";
     let description = [{
       ToLayout operation, transition tensors from one layout to another.  Some examples include:
@@ -118,6 +74,14 @@ def TTIR_ToLayoutOp : TTIR_BufferizableOp<"to_layout"> {
 
       bool isHostToDevice();
       bool isDeviceToHost();
+    }];
+
+    let extraClassDefinition = [{
+      void $cppClass::getEffects(
+          SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+              &effects) {
+        ttir::getDpsEffects(*this, effects);
+      }
     }];
 
     let hasVerifier = 1;
@@ -4769,14 +4733,7 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
   let hasVerifier = 1;
 }
 
-def TTIR_FullOp : TTIR_CreationOp<"full",
-  [ DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  ]> {
+def TTIR_FullOp : TTIR_CreationOp<"full"> {
   let summary = "Creates a tensor filled with the specified value";
   let description = [{
     Tensor operation to create a tensor filled with a specified value.
@@ -4936,15 +4893,7 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
   }];
 }
 
-def TTIR_EmptyOp : TTIR_CreationOp<"empty",
-  [DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                      , "bufferizesToMemoryWrite"
-                                                      , "bufferizesToAllocation"
-                                                      , "bufferize"
-                                                      , "getAliasingValues"
-                                                      , "getBufferType"
-                                                      ]>
-  ]> {
+def TTIR_EmptyOp : TTIR_CreationOp<"empty"> {
     let summary = "Empty tensor allocation operation.";
     let description = [{
       The `empty` operation creates an uninitialized tensor with the specified shape and element type.
@@ -4996,12 +4945,6 @@ def TTIR_EmptyOp : TTIR_CreationOp<"empty",
 def TTIR_ConstantOp : TTIR_CreationOp<"constant",
   [ ConstantLike
   , AllShapesMatch<["value", "result"]>
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
   ]> {
     let summary = "Tensor constant creation operation.";
     let description = [{
@@ -5135,12 +5078,6 @@ def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
 def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
   [ Pure
   , TTIROpInterface
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
   ]> {
     let summary = "Mesh shard operation.";
     let description = [{
@@ -5182,22 +5119,6 @@ def TTIR_MeshShardOp: TTIR_Op<"mesh_shard",
                          DenseI64ArrayAttr:$shard_dims
     );
     let results = (outs AnyRankedTensorOrMemRef:$result);
-
-    let extraClassDefinition = [{
-      bool $cppClass::bufferizesToMemoryRead(
-          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-        return true;
-      }
-      bool $cppClass::bufferizesToMemoryWrite(
-          mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-        return false;
-      }
-      bufferization::AliasingValueList $cppClass::getAliasingValues(
-          OpOperand &, const bufferization::AnalysisState &) {
-        bufferization::AliasingValueList result;
-        return result;
-      }
-    }];
 
     let hasVerifier = 1;
     let hasFolder = 1;
