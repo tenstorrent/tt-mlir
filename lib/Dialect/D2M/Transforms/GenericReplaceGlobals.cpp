@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -16,7 +17,6 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
-
 class D2MGenericReplaceGlobalsRewriter
     : public OpRewritePattern<ttcore::GetGlobalOp> {
 public:
@@ -57,10 +57,10 @@ public:
       D2MGenericReplaceGlobals>::D2MGenericReplaceGlobalsBase;
   void runOnOperation() final {
     ConversionTarget target(getContext());
-    target
-        .addLegalDialect<arith::ArithDialect, BuiltinDialect, func::FuncDialect,
-                         memref::MemRefDialect, tensor::TensorDialect,
-                         ttcore::TTCoreDialect, d2m::D2MDialect>();
+    target.addLegalDialect<arith::ArithDialect, BuiltinDialect,
+                           func::FuncDialect, memref::MemRefDialect,
+                           scf::SCFDialect, tensor::TensorDialect,
+                           ttcore::TTCoreDialect, d2m::D2MDialect>();
 
     target.addDynamicallyLegalOp<ttcore::GetGlobalOp>(
         [&](ttcore::GetGlobalOp op) {

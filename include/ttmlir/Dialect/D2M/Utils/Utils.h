@@ -45,6 +45,10 @@ Type getRegionLargestDstElemType(Region &region);
 AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
                                       bool reverse);
 
+MemRefType
+getBufferType(Type type, bool isView,
+              std::optional<ttcore::MetalLayoutAttr> hostInfo = std::nullopt);
+
 } // namespace mlir::tt::d2m::utils
 
 #endif

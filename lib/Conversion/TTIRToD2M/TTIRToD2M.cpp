@@ -19,6 +19,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
@@ -127,7 +128,7 @@ protected:
     }
 
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    ArrayRef<int64_t> logicalShape = tensorType.getShape();
+    SmallVector<int64_t> logicalShape(tensorType.getShape());
 
     Type elementType = tensorType.getElementType();
     llvm::SmallVector<int64_t> tileShape;
@@ -227,9 +228,10 @@ protected:
   }
 
   // Convert from ttir enum to equivalent linalg enum.
+  template <typename Iterable>
   static SmallVector<mlir::utils::IteratorType>
   iteratorTypeTTIRToLinalg(mlir::OpBuilder &builder,
-                           const SmallVector<mlir::Attribute> &iterators) {
+                           const Iterable &iterators) {
     auto parallel = ttcore::IteratorTypeAttr::get(
         builder.getContext(), ttcore::IteratorType::Parallel);
     auto reduction = ttcore::IteratorTypeAttr::get(
@@ -1007,6 +1009,7 @@ private:
 } // namespace
 
 // Simple conversion for ttir.to_layout -> d2m.to_layout.
+namespace {
 class D2MToLayoutOpRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
   using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
   LogicalResult
@@ -1022,8 +1025,10 @@ class D2MToLayoutOpRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
     return success();
   }
 };
+} // namespace
 
 // Simple conversion for ttir.empty -> d2m.empty.
+namespace {
 class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
   using OpConversionPattern<ttir::EmptyOp>::OpConversionPattern;
 
@@ -1042,6 +1047,262 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
     return success();
   }
 };
+} // namespace
+
+namespace {
+class D2MMatmulBlockToLinalgGeneric final
+    : public mlir::OpConversionPattern<d2m::TileMatmulBlockOp>,
+      D2MNamedRewriterCommon {
+public:
+  D2MMatmulBlockToLinalgGeneric(const TypeConverter &typeConverter,
+                                mlir::MLIRContext *ctx,
+                                ttcore::MemorySpace defaultInputMemSpace,
+                                ttcore::MemorySpace defaultOutputMemSpace,
+                                bool ttnnMode, bool collapseTensors)
+      : OpConversionPattern<d2m::TileMatmulBlockOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors) {}
+
+private:
+  LogicalResult
+  matchAndRewrite(d2m::TileMatmulBlockOp op,
+                  typename d2m::TileMatmulBlockOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    if (llvm::any_of(adaptor.getOperands(), [](Value operand) {
+          RankedTensorType type =
+              mlir::cast<RankedTensorType>(operand.getType());
+          return !mlir::isa<ttcore::TileType>(type.getElementType());
+        })) {
+      return llvm::failure();
+    }
+
+    RankedTensorType tensorA =
+        mlir::cast<RankedTensorType>(adaptor.getA().getType());
+    auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+        op.getLoc(), adaptor.getOutput().getType(),
+        SmallVector<Value>{adaptor.getA(), adaptor.getB()}, adaptor.getOutput(),
+        getAffineMapsArray(rewriter, adaptor.getOperands().size(),
+                           tensorA.getRank()),
+        getIteratorTypesArray(rewriter, tensorA.getRank()),
+        [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+            mlir::ValueRange bbArgs) {
+          mlir::Value mm = bbBuilder.create<d2m::TileMatmulOp>(
+              bbLoc, bbArgs.take_back(1).getTypes(), bbArgs);
+          bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, mm);
+        });
+
+    rewriter.replaceOpWithNewOp<d2m::YieldOp>(op, linalgGeneric.getResult(0));
+
+    // HACK
+    for (auto user : op.getOutput().getUsers()) {
+      if (mlir::isa<d2m::YieldOp>(user)) {
+        rewriter.eraseOp(user);
+      }
+    }
+
+    return llvm::success();
+  }
+
+  static SmallVector<mlir::AffineMap>
+  getAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
+                     std::size_t rank) {
+    assert(arity == 3 && "expected 3 operands");
+    // TODO(#2592) handle higher ranks, if needed in this pass
+    std::string errMsg =
+        "expected a rank 2 operation, got rank " + std::to_string(rank);
+    assert(rank == 2 && errMsg.c_str());
+    mlir::MLIRContext *ctx = builder.getContext();
+
+    return SmallVector<mlir::AffineMap>{makeAffineMap(ctx, {0, 2}),
+                                        makeAffineMap(ctx, {2, 1}),
+                                        makeAffineMap(ctx, {0, 1})};
+  }
+
+  static SmallVector<mlir::utils::IteratorType>
+  getIteratorTypesArray(mlir::OpBuilder &builder, std::size_t rank) {
+    assert(rank == 2 && "expected a rank 2 operation");
+    return SmallVector<mlir::utils::IteratorType>{
+        mlir::utils::IteratorType::parallel,
+        mlir::utils::IteratorType::parallel,
+        mlir::utils::IteratorType::reduction,
+    };
+  }
+
+  static mlir::AffineMap makeAffineMap(mlir::MLIRContext *ctx,
+                                       std::array<unsigned, 2> targets) {
+    return mlir::AffineMap::getMultiDimMapWithTargets(3, targets, ctx);
+  }
+};
+} // namespace
+
+namespace {
+class D2MGenericNonDeviceLayoutRewriter final
+    : public mlir::OpConversionPattern<d2m::GenericOp>,
+      D2MNamedRewriterCommon {
+public:
+  D2MGenericNonDeviceLayoutRewriter(const TypeConverter &typeConverter,
+                                    mlir::MLIRContext *ctx,
+                                    ttcore::MemorySpace defaultInputMemSpace,
+                                    ttcore::MemorySpace defaultOutputMemSpace,
+                                    bool ttnnMode, bool collapseTensors)
+      : OpConversionPattern<d2m::GenericOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors) {}
+
+private:
+  LogicalResult
+  matchAndRewrite(d2m::GenericOp op, typename d2m::GenericOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    if (llvm::any_of(adaptor.getOperands(), hasMetalLayout)) {
+      assert(llvm::all_of(adaptor.getOperands(), hasMetalLayout));
+      return llvm::failure();
+    }
+
+    const bool tilize = true;
+    auto gridShape = op.getGrid().getShape();
+
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
+
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs}, tilize);
+
+    if (op.hasExplicitBlockFactors()) {
+      int64_t operandIndex = 0;
+      for (Value &operand : llvm::concat<Value>(inputs, outputs)) {
+        RankedTensorType tensorType =
+            mlir::cast<RankedTensorType>(operand.getType());
+        auto layout =
+            mlir::cast<ttcore::DeviceLayoutInterface>(tensorType.getEncoding());
+        SmallVector<int64_t> blockFactors =
+            op.getExplicitBlockFactors(operandIndex++);
+        SmallVector<int64_t> viewGrid(layout.getGridShape(tensorType));
+        SmallVector<int64_t> viewShard(layout.getShardShape(tensorType));
+        assert(blockFactors.size() == viewShard.size());
+        for (size_t i = 0; i < viewShard.size(); ++i) {
+          assert(viewShard[i] % blockFactors[i] == 0);
+          viewGrid[i] *= blockFactors[i];
+          viewShard[i] /= blockFactors[i];
+        }
+        auto viewShape =
+            llvm::to_vector(llvm::concat<int64_t>(viewGrid, viewShard));
+        operand =
+            rewriter.create<d2m::ViewLayoutOp>(op.getLoc(), operand, viewShape);
+      }
+    }
+
+    auto generic = rewriter.create<d2m::GenericOp>(
+        op.getLoc(), TypeRange(outputs), inputs, outputs, op.getGrid(),
+        op.getBlockFactors(), op.getIndexingMaps(), op.getIteratorTypes(),
+        op.getThreads(), op.getNumRegions());
+
+    assert(op->getNumRegions() > 0);
+    llvm::SmallVector<Type> blockTypes = llvm::map_to_vector(
+        llvm::enumerate(TypeRange(op->getRegion(0).getArguments())),
+        [&](auto pair) -> Type {
+          auto [i, t] = pair;
+
+          bool isCB = false;
+          if (auto cbType = mlir::dyn_cast<d2m::CBType>(t)) {
+            t = cbType.getUnderlying();
+            isCB = true;
+          }
+
+          if (mlir::isa<RankedTensorType>(t)) {
+            // Convert the top level device tensor layout into it's equivalent
+            // block arg.
+            auto tensorType =
+                mlir::cast<RankedTensorType>(generic.getOperand(i).getType());
+            assert(tensorType.getEncoding());
+            auto layout =
+                mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+            auto shardShape = layout.getShardShape(tensorType);
+            t = mlir::RankedTensorType::get(shardShape,
+                                            tensorType.getElementType());
+          }
+
+          return isCB ? d2m::CBType::get(t.getContext(),
+                                         mlir::cast<ShapedType>(t))
+                      : t;
+        });
+
+    for (mlir::Region &region : generic.getRegions()) {
+      OpBuilder::InsertionGuard guard(rewriter);
+
+      mlir::Region &origRegion = op.getRegion(region.getRegionNumber());
+      llvm::SmallVector<mlir::Location> locs =
+          llvm::map_to_vector(origRegion.getArguments(),
+                              [](BlockArgument arg) { return arg.getLoc(); });
+      Block *block =
+          rewriter.createBlock(&region, region.end(), blockTypes, locs);
+      assert(region.getNumArguments() == origRegion.getNumArguments());
+
+      mlir::IRMapping irMapper;
+      // Premap top level generic operands.
+      for (unsigned operandI = 0; operandI < generic.getNumOperands();
+           ++operandI) {
+        irMapper.map(op.getOperand(operandI), generic.getOperand(operandI));
+      }
+
+      // Premap all region block args.
+      for (unsigned argI = 0; argI < origRegion.getNumArguments(); ++argI) {
+        irMapper.map(origRegion.getArgument(argI), region.getArgument(argI));
+      }
+
+      rewriter.setInsertionPointToStart(block);
+      for (auto &op : origRegion.getOps()) {
+        Operation *newOp = rewriter.clone(op, irMapper);
+        SmallVector<Operation *> needsVisit = {newOp};
+        while (!needsVisit.empty()) {
+          Operation *visitOp = needsVisit.pop_back_val();
+          for (auto result : visitOp->getResults()) {
+            RankedTensorType tensorType =
+                mlir::dyn_cast<RankedTensorType>(result.getType());
+            if (!tensorType ||
+                mlir::isa<ttcore::TileType>(tensorType.getElementType())) {
+              continue;
+            }
+            result.setType(reblockTensor(tensorType, gridShape, tilize));
+          }
+
+          for (mlir::Region &visitRegion : visitOp->getRegions()) {
+            auto opPointers = llvm::map_range(
+                visitRegion.getOps(), [](Operation &op) { return &op; });
+            needsVisit.append(opPointers.begin(), opPointers.end());
+          }
+        }
+      }
+    }
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
+
+    return llvm::success();
+  }
+
+  static RankedTensorType reblockTensor(RankedTensorType tensorType,
+                                        ArrayRef<int64_t> gridShape,
+                                        bool tilize) {
+    assert(tensorType);
+    assert(gridShape.size() == 2);
+    constexpr std::array<int64_t, 2> defaultShape =
+        ttcore::TileType::getDefaultShape();
+    llvm::SmallVector<int64_t> tileShape;
+    tileShape.assign(defaultShape.begin(), defaultShape.end());
+    ttcore::TileType tileType =
+        ttcore::TileType::get(tensorType.getElementType(), tileShape);
+    llvm::SmallVector<int64_t> tiledTensorShape(tensorType.getShape());
+    assert(tiledTensorShape.size() >= 2);
+    tiledTensorShape[tiledTensorShape.size() - 2] =
+        ttmlir::utils::alignUpDiv(tiledTensorShape[tiledTensorShape.size() - 2],
+                                  tileShape[0] * gridShape[0]);
+    tiledTensorShape[tiledTensorShape.size() - 1] =
+        ttmlir::utils::alignUpDiv(tiledTensorShape[tiledTensorShape.size() - 1],
+                                  tileShape[1] * gridShape[1]);
+    return mlir::RankedTensorType::get(tiledTensorShape, tileType);
+  }
+};
+} // namespace
 
 class D2MFullOpRewriter : public OpConversionPattern<ttir::FullOp> {
   using OpConversionPattern<ttir::FullOp>::OpConversionPattern;
@@ -1114,6 +1375,12 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedReductionRewriter<ttir::SumOp,          d2m::TileReduceSumOp>,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
+
+    D2MMatmulBlockToLinalgGeneric,
+
+    // Non metal_layout Generic rewriter
+    D2MGenericNonDeviceLayoutRewriter,
+
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);
@@ -1180,9 +1447,16 @@ public:
     target.addLegalDialect<::mlir::linalg::LinalgDialect>();
     target.addLegalDialect<mlir::tt::d2m::D2MDialect>();
     target.addLegalDialect<mlir::tt::ttcore::TTCoreDialect>();
+    target.addLegalDialect<mlir::arith::ArithDialect>();
+    target.addLegalDialect<mlir::scf::SCFDialect>();
 
     // Keep some TTIR ops legal if they don't have D2M equivalents.
     target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
+
+    target.addDynamicallyLegalOp<d2m::GenericOp>([](d2m::GenericOp op) {
+      return llvm::all_of(op.getOperands(), hasMetalLayout);
+    });
+    target.addIllegalOp<d2m::TileMatmulBlockOp>();
 
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
       signalPassFailure();

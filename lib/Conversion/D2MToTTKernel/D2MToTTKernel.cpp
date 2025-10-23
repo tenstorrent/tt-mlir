@@ -543,8 +543,8 @@ public:
       }
 
       auto insertionPoint = rewriter.getInsertionPoint();
-      auto cbA = getCB(rewriter, op.getA());
-      auto cbB = getCB(rewriter, op.getB());
+      auto cbA = adaptor.getA();
+      auto cbB = adaptor.getB();
       auto outCB = getOutCB(rewriter, op);
       setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
                                      /*allowHoisting*/ true);

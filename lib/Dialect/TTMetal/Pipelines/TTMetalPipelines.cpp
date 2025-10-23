@@ -91,6 +91,13 @@ void createTTIRToTTMetalFrontendPipeline(
     toD2MOptions.collapseTensorsTo2D = options.collapseTensors;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
+
+  // TODO: the following three passes are only in the pykernel pipeline; we
+  // should probably create a separate pipeline for the pykernel.
+  pm.addPass(createConvertElementwiseToLinalgPass());
+  pm.addPass(createLinalgGeneralizeNamedOpsPass());
+  pm.addPass(tt::createConvertArithToD2MTileOpsPass());
+
   // Grid selection is only needed for non-TTNN mode; TTNN tensors already
   // have their grids correctly set.
   if (!options.ttnnMode) {
@@ -116,6 +123,8 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
+  pm.addPass(createCanonicalizerPassWithOptions(options));
+  pm.addPass(d2m::createD2MInsertExplicitStreams());
   if (options.ttnnMode) {
     d2m::D2MInsertStreamsOptions insertStreamsOptions;
     {
@@ -132,7 +141,6 @@ void createTTIRToTTMetalMiddleendPipeline(
     }
     pm.addPass(d2m::createD2MAllocate(allocateOptions));
   }
-
   pm.addPass(createCanonicalizerPassWithOptions(options));
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
