@@ -6,8 +6,9 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Rewrite/FrozenRewritePatternSet.h"
+#include "mlir/IR/BuiltinDialect.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERICREPLACEGLOBALS
@@ -30,12 +31,14 @@ public:
     auto global = SymbolTable::lookupNearestSymbolFrom<ttcore::GlobalOp>(
         op, op.getSymNameAttr());
     if (!global) {
-      return op.emitError("Global symbol not found: ") << op.getSymNameAttr();
+      op.emitError("Global symbol not found: ") << op.getSymNameAttr();
+      return failure();
     }
 
     std::optional<int32_t> index = global.getIndex();
     if (!index) {
-      return op.emitError("Global must have a valid index attribute");
+      op.emitError("Global must have a valid index attribute");
+      return failure();
     }
 
     Value operand = generic.getOperand(*index);
@@ -58,9 +61,9 @@ public:
     ConversionTarget target(getContext());
 
     // Add legal dialects
-    target.addLegalDialect<func::FuncDialect>();
-    target.addLegalDialect<ttcore::TTCoreDialect>();
-    target.addLegalDialect<d2m::D2MDialect>();
+    target.addLegalDialect<arith::ArithDialect, BuiltinDialect,
+                           func::FuncDialect, memref::MemRefDialect,
+                           ttcore::TTCoreDialect, d2m::D2MDialect>();
 
     target.addDynamicallyLegalOp<ttcore::GetGlobalOp>(
         [&](ttcore::GetGlobalOp op) {
