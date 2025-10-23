@@ -595,6 +595,7 @@ public:
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
         emitter.emit(srcOp.getAppliedShardScheme(), "applied_shard_scheme"),
+        emitter.emit(std::nullopt, "compute_kernel_config"),
         emitter.emit(srcOp.getInPlaceHalo(), "in_place_halo"),
     };
 
@@ -2907,6 +2908,7 @@ public:
         emitter.emit(srcOp.getCurPosTensor(), "cur_pos_tensor"),
         emitter.emit(srcOp.getAttentionSink(), "attention_sink"),
         emitter.emit(srcOp.getScale(), "scale"),
+        emitter.emit(std::nullopt, "sliding_window_size"),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),

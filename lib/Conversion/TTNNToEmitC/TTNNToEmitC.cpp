@@ -716,6 +716,7 @@ public:
         emitter.emit(/*divisor_override=*/std::nullopt),
         emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getAppliedShardScheme()),
+        emitter.emit(/*compute_kernel_config=*/std::nullopt),
         emitter.emit(srcOp.getInPlaceHalo()),
     };
 
@@ -2636,6 +2637,7 @@ public:
         emitter.emit(srcOp.getCurPosTensor()),
         emitter.emit(srcOp.getAttentionSink()),
         emitter.emit(srcOp.getScale()),
+        emitter.emit(/*slidingWindowSize=*/std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)

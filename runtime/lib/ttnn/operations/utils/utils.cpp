@@ -297,6 +297,11 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
     conv2dConfig.in_place = *config->in_place();
   }
 
+  if (config->enable_kernel_stride_folding()) {
+    conv2dConfig.enable_kernel_stride_folding =
+        *config->enable_kernel_stride_folding();
+  }
+
   return conv2dConfig;
 }
 
