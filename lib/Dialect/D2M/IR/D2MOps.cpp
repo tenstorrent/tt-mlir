@@ -755,6 +755,7 @@ mlir::LogicalResult d2m::ViewLayoutOp::bufferize(
   }
 
   auto outMemrefType = mlir::cast<mlir::MemRefType>(*outMemrefTypeOr);
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
   auto newOp = rewriter.create<d2m::ViewLayoutOp>(
       getLoc(), outMemrefType, *maybeInput, getReinterpretLayout());
 
