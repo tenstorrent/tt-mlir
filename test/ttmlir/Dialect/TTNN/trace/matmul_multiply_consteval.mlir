@@ -6,7 +6,8 @@ module {
   // CHECK: "ttnn.matmul"
 
   // CHECK-LABEL: func.func private @trace_0_matmul_with_multiply
-  // CHECK: "ttnn.multiply"(%arg1, %arg0)
+  // CHECK: %[[TILED_ARG:.*]] = "ttnn.to_layout"(%arg0)
+  // CHECK: "ttnn.multiply"(%arg1, %[[TILED_ARG]])
 
   // CHECK-LABEL: func.func private @run_and_capture_trace_0_matmul_with_multiply
   // CHECK: "ttnn.write_tensor"

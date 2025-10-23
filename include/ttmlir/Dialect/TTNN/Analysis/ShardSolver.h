@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/Support/Error.h"
 
 #include <algorithm>
 #include <bitset>
@@ -335,7 +336,12 @@ public:
           customCheckShardCompatible = nullptr);
   RemainingConfigAttrs at(Operation *operation) const;
   void set(Operation *operation, const OpConfig &config);
-  bool
+
+  // Returns output layout obtained from backend validation when inputLayout is
+  // dram interleaved. Provided outputConfig presents a guide for the backend to
+  // select the output layout. If rowMajorInputOverride is true, the input
+  // layout is overridden to rowMajor. If not supported, returns an error.
+  llvm::Expected<TTNNLayoutAttr>
   supportsInterleavedInputShardedOutput(Operation *op, OpConfig outputConfig,
                                         bool rowMajorInputOverride = false);
   llvm::DenseMap<Operation *, SmallVector<float, 64>> produceMaxCoreUsage();
