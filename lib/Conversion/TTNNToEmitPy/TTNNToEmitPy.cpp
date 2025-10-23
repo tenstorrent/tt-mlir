@@ -1399,6 +1399,40 @@ public:
 };
 } // namespace
 
+// GlobalAvgPool2dOp conversion pattern
+//
+namespace {
+class GlobalAvgPool2dOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::GlobalAvgPool2dOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::GlobalAvgPool2dOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GlobalAvgPool2dOp globalAvgPool2dOp,
+                  mlir::tt::ttnn::GlobalAvgPool2dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GlobalAvgPool2dOp>
+        emitter(globalAvgPool2dOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(globalAvgPool2dOp.getInput(), "input_tensor"),
+        emitter.emit(std::nullopt |
+                         emitter.getMemoryConfig(globalAvgPool2dOp.getResult()),
+                     "memory_config"),
+        emitter.emit(globalAvgPool2dOp.getDtype(), "dtype"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // ConvTranspose2d op conversion pattern
 //
 namespace {
@@ -3132,8 +3166,10 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   //
   // clang-format off
   patterns.add<AvgPool2dOpConversionPattern,
-    MaxPool2dOpConversionPattern,
-    UpsampleOpConversionPattern>(typeConverter, ctx);
+               GlobalAvgPool2dOpConversionPattern,
+               MaxPool2dOpConversionPattern,
+               UpsampleOpConversionPattern
+              >(typeConverter, ctx);
   // clang-format on
 
   // Convolution ops
