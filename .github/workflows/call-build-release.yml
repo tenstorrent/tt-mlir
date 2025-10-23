@@ -41,7 +41,7 @@ jobs:
       matrix:
         build: [
           { enable_op_model: "ON", enable_emitc: "ON", name: "speedy" },
-          { enable_op_model: "ON", enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", name: "tracy" }
+          { enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", name: "tracy" }
         ]
 
     name: Build ${{ matrix.build.name }} Release
