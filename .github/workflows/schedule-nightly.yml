@@ -5,6 +5,11 @@ on:
   schedule:
     - cron: '0 4 * * *'  # Runs at 04:00 UTC every day
 
+permissions:
+  checks: write
+  packages: write
+  contents: write
+
 jobs:
   build-macos:
     uses: ./.github/workflows/call-build-macos.yml
