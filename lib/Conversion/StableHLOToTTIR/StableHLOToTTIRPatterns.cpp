@@ -904,11 +904,11 @@ public:
     ArrayAttr reductionDimsAttr = rewriter.getI32ArrayAttr(reductionDims);
 
     // Broadcast inputs to operand shape
-    Value scaleBcast = createBroadcastOp(rewriter, loc, adaptor.getScale(),
-                                         operandType, featureIndex);
-    Value meanBcast = createBroadcastOp(rewriter, loc, adaptor.getMean(),
-                                        operandType, featureIndex);
-    Value varianceBcast = createBroadcastOp(
+    Value scaleBcast = broadcastFeatureToShape(
+        rewriter, loc, adaptor.getScale(), operandType, featureIndex);
+    Value meanBcast = broadcastFeatureToShape(rewriter, loc, adaptor.getMean(),
+                                              operandType, featureIndex);
+    Value varianceBcast = broadcastFeatureToShape(
         rewriter, loc, adaptor.getVariance(), operandType, featureIndex);
 
     // Create epsilon broadcast
@@ -918,8 +918,8 @@ public:
         rewriter.getFloatAttr(operandType.getElementType(), epsilon));
     auto epsilonConstant =
         rewriter.create<ttir::ConstantOp>(loc, scalarType, epsilonDenseAttr);
-    Value epsilonBcast = createBroadcastOp(rewriter, loc, epsilonConstant,
-                                           operandType, featureIndex);
+    Value epsilonBcast = broadcastFeatureToShape(rewriter, loc, epsilonConstant,
+                                                 operandType, featureIndex);
 
     // centered_operand = operand - mean
     auto centeredOperandEmpty =
@@ -955,7 +955,7 @@ public:
                                           elementsPerFeature));
     auto elementsPerFeatureConst = rewriter.create<ttir::ConstantOp>(
         loc, scalarType, elementsPerFeatureAttr);
-    auto elementsPerFeatureBcast = createBroadcastOp(
+    auto elementsPerFeatureBcast = broadcastFeatureToShape(
         rewriter, loc, elementsPerFeatureConst, operandType, featureIndex);
 
     // i1 = grad_output * elements_per_feature
@@ -969,8 +969,8 @@ public:
     auto sumGradOutput = rewriter.create<ttir::SumOp>(
         loc, scaleType, adaptor.getGradOutput(), sumGradOutputEmpty,
         rewriter.getBoolAttr(false), reductionDimsAttr);
-    auto i2 = createBroadcastOp(rewriter, loc, sumGradOutput, operandType,
-                                featureIndex);
+    auto i2 = broadcastFeatureToShape(rewriter, loc, sumGradOutput, operandType,
+                                      featureIndex);
 
     // grad_output * centered_operand
     auto gradTimescenteredEmpty =
@@ -985,8 +985,8 @@ public:
     auto sumGradTimesCentered = rewriter.create<ttir::SumOp>(
         loc, scaleType, gradTimesCentered, sumGradTimesCenteredEmpty,
         rewriter.getBoolAttr(false), reductionDimsAttr);
-    auto i3 = createBroadcastOp(rewriter, loc, sumGradTimesCentered,
-                                operandType, featureIndex);
+    auto i3 = broadcastFeatureToShape(rewriter, loc, sumGradTimesCentered,
+                                      operandType, featureIndex);
 
     // i4 = i3 * centered_operand
     auto i4Empty = rewriter.create<ttir::EmptyOp>(loc, operandType);
@@ -1049,16 +1049,17 @@ public:
 
 private:
   // Helper to create broadcast shape from feature dimension to full shape
-  Value createBroadcastOp(ConversionPatternRewriter &rewriter, Location loc,
-                          Value input, RankedTensorType targetType,
-                          int64_t featureIndex) const {
+  Value broadcastFeatureToShape(ConversionPatternRewriter &rewriter,
+                                Location loc, Value input,
+                                RankedTensorType targetType,
+                                int64_t featureIndex) const {
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     const int64_t rank = targetType.getRank();
 
     // First reshape to match target rank if needed
     if (inputType.getRank() < rank) {
       input =
-          reshapeToTargetRank(rewriter, loc, input, targetType, featureIndex);
+          reshapeFeatureToShape(rewriter, loc, input, targetType, featureIndex);
     }
 
     // Broadcast the input to the target type
@@ -1071,9 +1072,9 @@ private:
     return output;
   }
 
-  Value reshapeToTargetRank(ConversionPatternRewriter &rewriter, Location loc,
-                            Value input, RankedTensorType targetType,
-                            int64_t featureIndex) const {
+  Value reshapeFeatureToShape(ConversionPatternRewriter &rewriter, Location loc,
+                              Value input, RankedTensorType targetType,
+                              int64_t featureIndex) const {
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     const int64_t rank = targetType.getRank();
 
