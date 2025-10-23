@@ -271,6 +271,28 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
   ];
 }
 
+def TTNNRowMajorLayoutPropagation : Pass<"ttnn-rm-layout-propagation", "::mlir::ModuleOp"> {
+  let summary = "Propagate Row-Major layout from inputs through ops";
+  let description = [{
+    This pass tracks tensors from input arguments through the dataflow graph
+    and attempts to maintain Row-Major layout until an operation explicitly
+    requires Tile layout. This optimization reduces unnecessary layout conversions.
+
+    The pass starts from function input arguments and follows the tensor dataflow
+    through operations. It marks operations to use Row-Major layout when possible,
+    stopping propagation at operations that require Tile layout (e.g., matmul, conv).
+
+    This pass should run before the optimizer to provide better initial layout hints.
+  }];
+
+  let options = [
+    Option<"tensorL1UsageCap",
+           "tensor-l1-usage-cap",
+           "float", /*default=*/"1.0",
+           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">
+  ];
+}
+
 def TTNNEmitPyWorkarounds: Pass<"ttnn-emitpy-workarounds", "::mlir::ModuleOp"> {
   let summary = "Apply TTNN workarounds specific to EmitPy pipeline.";
   let description = [{
