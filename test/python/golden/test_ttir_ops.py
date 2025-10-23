@@ -3294,3 +3294,33 @@ def test_triple_return_support(
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
     )
+
+
+@pytest.mark.parametrize("shapes", [[(32, 64), (64, 32)]], ids=shapes_list_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_reshape_abs(
+    shapes: List[Shape], dtype: torch.dtype, target: str, request, device
+):
+    """Test reshape followed by absolute value operation on 1x1 core grid"""
+    input_shape, output_shape = shapes
+
+    def reshape_abs_wrapper(
+        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        # Reshape from 32x64 to 64x32
+        reshaped = builder.reshape(in0, output_shape, unit_attrs=unit_attrs)
+        # Apply absolute value to the reshaped tensor
+        abs_result = builder.abs(reshaped, unit_attrs=unit_attrs)
+        return abs_result
+
+    compile_and_execute_ttir(
+        reshape_abs_wrapper,
+        [input_shape],
+        [dtype],
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+    )
