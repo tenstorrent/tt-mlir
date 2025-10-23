@@ -21,7 +21,7 @@ for flag in $3; do
     [[ "$flag" == "require-opmodel" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-opmodel"
 done
 
-pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=${TTRT_REPORT_PATH%_*}_builder_${TTRT_REPORT_PATH##*_}
+pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=${TEST_REPORT_PATH%_*}_builder_${TEST_REPORT_PATH##*_}
 
 if [[ "$runttrt" == "1" ]]; then
   if [ -d "ttir-builder-artifacts/emitpy" ]; then
