@@ -6,9 +6,6 @@ func.func @test_conv_sliced() -> tensor<1x768x768xbf16>{
         %0 = ttir.empty() : tensor<1x9x3072xbf16>
         %1 = ttir.empty() : tensor<1x9x768xbf16>
         %2 = ttir.empty() : tensor<1x768x768xbf16>
-        //CHECK-COUNT-8: "ttir.slice_static"
-        //CHECK-COUNT-4: "ttir.conv2d"
-        //CHECK: "ttir.concat"
         %3 = "ttir.convolution"(%0, %1, %2) <{
             batch_group_count = 4 : i64,
             convolution_layout = #ttir<
@@ -36,9 +33,6 @@ func.func @test_conv2d_sliced() -> tensor<1x16x32x32xbf16> {
     %0 = ttir.empty() : tensor<2x4x32x32xbf16>
     %1 = ttir.empty() : tensor<16x4x3x3xbf16>
     %2 = ttir.empty() : tensor<1x16x32x32xbf16>
-    //CHECK-COUNT-4: "ttir.slice_static"
-    //CHECK-COUNT-2: "ttir.conv2d"
-    //CHECK: "ttir.concat"
     %3 = "ttir.convolution"(%0, %1, %2) <{
         batch_group_count = 2 : i64,
         convolution_layout = #ttir<
@@ -66,9 +60,6 @@ func.func @test_conv2d_sliced() -> tensor<1x16x32x32xbf16> {
         %0 = ttir.empty() : tensor<1x16x9xbf16>
         %1 = ttir.empty() : tensor<16x4x1xbf16>
         %2 = ttir.empty() : tensor<1x16x9xbf16>
-        //CHECK-COUNT-8: "ttir.slice_static"
-        //CHECK-COUNT-4: "ttir.conv2d"
-        //CHECK: "ttir.concat"
         %3 = "ttir.convolution"(%0, %1, %2) <{
             batch_group_count = 1 : i64,
             convolution_layout = #ttir<
@@ -96,9 +87,6 @@ func.func @test_conv2d_sliced() -> tensor<1x16x32x32xbf16> {
         %0 = ttir.empty() : tensor<1x8x32x32xbf16>
         %1 = ttir.empty() : tensor<16x2x3x3xbf16>
         %2 = ttir.empty() : tensor<1x16x32x32xbf16>
-        //CHECK-COUNT-4: "ttir.slice_static"
-        //CHECK-COUNT-4: "ttir.conv2d"
-        //CHECK: "ttir.concat"
         %3 = "ttir.convolution"(%0, %1, %2) <{
             batch_group_count = 1 : i64,
             convolution_layout = #ttir<

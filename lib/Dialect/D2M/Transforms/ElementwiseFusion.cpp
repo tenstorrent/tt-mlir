@@ -300,12 +300,15 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     }
     rewriter.clone(op, irMap);
   }
+
   YieldOp prodYield = nullptr;
   for (Operation &op : pb) {
     if (auto y = dyn_cast<YieldOp>(op)) {
       prodYield = y;
     }
   }
+  assert(prodYield);
+
   int prodResultNumber = cast<OpResult>(fusedOperand->get()).getResultNumber();
   Value repl = irMap.lookupOrDefault(prodYield.getOperand(prodResultNumber));
 
@@ -320,7 +323,14 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   // operations opaquely; cloning preserves dominance as long as operands
   // are mapped.
   for (Operation &op : cb.without_terminator()) {
-    rewriter.clone(op, irMap);
+    // Special case, if there is a pop or reserve op in between the newly fused
+    // subgraph, we want to skip cloning them.
+    if (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(&op) &&
+        !mlir::isa<BlockArgument>(irMap.lookup(op.getOperand(0)))) {
+      irMap.map(op.getResult(0), irMap.lookup(op.getOperand(0)));
+    } else {
+      rewriter.clone(op, irMap);
+    }
   }
 
   // Build fused yield: kept producer yields then consumer yields

@@ -5,6 +5,7 @@
 #include "tt_alchemist.hpp"
 
 #include "tt-alchemist/tt_alchemist_c_api.hpp"
+#include "utils.hpp"
 
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -12,7 +13,6 @@
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
-#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
 #include <filesystem>
 #include <iostream>
@@ -43,11 +43,10 @@ bool TTAlchemist::modelToCpp(const std::string &input_file) {
   // Run TTIR to EmitC pipeline
   //
   mlir::PassManager pm(&context);
-  mlir::tt::ttnn::createTTIRToEmitCPipeline(
-      pm, mlir::tt::ttnn::TTIRToEmitCPipelineOptions());
 
-  if (mlir::failed(pm.run(module.get()))) {
-    std::cout << "Failed to run TTIR to EmitC pipeline" << std::endl;
+  // Run the appropriate pipeline
+  //
+  if (!utils::runPipeline(pm, module.get(), utils::CodeGenerationTarget::Cpp)) {
     return false;
   }
 

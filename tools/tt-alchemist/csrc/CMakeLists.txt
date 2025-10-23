@@ -18,6 +18,7 @@ set(LIB_SOURCES
   lib/model_to_python.cpp
   lib/generate_cpp.cpp
   lib/generate_python.cpp
+  lib/utils.cpp
 )
 
 # Add library
@@ -170,7 +171,7 @@ add_custom_target(build-wheel-tt-alchemist
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libdevice.so
     ${PYTHON_BUILD_DIR}/tt_alchemist/lib/libtracy.so.0.10.0
     tt_alchemist_copy_templates
-  COMMAND ${Python3_EXECUTABLE} -m pip wheel -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR}
+  COMMAND ${Python3_EXECUTABLE} -m pip wheel -w ${CMAKE_CURRENT_BINARY_DIR}/dist ${PYTHON_BUILD_DIR} --quiet
   WORKING_DIRECTORY ${PYTHON_BUILD_DIR}
   COMMENT "Building tt-alchemist wheel"
 )

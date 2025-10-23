@@ -1,9 +1,8 @@
 name: Build on macos-latest
 
 on:
-  schedule:
-    - cron: '0 4 * * *'  # Runs at 04:00 UTC every day
   workflow_dispatch:  # Manual trigger
+  workflow_call:
 
 env:
   SDK_VERSION: "0"
@@ -14,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: macos-latest, c_compiler: clang, cpp_compiler: clang++, build_type: Release, enable_runtime: OFF}
+          {runs-on: "macos-latest", c_compiler: "clang", cpp_compiler: "clang++", build_type: "Release", enable_runtime: "OFF"}
         ]
     runs-on: ${{ matrix.build.runs-on }}
     steps:
@@ -25,11 +24,6 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-
-    - name: Install build dependencies
-      uses: ./.github/actions/install-deps
-      with:
-        os: ${{ matrix.build.runs-on }}
 
     - name: Get macos sdk version
       if: startsWith(matrix.build.runs-on, 'macos')
@@ -77,7 +71,7 @@ jobs:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }}
 
     - name: Lint
-      if: matrix.enable_runtime == 'OFF'
+      if: matrix.build.enable_runtime == 'OFF'
       shell: bash
       run: |
         source env/activate
