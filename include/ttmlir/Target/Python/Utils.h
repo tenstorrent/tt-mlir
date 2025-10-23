@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_BINDINGS_PYTHON_UTILS_H
-#define TTMLIR_BINDINGS_PYTHON_UTILS_H
+#ifndef TTMLIR_TARGET_PYTHON_UTILS_H
+#define TTMLIR_TARGET_PYTHON_UTILS_H
 
 #pragma clang diagnostic push
 
@@ -34,4 +34,4 @@ inline nb::capsule wrapInCapsule(std::shared_ptr<void> underlying) {
 
 } // namespace mlir::ttmlir::python
 
-#endif // TTMLIR_BINDINGS_PYTHON_UTILS_H
+#endif // TTMLIR_TARGET_PYTHON_UTILS_H
