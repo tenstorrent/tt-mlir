@@ -393,6 +393,23 @@ def custom_comparison_operator(input: torch.Tensor, other: torch.Tensor, torch_o
     return torch_op(input, other).to(dtype=input.dtype)
 
 
+def custom_argmax(x, dim=[], keepdim=False):
+    # PyTorch only supports single-dimension argmax, so we iteratively apply it
+    if not dim:
+        # If no dimension is specified, flatten the tensor and find the global argmax
+        x = x.flatten()
+        result = torch.argmax(x)
+        if keepdim:
+            # If keepdim is True, we need to return a tensor with the same number of dimensions
+            result = result.unsqueeze(0)
+        return result
+
+    dim = sorted(dim)
+    for d in dim:
+        x = x.argmax(d, keepdim=keepdim)
+    return x
+
+
 ttir_to_torch_mapping = {
     # do nothing
     "ttir.empty": OpMapping(lambda x=None, *args, **kwargs: None),
@@ -539,5 +556,8 @@ ttir_to_torch_mapping = {
             "dilation_width": "dilation_width",
         },
         unpack_inputs=False,
+    ),
+    "ttir.argmax": OpMapping(
+        custom_argmax, {"dim_arg": "dim", "keep_dim": "keepdim"}, unpack_inputs=False
     ),
 }
