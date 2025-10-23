@@ -10,6 +10,7 @@ module {
   ttcore.global @global_0 = tensor<2x2xf32> [0]
   ttcore.global @global_1 = tensor<2x2xf32> [1]
   // CHECK-LABEL: func.func @test_replace_globals
+  // CHECK-SAME: (%[[ARG0:.*]]: tensor<2x2xf32>, %[[ARG1:.*]]: tensor<2x2xf32>) -> tensor<2x2xf32>
   func.func @test_replace_globals(%arg0: tensor<2x2xf32>, %arg1: tensor<2x2xf32>) -> tensor<2x2xf32> {
     %0 = d2m.empty() : tensor<2x2xf32>
     // CHECK: d2m.generic
@@ -34,7 +35,9 @@ module {
       %arg2_val = d2m.reserve %cb2 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       // Load values from the tensors and perform computation
       %c0 = arith.constant 0 : index
+      // CHECK: tensor.extract %[[ARG0]][%c0, %c0] : tensor<2x2xf32>
       %val0 = tensor.extract %global0[%c0, %c0] : tensor<2x2xf32>
+      // CHECK: tensor.extract %[[ARG1]][%c0, %c0] : tensor<2x2xf32>
       %val1 = tensor.extract %global1[%c0, %c0] : tensor<2x2xf32>
       %result = arith.addf %val0, %val1 : f32
       // CHECK: tensor.insert %{{.*}} into %{{.*}}[%c0, %c0] : tensor<2x2xf32>
