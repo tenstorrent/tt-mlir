@@ -16,6 +16,20 @@ public:
   LogicalResult matchAndRewrite(ttnn::ReshapeOp srcOp,
                                 PatternRewriter &rewriter) const override;
 
+private:
+  LogicalResult decomposeReshapeType1(ttnn::ReshapeOp srcOp,
+                                      PatternRewriter &rewriter,
+                                      mlir::RankedTensorType inputType,
+                                      mlir::RankedTensorType outputType,
+                                      llvm::ArrayRef<int64_t> inputShape,
+                                      llvm::ArrayRef<int64_t> outputShape) const;
+
+  LogicalResult decomposeReshapeType2(ttnn::ReshapeOp srcOp,
+                                      PatternRewriter &rewriter,
+                                      mlir::RankedTensorType inputType,
+                                      mlir::RankedTensorType outputType,
+                                      llvm::ArrayRef<int64_t> inputShape,
+                                      llvm::ArrayRef<int64_t> outputShape) const;
 
 };
 
