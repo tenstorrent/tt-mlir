@@ -1308,6 +1308,11 @@ static mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttnn::ReshapeOp op) {
 static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   if (auto reshapeOperand =
           op.getInput().getDefiningOp<mlir::tt::ttnn::ReshapeOp>()) {
+    // Don't fold reshapes that were created by complex reshape decomposition
+    if (op->hasAttr("complex_reshape_decomposed") ||
+        reshapeOperand->hasAttr("complex_reshape_decomposed")) {
+      return nullptr;
+    }
     op.getOperation()->setOperand(0, reshapeOperand.getInput());
     return op.getResult();
   }
