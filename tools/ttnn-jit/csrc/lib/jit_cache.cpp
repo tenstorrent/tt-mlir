@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <tt_stl/reflection.hpp>
+
 namespace mlir::tt::ttnn::jit {
 
 JitCache::JitCache(std::size_t cacheSize) {
@@ -40,14 +41,28 @@ void JitCache::compile(Operation *op, std::string options) {
   }
 }
 
-JitCacheEntry JitCache::get(Operation *op,
-                            const std::vector<::ttnn::Tensor> &tensor_args,
-                            std::string options) {
+bool JitCache::contains(const std::vector<::ttnn::Tensor> &tensor_args) const {
+  std::size_t hash = hash_key(tensor_args);
+  return cache.contains(hash);
+}
 
+JitCacheEntry
+JitCache::get(const std::vector<::ttnn::Tensor> &tensor_args) const {
   std::size_t hash = hash_key(tensor_args);
   auto it = cache.find(hash);
   if (it != cache.end()) {
     return it->second;
+  }
+  return nullptr;
+}
+
+JitCacheEntry
+JitCache::compile_and_insert(Operation *op,
+                             const std::vector<::ttnn::Tensor> &tensor_args,
+                             std::string options) {
+  std::size_t hash = hash_key(tensor_args);
+  if (contains(tensor_args)) {
+    return get(tensor_args);
   }
   compile(op, options);
   std::shared_ptr<void> flatbuffer_bytes = ttnnToFlatbuffer(op);

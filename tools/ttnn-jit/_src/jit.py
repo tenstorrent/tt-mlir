@@ -71,6 +71,11 @@ class JitFunction:
         kwargs["_backend"] = self.backend
         kwargs["_max_grid"] = self.max_grid
 
+        # Cache hit, no need to compile.
+        if self.cache.contains(*args):
+            fb_binary = self.cache.get(*args)
+            return _run_binary(fb_binary, args)
+
         # Parse AST and compile to IR
         m = ast.parse(self.source_code)
         if self.debug:
@@ -92,9 +97,8 @@ class JitFunction:
                 ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
                 return ir
 
-            fb_capsule = self.cache.get(str(ir), options, *args)
-            return _run_binary(fb_capsule, args)
-
+            fb_binary = self.cache.compile_and_insert(str(ir), options, *args)
+            return _run_binary(fb_binary, args)
         elif self.backend == "metal":
             if not self.compile_only:
                 raise NotImplementedError("Metal runtime is not implemented yet")

@@ -31,9 +31,12 @@ public:
   JitCache &operator=(const JitCache &) = delete;
   JitCache &operator=(JitCache &&) = delete;
 
-  JitCacheEntry get(Operation *op,
-                    const std::vector<::ttnn::Tensor> &tensor_args,
-                    std::string options = "");
+  bool contains(const std::vector<::ttnn::Tensor> &tensor_args) const;
+  JitCacheEntry get(const std::vector<::ttnn::Tensor> &tensor_args) const;
+  JitCacheEntry
+  compile_and_insert(Operation *op,
+                     const std::vector<::ttnn::Tensor> &tensor_args,
+                     std::string options = "");
   std::size_t num_entries() const { return this->cache.size(); }
 
 private:
