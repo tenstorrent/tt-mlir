@@ -194,7 +194,7 @@ private:
     // consteval
     for (auto result : op->getResults()) {
       // Check all users of this result
-      for (auto user : result.getUsers()) {
+      for (auto *user : result.getUsers()) {
         // Check their operands
         auto memEffectOp = dyn_cast<mlir::MemoryEffectOpInterface>(user);
         if (!memEffectOp) {
