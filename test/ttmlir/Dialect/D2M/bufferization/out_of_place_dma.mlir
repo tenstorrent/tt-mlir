@@ -25,7 +25,7 @@ func.func @matmul(%arg0: tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>, %arg
   ^datamovement0(%cb0: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %cb2: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore, %sem2: !d2m.semaphore, %sem3: !d2m.semaphore):
     %t0 = d2m.reserve %cb0 : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>> -> tensor<2x2x!ttcore.tile<32x32, f32>>
     %t1 = d2m.reserve %cb1 : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>> -> tensor<2x2x!ttcore.tile<32x32, f32>>
-    %t2 = d2m.pop %cb2 : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>> -> tensor<2x2x!ttcore.tile<32x32, f32>>
+    %t2 = d2m.wait %cb2 : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>> -> tensor<2x2x!ttcore.tile<32x32, f32>>
     %c0 = arith.constant 0 : index
     %c2 = arith.constant 2 : index
     %c1 = arith.constant 1 : index

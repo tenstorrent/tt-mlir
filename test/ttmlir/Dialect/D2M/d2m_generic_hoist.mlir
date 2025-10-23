@@ -13,8 +13,8 @@ func.func @forward(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tens
     ins(%arg0, %arg1 : tensor<64x128xf32>, tensor<64x128xf32>)
     outs(%0 : tensor<64x128xf32>) {
   ^bb0(%cb2: !d2m.cb<tensor<64x128xf32>>, %cb3: !d2m.cb<tensor<64x128xf32>>, %cb4: !d2m.cb<tensor<64x128xf32>>):
-    %arg2 = d2m.pop %cb2 : !d2m.cb<tensor<64x128xf32>> -> tensor<64x128xf32>
-    %arg3 = d2m.pop %cb3 : !d2m.cb<tensor<64x128xf32>> -> tensor<64x128xf32>
+    %arg2 = d2m.wait %cb2 : !d2m.cb<tensor<64x128xf32>> -> tensor<64x128xf32>
+    %arg3 = d2m.wait %cb3 : !d2m.cb<tensor<64x128xf32>> -> tensor<64x128xf32>
     %arg4 = d2m.reserve %cb4 : !d2m.cb<tensor<64x128xf32>> -> tensor<64x128xf32>
     // lit CHECK to make sure this constant stays inside the generic region
     // CHECK: d2m.generic
