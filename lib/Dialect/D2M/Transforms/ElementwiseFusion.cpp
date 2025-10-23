@@ -20,62 +20,63 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MELEMENTWISEFUSION
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-static int countBinaryOps(Operation *op) {
-  int count = 0;
+// static int countBinaryOps(Operation *op) {
+//   int count = 0;
 
-  for (Region &region : op->getRegions()) {
-    for (Operation &opInner : region.getOps()) {
-      if (opInner.hasTrait<D2MGenericRegionComputeOpTrait>()) {
-        if (opInner.getNumOperands() == 2) {
-          ++count;
-        }
-      }
-      count += countBinaryOps(&opInner);
-    }
-  }
-  return count;
-}
+//   for (Region &region : op->getRegions()) {
+//     for (Operation &opInner : region.getOps()) {
+//       if (opInner.hasTrait<D2MGenericRegionComputeOpTrait>()) {
+//         if (opInner.getNumOperands() == 2) {
+//           ++count;
+//         }
+//       }
+//       count += countBinaryOps(&opInner);
+//     }
+//   }
+//   return count;
+// }
 
-static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
-                                OpOperand *use, unsigned dstCapacity) {
-  auto tensorType = mlir::cast<RankedTensorType>(use->get().getType());
+// static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
+//                                 OpOperand *use, unsigned dstCapacity) {
+//   auto tensorType = mlir::cast<RankedTensorType>(use->get().getType());
 
-  auto shape = tensorType.getShape();
-  int blockSize = shape.back();
-  shape = shape.drop_back(1);
-  blockSize *= shape.back();
+//   auto shape = tensorType.getShape();
+//   int blockSize = shape.back();
+//   shape = shape.drop_back(1);
+//   blockSize *= shape.back();
 
-  if (blockSize > static_cast<int>(dstCapacity)) {
-    blockSize = dstCapacity;
-  }
+//   if (blockSize > static_cast<int>(dstCapacity)) {
+//     blockSize = dstCapacity;
+//   }
 
-  int dstTilesRemaining = dstCapacity;
+//   int dstTilesRemaining = dstCapacity;
 
-  // Account for number of tiles needed to store input operands after fusion.
-  // -2 accounts for removal of producer init/output operand and consumer
-  // input operand since we're fusing over them.
-  // -1 accounts for the final output tile which is only needed for binary
-  // ops, unaries do everything in place. Will be added back in next part of
-  // check.
-  int numConsOperands = static_cast<int>(consumer.getNumOperands());
-  int numProdOperands = static_cast<int>(producer.getNumOperands());
+//   // Account for number of tiles needed to store input operands after fusion.
+//   // -2 accounts for removal of producer init/output operand and consumer
+//   // input operand since we're fusing over them.
+//   // -1 accounts for the final output tile which is only needed for binary
+//   // ops, unaries do everything in place. Will be added back in next part of
+//   // check.
+//   int numConsOperands = static_cast<int>(consumer.getNumOperands());
+//   int numProdOperands = static_cast<int>(producer.getNumOperands());
 
-  dstTilesRemaining -= blockSize * (numConsOperands + numProdOperands - 2 - 1);
+//   dstTilesRemaining -= blockSize * (numConsOperands + numProdOperands - 2 -
+//   1);
 
-  if (dstTilesRemaining < 0) {
-    return false;
-  }
+//   if (dstTilesRemaining < 0) {
+//     return false;
+//   }
 
-  // Subtract # of intermediate tiles needed
-  dstTilesRemaining -=
-      blockSize * (countBinaryOps(consumer) + countBinaryOps(producer));
+//   // Subtract # of intermediate tiles needed
+//   dstTilesRemaining -=
+//       blockSize * (countBinaryOps(consumer) + countBinaryOps(producer));
 
-  if (dstTilesRemaining < 0) {
-    return false;
-  }
+//   if (dstTilesRemaining < 0) {
+//     return false;
+//   }
 
-  return true;
-}
+//   return true;
+// }
 
 static bool isValidElementwiseFusionTarget(GenericOp gOp) {
   if (!gOp.isComputeOnlyForm()) {
@@ -128,10 +129,10 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
     return false;
   }
 
-  if (!fitsInDstPostFusion(producer, consumer, fusionTargetOperand,
-                           dstCapacity)) {
-    return false;
-  }
+  // if (!fitsInDstPostFusion(producer, consumer, fusionTargetOperand,
+  //                          dstCapacity)) {
+  //   return false;
+  // }
 
   // Rank/perm checks
   AffineMap consMap =
