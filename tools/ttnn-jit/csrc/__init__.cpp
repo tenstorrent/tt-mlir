@@ -6,7 +6,6 @@
 #include "mlir/CAPI/IR.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "ttmlir/RegisterAll.h"
-#include "ttmlir/Target/Python/Utils.h"
 #include "ttnn/tensor/tensor.hpp"
 
 #include "tt/runtime/detail/python/nanobind_headers.h"
@@ -66,12 +65,12 @@ NB_MODULE(_ttnn_jit, m) {
              }
 
              mlir::Operation *op = unwrap(mlirModuleGetOperation(module));
-             auto result = ttmlir::python::wrapInCapsule(
-                 self->get(op, tensor_args, options));
+             std::shared_ptr<::tt::runtime::Binary> binary =
+                 self->get(op, tensor_args, options);
 
              mlirModuleDestroy(module);
              mlirContextDestroy(ctx);
-             return result;
+             return *binary;
            })
       .def("num_entries", &JitCache::num_entries);
 }

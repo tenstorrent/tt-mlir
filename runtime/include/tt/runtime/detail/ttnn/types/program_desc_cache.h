@@ -5,7 +5,9 @@
 #ifndef TT_RUNTIME_DETAIL_TTNN_TYPES_PROGRAM_DESC_CACHE_H
 #define TT_RUNTIME_DETAIL_TTNN_TYPES_PROGRAM_DESC_CACHE_H
 
-#include "tt/runtime/detail/ttnn/ttnn.h"
+#include "ttmlir/Target/TTNN/Target.h"
+
+#include <unordered_map>
 
 namespace tt::runtime::ttnn {
 
@@ -19,15 +21,13 @@ public:
   ProgramDescCache(ProgramDescCache &&) = delete;
   ProgramDescCache &operator=(ProgramDescCache &&) = delete;
 
-  const ::tt::tt_metal::ProgramDescriptor *
-  get(const ::tt::target::ttnn::ProgramDescriptor *programDesc) const;
-
+  void *get(const ::tt::target::ttnn::ProgramDescriptor *programDesc) const;
   void insert(const ::tt::target::ttnn::ProgramDescriptor *programDesc,
-              const ::tt::tt_metal::ProgramDescriptor &programDescriptor);
+              std::shared_ptr<void> programDescriptor);
 
 private:
   std::unordered_map<const ::tt::target::ttnn::ProgramDescriptor *,
-                     ::tt::tt_metal::ProgramDescriptor>
+                     std::shared_ptr<void>>
       cache_;
 };
 } // namespace tt::runtime::ttnn

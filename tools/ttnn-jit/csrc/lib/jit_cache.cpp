@@ -50,9 +50,11 @@ JitCacheEntry JitCache::get(Operation *op,
     return it->second;
   }
   compile(op, options);
-  JitCacheEntry flatbuffer_binary = ttnnToFlatbuffer(op);
-  cache.try_emplace(hash, flatbuffer_binary);
-  return flatbuffer_binary;
+  std::shared_ptr<void> flatbuffer_bytes = ttnnToFlatbuffer(op);
+  JitCacheEntry binary = std::make_shared<::tt::runtime::Binary>(
+      ::tt::runtime::Flatbuffer(flatbuffer_bytes).handle);
+  cache.try_emplace(hash, binary);
+  return binary;
 }
 
 std::size_t

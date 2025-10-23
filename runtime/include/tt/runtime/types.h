@@ -284,6 +284,10 @@ struct SystemDesc : public Flatbuffer {
 };
 
 class TensorCache;
+namespace ttnn {
+class ProgramDescCache;
+} // namespace ttnn
+
 struct Binary : public Flatbuffer {
   Binary(Flatbuffer fb);
   Binary(std::shared_ptr<void> handle);
@@ -325,6 +329,11 @@ struct Binary : public Flatbuffer {
   // Get the tensor cache associated with this binary
   std::shared_ptr<TensorCache> getConstEvalTensorCache() { return tensorCache; }
 
+  // Get the program descriptor cache associated with this binary
+  std::shared_ptr<tt::runtime::ttnn::ProgramDescCache> getProgramDescCache() {
+    return programDescCache;
+  }
+
 private:
   std::uint64_t nextBinaryId();
 
@@ -332,39 +341,26 @@ private:
 
   // The tensor cache associated with this binary
   std::shared_ptr<TensorCache> tensorCache;
+
+  // Program descriptor cache associated with this binary
+  std::shared_ptr<tt::runtime::ttnn::ProgramDescCache> programDescCache;
 };
 
 struct TraceCache : public detail::RuntimeCheckedObjectImpl {
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
 
-struct ProgramDescCache : public detail::RuntimeCheckedObjectImpl {
-  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
-};
-
 struct Device : public detail::RuntimeCheckedObjectImpl {
   Device(DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(nullptr, runtime),
-        globalId(nextDeviceGlobalId()), traceCache(nullptr),
-        programDescCache(nullptr) {}
+        globalId(nextDeviceGlobalId()), traceCache(nullptr) {};
 
   Device(std::shared_ptr<void> handle, std::shared_ptr<TraceCache> traceCache,
          DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime),
-        globalId(nextDeviceGlobalId()), traceCache(traceCache),
-        programDescCache(nullptr) {}
-
-  Device(std::shared_ptr<void> handle, std::shared_ptr<TraceCache> traceCache,
-         std::shared_ptr<ProgramDescCache> programDescCache,
-         DeviceRuntime runtime)
-      : detail::RuntimeCheckedObjectImpl(handle, runtime),
-        globalId(nextDeviceGlobalId()), traceCache(traceCache),
-        programDescCache(programDescCache) {}
+        globalId(nextDeviceGlobalId()), traceCache(traceCache) {};
 
   std::shared_ptr<TraceCache> getTraceCache() { return traceCache; }
-  std::shared_ptr<ProgramDescCache> getProgramDescCache() {
-    return programDescCache;
-  }
 
   void setGlobalId(std::uint32_t id) { globalId = id; }
   std::uint32_t getGlobalId() const { return globalId; }
@@ -376,10 +372,6 @@ private:
 
   // The trace cache associated with this device.
   std::shared_ptr<TraceCache> traceCache;
-
-  // The program desc cache associated with this device. Only used in JIT
-  // runtime path.
-  std::shared_ptr<ProgramDescCache> programDescCache;
 };
 
 struct Event : public detail::RuntimeCheckedObjectImpl {
