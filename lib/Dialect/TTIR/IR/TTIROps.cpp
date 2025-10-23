@@ -1316,6 +1316,7 @@ static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
 mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter, mlir::ArrayRef<mlir::Value> sourceOperands,
     mlir::ValueRange outputOperands) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // Can only commute if the pooling method is Max.
   if (this->getPoolingMethod() != PoolingMethod::Max) {
     return nullptr;
@@ -1340,11 +1341,11 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
         newResultType.getElementType(), newResultType.getEncoding());
     updatedOutputs.push_back(newEmpty);
   }
-  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
   auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
       getLoc(), resultTypes, sourceOperands, updatedOutputs, getPoolingMethod(),
       getWindowDimensions(), getWindowStrides(), getBaseDilations(),
       getWindowDilations(), getPadding());
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
   return newOp.getOperation();
 }
 
