@@ -1006,6 +1006,182 @@ private:
 };
 } // namespace
 
+// Convert ttir.reshape to D2M operations using two stream layouts:
+// 1. First stream layout: linearize input data (reshape input shape to
+// [totalElements])
+// 2. Second stream layout: reshape linearized data to output shape
+class D2MReshapeRewriter final : public OpConversionPattern<ttir::ReshapeOp>,
+                                 public D2MNamedRewriterCommon {
+public:
+  D2MReshapeRewriter(TypeConverter &typeConverter, MLIRContext *ctx,
+                     ttcore::MemorySpace defaultInputMemSpace,
+                     ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                     bool collapseTensors)
+      : OpConversionPattern<ttir::ReshapeOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::ReshapeOp op, typename ttir::ReshapeOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    mlir::MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = op->getLoc();
+
+    // Get input and output tensors with their types
+    auto inputTensorType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    auto outputTensorType =
+        mlir::cast<mlir::RankedTensorType>(op.getOutput().getType());
+
+    auto inputShape = inputTensorType.getShape();
+    auto outputShape = outputTensorType.getShape();
+
+    // Create the input with proper layout
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ false);
+
+    auto inputLayoutTensorType =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    auto inputLayout = mlir::cast<ttcore::MetalLayoutAttr>(
+        inputLayoutTensorType.getEncoding());
+
+    // unsigned inputDeviceRank =
+    //     static_cast<unsigned>(inputLayoutTensorType.getShape().size());
+
+    // Special case: NxM -> (N*k)x(M/k) reshape with single stream_layout
+    // Works for any 2D reshape where dims are divisible by 32 and total
+    // elements match
+    llvm::errs() << "inputShape: [";
+    llvm::interleaveComma(inputShape, llvm::errs());
+    llvm::errs() << "]\n";
+    llvm::errs() << "outputShape: [";
+    llvm::interleaveComma(outputShape, llvm::errs());
+    llvm::errs() << "]\n";
+
+    // Compute strides for linearizing output coordinates
+    SmallVector<int64_t> outputStrides;
+    int64_t stride = 1;
+    for (int64_t i = outputShape.size() - 1; i >= 0; --i) {
+      outputStrides.insert(outputStrides.begin(), stride);
+      stride *= outputShape[i];
+    }
+
+    // Compute strides for input shape (for delinearization)
+    SmallVector<int64_t> inputStrides;
+    stride = 1;
+    for (int64_t i = inputShape.size() - 1; i >= 0; --i) {
+      inputStrides.insert(inputStrides.begin(), stride);
+      stride *= inputShape[i];
+    }
+
+    llvm::errs() << "outputStrides: [";
+    llvm::interleaveComma(outputStrides, llvm::errs());
+    llvm::errs() << "]\n";
+    llvm::errs() << "inputStrides: [";
+    llvm::interleaveComma(inputStrides, llvm::errs());
+    llvm::errs() << "]\n";
+
+    // Build affine expressions for the reshape map
+    // The map goes from output device coords to input device coords
+    // Device coords are: [grid_dims..., shard_dims...]
+    unsigned outputLogicalRank = static_cast<unsigned>(outputShape.size());
+    unsigned inputLogicalRank = static_cast<unsigned>(inputShape.size());
+
+    // Step 1: Linearize output shard coordinates into a flat index
+    // Output shard dims start at index outputLogicalRank
+    AffineExpr linearIdx = rewriter.getAffineConstantExpr(0);
+    for (unsigned i = 0; i < outputLogicalRank; ++i) {
+      AffineExpr dim = rewriter.getAffineDimExpr(outputLogicalRank + i);
+      AffineExpr strideExpr = rewriter.getAffineConstantExpr(outputStrides[i]);
+      linearIdx = linearIdx + dim * strideExpr;
+    }
+
+    // Step 2: Convert linear index back to input coordinates
+    SmallVector<AffineExpr> reshapeExprs;
+
+    // First, add input grid dimensions (all zeros since we use 1x1x...x1 grids)
+    for (unsigned i = 0; i < inputLogicalRank; ++i) {
+      reshapeExprs.push_back(rewriter.getAffineConstantExpr(0));
+    }
+
+    // Then, convert linear index to input shard coordinates
+    AffineExpr remainingIdx = linearIdx;
+    for (unsigned i = 0; i < inputLogicalRank; ++i) {
+      if (i == inputLogicalRank - 1) {
+        // Last dimension: just use the remaining index
+        reshapeExprs.push_back(remainingIdx);
+      } else {
+        // Extract this dimension using floorDiv with stride
+        AffineExpr strideExpr = rewriter.getAffineConstantExpr(inputStrides[i]);
+        reshapeExprs.push_back(remainingIdx.floorDiv(strideExpr));
+        // Update remaining index for next iteration
+        remainingIdx = remainingIdx % strideExpr;
+      }
+    }
+
+    llvm::errs() << "reshapeExprs: [";
+    llvm::interleaveComma(reshapeExprs, llvm::errs());
+    llvm::errs() << "]\n";
+
+    // Map from output device coordinates to input device coordinates
+    unsigned outputDeviceRank = outputLogicalRank * 2;
+    AffineMap reshapeMap =
+        AffineMap::get(outputDeviceRank, 0, reshapeExprs, ctx);
+
+    // For view layout, the reshapeMap IS the index map - no composition needed
+    // The view will use this map directly to index into the input during
+    // bufferization
+
+    // Create output layout with the reshape index map
+    llvm::SmallVector<int64_t> outputPhysicalShape;
+    // Add grid dimensions (1 for each logical dimension)
+    for (unsigned i = 0; i < outputLogicalRank; ++i) {
+      outputPhysicalShape.push_back(1);
+    }
+    // Add shard dimensions (the actual output shape)
+    for (unsigned i = 0; i < outputLogicalRank; ++i) {
+      outputPhysicalShape.push_back(outputShape[i]);
+    }
+
+    // Create empty collapsed intervals for output rank
+    auto emptyIntervalType =
+        RankedTensorType::get({0, 2}, IntegerType::get(ctx, 64));
+    DenseIntElementsAttr outputCollapsedIntervals =
+        DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+
+    // Compute appropriate alignments for the output shape
+    // Use tile alignments (32x32 for last 2 dims, 1 for others)
+    llvm::SmallVector<int64_t> outputAlignments(outputLogicalRank, 1);
+    if (outputLogicalRank >= 2) {
+      outputAlignments[outputLogicalRank - 2] = 32;
+      outputAlignments[outputLogicalRank - 1] = 32;
+    } else if (outputLogicalRank == 1) {
+      outputAlignments[0] = 32;
+    }
+
+    auto outputLayout = ttcore::MetalLayoutAttr::get(
+        ctx, outputShape, outputAlignments, outputCollapsedIntervals,
+        inputLayout.getOobVal(), inputLayout.getMemorySpace(),
+        inputLayout.getMemoryLayout(), reshapeMap);
+
+    auto tiledElementType = inputLayoutTensorType.getElementType();
+    auto outputViewType = mlir::RankedTensorType::get(
+        outputPhysicalShape, tiledElementType, outputLayout);
+
+    // Single view layout: direct reshape
+    auto reshapeView =
+        rewriter.create<d2m::ViewLayoutOp>(loc, outputViewType, inputs[0]);
+
+    // Convert output back to proper type
+    rewriter.replaceOp(op, unLayoutResult(rewriter, reshapeView.getResult(),
+                                          op->getResult(0).getType()));
+    return success();
+  }
+};
+
 // Simple conversion for ttir.to_layout -> d2m.to_layout.
 class D2MToLayoutOpRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
   using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
@@ -1116,7 +1292,8 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
-    D2MPermuteRewriter
+    D2MPermuteRewriter,
+    D2MReshapeRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);
 
 
