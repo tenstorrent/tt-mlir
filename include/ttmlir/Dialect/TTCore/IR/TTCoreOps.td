@@ -189,6 +189,7 @@ def TTCore_OptimizationBarrierOp : TTCore_Op<"optimization_barrier", [MemoryEffe
 def TTCore_GlobalOp : TTCore_Op<"global", [Symbol]> {
   let summary = "Named global";
   let description = [{
+    Declares a global variable with an optional index.
   }];
 
   let arguments = (ins SymbolNameAttr:$sym_name, TypeAttr:$type, OptionalAttr<SI32Attr>:$index);
@@ -199,6 +200,7 @@ def TTCore_GlobalOp : TTCore_Op<"global", [Symbol]> {
 def TTCore_GetGlobalOp : TTCore_Op<"get_global", [Pure]> {
   let summary = "Named global";
   let description = [{
+    Retrieves a named global value declared with `ttcore.global`
   }];
 
   let arguments = (ins SymbolNameAttr:$sym_name);

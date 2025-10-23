@@ -194,9 +194,9 @@ void setCurrentHostRuntime(const HostRuntime &runtime) {
   LOG_FATAL("Runtime is not enabled");
 }
 
-SystemDesc
-getCurrentSystemDesc(std::optional<DispatchCoreType> dispatchCoreType,
-                     std::optional<Device> meshDevice) {
+SystemDesc getCurrentSystemDesc(
+    std::optional<tt::runtime::DispatchCoreType> dispatchCoreType,
+    std::optional<Device> meshDevice) {
 
   using RetType = SystemDesc;
   return DISPATCH_TO_CURRENT_RUNTIME(
@@ -379,8 +379,7 @@ bool isTensorAllocated(Tensor tensor) {
         return ::tt::runtime::ttmetal::isTensorAllocated(tensor);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("isTensorAllocated",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::isTensorAllocated(tensor);
       });
 }
 
@@ -458,8 +457,7 @@ std::uint32_t getTensorVolume(Tensor t) {
       [&]() -> RetType { return ::tt::runtime::ttnn::getTensorVolume(t); },
       [&]() -> RetType { return ::tt::runtime::ttmetal::getTensorVolume(t); },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getTensorVolume",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::getTensorVolume(t);
       });
 }
 
@@ -483,8 +481,7 @@ bool getTensorRetain(Tensor tensor) {
         return ::tt::runtime::ttmetal::getTensorRetain(tensor);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getTensorRetain",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::getTensorRetain(tensor);
       });
 }
 
@@ -493,14 +490,11 @@ void setTensorRetain(Tensor tensor, bool retain) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::setTensorRetain(tensor, retain); },
       [&]() { ::tt::runtime::ttmetal::setTensorRetain(tensor, retain); },
-      [&]() {
-        detail::fatalNotImplemented("setTensorRetain",
-                                    HostRuntime::Distributed);
-      });
+      [&]() { ::tt::runtime::distributed::setTensorRetain(tensor, retain); });
 }
 
-Arch getArch() {
-  using RetType = Arch;
+tt::target::Arch getArch() {
+  using RetType = tt::target::Arch;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() -> RetType { return ::tt::runtime::ttnn::getArch(); },
       [&]() -> RetType { return ::tt::runtime::ttmetal::getArch(); },
@@ -542,8 +536,7 @@ size_t getNumAvailableDevices() {
         return ::tt::runtime::ttmetal::getNumAvailableDevices();
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getNumAvailableDevices",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::getNumAvailableDevices();
       });
 }
 
@@ -583,8 +576,8 @@ Device createSubMeshDevice(
             parentMesh, meshShape, meshOffset);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("createSubMeshDevice",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::createSubMeshDevice(
+            parentMesh, meshShape, meshOffset);
       });
 }
 
@@ -593,10 +586,7 @@ void releaseSubMeshDevice(Device subMesh) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::releaseSubMeshDevice(subMesh); },
       [&]() { ::tt::runtime::ttmetal::releaseSubMeshDevice(subMesh); },
-      [&]() {
-        detail::fatalNotImplemented("releaseSubMeshDevice",
-                                    HostRuntime::Distributed);
-      });
+      [&]() { ::tt::runtime::distributed::releaseSubMeshDevice(subMesh); });
 }
 
 void reshapeMeshDevice(Device meshDevice,
@@ -625,7 +615,7 @@ std::vector<uint32_t> getMeshShape(Device meshDevice) {
         return ::tt::runtime::ttmetal::getMeshShape(meshDevice);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getMeshShape", HostRuntime::Distributed);
+        return ::tt::runtime::distributed::getMeshShape(meshDevice);
       });
 }
 
@@ -916,7 +906,7 @@ void memcpy(void *dst, Tensor src,
       RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src, dstDataType); },
       [&]() { ::tt::runtime::ttmetal::memcpy(dst, src, dstDataType); },
       [&]() -> RetType {
-        return ::tt::runtime::distributed::memcpy(dst, src, dstDataType);
+        ::tt::runtime::distributed::memcpy(dst, src, dstDataType);
       });
 }
 
@@ -925,9 +915,7 @@ void memcpy(Tensor dst, Tensor src) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::memcpy(dst, src); },
       [&]() { ::tt::runtime::ttmetal::memcpy(dst, src); },
-      [&]() -> RetType {
-        detail::fatalNotImplemented("memcpy", HostRuntime::Distributed);
-      });
+      [&]() -> RetType { ::tt::runtime::distributed::memcpy(dst, src); });
 }
 
 void deallocateTensor(Tensor &tensor, bool force) {
@@ -936,8 +924,7 @@ void deallocateTensor(Tensor &tensor, bool force) {
       RetType, [&]() { ::tt::runtime::ttnn::deallocateTensor(tensor, force); },
       [&]() { ::tt::runtime::ttmetal::deallocateTensor(tensor, force); },
       [&]() -> RetType {
-        detail::fatalNotImplemented("deallocateTensor",
-                                    HostRuntime::Distributed);
+        ::tt::runtime::distributed::deallocateTensor(tensor, force);
       });
 }
 
@@ -1070,7 +1057,7 @@ void updateTensorInPool(CallbackContext programContextHandle,
       });
 }
 
-void setFabricConfig(FabricConfig config) {
+void setFabricConfig(tt::runtime::FabricConfig config) {
   using RetType = void;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
@@ -1079,8 +1066,7 @@ void setFabricConfig(FabricConfig config) {
         return ::tt::runtime::ttmetal::setFabricConfig(config);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("setFabricConfig",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::setFabricConfig(config);
       });
 }
 

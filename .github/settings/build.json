@@ -1,0 +1,8 @@
+[
+    { "image": "tracy", "script": "ttnn-standalone.sh" },
+    { "image": "tracy", "script": "explorer.sh" },
+    { "image": "speedy", "script": "alchemist.sh" },
+    { "image": "speedy", "script": "emitc.sh", "if": "emitc" },
+    { "image": "tracy", "script": "ttnn-jit.sh", "if": "ttnn-jit-wheel" },
+    { "image": "speedy", "script": "chisel.sh", "if": "chisel" }
+]

@@ -5,4 +5,4 @@ set(DISTRIBUTED_FBS_GEN_SOURCES
   response.fbs
 )
 
-build_flatbuffers("distributed" "${DISTRIBUTED_FBS_GEN_SOURCES}" DISTRIBUTED_FBS FBS_GENERATION)
+build_flatbuffers("distributed" "${DISTRIBUTED_FBS_GEN_SOURCES}" DISTRIBUTED_FBS ${PROJECT_SOURCE_DIR}/runtime/include/ FBS_GENERATION RUNTIME_FBS)

@@ -419,6 +419,8 @@ void populatePassesModule(nb::module_ &m) {
       .value("Float16", ::tt::target::DataType::Float16)
       .value("BFloat16", ::tt::target::DataType::BFloat16)
       .value("Int32", ::tt::target::DataType::Int32)
+      .value("UInt32", ::tt::target::DataType::UInt32)
+      .value("UInt16", ::tt::target::DataType::UInt16)
       .value("UInt8", ::tt::target::DataType::UInt8);
 
   m.def("lookup_dtype", [](std::string enumName) {

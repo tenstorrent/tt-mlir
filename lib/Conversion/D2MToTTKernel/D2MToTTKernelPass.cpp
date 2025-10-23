@@ -76,9 +76,9 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<d2m::ViewLayoutOp>();
     target.addLegalOp<d2m::GenericOp>();
     target.addLegalOp<d2m::EmptyOp>();
+    target.addLegalOp<d2m::MeshShardOp>();
 
     target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
-    target.addLegalOp<ttir::MeshShardOp>();
 
     if (ttnnMode) {
       target.addLegalDialect<ttnn::TTNNDialect>();
@@ -124,12 +124,18 @@ struct ConvertD2MToTTKernel
         return IndexType::get(memref.getContext());
       }
 
+      if (mlir::isa<StridedLayoutAttr>(memref.getLayout())) {
+        // This memref abstracts index offsets into a subview.
+        return IndexType::get(memref.getContext());
+      }
+
       // Since none of the above is true, this memref abstracts cb backing.
       return ttkernel::CBType::get(memref);
     });
-    typeConverter.addConversion([](d2m::CBType cb) -> Type {
+    typeConverter.addConversion([](d2m::CBType cb) {
       return ttkernel::CBType::get(cb.getUnderlyingAs<MemRefType>());
     });
+
     typeConverter.addConversion([](d2m::SemaphoreType semaphore) {
       return ttkernel::SemaphoreType::get(semaphore.getContext());
     });

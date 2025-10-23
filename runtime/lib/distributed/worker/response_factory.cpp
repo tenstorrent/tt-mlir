@@ -9,6 +9,34 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 
+#define BUILD_RESPONSE_IMPL(ResponseName, fbb, commandId, builderFunc, ...)    \
+  do {                                                                         \
+    auto responseType = ::tt::runtime::distributed::flatbuffer::ResponseType:: \
+        ResponseName##Response;                                                \
+                                                                               \
+    auto responseOffset = (builderFunc)((fbb)__VA_OPT__(, ) __VA_ARGS__);      \
+                                                                               \
+    auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(    \
+        (fbb), (commandId), responseType, responseOffset.Union());             \
+                                                                               \
+    ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer((fbb),        \
+                                                                 response);    \
+                                                                               \
+    debug::verifyFlatbuffer((fbb), verifyFn);                                  \
+  } while (0)
+
+#define BUILD_RESPONSE(ResponseName, fbb, commandId, ...)                      \
+  BUILD_RESPONSE_IMPL(                                                         \
+      ResponseName, fbb, commandId,                                            \
+      ::tt::runtime::distributed::flatbuffer::Create##ResponseName##Response,  \
+      __VA_ARGS__)
+
+#define BUILD_RESPONSE_DIRECT(ResponseName, fbb, commandId, ...)               \
+  BUILD_RESPONSE_IMPL(ResponseName, fbb, commandId,                            \
+                      ::tt::runtime::distributed::flatbuffer::                 \
+                          Create##ResponseName##ResponseDirect,                \
+                      __VA_ARGS__)
+
 namespace tt::runtime::distributed::worker {
 
 using ::tt::runtime::DeviceRuntime;
@@ -22,18 +50,15 @@ void ResponseFactory::buildErrorResponse(::flatbuffers::FlatBufferBuilder &fbb,
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto responseType =
-      ::tt::runtime::distributed::flatbuffer::ResponseType::ErrorResponse;
+  BUILD_RESPONSE_DIRECT(Error, fbb, commandId, errorMessage.c_str());
+}
 
-  auto errorResponse =
-      ::tt::runtime::distributed::flatbuffer::CreateErrorResponseDirect(
-          fbb, errorMessage.c_str());
+void ResponseFactory::buildConfigureRuntimeContextResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
 
-  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
-      fbb, commandId, responseType, errorResponse.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  BUILD_RESPONSE(ConfigureRuntimeContext, fbb, commandId);
 }
 
 void ResponseFactory::buildGetSystemDescResponse(
@@ -42,21 +67,25 @@ void ResponseFactory::buildGetSystemDescResponse(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto responseType = ::tt::runtime::distributed::flatbuffer::ResponseType::
-      GetSystemDescResponse;
-
   std::vector<uint8_t> systemDescBuffer;
   systemDesc.storeToMemory(systemDescBuffer);
 
-  auto getSystemDescResponse =
-      ::tt::runtime::distributed::flatbuffer::CreateGetSystemDescResponseDirect(
-          fbb, &systemDescBuffer);
+  BUILD_RESPONSE_DIRECT(GetSystemDesc, fbb, commandId, &systemDescBuffer);
+}
 
-  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
-      fbb, commandId, responseType, getSystemDescResponse.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
+void ResponseFactory::buildSetFabricConfigResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  BUILD_RESPONSE(SetFabricConfig, fbb, commandId);
+}
+
+void ResponseFactory::buildGetNumAvailableDevicesResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+    size_t numDevices) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(GetNumAvailableDevices, fbb, commandId, numDevices);
 }
 
 void ResponseFactory::buildOpenMeshDeviceResponse(
@@ -67,105 +96,95 @@ void ResponseFactory::buildOpenMeshDeviceResponse(
 
   auto deviceRef = ::tt::target::CreateDeviceRef(fbb, device.getGlobalId());
 
-  auto responseType = ::tt::runtime::distributed::flatbuffer::ResponseType::
-      OpenMeshDeviceResponse;
-
-  auto openMeshDeviceResponse =
-      ::tt::runtime::distributed::flatbuffer::CreateOpenMeshDeviceResponse(
-          fbb, deviceRef);
-
-  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
-      fbb, commandId, responseType, openMeshDeviceResponse.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  BUILD_RESPONSE(OpenMeshDevice, fbb, commandId, deviceRef);
 }
 
 void ResponseFactory::buildCloseMeshDeviceResponse(
     ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto responseType = ::tt::runtime::distributed::flatbuffer::ResponseType::
-      CloseMeshDeviceResponse;
+  BUILD_RESPONSE(CloseMeshDevice, fbb, commandId);
+}
 
-  auto closeMeshDeviceResponse =
-      ::tt::runtime::distributed::flatbuffer::CreateCloseMeshDeviceResponse(
-          fbb);
+void ResponseFactory::buildCreateSubMeshDeviceResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+    const ::tt::runtime::Device &subMesh) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
-      fbb, commandId, responseType, closeMeshDeviceResponse.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
+  auto subMeshRef = ::tt::target::CreateDeviceRef(fbb, subMesh.getGlobalId());
+  BUILD_RESPONSE(CreateSubMeshDevice, fbb, commandId, subMeshRef);
+}
 
-  debug::verifyFlatbuffer(fbb, verifyFn);
+void ResponseFactory::buildReleaseSubMeshDeviceResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(ReleaseSubMeshDevice, fbb, commandId);
+}
+
+void ResponseFactory::buildGetMeshShapeResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+    const std::vector<uint32_t> &shape) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE_DIRECT(GetMeshShape, fbb, commandId, &shape);
 }
 
 void ResponseFactory::buildCreateHostTensorResponse(
     ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto responseType = ::tt::runtime::distributed::flatbuffer::ResponseType::
-      CreateHostTensorResponse;
+  BUILD_RESPONSE(CreateHostTensor, fbb, commandId);
+}
 
-  auto createHostTensorResponse =
-      ::tt::runtime::distributed::flatbuffer::CreateCreateHostTensorResponse(
-          fbb);
+void ResponseFactory::buildIsTensorAllocatedResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId, bool allocated) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
-      fbb, commandId, responseType, createHostTensorResponse.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
+  BUILD_RESPONSE(IsTensorAllocated, fbb, commandId, allocated);
+}
 
-  debug::verifyFlatbuffer(fbb, verifyFn);
+void ResponseFactory::buildGetTensorVolumeResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+    uint32_t volume) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(GetTensorVolume, fbb, commandId, volume);
+}
+
+void ResponseFactory::buildGetTensorRetainResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId, bool retain) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(GetTensorRetain, fbb, commandId, retain);
+}
+
+void ResponseFactory::buildSetTensorRetainResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(SetTensorRetain, fbb, commandId);
 }
 
 void ResponseFactory::buildGetLayoutResponse(
     ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto responseType =
-      ::tt::runtime::distributed::flatbuffer::ResponseType::GetLayoutResponse;
-
-  auto getLayoutResponse =
-      ::tt::runtime::distributed::flatbuffer::CreateGetLayoutResponse(fbb);
-
-  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
-      fbb, commandId, responseType, getLayoutResponse.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  BUILD_RESPONSE(GetLayout, fbb, commandId);
 }
 
 void ResponseFactory::buildToLayoutResponse(
     ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto responseType =
-      ::tt::runtime::distributed::flatbuffer::ResponseType::ToLayoutResponse;
-
-  auto toLayoutResponse =
-      ::tt::runtime::distributed::flatbuffer::CreateToLayoutResponse(fbb);
-
-  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
-      fbb, commandId, responseType, toLayoutResponse.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  BUILD_RESPONSE(ToLayout, fbb, commandId);
 }
 
 void ResponseFactory::buildSubmitResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                           uint64_t commandId) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto responseType =
-      ::tt::runtime::distributed::flatbuffer::ResponseType::SubmitResponse;
-
-  auto submitResponse =
-      ::tt::runtime::distributed::flatbuffer::CreateSubmitResponse(fbb);
-
-  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
-      fbb, commandId, responseType, submitResponse.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  BUILD_RESPONSE(Submit, fbb, commandId);
 }
 
 void ResponseFactory::buildGetNumShardsResponse(
@@ -173,35 +192,14 @@ void ResponseFactory::buildGetNumShardsResponse(
     uint32_t numBuffers) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto responseType = ::tt::runtime::distributed::flatbuffer::ResponseType::
-      GetNumShardsResponse;
-
-  auto getNumShardsResponse =
-      ::tt::runtime::distributed::flatbuffer::CreateGetNumShardsResponse(
-          fbb, numBuffers);
-
-  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
-      fbb, commandId, responseType, getNumShardsResponse.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  BUILD_RESPONSE(GetNumShards, fbb, commandId, numBuffers);
 }
 
 void ResponseFactory::buildToHostResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                           uint64_t commandId) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto responseType =
-      ::tt::runtime::distributed::flatbuffer::ResponseType::ToHostResponse;
-
-  auto toHostResponse =
-      ::tt::runtime::distributed::flatbuffer::CreateToHostResponse(fbb);
-
-  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
-      fbb, commandId, responseType, toHostResponse.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  BUILD_RESPONSE(ToHost, fbb, commandId);
 }
 
 void ResponseFactory::buildMemcpyResponse(
@@ -210,40 +208,30 @@ void ResponseFactory::buildMemcpyResponse(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto responseType =
-      ::tt::runtime::distributed::flatbuffer::ResponseType::MemcpyResponse;
-
   const std::vector<uint8_t> *dataPtr = nullptr;
   if (data.has_value()) {
     dataPtr = &data.value();
   }
 
-  auto memcpyResponse =
-      ::tt::runtime::distributed::flatbuffer::CreateMemcpyResponseDirect(
-          fbb, dataPtr);
+  BUILD_RESPONSE_DIRECT(Memcpy, fbb, commandId, dataPtr);
+}
 
-  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
-      fbb, commandId, responseType, memcpyResponse.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
+void ResponseFactory::buildDeallocateTensorResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  BUILD_RESPONSE(DeallocateTensor, fbb, commandId);
 }
 
 void ResponseFactory::buildShutdownResponse(
     ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  auto responseType =
-      ::tt::runtime::distributed::flatbuffer::ResponseType::ShutdownResponse;
-
-  auto shutdownResponse =
-      ::tt::runtime::distributed::flatbuffer::CreateShutdownResponse(fbb);
-
-  auto response = ::tt::runtime::distributed::flatbuffer::CreateResponse(
-      fbb, commandId, responseType, shutdownResponse.Union());
-  ::tt::runtime::distributed::flatbuffer::FinishResponseBuffer(fbb, response);
-
-  debug::verifyFlatbuffer(fbb, verifyFn);
+  BUILD_RESPONSE(Shutdown, fbb, commandId);
 }
+
+#undef BUILD_RESPONSE_IMPL
+#undef BUILD_RESPONSE
+#undef BUILD_RESPONSE_DIRECT
 
 } // namespace tt::runtime::distributed::worker

@@ -10,16 +10,16 @@ namespace mlir::tt::d2m {
 CBProducerConsumer::CBProducerConsumer(Operation *op) {
   op->walk([&](Operation *op) {
     bool isProducer = mlir::isa<d2m::ReserveOp>(op);
-    bool isConsumer = mlir::isa<d2m::PopOp>(op);
+    bool isConsumer = mlir::isa<d2m::WaitOp>(op);
     if (!isConsumer && !isProducer) {
       return;
     }
     auto enumVal = isConsumer ? Consumer : Producer;
-    for (auto operand : op->getOperands()) {
-      auto [iter, inserted] = threadCBOrientationMap.insert({operand, enumVal});
-      if (!inserted && iter->second != enumVal) {
-        iter->second = ProducerConsumer;
-      }
+    assert(op->getNumResults() == 1);
+    auto [iter, inserted] =
+        threadCBOrientationMap.insert({op->getResult(0), enumVal});
+    if (!inserted && iter->second != enumVal) {
+      iter->second = ProducerConsumer;
     }
   });
 }

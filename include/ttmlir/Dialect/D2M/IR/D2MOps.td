@@ -160,7 +160,8 @@ def D2M_GenericOp : D2M_Op<"generic",
       "bufferize",
       "getAliasingValues",
       "getBufferType",
-      "isWritable"
+      "isWritable",
+      "hasTensorSemantics",
     ]>
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
@@ -294,6 +295,83 @@ def D2M_EmptyOp : D2M_Op<"empty", [
   ];
 
   let assemblyFormat = "`(` `)` attr-dict `:` type($result)";
+}
+
+def D2M_FullOp : D2M_Op<"full", [
+    MemoryEffects<[MemAlloc]>,
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+  let summary = "Creates a tensor filled with the specified value (D2M).";
+  let description = [{
+    Tensor operation to create a tensor filled with a specified value.
+    Given a `shape` and a `fill_value`, produces a tensor with the shape, filled with the specified value.
+  }];
+
+  let arguments = (ins DenseI32ArrayAttr:$shape,
+                       AnyAttrOf<[F32Attr, I32Attr]>:$fill_value);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let builders = [
+    OpBuilder<(ins "Type": $resultType, "Attribute": $fillValue),
+    [{
+      RankedTensorType tensorType = mlir::cast<RankedTensorType>(resultType);
+      build($_builder, $_state, tensorType, llvm::to_vector_of<int32_t>(tensorType.getShape()), fillValue);
+    }]>
+  ];
+
+  let assemblyFormat = "attr-dict `:` type($result)";
+  let hasVerifier = 1;
+}
+
+def D2M_MeshShardOp: D2M_Op<"mesh_shard", [
+    Pure,
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+  let summary = "Mesh shard operation (D2M).";
+  let description = [{
+    MeshShard op shards the inputs (FullToShard) or concatenates the outputs (ShardToFull) for ccl ops.
+  }];
+
+  let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                       TTCore_MeshShardTypeAttr:$shard_type,
+                       TTCore_MeshShardDirectionAttr:$shard_direction,
+                       DenseI64ArrayAttr:$shard_shape,
+                       DenseI64ArrayAttr:$shard_dims);
+
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let extraClassDefinition = [{
+    bool $cppClass::bufferizesToMemoryRead(
+        mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+      return true;
+    }
+    bool $cppClass::bufferizesToMemoryWrite(
+        mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+      return false;
+    }
+    bufferization::AliasingValueList $cppClass::getAliasingValues(
+        OpOperand &, const bufferization::AnalysisState &) {
+      bufferization::AliasingValueList result;
+      return result;
+    }
+  }];
+
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+  let hasVerifier = 1;
+  let hasFolder = 1;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MOPS_TD

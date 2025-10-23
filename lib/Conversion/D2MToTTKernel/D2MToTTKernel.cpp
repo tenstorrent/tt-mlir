@@ -76,44 +76,6 @@ static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
               index(rewriter, loc, 1))};
 }
 
-static Value getTileIndexFromBlockView(RewriterBase &rewriter, Location loc,
-                                       Value inputView) {
-  if (auto subViewOp =
-          mlir::dyn_cast<memref::SubViewOp>(inputView.getDefiningOp())) {
-    // We have blocked this input. We need to get the indicies for the first
-    // tile in the subview.
-    SmallVector<Value> indices = {index(rewriter, loc, 0),
-                                  index(rewriter, loc, 0)};
-    SmallVector<Value> sourceIndices;
-
-    // TODO(#4717): This call alone should be enough to get the tile indices,
-    // but currently it returns block index instead. Once fixed, we can remove
-    // all the other calculations below.
-    affine::resolveIndicesIntoOpWithOffsetsAndStrides(
-        rewriter, loc, subViewOp.getMixedOffsets(), subViewOp.getMixedStrides(),
-        subViewOp.getDroppedDims(), indices, sourceIndices);
-
-    auto resultTy = mlir::cast<MemRefType>(subViewOp.getResult().getType());
-    Value rtIdx = index(rewriter, loc, resultTy.getShape()[0]);
-    Value ktIdx = index(rewriter, loc, resultTy.getShape()[1]);
-    Value tilesPerBlock = rewriter.create<arith::MulIOp>(loc, rtIdx, ktIdx);
-
-    // Convert the resolved source row offset to a block-row index.
-    Value rowBlockIdx =
-        rewriter.create<arith::DivSIOp>(loc, sourceIndices[0], rtIdx);
-    Value rowBase =
-        rewriter.create<arith::MulIOp>(loc, rowBlockIdx, tilesPerBlock);
-    return rewriter.create<arith::AddIOp>(loc, rowBase, sourceIndices[1]);
-  }
-
-  if (mlir::isa<memref::CastOp>(inputView.getDefiningOp())) {
-    // We have not blocked this input. Ignore the cast and start from index 0 of
-    // the input.
-    return index(rewriter, loc, 0);
-  }
-  llvm_unreachable("Expected subview or cast op");
-}
-
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   if (memref::LoadOp loadOp =
           mlir::dyn_cast<memref::LoadOp>(cb.getDefiningOp());
@@ -226,6 +188,45 @@ public:
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     rewriter.replaceOp(op, adaptor.getOperands());
+    return success();
+  };
+};
+} // namespace
+
+namespace {
+class MemRefSubviewRewriter : public OpConversionPattern<memref::SubViewOp> {
+public:
+  using OpConversionPattern<memref::SubViewOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(memref::SubViewOp op,
+                  typename memref::SubViewOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // We have blocked this input. We need to get the indicies for the first
+    // tile in the subview.
+    SmallVector<Value> indices = {index(rewriter, op.getLoc(), 0),
+                                  index(rewriter, op.getLoc(), 0)};
+    SmallVector<Value> sourceIndices;
+
+    // TODO(#4717): This call alone should be enough to get the tile indices,
+    // but currently it returns block index instead. Once fixed, we can remove
+    // all the other calculations below.
+    affine::resolveIndicesIntoOpWithOffsetsAndStrides(
+        rewriter, op.getLoc(), op.getMixedOffsets(), op.getMixedStrides(),
+        op.getDroppedDims(), indices, sourceIndices);
+
+    auto resultTy = mlir::cast<MemRefType>(op.getResult().getType());
+    Value rtIdx = index(rewriter, op.getLoc(), resultTy.getShape()[0]);
+    Value ktIdx = index(rewriter, op.getLoc(), resultTy.getShape()[1]);
+    Value tilesPerBlock =
+        rewriter.create<arith::MulIOp>(op.getLoc(), rtIdx, ktIdx);
+
+    // Convert the resolved source row offset to a block-row index.
+    Value rowBlockIdx =
+        rewriter.create<arith::DivSIOp>(op.getLoc(), sourceIndices[0], rtIdx);
+    Value rowBase =
+        rewriter.create<arith::MulIOp>(op.getLoc(), rowBlockIdx, tilesPerBlock);
+    rewriter.replaceOpWithNewOp<arith::AddIOp>(op, rowBase, sourceIndices[1]);
     return success();
   };
 };
@@ -371,6 +372,7 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileGezOp,         std::pair<ttkernel::GezTileInitOp,             ttkernel::GezTileOp>>,
   std::pair<d2m::TileLtzOp,         std::pair<ttkernel::LtzTileInitOp,             ttkernel::LtzTileOp>>,
   std::pair<d2m::TileLezOp,         std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>,
+  std::pair<d2m::TileTypecastOp,    std::pair<ttkernel::TypecastTileInitOp,        ttkernel::TypecastTileOp>>,
 
   // Elementwise SFPU Binary.
   std::pair<d2m::TileAddOp,         std::pair<ttkernel::AddBinaryTilesInitOp,      ttkernel::AddBinaryTilesOp>>,
@@ -500,10 +502,20 @@ public:
       // Get the tile index for each input in the global memref. This is done by
       // resolving tile (0,0) from the subview, representing a block, into the
       // address space of the source memref.
-      Value aTileIndex =
-          getTileIndexFromBlockView(rewriter, op->getLoc(), op.getA());
-      Value bTileIndex =
-          getTileIndexFromBlockView(rewriter, op->getLoc(), op.getB());
+      Value aTileIndex = adaptor.getA();
+      Value bTileIndex = adaptor.getB();
+
+      // If the input didn't come from a subview, we'll expect the CB directly
+      // which implicitly comes from an unrealized conversion cast.  This is a
+      // special case where we're reading from offset 0.
+      if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
+              aTileIndex.getDefiningOp())) {
+        aTileIndex = index(rewriter, op.getLoc(), 0);
+      }
+      if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
+              bTileIndex.getDefiningOp())) {
+        bTileIndex = index(rewriter, op.getLoc(), 0);
+      }
 
       rewriter.create<ttkernel::ExperimentalMatmulBlockOp>(
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
@@ -669,6 +681,13 @@ public:
       } else {
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
       }
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::TypecastTileOp>) {
+      const auto inDtype =
+          mlir::cast<ttcore::TileType>(op.getInput().getType()).getDataType();
+      const auto outDtype =
+          mlir::cast<ttcore::TileType>(op.getResult().getType()).getDataType();
+      rewriter.create<ttkernel::TypecastTileOp>(
+          op->getLoc(), adaptor.getInput(), inDtype, outDtype);
     } else if constexpr (arity == 1) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
     } else if constexpr (std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
@@ -697,7 +716,7 @@ public:
   using OpConversionPattern<ConcreteOp>::OpConversionPattern;
 
   static Value findPreLinearizedMemref(Value memref) {
-    if (mlir::isa_and_nonnull<d2m::PopOp, d2m::ReserveOp>(
+    if (mlir::isa_and_nonnull<d2m::WaitOp, d2m::ReserveOp>(
             memref.getDefiningOp())) {
       return memref;
     }
@@ -784,35 +803,6 @@ public:
 
 namespace {
 
-class D2MTypecastRewriter : public OpTraitConversionPattern<
-                                mlir::tt::d2m::D2MGenericRegionComputeOpTrait> {
-public:
-  using OpTraitConversionPattern<
-      mlir::tt::d2m::D2MGenericRegionComputeOpTrait>::OpTraitConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
-                  ConversionPatternRewriter &rewriter) const final {
-    if (auto typecastOp = mlir::dyn_cast<d2m::TileTypecastOp>(op)) {
-      rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc());
-
-      auto inDtype =
-          mlir::cast<ttcore::TileType>(typecastOp.getInput().getType())
-              .getDataType();
-      auto outDtype =
-          mlir::cast<ttcore::TileType>(typecastOp.getResult().getType())
-              .getDataType();
-      rewriter.create<ttkernel::TypecastTileOp>(
-          op->getLoc(), i32(rewriter, op->getLoc(), 0), inDtype, outDtype);
-    } else {
-      return failure();
-    }
-
-    rewriter.eraseOp(op);
-    return success();
-  };
-};
-
 class D2MDstReinterpretCastRewriter
     : public OpConversionPattern<d2m::DstReinterpretCastOp> {
 public:
@@ -835,7 +825,7 @@ class D2MCBOpRewriter : public OpConversionPattern<D2MCBOp> {
 public:
   using OpConversionPattern<D2MCBOp>::OpConversionPattern;
 
-  static_assert(std::is_same_v<D2MCBOp, d2m::PopOp> ||
+  static_assert(std::is_same_v<D2MCBOp, d2m::WaitOp> ||
                 std::is_same_v<D2MCBOp, d2m::ReserveOp>);
 
   LogicalResult
@@ -1436,6 +1426,7 @@ void populateD2MToTTKernelPatterns(
   // clang-format off
   patterns.add<ttkernel::D2MKernelFunctionArgsRewriter,
                ttkernel::PassthroughRewriter<memref::CastOp>,
+               ttkernel::MemRefSubviewRewriter,
 
                // FPU.
                ttkernel::D2MFPUOpsRewriter<d2m::TileMatmulOp>,
@@ -1467,6 +1458,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileGezOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLtzOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLezOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileTypecastOp>,
 
                // Elementwise SFPU Binary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAddOp>,
@@ -1479,12 +1471,11 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalUntilizeBlockOp>,
                ttkernel::D2MTileTransposeRewriter,
-               ttkernel::D2MTypecastRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,
-               ttkernel::D2MCBOpRewriter<d2m::PopOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,
+               ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,
                ttkernel::D2MCBOpRewriter<d2m::ReserveOp, ttkernel::CBReserveBackOp, ttkernel::CBPushBackOp>,
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
