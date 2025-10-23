@@ -1001,6 +1001,13 @@ checkBatchNormToTTNNLegality(OpType &op, OpAdaptor adaptor,
     return rewriter.notifyMatchFailure(op, "We can only exclude dimension 1");
   }
 
+  auto inputType = mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+
+  if (inputType.getDimSize(1) > 64) {
+    return rewriter.notifyMatchFailure(
+        op, op.getOperationName() + " feature dimension has > 64 elements.");
+  }
+
   return success();
 }
 
