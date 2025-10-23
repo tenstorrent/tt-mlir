@@ -542,8 +542,6 @@ static void insertTTNNDRAMStreams(d2m::GenericOp genericOp,
                                   ArrayRef<int64_t> targetSquareGridShape) {
   OpBuilder builder(genericOp->getContext());
   for (Value operand : genericOp.getOperands()) {
-    auto castOp = operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
-    assert(castOp && "Expected TTNNMetalLayoutCastOp");
     auto metalTensor = mlir::cast<mlir::RankedTensorType>(operand.getType());
     auto baseMetalLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());
@@ -553,6 +551,7 @@ static void insertTTNNDRAMStreams(d2m::GenericOp genericOp,
 
     llvm::SmallVector<int64_t> unshardedShape =
         baseMetalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
+    // TTNN DRAM interleaved tensors are represented as having a 1x1 grid.
     llvm::SmallVector<int64_t> unitGridShape{1, 1};
     llvm::SmallVector<int64_t> unShardedShapeWithGrid =
         baseMetalLayout.getDeviceShape(unitGridShape,
@@ -586,6 +585,7 @@ static void insertTTNNDRAMStreams(d2m::GenericOp genericOp,
     auto storageTensor = mlir::RankedTensorType::get(
         fakeShardedShape, metalTensor.getElementType(), storageLayout);
 
+    auto castOp = operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
     builder.setInsertionPointAfter(castOp);
     auto storageOp =
         builder.create<d2m::EmptyOp>(castOp.getLoc(), storageTensor);
