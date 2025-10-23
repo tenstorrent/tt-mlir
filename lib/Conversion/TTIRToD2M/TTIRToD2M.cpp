@@ -114,7 +114,9 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
-  // Create a ToLayout op for a value using the provided layout info and grid.
+  // Create a ToLayout operation for a value using the provided layout
+  // information with a simple 1x1 grid; actual grid optimization and proper
+  // dimension alignments are computed later in the D2MGridSelection pass.
   Value createOptimalLayoutOp(Value value, ttcore::MemorySpace memSpace,
                               bool tiled,
                               mlir::ConversionPatternRewriter &rewriter) const {

@@ -20,7 +20,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
-#include <iostream>
+
 namespace mlir::tt::d2m {
 
 // Compute dimension alignments for a MetalLayoutAttr that align to the worker
@@ -345,7 +345,7 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
       // Skip TTNN tensors as their grids are already correctly set.
       if (toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-        std::cout << "Armin: TTNNMetalLayoutCastOp" << std::endl;
+        continue;
       }
       toLayoutsToUpdate.push_back({toLayoutOp, optimalGrid});
     }
@@ -553,7 +553,7 @@ static void insertTTNNDRAMStreams(d2m::GenericOp genericOp,
 
     llvm::SmallVector<int64_t> unshardedShape =
         baseMetalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
-    llvm::SmallVector<int64_t> unitGridShape {1, 1};
+    llvm::SmallVector<int64_t> unitGridShape{1, 1};
     llvm::SmallVector<int64_t> unShardedShapeWithGrid =
         baseMetalLayout.getDeviceShape(unitGridShape,
                                        ttcore::TileType::getDefaultShape());
@@ -621,8 +621,10 @@ static void assignGrids(d2m::GenericOp genericOp,
   } else {
     insertTTNNDRAMStreams(genericOp, targetSquareGridShape);
   }
+
   recreateGenericOp(genericOp);
 }
+
 // ----------------------------------------------------------------------------
 // Pass implementation
 // ----------------------------------------------------------------------------
