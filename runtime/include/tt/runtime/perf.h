@@ -12,7 +12,8 @@ namespace tt::runtime::perf {
 enum class TracyLogTag {
   MLIR_OP_LOCATION,
   MLIR_CONST_EVAL_OP,
-  MLIR_PROGRAM_METADATA
+  MLIR_PROGRAM_METADATA,
+  MLIR_INPUT_LAYOUT_CONVERSION_OP
 };
 
 inline std::string toString(TracyLogTag tracyLogTag) {
@@ -23,6 +24,8 @@ inline std::string toString(TracyLogTag tracyLogTag) {
     return "MLIR_CONST_EVAL_OP";
   case TracyLogTag::MLIR_PROGRAM_METADATA:
     return "MLIR_PROGRAM_METADATA";
+  case TracyLogTag::MLIR_INPUT_LAYOUT_CONVERSION_OP:
+    return "MLIR_INPUT_LAYOUT_CONVERSION_OP";
   }
 }
 
@@ -55,6 +58,7 @@ struct Env {
 
   void tracyLogOpLocation(const std::string &locInfo) const;
   void tracyLogConstEvalProgram(bool constEvalOp) const;
+  void tracyLogInputLayoutConversion(bool inputLayoutConversionOp) const;
   void tracyLogProgramMetadata(const std::string &metaData) const;
   void setProgramMetadata(const std::string &programMetadata);
 
