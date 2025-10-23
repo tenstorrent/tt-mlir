@@ -19,6 +19,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <algorithm>
+#include <cassert>
 #include <numeric>
 
 using namespace mlir;
@@ -204,7 +205,7 @@ static ConvolutionSlices
 sliceForBatchGroups(ConversionPatternRewriter &rewriter, Location loc,
                     Value input, Value weight, Value bias,
                     mlir::tt::ttir::ConvolutionLayoutAttr convolutionLayout,
-                    uint64_t batchGroupCount) {
+                    uint64_t groupCount, int64_t groupDimensionIndex) {
   ConvolutionSlices slices;
 
   auto inputType = mlir::cast<RankedTensorType>(input.getType());
@@ -213,25 +214,23 @@ sliceForBatchGroups(ConversionPatternRewriter &rewriter, Location loc,
   llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
   llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
 
-  int64_t inputBatchDim = convolutionLayout.getInputBatchDimension();
   int64_t kernelOutputFeatureDim =
       convolutionLayout.getKernelOutputFeatureDimension();
 
-  int64_t inputSliceSize = inputShape[inputBatchDim] / batchGroupCount;
-  int64_t weightSliceSize =
-      weightShape[kernelOutputFeatureDim] / batchGroupCount;
+  int64_t inputSliceSize = inputShape[groupDimensionIndex] / groupCount;
+  int64_t weightSliceSize = weightShape[kernelOutputFeatureDim] / groupCount;
 
-  for (uint64_t i = 0; i < batchGroupCount; ++i) {
+  for (uint64_t i = 0; i < groupCount; ++i) {
     // Slice input.
     llvm::SmallVector<int32_t> inputBegins(inputShape.size(), 0);
     llvm::SmallVector<int32_t> inputEnds(inputShape.begin(), inputShape.end());
     llvm::SmallVector<int32_t> inputSteps(inputShape.size(), 1);
-    inputBegins[inputBatchDim] = i * inputSliceSize;
-    inputEnds[inputBatchDim] = (i + 1) * inputSliceSize;
+    inputBegins[groupDimensionIndex] = i * inputSliceSize;
+    inputEnds[groupDimensionIndex] = (i + 1) * inputSliceSize;
 
     llvm::SmallVector<int64_t> inputSliceShape(inputShape.begin(),
                                                inputShape.end());
-    inputSliceShape[inputBatchDim] = inputSliceSize;
+    inputSliceShape[groupDimensionIndex] = inputSliceSize;
 
     auto inputSlice = ttir::utils::createDPSOp<ttir::SliceStaticOp>(
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_inputSlice"),
@@ -290,22 +289,46 @@ public:
     llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
     uint64_t batchGroupCount = adaptor.getBatchGroupCount();
+    uint64_t featureGroupCount = adaptor.getFeatureGroupCount();
 
     // Prepare inputs/weights (slice if batchGroupCount > 1).
     llvm::SmallVector<Value> inputSlices;
     llvm::SmallVector<Value> weightSlices;
     llvm::SmallVector<llvm::SmallVector<int64_t>> outputSliceShapes;
+    assert(featureGroupCount == 1 || batchGroupCount == 1);
 
-    if (batchGroupCount > 1) {
-      auto slices = sliceForBatchGroups(
-          rewriter, op.getLoc(), adaptor.getInput(), adaptor.getWeight(),
-          adaptor.getBias(), convolutionLayout, batchGroupCount);
+    // If either of the group counts is not equal to 1, we need to slice the
+    // input and weight. The decomposition is the same, the only difference is
+    // the dimension by which the input is sliced. Split (X, Y, Z) is defined as
+    // splitting X into Y groups along the Z dimension. If feature_group_count >
+    // 1: lhses = split(lhs, feature_group_count, input_feature_dimension).
+    // rhses = split(rhs, feature_group_count, kernel_output_feature_dimension).
+    // results... = convolution(lhses..., rhses..., ..., feature_group_count=1,
+    // ...). result = concatenate(results, output_feature_dimension). If
+    // batch_group_count > 1: lhses = split(lhs, batch_group_count,
+    // input_batch_dimension). rhses = split(rhs, batch_group_count,
+    // kernel_output_feature_dimension). results... = convolution(lhses...,
+    // rhses..., ..., batch_group_count=1, ...). result = concatenate(results,
+    // output_feature_dimension).
+    if (batchGroupCount > 1 || featureGroupCount > 1) {
+      int64_t groupDimensionIndex = -1;
+      uint64_t groupCount =
+          batchGroupCount > 1 ? batchGroupCount : featureGroupCount;
+      if (batchGroupCount > 1) {
+        groupDimensionIndex = convolutionLayout.getInputBatchDimension();
+      } else {
+        groupDimensionIndex = convolutionLayout.getInputFeatureDimension();
+      }
+      auto slices = sliceForBatchGroups(rewriter, op.getLoc(),
+                                        adaptor.getInput(), adaptor.getWeight(),
+                                        adaptor.getBias(), convolutionLayout,
+                                        groupCount, groupDimensionIndex);
       inputSlices = std::move(slices.inputs);
       weightSlices = std::move(slices.weights);
 
       int64_t outputFeatureDim = convolutionLayout.getOutputFeatureDimension();
-      int64_t outputSliceSize = outputShape[outputFeatureDim] / batchGroupCount;
-      for (uint64_t i = 0; i < batchGroupCount; ++i) {
+      int64_t outputSliceSize = outputShape[outputFeatureDim] / groupCount;
+      for (uint64_t i = 0; i < groupCount; ++i) {
         llvm::SmallVector<int64_t> outputSliceShape(outputShape.begin(),
                                                     outputShape.end());
         outputSliceShape[outputFeatureDim] = outputSliceSize;
@@ -327,7 +350,7 @@ public:
       results.push_back(result);
     }
 
-    if (batchGroupCount > 1) {
+    if (batchGroupCount > 1 || featureGroupCount > 1) {
       int64_t outputFeatureDim = convolutionLayout.getOutputFeatureDimension();
       auto concatOp = ttir::utils::createDPSOp<ttir::ConcatOp>(
           rewriter, op.getLoc(), outputType, results, outputFeatureDim);
@@ -415,7 +438,7 @@ private:
             convolutionLayout.getOutputBatchDimension(),
             convolutionLayout.getOutputFeatureDimension(),
             conv2dOutputSpatialDimensions),
-        adaptor.getFeatureGroupCountAttr(), rewriter.getI64IntegerAttr(1));
+        rewriter.getI64IntegerAttr(1), rewriter.getI64IntegerAttr(1));
 
     ttir::ReshapeOp reshapeOutput = createReshapeOp(
         rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshapeOutput"),
@@ -495,6 +518,9 @@ public:
     }
 
     uint64_t batchGroupCount = adaptor.getBatchGroupCount();
+    uint64_t featureGroupCount = adaptor.getFeatureGroupCount();
+
+    assert(batchGroupCount == 1 || featureGroupCount == 1);
     auto convLayoutAttr = op.getConvolutionLayoutAttr();
     auto outputType =
         mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
@@ -504,10 +530,18 @@ public:
     llvm::SmallVector<Value> weightSlices;
     llvm::SmallVector<llvm::SmallVector<int64_t>> outputSliceShapes;
 
-    if (batchGroupCount > 1) {
+    if (batchGroupCount > 1 || featureGroupCount > 1) {
+      int64_t groupDimensionIndex = -1;
+      uint64_t groupCount =
+          batchGroupCount > 1 ? batchGroupCount : featureGroupCount;
+      if (batchGroupCount > 1) {
+        groupDimensionIndex = convLayoutAttr.getInputBatchDimension();
+      } else {
+        groupDimensionIndex = convLayoutAttr.getInputFeatureDimension();
+      }
       auto slices = sliceForBatchGroups(
           rewriter, op.getLoc(), adaptor.getInput(), adaptor.getWeight(),
-          adaptor.getBias(), convLayoutAttr, batchGroupCount);
+          adaptor.getBias(), convLayoutAttr, groupCount, groupDimensionIndex);
       inputSlices = std::move(slices.inputs);
       weightSlices = std::move(slices.weights);
 
@@ -516,8 +550,8 @@ public:
       int64_t outputFeatureDim = convLayoutAttr.getOutputFeatureDimension();
       int64_t outputBatchSliceSize = outputShape[outputBatchDim];
       int64_t outputFeatureSliceSize =
-          outputShape[outputFeatureDim] / batchGroupCount;
-      for (uint64_t i = 0; i < batchGroupCount; ++i) {
+          outputShape[outputFeatureDim] / groupCount;
+      for (uint64_t i = 0; i < groupCount; ++i) {
         llvm::SmallVector<int64_t> outputSliceShape(outputShape.begin(),
                                                     outputShape.end());
         outputSliceShape[outputBatchDim] = outputBatchSliceSize;
@@ -541,7 +575,7 @@ public:
     }
 
     Value finalResult;
-    if (batchGroupCount > 1) {
+    if (batchGroupCount > 1 || featureGroupCount > 1) {
       llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
       llvm::SmallVector<int64_t> outputLayoutMap(
           conv2dLayout.size(), ConvolutionDimension::INVALID_DIM);
@@ -636,8 +670,7 @@ private:
         static_cast<int32_t>(paddingMatrix[SPATIAL_DIM_WIDTH][1]),
     });
 
-    auto groupsAttr =
-        rewriter.getI32IntegerAttr(adaptor.getFeatureGroupCount());
+    auto groupsAttr = rewriter.getI32IntegerAttr(1);
 
     llvm::SmallVector<int64_t> newOutputShape{
         outputShape[convLayoutAttr.getOutputBatchDimension()],
