@@ -506,6 +506,45 @@ def D2MInsertStreams: Pass<"d2m-insert-streams", "::mlir::ModuleOp"> {
   let options = D2MStreamingOptions;
 }
 
+def D2MGlobalDataFormatConversion: Pass<"d2m-global-data-format-conversion", "::mlir::ModuleOp">
+{
+  let summary = "Convert all tensor data types to a target format (experimental).";
+  let description = [{
+    This pass converts all tensor element types in the function body
+    to a specified target format. Function signatures are preserved, and typecast operations
+    are automatically inserted at boundaries where type conversions are needed.
+
+    Supported target formats:
+      - "f32" (Float32)
+      - "bf16" (BFloat16, default)
+      - "bfp_f8" (BFP_Float8)
+
+    Example:
+      Before:
+        func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+          %0 = ttir.empty() : tensor<64x128xf32>
+          %1 = "ttir.relu"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+          return %1 : tensor<64x128xf32>
+        }
+
+      After (with target-format="bf16"):
+        func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+          %0 = "ttir.typecast"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xbf16>
+          %1 = ttir.empty() : tensor<64x128xbf16>
+          %2 = "ttir.relu"(%0, %1) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+          %3 = "ttir.typecast"(%2) : (tensor<64x128xbf16>) -> tensor<64x128xf32>
+          return %3 : tensor<64x128xf32>
+        }
+  }];
+
+  let options = [
+    Option<"targetFormat", "target-format", "std::string", /*default=*/"\"bf16\"",
+           "Target data format for conversion: f32, bf16 (default), or bfp_f8">
+  ];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
 def D2MGridSelection: Pass<"d2m-grid-selection", "::mlir::ModuleOp"> {
   let summary = "Optimized grid selection for D2M generic ops.";
   let description = [{

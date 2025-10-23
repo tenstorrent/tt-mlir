@@ -83,6 +83,11 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(createCanonicalizerPassWithOptions(options));
+  // Global data format conversion (experimental)
+  d2m::D2MGlobalDataFormatConversionOptions globalFormatOptions;
+  { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
+  pm.addPass(d2m::createD2MGlobalDataFormatConversion(globalFormatOptions));
+  // Configure D2M options to match the original TTIR options
   tt::TTIRToD2MOptions toD2MOptions;
   {
     toD2MOptions.defaultInputMemSpace = options.defaultInputMemSpace;
@@ -103,13 +108,13 @@ void createTTIRToTTMetalFrontendPipeline(
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
+  /*d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
   {
     elementwiseFusionOptions.maxDstPhysicalSizeTiles =
         options.maxDstPhysicalSizeTiles;
   }
   pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
-  pm.addPass(createLinalgElementwiseOpFusionPass());
+  pm.addPass(createLinalgElementwiseOpFusionPass());*/
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   if (options.ttnnMode) {
