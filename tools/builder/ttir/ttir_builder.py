@@ -3613,6 +3613,75 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    # Note: TTRT runtime supports float32, bfloat16, uint8, uint16, uint32, int32
+    # For bfloat16, use precision-friendly values [-1.0 to 1.0] for best results
+    def constant(
+        self,
+        tensor: torch.Tensor,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.constant``.
+
+        *Creates a tensor with the specified values.*
+
+        Returns a tensor of given shape with the specified values.
+
+        Parameters
+        ----------
+        tensor : torch.Tensor
+            Tensor containing the constant values
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Tensor with the specified values
+        """
+        if not isinstance(tensor, torch.Tensor):
+            raise TypeError("constant expects a torch.Tensor input")
+
+        if tensor.numel() == 0:
+            raise ValueError("Cannot create constant with empty tensor")
+
+        mlir_dtype = self._get_type_from_torch_dtype(tensor.dtype)
+
+        shape = list(tensor.shape)
+        tensor_type = RankedTensorType.get(shape, mlir_dtype)
+
+        flat_values = tensor.flatten().tolist()
+
+        if tensor.numel() == 1 or len(set(flat_values)) == 1:
+            # Splat case
+            if isinstance(mlir_dtype, IntegerType):
+                attr = IntegerAttr.get(mlir_dtype, int(flat_values[0]))
+            elif isinstance(mlir_dtype, FloatType):
+                attr = FloatAttr.get(mlir_dtype, float(flat_values[0]))
+            else:
+                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
+
+            value_attr = DenseElementsAttr.get_splat(tensor_type, attr)
+        else:
+            # Non-splat case
+            if isinstance(mlir_dtype, IntegerType):
+                elems = [IntegerAttr.get(mlir_dtype, int(v)) for v in flat_values]
+            elif isinstance(mlir_dtype, FloatType):
+                elems = [FloatAttr.get(mlir_dtype, float(v)) for v in flat_values]
+            else:
+                raise NotImplementedError(f"Unsupported MLIR type: {mlir_dtype}")
+
+            value_attr = DenseElementsAttr.get(elems, tensor_type)
+
+        return self._op_proxy(
+            ttir.ConstantOp,
+            [],
+            golden_kwargs={"value": tensor},
+            ttir_kwargs={"result": tensor_type, "value": value_attr},
+            organize_ttir_args=lambda i, o, _: 0,
+            unit_attrs=unit_attrs,
+        )
+
     def reverse(
         self, in0: Operand, dims: List[int], unit_attrs: Optional[List[str]] = None
     ) -> OpView:
