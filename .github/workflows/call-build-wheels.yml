@@ -1,4 +1,4 @@
-name: Build ttmlir Wheel
+name: Build Wheels
 
 on:
   workflow_dispatch:
@@ -26,9 +26,17 @@ on:
         type: string
 
 jobs:
-  # build-ttmlir-wheel:
+  # build-wheels:
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       build: [
+  #         { name: "ttmlir", path: "python" },
+  #         { name: "pykernel", path: "tools/pykernel" },
+  #         { name: "ttnn-jit", path: "tools/ttnn-jit" }
+  #       ]
+  #   name: Build ${{ matrix.build.name }} Wheel
   #   timeout-minutes: 60
-  #   name: Build ttmlir Python Wheel
   #   runs-on: ubuntu-latest
 
   #   steps:
@@ -59,84 +67,31 @@ jobs:
   #       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
   #     - name: Set up Python 3.11
-  #       uses: actions/setup-python@v4
+  #       uses: actions/setup-python@v6
   #       with:
   #         python-version: '3.11'
 
   #     - name: Build ttmlir Wheel (manylinux)
-  #       uses: pypa/cibuildwheel@v2.23.2
+  #       uses: pypa/cibuildwheel@v3.2
   #       env:
   #         CIBW_ENVIRONMENT: "IN_CIBW_ENV=ON"
   #         CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34:${{ inputs.docker-tag || 'latest' }}
   #       with:
   #         output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
-  #         package-dir: ${{ steps.strings.outputs.work-dir }}/python
-  #         config-file: "${{ steps.strings.outputs.work-dir }}/python/pyproject.toml"
+  #         package-dir: ${{ steps.strings.outputs.work-dir }}/${{ matrix.build.path }}
+  #         config-file: "${{ steps.strings.outputs.work-dir }}/${{ matrix.build.path }}/pyproject.toml"
 
   #     - name: Upload wheel artifact
   #       uses: actions/upload-artifact@v4
   #       with:
-  #         name: ttmlir-wheel
+  #         name: ${{ matrix.build.name }}-wheel
   #         path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
   #         if-no-files-found: error
 
-  # build-pykernel-wheel:
-  #   timeout-minutes: 60
-  #   name: Build pykernel Python Wheel
-  #   runs-on: ubuntu-latest
-
-  #   steps:
-  #     - name: Free Disk Space (Ubuntu)
-  #       uses: jlumbroso/free-disk-space@main
-  #       with:
-  #         tool-cache: false
-  #         android: true
-  #         dotnet: true
-  #         haskell: true
-  #         large-packages: true
-  #         docker-images: true
-  #         swap-storage: true
-
-  #     - uses: actions/checkout@v4
-  #       with:
-  #         fetch-depth: 0
-
-  #     - name: Set reusable strings
-  #       id: strings
-  #       shell: bash
-  #       run: |
-  #         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
-  #         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
-  #         echo "wheel-output-dir=$(pwd)/dist" >> "$GITHUB_OUTPUT"
-
-  #     - name: Git safe dir
-  #       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
-
-  #     - name: Set up Python 3.11
-  #       uses: actions/setup-python@v4
-  #       with:
-  #         python-version: '3.11'
-
-  #     - name: Build pykernel Wheel (manylinux)
-  #       uses: pypa/cibuildwheel@v2.23.2
-  #       env:
-  #         CIBW_ENVIRONMENT: "IN_CIBW_ENV=ON"
-  #         CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/tenstorrent/tt-mlir/tt-mlir-manylinux-2-34:${{ inputs.docker-tag || 'latest' }}
-  #       with:
-  #         output-dir: ${{ steps.strings.outputs.wheel-output-dir }}
-  #         package-dir: ${{ steps.strings.outputs.work-dir }}/tools/pykernel
-  #         config-file: "${{ steps.strings.outputs.work-dir }}/tools/pykernel/pyproject.toml"
-
-  #     - name: Upload wheel artifact
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: pykernel-wheel
-  #         path: ${{ steps.strings.outputs.wheel-output-dir }}/*.whl
-  #         if-no-files-found: error
 
   build-ttnn-jit-wheel:
     timeout-minutes: 60
-    name: Build ttmlir Python Wheel
+    name: Build ttnn-jit Python Wheel
     runs-on: ubuntu-latest
 
     steps:
@@ -170,6 +125,35 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          create-symlink: true
+          key: tracy-
+        env:
+          CCACHE_NOHASHDIR: true
+          CCACHE_BASEDIR: ${{ steps.strings.outputs.work-dir }}
+
+      - name: Build
+        run: |
+          source env/activate
+          cmake -G Ninja \
+            -B ${{ steps.strings.outputs.build-output-dir }} \
+            -DCMAKE_CXX_COMPILER=clang++-17 \
+            -DCMAKE_C_COMPILER=clang-17 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.work-dir }}/install \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DTTMLIR_ENABLE_RUNTIME=ON \
+            -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
+            -DTT_RUNTIME_ENABLE_PERF_TRACE=ON \
+            -DTTMLIR_ENABLE_PYKERNEL=ON \
+            -DTTMLIR_ENABLE_STABLEHLO=ON \
+            -DTTMLIR_ENABLE_OPMODEL=OFF \
+            -DTT_RUNTIME_DEBUG=ON \
+            -S ${{ steps.strings.outputs.work-dir }}
+          cmake --build ${{ steps.strings.outputs.build-output-dir }}
 
       - name: Build ttmlir Wheel (manylinux)
         uses: pypa/cibuildwheel@v2.23.2
@@ -260,6 +244,7 @@ jobs:
   test-ttnn-jit:
     timeout-minutes: 45
     runs-on: ubuntu-latest
+    needs: build-ttnn-jit-wheel
     container: # this should work on base image https://github.com/tenstorrent/tt-mlir/issues/5232
       image: ${{ inputs.docker_image }}
     steps:
