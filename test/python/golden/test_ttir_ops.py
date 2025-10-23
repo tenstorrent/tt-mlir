@@ -3314,6 +3314,8 @@ def test_reshape_abs(
         abs_result = builder.abs(reshaped, unit_attrs=unit_attrs)
         return abs_result
 
+    options = ["collapse-tensors-2d=false", "override-device-shape=1,1"]
+
     compile_and_execute_ttir(
         reshape_abs_wrapper,
         [input_shape],
@@ -3323,4 +3325,5 @@ def test_reshape_abs(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
     )

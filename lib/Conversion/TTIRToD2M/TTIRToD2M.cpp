@@ -1006,6 +1006,174 @@ private:
 };
 } // namespace
 
+// Convert ttir.reshape to D2M operations using two stream layouts:
+// 1. First stream layout: linearize input data (reshape input shape to
+// [totalElements])
+// 2. Second stream layout: reshape linearized data to output shape
+class D2MReshapeRewriter final : public OpConversionPattern<ttir::ReshapeOp>,
+                                 public D2MNamedRewriterCommon {
+public:
+  D2MReshapeRewriter(TypeConverter &typeConverter, MLIRContext *ctx,
+                     ttcore::MemorySpace defaultInputMemSpace,
+                     ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                     bool collapseTensors)
+      : OpConversionPattern<ttir::ReshapeOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::ReshapeOp op, typename ttir::ReshapeOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    mlir::MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = op->getLoc();
+
+    // Get input and output tensors with their types
+    auto inputTensorType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    auto outputTensorType =
+        mlir::cast<mlir::RankedTensorType>(op.getOutput().getType());
+
+    auto inputShape = inputTensorType.getShape();
+    auto outputShape = outputTensorType.getShape();
+
+    // Calculate total number of elements
+    int64_t totalElements = 1;
+    for (int64_t dim : inputShape) {
+      totalElements *= dim;
+    }
+
+    // Layout for linearized data: [totalElements]
+    llvm::SmallVector<int64_t> linearShape = {totalElements};
+
+    // Create the input with proper layout
+    auto [origInputs, origOutputs] =
+        splitDpsSignature(adaptor, op.getDpsInits().size());
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ false);
+
+    auto inputLayoutTensorType =
+        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
+    auto inputLayout = mlir::cast<ttcore::MetalLayoutAttr>(
+        inputLayoutTensorType.getEncoding());
+
+    // Step 1: Create linearized layout (reshaping input to 1D)
+    // The linearized layout treats all dimensions as a flat line
+    unsigned inputDeviceRank =
+        static_cast<unsigned>(inputLayoutTensorType.getShape().size());
+    unsigned logicalRank = inputDeviceRank / 2;
+
+    // Create affine map that linearizes all dimensions
+    // For input shape [d0, d1, d2, ...], map to linear index
+    SmallVector<AffineExpr> linearizeExprs;
+
+    // Output grid dimensions as-is (d0, d1)
+    linearizeExprs.push_back(rewriter.getAffineDimExpr(0));
+    linearizeExprs.push_back(rewriter.getAffineDimExpr(1));
+
+    // Linearize shard dimensions (d2, d3, ... -> d2 * stride + d3 * ...)
+    int64_t stride = 1;
+    AffineExpr linearExpr = rewriter.getAffineConstantExpr(0);
+    for (unsigned i = inputDeviceRank - 1; i >= logicalRank; --i) {
+      linearExpr = linearExpr + rewriter.getAffineDimExpr(i) * stride;
+      stride *= inputShape[i - logicalRank];
+    }
+    linearizeExprs.push_back(linearExpr);
+
+    // Output last dimension as 1
+    linearizeExprs.push_back(rewriter.getAffineConstantExpr(1));
+
+    AffineMap linearizeMap =
+        AffineMap::get(inputDeviceRank, 0, linearizeExprs, ctx);
+
+    // Compose with input layout
+    AffineMap composedLinearizeMap = linearizeMap.compose(
+        inputLayout.getIndexAffineMapOrIdentity(inputDeviceRank));
+
+    // Create layout for linearized intermediate tensor
+    // Keep the same rank as input but with linearized logical shape
+    llvm::SmallVector<int64_t> linearPhysicalShape;
+    // Pad with grid dimensions (typically 2 dimensions)
+    for (unsigned i = 0; i < logicalRank; ++i) {
+      linearPhysicalShape.push_back(1);
+    }
+    // Add linearized shard dimensions
+    linearPhysicalShape.push_back(totalElements);
+    linearPhysicalShape.push_back(1);
+
+    llvm::SmallVector<int64_t> linearLogicalShape{totalElements};
+    llvm::SmallVector<int64_t> linearDimAlignments{32};
+
+    auto linearLayout = ttcore::MetalLayoutAttr::get(
+        ctx, linearLogicalShape, linearDimAlignments,
+        inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
+        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+        composedLinearizeMap);
+
+    // Use the tiled element type from the laid-out input, not the raw element
+    // type
+    auto tiledElementType = inputLayoutTensorType.getElementType();
+    auto linearViewType = mlir::RankedTensorType::get(
+        linearPhysicalShape, tiledElementType, linearLayout);
+
+    // Create storage for linearized intermediate with the same tiled element
+    // type and rank
+    auto linearStorage = rewriter.create<d2m::EmptyOp>(
+        loc, linearPhysicalShape, tiledElementType, linearLayout);
+
+    // First stream layout: linearize the input
+    auto linearStream = rewriter.create<d2m::StreamLayoutOp>(
+        loc, linearViewType, inputs[0], linearStorage);
+
+    // Step 2: Create final reshape layout (reshaping linearized to output
+    // shape)
+
+    // Create the output layout directly from the output shape
+    auto outputLayout = ttcore::MetalLayoutAttr::get(
+        ctx, outputShape, ttcore::OOBVal::Undef, inputLayout.getMemorySpace(),
+        ttcore::TensorMemoryLayout::Sharded);
+
+    llvm::SmallVector<int64_t> outputPhysicalShape =
+        outputLayout.getPhysicalShape({});
+    llvm::SmallVector<int64_t> simpleGrid(outputPhysicalShape.size(), 1);
+    outputPhysicalShape = outputLayout.getDeviceShape(simpleGrid, {});
+
+    // Reshape happens through the stream layout transformation
+    auto finalLayout = ttcore::MetalLayoutAttr::get(
+        ctx, outputShape, ttcore::OOBVal::Undef, inputLayout.getMemorySpace(),
+        ttcore::TensorMemoryLayout::Sharded);
+
+    llvm::SmallVector<int64_t> finalPhysicalShape;
+    // Pad with grid dimensions to match input rank
+    for (unsigned i = 0; i < logicalRank; ++i) {
+      finalPhysicalShape.push_back(1);
+    }
+    // Add output shard dimensions
+    for (unsigned i = 0; i < outputShape.size(); ++i) {
+      finalPhysicalShape.push_back(outputShape[i]);
+    }
+    if (finalPhysicalShape.size() < inputDeviceRank) {
+      finalPhysicalShape.push_back(1);
+    }
+
+    auto finalViewType = mlir::RankedTensorType::get(
+        finalPhysicalShape, tiledElementType, finalLayout);
+
+    // Create storage for final reshape
+    auto finalStorage = rewriter.create<d2m::EmptyOp>(
+        loc, finalPhysicalShape, tiledElementType, finalLayout);
+
+    // Second stream layout: reshape linearized data to final shape
+    auto finalStream = rewriter.create<d2m::StreamLayoutOp>(
+        loc, finalViewType, linearStream.getResult(), finalStorage);
+
+    // Convert output back to proper type
+    rewriter.replaceOp(op, unLayoutResult(rewriter, finalStream.getResult(),
+                                          op->getResult(0).getType()));
+    return success();
+  }
+};
+
 // Simple conversion for ttir.to_layout -> d2m.to_layout.
 class D2MToLayoutOpRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
   using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
@@ -1116,7 +1284,8 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
-    D2MPermuteRewriter
+    D2MPermuteRewriter,
+    D2MReshapeRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);
 
 
