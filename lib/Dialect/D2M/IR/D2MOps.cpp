@@ -736,6 +736,7 @@ mlir::LogicalResult d2m::ViewLayoutOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   if (mlir::isa<mlir::MemRefType>(getInput().getType())) {
     return mlir::failure();
   }
@@ -755,12 +756,12 @@ mlir::LogicalResult d2m::ViewLayoutOp::bufferize(
   }
 
   auto outMemrefType = mlir::cast<mlir::MemRefType>(*outMemrefTypeOr);
-  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
   auto newOp = rewriter.create<d2m::ViewLayoutOp>(
       getLoc(), outMemrefType, *maybeInput, getReinterpretLayout());
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      newOp.getResult());
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
   return mlir::success();
 }
