@@ -20,6 +20,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
@@ -446,6 +447,13 @@ public:
           TTNNLayoutAttr layoutAttr =
               mlir::cast<TTNNLayoutAttr>(newTensorType.getEncoding());
 
+          // Update layout attribute for ops that have layout attribute.
+          if (TTNNLayoutOpInterface opWithLayoutIF =
+                  mlir::dyn_cast<TTNNLayoutOpInterface>(op)) {
+            opWithLayoutIF.setLayoutAttr(
+                LayoutAttr::get(op->getContext(), layoutAttr.getLayout()));
+          }
+
           op->getResult(0).setType(newTensorType);
 
           // Update output data type for ops that have output data type
@@ -697,33 +705,48 @@ private:
       llvm::ArrayRef<int64_t> producerOpTensorShape =
           producerOpTensorType.getShape();
 
+      TTNNLayoutAttr producerOpLayout =
+          mlir::cast<TTNNLayoutAttr>(producerOpTensorType.getEncoding());
+
       // Pick first layout from the list of layouts or consumer output layout if
       // this is the case of an override.
-      TTNNLayoutAttr producerOpLayout =
-          overridenReconfig
-              ? mlir::cast<TTNNLayoutAttr>(
-                    mlir::cast<RankedTensorType>(
-                        consumerOp->getResult(0).getType())
-                        .getEncoding())
-              : memReconfigEntry.reshardOutputConfigMap
-                    .at(memReconfigEntry
-                            .getSelectedReshardOutputConfigBitIndex())
-                    .front()
-                    .outputLayout;
+      TTNNLayoutAttr reshardOpLayout = nullptr;
+      if (overridenReconfig) {
+        reshardOpLayout = mlir::cast<TTNNLayoutAttr>(
+            mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
+                .getEncoding());
+      } else {
+        TTNNLayoutAttr bestCandidateLayout = nullptr;
+        for (const OpConfig &layoutEntry :
+             memReconfigEntry.reshardOutputConfigMap.at(
+                 memReconfigEntry.getSelectedReshardOutputConfigBitIndex())) {
+          if (layoutEntry.outputLayout.isTiled() ==
+              producerOpLayout.isTiled()) {
+            bestCandidateLayout = layoutEntry.outputLayout;
+            TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                         "Selected reshard layout (keeps tiled property): {}",
+                         bestCandidateLayout);
+            break;
+          }
+          if (!bestCandidateLayout) {
+            TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                         "Selected reshard layout (first candidate): {}",
+                         layoutEntry.outputLayout);
+            bestCandidateLayout = layoutEntry.outputLayout;
+          }
+        }
+        reshardOpLayout = bestCandidateLayout;
+      }
 
-      // TODO(nobradovic): Match memory space and layout of consumer op.
-      // This actually needs to be properly resolved based on op type, output
-      // layout and other inputs.
-      //
       RankedTensorType newTensorType = RankedTensorType::get(
           producerOpTensorShape, producerOpTensorType.getElementType(),
-          producerOpLayout);
+          reshardOpLayout);
 
       MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
-          consumerOp->getContext(), producerOpLayout.getMemLayout(),
+          consumerOp->getContext(), reshardOpLayout.getMemLayout(),
           BufferTypeAttr::get(consumerOp->getContext(),
-                              producerOpLayout.getBufferType()),
-          utils::createShardSpecIfNeeded(producerOpLayout, deviceGrid));
+                              reshardOpLayout.getBufferType()),
+          utils::createShardSpecIfNeeded(reshardOpLayout, deviceGrid));
 
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
@@ -732,7 +755,7 @@ private:
       //
       if (isa_and_nonnull<ToLayoutOp>(producerOp)) {
         ToLayoutOp toLayoutOp = llvm::cast<ToLayoutOp>(producerOp);
-        toLayoutOp.setLayout(producerOpLayout.getLayout());
+        toLayoutOp.setLayout(reshardOpLayout.getLayout());
         toLayoutOp.setMemoryConfigAttr(outputMemConfigAttr);
         toLayoutOp.getResult().setType(newTensorType);
       } else {
@@ -744,9 +767,9 @@ private:
             newTensorType,                             // output type
             consumerOp->getOperand(edge.operandIndex), // input value
             LayoutAttr::get(consumerOp->getContext(),
-                            producerOpLayout.getLayout()),
+                            reshardOpLayout.getLayout()),
             ttcore::DataTypeAttr::get(consumerOp->getContext(),
-                                      producerOpLayout.getDataType()),
+                                      reshardOpLayout.getDataType()),
             outputMemConfigAttr);
 
         consumerOp->setOperand(edge.operandIndex,
