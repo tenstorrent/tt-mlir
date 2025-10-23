@@ -11,8 +11,8 @@ module {
     %c2 = arith.constant 2 : index
     %c4 = arith.constant 4 : index
     %c8 = arith.constant 8 : index
-    %arg0 = d2m.pop %arg0_ : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
-    %arg1 = d2m.pop %arg1_ : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+    %arg0 = d2m.wait %arg0_ : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+    %arg1 = d2m.wait %arg1_ : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
     %arg2 = d2m.reserve %arg2_ : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
     %collapse_shape = memref.collapse_shape %arg0 [[0, 1]] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_> into memref<4x!ttcore.tile<32x32, f32>, #l1_>
     %collapse_shape_0 = memref.collapse_shape %arg1 [[0, 1]] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_> into memref<4x!ttcore.tile<32x32, f32>, #l1_>
@@ -63,8 +63,8 @@ module {
     %c1 = arith.constant 1 : index
     %c2 = arith.constant 2 : index
     %c4 = arith.constant 4 : index
-    %arg0 = d2m.pop %arg0_ : !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x1x!ttcore.tile<32x32, f32>, #l1_>
-    %arg1 = d2m.pop %arg1_ : !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x1x!ttcore.tile<32x32, f32>, #l1_>
+    %arg0 = d2m.wait %arg0_ : !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x1x!ttcore.tile<32x32, f32>, #l1_>
+    %arg1 = d2m.wait %arg1_ : !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x1x!ttcore.tile<32x32, f32>, #l1_>
     %arg2 = d2m.reserve %arg2_ : !d2m.cb<memref<2x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x1x!ttcore.tile<32x32, f32>, #l1_>
     %collapse_shape = memref.collapse_shape %arg0 [[0, 1]] : memref<2x1x!ttcore.tile<32x32, f32>, #l1_> into memref<2x!ttcore.tile<32x32, f32>, #l1_>
     %collapse_shape_0 = memref.collapse_shape %arg1 [[0, 1]] : memref<2x1x!ttcore.tile<32x32, f32>, #l1_> into memref<2x!ttcore.tile<32x32, f32>, #l1_>
@@ -103,8 +103,8 @@ module {
     %c1 = arith.constant 1 : index
     %c2 = arith.constant 2 : index
     %c4 = arith.constant 4 : index
-    %arg0 = d2m.pop %arg0_ : !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x2x!ttcore.tile<32x32, f32>, #l1_>
-    %arg1 = d2m.pop %arg1_ : !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x2x!ttcore.tile<32x32, f32>, #l1_>
+    %arg0 = d2m.wait %arg0_ : !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x2x!ttcore.tile<32x32, f32>, #l1_>
+    %arg1 = d2m.wait %arg1_ : !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x2x!ttcore.tile<32x32, f32>, #l1_>
     %arg2 = d2m.reserve %arg2_ : !d2m.cb<memref<1x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x2x!ttcore.tile<32x32, f32>, #l1_>
     %collapse_shape = memref.collapse_shape %arg0 [[0, 1]] : memref<1x2x!ttcore.tile<32x32, f32>, #l1_> into memref<2x!ttcore.tile<32x32, f32>, #l1_>
     %collapse_shape_0 = memref.collapse_shape %arg1 [[0, 1]] : memref<1x2x!ttcore.tile<32x32, f32>, #l1_> into memref<2x!ttcore.tile<32x32, f32>, #l1_>
