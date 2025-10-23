@@ -117,6 +117,10 @@ class PyKernelAstBase(ast.NodeVisitor):
 
             params = inspect.signature(visitor).parameters
             filtered_kwargs = {k: v for k, v in kwargs.items() if k in params}
+
+            print(f"node: {node}")
+            print(f"filtered_kwargs: {filtered_kwargs}")
+            print(f"ast.dump(node, indent=4): {ast.dump(node, indent=4)}")
             if filtered_kwargs:
                 return visitor(node, **filtered_kwargs)
             else:

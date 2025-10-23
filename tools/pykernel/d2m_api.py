@@ -68,8 +68,8 @@ class TensorBlock:
 
 @syntax("!d2m.cb")
 class CircularBuffer:
-    def pop(ast_self) -> TensorBlock:
-        return d2m.pop(d2m.ir.CBType.cast(ast_self.type).getUnderlying(), ast_self)
+    def wait(ast_self) -> TensorBlock:
+        return d2m.wait(d2m.ir.CBType.cast(ast_self.type).getUnderlying(), ast_self)
 
     def reserve(ast_self) -> TensorBlock:
         return d2m.reserve(d2m.ir.CBType.cast(ast_self.type).getUnderlying(), ast_self)

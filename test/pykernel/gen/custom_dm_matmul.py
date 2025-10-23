@@ -49,13 +49,13 @@ def matmul(lhs, rhs, out, block_factors=None, grid=None):
     ):
         for k in range(K):
             for m in range(M):
-                lhs_shard = lhs_cb.pop()
+                lhs_shard = lhs_cb.wait()
                 for n in range(N):
-                    rhs_shard = rhs_cb.pop()
+                    rhs_shard = rhs_cb.wait()
                     out_shard = out_cb.reserve()
                     out = lhs_shard @ rhs_shard
                     out_shard.store(out)
-                    out_cb.pop()  # compute needs to clear the output
+                    out_cb.wait()  # compute needs to clear the output
 
     @datamovement()
     async def dm0(
