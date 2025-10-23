@@ -12,7 +12,6 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/Support/Casting.h"
 
@@ -343,23 +342,6 @@ mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
       /*shape=*/{},
       ::mlir::IntegerType::get(ctx, /*width=*/32, IntegerType::Unsigned),
       ttnn::TraceIdAttr::get(ctx));
-}
-
-bool operationHasNonReadMemoryEffectsOnValue(mlir::Value value,
-                                             mlir::Operation *op) {
-  mlir::MemoryEffectOpInterface memoryEffectOp =
-      mlir::dyn_cast_or_null<mlir::MemoryEffectOpInterface>(op);
-  if (memoryEffectOp) {
-    SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>> effects;
-    memoryEffectOp.getEffectsOnValue(value, effects);
-    return llvm::any_of(
-        effects,
-        [](const SideEffects::EffectInstance<MemoryEffects::Effect> &effect) {
-          return !isa<MemoryEffects::Read>(effect.getEffect());
-        });
-  }
-
-  return false;
 }
 
 } // namespace mlir::tt::ttnn::utils
