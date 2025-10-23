@@ -572,7 +572,7 @@ struct ReverseOpConversionPattern
       auto tensorType =
           RankedTensorType::get({shape[dim]}, rewriter.getI64Type());
 
-      auto denseAttr = rewriter.getDenseI64ArrayAttr(indices);
+      auto denseAttr = DenseIntElementsAttr::get(tensorType, indices);
 
       Value reversedIndices =
           rewriter.create<ttir::ConstantOp>(op.getLoc(), tensorType, denseAttr);
