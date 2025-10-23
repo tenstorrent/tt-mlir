@@ -7,12 +7,20 @@
 
 #include "mlir/CAPI/IR.h"
 #include "mlir/IR/DialectRegistry.h"
+#include "tt/runtime/types.h"
 
-#include "ttnn/tensor/tensor.hpp"
+// Forward declarations to avoid including heavy tensor headers
+namespace tt::tt_metal {
+class Tensor;
+} // namespace tt::tt_metal
+
+namespace ttnn {
+using Tensor = tt::tt_metal::Tensor;
+} // namespace ttnn
 
 namespace mlir::tt::ttnn::jit {
 
-using JitCacheEntry = std::shared_ptr<void>;
+using JitCacheEntry = std::shared_ptr<::tt::runtime::Binary>;
 
 class JitCache {
 public:

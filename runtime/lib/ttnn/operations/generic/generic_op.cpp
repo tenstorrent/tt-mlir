@@ -248,26 +248,22 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
         tensorPool.getTTNNTensorAndValidate(op->io_tensors()->Get(i));
   }
 
-  auto programDescCache = context.getDeviceHandle().getProgramDescCache();
-  std::shared_ptr<tt::runtime::ttnn::ProgramDescCache> cache = nullptr;
-  if (programDescCache) {
-    cache = programDescCache->asSharedPtr<tt::runtime::ttnn::ProgramDescCache>(
-        DeviceRuntime::TTNN);
-  } else {
-    LOG_WARNING("ProgramDescCache not enabled.");
-  }
+  auto programDescCache = context.getExecutableHandle().getProgramDescCache();
+  std::shared_ptr<tt::runtime::ttnn::ProgramDescCache> cache = programDescCache;
 
   auto *programDesc = op->program();
-  const ::tt::tt_metal::ProgramDescriptor *cachedDesc =
-      cache ? cache->get(programDesc) : nullptr;
+  void *cachedPtr = cache ? cache->get(programDesc) : nullptr;
 
   ::tt::tt_metal::ProgramDescriptor programDescriptor;
-  if (cachedDesc) {
-    programDescriptor = *cachedDesc;
+  if (cachedPtr) {
+    programDescriptor =
+        *static_cast<::tt::tt_metal::ProgramDescriptor *>(cachedPtr);
   } else {
     programDescriptor = createProgramDescriptor(programDesc, ioTensors);
     if (cache) {
-      cache->insert(programDesc, programDescriptor);
+      auto heapCopy = std::make_shared<::tt::tt_metal::ProgramDescriptor>(
+          programDescriptor);
+      cache->insert(programDesc, std::move(heapCopy));
     }
   }
 

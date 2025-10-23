@@ -8,6 +8,7 @@
 #include "flatbuffers/idl.h"
 
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 #include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
@@ -22,11 +23,15 @@ namespace tt::runtime {
 
 Binary::Binary(Flatbuffer fb)
     : Flatbuffer(fb), binaryId(nextBinaryId()),
-      tensorCache(std::make_shared<TensorCache>()) {}
+      tensorCache(std::make_shared<TensorCache>()),
+      programDescCache(
+          std::make_shared<tt::runtime::ttnn::ProgramDescCache>()) {}
 
 Binary::Binary(std::shared_ptr<void> handle)
     : Flatbuffer(handle), binaryId(nextBinaryId()),
-      tensorCache(std::make_shared<TensorCache>()) {}
+      tensorCache(std::make_shared<TensorCache>()),
+      programDescCache(
+          std::make_shared<tt::runtime::ttnn::ProgramDescCache>()) {}
 
 Binary &Binary::operator=(Flatbuffer fb) {
   this->handle = fb.handle;
@@ -36,6 +41,7 @@ Binary &Binary::operator=(Flatbuffer fb) {
   // Reinitialize tensor cache since binary handle contents
   // are now different
   tensorCache = std::make_shared<TensorCache>();
+  programDescCache = std::make_shared<tt::runtime::ttnn::ProgramDescCache>();
 
   return *this;
 }
@@ -48,6 +54,7 @@ Binary &Binary::operator=(std::shared_ptr<void> handle) {
   // Reinitialize tensor cache since binary handle contents
   // are now different
   tensorCache = std::make_shared<TensorCache>();
+  programDescCache = std::make_shared<tt::runtime::ttnn::ProgramDescCache>();
 
   return *this;
 }

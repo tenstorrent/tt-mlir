@@ -471,14 +471,7 @@ createRuntimeDeviceFromTTNN(::ttnn::MeshDevice *meshDevice) {
   auto traceCache = std::make_shared<::tt::runtime::TraceCache>(
       std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
 
-  auto ttnnProgramDescCache =
-      std::make_shared<::tt::runtime::ttnn::ProgramDescCache>();
-  auto programDescCache = std::make_shared<::tt::runtime::ProgramDescCache>(
-      std::static_pointer_cast<void>(ttnnProgramDescCache),
-      DeviceRuntime::TTNN);
-
-  return Device(unsafeMeshDeviceSharedPtr, traceCache, programDescCache,
-                DeviceRuntime::TTNN);
+  return Device(unsafeMeshDeviceSharedPtr, traceCache, DeviceRuntime::TTNN);
 }
 
 ::ttnn::Tensor &getTTNNTensorFromRuntimeTensor(::tt::runtime::Tensor tensor) {

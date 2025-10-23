@@ -19,7 +19,7 @@ from ttmlir.passes import (
 
 from ttnn_jit._src.ttir_ast import TTIRCompiler
 from ttnn_jit._src.utils import _cleanup_source_code
-from ttnn_jit._src.dispatch_op import _run_binary_from_capsule
+from ttnn_jit._src.dispatch_op import _run_binary
 from ttnn_jit._ttnn_jit import JitCache
 
 
@@ -93,7 +93,7 @@ class JitFunction:
                 return ir
 
             fb_capsule = self.cache.get(str(ir), options, *args)
-            return _run_binary_from_capsule(fb_capsule, args)
+            return _run_binary(fb_capsule, args)
 
         elif self.backend == "metal":
             if not self.compile_only:
